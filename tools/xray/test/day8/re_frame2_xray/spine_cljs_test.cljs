@@ -172,6 +172,43 @@
       ;; step-dispatch-id stays a thin projection of the same walk.
       (is (= :cx (spine/step-dispatch-id cascades :c0 +1))))))
 
+(deftest step-cascade-current-lookup-is-frame-strict-rf2-xj3kbn
+  (testing "rf2-xj3kbn — when the CURRENT dispatch-id itself is
+            duplicated across frames, the current-position lookup must
+            match `[frame dispatch-id]`, not the bare id. The id-only
+            lookup found the FIRST same-id cascade (an earlier frame's)
+            and stepped from the wrong index."
+    ;; :cx is the HEAD (idx 2, :frame/b) but also occurs at idx 0
+    ;; (:frame/a). prev from the head must land on :mid (idx 1), NOT be
+    ;; swallowed as a false boundary no-op off the idx-0 :frame/a row.
+    (let [cascades [(assoc (cascade :cx :frame/a) :event [:a-event])
+                    (assoc (cascade :mid :frame/b) :event [:mid-event])
+                    (assoc (cascade :cx :frame/b) :event [:b-event])]]
+      (testing "frame-strict 4-arity: current is :cx @ :frame/b (head)"
+        (let [stepped (spine/step-cascade cascades :frame/b :cx -1)]
+          (is (= :mid (:dispatch-id stepped))
+              "prev from the :frame/b :cx head lands on :mid, not a no-op
+               off the earlier :frame/a :cx")
+          (is (= :frame/b (:frame stepped)))
+          (is (= [:mid-event] (:event stepped)))))
+      (testing "frame-strict 4-arity: current is :cx @ :frame/a steps prev
+                to the head row at idx 0 (a true boundary)"
+        (let [stepped (spine/step-cascade cascades :frame/a :cx -1)]
+          (is (= :cx (:dispatch-id stepped)))
+          (is (= :frame/a (:frame stepped))
+              "prev from idx 0 clamps to idx 0 — its own :frame/a row")))
+      (testing "id-only 3-arity preserved (frameless callers): finds the
+                first :cx at idx 0"
+        (let [stepped (spine/step-cascade cascades :cx -1)]
+          (is (= :frame/a (:frame stepped))
+              "no current-frame → id-only fallback (first match at idx 0)")))
+      (testing "frame-strict falls back to id-only when no frame-matching
+                current row exists (stale stored frame must not hide a
+                valid current row)"
+        (let [stepped (spine/step-cascade cascades :frame/nope :cx -1)]
+          (is (= :frame/a (:frame stepped))
+              "no :cx in :frame/nope → id-only fallback to idx 0"))))))
+
 ;; ---- focusable-head-frame-id (rf2-boyc2) --------------------------------
 
 (deftest focusable-head-frame-id-returns-head-cascade-frame
@@ -1378,6 +1415,50 @@
       (is (= :c1 (get-in r [:focus :dispatch-id]))
           "prev from :c3 (cart head) skips :c2 (checkout) and lands on :c1
            (the only other cart cascade)"))))
+
+(deftest focus-step-reducer-prev-from-live-head-is-frame-strict-rf2-xj3kbn
+  (testing "rf2-xj3kbn — prev from LIVE head, no picker frame stored, when
+            the HEAD dispatch-id is ALSO present in an earlier frame. The
+            composer resolves the head as `[:cx :frame/b]`; the step
+            current-position lookup must key off `[frame dispatch-id]` so
+            prev lands on the immediate previous ROW (in the head's frame),
+            not be swallowed as a false boundary no-op off the earlier
+            `:frame/a` same-id cascade."
+    ;; LIVE list: [:cx@a, :mid@b, :cx@b(head)] — :cx duplicated across
+    ;; frames. slot-frame nil (no picker), :focus empty → composer derives
+    ;; the head :cx @ :frame/b.
+    (let [cascades [(cascade :cx :frame/a)
+                    (cascade :mid :frame/b)
+                    (cascade :cx :frame/b)]
+          db       {:focus {:mode :live}}
+          r        (spine/focus-step-reducer db cascades -1)]
+      (is (not= db r)
+          "prev is a REAL step, not a no-op — the pre-fix id-only lookup
+           found :cx @ :frame/a (idx 0) and clamped prev to a no-op")
+      (is (= :mid (get-in r [:focus :dispatch-id]))
+          "prev from the :frame/b :cx head lands on the immediately
+           previous row, :mid")
+      (is (= :frame/b (get-in r [:focus :frame]))
+          "the stepped row's frame is :frame/b — frame + id stay in
+           lockstep with the row actually stepped to")
+      (is (= :retro (get-in r [:focus :mode]))
+          "stepping off head pins RETRO"))))
+
+(deftest focus-step-reducer-frame-strict-step-resolves-epoch-rf2-xj3kbn
+  (testing "rf2-xj3kbn — the frame-strict prev resolves the stepped row's
+            settling :epoch-id (the downstream panels pivot on it). The
+            cross-frame same-id collision must not leak the wrong frame's
+            epoch into the focus."
+    (let [cascades [(cascade :cx :frame/a)
+                    (cascade :mid :frame/b)
+                    (cascade :cx :frame/b)]
+          ;; epoch ring keyed to :mid's settling epoch (the row prev lands on)
+          history  [{:epoch-id 42 :dispatch-id :mid}]
+          db       {:focus {:mode :live}}
+          r        (spine/focus-step-reducer db cascades history -1)]
+      (is (= :mid (get-in r [:focus :dispatch-id])))
+      (is (= 42 (get-in r [:focus :epoch-id]))
+          "the stepped :mid row's settling epoch resolves into focus"))))
 
 (deftest compose-focus-snaps-to-head-when-slot-id-is-ungrouped
   (testing "rf2-fzbrw — even in :retro, a stored slot pointing at

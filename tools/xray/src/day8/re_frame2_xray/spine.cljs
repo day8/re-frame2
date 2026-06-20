@@ -209,13 +209,13 @@
         (some #(when (= dispatch-id (:dispatch-id %)) %) cascades)))))
 
 (defn step-cascade
-  "Step by `delta` (-1 for prev, +1 for next) from `current-id`
-  through `cascades` and return the whole stepped cascade RECORD
-  (carrying `:frame`).
+  "Step by `delta` (-1 for prev, +1 for next) from the current
+  position through `cascades` and return the whole stepped cascade
+  RECORD (carrying `:frame`).
 
   - nil `current-id` (no focus yet) starts from the head.
-  - When `current-id` is not in `cascades` (was evicted), step from
-    head.
+  - When the current position is not in `cascades` (was evicted), step
+    from head.
   - Bounds-clamped — stepping past either edge stays at the edge.
   - Returns nil only when `cascades` is empty.
 
@@ -225,18 +225,47 @@
   (the previous `(cascade-by-id focusable (step-dispatch-id …))`
   shape) could land on a foreign frame's same-id cascade at a
   different index. Walking by index keeps frame + id in lockstep with
-  the row the user actually stepped to."
-  [cascades current-id delta]
-  (let [n (count cascades)]
-    (when (pos? n)
-      (let [current-idx (some (fn [[idx c]]
-                                (when (= current-id (:dispatch-id c)) idx))
-                              (map-indexed vector cascades))
-            base-idx    (or current-idx (dec n))
-            new-idx     (-> (+ base-idx delta)
-                            (max 0)
-                            (min (dec n)))]
-        (nth cascades new-idx)))))
+  the row the user actually stepped to.
+
+  rf2-xj3kbn — the CURRENT-position lookup must be frame-strict too.
+  Dispatch ids are unique only WITHIN a frame (Spec 002 §Frame
+  isolation + rf2-g6ih4); the framework projection emits a separate
+  cascade record per `[frame dispatch-id]`, so the same id can occur
+  in two frames at two indices. When the focus carries a `:frame`
+  (the live/composed head's frame, or a retro pin's frame), the
+  current index MUST match BOTH `[frame dispatch-id]` — otherwise a
+  same-id cascade in an EARLIER frame is found first and the walk
+  steps from the wrong row (a false boundary no-op, or a step into a
+  foreign neighbour). Frameless focus (single-frame / pre-frame-set)
+  degrades to the id-only match.
+
+  Two arities:
+  - `[cascades current-id delta]` — id-only current lookup (frameless
+    callers / `step-dispatch-id`'s thin projection).
+  - `[cascades current-frame current-id delta]` — frame-strict: when
+    `current-frame` is non-nil the current index matches
+    `[current-frame current-id]`, falling back to id-only when no
+    frame-matching row exists (a stale stored frame must not hide an
+    otherwise-valid current row)."
+  ([cascades current-id delta]
+   (step-cascade cascades nil current-id delta))
+  ([cascades current-frame current-id delta]
+   (let [n (count cascades)]
+     (when (pos? n)
+       (let [current-idx (or (when current-frame
+                               (some (fn [[idx c]]
+                                       (when (and (= current-id (:dispatch-id c))
+                                                  (= current-frame (:frame c)))
+                                         idx))
+                                     (map-indexed vector cascades)))
+                             (some (fn [[idx c]]
+                                     (when (= current-id (:dispatch-id c)) idx))
+                                   (map-indexed vector cascades)))
+             base-idx    (or current-idx (dec n))
+             new-idx     (-> (+ base-idx delta)
+                             (max 0)
+                             (min (dec n)))]
+         (nth cascades new-idx))))))
 
 (defn step-dispatch-id
   "Compute the new `:dispatch-id` when stepping by `delta` (-1 for
@@ -341,6 +370,21 @@
   apps drifts focus off the picker's frame on every cross-frame
   dispatch.
 
+  ## Frame-strict head-frame resolution (rf2-xj3kbn)
+
+  The effective cascade is resolved as a whole RECORD per branch — the
+  head-tracking / snap-to-head branches use `head-cascade` directly
+  (the last focusable row) rather than re-resolving `eff-id` through
+  the id-only `cascade-by-id`. With no `slot-frame` stored, an id-only
+  lookup would return the FIRST same-id cascade's `:frame`, so when the
+  head's `:dispatch-id` also occurs in an earlier frame the composed
+  focus would report `[head-id, earlier-frame]` — a mismatched pair
+  that mis-steers `focus-step-reducer`'s current-position lookup (the
+  L2 `[◀ ▶]` controls then false-no-op or step from a foreign row).
+  Taking the frame from the head record keeps `:dispatch-id` + `:frame`
+  in lockstep. RETRO / LIVE-paused branches still resolve by id (the
+  user pinned a specific id, possibly in a stored `slot-frame`).
+
   ## rf2-r9lyy — `:show-ungrouped?` opt-in
 
   Pass `show-ungrouped? true` via the 3-arity to include the
@@ -399,7 +443,28 @@
                        (if (or (nil? slot-id) (= slot-id head-id))
                          :live
                          :retro))
-        eff-id  (cond
+        ;; rf2-xj3kbn — resolve the effective CASCADE RECORD per branch,
+        ;; not a bare id that's then re-resolved by `cascade-by-id`
+        ;; (which is id-only when `slot-frame` is nil and so can pick a
+        ;; foreign frame's same-id row for the `:frame`). The head-track
+        ;; / snap-to-head branches use `head-cascade` directly so the
+        ;; composed focus's `:frame` is the ACTUAL head row's frame
+        ;; (the last focusable cascade), keeping `:dispatch-id` + `:frame`
+        ;; in lockstep even when the head id also occurs in an earlier
+        ;; frame. The paused / retro branches still resolve by id (the
+        ;; user pinned a specific id, possibly in a stored frame).
+        head-cascade* (head-cascade focusable)
+        ;; A RETRO pin (or a LIVE-paused pin) is the one case where the
+        ;; effective id is the STORED slot-id even if its cascade has
+        ;; been evicted (nil record) — those branches preserve the id
+        ;; so the downstream "epoch evicted" placeholder renders. The
+        ;; head-tracking branches never fall back to slot-id (an empty
+        ;; buffer yields a nil head, which downstream treats as cold
+        ;; start, NOT as the stale slot).
+        retro-pin? (or (and (= :live mode) paused?)
+                       (and (not (and (some? head-id) (not slot-pinnable?)))
+                            (not (and (= :live mode) (not paused?)))))
+        eff-cascade (cond
                   ;; rf2-fzbrw — slot is nil / :ungrouped while a
                   ;; focusable buffer exists. Snap to head regardless
                   ;; of mode so the unreachable "focus nil + buffer
@@ -407,7 +472,7 @@
                   ;; ids flow through to the :else branch so the
                   ;; orphaned-state UX survives.)
                   (and (some? head-id) (not slot-pinnable?))
-                  head-id
+                  head-cascade*
                   ;; Live + unpaused — track head, regardless of
                   ;; slot-id (rf2-s0s5x Phase A). Previously the
                   ;; stored slot-id won here, so once
@@ -416,20 +481,30 @@
                   ;; as newer cascades arrived. The LIVE pill's
                   ;; contract is unambiguous — head IS the focus.
                   (and (= :live mode) (not paused?))
-                  head-id
+                  head-cascade*
                   ;; Live + paused — slot-id wins (frozen inspection);
                   ;; if the stored id has been evicted from the
                   ;; buffer, snap to head so the inspector doesn't
                   ;; dangle on a nonexistent cascade.
                   (and (= :live mode) paused?)
-                  (if (cascade-by-id focusable slot-id slot-frame)
-                    slot-id
-                    head-id)
-                  ;; Retro — slot-id wins. Evicted ids preserve the
-                  ;; "epoch evicted" placeholder downstream panels render.
+                  (or (cascade-by-id focusable slot-id slot-frame)
+                      head-cascade*)
+                  ;; Retro — slot-id wins. Evicted ids resolve to a nil
+                  ;; cascade record here; `eff-id` falls back to the
+                  ;; stored slot-id below so the orphaned-state UX
+                  ;; survives.
                   :else
-                  slot-id)
-        cascade (cascade-by-id focusable eff-id slot-frame)
+                  (cascade-by-id focusable slot-id slot-frame))
+        ;; rf2-xj3kbn — `eff-id` + the `:frame` both come from the
+        ;; resolved cascade RECORD so they stay in lockstep with the
+        ;; actual row (head / pinned), never an id-only re-resolution
+        ;; that could borrow a foreign frame's same-id row. Only a
+        ;; RETRO/paused pin whose cascade was evicted falls back to the
+        ;; stored slot-id (nil cascade) — the head branches return the
+        ;; head's own id (or nil for a cold-start empty buffer).
+        eff-id  (or (:dispatch-id eff-cascade)
+                    (when retro-pin? slot-id))
+        cascade eff-cascade
         ;; rf2-70tkv — `:epoch-id` auto-follows head in LIVE+unpaused
         ;; mode when `epoch-history` is supplied (the reactive
         ;; `:rf.xray/focus` sub path). Mirrors the `eff-id` auto-
@@ -553,28 +628,51 @@
          focusable  (if slot-frame
                       (filterv #(= slot-frame (:frame %)) focusable*)
                       focusable*)
-         ;; rf2-s0s5x Phase A: resolve current-id through the same
+         ;; rf2-s0s5x Phase A: resolve current focus through the same
          ;; composer the spine sub uses, so in LIVE mode `j` steps
          ;; back from the CURRENT head rather than from a stale
          ;; stored id. rf2-r9lyy — pass show-ungrouped? so the
          ;; composer's pinnability check honours the opt-in.
-         current-id (:dispatch-id (compose-focus (get db :focus) cascades show-ungrouped?))
+         current    (compose-focus (get db :focus) cascades show-ungrouped?)
+         current-id (:dispatch-id current)
+         ;; rf2-xj3kbn — the composed focus carries the resolved row's
+         ;; `:frame`; thread it into the current-position lookup so the
+         ;; walk starts from the RIGHT row when the focused dispatch-id
+         ;; also occurs in another frame. Without the frame the id-only
+         ;; lookup finds the first same-id cascade (an earlier frame's),
+         ;; making prev/next a false boundary no-op or stepping from a
+         ;; foreign row. When `slot-frame` already scoped `focusable` to
+         ;; one frame the frame is redundant but harmless; the open
+         ;; (slot-frame nil, multi-frame) walk is where it matters.
+         current-frame (:frame current)
          ;; rf2-bz7flo — resolve the stepped row as a CASCADE record so its
          ;; `:frame` comes from the exact row stepped to. Re-resolving by
          ;; id alone (`cascade-by-id focusable new-id`) could pick a
          ;; foreign frame's same-id cascade when the step walk spans
          ;; frames (slot-frame unset, initial LIVE/head). frame + id stay
          ;; in lockstep with the row the user actually landed on.
-         stepped    (step-cascade focusable current-id delta)
+         stepped    (step-cascade focusable current-frame current-id delta)
          new-id     (:dispatch-id stepped)
+         new-frame  (:frame stepped)
          head-id    (head-dispatch-id focusable)]
      (if (or (nil? new-id)
              ;; rf2-fzbrw — boundary no-op. Stepping past either edge
-             ;; resolved to the same id we already hold; return db
+             ;; resolved to the same row we already hold; return db
              ;; unchanged so the ribbon's `:disabled` contract is
              ;; honoured at the reducer layer too. A keyboard j/k at
              ;; the edge has no observable effect.
-             (and (some? current-id) (= new-id current-id)))
+             ;;
+             ;; rf2-xj3kbn — the no-op test is frame-strict too: a
+             ;; genuine edge means the SAME `[frame dispatch-id]`
+             ;; coordinate, not just the same id. When a same-id
+             ;; cascade exists in another frame, stepping onto it is a
+             ;; REAL move even though the id matches — comparing id
+             ;; alone would swallow that step. Frameless focus (no
+             ;; `current-frame`) degrades to the id-only edge test.
+             (and (some? current-id)
+                  (= new-id current-id)
+                  (or (nil? current-frame)
+                      (= new-frame current-frame))))
        db
        (let [new-mode (if (= new-id head-id) :live :retro)
              frame-id (:frame stepped)
