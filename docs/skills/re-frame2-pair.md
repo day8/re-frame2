@@ -28,35 +28,31 @@ Do **not** use this skill for:
 
 ## Kickoff
 
-Every session starts with `discover-app` — call the MCP tool when the
-`re-frame2-pair-mcp` server is installed (preferred — see
-[Transport](#transport) below), or the legacy bash shim
-`scripts/discover-app.sh` otherwise:
+Every session starts with `discover-app`, called via the
+`re-frame2-pair-mcp` server (the only skill-facing transport — see
+[Transport](#transport) below). The `scripts/` shims are retired from
+the skill surface and exist only for the project's own e2e harness and
+ad-hoc manual use, so they are not part of a skill session:
 
 ```
 discover-app
-# or, if the MCP server isn't configured for this agent host:
-scripts/discover-app.sh
 ```
 
 This locates the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and injects the runtime namespace. Failures return a structured edn shape like `{:ok? false :missing :re-frame2}` which the skill reports verbatim and routes to the matching recovery in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
 ## Transport
 
-Two transports ship with the skill:
+The skill is **MCP-only**: a single skill-facing transport.
 
-- **MCP server** (preferred) — `@day8/re-frame2-pair-mcp`, an
-  npm-installable stdio JSON-RPC server holding one persistent
-  nREPL connection per session. Per-op latency ~5–50ms. Install via
+- **MCP server** — `@day8/re-frame2-pair-mcp`, an npm-installable stdio
+  JSON-RPC server holding one persistent nREPL connection per session.
+  Per-op latency ~5–50ms. Install via
   `npm install -g @day8/re-frame2-pair-mcp` and add to your agent
   host's MCP config. Source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
-- **Bash shims** (deprecated, kept for back-compat) — one bash
-  script per op, each spawning bash → babashka → fresh nREPL connect
-  per call. Per-op latency ~700ms. Use only when the MCP server
-  isn't available in the current agent host.
 
-The op vocabulary is identical across transports; pick whichever your
-session has wired up.
+The `scripts/` bash shims that originally fronted these ops are
+**non-skill-facing**: retired from the skill's `allowed-tools` and kept
+on disk only for the project's own e2e test harness and ad-hoc shell use.
 
 To force-load in Claude Code:
 
@@ -70,7 +66,7 @@ After connect, work in structured ops (read, write, trace, DOM bridge, watch, ho
 
 - Source: [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
 - `SKILL.md`: [`skills/re-frame2-pair/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
-- Reference leaves: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `ops.md` (structured ops catalogue), `recipes.md` (named procedures: *"why didn't my view update?"*, post-mortem, experiment loop), `errors.md` (structured-error → plain-English recovery), `hot-reload-protocol.md`, `migration-from-v1.md`.
+- Reference leaves: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `mcp-transport.md` (transport contract), `ops.md` (structured ops catalogue), `recipes.md` (named procedures: *"why didn't my view update?"*, post-mortem, experiment loop), `errors.md` (structured-error → plain-English recovery), `streaming-subscriptions.md`, `vocabulary.md`, `wire-size-budget.md`, `variant-as-frame.md`, `stories.md`.
 - Tool-Pair contract: [`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
 - Narrative companion: [Xray](../xray/index.md).
 - Retrospective companion skill: [`re-frame2-pair-retro`](re-frame2-pair-retro.md).
