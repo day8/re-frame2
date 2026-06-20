@@ -72,10 +72,12 @@
 (defn- article-spec [overrides]
   (merge {:scope         :rf.scope/from-caller
           :params-schema [:map [:slug :string]]
-          :request       (fn [{:keys [slug]} _ctx]
-                           {:request {:method :get :url (str "/api/articles/" slug)}})
           :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
          overrides))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- listener-fixture
   "Install a recording trace listener, run `body-fn`, return the captured
@@ -100,7 +102,7 @@
             :rf.warning/resource-sub-scope-mismatch trace under :advanced +
             goog.DEBUG=false — the whole warning body elides while the sub
             still returns its documented :idle projection (fail-closed kept)."
-    (rf/reg-resource :sme/article (article-spec {:scope :rf.scope/from-caller}))
+    (rf/reg-resource :sme/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
     ;; ensure + settle scope A active (the real lease) …
     (let [ka (state/scoped-resource-key {:user "a"} :sme/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :sme/article :scope {:user "a"}

@@ -86,9 +86,9 @@
      :params-schema    [:map [:slug :string]]
      :poll-interval-ms 5000
      :gc-after-ms      9000
-     :request          (fn [{:keys [slug]} _ctx]
-                         {:request {:method :get :url (str "/api/articles/" slug)}})
-     :tags             (fn [{:keys [slug]} _data] #{[:article slug]})})
+     :tags             (fn [{:keys [slug]} _data] #{[:article slug]})}
+    (fn [{:keys [slug]} _ctx]
+      {:request {:method :get :url (str "/api/articles/" slug)}}))
   (f))
 
 (use-fixtures :each

@@ -83,9 +83,9 @@
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/tenant}
      :params-schema [:map [:page :int]]
-     :request       (fn [{:keys [page]} _ctx]
-                      {:request {:method :get :url "/feed" :params {:page page}}})
-     :tags          (fn [_p _v] #{[:feed]})})
+     :tags          (fn [_p _v] #{[:feed]})}
+    (fn [{:keys [page]} _ctx]
+      {:request {:method :get :url "/feed" :params {:page page}}}))
   (rf/reg-event :t/login  (fn [{:keys [db]} [_ tenant]] {:db (assoc-in db [:viewer :tenant-id] tenant)}))
   (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :viewer dissoc :tenant-id)})))
 
@@ -223,8 +223,8 @@
   ;; caller, additionally diagnosable via the dev scope-mismatch warning.
   (rf/reg-resource :t/notes
     {:scope         :rf.scope/from-caller
-     :params-schema [:map]
-     :request       (fn [_p _ctx] {:request {:method :get :url "/notes"}})})
+     :params-schema [:map]}
+    (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
   ;; ensure + load acme's notes under acme's explicit scope (an ACTIVE owner)
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :t/notes :params {}

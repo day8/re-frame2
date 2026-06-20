@@ -163,19 +163,21 @@
   ([] (save-article-spec {}))
   ([overrides]
    (merge {:params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :put :url (str "/api/articles/" slug)
-                                       :body  {:slug slug}}})
            :invalidates   (fn [{:keys [slug]} _result]
                             #{[:article slug] [:article-list]})}
           overrides)))
+
+(def ^:private save-article-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug)
+               :body  {:slug slug}}}))
 
 ;; ===========================================================================
 ;; 1. Registration + introspection + fail-closed authoring boundary
 ;; ===========================================================================
 
 (deftest reg-mutation-registers-and-introspects
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "the registered spec is introspectable"
     (is (= (vec [:m/save]) (filter #{:m/save} (:mutation-ids (rf/mutations)))))
     (is (fn? (:request (rf/mutation-meta :m/save))))
@@ -185,14 +187,17 @@
     (is (nil? (rf/mutation-meta :m/save)))))
 
 (deftest reg-mutation-fail-closed
-  (testing "EP-0003 §Mutations — a mutation spec MUST declare :request"
+  (testing "rf2-wvh95f F1 — the request handler is the THIRD slot; a :request
+            left INSIDE the metadata map is rejected as a mislocated key"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
-          (rf/reg-mutation :m/no-req {:params-schema [:map]}))))
-  (testing "and :params-schema"
+          (rf/reg-mutation :m/no-req
+                           {:params-schema [:map] :request (fn [_ _] {:request {:url "/x"}})}
+                           (fn [_ _] {:request {:url "/x"}})))))
+  (testing "EP-0003 §Mutations — a mutation spec MUST declare :params-schema"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
-          (rf/reg-mutation :m/no-schema {:request (fn [_ _] {:request {:url "/x"}})})))))
+          (rf/reg-mutation :m/no-schema {} (fn [_ _] {:request {:url "/x"}}))))))
 
 (deftest reg-mutation-rejects-invalidate-timing-typo
   ;; rf2-t8j7oj — :invalidate-timing is a CLOSED four-value enum (Spec 016
@@ -205,20 +210,20 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
           (rf/reg-mutation :m/typo
-                           (save-article-spec {:invalidate-timing :after-succes})))))
+                           (save-article-spec {:invalidate-timing :after-succes}) save-article-request))))
   (testing "a non-keyword :invalidate-timing is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
           (rf/reg-mutation :m/non-kw
-                           (save-article-spec {:invalidate-timing "after-success"})))))
+                           (save-article-spec {:invalidate-timing "after-success"}) save-article-request))))
   (testing "every value in the closed enum registers cleanly"
     (doseq [timing mreg/invalidate-timings]
-      (rf/reg-mutation :m/ok (save-article-spec {:invalidate-timing timing}))
+      (rf/reg-mutation :m/ok (save-article-spec {:invalidate-timing timing}) save-article-request)
       (is (= timing (:invalidate-timing (rf/mutation-meta :m/ok)))
           (str "valid timing " timing " registered"))
       (rf/clear-mutation :m/ok)))
   (testing "an OMITTED :invalidate-timing is valid (nil → :after-success at runtime)"
-    (rf/reg-mutation :m/default (save-article-spec))
+    (rf/reg-mutation :m/default (save-article-spec) save-article-request)
     (is (nil? (:invalidate-timing (rf/mutation-meta :m/default))))
     (rf/clear-mutation :m/default)))
 
@@ -233,7 +238,7 @@
 ;; ===========================================================================
 
 (deftest execute-mints-instance-and-lowers-write
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :form/save-1}])
   (testing "the instance row is :pending, keyed by the caller-supplied id"
@@ -263,7 +268,7 @@
   ;; clock read in the reducer. Scripting the dispatch's :rf.cofx
   ;; pins it; the same execute token mints the same :started-at
   ;; (replay-stable).
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [t1 1781078400123]
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "w"} :instance :st/save-1}]
@@ -272,7 +277,7 @@
       (is (= t1 (:started-at (instance :st/save-1)))))))
 
 (deftest execute-generates-instance-id-when-absent
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"}}])
   (testing "EP-0003 §Mutations — a generated instance id is used when the
             caller supplies none"
@@ -286,8 +291,8 @@
 
 (deftest concurrent-submissions-do-not-clobber
   (rf/reg-mutation :comment/add
-                   {:params-schema [:map [:body :string]]
-                    :request (fn [{:keys [body]} _] {:request {:method :post :url "/c" :body {:body body}}})})
+                   {:params-schema [:map [:body :string]]}
+                   (fn [{:keys [body]} _] {:request {:method :post :url "/c" :body {:body body}}}))
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :comment/add :params {:body "one"} :instance :c1}])
   (let [args1 @last-managed-args]
@@ -316,9 +321,9 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
-  (rf/reg-mutation :m/save (save-article-spec))
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   ;; load + own the article resource so the invalidation refetches it
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
@@ -351,14 +356,14 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/patch
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       :patches (fn [_params result]
-                                 {(art-target) (fn [old _result] (merge old result))})})
+                                 {(art-target) (fn [old _result] (merge old result))})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
@@ -385,15 +390,15 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
                     :tags (fn [{:keys [slug]} _] #{[:article slug]})
-                    :stale-after-ms 60000})
+                    :stale-after-ms 60000}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
         completed-at 1781078400456]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {(art-target) result})})
+                      :populates (fn [_params result] {(art-target) result})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ms1}])
     (reply-success! @last-managed-args {:title "seed"} {:rf.cofx {:rf/time-ms completed-at}})
     (testing "the instance :settled-at is EXACTLY the reply completion time"
@@ -410,7 +415,7 @@
   ;; carried on the failure reply token — the handler MUST NOT re-read the
   ;; clock. The host :completed-at rides the reply event's :rf.cofx
   ;; :time-ms; scripting it pins :settled-at (replay-stable).
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [completed-at 1781078999999]
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :mf1}])
     (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}
@@ -424,13 +429,13 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {(art-target) result})})
+                      :populates (fn [_params result] {(art-target) result})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     ;; no prior ensure — the populate SEEDS the entry from the mutation result
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pop1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
@@ -450,15 +455,15 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
                     :tags (fn [{:keys [slug]} _] #{[:article slug]})
                     :stale-after-ms 60000
-                    :gc-after-ms    300000})
+                    :gc-after-ms    300000}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {(art-target) result})})
+                      :populates (fn [_params result] {(art-target) result})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (reset! scheduled-timers [])
     ;; no prior ensure — the populate SEEDS an ownerless entry
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pgc1}])
@@ -487,16 +492,16 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
                     :tags (fn [{:keys [slug]} _] #{[:article slug]})
                     :stale-after-ms 60000
-                    :gc-after-ms    300000})
+                    :gc-after-ms    300000}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/patch
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       :patches (fn [_params result]
-                                 {(art-target) (fn [old _result] (merge old result))})})
+                                 {(art-target) (fn [old _result] (merge old result))})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
@@ -517,13 +522,13 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {(art-target) result})})
+                      :populates (fn [_params result] {(art-target) result})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pnp1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
@@ -535,7 +540,7 @@
 ;; ===========================================================================
 
 (deftest failure-settles-instance-error
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :f1}])
   (testing "EP-0003 §Mutations — a failed write settles the instance :error
             with the appended transport failure envelope (no :refresh-error)"
@@ -549,10 +554,10 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}))
+    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
     ;; ensure WITHOUT an owner so the invalidation leaves the matched entry
     ;; stale (an ownerless entry is left stale / GC-eligible, NOT refetched —
     ;; so :invalidated-at stays observable rather than being cleared by a
@@ -576,10 +581,10 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}))
+    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}) save-article-request)
     ;; ownerless ensure — the invalidation leaves the entry stale (observable
     ;; via :invalidated-at) rather than refetching it.
     (rf/dispatch-sync [:rf.resource/ensure
@@ -596,7 +601,7 @@
 ;; ===========================================================================
 
 (deftest stale-mutation-reply-suppressed
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   ;; two executes under the SAME instance id mint different generations; the
   ;; first reply is now stale against the live (gen-2) instance.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :i}])
@@ -621,7 +626,7 @@
   ;; behaviour-only `stale-mutation-reply-suppressed` above PASSED SILENTLY
   ;; while the production stale branch discarded the canonical reply; these
   ;; assertions FAIL before rf2-mn4j89 and pin the fix.
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
   (let [gen1-args @last-managed-args]
     ;; supersede with a second execute under the SAME instance id → gen 2 live.
@@ -665,7 +670,7 @@
 ;; ===========================================================================
 
 (deftest cross-frame-mutation-reply-rejected-without-mutating-receiving-frame
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
     (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [fa :xfm/frame-a
@@ -704,7 +709,7 @@
 ;; ===========================================================================
 
 (deftest clear-resets-instance
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :clr1}])
   (reply-success! @last-managed-args {:ok true})
   (is (= :success (:status (instance :clr1))))
@@ -714,7 +719,7 @@
     (is (nil? (instance :clr1)))))
 
 (deftest clear-by-mutation-id-clears-all-instances
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "a"} :instance :a1}])
   (reply-success! @last-managed-args {:ok 1})
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "b"} :instance :b1}])
@@ -729,7 +734,7 @@
 ;; ===========================================================================
 
 (deftest mutation-subs-project-view-model
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "no instance — idle empty-state (incl. EP-0019 :optimistic? false)"
     (is (= :idle @(rf/subscribe [:rf.mutation/status {:instance :sub1}])))
     (is (false? @(rf/subscribe [:rf.mutation/pending? {:instance :sub1}])))
@@ -755,13 +760,13 @@
 ;; ===========================================================================
 
 (deftest execute-canonicalizes-and-stores-params
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :cp1}])
   (testing "the instance stores the canonical params (serializable, for Xray)"
     (is (= {:slug "w"} (:params (instance :cp1))))))
 
 (deftest mutation-registry-rejects-non-edn-params
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "EP-0003 §Mutations — a host value in params is rejected at the
             cache-key boundary (mutation reuses the resource EDN discipline)"
     (is (thrown-with-msg?
@@ -777,8 +782,10 @@
 (defn- article-resource-spec []
   {:scope :rf.scope/global
    :params-schema [:map [:slug :string]]
-   :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+
+(def ^:private article-resource-request
+  (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
 
 ;; The validation boundary itself is asserted via DIRECT calls (the
 ;; re-frame event loop catches a handler throw and surfaces it as
@@ -997,16 +1004,16 @@
   ;; instance SETTLES — instead of the old all-or-nothing throw that stranded the
   ;; whole committed mutation (the asymmetry-fix: a patch on a missing entry
   ;; already no-ops; an unregistered target now does too, with a loud warning).
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
         bad-key  [:rf.scope/global :r/never-registered {:slug "w"}]]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
                                             (fn [old r] (merge old r))
                                             {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global}
-                                            (fn [old _] old)})})
+                                            (fn [old _] old)})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     ;; seed the good entry so the patch has data to transform
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
@@ -1048,17 +1055,17 @@
   ;; scope) STILL aborts the whole arm — no relaxed policy may swallow a
   ;; wrong-identity write. The event loop catches the throw, so we observe the
   ;; fail-closed EFFECT: the valid sibling in the same arm did NOT land.
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       ;; the SECOND target carries a bare reserved-scope typo
                       ;; (:rf.scope/glabal) — cache-identity corruption.
                       :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
                                             (fn [old r] (merge old r))
                                             {:resource :r/article :params {:slug "x"} :scope :rf.scope/glabal}
-                                            (fn [old _] old)})})
+                                            (fn [old _] old)})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
@@ -1073,13 +1080,13 @@
   ;; rf2-1vpbld — :populates smoke: an unregistered populate target is
   ;; SKIPPED-AND-WARNED while the valid sibling SEEDS the cache and the instance
   ;; SETTLES.
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/create
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug)}})
                       :populates (fn [_p r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global} r
-                                             {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global} r})})
+                                             {:resource :r/never-registered :params {:slug "w"} :scope :rf.scope/global} r})}
+                     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/create :params {:slug "w"} :instance :pop1}])
     (reply-success! @last-managed-args {:title "seeded"})
     (testing "the valid populate SEEDED the entry; the unregistered sibling was skipped"
@@ -1096,7 +1103,7 @@
   ;; rf2-1vpbld — :removes smoke: an unregistered remove target is
   ;; SKIPPED-AND-WARNED while the valid sibling DROPS its entry and the instance
   ;; SETTLES.
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [good-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
@@ -1105,10 +1112,10 @@
     (reset! last-managed-args nil)
     (rf/reg-mutation :m/delete2
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
                       :removes (fn [{:keys [slug]} _r]
                                  [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                                  {:resource :r/never-registered :params {:slug slug} :scope :rf.scope/global}])})
+                                  {:resource :r/never-registered :params {:slug slug} :scope :rf.scope/global}])}
+                     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/delete2 :params {:slug "w"} :instance :rm1}])
     (reply-success! @last-managed-args {:deleted true})
     (testing "the valid remove DROPPED its entry; the unregistered sibling was skipped"
@@ -1125,15 +1132,15 @@
   ;; rf2-3yyaur — the happy path is UNCHANGED: a well-formed, registered,
   ;; serializable target patches normally (validation is transparent on valid
   ;; input, and canonicalizes the key so an alternate spelling still lands).
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/reg-mutation :m/patch
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       ;; target params spelled in a different key order — must
                       ;; canonicalize to the same identity the read path stored.
                       :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
-                                            (fn [old result] (merge old result))})})
+                                            (fn [old result] (merge old result))})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:view :a]}])
@@ -1154,8 +1161,8 @@
   ;; the request is lowered to transport. Prove it on the returned :fx VECTOR
   ;; (fx run in order): the :rf.resource/invalidate-tags dispatch must sit at a
   ;; LOWER index than the :rf.http/managed lower fx.
-  (rf/reg-resource :r/article (article-resource-spec))
-  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
+  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}) save-article-request)
   (let [cofx   {:rf.db/runtime {} :rf.frame/id :rf/default
                 :rf.resource/generation-allocation {:generation 1 :counter 1}}
         out    (mevents/execute-handler
@@ -1179,7 +1186,7 @@
 (deftest no-before-request-invalidation-leaves-order-intact
   ;; rf2-agrjvk — a default (:after-success) timing emits NO before-request
   ;; dispatch; the lower fx is still present and the reorder is a no-op.
-  (rf/reg-mutation :m/save (save-article-spec)) ;; default :after-success
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request) ;; default :after-success
   (let [cofx {:rf.db/runtime {} :rf.frame/id :rf/default
               :rf.resource/generation-allocation {:generation 1 :counter 1}}
         out  (mevents/execute-handler
@@ -1203,7 +1210,7 @@
   ;; throw, so we observe the fail-closed EFFECT: nothing lowered to transport,
   ;; and no instance row written. (The throw itself is asserted directly in
   ;; `validate-instance-id-accepts-scalars-and-vectors`.)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (reset! last-managed-args nil)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance (fn [])}])
@@ -1231,7 +1238,7 @@
 (deftest execute-with-valid-vector-instance-id
   ;; rf2-e8wj5t — a vector instance id (a common row-keyed form shape) is
   ;; accepted end-to-end and stored on the durable instance.
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance [:row 7]}])
   (testing "the instance is keyed + stored under the serializable vector id"
@@ -1246,7 +1253,7 @@
   ;; key under :rf.runtime/mutations, and `(= [:row 7] '(:row 7))` is TRUE, so
   ;; the second execute would clobber the first's row (and a later settle /
   ;; clear would gate the wrong one).
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
     (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [iv [:row 7]
@@ -1285,7 +1292,7 @@
 (deftest cedn-distinct-sequential-instance-ids-clear-independently
   ;; rf2-8iciw8 — `:rf.mutation/clear` must target the row by the SAME byte
   ;; identity, so clearing `[:row 7]` does NOT also clear / gate `'(:row 7)`.
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
     (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [iv [:row 7]
@@ -1311,7 +1318,7 @@
 ;; ===========================================================================
 
 (deftest cross-frame-mutation-request-id-does-not-collide
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
     (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [fa :xm/frame-a
@@ -1381,13 +1388,13 @@
   ;; reply and carries mutation id, params, instance, scope, status, value,
   ;; affected keys, work id, frame id, completion time, and cause.
   (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})
         completed-at 1781078400777]
     (rf/reg-mutation :m/save
                      {:params-schema [:map [:slug :string]]
-                      :request   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                      :populates (fn [_params result] {(art-target) result})})
+                      :populates (fn [_params result] {(art-target) result})}
+                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "w"} :instance :rc1
                         :reply-to [:test/save-replied]}])
@@ -1420,10 +1427,10 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec))
+    (rf/reg-mutation :m/save (save-article-spec) save-article-request)
     ;; own + load the list-tagged article so the invalidation refetches it
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global
@@ -1444,7 +1451,7 @@
   ;; Spec 016 §Mutation completion continuations — `:reply-to [:e {:kind :x}]`
   ;; dispatches `[:e {:kind :x} reply]` (the reply appended AFTER static args).
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :sc1
                       :reply-to [:test/save-replied {:kind :article} 7]}])
@@ -1490,7 +1497,7 @@
   ;; we observe the absence of side effects (mirrors
   ;; `execute-rejects-non-serializable-instance-id-fails-closed`).
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (reset! last-managed-args nil)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :bad-rt
@@ -1510,13 +1517,13 @@
     (rf/reg-resource :r/article
                      {:scope :rf.scope/global
                       :params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                      :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                      :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                     (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
     (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
       (rf/reg-mutation :m/save
                        {:params-schema [:map [:slug :string]]
-                        :request   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-                        :populates (fn [_params result] {(art-target) result})})
+                        :populates (fn [_params result] {(art-target) result})}
+                       (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
       ;; the continuation handler reads the runtime-db AT continuation time:
       ;; both the instance settle AND the populated entry must already be in.
       (rf/reg-event :test/save-replied
@@ -1543,7 +1550,7 @@
   ;; accepted `:error` reply fires the continuation too (the handler folds
   ;; validation errors / form state off the reply `:status`).
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :ec1
                       :reply-to [:test/save-replied]}])
@@ -1563,7 +1570,7 @@
   ;; envelope, which the reply substrate lowers to `:status :cancelled`) is an
   ;; accepted terminal reply, so it fires the continuation.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :cc1
                       :reply-to [:test/save-replied]}])
@@ -1582,7 +1589,7 @@
   ;; abort still settles `:suppressed` (covered by the stale suite); this
   ;; pins the LIVE/accepted path.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :ac1
                       :reply-to [:test/save-replied]}])
@@ -1604,7 +1611,7 @@
   ;; ledger row `:failed` — the abort branch must NOT swallow ordinary
   ;; failures into `:cancelled`.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :af1
                       :reply-to [:test/save-replied]}])
@@ -1619,7 +1626,7 @@
   ;; continuation — the mandatory stale-suppression boundary the reply envelope
   ;; enforces is inherited for free.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   ;; two executes under the SAME instance id → the gen-1 reply is now stale.
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :i
@@ -1642,7 +1649,7 @@
   ;; cleared instance is stale-suppressed (no live instance), so it fires no
   ;; continuation — the same suppression gate, via the clear path.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :clr1
                       :reply-to [:test/save-replied]}])
@@ -1657,7 +1664,7 @@
   ;; Backwards compatibility — an execute WITHOUT `:reply-to` behaves exactly
   ;; as before (no continuation dispatched).
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :nc1}])
   (reply-success! @last-managed-args {:ok true})
@@ -1687,7 +1694,7 @@
   ;; the dispatch effect (inside continuation-fx), so the row could appear
   ;; BEFORE succeeded — misleading evidence of the phase order.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [rows (record-mutation-traces!
                (fn []
                  (rf/dispatch-sync [:rf.mutation/execute
@@ -1714,7 +1721,7 @@
   ;; :rf.mutation/replied row (it surfaces as stale-suppressed instead). The
   ;; CURRENT reply emits exactly one, after its settlement.
   (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :m/save :params {:slug "w"} :instance :sr
                       :reply-to [:test/save-replied]}])
@@ -1743,10 +1750,10 @@
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}))
+    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
     (reply-success! @last-managed-args {:title "x"})
@@ -1773,7 +1780,7 @@
 
 (deftest invalidation-only-success-includes-stale-keys-in-affected-keys
   (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     ;; an ownerless loaded article entry the mutation will INVALIDATE (no
     ;; populate / patch — invalidation is the ONLY cache consequence).
@@ -1787,8 +1794,8 @@
     ;; a mutation that ONLY invalidates the article tag (no populate / patch)
     (rf/reg-mutation :m/touch
                      {:params-schema [:map [:slug :string]]
-                      :request     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/touch")}})
-                      :invalidates (fn [{:keys [slug]} _r] #{[:article slug]})})
+                      :invalidates (fn [{:keys [slug]} _r] #{[:article slug]})}
+                     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/touch")}}))
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/touch :params {:slug "w"} :instance :iv1
                         :reply-to [:test/save-replied]}])
@@ -1804,7 +1811,7 @@
 
 (deftest after-failure-invalidation-includes-stale-keys-in-affected-keys
   (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
@@ -1812,7 +1819,7 @@
     (rf/dispatch-sync [:rf.resource/release-owner
                        {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
     (reset! last-managed-args nil)
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}))
+    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "w"} :instance :afk1
                         :reply-to [:test/save-replied]}])
@@ -1834,7 +1841,7 @@
   ;; patches, populates, invalidates, AND removes. A delete write drops the
   ;; cached entry (mirroring :rf.resource/remove) and reports the removed key.
   (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     ;; seed a loaded entry the delete mutation will remove
     (rf/dispatch-sync [:rf.resource/ensure
@@ -1844,9 +1851,9 @@
     (reset! last-managed-args nil)
     (rf/reg-mutation :m/delete
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
                       :removes (fn [{:keys [slug]} _result]
-                                 [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}])})
+                                 [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}])}
+                     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/delete :params {:slug "w"} :instance :del1
                         :reply-to [:test/save-replied]}])
@@ -1862,7 +1869,7 @@
 (deftest mutation-removes-accepts-single-map-form-target
   ;; the :removes fn may return a SINGLE map-form target (sugar) — not only a
   ;; collection. A remove of a key with no entry is a harmless no-op.
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
@@ -1870,9 +1877,9 @@
     (reset! last-managed-args nil)
     (rf/reg-mutation :m/del-one
                      {:params-schema [:map [:slug :string]]
-                      :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
                       :removes (fn [{:keys [slug]} _r]
-                                 {:resource :r/article :params {:slug slug} :scope :rf.scope/global})})
+                                 {:resource :r/article :params {:slug slug} :scope :rf.scope/global})}
+                     (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-one :params {:slug "w"} :instance :do1}])
     (reply-success! @last-managed-args {:deleted true})
     (testing "a single map-form target removes the entry"
@@ -1880,9 +1887,9 @@
     (testing "removing a key with no entry is a no-op (no throw, empty :removed)"
       (rf/reg-mutation :m/del-missing
                        {:params-schema [:map [:slug :string]]
-                        :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
                         :removes (fn [{:keys [slug]} _r]
-                                   {:resource :r/article :params {:slug slug} :scope :rf.scope/global})})
+                                   {:resource :r/article :params {:slug slug} :scope :rf.scope/global})}
+                       (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}}))
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-missing :params {:slug "gone"} :instance :dm1}])
       (reply-success! @last-managed-args {:deleted true})
       (is (= [] (:removed (:patch-summary (instance :dm1))))))))
@@ -1896,10 +1903,10 @@
   ;; row carrying :target, :work/id, :mutation, :instance, :status, :cause —
   ;; pinned via a REAL trace listener over the runtime (not a synthetic row).
   (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec))
+  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
   (let [traces (record-mutation-traces!
                  (fn []
-                   (rf/reg-mutation :m/save (save-article-spec))
+                   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
                    (rf/dispatch-sync [:rf.mutation/execute
                                       {:mutation :m/save :params {:slug "w"} :instance :rt1
                                        :reply-to [:test/save-replied]}])
@@ -1925,7 +1932,7 @@
   (reg-capture-continuation!)
   (let [traces (record-mutation-traces!
                  (fn []
-                   (rf/reg-mutation :m/save (save-article-spec))
+                   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
                    ;; two executes under the SAME instance → gen-1 reply is stale
                    (rf/dispatch-sync [:rf.mutation/execute
                                       {:mutation :m/save :params {:slug "w"} :instance :si
@@ -1953,7 +1960,7 @@
   ;; for a missing frame) and return a nil that is INDISTINGUISHABLE from a
   ;; genuinely absent instance. Per EP-0002 the frame target is carried
   ;; explicitly; the MISSING explicit target fails closed.
-  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "a frameless mutation-state call raises :rf.error/no-frame-context
             (never a silent nil that is indistinguishable from an absent
             instance)"

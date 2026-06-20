@@ -118,14 +118,16 @@
   (merge {:scope           :rf.scope/global
           :infinite        true
           :params-schema   [:map [:slug :string]]
-          :request         (fn [{:keys [slug]} {:rf.resource/keys [page-param page-index]}]
-                             {:request {:method :get :url (str "/api/feed/" slug)
-                                        :params (cond-> {:page-index page-index}
-                                                  page-param (assoc :cursor page-param))}})
           :next-page-param next-cursor
           :page->items     :items
           :tags            (fn [{:keys [slug]} _data] #{[:feed slug]})}
          overrides))
+
+(def ^:private feed-spec-request
+  (fn [{:keys [slug]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get :url (str "/api/feed/" slug)
+               :params (cond-> {:page-index page-index}
+                         page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [slug]
   (state/scoped-resource-key :rf.scope/global :feed/articles {:slug slug}))
@@ -151,7 +153,7 @@
     (rf/dispatch-sync (conj (:on-failure args) {:kind :failure :failure failure}))))
 
 (defn- register-blocking-infinite-route! []
-  (rf/reg-resource :feed/articles (feed-spec {}))
+  (rf/reg-resource :feed/articles (feed-spec {}) feed-spec-request)
   (rf/reg-route :route/feed
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :feed/articles
@@ -249,9 +251,9 @@
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]
-                    :request       (fn [{:keys [slug]} _ctx]
-                                     {:request {:method :get :url (str "/api/articles/" slug)}})
-                    :tags          (fn [{:keys [slug]} _data] #{[:article slug]})})
+                    :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get :url (str "/api/articles/" slug)}}))
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug

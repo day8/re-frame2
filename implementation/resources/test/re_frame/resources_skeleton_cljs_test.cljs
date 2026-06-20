@@ -36,14 +36,18 @@
             [re-frame.routing.registry :as routing-registry]))
 
 (defn- valid-spec
-  "A minimal, valid resource spec — the three REQUIRED keys (Spec 016
-  §Resource registration spec)."
+  "A minimal, valid resource METADATA map — the REQUIRED metadata keys (Spec
+  016 §Resource registration spec). The `:request` handler is the THIRD
+  registration slot (rf2-wvh95f F1); see `valid-request`."
   []
   {:doc           "test resource"
    :scope         :rf.scope/global
-   :params-schema [:map [:slug :string]]
-   :request       (fn [_params _ctx]
-                    {:request {:method :get :url "/api/x"}})})
+   :params-schema [:map [:slug :string]]})
+
+(def ^:private valid-request
+  "The request handler for `valid-spec` — the THIRD reg-resource slot."
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/x"}}))
 
 (use-fixtures :each
   {:before (fn [] (registrar/clear-kind! :resource))
@@ -58,7 +62,7 @@
 
 (deftest reg-resource-registers-under-resource-kind
   (testing "reg-resource writes a :resource-kind registrar entry"
-    (resources/reg-resource :test/article (valid-spec))
+    (resources/reg-resource :test/article (valid-spec) valid-request)
     (is (contains? (registrar/registrations :resource) :test/article))
     (is (= :test/article (first (resources/resource-ids))))
     (testing "resource-meta reads the spec back"
@@ -73,17 +77,21 @@
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
           (resources/reg-resource :test/no-scope
-                                  (dissoc (valid-spec) :scope)))))
+                                  (dissoc (valid-spec) :scope)
+                                  valid-request))))
   (testing "reg-resource with no :params-schema throws"
     (is (thrown-with-msg?
           js/Error #"invalid-resource-spec"
           (resources/reg-resource :test/no-params
-                                  (dissoc (valid-spec) :params-schema)))))
-  (testing "reg-resource with no :request throws"
+                                  (dissoc (valid-spec) :params-schema)
+                                  valid-request))))
+  (testing "reg-resource with :request inside the metadata map throws (it is the
+            THIRD slot, rf2-wvh95f F1)"
     (is (thrown-with-msg?
           js/Error #"invalid-resource-spec"
           (resources/reg-resource :test/no-request
-                                  (dissoc (valid-spec) :request))))))
+                                  (assoc (valid-spec) :request valid-request)
+                                  valid-request)))))
 
 (deftest reserved-scope-namespace-typo-rejected-fail-closed
   ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
@@ -95,25 +103,25 @@
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
           (resources/reg-resource :test/typo
-                                  (assoc (valid-spec) :scope :rf.scope/glabal))))
+                                  (assoc (valid-spec) :scope :rf.scope/glabal) valid-request)))
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
           (resources/reg-resource :test/typo2
-                                  (assoc (valid-spec) :scope :rf.scope/sesssion)))))
+                                  (assoc (valid-spec) :scope :rf.scope/sesssion) valid-request))))
   ;; The closed enum members stay valid.
   (testing ":rf.scope/global and :rf.scope/from-caller remain valid"
     (is (= :test/global
            (resources/reg-resource :test/global
-                                   (assoc (valid-spec) :scope :rf.scope/global))))
+                                   (assoc (valid-spec) :scope :rf.scope/global) valid-request)))
     (is (= :test/from-caller
            (resources/reg-resource :test/from-caller
-                                   (assoc (valid-spec) :scope :rf.scope/from-caller)))))
+                                   (assoc (valid-spec) :scope :rf.scope/from-caller) valid-request))))
   ;; An app-namespaced keyword is a legitimate literal scope — NOT in the
   ;; reserved :rf.scope/* namespace, so it is accepted unchanged.
   (testing "an app-namespaced keyword scope is accepted as a literal scope"
     (is (= :test/app-ns
            (resources/reg-resource :test/app-ns
-                                   (assoc (valid-spec) :scope :my.app/whatever)))))
+                                   (assoc (valid-spec) :scope :my.app/whatever) valid-request))))
   ;; Data-value scopes (the legitimate data-value-resolver feature) stay
   ;; valid: a [:rf.scope/session {…}] tuple is a value, not a bare keyword,
   ;; and a map / string scope is likewise a literal data value.
@@ -121,18 +129,19 @@
     (is (= :test/tuple
            (resources/reg-resource :test/tuple
                                    (assoc (valid-spec)
-                                          :scope [:rf.scope/session {:user-id "u-1"}]))))
+                                          :scope [:rf.scope/session {:user-id "u-1"}])
+                                   valid-request)))
     (is (= :test/map
            (resources/reg-resource :test/map
-                                   (assoc (valid-spec) :scope {:tenant-id "acme"}))))
+                                   (assoc (valid-spec) :scope {:tenant-id "acme"}) valid-request)))
     (is (= :test/string
            (resources/reg-resource :test/string
-                                   (assoc (valid-spec) :scope "tenant-acme")))))
+                                   (assoc (valid-spec) :scope "tenant-acme") valid-request))))
   ;; A fn resolver is valid.
   (testing "a fn resolver scope is accepted"
     (is (= :test/fn
            (resources/reg-resource :test/fn
-                                   (assoc (valid-spec) :scope (fn [] :rf.scope/global)))))))
+                                   (assoc (valid-spec) :scope (fn [] :rf.scope/global)) valid-request))))))
 
 (deftest resource-kind-in-closed-set
   (testing ":resource is a valid registrar kind"

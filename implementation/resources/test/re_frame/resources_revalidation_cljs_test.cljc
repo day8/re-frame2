@@ -94,10 +94,12 @@
   ([overrides]
    (merge {:scope         :rf.scope/from-caller
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- ensure! [resource scope slug owner]
   (rf/dispatch-sync [:rf.resource/ensure
@@ -123,8 +125,8 @@
   ;; Stale-by-policy is `:stale-after-ms 0` (stale the instant it loads); the
   ;; never-stale variant declares no stale policy. Both keep their owner so the
   ;; ACTIVE-OWNER gate is what differs from the inactive case, not liveness.
-  (rf/reg-resource :rv/sw   (article-spec {:stale-after-ms 0})) ;; goes stale at once
-  (rf/reg-resource :rv/fresh (article-spec))                    ;; never stale
+  (rf/reg-resource :rv/sw   (article-spec {:stale-after-ms 0}) article-spec-request) ;; goes stale at once
+  (rf/reg-resource :rv/fresh (article-spec) article-spec-request)                    ;; never stale
   (let [scope    {:user "u"}
         k-as     (state/scoped-resource-key scope :rv/sw    {:slug "active-stale"})
         k-af     (state/scoped-resource-key scope :rv/fresh {:slug "active-fresh"})
@@ -151,7 +153,7 @@
       (is (= :loaded (:status (entry k-is))) "inactive-stale NOT refetched (owner gate)"))))
 
 (deftest network-reconnected-refetches-active-stale
-  (rf/reg-resource :rc/sw (article-spec {:stale-after-ms 0}))
+  (rf/reg-resource :rc/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :rc/sw {:slug "w"})]
     (ensure! :rc/sw scope "w" [:route :r 1])
@@ -167,7 +169,7 @@
 ;; ===========================================================================
 
 (deftest focus-refetch-is-cause-not-owner
-  (rf/reg-resource :ca/sw (article-spec {:stale-after-ms 0}))
+  (rf/reg-resource :ca/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :ca/sw {:slug "w"})]
     (ensure! :ca/sw scope "w" [:route :r 1])
@@ -188,7 +190,7 @@
 ;; ===========================================================================
 
 (deftest focus-refetch-bumps-generation-and-suppresses-stale-reply
-  (rf/reg-resource :gn/sw (article-spec {:stale-after-ms 0}))
+  (rf/reg-resource :gn/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :gn/sw {:slug "w"})]
     (ensure! :gn/sw scope "w" [:route :r 1])
@@ -232,7 +234,7 @@
   ;; ADVERSARIAL (rf2-wankrd): the second focus signal arrives while the
   ;; first focus's refetch is still in flight. Without coalescing it would
   ;; force a SECOND new generation, superseding + aborting the first (churn).
-  (rf/reg-resource :co/sw (article-spec {:stale-after-ms 0}))
+  (rf/reg-resource :co/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :co/sw {:slug "w"})]
     (ensure! :co/sw scope "w" [:route :r 1])
@@ -259,7 +261,7 @@
   ;; visibilitychange (document) both translate to :rf.resource/window-focused.
   ;; Exactly one active-stale key MUST produce at most one new generation /
   ;; work item and no abort churn.
-  (rf/reg-resource :cv/sw (article-spec {:stale-after-ms 0}))
+  (rf/reg-resource :cv/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :cv/sw {:slug "w"})]
     (ensure! :cv/sw scope "w" [:route :r 1])
@@ -282,7 +284,7 @@
   ;; The in-flight gate must NOT permanently wedge revalidation: once the
   ;; in-flight refetch SETTLES (work cleared, entry stale again), a later
   ;; focus signal MUST start a fresh refetch.
-  (rf/reg-resource :cf/sw (article-spec {:stale-after-ms 0}))
+  (rf/reg-resource :cf/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :cf/sw {:slug "w"})]
     (ensure! :cf/sw scope "w" [:route :r 1])

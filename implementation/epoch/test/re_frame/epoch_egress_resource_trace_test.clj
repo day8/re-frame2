@@ -54,14 +54,14 @@
                 (rf/reg-resource :secret/article
                   {:scope         :rf.scope/global
                    :sensitive?    true
-                   :params-schema [:map [:auth-token :string]]
-                   :request       (fn [_ _] {:request {:method :get :url "/x"}})})
+                   :params-schema [:map [:auth-token :string]]}
+                  (fn [_ _] {:request {:method :get :url "/x"}}))
                 ;; a :large? resource — same redaction shape off-box.
                 (rf/reg-resource :big/blob
                   {:scope         :rf.scope/global
                    :large?        true
-                   :params-schema [:map [:blob :string]]
-                   :request       (fn [_ _] {:request {:method :get :url "/y"}})})
+                   :params-schema [:map [:blob :string]]}
+                  (fn [_ _] {:request {:method :get :url "/y"}}))
                 ;; a derived-sensitive {:from-db} scope: the owner did NOT
                 ;; declare :sensitive?, but the resolver is explicitly
                 ;; :rf.egress/sensitive (force-mark), so the entry inherits
@@ -73,13 +73,13 @@
                               (when username [:rf.scope/session {:username username}]))})
                 (rf/reg-resource :derived/profile
                   {:scope         {:from-db :rt/session}
-                   :params-schema [:map [:slug :string]]
-                   :request       (fn [_ _] {:request {:method :get :url "/z"}})})
+                   :params-schema [:map [:slug :string]]}
+                  (fn [_ _] {:request {:method :get :url "/z"}}))
                 ;; a PLAIN resource — must ride verbatim (no over-redaction).
                 (rf/reg-resource :plain/article
                   {:scope         :rf.scope/global
-                   :params-schema [:map [:slug :string]]
-                   :request       (fn [_ _] {:request {:method :get :url "/a"}})}))}))
+                   :params-schema [:map [:slug :string]]}
+                  (fn [_ _] {:request {:method :get :url "/a"}})))}))
 
 (defn- contains-secret? [v]
   (boolean

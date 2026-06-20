@@ -95,15 +95,15 @@
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}))
+     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})))
 
 (defn- reg-feed-resource! []
   (rf/reg-resource :r/feed
     {:scope {:from-db :t/session}
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/feed"}})
-     :tags (fn [_p _] #{[:feed] [:article-list]})}))
+     :tags (fn [_p _] #{[:feed] [:article-list]})}
+    (fn [_p _] {:request {:method :get :url "/feed"}})))
 
 (defn- own-loaded!
   "Ensure + load an entry under `payload` so it has an ACTIVE owner (so a
@@ -144,8 +144,8 @@
   (reg-article-resource!)
   (rf/reg-mutation :m/save
     {:params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-     :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})})
+     :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   ;; ownerless article — the invalidation leaves it stale (observable)
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
@@ -191,10 +191,10 @@
   (rf/reg-mutation :m/favorite
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
      :invalidates (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])})
+                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (reply-success! @last-managed-args {:favorited true})
   (testing "the GLOBAL article entry was invalidated by the global descriptor"
@@ -226,10 +226,10 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      :invalidates (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])})
+                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :v1}])
   (reply-success! @last-managed-args {:title "new"})
   (testing "the ACTIVE-owner global article REFETCHED (back in flight, a fresh GET lowered)"
@@ -261,8 +261,8 @@
     (rf/reg-mutation :m/save
       {:scope :rf.scope/global
        :params-schema [:map [:slug :string]]
-       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-       :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])})
+       :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :c1
                                              :reply-to [:test/saved]}])
     (reply-success! @last-managed-args {:title "new"})
@@ -283,8 +283,8 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-     :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})})
+     :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   ;; ownerless article (stale-observable)
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
@@ -320,8 +320,8 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])})
+     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:t/login "zed"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
                                           :params {} :owner [:v :feed]}])
@@ -352,8 +352,8 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
-     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:article-list]}}])})
+     :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:article-list]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (let [seen (atom [])
         k    ::succeeded-recorder]
     (trace-tooling/register-listener!
@@ -382,10 +382,10 @@
   (rf/reg-mutation :m/favorite
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
      :invalidates (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])})
+                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
   (let [seen (atom [])
         k    ::succeeded-recorder]
     (trace-tooling/register-listener!
@@ -442,10 +442,10 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      ;; the descriptor's CONCRETE :scope is a reserved-namespace typo
      :invalidates (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/glabal :tags #{[:article slug]}}])})
+                    [{:scope :rf.scope/glabal :tags #{[:article slug]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   ;; an ownerless GLOBAL article entry exists; a regression that dropped
   ;; canonicalization (resolving the typo to itself, or blasting global) would
   ;; be observable as this entry wrongly marked stale.
@@ -484,8 +484,8 @@
   (rf/reg-resource :rx/article
     {:scope :rf.scope/from-caller
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+     :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   ;; two same-tag article entries in DIFFERENT scopes, both ownerless +
   ;; stale-observable. A scoped (non-cross-scope) invalidation would reach at
   ;; most one; only the scope-agnostic fan-out reaches BOTH.
@@ -498,12 +498,12 @@
     (rf/reg-mutation :m/purge
       {:scope :rf.scope/global
        :params-schema [:map [:slug :string]]
-       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
        ;; a :cross-scope? true descriptor with NO explicit :cause — the
        ;; mutation runtime supplies the [:mutation <id> <instance>] cause by
        ;; construction, satisfying the rf2-7r8kgd cause-required gate.
        :invalidates (fn [{:keys [slug]} _result]
-                      [{:tags #{[:article slug]} :cross-scope? true}])})
+                      [{:tags #{[:article slug]} :cross-scope? true}])}
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (let [seen (atom [])
           k    ::succeeded-recorder]
       (trace-tooling/register-listener!
@@ -537,10 +537,10 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      ;; a descriptor with NO :scope -> :rf.scope/same -> the mutation's
      ;; resolved (:rf.scope/global) scope.
-     :invalidates (fn [{:keys [slug]} _result] [{:tags #{[:article slug]}}])})
+     :invalidates (fn [{:keys [slug]} _result] [{:tags #{[:article slug]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
   (reply-success! @last-managed-args {:title "old"})
@@ -627,10 +627,10 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      ;; a LONE vector tag written directly (not wrapped in a set) — the natural
      ;; single-tag shorthand the bead flags as silently failing.
-     :invalidates (fn [{:keys [slug]} _result] [:article slug])})
+     :invalidates (fn [{:keys [slug]} _result] [:article slug])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
   (reply-success! @last-managed-args {:title "old"})
@@ -677,8 +677,8 @@
   (rf/reg-resource :r/article-list
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/articles"}})
-     :tags (fn [_p _] #{[:article-list]})})
+     :tags (fn [_p _] #{[:article-list]})}
+    (fn [_p _] {:request {:method :get :url "/articles"}}))
   (rf/dispatch-sync [:t/login "jake"])
   ;; ACTIVE-owner list entry (global) → REFETCH on invalidation
   (own-loaded! {:resource :r/article-list :scope :rf.scope/global :params {} :owner [:v :list]})
@@ -693,7 +693,6 @@
   (rf/reg-mutation :m/favorite
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
      ;; populate the detail key authoritatively…
      :populates (fn [{:keys [slug]} result]
                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
@@ -701,7 +700,8 @@
      ;; populated-exempt detail) AND [:article-list] (matches the active list
      ;; here AND jake's feed in ANOTHER scope).
      :invalidates (fn [{:keys [slug]} _r]
-                    [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}])})
+                    [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
   (let [invs (record-invalidations!
                #(do (rf/dispatch-sync [:rf.mutation/execute
                                        {:mutation :m/favorite :params {:slug "w"} :instance :iv1}])

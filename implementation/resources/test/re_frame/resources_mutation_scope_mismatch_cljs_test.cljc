@@ -91,15 +91,15 @@
   (rf/reg-resource :r/feed
     {:scope {:from-db :t/session}
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/feed"}})
-     :tags (fn [_p _] #{[:feed] [:article-list]})}))
+     :tags (fn [_p _] #{[:feed] [:article-list]})}
+    (fn [_p _] {:request {:method :get :url "/feed"}})))
 
 (defn- reg-global-article-resource! []
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}))
+     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})))
 
 (defn- seed-ownerless-session-feed!
   "Drive jake's SESSION feed entry to :loaded then release its owner, so it is
@@ -137,9 +137,9 @@
   ;; a per-target descriptor naming `{:from-db :t/session}`.
   (rf/reg-mutation :m/post-to-feed
     {:params-schema [:map]
-     :request (fn [_p _] {:request {:method :post :url "/feed"}})
      :invalidates (fn [_p _result]
-                    [{:scope {:from-db :t/session} :tags #{[:feed]}}])})
+                    [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [_p _] {:request {:method :post :url "/feed"}}))
   (let [warnings (record-warnings!
                    (fn []
                      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/post-to-feed
@@ -164,8 +164,8 @@
   ;; jake's SESSION scope, so the global invalidation matches NOTHING.
   (rf/reg-mutation :m/post
     {:params-schema [:map]
-     :request (fn [_p _] {:request {:method :post :url "/feed"}})
-     :invalidates (fn [_p _result] #{[:feed]})})
+     :invalidates (fn [_p _result] #{[:feed]})}
+    (fn [_p _] {:request {:method :post :url "/feed"}}))
   (let [warnings (record-warnings!
                    (fn []
                      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/post
@@ -205,8 +205,8 @@
   ;; this is a true nothing-to-invalidate, NOT a mismatch footgun.
   (rf/reg-mutation :m/post
     {:params-schema [:map]
-     :request (fn [_p _] {:request {:method :post :url "/feed"}})
-     :invalidates (fn [_p _result] #{[:feed]})})
+     :invalidates (fn [_p _result] #{[:feed]})}
+    (fn [_p _] {:request {:method :post :url "/feed"}}))
   (let [warnings (record-warnings!
                    (fn []
                      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/post
@@ -227,8 +227,8 @@
   ;; construction, so 'no match in this scope' is impossible / intentional.
   (rf/reg-mutation :m/post
     {:params-schema [:map]
-     :request (fn [_p _] {:request {:method :post :url "/feed"}})
-     :invalidates (fn [_p _result] [{:cross-scope? true :tags #{[:feed]}}])})
+     :invalidates (fn [_p _result] [{:cross-scope? true :tags #{[:feed]}}])}
+    (fn [_p _] {:request {:method :post :url "/feed"}}))
   (let [warnings (record-warnings!
                    (fn []
                      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/post
@@ -249,8 +249,8 @@
   (seed-ownerless-session-feed!)
   (rf/reg-mutation :m/post
     {:params-schema [:map]
-     :request (fn [_p _] {:request {:method :post :url "/feed"}})
-     :invalidates (fn [_p _result] #{[:feed]})})
+     :invalidates (fn [_p _result] #{[:feed]})}
+    (fn [_p _] {:request {:method :post :url "/feed"}}))
   (let [warnings (record-warnings!
                    (fn []
                      ;; execute the SAME footgun mutation three times — each is a
@@ -283,10 +283,10 @@
   (seed-ownerless-session-feed!)
   (rf/reg-mutation :m/favorite
     {:params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
      :invalidates (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global :tags #{[:article slug]}}
-                     {:scope {:from-db :t/session} :tags #{[:feed]}}])})
+                     {:scope {:from-db :t/session} :tags #{[:feed]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
   (let [warnings (record-warnings!
                    (fn []
                      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite

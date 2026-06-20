@@ -985,9 +985,8 @@
                                                 (str url-template params)
                                                 (str "/api/" (name resource-id)))}})]
         (reg-resource resource-id
-                      (-> spec
-                          (dissoc :url-template)
-                          (assoc :request request-fn)))))))
+                      (dissoc spec :url-template)
+                      request-fn)))))
 
 (defn- realise-machine-handlers
   "Build {action-id → fn} and {guard-id → fn} from a fixture's

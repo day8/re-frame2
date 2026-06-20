@@ -93,10 +93,12 @@
   ([overrides]
    (merge {:scope         :rf.scope/global
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- entry [scoped-key]
   (get-in (rf/runtime-db-value :rf/default) (state/entry-path scoped-key)))
@@ -111,7 +113,8 @@
     (let [traces (record-resource-traces!
                    #(rf/reg-resource :rt/article
                                      (article-spec {:stale-after-ms 60000
-                                                    :gc-after-ms    300000})))
+                                                    :gc-after-ms    300000})
+                                     article-spec-request))
           evs    (by-op traces :rf.resource/registered)]
       (is (= 1 (count evs))
           "exactly one :rf.resource/registered for a fresh reg-resource")
@@ -125,9 +128,9 @@
   (testing "re-registration does NOT re-emit :rf.resource/registered (the
             cross-kind :rf.registry/handler-replaced trace is the hot-reload
             signal) — symmetric with :rf.route/registered / :rf.flow/registered"
-    (rf/reg-resource :rt/once (article-spec))
+    (rf/reg-resource :rt/once (article-spec) article-spec-request)
     (let [traces (record-resource-traces!
-                   #(rf/reg-resource :rt/once (article-spec {:stale-after-ms 1})))]
+                   #(rf/reg-resource :rt/once (article-spec {:stale-after-ms 1}) article-spec-request))]
       (is (empty? (by-op traces :rf.resource/registered))
           "re-registration emits no :rf.resource/registered"))))
 
@@ -136,7 +139,7 @@
 ;; ===========================================================================
 
 (deftest owner-attached-on-fresh-load
-  (rf/reg-resource :oa/article (article-spec))
+  (rf/reg-resource :oa/article (article-spec) article-spec-request)
   (testing "an ensure that fresh-loads AND attaches a NEW owner emits
             :rf.resource/owner-attached (:joined-in-flight? false)"
     (let [scoped-key (state/scoped-resource-key :rf.scope/global :oa/article {:slug "w"})
@@ -152,7 +155,7 @@
         (is (false?           (:joined-in-flight? tags)) "fresh load: not a join")))))
 
 (deftest owner-attached-on-dedupe-join
-  (rf/reg-resource :oa/join (article-spec))
+  (rf/reg-resource :oa/join (article-spec) article-spec-request)
   (testing "a second ensure that JOINS an in-flight request but attaches a NEW
             owner emits :rf.resource/owner-attached (:joined-in-flight? true)"
     (rf/dispatch-sync
@@ -170,7 +173,7 @@
         (is (true?           (:joined-in-flight? tags)) "join: :joined-in-flight? true")))))
 
 (deftest owner-attached-not-re-emitted-for-existing-owner
-  (rf/reg-resource :oa/same (article-spec))
+  (rf/reg-resource :oa/same (article-spec) article-spec-request)
   (testing "re-ensuring with an owner ALREADY on the entry does NOT re-emit
             owner-attached (the lease did not change)"
     (rf/dispatch-sync
@@ -184,7 +187,7 @@
           "no owner-attached when the owner was already present"))))
 
 (deftest owner-attached-absent-when-no-owner
-  (rf/reg-resource :oa/none (article-spec))
+  (rf/reg-resource :oa/none (article-spec) article-spec-request)
   (testing "an ownerless ensure (e.g. a focus/reconnect refetch) emits no
             owner-attached (a CAUSE, not an owner — Spec 016 §Active owners
             and causes)"
@@ -238,7 +241,7 @@
 ;; ===========================================================================
 
 (deftest only-stale-suppressed-no-work-suppressed
-  (rf/reg-resource :sp/article (article-spec))
+  (rf/reg-resource :sp/article (article-spec) article-spec-request)
   (testing "a stale/superseded reply emits :rf.resource/stale-suppressed and
             NEVER :rf.resource/work-suppressed (folded into stale-suppressed —
             there is exactly one suppression op)"
@@ -275,7 +278,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest stale-suppressed-trace-carries-canonical-reply-envelope
-  (rf/reg-resource :rev/article (article-spec))
+  (rf/reg-resource :rev/article (article-spec) article-spec-request)
   (testing "rf2-mn4j89 — a superseded resource reply (carried gen 1 vs current
             gen 2) is recorded :status :stale / :work/status :suppressed via
             the shared substrate, with the carried-vs-current generation pair
@@ -332,7 +335,7 @@
 (deftest cache-hit-emitted-on-fresh-ensure
   ;; no :stale-after-ms → the entry is always fresh once loaded
   ;; (entry-stale? false: neither :stale-at nor :invalidated-at set)
-  (rf/reg-resource :ch/article (article-spec))
+  (rf/reg-resource :ch/article (article-spec) article-spec-request)
   (testing "an ensure of an already-:loaded, still-fresh entry serves the
             cached value: it emits :rf.resource/cache-hit and starts NO new
             load (Spec 016 §Lifecycle is an FSM / §Restore — fresh-skip,
@@ -378,7 +381,7 @@
                 "fresh-skip is not an in-flight join")))))))
 
 (deftest stale-loaded-ensure-still-refetches
-  (rf/reg-resource :ch/stale (article-spec))
+  (rf/reg-resource :ch/stale (article-spec) article-spec-request)
   (testing "a STALE :loaded entry STILL refetches on the next ensure —
             fresh-skip must NOT swallow a stale refresh (negative case,
             rf2-hsa0sv)"

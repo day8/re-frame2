@@ -111,10 +111,10 @@
   ;; :resources — a process node (runtime-db / remote authority).
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :request       (fn [{:keys [slug]} _ctx]
-                                     {:request {:method :get
-                                                :url    (str "/api/articles/" slug)}})})
+                    :params-schema [:map [:slug :string]]}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get
+                                :url    (str "/api/articles/" slug)}}))
   ;; :routes — a route fact (runtime-db / on-route).
   (rf/reg-route :route/article {} "/articles/:slug")
   ;; :machines — a process node (runtime-db / on-transition).
@@ -253,10 +253,10 @@
                                 :blocking? true}]} "/articles/:slug")
     (rf/reg-resource :article/by-slug
                      {:scope         :rf.scope/global
-                      :params-schema [:map [:slug :string]]
-                      :request       (fn [{:keys [slug]} _ctx]
-                                       {:request {:method :get
-                                                  :url    (str "/api/articles/" slug)}})})
+                      :params-schema [:map [:slug :string]]}
+                     (fn [{:keys [slug]} _ctx]
+                       {:request {:method :get
+                                  :url    (str "/api/articles/" slug)}}))
     (let [g     (graph/derivation-graph all-contributors)
           edges (:edges g)
           param (filter #(= :param (:role %)) edges)]

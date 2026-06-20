@@ -429,8 +429,8 @@
   (rf/reg-resource :article/by-slug
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags    (fn [{:keys [slug]} _] #{[:article slug]})})
+     :tags    (fn [{:keys [slug]} _] #{[:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (testing "ADVERSARIAL acceptance (rf2-o3d1uf): a pre-restore mutation success
             reply that lands AFTER restore is SUPPRESSED — it does NOT patch /
             populate / invalidate the post-restore resource entry"

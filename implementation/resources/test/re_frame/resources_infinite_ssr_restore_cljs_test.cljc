@@ -84,14 +84,14 @@
     {:scope           :rf.scope/global
      :infinite        true
      :params-schema   [:map [:filter :keyword]]
-     :request         (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
-                        {:request {:method :get :url "/api/feed"
-                                   :params (cond-> {:filter filter :page-index page-index}
-                                             page-param (assoc :cursor page-param))}})
      :next-page-param next-cursor
      :prev-page-param prev-cursor
      :page->items     :items
-     :tags            (fn [{:keys [filter]} _data] #{[:feed filter]})}))
+     :tags            (fn [{:keys [filter]} _data] #{[:feed filter]})}
+    (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+      {:request {:method :get :url "/api/feed"
+                 :params (cond-> {:filter filter :page-index page-index}
+                           page-param (assoc :cursor page-param))}})))
 
 (def ^:private fkey
   ;; canonical global-scope key for :feed/timeline {:filter :recent}
