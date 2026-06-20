@@ -212,8 +212,74 @@ is enforced the same way on the public teaching surface:
 `scripts/check_retired_composition_vocab.py` fails the docs build if a retired
 construction/install/inspection symbol (e.g. `rf/install!`, `rf/realm`,
 `installed-app`) reappears as live API in a fenced code block outside the narrow
-historical allowlist (the EP docs, the migration skill, and the spec meta-docs
-that map the removal).
+historical allowlist. The exact term lists, the historical carve-out, and the
+ordinary-English allowances are pinned below.
+
+<a id="retired-composition-vocabulary--the-hard-rule"></a>
+
+### Retired composition vocabulary — the hard rule
+
+The EP-0013 realm / app-value / module **construction-and-install** model is
+**retired**: removed from the public facade by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)
+and **deleted in full** by [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md).
+The substrate that carried it (the realm installation container, the app value,
+the module value, and their constructors) **no longer exists** — there is no
+retained-internal realm machinery to read. This is a **hard rule**, recorded
+here so follow-up work does not re-legitimize the retired model: the only place
+the retired vocabulary may appear is **historical discussion**, and only there.
+
+**The live public model is `image → frame → event stream`.** Compose behaviour
+by declaring an [`rf/image`](API.md) (a registration-source selection over
+`:rf.provenance/*` source namespaces, with its `:rf.image/requires` capability
+set), loading it into a frame, and processing that frame's events as an event
+stream.
+
+**Preferred replacements** (the canonical live nouns — use these, never the
+retired ones):
+
+| Use this | …not this retired noun |
+|---|---|
+| **frame** | realm, operating realm, app-frame |
+| **image** | app, app-value, module |
+| **resolved image generation** (the sealed `:rf.gen/*` lookup table) | installed app, the realm's registry |
+| **registration source** (`:rf.provenance/*`) | module, realm-routed registrations |
+| **event stream** (a frame processes its events as a stream) | event program, realm-routing |
+| **frame target** (a dispatch/subscribe addressed to a frame) | realm-targeted, `:realm` targeting |
+
+**Disallowed as live architectural nouns / surfaces** (a CI failure where the
+shape allows it — fenced code, emitted wire/tool output, or live teaching
+prose): `realm`, `app-value`, `module`, `app-frame`, `operating realm`,
+`program member`, `realm-routed`, `realm-targeted`, `:realm` targeting,
+`:rf.realm/id` as **public or tool output**, `rf/realm`, `rf/app`, `rf/module`,
+and the `install` / `reinstall` / `installed-app` family (`rf/install!`,
+`rf/reinstall!`, `rf/dispose-realm!`, `rf/installed-app`, `rf/realm-ids`,
+`rf/frame-realm`, `rf/app-registrations`, `rf/app-owns`, `rf/app-requires`).
+
+**Ordinary, non-architectural English remains allowed** — these are words, not
+the retired model: **application** (the thing a user builds), **app-db** (the
+sanctioned existing partition term, [EP-0023:204](../docs/EP/EP-0023-image-loaded-frames.md)),
+**programmer**, **pair-program**, and operating-system **program** / **process**
+(an OS process, not an "event program").
+
+**The historical carve-out is `docs/EP/**` only.** The EP design and
+supersession docs **are** the retirement record — they carry worked examples of
+the retired construction as their *subject* (EP-0013 introduced it; EP-0023 §1670
+maps it onto the image/frame model; EP-0024 deletes it). A retired spelling is
+legitimate **only** where the SUBJECT is the retirement itself, i.e. an `EP-*`
+doc. Everywhere else — the spec, the guide, the API reference, the skills, the
+migration guidance, the examples, the generated docs, the tests, and the repo
+support files — must be clean. Removed-context *mention* in prose ("`rf/realm`
+was retired") is always fine; the gate never scans prose, inline code spans, or
+masked code-fence comments. What is forbidden is the retired model reappearing as
+**live, copy-pasteable, recommended** vocabulary.
+
+**Enforcement.** `scripts/check_retired_composition_vocab.py` (wired into
+`.github/workflows/docs.yml`) is the guardrail. Its banned-term list and its
+file allowlist track this rule exactly: the allowlist is the `docs/EP/**` prefix
+plus the `EP-*.md` basename glob (EP docs that live under `spec/`), and nothing
+else. A retired spelling reappearing as live API anywhere outside `docs/EP/**`
+FAILS without the allowlist being touched; widening the allowlist to relegitimise
+a non-EP surface is a rule violation, not a fix.
 
 ## Reserved fx-ids
 

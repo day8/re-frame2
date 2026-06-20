@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""EP-0023 §retired-composition-vocabulary — public-surface vocabulary guardrail.
+"""Retired composition-vocabulary guardrail — the `image -> frame -> event stream` rule.
 
-EP-0023 (image-loaded frames) established `image -> frame -> event stream` as
-THE public composition model and RETIRED the older EP-0013 app/realm/module
-construction-and-install vocabulary at the public app surface (no alias). The
-`pl97nd` epic scrubbed the retired vocabulary repo-wide (children .2/.3/.4 are
-merged: the facade exports, the spec/API rows, and the doc/skill teaching
-surface are all clean). This gate is the guardrail that keeps the scrub done:
-it fails if a retired composition spelling reappears as LIVE, copy-pasteable
-public API on the teaching / reference surface.
+The normative rule this gate enforces is recorded in
+spec/Conventions.md §"Retired composition vocabulary — the hard rule"
+(rf2-6sefiu.1). In one line: the EP-0013 app/realm/module construction-and-install
+model is RETIRED — removed from the public facade by EP-0023 (image-loaded
+frames) and DELETED IN FULL by EP-0024 (unified frame identity) — and the ONLY
+place its vocabulary may appear is HISTORICAL discussion under `docs/EP/**`. The
+live public model is `image -> frame -> event stream`. This gate fails if a
+retired composition spelling reappears as LIVE, copy-pasteable public API on the
+teaching / reference surface anywhere outside that historical carve-out.
 
 THE POLICY (EP-0023 §Naming, docs/EP/EP-0023-image-loaded-frames.md:201)
 
@@ -20,14 +21,14 @@ install + inspection family — `rf/install!`, `rf/reinstall!`, `rf/realm`,
 `rf/dispose-realm!`, `rf/installed-app`, `rf/realm-ids`, `rf/frame-realm`,
 `rf/app-registrations`, `rf/app-owns`, `rf/app-requires`, `rf/module`,
 `rf/app` — onto the public `rf/image` + `rf/make-frame` + `rf/reload-images!`
-+ `rf/destroy-frame!` model.
++ `rf/destroy-frame!` model. EP-0024 then DELETED the substrate that carried
+the realm machinery, so there is no retained-internal realm surface to read.
 
 So a retired composition spelling is legitimate ONLY where the SUBJECT is the
-retirement itself — the EP design/supersession docs, the migration skill, the
-port-builder implementor skill, the tooling skills (Pair / Xray) that read the
-retained-internal substrate, and the spec meta-docs that map the removal. It is
-DRIFT anywhere it reads as live, recommended, copy-pasteable re-frame2 API on
-the public teaching surface.
+retirement itself — the `EP-*` design/supersession docs. It is DRIFT anywhere it
+reads as live, recommended, copy-pasteable re-frame2 API on the public teaching
+surface (the spec, guide, API reference, skills, migration guidance, examples,
+and repo support files are all held to the clean bar).
 
 WHY THE SHAPE IS SCOPED TO FENCED CODE (the "where shapes allow" caveat)
 
@@ -50,24 +51,26 @@ A `;`-to-EOL Clojure comment INSIDE a code fence is masked (length-preserving)
 the same way: a fenced block whose only mention is a `;; rf/install! is retired`
 comment is removed-context prose that happens to sit in a code block.
 
-THE NARROW ALLOWLIST (historical / internal / migration surface only)
+THE MINIMAL ALLOWLIST (historical surface ONLY — `docs/EP/**`)
 
-A retired symbol inside a code fence is correct on the surfaces whose SUBJECT
-IS the retired vocabulary — the EP design/supersession docs carry worked
-examples of the old construction, the migration skill shows the v1->v2 reshape,
-the implementor skill specifies the retained-internal substrate for port
-builders, the tooling skills read the internal substrate, and the spec
-meta-docs map the removal. The allowlist is a FILE allowlist, not a pattern
-allowlist: it does not widen what counts as the retired vocabulary, it only
-exempts the small set of files whose subject IS the retirement. Every other
-doc — the whole teaching surface, the public API reference, the pattern docs,
-the authoring skill's teaching prose — must be clean. A future stale example
-anywhere outside the allowlist FAILS without the allowlist being touched.
+A retired symbol inside a code fence is correct ONLY on the surfaces whose
+SUBJECT IS the retired vocabulary — the `EP-*` design/supersession docs, which
+carry worked examples of the old construction as the thing-being-retired. After
+the EP-0024 atomic substrate deletion (#4811) there is NO retained-internal
+realm machinery, so the migration/implementor/tooling skills NO LONGER carry the
+retired surface as live examples — they were rewritten onto the image/frame
+model and now scan clean WITHOUT an allowlist entry. The allowlist was therefore
+TIGHTENED to the rule (rf2-6sefiu.1): it is now the `docs/EP/` prefix (plus the
+`EP-*.md` basename glob for EP docs under spec/) and nothing else.
 
-Each allowlist entry is self-documenting (see `_ALLOWLIST` below): it carries a
-one-line note tying the exemption to the inventory finding
-(ai/findings/API-review/codex/retired-app-composition-vocabulary.md) or the
-EP/migration policy.
+The allowlist is a FILE allowlist, not a pattern allowlist: it does not widen
+what counts as the retired vocabulary, it only exempts the EP historical record.
+Every other doc — the whole teaching surface, the public API reference, the spec
+meta-docs (including spec/Conventions.md, which now HOLDS the hard rule), the
+skills, the migration guidance — must be clean. A future stale example anywhere
+outside `docs/EP/**` FAILS without the allowlist being touched. WIDENING the
+allowlist to relegitimise a non-EP surface is a rule violation, not a fix —
+rewrite the surface onto `image -> frame -> event stream` instead.
 
 NOTE — this is a DOC-SURFACE gate: it keeps the public TEACHING surface clean —
 a retired spelling reappearing as live, copy-pasteable API inside markdown
@@ -182,65 +185,39 @@ _EXCLUDE_REL_PREFIXES = ("docs/spec/",)
 
 
 # --------------------------------------------------------------------------
-# Narrow allowlist — historical / internal / migration surface (file-scoped)
+# Narrow allowlist — historical surface ONLY (file-scoped)
 # --------------------------------------------------------------------------
 #
-# These are the only surfaces whose SUBJECT is the EP-0013->EP-0023 retirement,
-# so a worked example of the retired construction inside a code fence is correct
-# there. Each entry is (repo-relative path prefix, self-documenting note).
-# Matched as forward-slash path prefixes (normalised before matching). KEEP THIS
-# MINIMAL — every entry must name why the surface legitimately carries the
-# retired vocabulary, tied to the inventory or an EP/migration policy.
+# THE HARD RULE (rf2-6sefiu.1, recorded normatively in
+# spec/Conventions.md §Retired composition vocabulary — the hard rule):
+# the ONLY place the retired realm/app/module composition vocabulary may appear
+# is HISTORICAL DISCUSSION, and the only historical surface is `docs/EP/**`
+# (plus EP-* docs that live under spec/, handled by the basename glob below).
+#
+# Post-EP-0024 (the atomic substrate deletion, #4811) there is NO retained-
+# internal realm machinery left to read, so the migration skill, the
+# implementor skill, and the Pair/Xray tooling skills NO LONGER carry the
+# retired surface as live fenced examples — they were rewritten onto the
+# image/frame model, and the guard now confirms they scan clean WITHOUT an
+# allowlist entry. The earlier per-skill allowlist entries were therefore
+# de-listed under this bead (rf2-6sefiu.1): they were stale exemptions for a
+# substrate that no longer exists. spec/Conventions.md was de-listed too — it
+# is now the home of the hard rule itself and is held to the clean public-surface
+# bar like any other teaching doc (its retired mentions are prose / inline
+# spans, which the gate never scans).
+#
+# KEEP THIS MINIMAL — the allowlist is the `docs/EP/` prefix and nothing else.
+# Widening it to relegitimise a non-EP surface is a RULE VIOLATION, not a fix:
+# rewrite the surface onto image -> frame -> event stream instead.
 _ALLOWLIST: tuple[tuple[str, str], ...] = (
     # The EP design + supersession docs ARE the retirement record. EP-0013 is
     # the design doc that introduced the app/realm/module construction; EP-0023
-    # supersedes it and carries the mapping table (EP-0023:1670). Worked
-    # examples of the old surface inside code fences are the docs' subject.
+    # supersedes it (the §1670 mapping table); EP-0024 deletes it in full.
+    # Worked examples of the old surface inside code fences are the docs' subject.
     ("docs/EP/",
      "EP design/supersession docs — the retirement record; worked examples of "
      "the retired surface are the docs' subject (EP-0013 design, EP-0023 §1670 "
-     "supersession map)."),
-    # EP-* docs may also live under spec/ (handled by the basename glob below);
-    # the spec meta-docs that MAP the removal carry the retired symbols as the
-    # thing-being-removed. Inventory §Implementation lists these as the scrub's
-    # spec surface; they discuss the retired terms historically.
-    #
-    # (spec/Ownership.md and spec/Runtime-Subsystems.md were de-allowlisted under
-    # rf2-w37qlu — the realm-container substrate they used to grade is retired,
-    # and their remaining realm mentions are removed-context PROSE only, which the
-    # guard never scans. They are now protected like any other teaching surface.)
-    ("spec/Conventions.md",
-     "spec meta-doc — the normative naming/vocabulary catalogue; discusses the "
-     "retired composition nouns to record that they are retired."),
-    # The migration skill teaches the v1->v2 reshape: it MUST show the retired
-    # surface as the 'before' so authors recognise what to migrate AWAY from.
-    ("skills/re-frame-migration/",
-     "v1->v2 migration skill — shows the retired surface as the 'before' shape "
-     "to migrate away from (EP-0007 §Delta teaching analogue)."),
-    # The port-builder implementor skill specifies the retained-INTERNAL
-    # substrate (realm/install/dispose) that a port must implement off-facade.
-    # Inventory §Proposed cleanup keeps the realm machinery as internal substrate.
-    ("skills/re-frame2-implementor/",
-     "port-builder skill — specifies the retained-internal substrate (realm/"
-     "install/dispose) a port implements off-facade (inventory §Proposed cleanup)."),
-    # The Pair + Xray tooling skills READ the internal substrate (via the
-    # internal `re-frame.realm/` + `re-frame.frame/` namespaces, NOT the `rf/`
-    # facade) to drive discovery + the legacy module/realm inspection lens.
-    # Inventory §Observed use 6 names these as tooling migration targets, not
-    # facade vocabulary.
-    ("skills/re-frame2-pair/",
-     "Pair tooling skill — reads the internal realm/frame substrate via "
-     "re-frame.realm/ + re-frame.frame/ (NOT rf/ facade) for live discovery "
-     "(inventory §Observed use 6)."),
-    ("skills/re-frame2-xray/",
-     "Xray tooling skill — reads the internal substrate for the legacy "
-     "module/realm inspection lens (inventory §Observed use 6, a tooling "
-     "migration target)."),
-    # (skills/shared/tool-pair-surfaces.md was de-allowlisted under rf2-y2jevy:
-    #  the leaf no longer documents any live realm addressing — the
-    #  re-frame.realm substrate was removed atomically, rf2-udl74a — and its
-    #  only realm mentions are now retired-history prose, which the gate never
-    #  scans. It is held to the clean public-surface bar like any other skill.)
+     "supersession map, EP-0024 deletion). The ONLY historical carve-out."),
 )
 
 # EP docs also appear under spec/ as `EP-*.md` (e.g. spec/EP-0007.md); allow
@@ -318,16 +295,16 @@ _STRONG_RE = re.compile(
 # therefore exactly the `rf/`-qualified or BARE-unqualified spelling. Any OTHER
 # namespace qualifier names a DIFFERENT symbol that merely shares the bare name:
 #
-#   * `re-frame.realm/realm-ids` — the RETAINED internal substrate read
-#     (inventory §Proposed cleanup: "the realm machinery stays as internal
-#     substrate"), legitimately used by tooling. (`re-frame.frame/frame-realm`
-#     and the per-frame realm-membership view were removed entirely under
-#     rf2-70owfr — the afdlyr collapse leaves a single default realm; the bare /
-#     `rf/` facade spelling stays a guarded drift symbol regardless.)
 #   * `counter/install!`, `my.app/install!` — an APP's own setup hook (a normal
 #     name for an example app's registration entry point; see
 #     spec/008-Testing.md §Pattern 5 `with-app-fixture {:install counter/install!}`).
-#     `install!` is not a reserved word; an app may name its own fn that.
+#     `install!` is not a reserved word; an app may name its own fn that. This is
+#     the live-and-legitimate case the qualifier filter protects.
+#
+# (The realm machinery itself — the `re-frame.realm/` / `re-frame.frame/`
+# substrate — was DELETED IN FULL by EP-0024 (#4811), so there is no longer an
+# internal `re-frame.realm/realm-ids` read to exempt; only an app's own
+# off-facade hook survives as a non-`rf/` qualified match.)
 #
 # So a strong-symbol match is drift ONLY when its captured `ns` qualifier is
 # empty (bare) or exactly `rf/` (the facade). A bare `install!` is still caught
@@ -687,13 +664,13 @@ _FIX_HINTS = {
         "The EP-0013 construction/install/inspection symbols (`install!`, "
         "`reinstall!`, `dispose-realm!`, `realm-ids`, `installed-app`, "
         "`app-registrations`, `app-owns`, `app-requires`, `frame-realm`) were "
-        "RETIRED from the public facade by EP-0023 (image-loaded frames). The "
+        "RETIRED from the public facade by EP-0023 (image-loaded frames) and the "
+        "realm machinery DELETED IN FULL by EP-0024 (unified frame identity). The "
         "public composition model is `rf/image` -> `rf/make-frame` / "
         "`rf/reg-frame` -> `rf/reload-images!` / `rf/destroy-frame!`. Rewrite "
-        "the example onto that model. (The realm machinery survives as an "
-        "INTERNAL substrate behind `re-frame.realm/` / `re-frame.frame/` for "
-        "tooling + SSR routing — that is allowlisted on the Pair/Xray/"
-        "implementor skills, not the public teaching surface.)"
+        "the example onto that model. The retired vocabulary is allowed ONLY in "
+        "the `docs/EP/**` historical record — nowhere else (see "
+        "spec/Conventions.md §Retired composition vocabulary — the hard rule)."
     ),
     "retired-facade-noun-call": (
         "`(rf/app ...)`, `(rf/module ...)`, and `(rf/realm ...)` are the "
@@ -724,7 +701,8 @@ _FIX_HINTS = {
 def _report(findings: list[Finding], repo_root: Path) -> None:
     sys.stderr.write(
         f"\n{len(findings)} live retired composition-vocabulary hit(s) found on "
-        "the teaching surface (EP-0023 §retired-composition-vocabulary):\n\n"
+        "the teaching surface (spec/Conventions.md §Retired composition "
+        "vocabulary — the hard rule):\n\n"
     )
     for f in findings:
         try:
@@ -737,12 +715,13 @@ def _report(findings: list[Finding], repo_root: Path) -> None:
     for fam in sorted(families):
         sys.stderr.write(f"  * {_FIX_HINTS[fam]}\n")
     sys.stderr.write(
-        "\nIf the surface legitimately discusses the retired vocabulary "
-        "historically (an EP doc, the migration skill, a tooling/implementor "
-        "skill that reads the internal substrate, or a spec meta-doc), add a "
-        "self-documenting entry to `_ALLOWLIST` in "
-        "scripts/check_retired_composition_vocab.py tying it to the inventory "
-        "(ai/findings/API-review/codex/retired-app-composition-vocabulary.md).\n"
+        "\nThe ONLY surface that may carry the retired vocabulary is the "
+        "`docs/EP/**` historical record (already allowlisted). Do NOT widen the "
+        "allowlist to relegitimise a non-EP surface — that is a rule violation. "
+        "Rewrite the example/prose onto `image -> frame -> event stream`. The "
+        "normative rule (banned terms, preferred replacements, ordinary-English "
+        "allowances, the historical carve-out) is "
+        "spec/Conventions.md §Retired composition vocabulary — the hard rule.\n"
     )
 
 
@@ -858,9 +837,10 @@ def _run_self_tests(verbose: bool = False) -> int:
     non-allowlisted-shaped page (expected >= 1). Negative fixtures exercise the
     counterparts that MUST stay green: removed-context prose, an inline code
     span, a masked `;` comment in a fence, the sanctioned `app-db` term, the
-    rewritten image/frame teaching, and the internal `re-frame.realm/` /
-    `re-frame.frame/` namespace reads. A dedicated allowlist case scans a
-    positive fixture AS IF it were an EP doc and asserts it does NOT fire.
+    rewritten image/frame teaching, and a non-facade namespace-qualified symbol
+    (an app's own `counter/install!` setup hook — the qualifier filter keeps a
+    non-`rf/` qualifier from firing). A dedicated allowlist case scans a positive
+    fixture AS IF it were an EP doc and asserts it does NOT fire.
 
     A second block (rf2-2c8zq6) exercises the root-support PROSE-architecture
     family: it scans the prose fixtures AS IF they were a root-support file
