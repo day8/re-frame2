@@ -7,10 +7,10 @@
   - Per-event translation (`event->step`) — assertion events ride the
     `:dispatch-sync` rail; everything else rides `:dispatch`;
     redacted placeholders drop out.
-  - Recording-level translation (`recording->play-script`) — empty
+  - Recording-level translation (`recording->script-body`) — empty
     input, name + auto-run? slots, auto-assert with and without a
     seed db, max-auto-assertions cap.
-  - Snippet rendering (`render-play-script` / `render-variant-form`)
+  - Snippet rendering (`render-script-body` / `render-variant-form`)
     — round-trip cleanly through `runner/parse-spec`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -74,7 +74,7 @@
           cofx   [{:rf/time-ms 100 :counter/delta 4}
                   nil
                   {:rf/time-ms 300}]
-          spec   (export/recording->play-script events {:cofx cofx})]
+          spec   (export/recording->script-body events {:cofx cofx})]
       (is (= [[:dispatch [:counter/inc] {:rf.cofx {:rf/time-ms 100 :counter/delta 4}}]
               [:dispatch [:auth/login {:user "x"}]]
               [:dispatch [:counter/dec] {:rf.cofx {:rf/time-ms 300}}]]
@@ -84,11 +84,11 @@
 (deftest recording-without-cofx-is-byte-identical
   (testing "no :cofx opt → the pre-EP-0017 2-element steps (zero ceremony)"
     (let [events [[:counter/inc] [:counter/dec]]]
-      (is (= (export/recording->play-script events {})
-             (export/recording->play-script events {:cofx []}))
+      (is (= (export/recording->script-body events {})
+             (export/recording->script-body events {:cofx []}))
           "an empty parallel cofx vector is byte-identical to no :cofx opt")
       (is (= [[:dispatch [:counter/inc]] [:dispatch [:counter/dec]]]
-             (:script (export/recording->play-script events {:cofx [nil nil]})))
+             (:script (export/recording->script-body events {:cofx [nil nil]})))
           "all-nil cofx members emit bare steps"))))
 
 ;; ---- recording-level translation -----------------------------------------
@@ -96,7 +96,7 @@
 (deftest simple-recording-three-dispatches
   (testing "a three-event recording yields a three-step script"
     (let [events [[:counter/inc] [:counter/inc] [:counter/dec]]
-          spec   (export/recording->play-script events {})]
+          spec   (export/recording->script-body events {})]
       (is (= [[:dispatch [:counter/inc]]
               [:dispatch [:counter/inc]]
               [:dispatch [:counter/dec]]]
@@ -109,13 +109,13 @@
 
 (deftest empty-recording-yields-empty-script
   (testing "an empty recording yields a legal empty :play-script"
-    (let [spec (export/recording->play-script [])]
+    (let [spec (export/recording->script-body [])]
       (is (= [] (:script spec)))
       (is (true? (:auto-run? spec))))))
 
 (deftest name-and-auto-run-honoured
   (testing "the :name and :auto-run? opts flow through to the spec"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc]]
                  {:name "happy path" :auto-run? false})]
       (is (= "happy path" (:name spec)))
@@ -123,9 +123,9 @@
 
 (deftest blank-name-omitted
   (testing ":name is omitted when blank or non-string"
-    (is (not (contains? (export/recording->play-script [] {:name ""})
+    (is (not (contains? (export/recording->script-body [] {:name ""})
                         :name)))
-    (is (not (contains? (export/recording->play-script [] {:name nil})
+    (is (not (contains? (export/recording->script-body [] {:name nil})
                         :name)))))
 
 (deftest mixed-events-translate-with-tags
@@ -134,7 +134,7 @@
                   [:rf.assert/path-equals [:n] 1]
                   [:rf/redacted]
                   [:counter/dec]]
-          spec   (export/recording->play-script events {})]
+          spec   (export/recording->script-body events {})]
       (is (= [[:dispatch       [:counter/inc]]
               [:dispatch-sync  [:rf.assert/path-equals [:n] 1]]
               [:dispatch       [:counter/dec]]]
@@ -145,7 +145,7 @@
 
 (deftest auto-assert-from-final-db-no-seed
   (testing "auto-assert with no seed emits one assert-db per top-level key"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc]]
                  {:auto-assert? true
                   :final-db {:n 1 :who "alice"}})
@@ -161,7 +161,7 @@
   (testing "auto-assert with seed emits one :assert-db per CHANGED top-level key"
     (let [seed   {:n 0 :who "alice"}
           final  {:n 1 :who "alice" :extra :added}
-          spec   (export/recording->play-script
+          spec   (export/recording->script-body
                    [[:counter/inc]]
                    {:auto-assert? true
                     :seed-db      seed
@@ -175,7 +175,7 @@
 (deftest auto-assert-cap-respected
   (testing "the max-auto-assertions cap limits the trailing block"
     (let [final-db (into {} (map (fn [i] [(keyword (str "k" i)) i])) (range 20))
-          spec     (export/recording->play-script
+          spec     (export/recording->script-body
                      []
                      {:auto-assert?        true
                       :final-db            final-db
@@ -186,7 +186,7 @@
 
 (deftest auto-assert-off-default
   (testing "without :auto-assert? true, no assertions trail"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc]]
                  {:final-db {:n 1 :a 2 :b 3}})]
       (is (= [[:dispatch [:counter/inc]]] (:script spec))
@@ -194,7 +194,7 @@
 
 (deftest auto-assert-no-final-db-noop
   (testing ":auto-assert? true but no :final-db → empty assert block"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc]]
                  {:auto-assert? true})]
       (is (= [[:dispatch [:counter/inc]]] (:script spec))))))
@@ -214,12 +214,12 @@
 
 ;; ---- render round-trip ---------------------------------------------------
 
-(deftest render-play-script-round-trips
+(deftest render-script-body-round-trips
   (testing "the rendered EDN parses back to the same canonical spec"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc] [:counter/dec]]
                  {:name "round trip" :auto-run? true})
-          rendered (export/render-play-script spec)
+          rendered (export/render-script-body spec)
           parsed   (edn/read-string rendered)]
       (is (map? parsed))
       (is (= "round trip" (:name parsed)))
@@ -228,16 +228,16 @@
               [:dispatch [:counter/dec]]]
              (:script parsed))))))
 
-(deftest render-play-script-empty-script
+(deftest render-script-body-empty-script
   (testing "an empty :script renders as []"
-    (let [spec     (export/recording->play-script [] {})
-          rendered (export/render-play-script spec)]
+    (let [spec     (export/recording->script-body [] {})
+          rendered (export/render-script-body spec)]
       (is (str/includes? rendered ":script    []"))
       (is (str/includes? rendered ":auto-run? true")))))
 
 (deftest render-variant-form-round-trips
   (testing "the rendered (reg-variant ...) form parses back to a callable shape"
-    (let [spec     (export/recording->play-script
+    (let [spec     (export/recording->script-body
                      [[:counter/inc]]
                      {:auto-run? false})
           form-str (export/render-variant-form
@@ -271,7 +271,7 @@
     (let [events [[:counter/inc]
                   [:rf.assert/path-equals [:n] 1]
                   [:counter/dec]]
-          spec   (export/recording->play-script events {:name "rt"})
+          spec   (export/recording->script-body events {:name "rt"})
           parsed (runner/parse-spec spec)]
       (is (= (:script spec) (:script parsed))
           "the runner parses the exported script identically (no normalisation drift)")
@@ -285,7 +285,7 @@
 (deftest exported-script-validates-clean
   (testing "the exported script passes runner/validate-script (no malformed steps)"
     (let [events [[:counter/inc] [:counter/dec]]
-          spec   (export/recording->play-script
+          spec   (export/recording->script-body
                    events
                    {:auto-assert? true
                     :final-db     {:n 1 :who "alice"}})]
@@ -422,14 +422,14 @@
               {:kind :event/dispatch :event [:rf/redacted]   :t 100}
               {:kind :event/dispatch :event [:counter/dec]   :t 200}])))))
 
-;; ---- recording->play-script with the rich :entries shape -----------------
+;; ---- recording->script-body with the rich :entries shape -----------------
 
 (deftest recording-from-entries
   (testing "passing rich :entries vectors produces a full-fidelity script"
     (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
                    {:kind :dom/click :selector "[data-test=\"b\"]" :t 200}
                    {:kind :dom/type  :selector "[id=\"x\"]" :text "hi" :t 220}]
-          spec    (export/recording->play-script entries)]
+          spec    (export/recording->script-body entries)]
       (is (= [[:dispatch [:counter/inc]]
               [:wait 200]
               [:click "[data-test=\"b\"]"]
@@ -438,10 +438,10 @@
           "200ms gap → wait; 20ms gap → no wait"))))
 
 (deftest recording-from-entries-respects-wait-threshold-opt
-  (testing ":wait-threshold-ms opt threads through recording->play-script"
+  (testing ":wait-threshold-ms opt threads through recording->script-body"
     (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
                    {:kind :event/dispatch :event [:counter/dec] :t 75}]
-          spec    (export/recording->play-script entries {:wait-threshold-ms 100})]
+          spec    (export/recording->script-body entries {:wait-threshold-ms 100})]
       (is (= [[:dispatch [:counter/inc]]
               [:dispatch [:counter/dec]]]
              (:script spec))
@@ -450,7 +450,7 @@
 (deftest legacy-bare-events-still-translate-without-waits
   (testing "callers that still pass bare event-vectors get the old behaviour
             (no :wait steps emitted — all entries stamped :t 0)"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc] [:counter/inc] [:counter/dec]])]
       (is (= [[:dispatch [:counter/inc]]
               [:dispatch [:counter/inc]]
@@ -460,7 +460,7 @@
 (deftest mixed-bare-and-entry-input
   (testing "an input vector mixing bare event vectors and rich entries
             still coerces cleanly"
-    (let [spec (export/recording->play-script
+    (let [spec (export/recording->script-body
                  [[:counter/inc]
                   {:kind :dom/click :selector "[data-test=\"b\"]" :t 100}])]
       (is (= [[:dispatch [:counter/inc]]
@@ -473,7 +473,7 @@
     (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
                    {:kind :dom/click :selector "[data-test=\"b\"]" :t 80}
                    {:kind :dom/type  :selector "[id=\"x\"]" :text "hi" :t 200}]
-          spec    (export/recording->play-script entries {:name "round trip"})
+          spec    (export/recording->script-body entries {:name "round trip"})
           parsed  (runner/parse-spec spec)]
       (is (= (:script spec) (:script parsed))
           "runner parses identically — no normalisation drift")
@@ -487,7 +487,7 @@
 (deftest dom-submit-survives-runner-validation
   (testing "the :dom/submit best-effort translation produces a valid :click step"
     (let [entries [{:kind :dom/submit :selector "[id=\"login-form\"]" :t 0}]
-          spec    (export/recording->play-script entries)]
+          spec    (export/recording->script-body entries)]
       (is (= [[:click "[id=\"login-form\"]"]] (:script spec)))
       (is (= [] (runner/validate-script (:script spec)))))))
 
@@ -500,7 +500,7 @@
                    {:kind :dom/type  :selector "[id=\"name\"]" :text "alice" :t 200}
                    {:kind :dom/click :selector "[data-test=\"save\"]"  :t 600}
                    {:kind :event/dispatch :event [:counter/inc] :t 1100}]
-          spec    (export/recording->play-script entries {:name "round trip"})
+          spec    (export/recording->script-body entries {:name "round trip"})
           parsed  (runner/parse-spec spec)]
       ;; Translation contract — every event lifts and waits insert.
       (is (= [[:click "[data-test=\"open\"]"]

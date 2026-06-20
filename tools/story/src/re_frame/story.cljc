@@ -172,8 +172,8 @@
             [re-frame.story.play        :as play]
             ;; Test Codegen recorder (pure-data state + snippet generator).
             [re-frame.story.recorder    :as recorder]
-            ;; Recording → live `:play-script` body translator (rf2-x9zsr).
-            ;; Re-exported as `recording->play-script` so the MCP write-back
+            ;; Recording → live `:script` body translator (rf2-x9zsr).
+            ;; Re-exported as `recording->script-body` so the MCP write-back
             ;; path (story-mcp) can emit the canonical replayable slot.
             [re-frame.story.recorder.play-export :as play-export]
             ;; SOTA features — layout-debug + share live in .cljc;
@@ -251,13 +251,15 @@
      "Register a variant (one scenario of a story). Per `001-Authoring.md`
      §Registration macros.
 
-     Variant body shape — every key is data, no fn-valued slots:
+     Variant body shape — every key is data, no fn-valued slots. The
+     public authoring vocabulary is `:setup` (preconditions) + `:script`
+     (ordered behaviour under test):
 
      ```
      {:doc                   \"...\"
       :extends               <variant-id>
-      :events                [[:event-id args...]]
-      :play-script           {:script [[:dispatch [:event-id args...]] ...]}
+      :setup                 [[:event-id args...]]
+      :script                {:script [[:dispatch [:event-id args...]] ...]}
       :plays                 [{:name \"...\" :script [...]} ...]
       :args                  {<arg-key> <value>}
       :argtypes              {...}
@@ -270,6 +272,10 @@
       :substrates            #{...}
       :modes                 #{...}}
      ```
+
+     Transitional spellings are still accepted by the schema and lowered
+     to the public slots: `:events` lowers to `:setup`, `:play-script`
+     lowers to `:script`. Author against `:setup` / `:script`.
 
      The body must be 100% EDN-round-trippable. Decorator closures live at
      the decorator's *registration site* (see `reg-decorator`), not here.
@@ -1971,24 +1977,24 @@
   [events opts]
   (recorder/gen-play-snippet events opts))
 
-(defn recording->play-script
-  "Translate a recording into the live, replayable `:play-script` body
-  map per `runner/parse-spec`. Pure data → data.
+(defn recording->script-body
+  "Translate a recording into the live, replayable `:script` body map per
+  `runner/parse-spec`. Pure data → data.
 
   This is the runtime counterpart to `gen-play-snippet` (which renders
   human-readable EDN text): where `gen-play-snippet` produces a string
-  for the user to paste, `recording->play-script` produces the actual
+  for the user to paste, `recording->script-body` produces the actual
   `{:script [...] :auto-run? bool}` map a runner executes. The MCP
   write-back path (`record-as-variant`) calls this to re-register the
-  variant with a live `:play-script` slot — the canonical AND ONLY
-  phase-4 replay surface per rf2-0wrud.
+  variant with a live `:script` slot — the canonical AND ONLY phase-4
+  replay surface per rf2-0wrud.
 
   `events` may be the legacy bare-events vector OR the rich `:entries`
   vector (rf2-d5u89). `opts` accepts `:auto-run?`, `:name`,
   `:auto-assert?` + `:final-db`/`:seed-db`/`:max-auto-assertions`, and
   `:wait-threshold-ms` — see `re-frame.story.recorder.play-export/
-  recording->play-script` for the full contract.
+  recording->script-body` for the full contract.
 
   Returns `{:script [...steps] :auto-run? bool :name str?}`."
-  ([events]      (play-export/recording->play-script events))
-  ([events opts] (play-export/recording->play-script events opts)))
+  ([events]      (play-export/recording->script-body events))
+  ([events opts] (play-export/recording->script-body events opts)))

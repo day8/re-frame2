@@ -4,7 +4,7 @@
   tools/story/spec/021-Story-UI-Test-And-Evidence.md §1 (rf2-ba86n.11).
 
   Replaces the `mode-tabs/tests-placeholder` stub that landed with the
-  mode-tabs primitive (rf2-9hc8). The pane runs the variant's `:play-script`
+  mode-tabs primitive (rf2-9hc8). The pane runs the variant's `:script`
   sequence via `run-variant`, consumes the ONE unified run-result the
   runtime returns (`re-frame.story.result/run-result` merged with the
   legacy lifecycle slots), and renders the result/proof surface inside the
@@ -45,7 +45,7 @@
   Slots the substrate does not yet populate render an honest empty/dash
   state — never a fabricated row.
 
-  When the variant body's `:play-script` slot is empty / absent the pane
+  When the variant body's `:script` slot is empty / absent the pane
   short-circuits and renders an empty-state placeholder pointing at
   the canonical testing-recipes leaf (Story doesn't auto-allocate a
   frame in this branch).
@@ -117,7 +117,7 @@
                                (when running? (:rerun-running styles)))
         :data-test      "story-test-rerun"
         :disabled       running?
-        :aria-label     "Re-run the variant's :play-script sequence"
+        :aria-label     "Re-run the variant's :script sequence"
         :on-click       (fn [_] (when-not running? (state/run-variant-pane! variant-id)))}
        (if running? "Running…" "Re-run")]
       [:div {:style (:last-run styles)}
@@ -218,7 +218,7 @@
   epoch — the canvas re-renders against it.
 
   Renders nothing until a run has captured an epoch slice. When
-  the `:play-script` ran but no epochs were captured (production elision, or
+  the `:script` ran but no epochs were captured (production elision, or
   the ring buffer was disabled), the section short-circuits to a
   muted hint rather than a broken scrubber."
   [variant-id]
@@ -607,7 +607,7 @@
         "captures this run as evidence; distinct from save-current-state"]])))
 
 (defn- empty-state
-  "Placeholder when the variant has no `:play-script` slot."
+  "Placeholder when the variant has no `:script` slot."
   [variant-id]
   [:div {:style     (:empty styles)
          :data-test "story-test-empty"}
@@ -616,7 +616,7 @@
     "No tests registered for this variant"]
    [:div
     "Add a "
-    [:code ":play-script"]
+    [:code ":script"]
     " slot to "
     [:code (str variant-id)]
     " to register assertions."]

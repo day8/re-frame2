@@ -158,8 +158,8 @@ The rich DOM-capture-aware recorder translator. Sub-namespace require — the fa
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `recording->play-script` | `(recording->play-script entries opts)` → map | Translate captured `:entries` into a normalised `:play-script` body map. |
-| `render-play-script` | `(render-play-script body)` → string | Render the `:play-script` map to EDN. |
+| `recording->script-body` | `(recording->script-body entries opts)` → map | Translate captured `:entries` into a normalised `:script` body map. |
+| `render-script-body` | `(render-script-body body)` → string | Render the `:script` body map to EDN. |
 | `render-variant-form` | `(render-variant-form variant-id metadata)` → string | Render a full `(reg-variant ...)` form to EDN. |
 
 ## `re-frame.story.ui.xray-embed`

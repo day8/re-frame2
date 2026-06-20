@@ -48,7 +48,7 @@ surface contract.
 |--------|----------|-------------------------------------------------------------------|------------|
 | `:dev` | Canvas   | The interactive variant render — Story v1's default canvas pane. | rf2-9hc8 (already shipped) |
 | `:docs`| Docs     | AutoDocs-equivalent: prose + args table + decorator stack + parameters + tags. | rf2-rodx |
-| `:test`| Tests    | Aggregated pass/fail summary of `:play-script` / `:assertions` for the variant. | rf2-qmjo |
+| `:test`| Tests    | Aggregated pass/fail summary of `:script` / `:assertions` for the variant. | rf2-qmjo |
 
 `:dev` is the default — selecting a variant without prior selection
 renders the canvas, preserving Story v1 behaviour.

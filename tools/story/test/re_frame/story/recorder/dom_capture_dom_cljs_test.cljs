@@ -312,11 +312,11 @@
           (is (not= "hunter2-secret" text)
               "the plaintext password never reaches the recorder atom")
           ;; The generated play-script step carries the placeholder too.
-          (let [spec (export/recording->play-script (recorder/recorded-entries))
+          (let [spec (export/recording->script-body (recorder/recorded-entries))
                 type-steps (filterv #(= :type (first %)) (:script spec))]
             (is (= [[:type (:selector entry) dom/redacted-type-text]] type-steps)
                 "the generated :type step is scrubbed")
-            (is (not (re-find #"hunter2-secret" (export/render-play-script spec)))
+            (is (not (re-find #"hunter2-secret" (export/render-script-body spec)))
                 "the rendered snippet text leaks no plaintext")))))))
 
 (deftest email-and-tel-and-autocomplete-fields-are-redacted

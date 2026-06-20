@@ -83,7 +83,7 @@
   intent, the stored shipping slot is unchanged. The legacy `:play` slot
   was REMOVED in rf2-0wrud; a `:play` key would pass the open variant
   `:map` validation but no runner executes it.) We translate the captured
-  `events` via `story/recording->play-script` (the live runtime
+  `events` via `story/recording->script-body` (the live runtime
   counterpart to `gen-play-snippet`'s text output) — which returns a
   `{:script … :auto-run?}` play body — and write that under `:script`.
 
@@ -97,7 +97,7 @@
 
   rf2-l2cn5d (EP-0017): the captured `:rf.cofx` maps (the parallel `cofx`
   vector, index-aligned with `events` — framework `:rf/time-ms` plus any
-  provided recordable facts) are threaded into `recording->play-script`'s
+  provided recordable facts) are threaded into `recording->script-body`'s
   `:cofx` opt so each written-back dispatch step carries its recorded
   recordable-coeffect envelope (`[:dispatch evec {:rf.cofx …}]`). The
   RAW (unscrubbed) cofx is used here — the write-back is an operator-gated
@@ -110,7 +110,7 @@
   payload, the failure flag, and the registrar's `ex-data`."
   [base body events cofx target-vid]
   (try
-    (let [play-body (story/recording->play-script events {:cofx cofx})
+    (let [play-body (story/recording->script-body events {:cofx cofx})
           ;; rf2-f4e1xs — REPLACE any existing play surface before adding the
           ;; recorded `:script`. The source body may already carry a lowered
           ;; `:play-script` (a variant authored with public `:script` is

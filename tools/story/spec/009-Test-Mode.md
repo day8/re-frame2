@@ -1,7 +1,7 @@
 # Story — `:test` Mode Pane
 
 > The in-canvas aggregated test-runner view that sits behind the
-> `:test` mode-tab. Runs the variant's `:play-script` sequence + the seven
+> `:test` mode-tab. Runs the variant's `:script` sequence + the seven
 > canonical `:rf.assert/*` events; surfaces a status badge, per-row
 > pass/fail/skip, collapsible failure detail, and a re-run button.
 > The downstream surface the mode-tabs primitive (rf2-9hc8, spec/007)
@@ -151,13 +151,14 @@ exactly which file/line declared the assertion.
 ### 4. Empty state
 
 When `(variant-has-tests? variant-id)` is false — the variant body's
-`:play-script` slot is empty or absent — the pane skips the run entirely
-and renders a placeholder:
+play slot (the stored `:play-script` slot the public `:script` lowers
+to) is empty or absent — the pane skips the run entirely and renders a
+placeholder that points the author at the PUBLIC authoring slot:
 
 ```
 No tests registered for this variant
 
-Add a :play-script slot to register assertions.
+Add a :script slot to register assertions.
 See: skills/re-frame2/references/cross-cutting/testing.md
 ```
 

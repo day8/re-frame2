@@ -1326,7 +1326,7 @@
   ["re-frame.story" "promote-run-artifact!"]   {:tier :implementation :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "read-assertions"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "recorder-state"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "recording->play-script"]  {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recording->script-body"]  {:tier :implementation :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "recording?"]              {:tier :implementation :owner "007" :status "post-v1 lib"}
 
   ;; =========================================================================

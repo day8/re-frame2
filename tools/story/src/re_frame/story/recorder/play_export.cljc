@@ -1,5 +1,5 @@
 (ns re-frame.story.recorder.play-export
-  "Translate a captured recording into a `:play-script` body (rf2-x9zsr).
+  "Translate a captured recording into a `:script` body (rf2-x9zsr).
 
   ## Why
 
@@ -11,7 +11,7 @@
   emitted snippet uses the PUBLIC `:script` authoring slot (spec/017
   §Public vocabulary), NOT the transitional `:play-script` spelling.
 
-  The rich `:play-script` DSL landed in rf2-8i2a9 — tagged steps
+  The rich `:script` step DSL landed in rf2-8i2a9 — tagged steps
   (`[:dispatch ...]`, `[:wait ms]`, `[:assert-db ...]`,
   `[:assert-dom ...]`, `[:click ...]`, `[:type ...]`) the runner
   executes sequentially with PASS/FAIL bookkeeping. This is the
@@ -19,7 +19,7 @@
   pass/fail in the test pane.
 
   This namespace closes the loop: feed a recording in, get a
-  `:play-script` map out. The user pastes it into a story-spec and
+  `:script` body map out. The user pastes it into a story-spec and
   the variant becomes self-verifying forever after.
 
   ## What gets translated
@@ -28,7 +28,7 @@
   (off the trace bus) AND DOM interactions (off the canvas root
   via `re-frame.story.recorder.dom-capture`). Each captured entry
   rides on the recorder's `:entries` slot as one of four shapes;
-  the translator maps them to `:play-script` steps:
+  the translator maps them to `:script` steps:
 
   | Recorded entry kind                         | Translated step              |
   |---------------------------------------------|------------------------------|
@@ -53,7 +53,7 @@
   Callers that pass a bare `events` vector (the old `:events` slot)
   still work — the translator coerces each bare event vector into
   an `:event/dispatch` entry with `:t 0`. This keeps the JVM tests
-  from rf2-x9zsr (which exercise `recording->play-script` with a
+  from rf2-x9zsr (which exercise `recording->script-body` with a
   bare vector) running unchanged.
 
   ## Auto-assert
@@ -370,8 +370,8 @@
 ;; Pure: top-level translator
 ;; ---------------------------------------------------------------------------
 
-(defn recording->play-script
-  "Translate a recording into a normalised `:play-script` body map per
+(defn recording->script-body
+  "Translate a recording into a normalised `:script` body map per
   `runner/parse-spec`. Pure data → data.
 
   Inputs:
@@ -419,7 +419,7 @@
   Empty `events` returns a map with an empty `:script` (still legal —
   the auto-assert block can stand alone)."
   ([events]
-   (recording->play-script events {}))
+   (recording->script-body events {}))
   ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions
                    auto-run? wait-threshold-ms cofx]
             :or   {auto-assert?         false
@@ -471,8 +471,8 @@
          "]")
     "[]"))
 
-(defn render-play-script
-  "Render a parsed `:play-script` map as a human-readable EDN string
+(defn render-script-body
+  "Render a parsed `:script` body map as a human-readable EDN string
   the dialog UI displays and the user pastes into source. Pure data →
   string.
 
@@ -497,7 +497,7 @@
   (spec/017 §Public vocabulary), NOT the transitional `:play-script`
   spelling, so pasted recorder output reads the way the docs teach. The
   public `:script` slot accepts the same `{:script … :auto-run?}` body
-  shape `render-play-script` produces.
+  shape `render-script-body` produces.
 
   Pure data → string. The form survives `read-string` round-trip and
   registers cleanly via `re-frame.story/reg-variant`."
@@ -506,7 +506,7 @@
                 alias      "story"}}]
   (let [body (cond-> []
                extends (conj [":extends " (pr-str extends)])
-               true    (conj [":script  " (render-play-script spec)]))
+               true    (conj [":script  " (render-script-body spec)]))
         body-str (->> body
                       (map (fn [[k v]] (str k v)))
                       (str/join "\n  "))]

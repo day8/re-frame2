@@ -681,7 +681,7 @@
 (def ^:private intended-recorder-facade-vars
   "The exact recorder entries the public `re-frame.story` facade is
   documented to expose (API.md §Recorder facade). Six recorder-lifecycle
-  + simple-codegen surfaces plus `recording->play-script`, the runtime
+  + simple-codegen surfaces plus `recording->script-body`, the runtime
   data->data counterpart re-exported from the `play-export` sub-ns for
   the MCP `record-as-variant` write-back path."
   '#{start-recording!
@@ -690,7 +690,7 @@
      recording?
      recorder-state
      gen-play-snippet
-     recording->play-script})
+     recording->script-body})
 
 (deftest facade-exposes-exactly-the-intended-recorder-vars
   (testing "every documented recorder entry is present + callable on
@@ -703,18 +703,22 @@
             (str "re-frame.story/" sym " is bound to a fn"))))))
 
 (deftest facade-does-not-expose-the-transitional-play-script-alias
-  (testing "no `:play-script`-spelled recorder alias leaked onto the
-            facade — the public spelling is `:script` / the translator
-            is `recording->play-script` (not `gen-play-script` or a
-            `play-script`-named re-export)"
+  (testing "no `play-script`-spelled recorder var leaked onto the facade —
+            the public spelling is `:script`, so the translator is
+            `recording->script-body` (rf2-na8xn7), not `recording->play-script`,
+            `gen-play-script`, or a `play-script`-named re-export"
     (let [public-syms (set (keys (ns-publics 're-frame.story)))]
-      ;; `recording->play-script` is the ONE intentional `play-script`
-      ;; token on the facade (a fn NAME, not the slot spelling); guard
-      ;; that no OTHER var carries the transitional slot spelling.
+      ;; The facade now carries ZERO `play-script` token — the translator
+      ;; was renamed to `recording->script-body` to match the public
+      ;; `:script` body it returns (rf2-na8xn7).
+      (is (contains? public-syms 'recording->script-body)
+          "the translator is re-exported as `recording->script-body`")
+      (is (not (contains? public-syms 'recording->play-script))
+          "the old `play-script`-spelled facade name is gone (rf2-na8xn7)")
       (is (not (contains? public-syms 'gen-play-script))
           "the codegen fn is `gen-play-snippet`, not `gen-play-script`")
-      (is (not (contains? public-syms 'render-play-script))
-          "render-play-script is sub-namespace-only, not on the facade")
+      (is (not (contains? public-syms 'render-script-body))
+          "render-script-body is sub-namespace-only, not on the facade")
       (is (not (contains? public-syms 'render-variant-form))
           "render-variant-form is sub-namespace-only, not on the facade"))))
 
@@ -730,14 +734,14 @@
       (is (not (str/includes? snip ":play-script"))
           "the transitional :play-script slot is NOT emitted at the facade"))))
 
-(deftest facade-recording->play-script-delegates-to-play-export
-  (testing "story/recording->play-script (the facade re-export) returns
+(deftest facade-recording->script-body-delegates-to-play-export
+  (testing "story/recording->script-body (the facade re-export) returns
             the live {:script ... :auto-run?} body the runner executes —
             the MCP write-back contract (record-as-variant). Both arities
             resolve through the play-export sub-ns."
     (let [events    [[:counter/inc] [:counter/by 7]]
-          one-arg   (story/recording->play-script events)
-          two-arg   (story/recording->play-script events {:name "rt"})]
+          one-arg   (story/recording->script-body events)
+          two-arg   (story/recording->script-body events {:name "rt"})]
       (is (map? one-arg) "one-arg returns a play-body map")
       (is (vector? (:script one-arg)) ":script is the runner step vector")
       (is (contains? one-arg :auto-run?) ":auto-run? slot present")
@@ -751,7 +755,7 @@
           "two-arg threads :name through to the play-export sub-ns")
       ;; Facade and sub-ns produce the SAME body — the re-export is a
       ;; thin delegation, not a divergent reimplementation.
-      (is (= one-arg (play-export/recording->play-script events))
+      (is (= one-arg (play-export/recording->script-body events))
           "facade re-export == sub-namespace fn (pure delegation)"))))
 
 ;; ---- EP-0023: a recording's address is the variant FRAME -----------------
@@ -792,7 +796,7 @@
       (is (= :story.frame/target (:variant-id final-state))
           "the recording's address is the variant frame")
       (let [events (:events final-state)
-            body   (story/recording->play-script events)]
+            body   (story/recording->script-body events)]
         (is (not-any? #(= "rf.realm" (namespace %)) (keys body))
             "the play body carries no realm key")
         (is (= [:auto-run? :script] (sort (keys body)))
