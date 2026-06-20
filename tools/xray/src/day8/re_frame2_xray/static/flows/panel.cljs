@@ -298,8 +298,8 @@
   "The registered flows regrouped into the per-frame
   `{frame-id {flow-id flow-map}}` shape from the HOST app's `:flow` registrar.
 
-  Read via `host-registry/registrations` (the generation-bypassing default-realm
-  form), NOT a bare `(rf/registrations :flow)`: this runs inside the
+  Read via `host-registry/registrations` (the generation-bypassing
+  host-registry form), NOT a bare `(rf/registrations :flow)`: this runs inside the
   `:rf.xray.static.flows/registered-flows` sub COMPUTATION, and Xray seats in
   its OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
   Xray's image generation — a bare read would resolve through Xray's OWN image
