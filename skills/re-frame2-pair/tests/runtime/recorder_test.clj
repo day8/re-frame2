@@ -1,7 +1,7 @@
 ;;;; tests/runtime/recorder_test.clj
 ;;;;
 ;;;; Babashka-runnable structural verification of the signal recorder in
-;;;; `preload/re_frame2_pair/runtime.cljs` (rf2-zo4b9).
+;;;; `preload/re_frame2_pair/runtime.cljs`.
 ;;;;
 ;;;; Why a structural test rather than a runtime test:
 ;;;;
@@ -42,8 +42,8 @@
             [clojure.test :refer [deftest is run-tests testing]]
             [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private defn-form rt/defn-named)
 (def ^:private form-contains? rt/form-contains?)
 
@@ -143,10 +143,10 @@
         "start-recording! must default a wall-clock stop when none given")
     (is (form-contains? #(= % :no-signals) start)
         "start-recording! must refuse an empty signal-set")
-    ;; rf2-n58jxo — the bare `:ambiguous-frame` literal was replaced by a
-    ;; call to the shared enriched builder `ambiguous-frame-error`; the
-    ;; contract (refuse an unresolvable frame for app-db/sub signals) is now
-    ;; carried by that call rather than an inline keyword.
+    ;; The refusal for app-db/sub signals routes through the shared enriched
+    ;; builder `ambiguous-frame-error`; the contract (refuse an unresolvable
+    ;; frame) is carried by that call rather than a bare `:ambiguous-frame`
+    ;; keyword.
     (is (mentions-sym? start 'ambiguous-frame-error)
         "start-recording! must refuse an unresolvable frame via ambiguous-frame-error")))
 

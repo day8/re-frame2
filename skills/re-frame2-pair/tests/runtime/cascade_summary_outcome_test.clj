@@ -1,7 +1,7 @@
 ;;;; tests/runtime/cascade_summary_outcome_test.clj
 ;;;;
 ;;;; Babashka-runnable verification of the cascade-summary's CONTAINED-THROW
-;;;; detection (rf2-hhkbb) in `preload/re_frame2_pair/runtime.cljs`:
+;;;; detection in `preload/re_frame2_pair/runtime.cljs`:
 ;;;;
 ;;;;   - `cascade-errors`              — scans an epoch's `:trace-events` for a
 ;;;;                                     contained cascade exception (a
@@ -13,15 +13,15 @@
 ;;;;   - `consequence-from-summary`    — `:no-op? false` for a thrown-action
 ;;;;                                     epoch (a throw is NOT a no-op).
 ;;;;
-;;;; THE BUG (rf2-hhkbb): a `:*` wildcard machine action throwing
+;;;; THE CONTRACT: a `:*` wildcard machine action throwing
 ;;;; `:rf.error/machine-action-exception` does NOT halt the drain — the
 ;;;; interceptor error-capture seam contains it, the epoch settles
 ;;;; `:outcome :ok`, and the throw rides the trace stream. Because the
-;;;; aborted action committed no `:db` and fired no fx, the structured
-;;;; cascade-summary read it as `{:outcome :ok :no-op? true}` — a silent-
-;;;; green-on-error trap for any non-visual consumer triaging on those
-;;;; slots. (The human pink-card path, rf2-4yrr6, reads the trace directly
-;;;; and is unaffected.) The fix surfaces the throws under `:errors`, forces
+;;;; aborted action commits no `:db` and fires no fx, a naive structured
+;;;; cascade-summary would read it as `{:outcome :ok :no-op? true}` — a
+;;;; silent-green-on-error trap for any non-visual consumer triaging on
+;;;; those slots. (The human pink-card path reads the trace directly and is
+;;;; unaffected.) So the summary surfaces the throws under `:errors`, forces
 ;;;; `:outcome :error`, and reports `:no-op? false`.
 ;;;;
 ;;;; Why a parallel implementation lives here:
@@ -283,8 +283,8 @@
 ;; Structural pin — keep the bb mirror honest against the cljs source.
 ;; ---------------------------------------------------------------------------
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private runtime-cljs-path rt/runtime-cljs-path)
 (def ^:private form-contains? rt/form-contains?)
 

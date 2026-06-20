@@ -1,22 +1,21 @@
 ;;;; tests/runtime/cascade_summary_redaction_test.clj
 ;;;;
 ;;;; Babashka-runnable verification of the cascade-summary `:event-vector`
-;;;; egress redaction (rf2-6nks4, finding-2) in
-;;;; `preload/re_frame2_pair/runtime.cljs`.
+;;;; egress redaction in `preload/re_frame2_pair/runtime.cljs`.
 ;;;;
-;;;; THE BUG (rf2-6nks4, finding-2): `cascade-summary` /
-;;;; `restore-cascade-summary` copy the epoch's RAW `:trigger-event` into
-;;;; the projection's `:event-vector` slot verbatim, and the MCP
-;;;; `restore-epoch` + `dispatch-dry-run` tools pass that projection
-;;;; through (restore-epoch ships the runtime map verbatim; dispatch-dry-
-;;;; run DELIBERATELY does not walk `:cascade-summary`). The merged
-;;;; rf2-z7roa elision walker scrubbed dispatch-dry-run's
-;;;; `:db-state-after-simulation` / `:would-fire-effects` but left the
-;;;; cascade-summary `:event-vector` UNWALKED — so a restore / dry-run of
-;;;; a SENSITIVE historical epoch returned the raw event payload (auth
-;;;; tokens, passwords, …) even under `--allow-sensitive-reads` OFF.
+;;;; THE CONTRACT: `cascade-summary` / `restore-cascade-summary` copy the
+;;;; epoch's RAW `:trigger-event` into the projection's `:event-vector`
+;;;; slot, and the MCP `restore-epoch` + `dispatch-dry-run` tools pass that
+;;;; projection through (restore-epoch ships the runtime map verbatim;
+;;;; dispatch-dry-run DELIBERATELY does not walk `:cascade-summary`). The
+;;;; wire-path elision walker scrubs dispatch-dry-run's
+;;;; `:db-state-after-simulation` / `:would-fire-effects`, but the
+;;;; cascade-summary `:event-vector` rides outside that walk — so without a
+;;;; guard a restore / dry-run of a SENSITIVE historical epoch would return
+;;;; the raw event payload (auth tokens, passwords, …) even under
+;;;; `--allow-sensitive-reads` OFF.
 ;;;;
-;;;; THE FIX: `redact-sensitive-event-vector` redacts the slot to
+;;;; THE MECHANISM: `redact-sensitive-event-vector` redacts the slot to
 ;;;; `:rf/redacted` when the source epoch is `:rf.epoch/sensitive? true`
 ;;;; AND the runtime raw-state gate is OFF (the published-build default —
 ;;;; the MCP server signals `configure-raw-state! {:allow-raw-state?
@@ -237,8 +236,8 @@
 ;; trips these.
 ;; ---------------------------------------------------------------------------
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private runtime-cljs-path rt/runtime-cljs-path)
 (def ^:private form-contains? rt/form-contains?)
 
