@@ -197,7 +197,29 @@
              :states  {:idle {:on {:go {:target 42}}}}}]
       (is (= :rf.error/machine-bad-target
              (registration-error-id :bad/shape m))
-          "registration rejects the malformed :target shape (42) loudly"))))
+          "registration rejects the malformed :target shape (42) loudly")))
+
+  (testing "an EMPTY vector :target is malformed-shape, not unresolved (rf2-r6fuz2)"
+    ;; Spec 005 §error taxonomy (005:4250) + Spec-Schemas §TransitionTarget
+    ;; require a NON-EMPTY vector path. `[]` names no node — it is a caller
+    ;; typo/schema error in the same class as `{:target 42}`, NOT an
+    ;; unresolved absolute path. Tools/conformance consumers branch on
+    ;; `:rf.error/id`, so the taxonomy must be exact. Aligned with XState v5
+    ;; (malformed targets are rejected at machine creation, not degraded to a
+    ;; missing-state reference).
+    (let [m {:initial :idle
+             :states  {:idle {:on {:go {:target []}}}}}]
+      (is (= :rf.error/machine-bad-target
+             (registration-error-id :bad/empty-vec m))
+          "registration rejects an empty-vector :target as malformed-shape"))
+    ;; CONTRAST: a NON-empty vector that names no declared state stays
+    ;; `:rf.error/machine-unresolved-target` (a real-but-missing path), so the
+    ;; empty-vector branch must not over-reach into the resolution branch.
+    (let [m {:initial :idle
+             :states  {:idle {:on {:go {:target [:missing]}}}}}]
+      (is (= :rf.error/machine-unresolved-target
+             (registration-error-id :bad/missing-vec m))
+          "a non-empty vector naming no state stays unresolved-target"))))
 
 ;; ---- parallel-region scope -----------------------------------------------
 
