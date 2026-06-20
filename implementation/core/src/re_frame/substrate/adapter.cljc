@@ -243,12 +243,39 @@
   (let [a (require-adapter! 'rf/read-container)]
     ((:read-container a) container)))
 
+(def container-class-unknown
+  "Sentinel the routed `:adapter/derived-container?` hook returns from its
+  chain-bottom fallback to mean \"the installed adapter has NO opinion on
+  this container's base-vs-derived class\" — distinct from a genuine
+  `false` (\"the installed adapter classifies this as one of ITS base
+  containers\"). The choke point (`derived-container?`) treats this
+  sentinel — and a never-published hook (`nil`) — as the signal to fall
+  back to the host atom-marker heuristic.
+
+  Why a sentinel and not `false` (rf2-oitw37): the hook's old fallback was
+  `(constantly false)`, which the choke point could not tell apart from an
+  installed adapter's authoritative \"this is a base container\" answer. So
+  even when an installed adapter published the hook and answered `false`
+  for one of ITS base containers, the choke point's atom-marker arm still
+  ran and — for a custom adapter whose base container is NOT atom-shaped —
+  WRONGLY reclassified that legitimate base container as derived and
+  rejected the write before the adapter's own `:replace-container!` could
+  run. The sentinel makes \"no opinion\" (use the heuristic) distinguishable
+  from \"installed adapter says base\" (trust it; skip the heuristic).
+
+  Public so `re-frame.substrate.spine` (the ratom hook producer) and any
+  custom adapter that publishes a routed `:adapter/derived-container?` hook
+  return the SAME sentinel from their `route-hook!` fallback thunk."
+  ::container-class-unknown)
+
 (defn- base-atom-shaped-container?
   "True when `container` is a base, writable atom-shape: it satisfies the
   host's atom marker protocol — `clojure.lang.IAtom` on the JVM,
   `cljs.core/IAtom` on CLJS. The host-uniform fall-back discriminator for
-  `derived-container?` when the installed adapter ships no
-  `:derived-container?` predicate.
+  `derived-container?` when the installed adapter has NO opinion on the
+  container's class (no `:adapter/derived-container?` hook published, or the
+  installed adapter's routed hook returns the `container-class-unknown`
+  sentinel).
 
   Why `IAtom`, not `ISwap`/`IReset`: a CLJS `cljs.core/Atom` implements
   `IAtom` but NOT `ISwap`/`IReset` — `swap!` / `reset!` fast-path on
@@ -256,17 +283,19 @@
   for non-Atom types. So `(satisfies? ISwap (atom 0))` is FALSE; only
   `IAtom` reliably marks a base atom on both hosts.
 
-  Sound for the plain-atom, test-react, UIx, and Helix adapters: their
-  base container is a `clojure.core/atom` (an `IAtom`) and their derived
-  value is an `IDeref`-only reify (plain-atom JVM / test-react), an
-  `IDeref`+`IDisposable` reify (plain-atom CLJS), or an
-  `IDeref`+`IWatchable`+`IDisposable` reify (the React spine) — none of
-  which is an `IAtom`. NOT sound for the Reagent family: a Reagent
-  `Reaction` (stock or reagent-slim) reifies `IAtom` too, so it cannot be
-  separated from a base `r/atom` this way — those adapters publish an
-  `:adapter/derived-container?` late-bind hook (see
-  `spine/make-ratom-adapter`) so `derived-container?` does not rely on
-  this heuristic for a `Reaction`."
+  Sound ONLY for adapters whose base container IS atom-shaped (plain-atom,
+  test-react, UIx, Helix): their base container is a `clojure.core/atom`
+  (an `IAtom`) and their derived value is an `IDeref`-only reify (plain-atom
+  JVM / test-react), an `IDeref`+`IDisposable` reify (plain-atom CLJS), or
+  an `IDeref`+`IWatchable`+`IDisposable` reify (the React spine) — none of
+  which is an `IAtom`. NOT sound for the Reagent family (a Reagent
+  `Reaction` reifies `IAtom` too) NOR for a custom adapter whose base
+  container is a non-atom host shape (a JS class instance, signal/store
+  object, or record). Those adapters MUST publish an
+  `:adapter/derived-container?` late-bind hook (the ratom family via
+  `spine/make-ratom-adapter`; a custom adapter via its own `route-hook!`)
+  so `derived-container?` consults the adapter and never reaches this
+  heuristic for their containers (rf2-oitw37)."
   [container]
   #?(:clj  (instance? clojure.lang.IAtom container)
      :cljs (satisfies? IAtom container)))
@@ -279,29 +308,57 @@
 
   No single host protocol distinguishes the two shapes across every
   reference adapter — a Reagent `Reaction` reifies `IAtom` exactly like a
-  base `r/atom`, so the atom-marker heuristic alone is wrong for the
-  Reagent family. The installed adapter is the authority on its own
-  derived-value shape, so the ratom adapters (Reagent / reagent-slim)
-  publish an `:adapter/derived-container?` late-bind hook keyed on their
-  reaction's substrate disposal protocol (a `Reaction` is disposable, an
-  `r/atom` is not). The hook is routed (per `route-hook!`) so it answers
-  authoritatively only while its adapter is installed, and returns false
-  otherwise.
+  base `r/atom`, and a custom adapter's base container may be a non-atom
+  host shape entirely. So `detecting a derived container is the adapter's
+  responsibility` (Spec 006 §`make-derived-value`): the installed adapter
+  is the authority on its own container shapes and declares them via the
+  routed `:adapter/derived-container?` late-bind hook (the ratom adapters
+  key it on their reaction's substrate disposal protocol — a `Reaction` is
+  disposable, an `r/atom` is not; a custom adapter answers from whatever
+  distinguishes its own base from its own derived containers). Routed (per
+  `route-hook!`) so it answers authoritatively only while its adapter is
+  installed.
 
-  Combined reading: a container is derived when EITHER the adapter hook
-  says so OR — for adapters that ship no hook (plain-atom / test-react /
-  UIx / Helix, whose derived values are NOT atom-shaped) — it is not a
-  base atom shape. For the ratom family the hook is decisive (true for a
-  `Reaction`, false for a base `r/atom`), and the atom-marker arm agrees
-  on the base case (`r/atom` is an `IAtom` → not derived). For the others
-  the hook is false (chain fallback) and the atom-marker arm decides.
+  Three-way reading of the routed hook, where the installed adapter is the
+  authority WHENEVER it has an opinion (rf2-oitw37):
+
+    * hook returns truthy → DERIVED (the installed adapter classifies this
+      as one of its `make-derived-value` results) — reject the write.
+    * hook returns `false` → BASE (the installed adapter classifies this as
+      one of ITS writable base containers) — NOT derived; delegate the
+      write. The host atom-marker heuristic is NOT consulted, so a custom
+      adapter whose legitimate base container is not `IAtom`-shaped is no
+      longer misclassified.
+    * hook returns the `container-class-unknown` sentinel, or no adapter
+      published the hook (`nil`) → the installed adapter has NO opinion;
+      fall back to the host atom-marker heuristic (sound only for adapters
+      whose base container IS atom-shaped — plain-atom / test-react / UIx /
+      Helix, whose derived values are NOT atom-shaped).
+
+  For the ratom family the hook is decisive (truthy for a `Reaction`,
+  `false` for a base `r/atom`), so the heuristic is never reached for their
+  containers. For plain-atom / test-react / UIx / Helix the routed hook is
+  absent or returns the sentinel (chain fallback), so the atom-marker arm
+  decides — exactly where it is sound.
 
   The hook lives in the late-bind table (not the adapter spec map) so the
   ten-fn adapter contract shape is preserved."
   [container]
-  (let [hook (late-bind/get-fn :adapter/derived-container?)]
-    (or (boolean (and hook (hook container)))
-        (not (base-atom-shaped-container? container)))))
+  (let [hook (late-bind/get-fn :adapter/derived-container?)
+        verdict (when hook (hook container))]
+    (cond
+      ;; Installed adapter says DERIVED — authoritative reject.
+      (and (some? verdict) (not= verdict container-class-unknown) verdict)
+      true
+      ;; Installed adapter says BASE (an explicit `false`, not the sentinel
+      ;; / nil) — authoritative accept; skip the atom-marker heuristic so a
+      ;; non-atom-shaped custom base container is not misclassified.
+      (false? verdict)
+      false
+      ;; No installed-adapter opinion (sentinel or no hook published) —
+      ;; host atom-marker heuristic.
+      :else
+      (not (base-atom-shaped-container? container)))))
 
 (defn replace-container!
   "Write `new-value` into `container` via the installed adapter.
@@ -325,15 +382,21 @@
   `replace-container!` — partial/whole replacement of a value computed
   from sources is meaningless (per Spec 006 §`make-derived-value`).
   Writing to one is a programmer error. The choke point detects the
-  derived container (`derived-container?` — the ratom adapters'
-  `:adapter/derived-container?` late-bind hook, or an atom-marker
-  fall-back), emits a `:rf.error/derived-container-replaced` trace so
-  error-listeners observe it, and throws the canonical thrown-error
-  ex-info (per Spec 009 §The thrown-error shape) so a `try`/`catch` and
+  derived container (`derived-container?` — the installed adapter's routed
+  `:adapter/derived-container?` late-bind hook is authoritative whenever it
+  has an opinion (truthy = derived → reject; `false` = one of the adapter's
+  base containers → delegate), and the host atom-marker heuristic is the
+  fall-back only when the installed adapter has no opinion, rf2-oitw37),
+  emits a `:rf.error/derived-container-replaced` trace so error-listeners
+  observe it, and throws the canonical thrown-error ex-info (per Spec 009
+  §The thrown-error shape) so a `try`/`catch` and
   `(:rf.error/id (ex-data e))` pivot on one vocabulary. The underlying
   adapter `replace-container!` is NOT invoked. Guarding here (rather than
   per-adapter) gives one uniform contract across every reference adapter —
-  the same single choke point that carries the nil guard above."
+  the same single choke point that carries the nil guard above. A custom
+  adapter whose legitimate base container is NOT atom-shaped publishes the
+  routed hook (answering `false` for its base) so its writes delegate
+  rather than being rejected as derived (rf2-oitw37)."
   [container new-value]
   (if (nil? container)
     ;; rf2-ft2b nil guard runs BEFORE the adapter lookup (a scheduled drain

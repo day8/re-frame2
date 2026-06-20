@@ -2407,12 +2407,19 @@
     ;; inherited through a cross-substrate test bundle, rf2-jicu2) then the
     ;; substrate's own `:disposable?`. Routed (not an adapter-map key) so
     ;; the 9-fn adapter contract shape is preserved; the choke point reads
-    ;; it via `late-bind/get-fn :adapter/derived-container?`. Chain-bottom
-    ;; fallback is `(constantly false)` — a non-ratom adapter answers
-    ;; "false" and the choke point's atom-marker heuristic takes over.
+    ;; it via `late-bind/get-fn :adapter/derived-container?`. The ratom
+    ;; impl is exhaustive over ratom containers — truthy for a `Reaction`
+    ;; (derived), `false` for a base `r/atom` (the choke point trusts that
+    ;; `false` and skips its atom-marker heuristic, rf2-oitw37). The
+    ;; chain-bottom fallback returns the `container-class-unknown` sentinel
+    ;; (NOT `false`): when a NON-ratom adapter is installed, this routed
+    ;; closure has no opinion and the choke point must reach for the
+    ;; atom-marker heuristic — a bare `false` would instead read as "this
+    ;; ratom adapter classifies it as base", wrongly forcing the
+    ;; non-ratom-adapter path through the ratom verdict (rf2-oitw37).
     (substrate-adapter/route-hook! adapter :adapter/derived-container?
       (fn derived-container?-dispatch [a]
         (or (satisfies? rf-disposable/IDisposable a)
             (boolean (disposable? a))))
-      (constantly false))
+      (constantly substrate-adapter/container-class-unknown))
     adapter))
