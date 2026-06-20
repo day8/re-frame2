@@ -102,7 +102,7 @@
 ;; DROPPED from the snippet, and the displayed count counted `:events`
 ;; (so a recording of three canvas clicks showed "0 captured events").
 ;; The fix routes the primary dialog through the rich
-;; `recording->play-script` translation off `:entries`. These tests
+;; `recording->script-body` translation off `:entries`. These tests
 ;; drive the FULL capture pipeline (record-event! + record-dom-event!),
 ;; snapshot it through the real `open-dialog!`, and assert the rendered
 ;; primary snippet carries the `[:click ...]` / `[:type ...]` steps.
@@ -112,7 +112,7 @@
      (testing "rf2-nkjkj: a recording with DOM clicks/types codegens
               :click / :type steps in the PRIMARY save dialog snippet —
               RED before the fix (gen-play-snippet over :events dropped
-              them), GREEN after (recording->play-script over :entries)"
+              them), GREEN after (recording->script-body over :entries)"
        ;; Drive the actual capture pipeline so the test exercises the
        ;; real two-stream model, not a hand-built snapshot.
        (recorder/clear!)

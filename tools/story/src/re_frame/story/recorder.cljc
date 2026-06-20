@@ -198,7 +198,7 @@
 ;; assertions ONLY — it is BLIND to DOM interactions (which live in
 ;; `:entries`). The interactive recorder's PRIMARY save dialog no longer
 ;; uses this path; it renders the rich `:play-script` translation off
-;; `:entries` (`recorder.play-export/recording->play-script` +
+;; `:entries` (`recorder.play-export/recording->script-body` +
 ;; `render-variant-form`) so canvas clicks/types/submits are never
 ;; dropped. `gen-play-snippet` survives ONLY as the codegen for the MCP
 ;; `record-as-variant` record-and-sleep flow, whose capture path produces

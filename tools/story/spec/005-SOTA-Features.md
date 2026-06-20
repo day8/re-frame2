@@ -454,7 +454,7 @@ The seven sub-systems and their public boundaries:
 | DOM-capture entries | `re-frame.story.recorder.dom-capture` (CLJS-only) | `install!` / `remove!` (capture-phase listener pair); `record-dom-event!` (write through the atom with `:dom/click` / `:dom/type` / `:dom/submit` shapes); `dom-event?` / `dom-event-kinds` (pure predicates). | `chrome-shell` (paired with the trace-listener install at mount). |
 | Review-dialog | `re-frame.story.recorder` + `re-frame.story.review-dialog` | `open-dialog` / `close-dialog` / `initial-dialog-state`. State-only — the rendering lives in `re-frame.story.ui.recorder-export-dialog`. | `chrome-shell` (the modal that opens on stop). |
 | `:script` snippet codegen | `re-frame.story.recorder` | `gen-play-snippet` (pure: events + opts → EDN string). Re-exported on the facade as `story/gen-play-snippet`. Emits `(reg-variant ... :script {:script [[:dispatch-sync <ev>] ...]})` — the PUBLIC `:script` slot per rf2-7mj4z; each event wrapped as `[:dispatch-sync <ev>]` per rf2-0wrud. | `user-app` (the copy-and-paste form); `mcp-tool` (the structured-output payload for `record-as-variant`). |
-| Rich DOM-aware `:script` export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail; `render-variant-form` emits the public `:script` slot (rf2-7mj4z). The translator entry `recording->play-script` IS re-exported on the facade as `story/recording->play-script` (the runtime counterpart to `gen-play-snippet`, used by the MCP `record-as-variant` write-back); the render-to-EDN fns (`render-play-script` / `render-variant-form`) stay sub-namespace-only. | `chrome-shell`; `mcp-tool`. |
+| Rich DOM-aware `:script` export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail; `render-variant-form` emits the public `:script` slot (rf2-7mj4z). The translator entry `recording->script-body` IS re-exported on the facade as `story/recording->script-body` (the runtime counterpart to `gen-play-snippet`, used by the MCP `record-as-variant` write-back); the render-to-EDN fns (`render-script-body` / `render-variant-form`) stay sub-namespace-only. | `chrome-shell`; `mcp-tool`. |
 
 Three architectural observations follow from the map:
 
@@ -468,8 +468,8 @@ Three architectural observations follow from the map:
 2. **The facade exposes the headline entries only** (seven surfaces:
    `start-recording!` / `stop-recording!` / `clear-recording!` /
    `recording?` / `recorder-state` / `gen-play-snippet` /
-   `recording->play-script`). The first six are the recorder-lifecycle
-   + simple text-codegen surfaces; the seventh, `recording->play-script`,
+   `recording->script-body`). The first six are the recorder-lifecycle
+   + simple text-codegen surfaces; the seventh, `recording->script-body`,
    is re-exported from `re-frame.story.recorder.play-export` as the
    runtime data→data counterpart `gen-play-snippet` (it is the body the
    MCP `record-as-variant` write-back registers). MCP tool builders and

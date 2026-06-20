@@ -108,7 +108,7 @@
           (is (number? (:t entry))
               "the entry carries its capture-time :t, stamped at buffer time")
           ;; And the generated play-script carries the final field value.
-          (let [spec       (export/recording->play-script
+          (let [spec       (export/recording->script-body
                              (recorder/recorded-entries))
                 type-steps (filterv #(= :type (first %)) (:script spec))]
             (is (= [[:type (:selector entry) "alice"]] type-steps)

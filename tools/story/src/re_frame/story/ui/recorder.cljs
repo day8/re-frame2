@@ -324,7 +324,7 @@
   the captured `events` snapshot. `now-ms` defaults to the current
   wall-clock; tests pass an explicit stamp. Per rf2-d5u89 the
   captured `:entries` are snapshotted alongside `:events` so the
-  export dialog drives the `:play-script` translator with the rich
+  export dialog drives the `:script`-body translator with the rich
   DOM-event + timing record."
   ([source-variant-id events]
    (open-dialog! source-variant-id events (recorder/recorded-entries) (.now js/Date)))
@@ -405,7 +405,7 @@
                       (str "Recording " (count (:events rec))
                            " events — click to stop and save as variant")
                       :else
-                      "Record canvas dispatches as a :play-script body (Test Codegen)")
+                      "Record canvas dispatches as a :script body (Test Codegen)")
       :on-click     on-click}
      (when rec? [:span {:style (:dot styles)}])
      "REC"
@@ -424,7 +424,7 @@
 ;;      buttons. Click selects one + advances to phase 2.
 ;;   2. Field entry — one EDN input per payload field declared in the
 ;;      vocabulary entry. A live preview shows the event vector that
-;;      will land in the captured `:play-script` body. 'Insert' calls
+;;      will land in the captured `:script` body. 'Insert' calls
 ;;      `recorder/insert-assertion!`; 'cancel' returns to phase 1.
 ;;
 ;; The picker is overlay-style modal so it stays visible while the
@@ -727,7 +727,7 @@
        [:button
         {:style     (:assert-btn styles)
          :data-test "story-recorder-add-assertion"
-         :title     "Insert a :rf.assert/* assertion into the captured :play-script body"
+         :title     "Insert a :rf.assert/* assertion into the captured :script body"
          :on-click  (fn [_] (open-picker!))}
         "+ assert"]
        [:button
@@ -760,7 +760,7 @@
   ## Single source of truth — `:entries` (rf2-nkjkj)
 
   The snippet is rendered from the recorder's RICH `:entries` snapshot
-  via the `recording->play-script` translator, NOT the bare `:events`
+  via the `recording->script-body` translator, NOT the bare `:events`
   vector. `:entries` is the only stream that carries DOM interactions
   (`:dom/click` / `:dom/type` / `:dom/submit`, captured off the canvas
   root by `recorder.dom-capture`) — `:events` holds dispatched events
@@ -789,7 +789,7 @@
             ;; bare :events vector only when no rich entries were
             ;; snapshotted (legacy callers / dispatch-only recordings).
             src        (if (seq entries) entries events)
-            spec       (play-export/recording->play-script
+            spec       (play-export/recording->script-body
                          src
                          {:auto-run? false})
             snippet    (play-export/render-variant-form

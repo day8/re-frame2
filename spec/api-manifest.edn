@@ -415,7 +415,7 @@
   {:namespace "re-frame.story", :var "promote-run-artifact!", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "read-assertions", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "recorder-state", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.story", :var "recording->play-script", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.story", :var "recording->script-body", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "recording?", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "reg-check", :tier :tooling, :kind :macro, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "reg-check*", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}

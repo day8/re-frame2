@@ -21,7 +21,7 @@
 
   ## Pure / impure split
 
-  - `recording->play-script`  — pure (`play-export` ns).
+  - `recording->script-body`  — pure (`play-export` ns).
   - `replay-script!`          — impure (this ns; drives the runner).
   - `snapshot-frame-db`       — impure (this ns; reads frame db).
 
@@ -95,7 +95,7 @@
 
 (defn build-export
   "Build the canonical export tuple for the dialog. `opts` accepts the
-  full surface of `play-export/recording->play-script` plus an
+  full surface of `play-export/recording->script-body` plus an
   optional `:variant-id` for the rendered `(reg-variant ...)` form.
 
   Returns `{:spec <play-script map> :rendered <variant-form string>}`.
@@ -104,7 +104,7 @@
   [events {:keys [variant-id extends alias name auto-run?
                   auto-assert? final-db seed-db max-auto-assertions]
            :as   opts}]
-  (let [spec     (export/recording->play-script
+  (let [spec     (export/recording->script-body
                    events
                    (cond-> {}
                      (some? name)                (assoc :name name)

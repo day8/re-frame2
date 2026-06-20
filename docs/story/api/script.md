@@ -117,7 +117,7 @@ Story's canvas recorder captures dispatched events and DOM interactions into a p
 | `recorder-state` | `(recorder-state) → map` | read-only recorder state. |
 | `gen-play-snippet` | `(gen-play-snippet events opts) → string` | render captured events as a paste-ready `reg-variant` EDN snippet (each event wrapped as a `[:dispatch-sync …]` step). |
 
-The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` steps derived from the capture stream) lives in `re-frame.story.recorder.play-export` — a sub-namespace, not re-exported through the facade. It exposes `recording->play-script` (capture → normalised body map), `render-play-script` (body → EDN), and `render-variant-form` (full `reg-variant` form → EDN). It emits the recorder's transitional `:play-script` spelling that the registrar lowers to `:script`. Authors wanting the rich DOM-derived DSL `:require` the sub-namespace directly.
+The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` steps derived from the capture stream) lives in `re-frame.story.recorder.play-export`. It exposes `recording->script-body` (capture → normalised `:script` body map — re-exported on the facade for the MCP write-back path), `render-script-body` (body → EDN), and `render-variant-form` (full `reg-variant` form → EDN). Both translators emit the public `:script` slot. Authors wanting the rich DOM-derived DSL `:require` the sub-namespace directly.
 
 ## A complete worked example
 

@@ -586,7 +586,7 @@ Optional `:write-back` re-registers the source variant with the
 captured recording translated to a live play body via
 `reg-variant*` (preserving the existing `:component`, `:args`,
 `:decorators`, etc.). The translation routes through
-`re-frame.story/recording->play-script` — each captured event becomes
+`re-frame.story/recording->script-body` — each captured event becomes
 a `[:dispatch ...]` step (carrying its captured `:rf.cofx` envelope as a
 trailing opts map where one was recorded) — and the write-back assocs
 the result under the PUBLIC `:script` authoring slot (rf2-7mj4z;
