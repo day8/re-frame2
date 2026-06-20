@@ -332,7 +332,7 @@ A resource/mutation request fn describes **the domain request** — method, url,
     {:request {:method :get :url "/api/user"} :decode :app/user}))
 ```
 
-The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. **Default retry should be read-focused** — retrying writes can duplicate side effects, so mutation retry defaults stay conservative (a mutation arms `:retry` only when its own `:request` declares it). Traces report *that* an auth interceptor applied, never the bearer value itself.
+The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. **Default retry should be read-focused** — retrying writes can duplicate side effects, so mutation retry defaults stay conservative (a mutation arms `:retry` only when its third-slot request fn returns a managed-HTTP args map carrying a top-level `:retry`). Traces report *that* an auth interceptor applied, never the bearer value itself.
 
 ### Route-driven loading (route `:resources`)
 
