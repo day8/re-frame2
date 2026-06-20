@@ -14,7 +14,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### Registration
 
-- **`reg-route`** — registers a route. Reserved metadata keys: `:doc`, `:path` (required), `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave`. See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+- **`reg-route`** — registers a route. Canonical 3-slot grammar `(reg-route id metadata path)` (rf2-wvh95f F1, [001 §Registration grammar](001-Registration.md#registration-grammar)): the URL **`:path` pattern is the third VALUE slot** (a route has no handler fn — its defining value is the pattern, the legitimate "handler-or-value" reading), and the middle slot is the pure reflection-metadata map. Reserved metadata keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave` (`:path` is the VALUE slot, no longer a metadata key — declaring it inside the metadata map is a loud `:rf.error/invalid-route-metadata`). See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 - **Path-pattern grammar** — five productions (literal, named param, optional segment group, splat, root). See [§Path-pattern grammar](#path-pattern-grammar-canonical).
 - **Route ranking** — six-rule cascade for resolving overlapping matches. See [§Route ranking algorithm](#route-ranking-algorithm).
 
@@ -109,29 +109,32 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
 A route is a `(kind :route, id keyword)` registry entry whose metadata describes its URL pattern, params, and any constraints. Routes register exactly like any other kind:
 
+The canonical 3-slot grammar puts the URL `:path` pattern in the third VALUE
+slot (rf2-wvh95f F1); the middle slot is the pure reflection-metadata map:
+
 ```clojure
 (rf/reg-route :route/home
-  {:doc  "The landing page."
-   :path "/"})
+  {:doc "The landing page."}
+  "/")
 
 (rf/reg-route :route/cart
-  {:doc  "The cart page."
-   :path "/cart"})
+  {:doc "The cart page."}
+  "/cart")
 
 (rf/reg-route :route/cart.item-detail
   {:doc    "Detail page for a single cart item."
-   :path   "/cart/items/:id"
-   :params [:map [:id :uuid]]})
+   :params [:map [:id :uuid]]}
+  "/cart/items/:id")
 
 (rf/reg-route :route/article
   {:doc    "An article. Optional slug suffix."
-   :path   "/articles/:id{/:slug}?"
-   :params [:map [:id :uuid] [:slug {:optional true} :string]]})
+   :params [:map [:id :uuid] [:slug {:optional true} :string]]}
+  "/articles/:id{/:slug}?")
 
 (rf/reg-route :route/files
   {:doc    "A files browser; matches /files and any sub-path."
-   :path   "/files/*rest"
-   :params [:map [:rest :string]]})
+   :params [:map [:rest :string]]}
+  "/files/*rest")
 ```
 
 #### Path-pattern grammar (canonical)
@@ -227,15 +230,15 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 #### Reserved route-metadata keys
 
-The pattern reserves twelve keys on `reg-route`'s metadata map. All are optional except `:path`. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour) but the keys do not cluster naturally as one flat list. The three axes below name the clusters so generators reading "what does `reg-route` accept?" can branch on intent rather than scan twelve docstrings.
+The pattern reserves eleven keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (rf2-wvh95f F1 — `:path` is no longer a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour) but the keys do not cluster naturally as one flat list. The three axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
 
 ##### The three axes
 
-The twelve keys cluster into three axes by what each key controls:
+The keys cluster into three axes by what each controls (the value-slot `:path` belongs to the **Shape** axis):
 
 | Axis | Keys | What it controls |
 |---|---|---|
-| **Shape** — URL ↔ params binding | `:path`, `:params`, `:query`, `:query-defaults`, `:query-retain` | What URLs match this route and how their parts coerce into a params/query map. The contract surface that `match-url` and `route-url` agree on. |
+| **Shape** — URL ↔ params binding | `:path` (the VALUE slot), `:params`, `:query`, `:query-defaults`, `:query-retain` | What URLs match this route and how their parts coerce into a params/query map. The contract surface that `match-url` and `route-url` agree on. `:path` is the third positional VALUE; the rest are metadata keys. |
 | **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:on-error`, `:can-leave` | Events the runtime fires on route activation (`:on-match`), on `:on-match` errors (`:on-error`), and a sub-id consulted before navigation away (`:can-leave`). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. |
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
 
@@ -243,18 +246,18 @@ The axes are documentation, not data structure — the keys remain flat on the m
 
 ##### Authoring-boundary key validation
 
-Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on-matched` for `:on-match`, `:querey` for `:query`) would otherwise be silently accepted and fail later at nav-time, or never — a silent-swallow that costs a debugging session. `reg-route` therefore **validates the metadata at the authoring boundary**: a **bare** (unqualified) key outside the twelve reserved keys is rejected at registration with a thrown `:rf.error/invalid-route-metadata` (canonical thrown-error shape per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract); `:where 'rf/reg-route`), whose `:keys` slot names every offending key and `:reserved` slot carries the valid vocabulary. This is a **caller bug**, so it throws in dev *and* prod (it is not user input). Non-map metadata is rejected the same way, naming the route.
+Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on-matched` for `:on-match`, `:querey` for `:query`) would otherwise be silently accepted and fail later at nav-time, or never — a silent-swallow that costs a debugging session. `reg-route` therefore **validates the metadata at the authoring boundary**: a **bare** (unqualified) key outside the reserved metadata keys is rejected at registration with a thrown `:rf.error/invalid-route-metadata` (canonical thrown-error shape per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract); `:where 'rf/reg-route`), whose `:keys` slot names every offending key and `:reserved` slot carries the valid vocabulary. A **`:path` left INSIDE the metadata map** (the pre-rf2-wvh95f shape) is rejected the same way — `:path` is the third VALUE slot, not a metadata key. This is a **caller bug**, so it throws in dev *and* prod (it is not user input). Non-map metadata is rejected the same way, naming the route.
 
 **Namespaced keys are exempt.** Route metadata is an open map for host/app extension keys, but only under a namespace (`:myapp/analytics-id`, `:myapp/layout`) — see [§Other pattern-level requirements](#other-pattern-level-requirements). Bare keys are the framework's reserved vocabulary; namespaced keys are the extension surface. The split makes the typo case (a bare key) distinguishable from the extension case (a namespaced key) without a registry of permitted host keys.
 
-**Cross-feature reserved keys.** A small number of bare keys are reserved by *other* framework features that extend route metadata — `:head`, owned by SSR ([011 §Head/meta contract](011-SSR.md#headmeta-contract): "routes name which head to use via `:head` route metadata"), and `:resources`, owned by the [Resources artefact](016-Resources.md#route-integration) (Spec 016 §Route integration: declarative server-state metadata layered beside `:on-match`). These pass the guard because the framework owns them, even though they are not among the twelve routing-owned keys above. The accepted-key set is therefore the routing-owned twelve plus the enumerated cross-feature keys; a new framework feature that adds a bare route-metadata key adds it to that set. The extension is **late-bound**: routing's accepted-key set is the routing-owned keys UNIONed with whatever a cross-feature artefact publishes under the `:routing/extra-route-keys` hook (the Resources artefact publishes `#{:resources}`), so a routing-only app sees only the routing-owned keys and a route declaring `:resources` in an app that omits the Resources artefact is correctly rejected. The same late-bound seam carries the resources route-entry plan (`:routing/on-route-entry`) and the blocking-transition predicate (`:routing/route-blocking?`); routing never statically requires the Resources artefact.
+**Cross-feature reserved keys.** A small number of bare keys are reserved by *other* framework features that extend route metadata — `:head`, owned by SSR ([011 §Head/meta contract](011-SSR.md#headmeta-contract): "routes name which head to use via `:head` route metadata"), and `:resources`, owned by the [Resources artefact](016-Resources.md#route-integration) (Spec 016 §Route integration: declarative server-state metadata layered beside `:on-match`). These pass the guard because the framework owns them, even though they are not among the routing-owned metadata keys above. The accepted-key set is therefore the routing-owned metadata keys plus the enumerated cross-feature keys; a new framework feature that adds a bare route-metadata key adds it to that set. The extension is **late-bound**: routing's accepted-key set is the routing-owned keys UNIONed with whatever a cross-feature artefact publishes under the `:routing/extra-route-keys` hook (the Resources artefact publishes `#{:resources}`), so a routing-only app sees only the routing-owned keys and a route declaring `:resources` in an app that omits the Resources artefact is correctly rejected. The same late-bound seam carries the resources route-entry plan (`:routing/on-route-entry`) and the blocking-transition predicate (`:routing/route-blocking?`); routing never statically requires the Resources artefact.
 
 ##### Per-key table
 
 | Key | Axis | Type | Purpose |
 |---|---|---|---|
 | `:doc` | layout | string | Human-readable description. |
-| `:path` | shape | string (path-pattern grammar above) | The URL pattern. Required. |
+| `:path` | shape | string (path-pattern grammar above) | The URL pattern. The **third VALUE slot** (rf2-wvh95f F1), NOT a metadata key — `(reg-route id {…metadata…} "/path")`. Required (positionally). |
 | `:params` | shape | schema | Schema for **path** params (those captured by `:name` / `*name` segments in `:path`). |
 | `:query` | shape | schema | Schema for **search/query** params (key-value pairs after `?`). Distinct from `:params`. See "Query strings and fragments". |
 | `:query-defaults` | shape | map | Default values for query-string keys when absent from the URL. Applied during `match-url`. See "Query strings and fragments". |

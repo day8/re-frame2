@@ -243,20 +243,20 @@ Some applications derive viewer identity from the **route** (tenant in a path se
 (rf/reg-resource :realworld/feed
   {:scope {:from-db :realworld/session}
    :params (fn [{:keys [page]}] {:page page})
-   :request
-   (fn [{:keys [page]} _ctx]
-     {:request {:method :get :url "/articles/feed"
-                :params {:limit 20 :offset (* 20 (dec page))}}
-      :decode :json})
-   :tags (fn [_params _value] #{[:feed] [:article-list]})})
+   :tags (fn [_params _value] #{[:feed] [:article-list]})}
+  ;; the :request handler is the THIRD slot (rf2-wvh95f F1)
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get :url "/articles/feed"
+               :params {:limit 20 :offset (* 20 (dec page))}}
+     :decode :json}))
 
 (rf/reg-route :realworld/home
-  {:path "/"
-   :resources
+  {:resources
    [{:resource  :realworld/feed
      :params    {:page 1}
      :scope     {:from-db :realworld/session}
-     :blocking? true}]})
+     :blocking? true}]}
+  "/")
 ```
 
 Route ownership, route-leave release, subscriptions, invalidation descriptors, and logout `clear-scope` now all use the same named resolver.
@@ -570,11 +570,15 @@ The load-bearing distinction is between **registration** (the function that reco
 
 ### Registration
 
+Per the canonical Spec 001 3-slot grammar (rf2-wvh95f F1) the `:request`
+handler fn is the third VALUE slot; the middle slot is the reflection +
+config metadata map:
+
 ```clojure
-(rf/reg-resource resource-id resource-spec)
+(rf/reg-resource resource-id metadata request-fn)
 (rf/clear-resource resource-id)
 
-(rf/reg-mutation mutation-id mutation-spec)
+(rf/reg-mutation mutation-id metadata request-fn)
 (rf/clear-mutation mutation-id)
 
 (rf/reg-resource-scope scope-id resolver-spec)   ;; named db-derived scope resolver (EP-0016 D3)
@@ -655,6 +659,10 @@ These direct functions are the **tool/test projection lane**, not an app-read AP
 
 ### Resource registration spec
 
+Per the canonical Spec 001 3-slot grammar (rf2-wvh95f F1) the `:request` fetch
+fn is the third VALUE slot; the middle slot is the reflection + config metadata
+map:
+
 ```clojure
 (rf/reg-resource
   :article/by-slug
@@ -663,25 +671,25 @@ These direct functions are the **tool/test projection lane**, not an app-read AP
    :params-schema [:map [:slug :string]]
    :data-schema   :app/article
 
-   :request
-   (fn [{:keys [slug]} _ctx]
-     {:request {:method :get :url (str "/api/articles/" slug)}
-      :decode :app/article})
-
    :scope          :rf.scope/global   ;; REQUIRED — an explicit, auditable claim
    :transport      :rf.http/managed
    :stale-after-ms 60000
    :gc-after-ms    300000
    :poll-interval-ms 5000             ;; (optional) revalidate every 5s while actively owned + visible
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})
-   :sensitive?     false})
+   :sensitive?     false}
+
+  ;; the :request handler is the THIRD slot (rf2-wvh95f F1)
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode :app/article}))
 ```
 
 **Required keys** (MUST):
 
 - **`:params-schema`** — validates and canonicalizes params.
 - **`:scope`** — the resource's **scope policy**, one of `:rf.scope/global`, a resolver, or `:rf.scope/from-caller` (see [§Scope resolution](#scope-resolution)). It is **required**: a `reg-resource` with no scope policy is a loud registration error (`:rf.error/resource-missing-scope-policy`). A genuinely process-independent resource declares `:scope :rf.scope/global` explicitly; there is no implicit default.
-- **`:request`** — for `:transport :rf.http/managed` (the only initial-scope transport), returns a Spec 014 managed-HTTP args map, including the nested `:request` child and top-level keys such as `:decode`, `:accept`, `:retry`, and sensitivity metadata. The args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure` — resource lowering supplies those from the scoped resource key and current generation (see [§Transport](#transport)); implementations reject those reserved keys at registration or dispatch.
+- **`:request`** — the resource's HANDLER, supplied as the **third VALUE slot** of `reg-resource` (rf2-wvh95f F1 — not a metadata key; declaring `:request` inside the metadata map is a loud `:rf.error/invalid-resource-spec`). For `:transport :rf.http/managed` (the only initial-scope transport), it returns a Spec 014 managed-HTTP args map, including the nested `:request` child and top-level keys such as `:decode`, `:accept`, `:retry`, and sensitivity metadata. The args map MUST NOT supply `:request-id`, `:on-success`, or `:on-failure` — resource lowering supplies those from the scoped resource key and current generation (see [§Transport](#transport)); implementations reject those reserved keys at registration or dispatch.
 
 These three are the registration gate (`:scope` fail-closed first, then `:params-schema` and `:request`); a `reg-resource` missing any of them throws (`:rf.error/resource-missing-scope-policy` for `:scope`, `:rf.error/invalid-resource-spec` for `:params-schema` / `:request`). The set mirrors `reg-mutation`'s (`:params-schema` + `:request` + `:scope`).
 
@@ -701,20 +709,25 @@ Do **not** add a TanStack-style `:select` key in v1. In re-frame2, projections a
 
 A **mutation** is a named, causal WRITE to remote state that, on success, invalidates / patches / populates cached resource reads — the write counterpart of the read-resource grammar. The full normative contract lives in [EP-0003 §Mutations](../docs/EP/EP-0003-resource-queries.md#mutations); this section names the landed surface.
 
+Per the canonical Spec 001 3-slot grammar (rf2-wvh95f F1) the `:request` write
+fn is the third VALUE slot; the middle slot is the reflection + config metadata:
+
 ```clojure
 (rf/reg-mutation
   :article/save
   {:params-schema :app/article          ;; REQUIRED — validates + canonicalizes params
-   :request                             ;; REQUIRED — the Spec 014 managed-HTTP write
-   (fn [{:keys [slug] :as article} _ctx]
-     {:request {:method :put :url (str "/api/articles/" slug) :body article}
-      :decode  :app/article})
    :invalidates  (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
    :patches      (fn [params result] {scoped-key (fn [old result] (merge old result))})
    :populates    (fn [params result] {scoped-key result})
    :removes      (fn [params _result] [target-map])   ;; controlled exact-key REMOVALS (a delete write)
    :scope        :rf.scope/global       ;; the cache scope invalidation/patch defaults to
-   :invalidate-timing :after-success})  ;; | :before-request | :after-failure | :after-settle
+   :invalidate-timing :after-success}   ;; | :before-request | :after-failure | :after-settle
+
+  ;; the :request write handler is the THIRD slot (rf2-wvh95f F1) — the
+  ;; Spec 014 managed-HTTP write, REQUIRED
+  (fn [{:keys [slug] :as article} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug) :body article}
+     :decode  :app/article}))
 
 (rf/clear-mutation :article/save)        ;; registration-lifecycle removal (NOT a form-error reset)
 ```
