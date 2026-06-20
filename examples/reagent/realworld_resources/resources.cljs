@@ -23,9 +23,9 @@
    an inactive entry (no owner) is GC-eligible after its window. A fresh
    re-`ensure` is a cache-hit (no fetch, no dedupe) — `:rf.resource/cache-hit`.
 
-   STATUS. Resources is a POST-V1 optional artefact and the read-resource
-   runtime + mutations have LANDED (EP-0003, final on main 2026-06-11), so all
-   of this runs live. The example tree is test-free."
+   Resources is a POST-V1 optional artefact; the read-resource runtime +
+   mutations (EP-0003) back this example, so all of it runs live. The example
+   tree is test-free."
   (:require [clojure.string]
             [re-frame.core :as rf]
             ;; Managed HTTP ships in day8/re-frame2-http — the single built-in
@@ -255,9 +255,9 @@
 ;; the resource declares `:scope {:from-db :realworld/session}`: a derived-scope
 ;; REFERENCE the runtime resolves at every site against app-db.
 ;;
-;; This is the EP-0016 idiom that replaces the prior `:rf.scope/from-caller`
-;; hand-wiring (where the route ensured the feed from an event and every view
-;; threaded a `:session/scope` payload). Now:
+;; This is the EP-0016 idiom — naming the scope once, rather than `:rf.scope/
+;; from-caller` hand-wiring (a route ensuring the feed from an event and every
+;; view threading a `:session/scope` payload). The result:
 ;;   - a `[:rf.resource/state {:resource :realworld/feed :params {…}}]` sub
 ;;     resolves the scope ITSELF — no view passes a `:scope` payload — and
 ;;     re-keys reactively across login / logout (Spec 016 §A `{:from-db …}`

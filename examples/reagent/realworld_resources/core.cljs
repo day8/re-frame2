@@ -1,7 +1,7 @@
 (ns realworld-resources.core
   "Entry point for the RealWorld-on-resources (Conduit) example — a sibling of
-   `examples/reagent/realworld/` that ports the read surface to EP-0003 (Spec
-   016) RESOURCES and the write surface to MUTATIONS, instead of hand-rolled
+   `examples/reagent/realworld/` that expresses the read surface as EP-0003 (Spec
+   016) RESOURCES and the write surface as MUTATIONS, rather than hand-rolled
    `:rf.http/managed` Pattern-RemoteData slices.
 
    Wires the app together:
@@ -24,9 +24,8 @@
      http.cljs       — the demo backend stub + failure projection
      views.cljs      — passive pages + the small UI event glue
 
-   STATUS. EP-0003 graduated accepted→final on 2026-06-11, so the
-   resources + mutations runtime is real and this example runs live. The
-   example tree is test-free; resource/mutation contract coverage
+   The resources + mutations runtime (EP-0003) backs this example, which runs
+   live. The example tree is test-free; resource/mutation contract coverage
    lives in `implementation/resources/test/` and the conformance fixtures.
 
    For the `:rf.http/managed` counterpart (schema-driven decode, retry/abort,
@@ -170,13 +169,13 @@
 ;;
 ;; CARRIED-FRAME-CORRECT (EP-0002): the token is read from
 ;; `(:frame ctx)` — the frame the cascade actually runs under — not a
-;; hard-coded `:rf/default`, so the header tracks a renamed / multi-frame
+;; hard-coded `:rf/default`, so the header tracks a non-default / multi-frame
 ;; mount. The interceptor returns ctx unchanged when no token is present, so
 ;; login / register / the public reads (logged-out) are unaffected.
 
 ;; Public (not `defn-`) so a headless fixture can wire it into a test frame
-;; and assert the decoration — the sibling's route guard takes the other route
-;; now: it is a `reg-interceptor` descriptor referenced BY ID
+;; and assert the decoration. The sibling's route guard takes the other route:
+;; it is a `reg-interceptor` descriptor referenced BY ID
 ;; (`:realworld-resources.routing/auth-guard`, EP-0022) rather than a var. The
 ;; example tree stays test-free; the visibility is the only concession.
 (defn bearer-auth-interceptor [ctx]
