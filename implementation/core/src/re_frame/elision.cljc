@@ -814,21 +814,22 @@
   elements are all walked, since a candidate aliased to ANY surviving wire
   position is disclosed."
   [acc! node candidates]
-  (when (contains? candidates node)
-    (conj! acc! node))
-  (cond
-    (map? node)
-    (reduce-kv (fn [a k v]
-                 (collect-wire-values! a k candidates)
-                 (collect-wire-values! a v candidates))
-               acc! node)
+  (let [acc! (cond-> acc!
+               (contains? candidates node) (conj! node))]
+    (cond
+      (map? node)
+      (reduce-kv (fn [a k v]
+                   (-> a
+                       (collect-wire-values! k candidates)
+                       (collect-wire-values! v candidates)))
+                 acc! node)
 
-    (coll? node)
-    (reduce (fn [a x] (collect-wire-values! a x candidates))
-            acc! node)
+      (coll? node)
+      (reduce (fn [a x] (collect-wire-values! a x candidates))
+              acc! node)
 
-    :else
-    acc!))
+      :else
+      acc!)))
 
 (defn collect-sensitive-values
   "The set of values sitting at `frame-id`'s declared-`:sensitive?` app-db

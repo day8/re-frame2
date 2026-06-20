@@ -911,3 +911,75 @@
   (let [tree [:span "ordinary"]]
     (is (identical? tree (elision/redact-derived-slots tree nil nil :rf/default {}))
         "nil source-db + no extra source ⇒ tree returned unwalked")))
+
+;; ── rf2-cd71m3: transient-contract correctness in the wire walker ─────────
+;;
+;; `collect-wire-values!` walks the POST-elision db conj!ing every surviving
+;; value that aliases a candidate secret onto a transient set — the
+;; non-unique-secret guard that powers `sensitive-value-set`. It is correct
+;; TODAY only because `TransientHashSet/conj!` happens to return the SAME
+;; object, so discarding the return is harmless. The documented transient
+;; contract requires the RETURN value of every `conj!` (and every threaded
+;; recursive call) to be used; a refactor to a transient vector — or a host
+;; whose transient set reallocates — would silently drop candidates from the
+;; secret set, i.e. UNDER-redaction of secrets aliased onto the wire.
+
+(deftype ^:private ReallocAcc [coll]
+  ;; A transient-collection accumulator whose `conj!` returns a DISTINCT
+  ;; object every time (modelling a transient vector or a reallocating host
+  ;; set). Mutating in place and discarding the return loses the element —
+  ;; exactly the contract `collect-wire-values!` must honour.
+  clojure.lang.ITransientCollection
+  (conj [_ x] (ReallocAcc. (conj coll x)))
+  (persistent [_] (set coll)))
+
+(deftest collect-wire-values-honours-transient-return-contract
+  ;; Drive the private walker with a return-sensitive accumulator. If any
+  ;; `conj!` return — or the first recursive call in the map branch — is
+  ;; discarded, aliased candidates are LOST. The fixed walker threads every
+  ;; return, so all aliased candidates are collected.
+  ;;
+  ;; This test FAILS against the pre-fix walker (which discards the conj! and
+  ;; map-key recursive returns) and PASSES against the threaded walker.
+  (let [walk! (var-get #'elision/collect-wire-values!)
+        candidates #{"SECRET-K" "SECRET-V" "SECRET-IN-VEC" "SECRET-IN-SET"
+                     "SECRET-DEEP"}
+        ;; A candidate appears as a map KEY, a map VALUE, a vector element, a
+        ;; set member, and a deeply-nested value — every walk branch.
+        wire {"SECRET-K" 1
+              :v "SECRET-V"
+              :vec ["plain" "SECRET-IN-VEC"]
+              :set #{"benign" "SECRET-IN-SET"}
+              :deep {:a {:b ["SECRET-DEEP"]}}}
+        collected (persistent! (walk! (->ReallocAcc []) wire candidates))]
+    (is (= candidates collected)
+        "every aliased candidate is collected when the conj!/recursion return
+         is threaded — no candidate is silently dropped")))
+
+(deftest sensitive-value-set-collects-all-aliased-secrets-over-32
+  ;; Bead acceptance: a wire walk with >32 candidates still collects every
+  ;; aliased secret. Forward-regression guard against a future transient-type
+  ;; change that would make discarded returns lossy (see the contract test
+  ;; above for the fails-before/passes-after proof).
+  ;;
+  ;; 64 distinct scalar secrets are each declared sensitive via a literal-index
+  ;; `:rf/path` ([:secrets i]) AND ALSO aliased verbatim at a NON-sensitive
+  ;; surviving wire position (`:public`). `sensitive-value-set` = candidates
+  ;; MINUS those found on the wire; since every scalar candidate is public, a
+  ;; complete wire walk removes ALL of them, leaving the EMPTY guard set. A
+  ;; single dropped wire value would leave that secret in the returned set, so
+  ;; the empty result proves the walker collected every one of the 64.
+  (let [n       64
+        secrets (mapv #(str "SECRET-" %) (range n))
+        ;; Each element declared sensitive by literal index → scalar
+        ;; candidates only (no whole-collection candidate to confound the set).
+        paths   (mapv (fn [i] [:secrets i]) (range n))]
+    (install-class! paths [])
+    (let [;; Same values re-surfaced at a non-declared, non-redacted position.
+          public (mapv #(str "SECRET-" %) (range n))
+          db     {:secrets secrets :public public}
+          guard  (elision/sensitive-value-set db :rf/default {})]
+      (is (= n (count (set secrets))) "sanity: >32 distinct candidate secrets")
+      (is (= #{} guard)
+          "every one of the 64 aliased secrets is found on the wire and removed
+           from the guard set — none silently dropped by the walker"))))
