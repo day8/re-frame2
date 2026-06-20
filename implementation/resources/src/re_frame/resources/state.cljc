@@ -452,9 +452,8 @@
 ;;   3. a reserved bare-keyword scope wrapped in a vector (the canonical
 ;;      `:rf.scope/global` supplied as the singleton `[:rf.scope/global]`) is
 ;;      rejected fail-closed (rf2-bwwk6l) — the global scope IS the bare
-;;      keyword, and a wrapped spelling that silently collapsed to it was a
-;;      back-compat alias for historical prose, not a second spelling the
-;;      contract blesses.
+;;      keyword `:rf.scope/global`, and the wrapped spelling is not a second
+;;      spelling the contract blesses.
 
 (def reserved-scope-ns
   "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
@@ -491,10 +490,8 @@
   "Throw `:rf.error/resource-invalid-scope` when `scope` is a VECTOR whose
   head is a reserved bare-keyword concrete scope (`:rf.scope/global`) —
   i.e. the singleton `[:rf.scope/global]` spelling (rf2-bwwk6l). The global
-  scope IS the bare keyword `:rf.scope/global`; wrapping it in a vector was a
-  back-compat alias the implementation silently collapsed, kept only for
-  payloads copied from historical prose. Pre-alpha there is no alias: the
-  wrapped form fails closed and the diagnostic names the canonical bare
+  scope IS the bare keyword `:rf.scope/global`; the wrapped form is not an
+  alias for it — it fails closed and the diagnostic names the canonical bare
   spelling. A genuine scope TUPLE like `[:rf.scope/session {…}]` carries a
   payload after the namespaced tag and is untouched — only a reserved
   bare-keyword head with NO concrete payload (the historical alias shape) is

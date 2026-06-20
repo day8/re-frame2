@@ -290,10 +290,10 @@
 ;; ---- derived freshness (Spec 016 §Status semantics) -----------------------
 ;;
 ;; The live clock the `:stale?` derivation compares `:stale-at` against is the
-;; core WALL-clock `re-frame.interop/epoch-now-ms` (rf2-366u0g) — byte-identical
-;; to the private `now-ms` this ns used to define (`System/currentTimeMillis`
-;; on the JVM, `js/Date.now` on CLJS), and the canonical EP-0010 §Time
-;; wall-clock surface. NOT the perf clock `interop/now-ms` (`performance.now()`
+;; core WALL-clock `re-frame.interop/epoch-now-ms` (rf2-366u0g —
+;; `System/currentTimeMillis` on the JVM, `js/Date.now` on CLJS), the
+;; canonical EP-0010 §Time wall-clock surface. NOT the perf clock
+;; `interop/now-ms` (`performance.now()`
 ;; on CLJS, origin-relative), which is incomparable with the `js/Date`-based
 ;; `:stale-at` timestamps. Freshness is computed from durable timestamps, not
 ;; from trusting a timer fired on time (Spec 016 §Stale and GC scheduling).
