@@ -23,8 +23,10 @@
   async; its plan compilation + report projection are covered host-free by
   the plan / result suites."
   (:require [clojure.test :refer [deftest is testing use-fixtures] :as t]
+            [malli.core         :as m]
             [re-frame.core      :as rf]
             [re-frame.frame     :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
@@ -318,3 +320,124 @@
       (is (= [:inline/explained] (:source-chain ex)))
       (is (= [[:dispatch [:inline/inc]]] (:setup-order ex)))
       (is (empty? (story/ids :variant)) "explain registered nothing"))))
+
+;; ===========================================================================
+;; FAILURE-PATH TEARDOWN — an inline plan that fails mid-run still runs the
+;; SAME teardown the success path runs (rf2-7u3eja)
+;;
+;; The success path tears the anonymous inline frame down with the decorator
+;; stack used for allocation + the plan's `:loaders-teardown`; the FAILURE
+;; path previously ran `(destroy-inline! frame-id nil nil)` — the frame was
+;; removed but `:loaders-teardown` + frame-setup decorator `:teardown` were
+;; SKIPPED, leaking any resource an inline loader or `:frame-setup` decorator
+;; opened on precisely the failure path where cleanup matters. Both paths now
+;; converge on the SAME teardown.
+;;
+;; The forced post-allocation throw is a `:db-seed` schema violation: it
+;; throws in `run-db-seed!` (phase 0.5) AFTER `allocate-inline!` ran the
+;; frame-setup `:init`, so the failure-path teardown owes the symmetric
+;; cleanup. Validation rides the SAME schemas late-bind seam the runtime uses
+;; (no hard dep on the schemas artefact — Malli backs the host-free stand-in).
+;; ===========================================================================
+
+(defn- install-schema-seam!
+  "Install the schemas late-bind seam (the SAME seam the runtime's
+  `db-seed-violations` reaches) so an inline frame validates its `:db-seed`
+  against `schema-for-any-frame`. An inline frame-id is minted dynamically,
+  so the entries fn returns the schema for ANY frame-id (the inline run is
+  the only frame on the classpath under test). Malli backs the validator —
+  no hard dep on the schemas artefact."
+  [schema-for-any-frame]
+  (late-bind/set-fn! :schemas/frame-schema-entries
+                     (fn [_frame-id] schema-for-any-frame))
+  (late-bind/set-fn! :schemas/validate-with-registered-fn
+                     (fn [schema value] (m/validate schema value)))
+  (late-bind/set-fn! :schemas/explain-with-registered-fn
+                     (fn [schema value] (m/explain schema value))))
+
+(defn- uninstall-schema-seam! []
+  (swap! late-bind/hooks dissoc
+         :schemas/frame-schema-entries
+         :schemas/validate-with-registered-fn
+         :schemas/explain-with-registered-fn))
+
+(deftest inline-plan-failure-runs-decorator-and-loader-teardown
+  (testing "an inline plan that FAILS mid-run (a :db-seed schema violation,
+            thrown AFTER frame allocation) still runs the plan's
+            :loaders-teardown AND its frame-setup decorator :teardown — the
+            same convergent cleanup the success path runs, so no frame /
+            decorator / loader leaks on the failure path (rf2-7u3eja).
+
+            :init / :teardown / :loaders-teardown write to side-atoms (the
+            frame's app-db is gone after destroy, so observation lives
+            outside it). Validation rides the schemas late-bind seam."
+    ;; An app-db schema the seed violates → run-db-seed! throws AFTER
+    ;; allocation (frame-setup :init already ran).
+    (install-schema-seam! {[:cart] {:schema [:map [:items [:vector :map]]]}})
+    (try
+      (let [decorator-init     (atom 0)
+            decorator-teardown (atom 0)
+            loader-teardown    (atom 0)]
+        (rf/reg-event :inline/dec-init
+          (fn [{:keys [db]} _] (swap! decorator-init inc) {:db db}))
+        (rf/reg-event :inline/dec-teardown
+          (fn [{:keys [db]} _] (swap! decorator-teardown inc) {:db db}))
+        (rf/reg-event :inline/loader-teardown
+          (fn [{:keys [db]} _] (swap! loader-teardown inc) {:db db}))
+        (story/reg-decorator :inline/live-resource
+          {:kind     :frame-setup
+           :init     [[:inline/dec-init]]
+           :teardown [[:inline/dec-teardown]]})
+        (let [result (run-target
+                       {:decorators       [[:inline/live-resource]]
+                        :loaders-teardown [[:inline/loader-teardown]]
+                        ;; :items must be a vector of maps — a string violates it.
+                        :db-seed          {:cart {:items "not-a-vector"}}
+                        :script           [[:dispatch [:inline/set-status :loaded]]]})]
+          (testing "the run FAILED on the schema-violating seed (not a vacuous pass)"
+            (is (= :error (:status result)))
+            (is (= :rf.error/story-db-seed-invalid
+                   (:assertion (first (filter #(= :rf.error/story-db-seed-invalid
+                                                  (:assertion %))
+                                              (:assertions result)))))))
+          (testing "frame-setup :init ran during allocation (precondition)"
+            (is (= 1 @decorator-init)))
+          (testing "the FAILURE path ran the SAME teardown the success path runs"
+            (is (= 1 @decorator-teardown)
+                "frame-setup decorator :teardown fired on the failure path
+                 — not skipped (the rf2-7u3eja leak)")
+            (is (= 1 @loader-teardown)
+                "the plan's :loaders-teardown fired on the failure path"))
+          (testing "the inline frame did not leak"
+            (is (empty? (story/variant-frames))
+                "no lingering nav frame after the failed inline run")
+            (is (not-any? #(and (keyword? %)
+                                (= "rf.story.inline" (namespace %)))
+                          (rf/frame-ids))
+                "no inline frame survives in the runtime frame registry"))))
+      (finally (uninstall-schema-seam!)))))
+
+(deftest inline-plan-success-runs-decorator-and-loader-teardown
+  (testing "control: the SUCCESS path runs the SAME decorator :teardown +
+            :loaders-teardown the failure path now runs — proving the two
+            paths converge on identical cleanup (rf2-7u3eja)"
+    (let [decorator-teardown (atom 0)
+          loader-teardown    (atom 0)]
+      (rf/reg-event :inline/dec-init     (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :inline/dec-teardown
+        (fn [{:keys [db]} _] (swap! decorator-teardown inc) {:db db}))
+      (rf/reg-event :inline/loader-teardown
+        (fn [{:keys [db]} _] (swap! loader-teardown inc) {:db db}))
+      (story/reg-decorator :inline/live-resource
+        {:kind     :frame-setup
+         :init     [[:inline/dec-init]]
+         :teardown [[:inline/dec-teardown]]})
+      (let [result (run-target
+                     {:decorators       [[:inline/live-resource]]
+                      :loaders-teardown [[:inline/loader-teardown]]
+                      :script           [[:dispatch [:inline/set-status :loaded]]
+                                         [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
+        (is (= :pass (:status result)) "the control run passes")
+        (is (= 1 @decorator-teardown) "decorator :teardown fired on success")
+        (is (= 1 @loader-teardown) "loaders-teardown fired on success")
+        (is (empty? (story/variant-frames)) "no lingering frame")))))

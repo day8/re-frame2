@@ -1389,35 +1389,73 @@
                frame-id (mint-inline-frame-id)]
            (async/promise
              (fn [resolve]
-               (try
-                 (let [ctx          (-> (prepare-inline-context frame-id plan opts)
-                                        run-inline-phase-0!
-                                        run-db-seed!
-                                        run-phase-1!
-                                        run-phase-2!)
-                       [ctx' play-promise] (run-phase-4! ctx)]
-                   (-> play-promise
-                       (async/then
-                         (fn [_]
-                           (let [result (record-result-map ctx' start-ms)]
-                             (frames/destroy-inline!
-                               frame-id (:decorator-stack ctx')
-                               (get-in plan [:world :loaders-teardown]))
-                             (resolve result))
-                           nil))))
-                 (catch #?(:clj Throwable :cljs :default) e
-                   ;; rf2-blw1q — a `:db-seed` schema-validation failure
-                   ;; records as its own structured assertion; every other
-                   ;; throw stays the opaque `:rf.error/exception` shape.
-                   (if (db-seed-error? e)
-                     (record-seed-error! frame-id e)
-                     (record-error! frame-id :phase-0-setup nil e))
-                   (loaders/error! frame-id (ex-data e))
-                   (let [result (record-result-map
-                                  {:variant-id frame-id :plan plan} start-ms)]
-                     (try (frames/destroy-inline! frame-id nil nil)
-                       (catch #?(:clj Throwable :cljs :default) _ nil))
-                     (resolve result))))))))))))
+               ;; rf2-7u3eja — the SUCCESS path tears the inline frame down
+               ;; with the decorator stack used for allocation + the plan's
+               ;; `:loaders-teardown`; the FAILURE path MUST converge on the
+               ;; SAME teardown. Previously the catch ran
+               ;; `(destroy-inline! frame-id nil nil)` — the frame was removed
+               ;; but `:loaders-teardown` + frame-setup decorator `:teardown`
+               ;; were SKIPPED, so any resource opened by an inline-plan loader
+               ;; or `:frame-setup` decorator leaked on precisely the failure
+               ;; path (db-seed / phase 1 / phase 2 / phase 4 setup) where
+               ;; cleanup matters.
+               ;;
+               ;; The decorator stack is fixed at `prepare-inline-context`
+               ;; time (resolved once, constant across phases), so `teardown!`
+               ;; reads it off the captured context. `allocated?` flips true
+               ;; only AFTER `run-inline-phase-0!` (which calls
+               ;; `allocate-inline!`) succeeds: a throw BEFORE allocation
+               ;; (e.g. inside `prepare-inline-context`) tears down nothing —
+               ;; no frame exists and no frame-setup `:init` ran — while a
+               ;; throw AFTER allocation tears down exactly what was set up
+               ;; (partial-allocation safety). `destroy-inline!` already
+               ;; no-ops the loader-teardown walk when its third arg is empty.
+               (let [ctx*       (volatile! nil)
+                     allocated? (volatile! false)
+                     teardown!  (fn []
+                                  (when @allocated?
+                                    (try
+                                      (frames/destroy-inline!
+                                        frame-id (:decorator-stack @ctx*)
+                                        (get-in plan [:world :loaders-teardown]))
+                                      (catch #?(:clj Throwable :cljs :default) _ nil))))
+                     fail!      (fn [e]
+                                  ;; rf2-blw1q — a `:db-seed` schema-validation
+                                  ;; failure records as its own structured
+                                  ;; assertion; every other throw stays the
+                                  ;; opaque `:rf.error/exception` shape.
+                                  (if (db-seed-error? e)
+                                    (record-seed-error! frame-id e)
+                                    (record-error! frame-id :phase-0-setup nil e))
+                                  (loaders/error! frame-id (ex-data e))
+                                  (let [result (record-result-map
+                                                 {:variant-id frame-id :plan plan} start-ms)]
+                                    (teardown!)
+                                    (resolve result)))]
+                 (try
+                   (let [prepared     (prepare-inline-context frame-id plan opts)
+                         _            (vreset! ctx* prepared)
+                         ;; Phase 0 allocates the anonymous frame (+ runs
+                         ;; frame-setup `:init`); only past it does the
+                         ;; failure path owe a teardown.
+                         ctx0         (run-inline-phase-0! prepared)
+                         _            (vreset! allocated? true)
+                         ctx          (-> ctx0 run-db-seed! run-phase-1! run-phase-2!)
+                         _            (vreset! ctx* ctx)
+                         [ctx' play-promise] (run-phase-4! ctx)
+                         _            (vreset! ctx* ctx')]
+                     (-> play-promise
+                         (async/then
+                           (fn [_]
+                             (let [result (record-result-map ctx' start-ms)]
+                               (teardown!)
+                               (resolve result))
+                             nil))
+                         ;; A rejection INSIDE the play promise (phase 4) must
+                         ;; also converge on teardown, not leak the frame.
+                         (async/catch* (fn [e] (fail! e) nil))))
+                   (catch #?(:clj Throwable :cljs :default) e
+                     (fail! e))))))))))))
 
 ;; ---- reset-variant -------------------------------------------------------
 
