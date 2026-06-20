@@ -67,16 +67,19 @@ README markets as a headline feature:
   privacy escape hatch. The metadata stamps every trace event emitted
   inside the handler's scope with `:sensitive? true` (Xray filters
   those out and surfaces `[● REDACTED N]` in the bottom rail).
-- **Upload large avatar (inline)** dispatches `:user/avatar/upload`
-  with a 20 kB string in the event payload. Path D does not auto-elide
-  unschema'd event-vector blobs; large-value elision is declared with
-  schema `{:large? true}` on app-db slots.
+- **Upload large avatar (inline)** dispatches `:user.avatar/upload`
+  with a 20 kB string in the event payload. Path D removed runtime
+  size auto-elision, so an unschema'd / unnominated event-vector blob
+  rides through the listener unchanged; large-value egress is declared,
+  not auto-detected — nominate app-db slots on the frame via
+  `:large {:app-db …}`.
 - **Set avatar PDF (large)** writes a synthetic blob into
-  `[:user/avatar-pdf]` in app-db — a slot declared `:large?` via
-  `reg-app-schema`. Walking app-db through
-  `rf/elide-wire-value` substitutes the slot with a marker map
-  whose `:hint "Avatar PDF blob"` propagates verbatim from the
-  schema, orienting AI consumers without forcing a drill-down.
+  `[:user/avatar-pdf]` in app-db — a slot nominated `:large` on the
+  testbed's `:rf/default` frame via `reg-frame {:large {:app-db
+  [[:user/avatar-pdf]]}}` (EP-0015 §8 — durable app-db egress is
+  FRAME-owned, not a schema prop). Walking app-db through
+  `rf/elide-wire-value` substitutes the slot with a marker map carrying
+  `:reason :frame` (the frame-owned classification provenance).
 - **Walk app-db through elision** runs the live frame's app-db
   through `rf/elide-wire-value` and logs the result. The
   `:user/avatar-pdf` slot shows up as the marker map; everything
@@ -84,7 +87,7 @@ README markets as a headline feature:
 
 The example also registers a console-logging
 [`event-emit` listener](../../../../docs/guide/concepts/observability.md#your-listener-in-eight-lines)
-at boot via `rf/register-event-listener!`. Every dispatched
+at boot via `rf/register-listener!` (the `:events` channel). Every dispatched
 event prints one tight record (`{:event :event-id :frame :time
 :outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
 recipe forwards in production. The substrate is **always-on**: it
@@ -96,9 +99,10 @@ with `(not ^boolean re-frame.interop/debug-enabled?)` per the
 chapter-22 recipe.
 
 Tests at [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs)
-assert every branch — schema-driven `:large?`, auto-detect
-`:large?`, the `:sensitive?` registration-meta read-back, and the
-event-emit listener firing per dispatch.
+assert every branch — frame-owned `:large` app-db elision (`:reason
+:frame`), unschema'd inline payloads riding through raw, the
+`:sensitive?` registration-meta read-back, and the event-emit listener
+firing per dispatch.
 
 ## Running
 
