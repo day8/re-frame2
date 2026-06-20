@@ -100,19 +100,6 @@
             ;; causing) epoch before we re-read it. Dev-tier preload, so the
             ;; direct require is bundle-isolation-safe.
             [re-frame.substrate.adapter :as adapter]
-            ;; The `re-frame.realm/realm-ids` read is the INTERNAL installation-
-            ;; container substrate (EP-0023 §Surface dispositions). pl97nd.2
-            ;; REMOVED the `rf/realm-ids` facade alias (EP-0023 collapses the
-            ;; public address to a single frame id), retaining the behaviour ONLY
-            ;; on the owning internal namespace `re-frame.realm/realm-ids`
-            ;; (installed-container enumeration). A tool may require an internal
-            ;; ns to read retained-internal substrate — exactly the pattern
-            ;; rf2-xopt7b applied to Xray. Dev-tier preload, so the direct
-            ;; require is bundle-isolation-safe (rf2-ph752s). (The per-frame
-            ;; `re-frame.frame/frame-realm` read + the `:frame-realms` wire field
-            ;; were removed under rf2-70owfr — the single default realm makes a
-            ;; per-frame container map informationless.)
-            [re-frame.realm :as realm]
             [re-frame.interop :as interop]
             ;; `parse-source-coord` (the canonical inverse of
             ;; `format-source-coord`) is the source-coord contract owner's
@@ -280,36 +267,9 @@
 ;; AUTO-SELECTS it: single-app + Xray is unambiguous with no `frames/
 ;; select` tax. Two-plus app frames stay genuinely ambiguous (tier 4).
 ;;
-;; Installation-container-scoped tier-3 resolution (EP-0023 §Surface
-;; dispositions — realm is the internal installation/container substrate)
-;; ----------------------------------------------------------------------
-;;
-;; EP-0023 makes the public model `image -> frame -> event stream` and the
-;; public address a FRAME id (the EP-0013 `(realm, frame)` two-part address
-;; collapses to one public frame-id space). The EP-0013 REALM survives only
-;; as the INTERNAL installation/container substrate — the container that owns
-;; the registrar/adapter/capabilities a frame dispatches against. Tier-3
-;; sole-app-frame resolution is scoped to that internal container: it counts
-;; only app frames in the OPERATING CONTAINER (the session container pin, or
-;; the default container when none is pinned), because in a multi-container
-;; installation a frame-id is unique only within a container. A single-realm
-;; app (the overwhelming common case — every frame in `:rf.realm/default`) is
-;; byte-identical: the operating container is the default, and scoping to it
-;; is a no-op.
-;;
-;; This is INTERNAL implementation structure, not a public address: tools
-;; that surface it (`frames-list`, `health`, `orient`) label the
-;; `:realms` / `:operating-realm` slots as the installation boundary, never as
-;; the central addressing model (EP-0023 §Surface dispositions: tooling may
-;; expose the internal installation boundary, but should label it as such). The
-;; container read is the INTERNAL substrate `re-frame.realm/realm-ids`
-;; (rf2-ph752s; pl97nd.2 removed the `rf/realm-ids` facade alias, a tool reads
-;; the retained-internal substrate directly — the rf2-xopt7b Xray pattern). A
-;; single-realm app collapses to the single-container (default) view
-;; (`re-frame.realm/realm-ids` always carries `:rf.realm/default`). (The
-;; per-frame `:frame-realms` map + the `frame-realm` read were removed under
-;; rf2-70owfr — the single default realm makes a per-frame container map
-;; informationless.)
+;; The public model is `image -> frame -> event stream` and the public address
+;; is a FRAME id (a single process-local frame-id space). The resolver counts
+;; app frames directly; there is no container/realm dimension to scope by.
 
 (defonce ^:private selected-frame (atom nil))
 
@@ -319,70 +279,6 @@
   [frame-id]
   (reset! selected-frame frame-id)
   {:ok? true :frame frame-id})
-
-;; ---- Internal installation container (EP-0023 §Surface dispositions) ------
-;;
-;; A frame is seated in an internal installation CONTAINER (the EP-0013 realm,
-;; retained as the internal installation substrate — registrar/adapter/
-;; capability owner). This is implementation structure, not the public
-;; address (the public address is the frame id). The container read is the
-;; INTERNAL substrate `re-frame.realm/realm-ids` (the installation-container
-;; ids) — pl97nd.2 removed the `rf/realm-ids` facade alias, so the preload reads
-;; the retained-internal owning namespace directly (rf2-ph752s, the rf2-xopt7b
-;; Xray pattern). A single-realm app collapses to the single-container (default)
-;; view (`re-frame.realm/realm-ids` always carries `:rf.realm/default`). (The
-;; per-frame container map `:frame-realms` + `frame-realm` were removed under
-;; rf2-70owfr — the single default realm makes them informationless.)
-
-(def ^:private default-realm-id
-  "The process default realm id (re-frame.realm/default-realm-id). A
-   single-realm app's frames all live here, and absence of an explicit realm
-   means this realm — the documented EP-0013 rule. Hard-coded (rather than
-   read from core) so the fallback view is well-defined even on a core that
-   predates the realm API."
-  :rf.realm/default)
-
-(defn realm-ids
-  "The installed runtime realm ids, as a sorted vector. Reads the INTERNAL
-   substrate `re-frame.realm/realm-ids` directly (rf2-ph752s; pl97nd.2 removed
-   the `rf/realm-ids` facade alias) — the realm-enumeration half of the (realm,
-   frame) addressing model (EP-0013 disposition 3, retained as the internal
-   installation boundary under EP-0023). `re-frame.realm/realm-ids` always
-   includes `default-realm-id` (seeded at ns-load, never disposed), so a
-   single-realm app reports exactly `[:rf.realm/default]`.
-
-   Sorted by `pr-str` for a stable listing (the underlying
-   `re-frame.realm/realm-ids` returns an unordered set)."
-  []
-  (vec (sort-by pr-str (realm/realm-ids))))
-
-;; The per-frame `frame-realm` reader + the `:frame-realms` wire field were
-;; removed under rf2-70owfr — the afdlyr realm-substrate collapse leaves a single
-;; default realm, so a {frame-id -> container-id} map carried no information
-;; (every frame's container is the default). The installation-container
-;; resolution (`realm-ids` / `operating-realm` / `select-realm!`) is retained as
-;; the labeled-internal boundary the wire contract still reports.
-
-(defonce ^:private selected-realm (atom nil))
-
-(defn select-realm!
-  "Pin the OPERATING REALM for this session — the realm whose app frames the
-   tier-3 sole-app-frame resolver counts (EP-0013 disposition 3, rf2-09ijml).
-   Subsequent frame resolution scopes to it; passing `nil` clears the pin and
-   resolution falls back to the default realm. A single-realm app never needs
-   this (its frames all live in the default realm). Returns the post-pin
-   triple."
-  [realm-id]
-  (reset! selected-realm realm-id)
-  {:ok? true :realm realm-id :realms (realm-ids)})
-
-(defn operating-realm
-  "Resolve the OPERATING REALM: the session realm pin, else the default realm.
-   This is the realm the tier-3 sole-app-frame resolver scopes to. A
-   single-realm app always resolves to `default-realm-id`, so realm-scoping is
-   a no-op there (byte-identical to the pre-realm ladder)."
-  []
-  (or @selected-realm default-realm-id))
 
 (defn reserved-tool-frame?
   "True when `frame-id` names a framework-reserved `:rf/*` TOOL frame —
@@ -408,36 +304,23 @@
 (defn app-frame-ids
   "The registered APP frame ids — `(rf/frame-ids)` with `:rf/*` reserved TOOL
    frames removed (rf2-3bu3d.4). `:rf/default` is retained (it is an app frame;
-   see `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`.
-
-   The afdlyr realm-substrate collapse leaves a single default realm, so the
-   per-realm scoping was removed (rf2-70owfr) — every registered frame is in the
-   one default container, so admitting every app frame IS the operating-container
-   view. The no-arg + arity-1 (a realm-id, ignored) shapes are retained for
-   call-site compatibility; both return the same set."
-  ([] (vec (remove reserved-tool-frame? (rf/frame-ids))))
-  ([_realm-id] (app-frame-ids)))
+   see `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`."
+  []
+  (vec (remove reserved-tool-frame? (rf/frame-ids))))
 
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
-   the sole registered APP frame in the operating realm -> nil (ambiguous).
+   the sole registered APP frame -> nil (ambiguous).
 
-   Tier 3 is reserved-frame-aware (rf2-3bu3d.4) AND scoped to the internal
-   installation container (EP-0023 §Surface dispositions — the retained
-   internal realm substrate): `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR
-   slots, …) are EXCLUDED and only app frames in the OPERATING CONTAINER are
-   counted, so a single-app session that ALSO carries an Xray frame resolves
-   to the one app frame instead of refusing. In a multi-container installation
-   a frame-id is unique only within a container, so counting only the
-   operating container's app frames is what makes tier-3 sole-frame resolution
-   correct there. A single-realm app (every frame in the default container) is
-   byte-identical. `:rf/default` is an app frame and is
-   retained (see `reserved-tool-frame?`). When two-plus APP frames remain in
-   the operating realm the resolver yields nil and mutating ops refuse via the
-   `:ambiguous-frame` path — reads that nil-default to `:rf/default` would
-   silently land in the wrong frame, so the resolver stays conservative:
-   callers either pin via `select-frame!`, pass an explicit override, or
-   get a clear refusal."
+   Tier 3 is reserved-frame-aware (rf2-3bu3d.4): `:rf/*` TOOL frames (Xray's
+   `:rf/xray`, SSR slots, …) are EXCLUDED, so a single-app session that ALSO
+   carries an Xray frame resolves to the one app frame instead of refusing.
+   `:rf/default` is an app frame and is retained (see `reserved-tool-frame?`).
+   When two-plus APP frames remain the resolver yields nil and mutating ops
+   refuse via the `:ambiguous-frame` path — reads that nil-default to
+   `:rf/default` would silently land in the wrong frame, so the resolver stays
+   conservative: callers either pin via `select-frame!`, pass an explicit
+   override, or get a clear refusal."
   ([] (current-frame nil))
   ([override]
    (or override
@@ -448,40 +331,20 @@
 
 (defn frames-list
   "All registered, non-destroyed frame ids plus the operating frame (the
-   PUBLIC address — EP-0023's image -> frame -> event stream) and the
-   labeled-internal installation boundary (rf2-3bu3d.4 + EP-0023 §Surface
-   dispositions — realm is the internal installation/container substrate).
+   PUBLIC address — EP-0023's image -> frame -> event stream).
 
-   `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4) scoped to
-   the operating installation container: the registered frames with `:rf/*`
-   tool frames removed and only those in the OPERATING CONTAINER. When it
-   holds exactly one id while `:frames` holds more, the session is
-   single-app-plus-tool-frame (or a multi-container session whose other app
-   frames are seated in other containers) and `:operating` auto-resolved to
-   that lone app frame (no `select-frame!` was needed).
-
-   The container slots expose the LABELED-internal installation boundary
-   (EP-0023 §Surface dispositions — surfaced as implementation structure, not
-   a public address):
-     `:realms`          all internal installation-container ids (`realm-ids`).
-     `:operating-realm` the container tier-3 resolution scopes to (the session
-                        container pin, else the default container).
-     `:selected-realm`  the tier-2 session container pin, nil when unset.
-   A single-realm app reports `:realms [:rf.realm/default]` — the installation
-   boundary collapses to a no-op. (The per-frame `:frame-realms`
-   `{frame-id container-id}` map was removed under rf2-70owfr — the single
-   default realm makes it informationless; every frame's container is the
-   default.)"
+   `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4): the
+   registered frames with `:rf/*` tool frames removed. When it holds exactly
+   one id while `:frames` holds more, the session is single-app-plus-tool-frame
+   and `:operating` auto-resolved to that lone app frame (no `select-frame!`
+   was needed)."
   []
   (let [fids (vec (rf/frame-ids))]
     {:ok?              true
      :frames           fids
      :app-frames       (app-frame-ids)
      :selected         @selected-frame
-     :operating        (current-frame)
-     :realms           (realm-ids)
-     :operating-realm  (operating-realm)
-     :selected-realm   @selected-realm}))
+     :operating        (current-frame)}))
 
 (defn frames-meta
   "Flat metadata map for frame `id` — `(rf/frame-meta id)`. Returns `:id`,
@@ -507,11 +370,8 @@
 ;;                    the machine handle for the failing call.
 ;;   :event / :query  the event-vector / query-vector when the op knows it
 ;;                    (omitted for context-free ops like `sub-cache-info`).
-;;   :available-frames the registered APP frames in the operating realm —
+;;   :available-frames the registered APP frames —
 ;;                    the set the caller may pin / pass (`app-frame-ids`).
-;;   :operating-realm  the realm tier-3 resolution scopes to, so a
-;;                    multi-realm session sees which realm the candidate
-;;                    frames live in.
 ;;   :selected-frame   the current session pin (nil = none), so the caller
 ;;                    knows whether a prior `select-frame!` is in effect.
 ;;   :hint             the human sentence + the concrete fix (pass `frame`
@@ -526,8 +386,8 @@
   "Build the enriched `:ambiguous-frame` refusal envelope (rf2-n58jxo).
    `operation` is the refusing op keyword; `extra` (optional) carries the
    op-specific context the caller knows — `:event`, `:query`, `:query-v`.
-   The envelope always carries the available app frames, the operating
-   realm, the current session pin, and the concrete fix in `:hint`."
+   The envelope always carries the available app frames, the current session
+   pin, and the concrete fix in `:hint`."
   ([operation] (ambiguous-frame-error operation nil))
   ([operation extra]
    (let [frames (app-frame-ids)]
@@ -536,7 +396,6 @@
         :reason           :ambiguous-frame
         :operation        operation
         :available-frames frames
-        :operating-realm  (operating-realm)
         :selected-frame   @selected-frame
         :hint             (str "multiple app frames are registered and no frame is "
                                "selected, so " (name operation) " cannot pick a target. "
@@ -963,10 +822,10 @@
 ;; The forward EP-0023 direction: a frame's inspectable registration set is its
 ;; RESOLVED IMAGE GENERATION — the same `(kind, id)` can resolve DIFFERENTLY per
 ;; frame (two frames running different images each resolve their own
-;; descriptor). The realm/default-registrar reads above answer "what is
-;; registered process-globally / in this installation container"; these answer
-;; "what does THIS FRAME's running image resolve `(kind, id)` to" — keyed off
-;; the frame's sealed generation, not the default/realm registrar.
+;; descriptor). The process-global registrar reads above answer "what is
+;; registered process-globally"; these answer "what does THIS FRAME's running
+;; image resolve `(kind, id)` to" — keyed off the frame's sealed generation,
+;; not the process-global registrar.
 ;;
 ;; They consume ONLY the PUBLIC facade reads shipped by rf2-wkw8na — the
 ;; `{:frame f :kind k …}` arities of `rf/registrations` / `rf/handler-meta` /
@@ -982,14 +841,14 @@
 ;; true` (a framework standard). These ride VERBATIM on the `:frame`-arity
 ;; `rf/handler-meta` result (the resolved descriptor), so an agent reading a
 ;; frame's `(kind, id)` sees WHICH source won — the distinguishing fact the
-;; realm/default reads cannot surface (they read the flat registrar atom, which
+;; process-global reads cannot surface (they read the flat registrar atom, which
 ;; has no per-frame resolution / provenance).
 ;; ---------------------------------------------------------------------------
 
 (defn- coordinate-summary
   "The provenance/standard coordinate facts a resolved descriptor carries,
    as a small EDN-clean map (or nil when the descriptor carries none — a
-   pre-EP-0023 / realm-resolved meta map). Surfaces WHICH source won the
+   pre-EP-0023 / process-global meta map). Surfaces WHICH source won the
    `(kind, id)` resolution:
 
      {:source :registered :ns \"my.app.events\"}      a registered descriptor
@@ -1016,12 +875,12 @@
 (defn frame-registrar-describe
   "Per-FRAME handler metadata for `(kind, id)` — the registration resolved
    through frame `frame-id`'s OWN sealed image generation (NOT the
-   default/realm registrar). Routes through the PUBLIC facade read
+   process-global registrar). Routes through the PUBLIC facade read
    `(rf/handler-meta {:frame f :kind k :id id})` (rf2-wkw8na); EP-0023 §Frame-
    derived live registration resolution.
 
    Surfaces the resolved descriptor's `:rf.provenance/ns` + inline/image +
-   `:standard` facts the realm/default reads can't — plus a normalized
+   `:standard` facts the process-global reads can't — plus a normalized
    `:rf.image/coordinate` rollup naming WHICH source won. Same EDN-hygiene as
    `registrar-describe`: the raw `:handler-fn` is dropped (replaced by
    `:handler-fn-hash`) and every nested fn becomes the `:rf/fn` sentinel.
@@ -1044,7 +903,7 @@
 (defn frame-registrar-list
   "Enumerate the ids registered under `kind` resolved through frame
    `frame-id`'s OWN image generation — only the ids that frame's image
-   carries (NOT the default/realm registrar). Routes through the PUBLIC facade
+   carries (NOT the process-global registrar). Routes through the PUBLIC facade
    read `(rf/handler-ids {:frame f :kind k})` (rf2-wkw8na). Returns the sorted
    id vector. FAILS LOUD up the eval boundary on an unresolvable frame."
   [frame-id kind]
@@ -1888,7 +1747,7 @@
    `:rf.trace/dispatch-id` alone (the prior `by-id` group-by) merged
    foreign-frame events into both bundles — latent today (the runtime's
    global dispatch counter never collides cross-frame) but live the
-   moment per-frame/per-realm id allocation lands. Reuse the framework
+   moment per-frame id allocation lands. Reuse the framework
    key; never re-derive a weaker one.
 
    Events whose `:rf.trace/dispatch-id` tag is missing are NOT included
@@ -4716,36 +4575,18 @@
      :frames                    (vec fids)
      ;; rf2-3bu3d.4 — the reserved-frame-aware view: registered frames
      ;; with `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR slots, …)
-     ;; removed. `:rf/default` is retained (it is an app frame). EP-0013
-     ;; (rf2-09ijml): ALSO scoped to the operating realm — only app frames
-     ;; in `operating-realm` are counted. When this holds exactly one id
-     ;; while `:frames` holds more, the session is single-app-plus-tool-frame
-     ;; (or a multi-realm session whose other app frames are in other realms)
-     ;; and resolution auto-selects the lone app frame — see
-     ;; `:ambiguous-frame?` below.
+     ;; removed. `:rf/default` is retained (it is an app frame). When this
+     ;; holds exactly one id while `:frames` holds more, the session is
+     ;; single-app-plus-tool-frame and resolution auto-selects the lone app
+     ;; frame — see `:ambiguous-frame?` below.
      :app-frames                app-fids
      :selected-frame            @selected-frame
      :operating-frame           (current-frame)
-     ;; EP-0023 §Surface dispositions — the LABELED-internal installation
-     ;; boundary (the EP-0013 realm substrate, surfaced as implementation
-     ;; structure, NOT the public address; the public address is the frame
-     ;; id above). `:realms` enumerates the internal installation containers
-     ;; (the local `realm-ids` helper over `re-frame.realm/realm-ids`);
-     ;; `:operating-realm` is the container tier-3 resolution scopes to (the
-     ;; session container pin, else the default). A single-realm app reports
-     ;; `[:rf.realm/default]` — the boundary collapses. (The per-frame
-     ;; `:frame-realms` `{frame-id container-id}` map was removed under
-     ;; rf2-70owfr — the single default realm makes it informationless.)
-     :realms                    (realm-ids)
-     :operating-realm           (operating-realm)
-     :selected-realm            @selected-realm
      ;; rf2-3bu3d.4 — ambiguity counts APP frames, not raw frames. A
      ;; single-app session that ALSO carries an Xray (or other `:rf/*`
      ;; tool) frame has exactly one app frame, so it is NOT ambiguous and
      ;; pays no `frames/select` tax. Genuinely multi-app sessions (two-plus
-     ;; non-tool frames) stay ambiguous until the session pins one. EP-0013
-     ;; (rf2-09ijml): `app-fids` is realm-scoped, so two app frames in
-     ;; DIFFERENT realms are not ambiguous — only two in the operating realm.
+     ;; non-tool frames) stay ambiguous until the session pins one.
      :ambiguous-frame?          (and (> (count app-fids) 1)
                                      (nil? @selected-frame))
      :epoch-history-depth       (try
@@ -4786,15 +4627,15 @@
   [kind]
   (count (try (keys (rf/registrations kind)) (catch :default _ nil))))
 
-(defn- realm-registry-view
-  "The REALM-WIDE registry view — counts for every v1 kind plus the full
-   sorted id vectors for the three most navigable kinds, off the
-   default/realm registrar. The fallback orient uses when no single
-   operating frame resolves (a multi-frame ambiguous session, or a core
-   that predates the EP-0023 frame-image-generation reads). `:basis :realm`
-   labels which registrar these counts came from."
+(defn- process-registry-view
+  "The PROCESS-WIDE registry view — counts for every v1 kind plus the full
+   sorted id vectors for the three most navigable kinds, off the process-global
+   registrar. The fallback orient uses when no single operating frame resolves
+   (a multi-frame ambiguous session, or a core that predates the EP-0023
+   frame-image-generation reads). `:basis :process` labels which registrar
+   these counts came from."
   []
-  {:basis  :realm
+  {:basis  :process
    :counts (into {} (map (fn [k] [k (registrar-count k)])) orient-registrar-kinds)
    :events (registrar-list :event)
    :subs   (registrar-list :sub)
@@ -4803,7 +4644,7 @@
 (defn- frame-registry-view
   "The OPERATING-FRAME registry view — counts + the high-value id vectors
    resolved through `frame-id`'s OWN sealed image generation rather than the
-   realm-wide registrar (rf2-srobm0). The same `(kind, id)` can resolve
+   process-wide registrar (rf2-srobm0). The same `(kind, id)` can resolve
    differently per frame, so the SELECTED universe a frame actually runs is
    the registry an agent driving that frame should see — not the union of
    every namespace's registrations the flat registrar holds.
@@ -4812,7 +4653,7 @@
    resolver's `[kind id]` keys give the per-kind counts and the navigable id
    vectors directly off the generation. `:basis :frame` + `:frame` label
    which frame these counts resolved through. Returns nil when the frame does
-   not resolve to a live generation (caller falls back to the realm view)."
+   not resolve to a live generation (caller falls back to the process view)."
   [frame-id]
   (when frame-id
     (try
@@ -4832,8 +4673,8 @@
          :fx     (ids-of :fx)})
       ;; A frame that does not carry a generation (`:rf.error/frame-no-
       ;; generation`) means this core predates the EP-0023 reads, or the
-      ;; operating frame is an EP-0013 runnable without a sealed image. Fall
-      ;; back to the realm view rather than fail the whole orientation.
+      ;; operating frame has no sealed image. Fall back to the process view
+      ;; rather than fail the whole orientation.
       (catch :default _ nil))))
 
 (defn orient
@@ -4850,29 +4691,18 @@
                       frame counts) — the freshness check stays on
                       discover-app; orient names enough to know the read
                       is trustworthy.
-     :frames          {:all [...] :app [...] :operating <id>
-                       :realms [...] :operating-realm <id>} — the
+     :frames          {:all [...] :app [...] :operating <id>} — the
                       `frames-list` view (reserved `:rf/*` tool frames
                       split out via `app-frame-ids`). `:all` / `:app` /
                       `:operating` are the PUBLIC frame addressing surface
-                      (EP-0023). The `:realms` / `:operating-realm` slots
-                      are the LABELED-internal installation boundary
-                      (EP-0023 §Surface dispositions — the internal
-                      installation/container substrate, surfaced as
-                      implementation structure, not the central model): the
-                      installation containers and the operating container
-                      tier-3 resolution scopes to. `:app` is scoped to the
-                      operating container. A single-realm app reports
-                      `[:rf.realm/default]`. (The per-frame `:frame-realms`
-                      map was removed under rf2-70owfr — the single default
-                      realm makes it informationless.)
+                      (EP-0023 image -> frame -> event stream).
      :app-db-top-keys {<app-frame-id> [<top-level key> ...]} — the
                       top-level app-db keys per APP frame (the cheap
                       'what state shape is this' read; drill with
                       `get-path` / `snapshot`). Tool frames are excluded
                       (rf2-3bu3d.6 posture) so the summary doesn't
                       overflow on Xray/SSR inspection state.
-     :registry        {:basis :frame|:realm :frame <id>?
+     :registry        {:basis :frame|:process :frame <id>?
                        :counts {<kind> N ...}
                        :events [...] :subs [...] :fx [...]} — registrar
                       COUNTS for every v1 kind, plus the full sorted id
@@ -4881,11 +4711,11 @@
                       RE-BASED on the OPERATING FRAME's resolved image
                       generation when a single operating frame resolves
                       (rf2-srobm0, EP-0023) — the SELECTED universe that
-                      frame actually runs, not the realm-wide registrar
+                      frame actually runs, not the process-wide registrar
                       union (the same `(kind, id)` can resolve differently
                       per frame). `:basis :frame` + `:frame <id>` name the
-                      resolution; falls back to `:basis :realm` (the
-                      realm-wide registrar counts) in a multi-frame
+                      resolution; falls back to `:basis :process` (the
+                      process-wide registrar counts) in a multi-frame
                       ambiguous session or against a core predating the
                       EP-0023 frame-image-generation reads.
      :machines        the registered machine ids (`rf/machines`).
@@ -4901,26 +4731,19 @@
         app-fids (app-frame-ids)
         op-frame (:operating-frame h)
         ;; rf2-srobm0 — re-base the registry on the OPERATING FRAME's resolved
-        ;; image generation when one resolves; fall back to the realm-wide
+        ;; image generation when one resolves; fall back to the process-wide
         ;; registrar counts otherwise (ambiguous multi-frame session, or a core
         ;; predating the EP-0023 frame-image-generation reads).
-        registry (or (frame-registry-view op-frame) (realm-registry-view))]
+        registry (or (frame-registry-view op-frame) (process-registry-view))]
     {:ok?      true
      :liveness {:debug-enabled?      (:debug-enabled? h)
                 :frame-count         (count (:frames h))
                 :app-frame-count     (count app-fids)
                 :ambiguous-frame?    (:ambiguous-frame? h)
-                :realm-count         (count (:realms h))
                 :runtime-instance-id (:runtime-instance-id h)}
      :frames   {:all             (:frames h)
                 :app             app-fids
-                :operating       (:operating-frame h)
-                ;; EP-0023 §Surface dispositions — the labeled-internal
-                ;; installation boundary (not the public address). The
-                ;; per-frame `:frame-realms` map was removed (rf2-70owfr —
-                ;; single default realm).
-                :realms          (:realms h)
-                :operating-realm (:operating-realm h)}
+                :operating       (:operating-frame h)}
      :app-db-top-keys
      (into {}
            (map (fn [fid]
