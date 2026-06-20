@@ -287,17 +287,27 @@ function run() {
       }
       console.log('OK   tools/call unsubscribe (no nREPL) -> degraded isError');
 
-      // 4. tools/call unknown — expect isError with :unknown-tool
+      // 4. tools/call unknown — expect isError with :unknown-tool, even
+      // with NO nREPL port (rf2-4mc6q1). The server's pre-connection guard
+      // (`tools/refuse-unknown-tool`) rejects an unregistered name BEFORE
+      // `ensure-connection!`, so a typo / removed alias is diagnosed as
+      // :unknown-tool rather than masked behind :nrepl-port-not-found. The
+      // recovery affordances (tools/list hint + available-tools) must
+      // survive at the real stdio boundary, not just via direct invoke.
       const unk = await call('tools/call', { name: 'no-such-tool', arguments: {} });
       const t2 = unk.result?.content?.[0]?.text || '';
-      // Degraded mode currently swallows everything — that's the documented
-      // behaviour when nREPL port is missing. Both paths are acceptable here:
-      //  - degraded path: isError with :nrepl-port-not-found
-      //  - connected path: isError with :unknown-tool
       if (!unk.result?.isError) {
         throw new Error('unknown tool should isError, got: ' + JSON.stringify(unk));
       }
-      console.log('OK   tools/call unknown-tool -> isError');
+      if (!t2.includes('unknown-tool')) {
+        throw new Error(
+          'unknown tool must diagnose as :unknown-tool (NOT :nrepl-port-not-found) ' +
+          'even with no nREPL port, got: ' + JSON.stringify(unk));
+      }
+      if (!t2.includes('tools/list')) {
+        throw new Error('unknown-tool envelope must carry the tools/list recovery hint, got: ' + t2);
+      }
+      console.log('OK   tools/call unknown-tool -> :unknown-tool (no nREPL, recovery hint intact)');
 
       child.kill();
       console.log('\nSERVER STDIO ROUND-TRIP GREEN');
