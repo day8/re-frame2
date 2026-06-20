@@ -410,16 +410,16 @@ frame live, inside a `(rf/with-frame :rf/default …)` scope:
 
 ;; in schema.cljs — NOT a load-time side-effect
 (defn register-schema! []
-  (rf/reg-app-schema [] CounterDb))
+  (rf/reg-app-schema [] {:schema CounterDb}))
 
 ;; in core.cljs — called under a live frame scope at boot
 (rf/with-frame :rf/default
   (schema/register-schema!))
 ```
 
-If you prefer not to wrap a scope, pass the frame explicitly — every
-registration entry point takes a `:frame` opt (bare keyword is
-`{:frame …}` sugar): `(rf/reg-app-schema [] CounterDb :rf/default)`.
+If you prefer not to wrap a scope, name the frame explicitly in the
+metadata map under `:frame`:
+`(rf/reg-app-schema [] {:schema CounterDb :frame :rf/default})`.
 
 Closed maps catch typos (`:countr/value` → schema rejection); open
 maps admit new keys during development. The starter uses closed —
