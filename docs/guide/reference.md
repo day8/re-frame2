@@ -61,11 +61,9 @@ The public model is `image → frame → event stream`. An **image** is a value 
                 :capabilities {:rf.capability/http http-client}})
 ```
 
-A frame *is* the natural unit for hermetic tests and multi-program inspection: each frame runs its own sealed registration set, so two frames can hold different handlers for the same id without collision. A single-app process never composes images by hand — it just `reg-*`s into the global registrar and the runtime assembles the standard image for it.
+A frame *is* the natural unit for hermetic tests and multi-frame inspection: each frame runs its own sealed registration set, so two frames can hold different handlers for the same id without collision. A single-app process never composes images by hand — it just `reg-*`s into the global registrar and the runtime assembles the standard image for it.
 
-!!! note "The internal installation substrate"
-
-    Underneath, the runtime still seats frames through an internal installation container (the EP-0013 "realm" — the registrar, adapter selection, and capability map). That substrate is **internal implementation structure**, not a public surface: there is no public realm constructor or realm-scoped dispatch option in the `image → frame → event stream` model. The public address is always the frame id. The internal-substrate model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md); the public image/frame model is owned by [EP-0023](../EP/EP-0023-image-loaded-frames.md). The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration).
+The public address is always the frame id: there is no public container constructor or container-scoped dispatch option in the `image → frame → event stream` model — you target a frame by its id, never an enclosing substrate. The public image/frame model is owned by [EP-0023](../EP/EP-0023-image-loaded-frames.md); the contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration).
 
 ## The worked examples
 
