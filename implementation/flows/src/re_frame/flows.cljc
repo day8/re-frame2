@@ -147,23 +147,22 @@
   bus is the wire boundary on both paths, so a flow reading a large or
   sensitive input must not surface it raw on either.
 
-  rf2-p44r3u: the `:path` opt seeds which declaration `elide-wire-value`
-  matches the value against, so it MUST be the DECLARATION-COORDINATE path,
-  not the raw `:inputs` path. For a runtime-db-qualified input
-  `[:rf.db/runtime …rest]` (rf2-4eisfr) the value is read from runtime-db at
-  `…rest` and the elision registry keys its declaration at that STRIPPED
-  `…rest` path (the registry is partition-blind — `add-marks` / schema store
-  bare path vectors). Seeding the walk with the raw `[:rf.db/runtime …]`
-  path therefore never matched the declaration and surfaced the input value
-  RAW even though the same slot's derived output was correctly redacted. We
-  normalize each input path through the SAME `registry/input-resolve-path`
-  the flow-output propagation path already uses (`input-overlaps-declaration?`),
-  so success and failure trace input values elide against the stripped
-  runtime declaration path. A bare app-db input is unchanged by the
-  resolver, so this is a no-op for the common (app-db) case.
+  The `:path` opt seeds which declaration `elide-wire-value` matches the
+  value against, so it MUST be the DECLARATION-COORDINATE path, not the raw
+  `:inputs` path. For a runtime-db-qualified input `[:rf.db/runtime …rest]` the
+  value is read from runtime-db at `…rest` and the elision registry keys its
+  declaration at that STRIPPED `…rest` path (the registry is partition-blind —
+  `add-marks` / schema store bare path vectors). Seeding the walk with the raw
+  `[:rf.db/runtime …]` path would never match the declaration and would
+  surface the input value RAW even though the same slot's derived output is
+  correctly redacted. We normalize each input path through the SAME
+  `registry/input-resolve-path` the flow-output propagation path uses
+  (`input-overlaps-declaration?`), so success and failure trace input values
+  elide against the stripped runtime declaration path. A bare app-db input is
+  unchanged by the resolver, so this is a no-op for the common (app-db) case.
 
   Callers gate this behind their own outer `interop/debug-enabled?` so the
-  walk is DCE'd in CLJS production (rf2-drr4z); this fn does not re-gate."
+  walk is DCE'd in CLJS production; this fn does not re-gate."
   [frame-id flow input-values]
   (mapv (fn [input-path v]
           (elision/elide-wire-value
@@ -174,9 +173,8 @@
 (defn- validate-output!
   "Dev-only validation of a flow's computed `:derive`-output value against its
   optional `:schema` (Spec 013 §The registration shape — \"Malli schema
-  for the output value (dynamic-host validation in dev)\"). Per
-  rf2-ee38b.9 this is what makes the `:schema` flow-map key load-bearing
-  rather than inert metadata.
+  for the output value (dynamic-host validation in dev)\"). This is what
+  makes the `:schema` flow-map key load-bearing rather than inert metadata.
 
   Routes through the schemas artefact's `:schemas/validate-with-registered-fn`
   / `:schemas/explain-with-registered-fn` late-bind seam — the SAME seam
@@ -209,18 +207,15 @@
       (when-not (validate schema new-output)
         (let [explain     (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
               explanation (when explain (explain schema new-output))
-              ;; rf2-o69h5 — the SHARED schema-aware redaction seam. When the
-              ;; flow's output schema marks any slot `:sensitive?` this scrubs
-              ;; the value-bearing slots (`:value` / `:explain` /
+              ;; The SHARED schema-aware redaction seam. When the flow's output
+              ;; schema marks any slot `:sensitive?` this scrubs the
+              ;; value-bearing slots (`:value` / `:explain` /
               ;; `:explain-humanized`) to `:rf/redacted` and stamps
-              ;; `:sensitive? true`. Closes the a5kzs#1 class on `:where
-              ;; :flow-output`: the prior code path-elided `:value` (handling
-              ;; `:large?` / per-path sensitive declarations) but left
-              ;; `:explain` carrying the failing value verbatim under Malli's
-              ;; path-shaped output — a re-leak for a `:sensitive?`-marked
-              ;; output schema. The `:value` elision-walk stays the BASE
+              ;; `:sensitive? true`. The `:value` elision-walk is the BASE
               ;; (`:large?` handling, per-path declarations); the seam scrubs
-              ;; the rest when the schema declares sensitivity.
+              ;; the rest — including `:explain`, which would otherwise carry
+              ;; the failing value verbatim under Malli's path-shaped output —
+              ;; when the schema declares sensitivity.
               redact      (late-bind/get-fn-cached :schemas/redact-validation-tags)
               tags        {:category   :rf.error/schema-validation-failure
                            :where      :flow-output
@@ -255,7 +250,7 @@
   exception re-throws after the `:rf.flow/failed` trace fires.
 
   Failed-flow contract (Spec 013 §Failure semantics — atomicity
-  contract, Mike 2026-05-24): the failing flow's own output is NOT
+  contract): the failing flow's own output is NOT
   written (the throw happened during `:derive`; there is no usable
   new-output). This fn re-throws an ex-info carrying `:rf.flow/failed-id`
   so the router can attribute the cascade-level
@@ -273,15 +268,15 @@
   install. Invoked once per registered flow per event.
   Trace payload construction sits inside an `interop/debug-enabled?`
   outer gate so the elision walker (`elide-wire-value`) is not invoked
-  in CLJS production builds (per Spec 009 §Production builds, rf2-drr4z
-  perf slice). Future editors: keep the gate OUTERMOST on each emit
+  in CLJS production builds (per Spec 009 §Production builds). Future
+  editors: keep the gate OUTERMOST on each emit
   site and keep wire-value walks INSIDE it — Closure DCE folds the
   whole branch under `:advanced` + `goog.DEBUG=false`."
   [frame-id db runtime-db flow]
   (let [flow-id    (:id flow)
         new-inputs (read-inputs db runtime-db flow)
-        ;; Per rf2-94ol5 dirty-check storage is PER-FRAME: read this
-        ;; flow's last-seen inputs from THIS frame's own `last-inputs`
+        ;; Dirty-check storage is PER-FRAME: read this flow's last-seen
+        ;; inputs from THIS frame's own `last-inputs`
         ;; container. Per-frame dirty-check windows stay independent by
         ;; construction — the read can't observe a sibling frame's row.
         old-inputs (registry/get-frame-flow-last-inputs frame-id flow-id)]
@@ -293,8 +288,8 @@
         ;; didn't fire at all". Outer `debug-enabled?` gate elides the
         ;; tag-map construction in prod.
         (when interop/debug-enabled?
-          ;; `:input-paths-unchanged` (rf2-931pm) names every input db-path
-          ;; whose value was `=` to the previous run — the cascade DAG
+          ;; `:input-paths-unchanged` names every input db-path whose value
+          ;; was `=` to the previous run — the cascade DAG
           ;; consumer reads this to render the "considered, no recompute"
           ;; branch dimmed. For a value-equal skip every input is by
           ;; definition unchanged; we ship the full input-path vector.
@@ -305,8 +300,8 @@
                         :frame                  frame-id}))
         [db false])
       (try
-        ;; rf2-hhh92: wall-clock the flow's `:derive` recompute (dev-only)
-        ;; so `:rf.flow/computed` carries `:elapsed-ms` — the per-op
+        ;; Wall-clock the flow's `:derive` recompute (dev-only) so
+        ;; `:rf.flow/computed` carries `:elapsed-ms` — the per-op
         ;; duration the Trace panel's DURATION column reads. The `now-ms`
         ;; brackets ride `interop/debug-enabled?` (nil t0 in prod) so
         ;; Closure DCEs them under :advanced + `goog.DEBUG=false`.
@@ -314,32 +309,30 @@
               new-output (apply (:derive flow) new-inputs)
               flow-elapsed-ms (when interop/debug-enabled?
                                 (- (interop/now-ms) t0))
-              ;; Per rf2-qlzh4: capture the pre-write value at the
-              ;; flow's `:output-path` BEFORE we assoc-in the new output.
-              ;; This becomes the `:before` slot on the
-              ;; `:rf.flow/computed` trace below — consumers (Xray
-              ;; Event Detail, re-frame-10x flow panel) no longer
-              ;; need to walk the epoch's `:db-before` snapshot to
-              ;; render "wrote [:cart :total] 47.50 -> 52.50". The
-              ;; read happens against `db` (the loop accumulator that
-              ;; includes prior flows' writes in this drain), so a
-              ;; flow that reads (via `:inputs`) a slot an UPSTREAM
-              ;; flow wrote sees that upstream write — the correct
-              ;; cascade-local semantics. The `:before` at the flow's
-              ;; OWN `:output-path`, however, can only ever reflect the
-              ;; handler's / pre-existing value, NEVER another flow's
-              ;; write: the rf2-um6d9/#3086 invariant
-              ;; (`detect-output-path-overlap!`, wired into `reg-flow`)
-              ;; rejects any two same-frame flows whose output `:output-path`s
-              ;; stand in a prefix relationship, so no upstream flow can
-              ;; have written this flow's `:output-path` earlier in the drain
-              ;; (per Spec 013 §Disjoint output paths). Gated to dev-only
-              ;; so the read is DCE'd under `:advanced` + `goog.DEBUG=false`.
+              ;; Capture the pre-write value at the flow's `:output-path`
+              ;; BEFORE we assoc-in the new output.
+              ;; This becomes the `:before` slot on the `:rf.flow/computed`
+              ;; trace below, so consumers (Xray Event Detail, re-frame-10x
+              ;; flow panel) can render "wrote [:cart :total] 47.50 -> 52.50"
+              ;; without walking the epoch's `:db-before` snapshot. The read
+              ;; happens against `db` (the loop accumulator that includes prior
+              ;; flows' writes in this drain), so a flow that reads (via
+              ;; `:inputs`) a slot an UPSTREAM flow wrote sees that upstream
+              ;; write — the correct cascade-local semantics. The `:before` at
+              ;; the flow's OWN `:output-path`, however, can only ever reflect
+              ;; the handler's / pre-existing value, NEVER another flow's
+              ;; write: the disjoint-output-path invariant
+              ;; (`detect-output-path-overlap!`, wired into `reg-flow`) rejects
+              ;; any two same-frame flows whose output `:output-path`s stand in
+              ;; a prefix relationship, so no upstream flow can have written
+              ;; this flow's `:output-path` earlier in the drain (per Spec 013
+              ;; §Disjoint output paths). Gated to dev-only so the read is DCE'd
+              ;; under `:advanced` + `goog.DEBUG=false`.
               old-output (when interop/debug-enabled?
                            (get-in db (:output-path flow)))
               new-db     (assoc-in db (:output-path flow) new-output)]
           ;; Advance the dirty-check row in THIS frame's own `last-inputs`
-          ;; container (rf2-94ol5) — frame-local, can't touch a sibling.
+          ;; container — frame-local, can't touch a sibling.
           (registry/set-frame-flow-last-inputs! frame-id flow-id new-inputs)
           ;; Per Spec 009 §:op-type vocabulary: `:rf.flow/computed`
           ;; records a successful recompute. The dirty-check is
@@ -350,12 +343,11 @@
           ;; `:before`) ride through `elision/elide-wire-value` per
           ;; Spec 009 §Size elision in traces — the walker is the
           ;; single normative emission site for `:rf.size/large-
-          ;; elided` (and the `:rf/redacted` privacy sentinel).
-          ;; Without this the flow trace bypassed the elision
-          ;; contract that every other wire-emitting surface honours;
-          ;; a flow reading or producing a large or sensitive value
-          ;; would surface raw on the trace bus. Off-box defaults
-          ;; match `event-emit` / `error-emit`.
+          ;; elided` (and the `:rf/redacted` privacy sentinel) — so a
+          ;; flow reading or producing a large or sensitive value never
+          ;; surfaces raw on the trace bus, honouring the same elision
+          ;; contract every other wire-emitting surface does. Off-box
+          ;; defaults match `event-emit` / `error-emit`.
           ;;
           ;; The `:path` opt on each walker call names where in the
           ;; slice's root the wrapped value lives — `:result` and
@@ -366,9 +358,8 @@
           ;; frame-declared large slots.
           ;;
           ;; Outer `interop/debug-enabled?` gate keeps the elision
-          ;; walker out of CLJS prod builds (rf2-drr4z) — Closure
-          ;; constant-folds the whole branch under `:advanced` +
-          ;; `goog.DEBUG=false`.
+          ;; walker out of CLJS prod builds — Closure constant-folds the
+          ;; whole branch under `:advanced` + `goog.DEBUG=false`.
           (when interop/debug-enabled?
             (trace/emit! :flow :rf.flow/computed
                          {:flow-id      flow-id
@@ -382,8 +373,8 @@
                           :path         (:output-path flow)
                           :elapsed-ms   flow-elapsed-ms
                           :frame        frame-id})
-            ;; Per rf2-ee38b.9 — dev-only output-schema validation. Runs
-            ;; AFTER the `:rf.flow/computed` emit so the computed value is
+            ;; Dev-only output-schema validation. Runs AFTER the
+            ;; `:rf.flow/computed` emit so the computed value is
             ;; already on the trace stream when a violation surfaces;
             ;; observational (the write at `new-db` stands). Sits inside
             ;; this outer `debug-enabled?` gate so the whole surface DCEs
@@ -409,17 +400,17 @@
           ;; success path — the value that triggered the throw may itself
           ;; be a large or sensitive blob, and the trace bus is the wire
           ;; boundary. Outer debug-enabled? gate elides the walk in CLJS
-          ;; prod (rf2-drr4z).
-          ;; rf2-iqh5yf: emit a STRUCTURED, EDN-safe exception summary —
+          ;; prod.
+          ;; Emit a STRUCTURED, EDN-safe exception summary —
           ;; `:exception-message` (the plain message string) + `:exception-data`
           ;; (the ex-info ex-data map, or nil) — NEVER the raw Throwable. A bare
           ;; Throwable is not EDN-serializable and the central trace projection
           ;; switch (`re-frame.marks/project-trace-event`) has no branch for a
-          ;; bare `:ex` slot, so before this fix the raw object reached trace
-          ;; delivery, epoch capture, and tooling listeners unprojected — and a
-          ;; flow `:derive` throwing `ex-info` with app secrets in `ex-data`
-          ;; (or an interpolated message) leaked them off-box. The summary
-          ;; shape matches every other `:rf.error/*` category in the Spec 009
+          ;; bare `:ex` slot, so a raw object would reach trace delivery, epoch
+          ;; capture, and tooling listeners unprojected — and a flow `:derive`
+          ;; throwing `ex-info` with app secrets in `ex-data` (or an
+          ;; interpolated message) would leak them off-box. The summary shape
+          ;; matches every other `:rf.error/*` category in the Spec 009
           ;; catalogue (`:exception-message`; machine adds `:exception-data`);
           ;; `project-trace-event` redacts the `:exception-data` slot
           ;; fail-closed when the flow's frame declares any sensitivity (the
@@ -434,8 +425,8 @@
                           :exception-data    (ex-data e)
                           :inputs            (elide-inputs frame-id flow new-inputs)
                           :frame             frame-id}))
-          ;; Per rf2-je5p8: wrap the throw in an ex-info carrying the
-          ;; flow-attribution slot `:rf.flow/failed-id`.
+          ;; Wrap the throw in an ex-info carrying the flow-attribution slot
+          ;; `:rf.flow/failed-id`.
           ;; The router's `flows-after-interceptor` catch stashes the
           ;; throw under `:rf/flow-error`, then `emit-flow-eval-exception!`
           ;; reads `:rf.flow/failed-id` off the ex-data and stamps
@@ -452,20 +443,15 @@
           ;; the cascade-level error preserves the same attribution at the
           ;; substrate boundary.
           ;;
-          ;; rf2-cjr635: route through the canonical thrown-error builder
+          ;; Route through the canonical thrown-error builder
           ;; (`error/throw-error!`, Spec 009 §The thrown-error shape) like
           ;; every OTHER flows throw (`topo.cljc` cycle / overlap,
-          ;; `registry.cljc` frame-not-live). The hand-rolled re-throw
-          ;; carried ONLY `:rf.flow/failed-id` — no `:rf.error/id`, no
-          ;; `:where`, no `:recovery` — so a tool reading
-          ;; `(:rf.error/id (ex-data e))` got nil (a Machine-readable-errors
-          ;; violation), and its `(or <native-msg> ":rf.error/…")` message
-          ;; form dodged `check_thrown_error_messages.py` so it could
-          ;; silently regress to the bare-keyword shape. The builder DERIVES
-          ;; the human message from `:reason` + the `[:rf.error/<id>]` token
-          ;; and stamps the canonical `{:rf.error/id :where :recovery
-          ;; :reason}` ex-data. The flow-attribution slot rides in `:extra`;
-          ;; the original exception rides in `:extra :cause` for stack-trace
+          ;; `registry.cljc` frame-not-live). The builder DERIVES the human
+          ;; message from `:reason` + the `[:rf.error/<id>]` token and stamps
+          ;; the canonical `{:rf.error/id :where :recovery :reason}` ex-data,
+          ;; so a tool reading `(:rf.error/id (ex-data e))` gets the machine
+          ;; discriminator. The flow-attribution slot rides in `:extra`; the
+          ;; original exception rides in `:extra :cause` for stack-trace
           ;; introspection (the router surfaces the rethrown ex-info ITSELF
           ;; as the `:exception` slot of `:rf.error/flow-eval-exception`).
           (error/throw-error!
@@ -482,18 +468,18 @@
                         :cause             e}}))))))
 
 (defn run-flows-on-db
-  "Per Spec 013 §Drain integration (rf2-u0zz5) + EP-0001 §535-551
-  (rf2-4eisfr): walk THIS FRAME'S registered flows in topological order over
-  the pending frame-state, dirty-check each one, recompute and assoc-in the
-  result into a transformed APP-DB. Returns the flow-augmented APP-DB value.
+  "Per Spec 013 §Drain integration + EP-0001 §535-551: walk THIS FRAME'S
+  registered flows in topological order over the pending frame-state,
+  dirty-check each one, recompute and assoc-in the result into a transformed
+  APP-DB. Returns the flow-augmented APP-DB value.
 
   Signature `[frame-id db runtime-db]` — the full pending frame-state. `db`
   is the pending app-db partition; `runtime-db` the pending runtime-db
   partition (pass `nil` to resolve only bare app-db inputs). The router's
   flows-after-interceptor always supplies both partitions.
 
-  EP-0001 §535-551 (Mike RULED (b) 2026-06-09): a flow reads app-db by
-  default (bare `:inputs` paths) and runtime-db only through EXPLICIT
+  EP-0001 §535-551: a flow reads app-db by default (bare `:inputs` paths) and
+  runtime-db only through EXPLICIT
   partition-qualified inputs `[:rf.db/runtime …]` (binary syntax — there is
   NO redundant `[:rf.db/app …]` form). ANY flow — user or framework — may
   read runtime-db this way; only the WRITE side is reserved. Flow outputs
@@ -520,8 +506,8 @@
   here, leaving sibling frames' flows untouched.
 
   Failed-flow contract (Spec 013 §Failure semantics — atomicity
-  contract, Mike 2026-05-24): a flow throw is a PRE-INSTALL throw, so it
-  aborts the WHOLE event. There is NO partial commit — the pending `:db`
+  contract): a flow throw is a PRE-INSTALL throw, so it aborts the WHOLE
+  event. There is NO partial commit — the pending `:db`
   effect (the handler's write plus any prior successful flows' writes) is
   DISCARDED by the router's `flows-after-interceptor` catch, so app-db is
   left UNCHANGED. This fn therefore does NOT carry a partial-db on the
@@ -541,8 +527,8 @@
   preserved on the re-thrown ex-info so the router can attribute the
   cascade-level error to the failing flow.
 
-  Per rf2-94ol5 the snapshot / restore is scoped to the DRAINING frame's
-  OWN `last-inputs` container — `frame-id`'s atom, not a global. A sibling
+  The snapshot / restore is scoped to the DRAINING frame's OWN
+  `last-inputs` container — `frame-id`'s atom, not a global. A sibling
   frame draining concurrently on another JVM thread holds a different atom,
   so this rollback cannot clobber its just-advanced dirty-check rows. The
   per-frame-independence invariant (Spec 002 rule 1 / Spec 013
@@ -556,34 +542,34 @@
             ;; flow throw can roll back the frame's own advances — the event
             ;; aborts, so prior flows' `last-inputs` advances must NOT
             ;; survive (their outputs were never installed). Scoped to
-            ;; `frame-id` (rf2-94ol5) so a concurrently-draining sibling
-            ;; frame is structurally untouched. Restored in the catch below.
+            ;; `frame-id` so a concurrently-draining sibling frame is
+            ;; structurally untouched. Restored in the catch below.
             last-inputs-before (registry/frame-last-inputs-snapshot frame-id)
-            ;; rf2-gdzv6o: snapshot the frame's flow output-declaration elision
-            ;; slots BEFORE the refresh below mutates them. The refresh writes
+            ;; Snapshot the frame's flow output-declaration elision slots
+            ;; BEFORE the refresh below mutates them. The refresh writes
             ;; runtime-db IMMEDIATELY (`swap-elision-slot!`), but a flow throw
             ;; is a PRE-INSTALL throw that aborts the WHOLE event — so the
             ;; refresh's runtime-db write must be rolled back too, or app-db
             ;; rolls back while runtime-db elision declarations survive,
             ;; violating the all-or-nothing two-partition contract (Spec
             ;; 013:284,288 — a pre-install flow throw leaves BOTH partitions
-            ;; unchanged). Frame-scoped (rf2-94ol5); restored in the catch.
+            ;; unchanged). Frame-scoped; restored in the catch.
             decls-before       (registry/flow-output-declarations-snapshot frame-id)
-            ;; rf2-z980k8: DRAIN (read-and-clear) this frame's pending abandoned
-            ;; output paths — recorded by an IN-DRAIN same-frame `reg-flow`
-            ;; `:output-path` move (a direct app-db write would be clobbered by the
-            ;; deferred commit). `abandoned-before` is the snapshot the catch /
-            ;; post-commit rollback re-records (the move re-attempts next drain
-            ;; if the event aborts); `abandoned-paths` is the SAME set, consumed
-            ;; here exactly once. They are dissoc'd from the pending `:db` below,
-            ;; BEFORE the flow walk, so the vacate rides the value the deferred
-            ;; commit publishes (the handler's returned `:db` cannot resurrect
-            ;; the old path) and the new flow's recompute lands on a clean slot.
-            ;; Frame-scoped (rf2-94ol5).
+            ;; DRAIN (read-and-clear) this frame's pending abandoned output
+            ;; paths — recorded by an IN-DRAIN same-frame `reg-flow`
+            ;; `:output-path` move (a direct app-db write would be clobbered by
+            ;; the deferred commit). `abandoned-before` is the snapshot the
+            ;; catch / post-commit rollback re-records (the move re-attempts
+            ;; next drain if the event aborts); `abandoned-paths` is the SAME
+            ;; set, consumed here exactly once. They are dissoc'd from the
+            ;; pending `:db` below, BEFORE the flow walk, so the vacate rides
+            ;; the value the deferred commit publishes (the handler's returned
+            ;; `:db` cannot resurrect the old path) and the new flow's
+            ;; recompute lands on a clean slot. Frame-scoped.
             abandoned-before   (registry/abandoned-output-paths-snapshot frame-id)
             abandoned-paths    (registry/drain-abandoned-output-paths! frame-id)]
-        ;; rf2-ihfz9o: refresh each flow's output data-classification
-        ;; declarations BEFORE the flow walk so a propagated (input-
+        ;; Refresh each flow's output data-classification declarations
+        ;; BEFORE the flow walk so a propagated (input-
         ;; inherited) sensitive mark is in the frame's elision registry
         ;; when the t2 `:rf.event/db-pending-post-flow` trace and the
         ;; `:rf.flow/computed` `:result` slot project (Spec 015:568).
@@ -605,8 +591,8 @@
         ;; touches ONLY the runtime-db elision registry, never app-db,
         ;; so it cannot perturb the cascade value or app-db subs.
         ;;
-        ;; rf2-gdzv6o: this write is INSIDE the `try` so the catch arm can
-        ;; roll it back. It is staged-before-walk for the trace/projection
+        ;; This write is INSIDE the `try` so the catch arm can roll it back.
+        ;; It is staged-before-walk for the trace/projection
         ;; reasons above, but a downstream flow throw must unwind it — the
         ;; refresh is part of the event's two-partition transaction, not a
         ;; commit-before-the-walk side effect.
@@ -625,8 +611,8 @@
           ;; (the per-flow `:rf.flow/skip` / `:rf.flow/computed` traces carry
           ;; the dirty/clean signal tools actually read).
           (loop [remaining ordered
-                 ;; rf2-z980k8: vacate the IN-DRAIN abandoned output paths from
-                 ;; the pending `:db` FIRST — before any flow computes — so the
+                 ;; Vacate the IN-DRAIN abandoned output paths from the pending
+                 ;; `:db` FIRST — before any flow computes — so the
                  ;; old path is gone from the value the deferred commit
                  ;; publishes (the handler's returned `:db` carried it, but this
                  ;; transform is applied to that SAME value, so it cannot
@@ -644,24 +630,23 @@
             ;; Atomicity contract: discard ALL flow side-effects of this
             ;; aborted drain. The pending `:db` effect is dropped by the
             ;; router; here we restore THIS frame's pre-drain `last-inputs`
-            ;; (its own container only — rf2-94ol5) so every flow on this
-            ;; frame re-attempts next drain while sibling frames are
-            ;; untouched. rf2-gdzv6o: ALSO restore the frame's flow output-
-            ;; declaration elision slots — the pre-walk
+            ;; (its own container only) so every flow on this frame re-attempts
+            ;; next drain while sibling frames are untouched. ALSO restore the
+            ;; frame's flow output-declaration elision slots — the pre-walk
             ;; `refresh-flow-output-declarations!` wrote runtime-db directly,
             ;; and a pre-install flow throw must leave runtime-db (not just
             ;; app-db) EXACTLY unchanged (Spec 013:284,288). Both restores are
-            ;; frame-scoped (rf2-94ol5): sibling frames untouched. The throw
+            ;; frame-scoped: sibling frames untouched. The throw
             ;; (carrying `:rf.flow/failed-id` from `evaluate-flow!`) propagates
             ;; unchanged for router attribution.
             (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
             (registry/restore-flow-output-declarations! frame-id decls-before)
-            ;; rf2-z980k8: re-record the IN-DRAIN abandoned output paths drained
-            ;; above. A flow throw aborts the event — the pending `:db` (which
-            ;; carried the vacated state) is discarded — so the path move must
-            ;; re-attempt next drain rather than be silently lost. Frame-scoped
-            ;; (rf2-94ol5). The post-COMMIT rollback mirror lives in
-            ;; `commit-frame-effects!` via `:flows/restore-abandoned-paths!`.
+            ;; Re-record the IN-DRAIN abandoned output paths drained above. A
+            ;; flow throw aborts the event — the pending `:db` (which carried
+            ;; the vacated state) is discarded — so the path move must
+            ;; re-attempt next drain rather than be silently lost. Frame-scoped.
+            ;; The post-COMMIT rollback mirror lives in `commit-frame-effects!`
+            ;; via `:flows/restore-abandoned-paths!`.
             (registry/restore-abandoned-output-paths! frame-id abandoned-before)
             (throw e)))))))
 
@@ -685,43 +670,43 @@
 (late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
 (late-bind/set-fn! :flows/reset-flows!       reset-flows!)
-;; Per rf2-4wqu6 finding 1 — the dirty-check-rollback pair the router uses
-;; to keep this frame's `last-inputs` bookkeeping aligned with the DURABLE
-;; app-db across a POST-commit schema/machine-data rollback. The flow
-;; transform runs inside the chain and eagerly advances `last-inputs` for
-;; each computed flow; but the rollback decision lands AFTER the chain, in
-;; `commit-db-effect!`, OUTSIDE `run-flows-on-db`'s own throw-path
-;; snapshot/restore. Without these hooks a rolled-back commit restores
-;; app-db to `db-before` but leaves the advanced `last-inputs` rows, so the
-;; next clean drain sees `=`-equal inputs, SKIPS the flow, and the flow
-;; output never re-materialises — a deterministic dev/test failure path can
-;; permanently suppress a flow. The router snapshots the draining frame's
-;; rows BEFORE the flow transform and, on a rollback, restores them — the
-;; exact mirror of the in-`run-flows-on-db` throw-path rollback, just at the
-;; post-commit boundary the flows artefact cannot see. Both delegate to the
-;; SAME frame-scoped registry primitives the throw path uses (rf2-94ol5):
-;; structurally incapable of touching a sibling frame's container.
+;; The dirty-check-rollback pair the router uses to keep this frame's
+;; `last-inputs` bookkeeping aligned with the DURABLE app-db across a
+;; POST-commit schema/machine-data rollback. The flow transform runs inside
+;; the chain and eagerly advances `last-inputs` for each computed flow; but
+;; the rollback decision lands AFTER the chain, in `commit-db-effect!`,
+;; OUTSIDE `run-flows-on-db`'s own throw-path snapshot/restore. Without these
+;; hooks a rolled-back commit restores app-db to `db-before` but leaves the
+;; advanced `last-inputs` rows, so the next clean drain sees `=`-equal inputs,
+;; SKIPS the flow, and the flow output never re-materialises — a deterministic
+;; dev/test failure path could permanently suppress a flow. The router
+;; snapshots the draining frame's rows BEFORE the flow transform and, on a
+;; rollback, restores them — the exact mirror of the in-`run-flows-on-db`
+;; throw-path rollback, just at the post-commit boundary the flows artefact
+;; cannot see. Both delegate to the SAME frame-scoped registry primitives the
+;; throw path uses: structurally incapable of touching a sibling frame's
+;; container.
 (late-bind/set-fn! :flows/snapshot-last-inputs registry/frame-last-inputs-snapshot)
 (late-bind/set-fn! :flows/restore-last-inputs!  registry/reset-frame-last-inputs-to!)
-;; rf2-z980k8 — the abandoned-output-paths rollback pair, the exact mirror of
-;; the `last-inputs` pair above but for the IN-DRAIN `reg-flow` `:output-path`-move
-;; vacate. `run-flows-on-db` DRAINS (read-and-clears) the pending abandoned
-;; paths and dissocs them from the pending `:db`; its OWN throw arm re-records
-;; them. But a POST-commit schema / machine-data rollback lands AFTER the
-;; chain, in `commit-frame-effects!`, OUTSIDE `run-flows-on-db` — and discards
-;; the pending `:db` (which carried the vacated state). Without these hooks the
-;; abandoned path would be drained-and-cleared yet never durably vacated, so
-;; the move is silently lost. The router snapshots the pending set BEFORE the
-;; flow transform and, on a rollback, re-records it — the same boundary the
-;; `last-inputs` mirror covers. Frame-scoped (rf2-94ol5).
+;; The abandoned-output-paths rollback pair, the exact mirror of the
+;; `last-inputs` pair above but for the IN-DRAIN `reg-flow`
+;; `:output-path`-move vacate. `run-flows-on-db` DRAINS (read-and-clears) the
+;; pending abandoned paths and dissocs them from the pending `:db`; its OWN
+;; throw arm re-records them. But a POST-commit schema / machine-data rollback
+;; lands AFTER the chain, in `commit-frame-effects!`, OUTSIDE
+;; `run-flows-on-db` — and discards the pending `:db` (which carried the
+;; vacated state). Without these hooks the abandoned path would be
+;; drained-and-cleared yet never durably vacated, so the move is silently
+;; lost. The router snapshots the pending set BEFORE the flow transform and,
+;; on a rollback, re-records it — the same boundary the `last-inputs` mirror
+;; covers. Frame-scoped.
 (late-bind/set-fn! :flows/snapshot-abandoned-paths registry/abandoned-output-paths-snapshot)
 (late-bind/set-fn! :flows/restore-abandoned-paths!  registry/restore-abandoned-output-paths!)
-;; Per rf2-wbtjn — frame-destroy teardown hook (symmetric with the
-;; machines `:machines/teardown-on-frame-destroy!` hook landed by
-;; rf2-vsigt). `frame/destroy-frame!` invokes this hook so per-frame
-;; flow-registry entries, the matching `last-inputs` rows, and any
-;; `:flow` registrar slots whose last owning frame was destroyed all
-;; clear in one step. Without the hook a long-running SSR JVM (per-
-;; request frame churn) leaks flow state indefinitely.
+;; Frame-destroy teardown hook (symmetric with the machines
+;; `:machines/teardown-on-frame-destroy!` hook). `frame/destroy-frame!`
+;; invokes this hook so per-frame flow-registry entries, the matching
+;; `last-inputs` rows, and any `:flow` registrar slots whose last owning frame
+;; was destroyed all clear in one step. Without the hook a long-running SSR
+;; JVM (per-request frame churn) would leak flow state indefinitely.
 (late-bind/set-fn! :flows/teardown-on-frame-destroy!
                    registry/teardown-on-frame-destroy!)
