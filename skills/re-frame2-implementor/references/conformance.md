@@ -76,7 +76,7 @@ From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/
                   from the fixtures
 :fsm/*            FSM-richness axis — flat / hierarchical / eventless-always / delayed-after /
                   tags / parallel-regions / final-states / history / registration-validation
-:actor/*          actor-model axis — own-state / spawn-destroy / cross-actor-fx / invoke /
+:actor/*          actor-model axis — own-state / spawn-destroy / cross-actor-fx / declarative-spawn /
                   spawn-and-join / system-id
 :flow/*           Flows axis (EP 013, D3 Q8) — wildcard family; ~19 sub-tags at corpus HEAD
                   (basic / trace / init / reg-v / poke / toggle / topo / dirty-check /
