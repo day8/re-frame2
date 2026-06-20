@@ -228,6 +228,29 @@ else
         adapter_testbed_smokes=true
         story_xray_browser=true
         ;;
+      examples/scripts/examples-staging.cjs)
+        # rf2-eqjxya — false-green fix, mirroring port-resolver.cjs above.
+        # examples-staging.cjs is the SHARED staging/cleaning helper (it owns
+        # stageShared, cleanStageDirs, stageExample) require'd by BOTH browser
+        # gate families: the adapter-smoke orchestrator
+        # serve-and-run-examples-tests.cjs (`npm run test:examples`,
+        # adapter_testbed_smokes) imports stageShared + cleanStageDirs, AND the
+        # two Story launchers — serve-and-run-story-feature-load-tests.cjs
+        # (`npm run test:story-feature-load`) and
+        # serve-and-run-story-play-scripts.cjs (`npm run test:story-play-scripts`),
+        # both under story_xray_browser — import cleanStageDirs. A regression in
+        # the staging/cleaning code (e.g. cleanStageDirs or the _shared fan-out)
+        # can break the files those gates serve before they run, yet a PR
+        # touching only this helper used to fall through to the generic
+        # examples/* case below (cljs_browser only), skipping both Playwright
+        # gates it underpins — a CI false-green for this slice. Fire BOTH gates,
+        # exactly like the shared port-resolver.cjs case, so editing the shared
+        # helper runs the browser gates that depend on it. (The dev runner
+        # serve-example.cjs also imports it but is not a CI gate, so no extra
+        # fan-out is warranted.)
+        adapter_testbed_smokes=true
+        story_xray_browser=true
+        ;;
       implementation/epoch/*)
         # rf2-ribu5a — false-green fix. Epoch is the ONLY per-feature
         # artefact wired into a LIVE MCP conformance gate: the
