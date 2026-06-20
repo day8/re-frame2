@@ -330,30 +330,37 @@
                       template (the error boundary cannot be bypassed
                       by a bug in the caller's error page).
 
-  Trusted shell-hook opts (per Spec 011 §Trusted shell hook contract,
-  rf2-o6ndb) — four optional strings the default shell injects RAW
-  into the rendered HTML envelope. The framework names them as
-  TRUSTED-STRING surfaces; the trust call itself is the caller's.
-  Structural-shape-checked at handler-construction time (non-string
-  non-nil values throw `:rf.error/ssr-trusted-shell-opt-invalid`); the
-  content is NOT escaped. Wiring any of these from untrusted input
-  (CMS field, tenant-admin form, query-string parameter) accepts an
-  arbitrary-script-injection XSS vector. Use the structured
-  alternatives (`reg-head` for head fragments, `reg-view*` +
+  Trusted shell-hook string opts (per Spec 011 §Trusted shell hook
+  contract, rf2-o6ndb) — four optional strings that cross the trust
+  boundary into the rendered HTML envelope. They split by injection
+  position: `:head` / `:body-end` are RAW content hooks (injected
+  verbatim), while `:script-src` / `:app-element-id` are escaped
+  attribute hooks (`escape-attr`'d into a quoted attribute value,
+  rf2-7x0qk). The framework names them as TRUSTED-STRING surfaces; the
+  trust call itself is the caller's. Structural-shape-checked at
+  handler-construction time (non-string non-nil values throw
+  `:rf.error/ssr-trusted-shell-opt-invalid`); the RAW content hooks are
+  NOT escaped. Wiring any of these from untrusted input (CMS field,
+  tenant-admin form, query-string parameter) accepts an arbitrary-
+  script-injection XSS vector via the raw content hooks. Use the
+  structured alternatives (`reg-head` for head fragments, `reg-view*` +
   `:rf.server/*` fx for body content) when the content originates
   upstream of the trust boundary.
 
-    :head           — (string) verbatim HTML inside `<head>...</head>`.
-                      Default: route-resolved head fragment.
-    :body-end       — (string) verbatim HTML before `</body>` — the
-                      escape hatch for analytics / third-party scripts.
-                      Default: nil (omitted).
-    :script-src     — (string) the client-side bootstrap script URL
-                      written into `<script src=\"...\">`. Default:
-                      \"/main.js\".
-    :app-element-id — (string) the id of the `<div>` wrapping the
-                      rendered body. Default: \"app\". The client-side
-                      hydrator reads this element by id.
+    :head           — (string, RAW content hook) verbatim HTML inside
+                      `<head>...</head>`. Default: route-resolved head
+                      fragment.
+    :body-end       — (string, RAW content hook) verbatim HTML before
+                      `</body>` — the escape hatch for analytics /
+                      third-party scripts. Default: nil (omitted).
+    :script-src     — (string, escaped attribute hook) the client-side
+                      bootstrap script URL written `escape-attr`'d into
+                      `<script src=\"...\">`. Default: \"/main.js\".
+    :app-element-id — (string, escaped attribute hook) the id of the
+                      `<div>` wrapping the rendered body, written
+                      `escape-attr`'d into `<div id=\"...\">`. Default:
+                      \"app\". The client-side hydrator reads this
+                      element by id.
 
   Returns:
 
