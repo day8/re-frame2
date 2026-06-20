@@ -203,7 +203,7 @@
     (rf/reg-route :route/article {} "/articles/:slug")
     ;; Install a live route slice directly into the frame's runtime-db (the
     ;; shape a committed navigation materializes — Spec 012 §The route slice):
-    ;; {:id :params :query :transition :nav-token …} at
+    ;; {:route-id :params :query :transition :nav-token …} at
     ;; [:rf.runtime/routing :current].
     (frame/replace-runtime-db!
       :rf/default

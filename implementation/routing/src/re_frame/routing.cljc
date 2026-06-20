@@ -4,7 +4,7 @@
   Routes are registry entries (kind :route). Navigation is an event;
   URL changes are events. The route slice at
   `[:rf.runtime/routing :current]` carries
-  `{:id :params :query :fragment :transition :error :nav-token}`.
+  `{:route-id :params :query :fragment :transition :error :nav-token}`.
 
   This namespace is the **public boot point and façade** for the
   routing artefact (per rf2-k682 + the skill docs): apps boot the
