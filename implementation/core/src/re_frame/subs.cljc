@@ -470,6 +470,149 @@
   [query-v]
   query-v)
 
+;; ---- dev-only cache-fragmentation guardrail (rf2-re5a98) ------------------
+;;
+;; `cache-key` keys the per-frame sub-cache by query-vector identity (`=`),
+;; the reserved chokepoint. That is correct — BUT it exposes the standard
+;; footgun: an app that subscribes the SAME sub-id every render while passing
+;; a query-vector arg that is value-EQUAL but freshly REBUILT each render
+;; (a `{…}` map literal, a record, a collection assembled in the render body)
+;; mints a DISTINCT cache key every render. The cache fills with value-equal
+;; siblings that never reuse — unbounded growth, zero hit-rate — and the bug
+;; is silent (the sub still computes the right value, just never from cache).
+;;
+;; The React-hook `use-subscribe` path already defends its deps-array
+;; identity (spine.cljs); subscribe's cache keying did not. This is the
+;; missing dev tripwire: a one-shot warning per sub-id when a repeated
+;; subscribe carries a non-primitive arg that is `=` to a previously-seen
+;; arg but NOT `identical?` to it — the unambiguous "fresh object, same
+;; value" signature of cache fragmentation.
+;;
+;; FALSE-POSITIVE-AVERSE by construction:
+;;   - never warns on FIRST use of a sub-id (no prior arg to compare);
+;;   - never warns when the arg is `identical?` to the prior one (the GOOD
+;;     case — a hoisted / value-stable arg reuses the cache slot);
+;;   - never warns when the arg is genuinely `not=` to every prior arg
+;;     (legitimately-varying parameters — `[:item 1]`, `[:item 2]`, … —
+;;     SHOULD fragment; that is correct keying, not a footgun);
+;;   - only inspects NON-PRIMITIVE args (maps / sets / vectors / records /
+;;     fns); a keyword / string / number / boolean / nil / symbol arg is
+;;     value-stable enough that a re-mint is not the fragmentation hazard.
+;; The fresh-but-`=` discriminator is the load-bearing one: only a value-
+;; equal-yet-non-identical non-primitive is the clear, actionable signal.
+;; (A freshly-built CLOSURE is never `=` to a prior closure, so it reads as
+;; a genuinely-varying arg and is intentionally NOT flagged — there is no
+;; reliable value-equality signal to distinguish a churned closure from a
+;; legitimately-changing one without false positives.)
+;;
+;; DEV-ONLY: the whole seam is behind `interop/debug-enabled?` so Closure DCE
+;; elides it in `:advanced` + `goog.DEBUG=false` (and JVM `-Dre-frame.debug=
+;; false`), and the emit rides `trace/emit-error!` (same gate). The dedupe
+;; set + last-seen-arg table are dev-only host-side transient state.
+
+(defonce ^:private
+  ^{:doc "Dev-only fragmentation-guardrail state. `:last-arg` maps a sub-id
+   to the LAST non-primitive arg seen for it (so a repeat subscribe can
+   compare `=` / `identical?` against it); `:warned` is the one-shot dedupe
+   set of sub-ids already warned about, so a per-render re-subscribe emits
+   the warning ONCE per sub-id rather than flooding. Process-wide `defonce`
+   (the user-facing warn-once UX is unchanged in production); wiped per-test
+   via the canonical `:adapter/clear-warn-once-caches!` chain (enrolled
+   below through `late-bind/register-warn-once-clear-fn!`, rf2-re5a98)."}
+  fragmenting-arg-state
+  (atom {:last-arg {} :warned #{}}))
+
+(defn- clear-fragmenting-arg-warnings!
+  "Reset the cache-fragmentation guardrail state (test isolation). Cleared
+  per-test by the standard reset-runtime fixture via the chained
+  `:adapter/clear-warn-once-caches!` hook so a sibling test's first-
+  encounter warning cannot silently swallow a later same-sub-id warning.
+  The state is a process-wide `defonce` so production UX is unchanged;
+  test-time clearing is the only effect. Returns nil."
+  []
+  (reset! fragmenting-arg-state {:last-arg {} :warned #{}})
+  nil)
+
+;; Enrol the guardrail state into the canonical chained
+;; `:adapter/clear-warn-once-caches!` fixture-reset hook via the governance
+;; chokepoint `register-warn-once-clear-fn!` (rf2-z79p8 / rf2-re5a98) — NEVER
+;; a bare `chain-fn!` (the JVM single-chokepoint governance gate forbids it).
+;; The `:arm` / `:armed?` probes seed + detect a sentinel sub-id so the
+;; warn-once-clear governance assertion can drive this cache through its
+;; arm/fire/assert-empty proof alongside the adapter/views caches.
+(late-bind/register-warn-once-clear-fn!
+  {:label    :subs/fragmenting-arg-warnings
+   :clear-fn clear-fragmenting-arg-warnings!
+   :arm      (fn [] (swap! fragmenting-arg-state update :warned conj
+                           ::governance-sentinel))
+   :armed?   (fn [] (contains? (:warned @fragmenting-arg-state)
+                               ::governance-sentinel))})
+
+(defn- fragmentation-candidate-arg
+  "The single inspectable arg of `query-v` IFF it is a NON-PRIMITIVE the
+  fragmentation guardrail should track — i.e. the query-vector has exactly
+  one arg beyond the sub-id (`[:sub-id arg]`) and that arg is a map / set /
+  vector / record / fn (a value whose fresh re-mint each render is the
+  cache-key-fragmentation hazard). Returns the arg, or nil when there is no
+  arg, more than one arg (a multi-arg query-vector is a rarer shape and the
+  signal is muddier — keep the guardrail crisp), or the arg is a primitive
+  (keyword / string / number / boolean / nil / symbol). nil ⇒ skip."
+  [query-v]
+  ;; Exactly `[:sub-id arg]`: head + one arg. `(count …)` on a vector is O(1).
+  (when (= 2 (count query-v))
+    (let [arg (nth query-v 1)]
+      (when (and (some? arg)
+                 (or (map? arg) (set? arg) (vector? arg) (seq? arg)
+                     (record? arg) (fn? arg)))
+        arg))))
+
+(defn- maybe-warn-fragmenting-arg!
+  "Dev-only heuristic (rf2-re5a98): emit a one-shot `:rf.warning/sub-arg-
+  cache-fragmentation` per sub-id when a REPEATED subscribe of the same
+  sub-id carries a non-primitive query-vector arg that is value-EQUAL (`=`)
+  to the arg seen on the PREVIOUS subscribe of that sub-id but NOT
+  `identical?` to it — the unambiguous fresh-object-same-value signature of
+  cache-key fragmentation. See the block comment above for the
+  false-positive-aversion rationale (first-use, identical-arg, and
+  genuinely-varying-arg cases all pass silently). DEV-ONLY: the whole body
+  is `interop/debug-enabled?`-gated so it DCEs in production. Returns nil."
+  [query-v]
+  (when interop/debug-enabled?
+    (when-let [arg (fragmentation-candidate-arg query-v)]
+      (let [sub-id (first query-v)
+            {:keys [last-arg warned]} @fragmenting-arg-state
+            prev   (get last-arg sub-id ::absent)
+            ;; The clear signal: same logical value, fresh identity. A
+            ;; first-use (`::absent`), an `identical?` reuse, or a genuinely
+            ;; different value (`not=`) is NOT the footgun.
+            fresh-fragment? (and (not= ::absent prev)
+                                 (not (identical? prev arg))
+                                 (= prev arg))]
+        ;; Always record the latest arg so the NEXT subscribe of this sub-id
+        ;; compares against the most recent render's arg (the per-render
+        ;; churn cadence the footgun runs at).
+        (swap! fragmenting-arg-state assoc-in [:last-arg sub-id] arg)
+        (when (and fresh-fragment? (not (contains? warned sub-id)))
+          (swap! fragmenting-arg-state update :warned conj sub-id)
+          (trace/emit-error! :rf.warning/sub-arg-cache-fragmentation
+                             {:category       :rf.warning/sub-arg-cache-fragmentation
+                              :rf.sub/id      sub-id
+                              :rf.sub/query-v query-v
+                              :recovery       :ignored
+                              :hint
+                              (str "subscription " (pr-str sub-id)
+                                   " was re-subscribed with a query-vector arg "
+                                   "that is value-equal but a FRESH object each "
+                                   "time (e.g. a map / collection / record built "
+                                   "inline in the render). The sub-cache keys by "
+                                   "identity, so every render mints a NEW cache "
+                                   "entry: the cache grows unbounded and never "
+                                   "reuses. Hoist the arg to a value-stable "
+                                   "reference (a let-bound / subscribed / "
+                                   "memoised value) so repeated subscribes share "
+                                   "one cache slot.")}))))
+    nil))
+
 ;; Ref-counting, synchronous disposal, hot-reload invalidation, and
 ;; `clear-sub-cache!` live in `re-frame.subs.cache`. The public surface
 ;; (`clear-sub-cache!`) is reached through `re-frame.core`'s defalias
@@ -1049,6 +1192,15 @@
       (when interop/debug-enabled?
         (when-let [record! (late-bind/get-fn :views/record-view-deref!)]
           (record! query-v))))
+   ;; (dev-only, rf2-re5a98): the cache-fragmentation guardrail. The
+   ;; sub-cache keys by query-vector identity (`cache-key` = `=`); an app
+   ;; that re-subscribes the SAME sub-id every render with a value-equal but
+   ;; freshly-REBUILT non-primitive arg mints a distinct cache key each
+   ;; render — unbounded growth, zero reuse, silently. This fires (hit AND
+   ;; miss, like the deref-sink hook above) the dev tripwire ONCE per sub-id
+   ;; on the unambiguous fresh-object-same-value signature. The whole helper
+   ;; is `interop/debug-enabled?`-gated so it DCEs in production.
+   (maybe-warn-fragmenting-arg! query-v)
    ;; (CLJS, dev-only): the SUBSTITUTIVE override seam. Story's
    ;; lowest-fidelity ladder rung (`:sub-overrides`) pins a view into an
    ;; `:error`/`:loading`/`:empty` state by naming subscription
