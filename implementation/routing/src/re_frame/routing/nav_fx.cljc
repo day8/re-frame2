@@ -2,15 +2,16 @@
   "Standard navigation fxs (`:rf.nav/push-url`, `:rf.nav/replace-url`)
   + URL-owner resolution for re-frame2 routing.
 
-  Per Spec 012 §Multi-frame routing and rf2-w50qm: `:rf.nav/push-url` /
-  `:rf.nav/replace-url` MUST consult the calling frame's `:url-bound?`
-  metadata before touching the browser history. The default frame
-  (`:rf/default`) is URL-bound; non-default frames are not, unless they
-  opt in via `(reg-frame :my-frame {:url-bound? true})`. Non-URL-bound
-  frames no-op the fx (history.pushState would race with the
-  URL-owning frame). The check honours the framework default:
-  `:rf/default` is URL-bound when no explicit `:url-bound?` slot is
-  declared.
+  Per Spec 012 §Multi-frame routing and EP-0002 (rf2-nn0jqa): URL
+  ownership is **explicit only**. `:rf.nav/push-url` / `:rf.nav/replace-url`
+  MUST consult the calling frame's `:url-bound?` metadata before touching
+  the browser history. A frame is URL-bound only when it carries an
+  explicit `(reg-frame :my-frame {:url-bound? true})` — including
+  `:rf/default`, which has **no** owns-by-default floor: the runtime never
+  infers URL ownership from absence. Non-URL-bound frames no-op the fx
+  (history.pushState would race with the URL-owning frame). When no frame
+  declares `:url-bound? true`, there is no URL owner and the outbound
+  history mutations no-op (see `url-owner-frame-id`).
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
