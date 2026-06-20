@@ -38,11 +38,10 @@ A product-detail page needs three independent fetches before render: the product
   {:doc      "Parallel loader for /products/:id. Fans out three HTTP fetches;
               joins on all-complete; writes results into app-db."
    :initial  :loading
-   :data     (fn [_ [_ {:keys [product-id]}]]
-               {:product-id product-id
-                :product    nil
-                :related    nil
-                :reviews    nil})
+   :data     {:product-id nil          ;; seeded at spawn time via the spawn-spec
+              :product    nil           ;; `:data` map (see §Wiring into the SSR
+              :related    nil           ;; request) — top-level `:data` is a literal
+              :reviews    nil}          ;; initial-data map, never a fn (Spec 005 §The snapshot)
    :states
    {:loading
     {:spawn-all
@@ -158,15 +157,17 @@ Read the cofx **once**, at `:rf/server-init` — bind the values into the loader
                            :locale     locale}}]]})))
 ```
 
-The loader's `:children` `:data` fns then close over the parent's `:data`:
+The loader's `:children` `:data` fns then read the parent's `:data` from
+the spawn-spec context map (`(fn [{:keys [snapshot event]}] data)` per
+[005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)):
 
 ```clojure
 {:id         :product
  :machine-id :http/get-one
- :data       (fn [snap _]
-               {:url    (str "/api/products/" (-> snap :data :product-id))
-                :headers {"authorization" (str "Bearer " (-> snap :data :auth-token))
-                          "accept-language" (-> snap :data :locale)}
+ :data       (fn [{:keys [snapshot]}]
+               {:url    (str "/api/products/" (-> snapshot :data :product-id))
+                :headers {"authorization" (str "Bearer " (-> snapshot :data :auth-token))
+                          "accept-language" (-> snapshot :data :locale)}
                 :decode ProductSchema})}
 ```
 
