@@ -105,10 +105,40 @@
 ;; ---- fixture discovery ----------------------------------------------------
 
 (def fixtures-dir
-  "The corpus lives at the repo root under
-  `spec/conformance/fixtures/`. The schemas artefact's tests run from
-  `implementation/schemas/`, so the relative path is two-deep."
-  (io/file "../../spec/conformance/fixtures"))
+  "The conformance corpus lives at the repo root under
+  `spec/conformance/fixtures/`.
+
+  Anchored to a CLASSPATH RESOURCE, not the working directory (rf2-ywrwkl,
+  the same fix rf2-55j4s3 applied to 3 sibling core tests). The earlier
+  `(io/file \"../../spec/conformance/fixtures\")` form assumed the JVM cwd
+  was `implementation/schemas/` so that `../../` reached the repo root. That
+  holds for the canonical per-artefact gate (`clojure -M:test` run from
+  `implementation/schemas/`, which is what CI runs) but SILENTLY MIS-SCOPES
+  under the combined `implementation/deps.edn :test` alias: run from
+  `implementation/`, `../../` resolves ABOVE the repo root, `file-seq`
+  returns nothing, and the corpus discovers zero fixtures (the rf2-3hamsq
+  floor turns that mis-discovery RED instead of silent-green).
+
+  This test namespace's own source file is on the test classpath (the
+  artefact's `:test {:extra-paths [\"test\"]}`), so resolving it via
+  `io/resource` pins the anchor to the on-disk source location regardless
+  of cwd or which alias loaded the namespace. Walking five parents
+  (`schemas_conformance_test.clj → re_frame → test → schemas →
+  implementation → repo root`) reaches the repo root, then we descend into
+  `spec/conformance/fixtures`."
+  (let [res (io/resource "re_frame/schemas_conformance_test.clj")]
+    (assert res
+            (str "schemas-conformance-test cannot locate its own source on "
+                 "the classpath — the schemas test/ dir must be on the test "
+                 "classpath for fixture discovery to anchor."))
+    (-> (io/file res)        ; .../schemas/test/re_frame/schemas_conformance_test.clj
+        .getParentFile       ; .../schemas/test/re_frame
+        .getParentFile       ; .../schemas/test
+        .getParentFile       ; .../schemas
+        .getParentFile       ; .../implementation
+        .getParentFile       ; repo root
+        (io/file "spec" "conformance" "fixtures")
+        .getCanonicalFile)))
 
 (defn- load-fixture
   "Read one EDN fixture. The corpus does not use auto-resolved keywords
