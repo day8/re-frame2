@@ -15,7 +15,7 @@
 ;; `re-frame.resource-algebra-view-cljs-test`,
 ;; `re-frame.machine-algebra-view-test`) and the composer test
 ;; (`re-frame.derivation-graph-test`) pins the assembly MECHANICS, this
-;; tier proves the four EP-0014 conformance LAWS hold across families
+;; tier proves the six EP-0014 conformance AXES hold across families
 ;; simultaneously, the same way `reply-conformance/` proves the ONE reply
 ;; vocabulary across every managed-async family:
 ;;
@@ -34,6 +34,12 @@
 ;;                         materialized derivation's output equals what its
 ;;                         derivation fn computes from the same inputs; the
 ;;                         optional delta law is deferred per item 10.
+;;   (e) LIFECYCLE       — the §Conformance 'Lifecycle' RELEASE axis: frame
+;;                         destroy / route exit-supersession / machine
+;;                         final-state destroy releases the owned graph node.
+;;   (f) EVALUATION      — the §Conformance 'Evaluation policy' on-demand
+;;                         no-write law: reading an `:on-demand` node causes
+;;                         NO durable write (no app-db / runtime-db mutation).
 ;;
 ;; The test namespaces sit ABOVE several artefacts (core + the four
 ;; optional feature siblings — flows, resources, routing, machines), so
