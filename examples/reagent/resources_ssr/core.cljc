@@ -24,10 +24,9 @@
      hydrated entry renders immediately and does NOT immediately re-fetch
      (stale / redacted / omitted entries refetch by the hydration plan).
 
-   LANDED BEHAVIOUR (EP-0003). The SSR blocking-drain, the
-   per-entry projection with redaction / omission / scoped-key privacy /
-   index omission, and the client hydration
-   reconcile + refetch plan are all RUNTIME-real. So this
+   The SSR blocking-drain, the per-entry projection with redaction /
+   omission / scoped-key privacy / index omission, and the client hydration
+   reconcile + refetch plan are all runtime behaviour (EP-0003). This
    example drives the actual server path: it DRAINS the blocking page
    resource before render (`ssr/drain-blocking-resources!`) and serializes
    only the ALLOWED runtime-db projection (`payload-policy/project-runtime-db`)
@@ -157,7 +156,7 @@
 ;; projection in `:rf/runtime-db`. The per-request frame is torn down in a
 ;; `finally` on every exit path (memory hygiene).
 ;;
-;; Two landed steps make this the canonical server path (EP-0003):
+;; Two steps make this the canonical server path (EP-0003):
 ;;
 ;;   1. `ssr/drain-blocking-resources!` settles the `[:ssr …]`-owned blocking
 ;;      ensure (or times it out into a structured first-load failure) BEFORE

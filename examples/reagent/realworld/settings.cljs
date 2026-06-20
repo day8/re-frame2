@@ -313,9 +313,9 @@
     (get-in snap [:data :submit-error])))
 
 (rf/reg-sub :settings/submitting?
-  {:doc "Tag-shaped read of the form's in-flight intent. Replaces the
-         slice-form `(= :submitting status)` comparison; views still
-         see a plain boolean."}
+  {:doc "Tag-shaped read of the form's in-flight intent — a tag query
+         standing in for a slice-form `(= :submitting status)` comparison;
+         views see a plain boolean."}
   :<- [:rf/machine-has-tag? :settings/form :settings/in-flight]
   (fn sub-settings-submitting? [in-flight? _]
     (boolean in-flight?)))

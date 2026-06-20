@@ -1,7 +1,7 @@
 (ns resources.core
   "Worked example for [Spec 016 Resources](../../../spec/016-Resources.md)
    (the EP-0003 read-resource MVP). A small server-state app — an articles
-   list and an article detail — demonstrating the LANDED resource surface
+   list and an article detail — demonstrating the resource surface
    composed as proper re-frame2: app-db + events + subs, views passive,
    fetches caused.
 

@@ -320,7 +320,7 @@
 
 (rf/reg-sub :home/selected-tag
   {:doc "The active tag, read from the `/tag/:tag` route's PATH params
-         (no longer a `?tag=` query)."}
+         (a route path param, not a `?tag=` query)."}
   :<- [:rf.route/params]
   (fn [params _] (:tag params)))
 

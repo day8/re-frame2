@@ -143,11 +143,11 @@
 ;;     `(second event)` is a URL string resolved to a route via
 ;;     `rf/match-url`.
 ;;
-;; An earlier sketch gated ONLY `:rf.route/navigate`, so the guard FAILED
-;; OPEN on the most common access path: a logged-out user who typed
-;; `/settings`, reloaded a protected page, or followed an anchor reached
-;; the route (and the on-match drain then fired a request the real
-;; Conduit backend would 401). Gating all three entry points closes that
+;; The guard MUST gate all three entry points, not just `:rf.route/navigate`:
+;; gating navigate alone would FAIL OPEN on the most common access path — a
+;; logged-out user who typed `/settings`, reloaded a protected page, or followed
+;; an anchor would reach the route (and the on-match drain would then fire a
+;; request the real Conduit backend would 401). Gating all three closes that
 ;; gap — `resolve-nav-target` normalises each event to an `{:id :params}`
 ;; target so ONE redirect path handles them all.
 ;;

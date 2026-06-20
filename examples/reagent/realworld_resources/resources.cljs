@@ -3,9 +3,10 @@
    runtime-managed server-state read (Spec 016 §Public API / §Resource
    registration spec).
 
-   This is the half of the example that replaces the `:rf.http/managed`
-   sibling's hand-rolled Pattern-RemoteData slices (`{:status :data :error
-   :loaded-at :attempt}` per read). Here each read is `reg-resource`d once;
+   This is the half of the example that expresses as resources what the
+   `:rf.http/managed` sibling hand-rolls as Pattern-RemoteData slices
+   (`{:status :data :error :loaded-at :attempt}` per read). Here each read is
+   `reg-resource`d once;
    route entry / events CAUSE the fetch, and views read the runtime cache
    PASSIVELY through `[:rf.resource/*]` subs. No `:status` / `:loading?`
    app-db fields exist for these reads — the framework owns the lifecycle.

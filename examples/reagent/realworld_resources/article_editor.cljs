@@ -2,9 +2,8 @@
   "Create / edit / delete an article — the RealWorld-on-resources editor.
 
    This is the form-heavy, flow-bearing page the focused `resources/` demo never
-   shows and the variant was previously missing: it is the resources-variant
-   port of the `:rf.http/managed` sibling's `realworld/article_editor.cljs`. It
-   exercises three things at once:
+   shows: the resources-variant counterpart of the `:rf.http/managed` sibling's
+   `realworld/article_editor.cljs`. It exercises three things at once:
 
    1. The WRITE is a MUTATION. `:realworld/save-article` POSTs `/articles`
       (create) or PUTs `/articles/:slug` (edit) and declares per-target scoped
@@ -449,10 +448,11 @@
   "The article-editor page. A Reagent Form-3 component: the inner render is the
    pure `editor-form-view`; the mount hook installs ONE off-render reaction that
    seeds the draft when an edit-mode article read settles with data. (The
-   save/delete SUCCESS continuation is no longer an off-render reaction — it is
-   the mutation's `:reply-to [:editor/replied]` target, EP-0016 D1. A reply-side
-   continuation only exists for the mutation write; the seed reaction watches a
-   RESOURCE read settle, which has no reply-to, so it stays a Form-3 reaction.)
+   save/delete SUCCESS continuation is the mutation's `:reply-to
+   [:editor/replied]` target, EP-0016 D1, not an off-render reaction. A
+   reply-side continuation only exists for the mutation write; the seed reaction
+   watches a RESOURCE read settle, which has no reply-to, so it stays a Form-3
+   reaction.)
    `rf/frame-handle` is captured here (during render, under the frame-provider),
    so the reaction's dispatch carries the frame; unmount disposes the reaction
    and releases the edit-mode article lease."
