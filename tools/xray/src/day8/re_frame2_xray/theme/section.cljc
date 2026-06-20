@@ -1,19 +1,18 @@
 (ns day8.re-frame2-xray.theme.section
-  "Shared stacked-section primitive (rf2-pie8q).
+  "Shared stacked-section primitive.
 
   Xray panels use a uniform rhythm of stacked sections — small upper-
   cased header (`▼ SECTION TITLE`) followed by a body, separated from
   the next section by a 1px dotted horizontal rule. The visual contract
-  is documented in `tools/xray/spec/007-UX-IA.md` and was reinvented
-  twice — once in `panels/managed_fx_template/section` (rf2-uyp86) and
-  again in `panels/event_detail/section` (rf2-zh2qc PR #1480). Both
-  invented identical typography (sans-stack, 11px, weight 600, letter-
-  spacing 0.6px, uppercase, `:text-secondary`) and identical body
-  styling (mono-stack, 12px, `:text-primary`, 6px/0/0/18px padding).
+  is documented in `tools/xray/spec/007-UX-IA.md`: the header is
+  typeset sans-stack, 11px, weight 600, letter-spacing 0.6px,
+  uppercase, `:text-secondary`; the body is mono-stack, 12px,
+  `:text-primary`, 6px/0/0/18px padding.
 
-  Hoisting the shape here gives the two consumers a single source of
-  truth so a future rhythm tweak (a tighter letter-spacing, say, or a
-  swap of the dotted rule for a solid one) lands in one place.
+  This is the single source of truth for the shape — both
+  `panels/managed_fx_template/section` and `panels/event_detail/section`
+  render through it, so a rhythm tweak (a tighter letter-spacing, say,
+  or a swap of the dotted rule for a solid one) lands in one place.
 
   ## Shape
 
@@ -52,8 +51,8 @@
 
     - No interactivity. Click-to-toggle wiring is the caller's
       responsibility — the primitive only renders the visual state the
-      caller passes via `:expanded?`. (Per the bead: 'sans tone-key,
-      with collapse glyph'.)
+      caller passes via `:expanded?` (sans tone-key, with the collapse
+      glyph).
     - No body-shape opinions. The body argument is opaque hiccup.
     - No section-stacking helper. Callers compose by listing sections
       inline; the dotted bottom border draws the rhythm."

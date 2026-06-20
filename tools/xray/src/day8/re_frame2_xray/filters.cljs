@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters
-  "Facade for Xray's IN/OUT auto-filter subsystem (rf2-ak4ms).
+  "Facade for Xray's IN/OUT auto-filter subsystem.
 
   Per the canonical Xray panel-facade pattern (mirrored from
   `palette.cljs`): the facade owns the `reg-view` Modal wrapper for
@@ -33,14 +33,14 @@
             [day8.re-frame2-xray.filters.typed-predicates :as typed]
             [day8.re-frame2-xray.spine-filters :as spine-filters]))
 
-;; ---- L2 visible-row predicate (rf2-jvghz) -------------------------------
+;; ---- L2 visible-row predicate -------------------------------------------
 ;;
 ;; Mirrors `shell/l2-cascade-visible?` — kept local so the
 ;; `:rf.xray/hidden-by-filters` sub below can count over the SAME
 ;; visible-row set the L2 list renders without a shell ↔ filters require
 ;; cycle (the shell already requires this ns transitively). The
 ;; `:ungrouped` bucket carries `:dispatch-id :ungrouped`; it only renders
-;; in L2 when the rf2-r9lyy power-user opt-in is on, so it is excluded
+;; in L2 when the power-user opt-in is on, so it is excluded
 ;; from the hidden-count's visible set by default — keeping N consistent
 ;; with the rows the user sees.
 
@@ -54,11 +54,11 @@
 
 (rf/reg-view Modal
   "The edit popup. Renders only when `:rf.xray/edit-popup-open?` is
-  true; closed-state is a single subscribe + a `when`. Per rf2-in6l2
+  true; closed-state is a single subscribe + a `when`.
   `reg-view`-registered so the body's subscribes route through the
   React-context tier to `:rf/xray`.
 
-  rf2-nesy9 — threads the reg-view-injected frame-aware `dispatch`
+  Threads the reg-view-injected frame-aware `dispatch`
   into `popup-view` so deferred `:on-*` handlers land on the
   surrounding instance frame, not a `{:frame :rf/xray}` literal."
   []
@@ -69,7 +69,7 @@
 
 (defn hydrate!
   "Drive the localStorage / seed / empty hydration order per spec/018
-  §7 + rf2-ak4ms:
+  §7:
 
     1. localStorage value (the user's last-session pill set);
     2. host-supplied seed via `(xray-config/configure! {:rf.xray/filters …})`
@@ -120,7 +120,7 @@
 (defn- append-typed-pill
   "Append a typed pill to `mode`'s bucket; no-op when an equivalent
   pill already exists. Used by the `:rf.xray/filter-by-*` typed-add
-  events (rf2-piye4) — the right-click affordances on the Machines /
+  events — the right-click affordances on the Machines /
   managed-fx panels dispatch through this so a double-add collapses
   to one pill rather than piling duplicates."
   [db mode pill]
@@ -146,7 +146,7 @@
               `:rf.xray/delete-edit-popup`,
               `:rf.xray/hide-event-type`,
               `:rf.xray/hydrate-filters`,
-              + rf2-piye4 typed-add events:
+              + typed-add events:
               `:rf.xray/filter-by-machine`,
               `:rf.xray/filter-by-http-correlation`,
               `:rf.xray/filter-by-fx`.
@@ -156,7 +156,7 @@
     - Side-effect: hydrate `:active-filters` from localStorage at
       first install via a no-history dispatch.
 
-  Called from `registry/register-xray-handlers!` after the legacy
+  Called from `registry/register-xray-handlers!` after the
   `:rf.xray/active-filters` slot is registered (so the sub-graph
   resolves in declaration order)."
   []
@@ -171,7 +171,7 @@
   ;; reads `:rf.xray/filtered-cascades`; raw `:rf.xray/cascades`
   ;; stays available for unfiltered totals.
   ;;
-  ;; Per spec/018 §3 Frame dropdown + rf2-oziyr: the frame picker is
+  ;; Per spec/018 §3 Frame dropdown: the frame picker is
   ;; ALSO a data-layer filter. The picker's selection lives on the
   ;; spine's `:focus :frame` slot (written by `:rf.xray/set-frame`);
   ;; we read the raw slot here (not the composed `:rf.xray/focus` sub)
@@ -180,25 +180,24 @@
   ;; app, picker has not been touched, OR a single-frame app whose
   ;; picker collapses to a flat label).
   ;; Pill matching routes through the typed-predicate dispatcher
-  ;; (rf2-piye4) so each pill's `:kind` selects the per-kind cascade
-  ;; matcher (`:event-id-pattern` delegates to the existing event-id
+  ;; so each pill's `:kind` selects the per-kind cascade
+  ;; matcher (`:event-id-pattern` delegates to the event-id
   ;; matcher; `:machine` / `:http-correlation` / `:fx` walk the
-  ;; cascade's trace-events for the matching tag). Pre-typed pills
+  ;; cascade's trace-events for the matching tag). Pills
   ;; persisted under `{:pattern <kw-or-str>}` hydrate as
-  ;; `:event-id-pattern` via `canonicalise-pill` — no migration step
-  ;; needed.
-  ;; rf2-ikuwt — the muted-event-ids set rides at the END of the
+  ;; `:event-id-pattern` via `canonicalise-pill`.
+  ;; The muted-event-ids set rides at the END of the
   ;; filter chain so right-click → 'Mute :event-id' strips the row
   ;; from L2 regardless of any IN-pill state. (An IN pill says 'keep
   ;; only these'; mute says 'never these'. Composition is OUT-like
   ;; semantically, but the mute set is a separate slot so it persists
   ;; independently of the pill set and the unmute manager has a clean
   ;; surface to enumerate.)
-  ;; rf2-4vp5j Workstream C — the frame scope reads the dedicated
+  ;; The frame scope reads the dedicated
   ;; `:rf.xray/view-scope-frame` slot (a single defaulted VIEW SCOPE),
   ;; NOT the spine's `[:focus :frame]` (which epoch auto-alignment + the
-  ;; focus-step walk also write — reading it here silently re-scoped the
-  ;; list to whatever epoch the user stepped onto). The frame is applied
+  ;; focus-step walk also write — reading it there would silently re-scope
+  ;; the list to whatever epoch the user stepped onto). The frame is applied
   ;; as a view scope FIRST, then the pill chain + mutes (the actual
   ;; filters) compose on top.
   ;;
@@ -222,20 +221,20 @@
           (typed/filter-cascades filters)
           (spine-filters/filter-cascades muted))))
 
-  ;; rf2-jvghz defect #1 + rf2-4vp5j Workstream C — the 'N events hidden
-  ;; by filters' message model. Composes the raw + filtered cascade lists
-  ;; and the active filter state into the pure `hidden/summary` record
-  ;; the events ribbon renders against. Counts over the L2 visible-row
-  ;; set (`l2-visible?`) so N matches the rows the user sees.
+  ;; The 'N events hidden by filters' message model. Composes the raw +
+  ;; filtered cascade lists and the active filter state into the pure
+  ;; `hidden/summary` record the events ribbon renders against. Counts
+  ;; over the L2 visible-row set (`l2-visible?`) so N matches the rows
+  ;; the user sees.
   ;;
-  ;; FRAME IS A VIEW SCOPE, NOT A FILTER (rf2-4vp5j Workstream C): the
-  ;; count BASELINE is computed WITHIN the selected frame — `raw` is
-  ;; first scoped to the view-scope frame, then pills/mutes are measured
-  ;; against that scope. This means switching frames NEVER inflates
-  ;; "hidden" (previously `raw` counted across all frames, so picking a
-  ;; frame made every other frame's events look "hidden by filters").
-  ;; The summary carries no `:frame` cause; only pill/mute suppression
-  ;; is the cause and the count.
+  ;; FRAME IS A VIEW SCOPE, NOT A FILTER: the count BASELINE is computed
+  ;; WITHIN the selected frame — `raw` is first scoped to the view-scope
+  ;; frame, then pills/mutes are measured against that scope. This means
+  ;; switching frames NEVER inflates "hidden" — each frame's events count
+  ;; only against their own frame's baseline, so picking a frame never
+  ;; makes another frame's events look "hidden by filters". The summary
+  ;; carries no `:frame` cause; only pill/mute suppression is the cause
+  ;; and the count.
   (rf/reg-sub :rf.xray/hidden-by-filters
     :<- [:rf.xray/cascades]
     :<- [:rf.xray/filtered-cascades]
@@ -372,7 +371,7 @@
              :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})
           {:db (close-popup db)}))))
 
-  ;; ---- clear-all (rf2-jvghz + rf2-4vp5j) ------------------------------
+  ;; ---- clear-all ------------------------------------------------------
   ;;
   ;; One-click reset behind the events ribbon's `Clear Filters` button.
   ;; Resets every suppressing FILTER so the filtered list snaps back to
@@ -382,10 +381,8 @@
   ;;   2. muted event-ids     → `:rf.xray/clear-muted-event-ids` (+ its
   ;;      own persist fx)
   ;;
-  ;; Per rf2-4vp5j Workstream C the FRAME is a view SCOPE, not a filter —
-  ;; Clear Filters must NOT change the frame. The previous
-  ;; `[:dispatch [:rf.xray/select-frame nil]]` was removed; the picker's
-  ;; selection survives a Clear Filters.
+  ;; The FRAME is a view SCOPE, not a filter — Clear Filters must NOT
+  ;; change the frame; the picker's selection survives a Clear Filters.
   ;;
   ;; Pills are reset inline (this handler already owns the
   ;; `:active-filters` slot + persist fx); the mute reset routes through
@@ -419,7 +416,7 @@
                    (-> (edit-popup/pill->draft pill)
                        (assoc :mode :out)))))}))
 
-  ;; ---- typed-predicate add events (rf2-piye4) -------------------------
+  ;; ---- typed-predicate add events -------------------------------------
   ;;
   ;; Right-click affordances on the Machines / managed-fx panels fire
   ;; these events to append a typed-predicate IN pill directly — no
@@ -462,7 +459,7 @@
       {:db (assoc db :active-filters
                 (or filters {:in [] :out []}))}))
 
-  ;; NO hydrate on install (rf2-swclw). The IN/OUT pills are a TRANSIENT
+  ;; NO hydrate on install. The IN/OUT pills are a TRANSIENT
   ;; exploration filter — they reset to unfiltered on every page load so
   ;; a fresh session never silently carries a stale filter. The slot
   ;; starts at its registry default `{:in [] :out []}` and

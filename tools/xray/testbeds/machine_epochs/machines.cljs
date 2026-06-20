@@ -1,12 +1,12 @@
 (ns machine-epochs.machines
-  "The MACHINE SPECS for the machine-epochs render harness (rf2-g27vv),
+  "The MACHINE SPECS for the machine-epochs render harness,
   split out of `machine-epochs.core` so the ASSERTION harness
   (`day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test`) can
   register the IDENTICAL specs without pulling in the deck's Reagent mount.
 
   This makes 'what the operator sees in the deck' and 'what the test drives'
-  literally the SAME values — a drift between them is impossible (the bead's
-  single-source-of-truth requirement for the machine half of the matrix).
+  literally the SAME values — a drift between them is impossible. These specs
+  are the single source of truth for the machine half of the matrix.
 
   ## Cascade order is read off the structured `:cascade`
 
@@ -18,7 +18,7 @@
   here do only their real data mutation (`:opened-count`, `:score`, the
   spawned token, …); state-only transitions carry no action at all.
 
-  ## Test surface, not tutorial (feedback_testbeds_are_test_surfaces)
+  ## Test surface, not tutorial
 
   No deliberate bugs, no teaching layers. Every machine is a clean,
   believable domain exercising real features. The throwing `:fuse/box`
@@ -111,7 +111,7 @@
 ;; stay CONSTANT across every state. So the union `:tags` set is a SINGLE-
 ;; member swap each tick — the snapshot diff must render that as a member-
 ;; level :added / :removed (the joining + leaving vehicle tag), NOT a whole-
-;; key set replacement (gap 7 / rf2-l0us2). A single-member swap is the case
+;; key set replacement. A single-member swap is the case
 ;; the member-level set-diff renders today; keeping the constant members
 ;; off the churn proves the diff isolates exactly the member that moved.
 
@@ -250,25 +250,20 @@
 ;; MACHINE 6 — :fuse/box  (THROW-ON-BOOT: initial `:entry` action THROWS)
 ;; ============================================================================
 ;;
-;; A machine-action exception ON BOOT — the F‴ (rf2-gl588) re-vehicle. The
-;; initial state `:armed` declares an `:entry` action `:blow-fuse` that THROWS,
-;; so the initial-entry cascade itself raises a REAL
+;; A machine-action exception ON BOOT, modelled on F‴. The initial state
+;; `:armed` declares an `:entry` action `:blow-fuse` that THROWS, so the
+;; initial-entry cascade itself raises a REAL
 ;; `:rf.error/machine-action-exception`. This fires on ANY boot — an eager
 ;; `[:fuse/box [:rf.machine/start]]` kick OR the first real event lazily
 ;; booting the machine — because under F‴ `maybe-boot` is the single birth
-;; site that runs the cascade in both paths.
+;; site that runs the cascade in both paths. The start marker is a PURE
+;; init-kick (init then STOP — it never reaches the transition step); the
+;; throw lives on a real `:entry` action, demonstrating "exception on boot".
 ;;
-;; Pre-F‴ this coverage rode the double-duty wart: an eager start marker was
-;; re-processed as a normal trigger, hit `:armed`'s `:*` wildcard, and threw.
-;; F‴ makes the start marker a PURE init-kick (init then STOP — it never
-;; reaches the transition step), so that path is gone; the throw moves to a
-;; real `:entry` action, demonstrating "exception on boot" on the F‴ model.
-;;
-;; The CONTRAST with the door's benign unhandled-no-op still validates that
+;; The CONTRAST with the door's benign unhandled-no-op validates that
 ;; Xray's pink-wash / `issue-event?` predicate distinguishes a thrown action
 ;; (error, pink, EXCEPTION card, cascade-summary :outcome :error) from a
-;; benign no-op (NOT pink) — the foil is now a throwing BIRTH rather than a
-;; throwing wildcard.
+;; benign no-op (NOT pink) — the foil here is a throwing BIRTH.
 
 (defmachine fuse-machine
   {:initial :armed
@@ -333,7 +328,7 @@
       :on
       {:tags  #{:fan/on}
        ;; :nudge is an EXTERNAL self-transition (:target :same-state +
-       ;; :reenter? true forces a real exit→entry of :on — rf2-eicq0 v5 flip);
+       ;; :reenter? true forces a real exit→entry of :on — the xstate v5 rule);
        ;; :tweak is an INTERNAL self-transition (omit :target) — action-only,
        ;; no exit/entry. :tweak-fan must do real work (bump :tweaks) so the
        ;; internal transition stays a genuine transition, not a no-op.
@@ -349,7 +344,7 @@
 ;; MACHINE 8 — :media/deep + :media/shallow  (HISTORY: shallow + deep restore)
 ;; ============================================================================
 ;;
-;; gap 8 — first-class history states (rf2-mle6e). A media-player compound
+;; First-class history states. A media-player compound
 ;; `:player` owns a `:type :history` pseudo-state `:hist`. From `:stopped`,
 ;; `:play` targets `[:player :hist]` → re-entry RESTORES the recorded (or
 ;; default) configuration beneath `:player`. The cascade carries the
@@ -424,7 +419,7 @@
 ;; MACHINE 9 — :modal/main  (MULTI-EVENT transition — the events-as-nodes case)
 ;; ============================================================================
 ;;
-;; THE events-as-nodes divergence (rf2-vilpfa). One target, `:closed`, reached
+;; THE events-as-nodes divergence. One target, `:closed`, reached
 ;; from `:open` on THREE distinct events (`:modal/cancel`, `:modal/submit` [+a
 ;; `:save` action], `:modal/escape`). xstate v5 STACKS the three event labels
 ;; on ONE edge `:open ──► :closed`; re-frame2's events-as-nodes render draws
@@ -453,7 +448,7 @@
 ;; MACHINE 10 — :gate/main  (MULTI-BRANCH GUARDED fork — the guard-fork case)
 ;; ============================================================================
 ;;
-;; THE guard-fork divergence (rf2-vilpfa). `:gate/check` FORKS from `:idle` by
+;; THE guard-fork divergence. `:gate/check` FORKS from `:idle` by
 ;; a guarded candidate VECTOR: first guard-pass wins — `:gate-high?` → `:high`,
 ;; `:gate-low?` → `:low`, else the unguarded fallback `{:target :rejected}`.
 ;; `:gate/set` arms `:level` first (an internal `:action`-only transition,
@@ -488,9 +483,9 @@
 ;; HISTORY PLACEMENT probe — the misplaced-history rejection (rung #24).
 ;; ----------------------------------------------------------------------------
 ;;
-;; History is first-class (rf2-mle6e) but a `:type :history` pseudo-state MUST
+;; History is first-class, but a `:type :history` pseudo-state MUST
 ;; have an owning compound — a machine ROOT cannot be one. This probe confirms
-;; the placement constraint still fires (NOT the old not-in-v1 deferral).
+;; the placement constraint fires.
 
 (def history-machine-spec
   "A ROOT `:type :history` machine — rejected for PLACEMENT (a pseudo-state
@@ -505,7 +500,7 @@
 (defn history-rejected?
   "Attempt to register `history-machine-spec` (a ROOT `:type :history`) and
   return true iff it is REJECTED with `:rf.error/machine-history-misplaced`
-  (the placement constraint — history is first-class per rf2-mle6e, but a
+  (the placement constraint — history is first-class, but a
   pseudo-state must have an owning compound). Returns false if it
   unexpectedly registered, or rethrows a non-history error. The harness
   asserts this directly via `reg-machine` too."

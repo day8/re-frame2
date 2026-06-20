@@ -1,20 +1,19 @@
 (ns panel-gallery.fixtures-trace
-  "Pure fixture builders for the Xray Trace tab gallery (rf2-sszlr —
-  rebuild for new 6-tab Xray shape; epoch-scoped rewire rf2-ofoqu).
+  "Pure fixture builders for the Xray Trace tab gallery.
 
-  ## Epoch-scoped feed (rf2-td380 / rf2-ofoqu)
+  ## Epoch-scoped feed
 
-  After PR #1958 (rf2-td380 / rf2-o6yqq / rf2-gkczt) the Trace panel
-  is a lens on the spine's FOCUSED EPOCH, not the global trace bus.
-  Its sub `:rf.xray/trace-feed` joins:
+  The Trace panel is a lens on the spine's FOCUSED EPOCH, not the
+  global trace bus. Its sub `:rf.xray/trace-feed` joins:
 
     - `:rf.xray/focus`          — carries `:epoch-id`
     - `:rf.xray/epoch-history`  — the per-frame ring of `:rf/epoch-record`
                                    maps (the framework's settling records)
 
   and renders the focused epoch's `:trace-events` slice (the complete
-  domino trail for one settling). It NO LONGER reads the trace bus /
-  `:trace-buffer`, so seeding the bus produces an empty panel.
+  domino trail for one settling). It reads the focused epoch's slice,
+  not the trace bus / `:trace-buffer` — seeding the bus produces an
+  empty panel.
 
   Each variant therefore seeds via `:rf.xray/sync-epoch-history` — the
   canonical seed event (`epoch.cljs`) that `assoc`s the history vector
@@ -27,8 +26,8 @@
 
   No variant pins `:rf.xray/focus`. With no trace bus seeded there are
   no cascades, so `compose-focus` leaves the focus `:epoch-id` nil; the
-  shared `panels.shared.focus-resolver` then applies its head-fallback
-  (rf2-h0120): nil focus + non-empty history → `:focused`, resolving to
+  shared `panels.shared.focus-resolver` then applies its head-fallback:
+  nil focus + non-empty history → `:focused`, resolving to
   the HEAD record `(peek epoch-history)`. `:rf.xray/epoch-history` is
   oldest-first, so the variant's representative epoch is placed LAST in
   the history vector and is what the panel renders. Multi-op variants
@@ -75,10 +74,10 @@
                      :reason                <string>
                      ...}}
 
-  The flat Trace panel (rf2-aqusw) projects each raw event into a row
+  The flat Trace panel projects each raw event into a row
   carrying `Δt · stage · area-badge · what-happened · target/detail ·
   duration` via `trace_helpers/project-feed-from-epoch`. There is no
-  chip-filtering UI (the focused epoch IS the scope, rf2-gkczt) — the
+  chip-filtering UI (the focused epoch IS the scope) — the
   fixtures keep the event shape minimal but exercise the full op-family
   vocabulary so the STAGE column + colour-coded left edge (resolved
   through the Epoch panel's `panels.epoch.badge` taxonomy) light up
@@ -203,12 +202,12 @@
 (defn hundred-events-buffer
   "One hundred events spanning all four op-types, three frames, three
   origins, four sources. A mid-density epoch — the flat list renders
-  every row (no row cap, rf2-aqusw)."
+  every row (no row cap)."
   []
   (n-events 100))
 
 (defn thousand-events-buffer
-  "One thousand events — a deep epoch. The flat list (rf2-aqusw)
+  "One thousand events — a deep epoch. The flat list
   renders the whole epoch's trace in fire order; exercises the panel +
   the shared resizable-table under a large row count."
   []
@@ -216,7 +215,7 @@
 
 (defn filtered-active-buffer
   "A buffer mixing two op-types (events + fx). The flat panel renders
-  every row (no chip-filtering post-rf2-gkczt — the focused epoch IS
+  every row (no chip-filtering — the focused epoch IS
   the scope); used by the mixed-op-types variant."
   []
   (vec
@@ -357,7 +356,7 @@
             :source :ui :origin :app :frame :rf/default :dispatch-id 100
             :render-key [:cart/badge nil]})])))
 
-;; ---- epoch-record + history builders (rf2-ofoqu) -------------------------
+;; ---- epoch-record + history builders ------------------------------------
 ;;
 ;; The Trace panel reads the FOCUSED EPOCH's `:trace-events`, resolved
 ;; via the shared focus-resolver over `:rf.xray/epoch-history`. These
@@ -406,7 +405,7 @@
 
 (defn medium-trace-history
   "One epoch carrying a 100-row domino trail. A mid-density epoch —
-  the flat list renders every row (no row cap, rf2-aqusw)."
+  the flat list renders every row (no row cap)."
   []
   (single-epoch-history
     {:epoch-id 3 :event [:dashboard/recompute-all]
@@ -443,7 +442,7 @@
 
 (defn mixed-op-types-history
   "One epoch whose trail mixes event + fx op-types (no chip-filtering
-  post-rf2-gkczt — the feed renders every row)."
+  — the feed renders every row)."
   []
   (single-epoch-history
     {:epoch-id 8 :event [:cart/add :apple]

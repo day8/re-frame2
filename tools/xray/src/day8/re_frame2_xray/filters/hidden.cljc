@@ -1,22 +1,20 @@
 (ns day8.re-frame2-xray.filters.hidden
   "Pure derivation for the events-ribbon 'N events hidden by filters'
-  message (rf2-jvghz, defect #1; frame-decoupled per rf2-4vp5j).
+  message.
 
   ## Why
 
-  After the epoch-per-event merges, Xray's L2 event list could look
-  broken on reload: persisted filters (a `:machine` IN-pill under
-  `re-frame2.xray.filters.v1`) survived in localStorage and silently
-  suppressed cascade rows with NO visible indicator. The L2 list reads
-  `:rf.xray/filtered-cascades` (filtered) while the raw stream lives on
-  `:rf.xray/cascades`; when filters suppressed rows the list was
-  indistinguishable from a broken tool.
+  The L2 event list reads `:rf.xray/filtered-cascades` (filtered) while
+  the raw stream lives on `:rf.xray/cascades`. When filters suppress
+  rows — for example a persisted `:machine` IN-pill from
+  `re-frame2.xray.filters.v1` in localStorage — the indicator makes the
+  suppression visible so the list never reads as a broken tool.
 
   This ns is the pure data primitive behind the affordance: given the
   raw + filtered visible-cascade counts and the active filter state,
   it answers 'is anything hidden, how many, and what is the cause?'.
 
-  ## Frame is a view SCOPE, not a filter (rf2-4vp5j Workstream C)
+  ## Frame is a view SCOPE, not a filter
 
   The picker-selected frame is a single, defaulted VIEW SCOPE — it is
   NOT part of the filter chain conceptually. It is therefore NEVER
@@ -70,7 +68,7 @@
   cascade); the count is what gates the message's render, this predicate
   is what 'Clear Filters' acts on.
 
-  Per rf2-4vp5j the frame is a view SCOPE, not a filter — it is NOT part
+  The frame is a view SCOPE, not a filter — it is NOT part
   of this predicate, so a frame selection alone never shows the events-
   ribbon action cluster and Clear Filters never resets the frame."
   [{:keys [filters muted]}]
@@ -119,7 +117,7 @@
        :pills           [{…} …]   ; IN/OUT pill summaries
        :muted-count     <int>}    ; muted event-ids
 
-  `state` is `{:filters {:in [] :out []} :muted #{}}`. Per rf2-4vp5j the
+  `state` is `{:filters {:in [] :out []} :muted #{}}`. The
   frame is a view scope, NOT a filter — it is excluded from this model
   entirely (no `:frame` key, never a cause, never counted as hidden)."
   [raw-visible-count filtered-visible-count state]

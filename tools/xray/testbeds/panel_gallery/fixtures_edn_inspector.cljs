@@ -1,6 +1,6 @@
 (ns panel-gallery.fixtures-edn-inspector
   "Pure fixture builders for the edn-inspector widget gallery
-  (rf2-hp4ow — widget-isolation coverage).
+  (widget-isolation coverage).
 
   The edn-inspector widget (`day8.re-frame2-xray.views.edn-inspector`)
   is exercised indirectly by every L4 panel that mounts it — App-DB,
@@ -41,7 +41,7 @@
     (`edn-inspector-default-formatters`) render compact headers +
     full bodies.
   - **Diff mode** — before/after pairs that surface `:added`,
-    `:modified`, `:removed`, and `:same` rows via the rf2-zuh1e
+    `:modified`, `:removed`, and `:same` rows via the
     `children-of-pair` walk.
   - **Opts demos** — one variant per individual opt
     (`:zoomable?`, `:popup-affordance?`, `:card?` + `:header`,
@@ -116,7 +116,7 @@
 (defn map-nested
   "Six-level nested map. Exercises the depth ceiling — at depth ≥ 8
   the widget renders `▸ {…N keys}` summaries; ancestors up to that
-  depth open by default under the rf2-kbdk8 width-aware heuristic."
+  depth open by default under the width-aware heuristic."
   []
   {:value {:tenant {:acme {:department {:engineering {:team {:platform
                                                               {:project :xray
@@ -185,7 +185,7 @@
 
 (defn uuid-instance
   "Single random UUID. The default formatter renders a compact
-  `#uuid \"…<last-8>\"` header (rf2-x16b1)."
+  `#uuid \"…<last-8>\"` header."
   []
   {:value (random-uuid)})
 
@@ -193,7 +193,7 @@
   "Mixed insts spanning the formatter's relative-time bucketing —
   recent, hours-ago, days-ago, ISO-fallback. The default formatter
   picks the bucket based on `(.getTime (js/Date.))` at render
-  time (rf2-x16b1)."
+  time."
   []
   {:value (let [now      (.getTime (js/Date.))
                 ms-per-h (* 60 60 1000)

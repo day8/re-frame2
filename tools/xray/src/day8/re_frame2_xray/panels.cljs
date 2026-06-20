@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.panels
-  "Per-panel mount surface — rf2-crhr8. **Internal-but-stable**, NOT a
-  v1.0 host-facing embed contract (rf2-jw2ny).
+  "Per-panel mount surface. **Internal-but-stable**, NOT a v1.0
+  host-facing embed contract.
 
   Every Xray panel is independently mountable: a host can mount one
   panel in isolation without the surrounding 4-layer shell, without
   sibling panels, and without any shell-owned chrome state. This
   surface is the load-bearing seam the 4-layer shell composes through
   and that the test suite mounts panels through; it also lets Xray be
-  embedded inside Story, inside the Scittle playground (rf2-i8mv
-  option-c progressive disclosure), inside custom debugging
-  configurations, and inside the docs / guide / examples surface.
+  embedded inside Story, inside the Scittle playground (option-c
+  progressive disclosure), inside custom debugging configurations, and
+  inside the docs / guide / examples surface.
 
   **Status: internal-but-stable, not a host-facing v1.0 embed
   contract.** The mount fns are stable (the shell + tests depend on
@@ -21,7 +21,7 @@
   contract. This matches the status stated in
   `008-Embedding-Contract.md`, `tools/xray/spec/API.md`, and
   `007-UX-IA.md` §Mountable panel contract — one honest status across
-  every reference (rf2-jw2ny reconcile).
+  every reference.
 
   ## The surface
 
@@ -36,7 +36,7 @@
       (mount-routing!          mount-point opts) → unmount-fn
       (mount-resources!        mount-point opts) → unmount-fn
 
-      ;; Spine surface — the L2 event list in isolation (rf2-9k43e).
+      ;; Spine surface — the L2 event list in isolation.
       ;; The SAME `shell/event-list` reg-view the full 4-layer shell
       ;; composes at L2; mounted standalone it is the compact,
       ;; clickable recent-events navigator. Clicking a row dispatches
@@ -58,7 +58,7 @@
 
       (mount-shell! mount-point opts) → unmount-fn
 
-  ## Single-source panel enumeration (rf2-rapnr)
+  ## Single-source panel enumeration
 
   The SET of mountable panels — the `mount-<panel>!` family above —
   is enumerated ONCE in `day8.re-frame2-xray.panel-enum/panel-enum`
@@ -97,7 +97,7 @@
   render) to one place so every panel inherits the same contract by
   construction. Adding a new panel = add a new `mount-<panel>!` line.
 
-  ## Per-panel inputs (the coupling-map audit, rf2-crhr8 §1)
+  ## Per-panel inputs
 
   Every panel reads its data via subscribes — no sibling-render
   assumptions, no shell-owned local state. The subs (registered by
@@ -106,9 +106,9 @@
   | Panel | Reads | Writes (via dispatch) |
   |---|---|---|
   | **epoch-panel** | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` |
-  | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area — rf2-okvit) | `:rf.xray/open-segment-inspector` |
+  | **app-db (current-state inspector)** | `:rf.xray/app-db-state` (current-state section model over the observed frame's live app-db, sectioned by reserved `:rf/*` area) | `:rf.xray/open-segment-inspector` |
   | **reactive-panel** | `:rf.xray/reactive-data` (composite over focused cascade's `:trace-events`) | `:rf.xray/reactive-toggle-unchanged` |
-  | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into a flat list of rows, each with a stage column + colour-coded left edge, spec/023 · rf2-aqusw) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
+  | **trace** | `:rf.xray/trace-feed` (epoch-scoped — projects the focused epoch's `:trace-events` into a flat list of rows, each with a stage column + colour-coded left edge, spec/023) | `:rf.xray/toggle-trace-row-expand` · `:rf.xray/open-in-editor` |
   | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |
   | **routing** | `:rf.xray/registered-routes` · `:rf.xray/current-route-slice` · `:rf.xray/routing-tab-data` | route-simulation events |
   | **resources** | `:rf.xray/resources-tab-data` (composite over `:rf.xray/registered-resources` · `:rf.xray/resource-entries` · `:rf.xray/resource-work-ledger` · the route registry · the trace buffer) | (read-only — no dispatch; observing pins no resource) |
@@ -170,7 +170,7 @@
   multiple panel mounts collapse to one registration pass.
 
   Routes through `mount/ensure-xray-frame!` so the frame is not just
-  registered but ALSO seeded via the first-mount hook table (rf2-y1saa)
+  registered but ALSO seeded via the first-mount hook table
   — `::seed-trace-and-target-frame`, `::hydrate-filters`,
   `::hydrate-spine-filters`, `::hydrate-static-mode`,
   `::auto-open-watcher`. A direct `(rf/reg-frame :rf/xray {})` here
@@ -226,12 +226,11 @@
 ;; below; the chrome (registration, frame wiring, substrate delegation)
 ;; lives in `render-panel!` exactly once.
 ;;
-;; (rf2-5gl5r — `mount-event-detail!` removed alongside the retired
-;; Event/Handler panel; the Epoch panel supersedes it as the canonical
-;; "what happened in this epoch" mount target.)
+;; The Epoch panel is the canonical "what happened in this epoch"
+;; mount target.
 
 (defn mount-epoch-panel!
-  "Mount Xray's Epoch tab in isolation at `mount-point` (rf2-sc3r1).
+  "Mount Xray's Epoch tab in isolation at `mount-point`.
   Renders the numbered cascade — the focused epoch's complete
   computational timeline (DISPATCH → COEFFECTS → HANDLER → FLOW →
   FX → SUBSCRIPTIONS → VIEWS) with conditional rendering per the
@@ -246,7 +245,7 @@
   ([mount-point opts] (render-panel! app-db-diff/Panel mount-point opts)))
 
 (defn mount-reactive-panel!
-  "Mount Xray's Reactive tab in isolation at `mount-point` (rf2-wyvf2).
+  "Mount Xray's Reactive tab in isolation at `mount-point`.
   Renders the canonical sub-cascade + view-re-render visualisation
   per spec/021 §3."
   ([mount-point]      (mount-reactive-panel! mount-point nil))
@@ -284,14 +283,14 @@
   ([mount-point opts] (render-panel! resources/Panel mount-point opts)))
 
 (defn mount-event-spine!
-  "Mount Xray's L2 event spine in isolation at `mount-point` (rf2-9k43e).
+  "Mount Xray's L2 event spine in isolation at `mount-point`.
 
   Renders the SAME `shell/event-list` reg-view the full 4-layer shell
   composes at L2 — the recent-events timeline (single-line rows,
   latest-on-bottom) that IS the canonical scrubber. This is NOT a
   parallel spine: it reuses the full-shell component verbatim, so the
-  embedded spine inherits the row anatomy, the issue-row wash
-  (rf2-b8guz), the relative-time chips, virtualisation, filters, and —
+  embedded spine inherits the row anatomy, the issue-row wash, the
+  relative-time chips, virtualisation, filters, and —
   critically — the row-click → `:rf.xray/focus-cascade` write that
   drives the single-axis spine sub `:rf.xray/focus` (spec/018 §4 + §6).
 
@@ -311,12 +310,11 @@
   ([mount-point]      (mount-event-spine! mount-point nil))
   ([mount-point opts] (render-panel! shell/event-list mount-point opts)))
 
-;; (rf2-gbz39 — `mount-issues-ribbon!` removed alongside the retired
-;; Issues tab. Mike RULED Option (c): the dedicated Issues tab + its
-;; aggregate panel are gone; issues surface inline in the Epoch panel,
-;; via the L2 event-row pink-wash, and via the always-on issues ribbon
-;; signal — the `:rf.xray/issues-ribbon` composite (now registered in
-;; `registry.cljs`) survives as the auto-open-on-error signal source.)
+;; There is no dedicated Issues tab or aggregate panel. Issues surface
+;; inline in the Epoch panel, via the L2 event-row pink-wash, and via
+;; the always-on issues ribbon signal — the `:rf.xray/issues-ribbon`
+;; composite (registered in `registry.cljs`) is the auto-open-on-error
+;; signal source.
 
 (defn mount-segment-inspector!
   "Mount the App-DB segment-inspector popup in isolation at
@@ -345,9 +343,8 @@
   reads `:rf.xray/managed-fx-for-focused-event` and renders the
   records list. `managed-fx-template/records-list` is a pure fn over
   a records vector; this reg-view ties it to the focused cascade's
-  managed-fx sub so consumers get the same content the (retired)
-  Event/Handler panel embedded inline; rf2-5gl5r kept the sub but
-  dropped the inline-embed host.
+  managed-fx sub so consumers get the per-cascade managed-fx content
+  inline.
 
   Exposing this as a reg-view (rather than a plain fn) follows the
   Conventions.md panel-facade contract — every mount target
@@ -355,9 +352,9 @@
   frame-provider per Spec 006 §706."
   []
   (let [records @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])]
-    ;; rf2-nesy9 — thread the reg-view-injected frame-aware dispatch so
-    ;; the panel's context-menu / focus affordances land on the
-    ;; surrounding instance frame, not a `{:frame :rf/xray}` literal.
+    ;; Thread the reg-view-injected frame-aware dispatch so the panel's
+    ;; context-menu / focus affordances land on the surrounding instance
+    ;; frame, not a `{:frame :rf/xray}` literal.
     (managed-fx/records-list dispatch records)))
 
 (defn mount-managed-fx!

@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.palette.sources
-  "Pure-data palette source aggregator for the Xray command palette
-  (rf2-wm7z4).
+  "Pure-data palette source aggregator for the Xray command palette.
 
   Builds the indexed surface the fuzzy scorer ranks against. The fn
   takes a single `inputs` map — the caller (sub layer in
@@ -81,9 +80,9 @@
   `:rf/xray` via the wrapping events fn (palette events resolve
   `[:panel id]` into `[:rf.xray/select-tab id]`).
 
-  Per rf2-ybjkx each row carries `:modes #{:dynamic}` so the mode
-  filter excludes Dynamic tab jumps when the palette opens in Static
-  mode. Static-mode tab jumps are produced by `static-tab-items`."
+  Each row carries `:modes #{:dynamic}` so the mode filter excludes
+  Dynamic tab jumps when the palette opens in Static mode. Static-mode
+  tab jumps are produced by `static-tab-items`."
   [panel-entries]
   (mapv
     (fn [{:keys [id label]}]
@@ -205,23 +204,21 @@
 
 ;; ---- per-source mode visibility ----------------------------------------
 ;;
-;; rf2-ybjkx — mode-aware command surface. Each command carries a
-;; `:modes` set declaring which Xray modes (`:dynamic` / `:static`)
-;; surface it. Commands meaningful in both modes (theme toggle,
-;; reduced-motion, jump-to-settings, toggle-mode) carry `#{:dynamic
-;; :static}`. Commands that only make sense in one mode (spine clear,
-;; Dynamic L4 jumps; Static sub-tab jumps) carry the appropriate
-;; single-mode set.
+;; Mode-aware command surface. Each command carries a `:modes` set
+;; declaring which Xray modes (`:dynamic` / `:static`) surface it.
+;; Commands meaningful in both modes (theme toggle, reduced-motion,
+;; jump-to-settings, toggle-mode) carry `#{:dynamic :static}`. Commands
+;; that only make sense in one mode (spine clear, Dynamic L4 jumps;
+;; Static sub-tab jumps) carry the appropriate single-mode set.
 ;;
 ;; The aggregator filters by `:modes` membership when `:mode` is
-;; non-nil in the inputs map; nil mode preserves the pre-bead
-;; behaviour (every command surfaced).
+;; non-nil in the inputs map; nil mode keeps every command surfaced.
 
 (defn command-items
   "Xray command verbs. Each carries a stable id + an action dispatch
   (the events ns owns the actual side-effect fns; the aggregator just
   describes the choices) + a `:modes` set declaring mode visibility
-  per rf2-ybjkx (see §per-source mode visibility above).
+  (see §per-source mode visibility above).
 
   ## Dynamic-only verbs
 
@@ -236,7 +233,7 @@
   Routes / Schemas / Flows / Interceptors). Static has no spine so the
   Dynamic tab jumps don't apply.
 
-  ## Mode-agnostic verbs (rf2-ybjkx)
+  ## Mode-agnostic verbs
 
   - `:toggle-theme`            — Dark ↔ Light cycle of the theme class.
   - `:cycle-reduced-motion`    — `:os → :always → :never → :os`.
@@ -283,7 +280,7 @@
     :action [:palette/open-popout]
     :modes  #{:dynamic :static}
     :popout? false}
-   ;; rf2-ybjkx — Snapshot the focused frame's app-db onto the JS
+   ;; Snapshot the focused frame's app-db onto the JS
    ;; console for clipboard capture / share with a teammate.
    {:source :command
     :id     :snapshot-app-db
@@ -294,9 +291,8 @@
     :action [:palette/snapshot-app-db]
     :modes  #{:dynamic :static}
     :popout? false}
-   ;; rf2-ybjkx — Theme toggle. The popup's radio is still the
-   ;; canonical UI; the palette is the keyboard-first ergonomic
-   ;; shortcut.
+   ;; Theme toggle. The popup's radio is the canonical UI; the
+   ;; palette is the keyboard-first ergonomic shortcut.
    {:source :command
     :id     :toggle-theme
     :label  "Toggle theme (dark ↔ light)"
@@ -306,7 +302,7 @@
     :action [:palette/toggle-theme]
     :modes  #{:dynamic :static}
     :popout? false}
-   ;; rf2-ybjkx — Reduced-motion cycle. Three states: `:os` (OS pref
+   ;; Reduced-motion cycle. Three states: `:os` (OS pref
    ;; alone), `:always` (force reduce), `:never` (force full). Cycles
    ;; through them so a single command covers every transition.
    {:source :command
@@ -318,7 +314,7 @@
     :action [:palette/cycle-reduced-motion]
     :modes  #{:dynamic :static}
     :popout? false}
-   ;; rf2-ybjkx — Jump to settings. Equivalent to the `,` / `s`
+   ;; Jump to settings. Equivalent to the `,` / `s`
    ;; bare-key shortcut but available from the palette so the user
    ;; can fuzzy-find the gesture without leaving the keyboard.
    {:source :command
@@ -330,7 +326,7 @@
     :action [:palette/jump-to-settings]
     :modes  #{:dynamic :static}
     :popout? false}
-   ;; rf2-ybjkx — Toggle Dynamic ↔ Static. Chord parity with
+   ;; Toggle Dynamic ↔ Static. Chord parity with
    ;; `Cmd/Ctrl-Shift-M` (see `keybinding.cljs`). Surfaced in BOTH
    ;; modes — the user can flip in either direction from the palette.
    {:source :command
@@ -353,7 +349,7 @@
     :popout? false}])
 
 (defn static-tab-items
-  "Static-mode sub-tab jumps (rf2-ybjkx). Five entries mirroring the
+  "Static-mode sub-tab jumps. Five entries mirroring the
   `static/shell.cljs/tabs` inventory: Machines / Routes / Schemas /
   Flows / Interceptors. Each carries `:modes #{:static}` so the aggregator
   filters them out when the palette opens in Dynamic mode."
@@ -373,7 +369,7 @@
 
 ;; ---- aggregator ----------------------------------------------------------
 
-;; ---- recents boosts (rf2-ybjkx) -----------------------------------------
+;; ---- recents boosts -----------------------------------------------------
 
 (def recents-boost-max
   "Max boost applied to the most-recently-used command. Decays linearly
@@ -406,9 +402,8 @@
 
 (defn- in-mode?
   "Mode predicate. `:modes` membership filter — nil mode keeps every
-  item (pre-bead behaviour), a non-nil mode keeps only items whose
-  `:modes` set contains it. Items missing `:modes` default to both
-  modes (the legacy contract — every item used to be visible always)."
+  item, a non-nil mode keeps only items whose `:modes` set contains it.
+  Items missing `:modes` default to both modes (visible always)."
   [mode item]
   (if (nil? mode)
     true
@@ -425,28 +420,28 @@
   Inputs map shape:
 
     {:panels        [{:id kw :label str} ...]    ; Dynamic L3 tabs
-     :static-tabs   [{:id kw :label str} ...]    ; Static L3 tabs (rf2-ybjkx)
+     :static-tabs   [{:id kw :label str} ...]    ; Static L3 tabs
      :trace-buffer  [trace ...]
      :frame-ids     (keyword?)
      :handlers      [{:id :kind :doc :file :line} ...]
-     :mode          :dynamic | :static | nil     ; filter (rf2-ybjkx)
-     :recents       [command-id ...]             ; recents boost (rf2-ybjkx)
+     :mode          :dynamic | :static | nil     ; mode filter
+     :recents       [command-id ...]             ; recents boost
     }
 
   Missing keys default to empty inputs of that kind — partial drives
   (e.g. recency-rank dragons without a populated buffer) are
   tolerable for the empty-state surface.
 
-  ## Mode-aware filter (rf2-ybjkx)
+  ## Mode-aware filter
 
   Items declare a `:modes` set; the aggregator drops items whose set
-  doesn't contain `:mode`. nil `:mode` preserves the pre-bead contract
-  (every item surfaced). The filter is applied AFTER source assembly
+  doesn't contain `:mode`. nil `:mode` keeps every item surfaced. The
+  filter is applied AFTER source assembly
   but BEFORE dedup so an item with the same `[:source :id]` in both
   modes can still surface — but no source emits the same id under
   both modes today.
 
-  ## Recents boost (rf2-ybjkx)
+  ## Recents boost
 
   Items whose `:source = :command` AND whose `:id` is in `:recents`
   receive an extra position-decayed boost added to their static

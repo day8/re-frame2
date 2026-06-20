@@ -1,6 +1,5 @@
 (ns panel-gallery.fixtures-diff-mode-3
-  "Fixture builders for the **mode-3 diff grammar** Story set
-  (rf2-n2jig).
+  "Fixture builders for the **mode-3 diff grammar** Story set.
 
   Mode-3 is the third lens of the HANDLER `:db` toggle: the full data
   tree WITH inline diff annotations (gutter glyphs, row washes, R3

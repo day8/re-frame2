@@ -1,6 +1,5 @@
 (ns panel-gallery.fixtures-routing
-  "Pure fixture builders for the Xray Routes tab gallery (rf2-nrbs9,
-  reshaped per rf2-lq0ef).
+  "Pure fixture builders for the Xray Routes tab gallery.
 
   The Routes panel reads:
 
@@ -105,7 +104,7 @@
 (defn- deactivated-trace
   "The runtime's `:rf.route/deactivated` lifecycle emit for the PRIOR
   route on a cross-route nav. Its `:tags :route-id` is the FROM — the
-  panel reads FROM off this emit, not the live slice (rf2-m9rx6)."
+  panel reads FROM off this emit, not the live slice."
   [id dispatch-id route-id]
   {:id        id
    :op-type   :rf.event
@@ -118,7 +117,7 @@
 
   The 4-arity threads a `from-route`: the runtime emits
   `:rf.route/deactivated` for the prior route on a cross-route nav, and
-  the panel derives FROM from that emit (NOT the live slice, rf2-m9rx6),
+  the panel derives FROM from that emit (NOT the live slice),
   so the FROM ◆ glyph requires the deactivated trace to be present."
   ([dispatch-id to-route nav-token]
    [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate to-route])

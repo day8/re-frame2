@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.static.machines.persistence
   "localStorage round-trip for the Static Machines sub-tab's selection
-  + per-machine sub-mode (rf2-o5f5f.2).
+  + per-machine sub-mode.
 
   Two slots ride localStorage so the user's choices survive reloads:
 
@@ -21,9 +21,8 @@
   Sub-mode is per-machine, so the map has to ride a single slot keyed
   by machine-id. EDN is the same serialiser the filter slot uses
   (`re-frame2.xray.filters.v1`); modes are an enum so versioning
-  feels overkill, but the bead's posture for per-machine persistence
-  is that the map will grow new keys as new sub-modes land. EDN is
-  fine.
+  feels overkill, but the map grows new keys as new sub-modes land,
+  and EDN handles that cleanly.
 
   ## Production posture
 
@@ -51,8 +50,8 @@
   "xray.static.machines.sub-mode-by-id")
 
 ;; ---- localStorage helpers -----------------------------------------------
-;; Raw browser access lives in the shared `local-storage` seam
-;; (rf2-jkake.24); both slots are key-parameterised here.
+;; Raw browser access lives in the shared `local-storage` seam;
+;; both slots are key-parameterised here.
 
 ;; ---- selection round-trip -----------------------------------------------
 
@@ -139,9 +138,9 @@
   goes through the standard queue and is replayed against the new
   frame on the first dispatch-cycle."
   []
-  ;; rf2-nesy9 — init-time hydration targets the production Xray shell
-  ;; frame via the named `defaults/default-frame-id` Var (production-
-  ;; singleton seam), not a `{:frame :rf/xray}` literal.
+  ;; Init-time hydration targets the production Xray shell frame via the
+  ;; named `defaults/default-frame-id` Var (production-singleton seam),
+  ;; not a `{:frame :rf/xray}` literal.
   (rf/dispatch [:rf.xray.static.machines/hydrate
                 {:selected-id    (load-selected-id)
                  :sub-mode-by-id (load-sub-mode-by-id)}]

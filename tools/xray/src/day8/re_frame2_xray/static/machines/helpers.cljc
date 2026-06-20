@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.static.machines.helpers
-  "Pure-data helpers for the Static Machines sub-tab (rf2-o5f5f.2).
+  "Pure-data helpers for the Static Machines sub-tab.
 
   ## Why a separate `.cljc` ns
 
@@ -11,8 +11,8 @@
 
   ## What this projects
 
-  Per the bead (rf2-o5f5f.2) the browse-all list enumerates
-  `(rf/machines)` and renders one row per registered machine. Each row
+  The browse-all list enumerates `(rf/machines)` and renders one row
+  per registered machine. Each row
   carries enough data for the L4-left list AND the L4-right header to
   render without recomputing: machine-id, state-count, live-instance
   count, and the lifted source-coord (when present in the registered
@@ -20,7 +20,7 @@
 
   ## Sort axes
 
-  Three sort axes per the bead's §Browse-all list:
+  Three sort axes:
 
     - `:name`   — alphabetical by `(name machine-id)`; default.
     - `:states` — by state-count DESC.
@@ -31,15 +31,13 @@
   ## Sub-modes (the 4-mode sub-strip)
 
   Four pills: `:topology` (default) · `:sim` · `:instances` · `:cascade`.
-  Per bead's §4-mode sub-strip the Sim cell is a placeholder until
-  sibling rf2-r4nao lands the real Sim view; the Cascade pill is
-  rendered but greyed (Dynamic-only surface)."
+  The Cascade pill is rendered but greyed (Dynamic-only surface)."
   (:require [clojure.string :as str]))
 
 ;; ---- sub-mode taxonomy --------------------------------------------------
 
 (def sub-modes
-  "Four sub-modes per the bead's §4-mode sub-strip."
+  "The four sub-modes of the sub-strip."
   [:topology :sim :instances :cascade])
 
 (def sub-mode-ids
@@ -65,10 +63,9 @@
     :else        default-sub-mode))
 
 (def sub-mode-mnemonics
-  "Per-sub-mode keyboard mnemonic letter. The keybinding wiring is
-  follow-on (per the bead's §Mnemonics deferral); this map carries the
-  pure-data half so the click affordance can surface the letter in its
-  `title`."
+  "Per-sub-mode keyboard mnemonic letter. This map carries the pure-data
+  half so the click affordance can surface the letter in its `title`.
+  TODO: wire up the keybindings that act on these mnemonics."
   {:topology  "t"
    :sim       "s"
    :instances "i"
@@ -114,9 +111,8 @@
   — the chip degrades gracefully (no chip rather than a broken link).
   Pure data — JVM-runnable.
 
-  Tolerates the alternate `:source` slot some legacy registrars used —
-  same lenient policy `open_in_editor.cljs/coerce-coord` applies on
-  the dispatch surface."
+  Also accepts the alternate `:source` slot — the same lenient policy
+  `open_in_editor.cljs/coerce-coord` applies on the dispatch surface."
   [definition]
   (when (map? definition)
     (or (get definition :source-coord)
@@ -154,20 +150,18 @@
 
 (defn- state-count
   "Count of EVERY rendered state in the machine's definition — the same
-  total the Static Machines topology renderer paints (rf2-6nx8y).
+  total the Static Machines topology renderer paints.
 
   Two definition shapes (Spec 005 §Definition shape):
 
     - Compound machine — a `{:initial :states}` map. Counts every state
       across all nesting levels: top-level states PLUS every compound
-      state's recursively-nested substates. Reading only the top-level
-      `:states` keys (the pre-rf2-6nx8y body) under-counted the deep
-      machines Xray exists to inspect.
+      state's recursively-nested substates, so the deep machines Xray
+      exists to inspect are counted in full.
 
     - Parallel machine — `{:type :parallel :regions {...}}`. Sums each
-      region's own state count (recursively). The pre-rf2-6nx8y body
-      read `(:states definition)`, which is absent on a parallel root, so
-      every parallel machine displayed `0 states`.
+      region's own state count (recursively); a parallel root has no
+      top-level `:states`, so the count walks the regions instead.
 
   Mirrors the node count `panels.machines.topology/parse-definition`
   emits for the same definition, so the browse-list chip, the detail
@@ -189,16 +183,14 @@
     (count-state-map (:states definition))))
 
 (defn- live-instance-count
-  "Number of times the machine-id appears in the snapshots map. v1
-  reads ONE frame's snapshots (the panel's target-frame); per the
-  bead's §Browse-all list the cross-frame sum is the eventual surface
-  but the reactive cross-frame walker is a follow-on bead. With one
-  frame, the count is either 0 (uninitialised) or 1 (initialised) —
-  the pip cluster degrades cleanly to a single dot in the common case.
+  "Number of times the machine-id appears in the snapshots map. Reads
+  ONE frame's snapshots (the panel's target-frame). With one frame, the
+  count is either 0 (uninitialised) or 1 (initialised) — the pip cluster
+  degrades cleanly to a single dot in the common case. TODO: sum across
+  frames once a reactive cross-frame walker exists.
 
-  Pure-data here so the v1 single-frame OR a future multi-frame
-  caller can feed the same projection without changing the row
-  shape."
+  Pure-data here so a single-frame OR a future multi-frame caller can
+  feed the same projection without changing the row shape."
   [snapshots machine-id]
   (let [snap (get snapshots machine-id)]
     (if (some? snap) 1 0)))
@@ -240,7 +232,7 @@
 (defn search-text
   "Concatenate the searchable surface for a row into one lowercase
   string. Covers the machine-id's name AND namespace AND the source
-  coord's file path — per the bead's §Browse-all list. Pure data."
+  coord's file path. Pure data."
   [{:keys [machine-id source-coord]}]
   (let [name-s (when (keyword? machine-id) (name machine-id))
         ns-s   (when (keyword? machine-id) (namespace machine-id))
@@ -265,8 +257,8 @@
   (str machine-id))
 
 (defn apply-sort
-  "Sort rows by `sort-key` per the bead's §Browse-all list. Ties break
-  on name for deterministic output. Pure data."
+  "Sort rows by `sort-key`. Ties break on name for deterministic output.
+  Pure data."
   [rows sort-key]
   (let [k (normalise-sort-key sort-key)]
     (case k
@@ -308,9 +300,8 @@
 ;; ---- live-instance pip cluster ------------------------------------------
 
 (def pip-cap
-  "Maximum number of pips rendered in a row's pip cluster per the
-  bead's §Browse-all list. Anything beyond renders as a `>{cap} N live`
-  textual count."
+  "Maximum number of pips rendered in a row's pip cluster. Anything
+  beyond renders as a `>{cap} N live` textual count."
   12)
 
 (defn pip-render-plan
@@ -319,7 +310,7 @@
   Returns one of:
     {:kind :pips :count <int>}    — render N filled dots (N ≤ pip-cap)
     {:kind :count :count <int>}   — render textual `>{cap} N live`
-    {:kind :none}                 — no live instances (silent — rf2-g3ghh)
+    {:kind :none}                 — no live instances (silent)
 
   Pure data."
   [live-count]

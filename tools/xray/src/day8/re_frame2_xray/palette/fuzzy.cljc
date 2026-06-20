@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.palette.fuzzy
-  "Fuzzy subsequence scorer for the Xray command palette
-  (rf2-wm7z4).
+  "Fuzzy subsequence scorer for the Xray command palette.
 
   Pure data; JVM-runnable so tests cover the scorer outside any
   browser dep. The algorithm follows the sublime-fuzzy / fzf-lite
@@ -11,8 +10,7 @@
 
   ## Why we ship our own scorer
 
-  Verified-redundant (rf2-wm7z4 worker dispatch): there is no
-  existing fuzzy implementation under `tools/xray/` or
+  There is no existing fuzzy implementation under `tools/xray/` or
   `implementation/core/`. Bringing in an npm dep would breach the
   bundle-isolation contract for the dev surface and pull a runtime
   dependency that production builds can't elide cleanly. ~60 lines
@@ -34,11 +32,11 @@
     `event-detail` with a run on `ev` and `det`).
   - Prefix bonus: +12 when the very first char matches at index 0.
   - Gap penalty: -1 per unmatched candidate char that sits AFTER the
-    first match (rf2-pwxhj). Leading non-matches — before the first
+    first match. Leading non-matches — before the first
     matched char — are free; every unmatched char once matching has
     begun is penalised, including the char immediately after a match
-    and gaps anchored at candidate index 0 (a prefix-anchored match no
-    longer earns a free pass on its internal gaps). Note that a query
+    and gaps anchored at candidate index 0 (a prefix-anchored match
+    earns no free pass on its internal gaps). Note that a query
     is only a match when EVERY query char is consumed, so the final
     matched char is at-or-before the last penalised gap only when the
     candidate carries trailing chars after the full query is satisfied;
@@ -161,16 +159,13 @@
                        ci
                        (or first-match ci)
                        (conj! indices ci)))
-              ;; Gap penalty (rf2-pwxhj): -1 per UNMATCHED candidate
-              ;; char that sits AFTER the first match. The condition is
-              ;; `(>= last-match-idx 0)` — a match has occurred — NOT
-              ;; `(pos? last-match-idx)`. The prior `(pos? ...)` test let
-              ;; a prefix-anchored match (first match at candidate index
-              ;; 0 → last-match-idx 0) escape every internal-gap penalty,
-              ;; and the now-deleted `gap-since-match?` latch (set one
-              ;; iteration too late) let the FIRST unmatched char after
-              ;; any match escape too. Penalising every post-match
-              ;; unmatched char uniformly closes both off-by-ones; leading
+              ;; Gap penalty: -1 per UNMATCHED candidate char that sits
+              ;; AFTER the first match. The condition is
+              ;; `(>= last-match-idx 0)` — a match has occurred —
+              ;; so every post-match unmatched char is penalised
+              ;; uniformly, including a prefix-anchored match's internal
+              ;; gaps (first match at candidate index 0 → last-match-idx
+              ;; 0) and the char immediately after a match. Leading
               ;; gaps (before the first match) stay free because
               ;; last-match-idx is still its -2 sentinel.
               (recur (inc ci)

@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.palette.events
-  "Events for the Xray command palette (rf2-wm7z4).
+  "Events for the Xray command palette.
 
   Every event is registered under `:rf.xray/palette-*` so the
   `:rf.xray/*` collision contract (registry.cljs) holds. The events
@@ -94,7 +94,7 @@
       (assoc :palette-query "")
       (reset-cursor)))
 
-;; ---- rf2-ybjkx — recents ------------------------------------------------
+;; ---- recents ------------------------------------------------------------
 
 (defn- record-recent
   "Pure reducer. Update `db`'s `:palette-recents` slot to put
@@ -106,7 +106,7 @@
     (assoc db :palette-recents
               (recents/record (get db :palette-recents []) command-id))))
 
-;; ---- rf2-ybjkx — snapshot app-db ---------------------------------------
+;; ---- snapshot app-db ----------------------------------------------------
 ;;
 ;; Snapshot the focused frame's app-db onto the JS console as a single
 ;; `console.log(value)` call. Side effect; never blocks. Reads the
@@ -118,7 +118,7 @@
 ;; can reject (insecure context, no permission); we swallow the throw
 ;; so the console log lands either way.
 ;;
-;; ## Off-box egress (rf2-mxzgg / rf2-6fgob)
+;; ## Off-box egress
 ;;
 ;; The JS console AND the system clipboard are both OFF-BOX egress
 ;; sinks (Tool-Pair §Privacy egress, Security.md §Off-box egress):
@@ -129,7 +129,7 @@
 ;;
 ;; We therefore route the captured value through the runtime's single
 ;; named safe-egress fn `runtime/egress-value` — the SAME fail-closed
-;; projection the `get-app-db` accessor uses (post rf2-a96xq). On the
+;; projection the `get-app-db` accessor uses. On the
 ;; bare (no-opt) call the off-box defaults are baked in: sensitive
 ;; slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`. The
 ;; whole-db read has no `:path` (the value IS the walked root), so the
@@ -160,11 +160,11 @@
   defaults — sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-
   elided`), pinned to the FOCUSED frame so that frame's own schema
   declarations govern the redaction, so neither off-box sink ever
-  receives the raw db (rf2-mxzgg). No-op when neither console nor
+  receives the raw db. No-op when neither console nor
   clipboard is present (test runtimes). Returns nil."
   [target-frame]
   (try
-    ;; EP-0002 (rf2-bd4div) — the snapshot targets the SELECTED inspected
+    ;; EP-0002 — the snapshot targets the SELECTED inspected
     ;; frame. When unselected (`target-frame` nil) this is a no-op: a
     ;; whole-db egress to console/clipboard is a read of a specific host
     ;; frame, never a synthesised `:rf/default` (Spec 002 §Frame target
@@ -197,7 +197,7 @@
     (catch :default _ nil))
   nil)
 
-;; ---- rf2-ybjkx — theme cycle -------------------------------------------
+;; ---- theme cycle --------------------------------------------------------
 
 (defn- next-theme
   "Pure helper. Cycle `:dark → :light → :dark`. Anything unknown lands
@@ -208,7 +208,7 @@
     :light :dark
     :dark))
 
-;; ---- rf2-ybjkx — reduced-motion cycle ----------------------------------
+;; ---- reduced-motion cycle -----------------------------------------------
 
 (defn- next-motion-override
   "Pure helper. Cycle `:os → :always → :never → :os`. Unknown lands on
@@ -232,9 +232,9 @@
 
   (rf/reg-fx :rf.xray.palette.fx/popout popout-fx!)
 
-  ;; rf2-ybjkx — snapshot app-db fx. Side-effect handler; reads the
+  ;; Snapshot app-db fx. Side-effect handler; reads the
   ;; focused frame's db, routes it through `runtime/egress-value` (the
-  ;; fail-closed off-box safe-egress projection, rf2-mxzgg) and ships
+  ;; fail-closed off-box safe-egress projection) and ships
   ;; the REDACTED/size-elided payload to the JS console + clipboard —
   ;; both off-box sinks. Late-bound through the framework's
   ;; `frame/frame` registry so a nil-frame ctx is a silent no-op rather
@@ -243,7 +243,7 @@
     (fn [_ctx {:keys [target-frame]}]
       (snapshot-app-db! target-frame)))
 
-  ;; rf2-ybjkx — recents persistence fx. The pure reducer writes the
+  ;; Recents persistence fx. The pure reducer writes the
   ;; vector into app-db; this fx mirrors the same vector into
   ;; localStorage so a reload surfaces the user's recents. Best-effort
   ;; — `recents/save!` swallows quota / availability failures.
@@ -253,7 +253,7 @@
 
   ;; ---- open / close / toggle --------------------------------------------
   ;;
-  ;; rf2-ybjkx — on open we ensure the `:palette-recents` slot is
+  ;; On open we ensure the `:palette-recents` slot is
   ;; seeded from localStorage. Open is rare (user-driven keystroke)
   ;; so the load cost is negligible; lazy-seed means we don't have to
   ;; thread a preload hook through every test that drives the registry.
@@ -320,7 +320,7 @@
   (rf/reg-event :rf.xray/palette-invoke
     (fn [{:keys [db]} [_ item popout?]]
       (let [[verb & args]    (:action item)
-            ;; rf2-ybjkx — record recents for `:command` source items
+            ;; Record recents for `:command` source items
             ;; only. Panels / frames / handlers / settings already
             ;; have their own recency surface (the recent-event source
             ;; and the user's session memory); the palette's recents
@@ -333,7 +333,7 @@
             ;; item invokes normally so the user never gets surprised
             ;; with a no-op.
             popout-now?      (and popout? (sources/popoutable? item))
-            ;; rf2-ybjkx — persist the recents vector on every command
+            ;; Persist the recents vector on every command
             ;; invoke so the next session surfaces the user's history.
             ;; Pure recents reads (no command invoked) skip this.
             base-fx          (cond-> []
@@ -345,16 +345,13 @@
         (case verb
           :palette/select-panel
           ;; Panel ids in `palette-panels` are the 6 L3 tab ids per
-          ;; spec/018 §5 (rf2-qy0nu trimmed the 14-id legacy list;
-          ;; rf2-gbz39 removed the Issues tab — 7→6).
-          ;; Dispatch into `:rf.xray/select-tab` so the visible tab
-          ;; flips; the legacy `:rf.xray/select-panel` slot is no
-          ;; longer read by the 4-layer shell.
+          ;; spec/018 §5. Dispatch into `:rf.xray/select-tab` so the
+          ;; visible tab flips — the slot the 4-layer shell reads.
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.xray/select-tab (first args)]])}
 
           :palette/select-static-tab
-          ;; rf2-ybjkx — Static-mode L3 tab jump. Routes through
+          ;; Static-mode L3 tab jump. Routes through
           ;; `:rf.xray.static/select-tab` (the Static-scoped tab slot
           ;; that the static shell's tab-bar reads). The palette
           ;; filter prevents Static jumps from surfacing while the
@@ -363,28 +360,25 @@
            :fx (conj base-fx [:dispatch [:rf.xray.static/select-tab (first args)]])}
 
           :palette/select-event
-          ;; Route to the Epoch tab with the event pre-selected. Post
-          ;; rf2-5gl5r the Event/Handler tab was retired (Epoch panel
-          ;; supersedes it); `:rf.xray/selected-event-id` is the
-          ;; selected-event slot the surviving panels read.
+          ;; Route to the Epoch tab with the event pre-selected. The
+          ;; Epoch panel is the canonical "what happened in this epoch"
+          ;; surface; `:rf.xray/selected-event-id` is the selected-event
+          ;; slot the panels read.
           {:db (assoc close-db
                       :selected-tab :epoch
                       :selected-event-id (first args))
            :fx base-fx}
 
           :palette/select-frame
-          ;; rf2-ybjkx — drive the frame-picker selection event so
-          ;; the user's choice flows through every per-frame composite
-          ;; (App-DB Diff, Views, Routing). The pre-bead behaviour
-          ;; just stamped `:selected-target-frame` into Xray's app-db
-          ;; with no plumb-through.
+          ;; Drive the frame-picker selection event so the user's
+          ;; choice flows through every per-frame composite (App-DB
+          ;; Diff, Views, Routing).
           ;;
-          ;; Per rf2-iwwou this dispatches the canonical `:rf.xray/
-          ;; select-frame` event-fx (NOT the spine's `:rf.xray/set-
-          ;; frame` primitive directly) — every persistence /
-          ;; instrumentation layer attached to the frame-switcher
-          ;; contract lives behind the one event surface, so the
-          ;; palette + the L1 ribbon picker + headless tests all
+          ;; Dispatches the canonical `:rf.xray/select-frame` event-fx
+          ;; (NOT the spine's `:rf.xray/set-frame` primitive directly) —
+          ;; every persistence / instrumentation layer attached to the
+          ;; frame-switcher contract lives behind the one event surface,
+          ;; so the palette + the L1 ribbon picker + headless tests all
           ;; share the same write path.
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.xray/select-frame (first args)]])}
@@ -393,10 +387,9 @@
           ;; Phase 1: route to a Xray-side store of the inspected
           ;; handler choice. The handler-detail panel is itself a
           ;; follow-on bead — for now the store is enough so the
-          ;; palette completes its part of the contract.
-          ;; (Post rf2-5gl5r the canonical "what happened in this
-          ;; epoch" tab is `:epoch`; the prior `:selected-tab :event`
-          ;; routing pointed at the retired Event/Handler panel.)
+          ;; palette completes its part of the contract. The canonical
+          ;; "what happened in this epoch" tab is `:epoch`, so the
+          ;; selection lands there.
           (let [[kind id] args]
             {:db (assoc close-db
                         :selected-tab :epoch
@@ -412,7 +405,7 @@
 
           :palette/clear-trace-buffer
           (do
-            ;; rf2-43koh — the framework's per-frame rings + Xray's
+            ;; The framework's per-frame rings + Xray's
             ;; frameless secondary ring + Xray's mirrored
             ;; `:trace-buffer` slot all drop together via
             ;; `trace-collector/retroactive-scrub!` (the same path
@@ -425,7 +418,7 @@
              :fx base-fx})
 
           :palette/clear-epoch-history
-          ;; rf2-ybjkx — drop Xray's epoch ring. The slot lives in
+          ;; Drop Xray's epoch ring. The slot lives in
           ;; Xray's app-db at `:epoch-history`; clearing it lets the
           ;; user start a fresh session without restarting the host
           ;; app. App-DB Diff + Views read off this slot so the next
@@ -438,9 +431,9 @@
            :fx (conj base-fx [:dispatch [:rf.xray/reset-suppressed-counters]])}
 
           :palette/snapshot-app-db
-          ;; rf2-ybjkx — Snapshot the SELECTED inspected frame's app-db
+          ;; Snapshot the SELECTED inspected frame's app-db
           ;; onto the console + clipboard. The target is the slot the L1
-          ;; frame-picker writes (`:target-frame`). EP-0002 (rf2-bd4div) —
+          ;; frame-picker writes (`:target-frame`). EP-0002 —
           ;; pass the slot value THROUGH (nil = unselected); the
           ;; `snapshot-app-db!` fx no-ops when unselected rather than
           ;; snapshotting a synthesised `:rf/default`.
@@ -451,7 +444,7 @@
                        (get db-with-recent :target-frame)}])}
 
           :palette/toggle-theme
-          ;; rf2-ybjkx — flip the Settings popup's theme slot via the
+          ;; Flip the Settings popup's theme slot via the
           ;; existing settings-update event. Routes through the same
           ;; reducer that the popup's radio uses so the popup's
           ;; reactive sub re-fires + the localStorage round-trip
@@ -467,7 +460,7 @@
                        (next-theme (config/get-setting :theme nil))]])}
 
           :palette/cycle-reduced-motion
-          ;; rf2-ybjkx — cycle the user-side reduced-motion override
+          ;; Cycle the user-side reduced-motion override
           ;; (:os → :always → :never → :os). Routes through the
           ;; settings-update event so the apply-fn + persist path are
           ;; the canonical ones — no parallel state.
@@ -480,7 +473,7 @@
                          (config/get-setting :general :reduced-motion-override))]])}
 
           :palette/jump-to-settings
-          ;; rf2-ybjkx — open the Settings popup. Routes through the
+          ;; Open the Settings popup. Routes through the
           ;; existing `:rf.xray/settings-open` event so the popup's
           ;; open path is the canonical one (lifts the atom snapshot
           ;; into app-db, defaults the active-tab to `:general`).
@@ -488,7 +481,7 @@
            :fx (conj base-fx [:dispatch [:rf.xray/settings-open]])}
 
           :palette/toggle-mode
-          ;; rf2-ybjkx — flip Dynamic ↔ Static. Routes through the
+          ;; Flip Dynamic ↔ Static. Routes through the
           ;; existing `:rf.xray/toggle-mode` event (also bound to
           ;; Cmd/Ctrl+Shift+M). Single source of truth for the
           ;; mode-flip + persistence side-effect.

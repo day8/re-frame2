@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.static.routes.panel
-  "Top-level Routes tab on Xray's Static surface (rf2-o5f5f.3).
+  "Top-level Routes tab on Xray's Static surface.
 
-  ## Two verbs, two homes (Mike's decision, 2026-05-19)
+  ## Two verbs, two homes
 
   Routes appears in BOTH Dynamic AND Static surfaces with different
   verbs. **Static gets BROWSE** — flat catalogue + Simulate-URL + per-
@@ -69,7 +69,7 @@
 
 (defn- header
   []
-  ;; rf2-6xezz — Mike-direction 2026-05-21: panel-name heading scrubbed.
+  ;; No panel-name heading — the Static surface chrome already names the tab.
   [:div {:data-testid "rf-xray-static-routes-header"
          :style       {:padding "4px 16px"}}])
 
@@ -80,8 +80,7 @@
   composite + UI-state slots and composes the header + Simulate-URL
   surface + browse list.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`."
   []
   (let [data       @(rf/subscribe [:rf.xray.static.routes/tab-data])
         expanded   @(rf/subscribe [:rf.xray.static.routes/expanded])
@@ -199,8 +198,7 @@
     (fn [[routes-map query sim-url] _query]
       (h/project-static-data routes-map query sim-url)))
 
-  ;; rf2-2moh1 — register the Static Routes tab with the internal L4
-  ;; tab registry.
+  ;; Register the Static Routes tab with the internal L4 tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :routes
      :label "Routes"

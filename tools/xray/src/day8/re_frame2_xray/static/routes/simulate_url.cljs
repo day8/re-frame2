@@ -1,17 +1,14 @@
 (ns day8.re-frame2-xray.static.routes.simulate-url
-  "Simulate-URL header surface for Xray's Static Routes tab
-  (rf2-o5f5f.3).
+  "Simulate-URL header surface for Xray's Static Routes tab.
 
   ## Purpose
 
-  Promoted from `panels/routing.cljs` per the two-verbs-two-homes
-  decision (Mike, 2026-05-19): the URL → route resolver is a Static
-  surface verb (browse), not a Dynamic cascade lens. Paste a URL,
-  see every route that matches plus its 6-rule `:rf.route/rank`
-  tuple; the winner is the first row by rank-descending (mirrors
-  `match-url`).
+  The URL → route resolver is a Static surface verb (browse), not a
+  Dynamic cascade lens. Paste a URL, see every route that matches plus
+  its 6-rule `:rf.route/rank` tuple; the winner is the first row by
+  rank-descending (mirrors `match-url`).
 
-  The implementation reuses the existing
+  The implementation reuses the
   `panels.routing-helpers/simulate-url` pure helper — the 6-rule
   rank cascade lives there, JVM-portable. This ns is the view +
   dispatch layer only.
@@ -35,7 +32,7 @@
   "Render a single rank tuple as compact mono text. The 6-tuple is
   `[static catch-all? total -splat -optional -reg-index]` per
   `parse-pattern` (the catch-all discriminator precedes total-length
-  so the bare `/*` is demoted below all concrete routes — rf2-1ugs5u);
+  so the bare `/*` is demoted below all concrete routes);
   surface it verbatim — the lens is about exposing the cascade, not
   interpreting it."
   [rank]
@@ -87,7 +84,7 @@
   value; `sim-result` is the projection from
   `routing-helpers/simulate-url` (nil when input is blank)."
   [dispatch sim-url sim-result]
-  ;; rf2-nesy9 — `dispatch` threaded from the routes `Panel` reg-view.
+  ;; `dispatch` threaded from the routes `Panel` reg-view.
   [:div {:data-testid "rf-xray-static-routes-sim"
          :style       {:padding       "10px 16px"
                        :border-top    (str "1px solid " (:border-subtle tokens))

@@ -1,33 +1,32 @@
 (ns day8.re-frame2-xray.static.machines.definition-detail
   "Right pane of the Static Machines sub-tab — header + 4-mode sub-strip
-  + per-mode body (rf2-o5f5f.2).
+  + per-mode body.
 
   ## Header
 
-  Per the bead's §Definition detail header:
+  The header reads:
 
       <machine-id> · <source-coord ↗> · <N> states · <M> live (→ Dynamic)
 
   ## 4-mode sub-strip
 
-  Per the bead's §4-mode sub-strip:
+  The sub-strip exposes:
 
       [Topology][Sim][Instances][Cascade]
 
   Topology is the default; Sim renders the hermetic 'what-if'
-  simulator (rf2-r4nao rehost — engine originally rf2-v869p);
-  Instances is a JUMP to the Dynamic Machines tab (`instances_jump`);
+  simulator; Instances is a JUMP to the Dynamic Machines tab
+  (`instances_jump`);
   Cascade is GREYED with a 'Dynamic-only' tooltip. Mnemonics
-  `t`/`s`/`i`/`c` are surfaced in each pill's `title` — the keybinding
-  wiring is follow-on per the bead.
+  `t`/`s`/`i`/`c` are surfaced in each pill's `title`. TODO: wire the
+  keybindings that act on those mnemonics.
 
   ## Per-mode body
 
   Topology mounts the `chart/svg` SVG renderer (no live highlight —
-  Static is event-INDEPENDENT). Sim mounts the rehosted Sim rail
-  (rf2-r4nao). Instances doesn't render a body (the click is the
-  surface). Cascade doesn't render a body either (the pill itself is
-  the surface).
+  Static is event-INDEPENDENT). Sim mounts the Sim rail. Instances
+  doesn't render a body (the click is the surface). Cascade doesn't
+  render a body either (the pill itself is the surface).
 
   ## Empty state (no machine selected)
 
@@ -50,8 +49,8 @@
 ;; ---- header -------------------------------------------------------------
 
 (defn- header
-  "Render the definition-detail header per the bead's §Definition
-  detail header. Sticks at the top of the right pane."
+  "Render the definition-detail header. Sticks at the top of the right
+  pane."
   [{:keys [machine-id source-coord state-count live-count]}]
   [:header {:data-testid "rf-xray-static-machines-detail-header"
             :data-machine-id (str machine-id)
@@ -63,10 +62,9 @@
                     :border-bottom (str "1px solid " (:border-subtle tokens))
                     :font-family   sans-stack
                     :font-size     (:body type-scale)}}
-   ;; Per rf2-rb6js / rf2-6xezz — definition-detail title renders at
-   ;; body type-scale (not `:display`) so the focused machine-id chip
-   ;; reads as in-panel chrome rather than a top-level heading. The
-   ;; testid is preserved so existing tests still locate the element.
+   ;; Definition-detail title renders at body type-scale (not
+   ;; `:display`) so the focused machine-id chip reads as in-panel
+   ;; chrome rather than a top-level heading.
    [:div {:data-testid "rf-xray-static-machines-detail-title"
           :style (merge {:margin    0
                          :font-size (:body type-scale)
@@ -127,13 +125,12 @@
    "Topology"])
 
 (defn- sub-strip
-  "Render the 4-mode pill row. Per the bead's §4-mode sub-strip — the
-  strip is the same DOM as the Dynamic sub-strip (muscle-memory
-  consistency), but Cascade is dimmed + Sim is a placeholder.
+  "Render the 4-mode pill row. The strip is the same DOM as the Dynamic
+  sub-strip (muscle-memory consistency), but Cascade is dimmed.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
-  `detail` reg-view (a plain fn invoked as a Reagent component renders
-  in its own cycle, so it cannot recover the frame itself)."
+  `dispatch` is the frame-aware dispatcher threaded from the `detail`
+  reg-view (a plain fn invoked as a Reagent component renders in its own
+  cycle, so it cannot recover the frame itself)."
   [dispatch {:keys [machine-id sub-mode live-count]}]
   (let [set-mode! (fn [mode]
                     (dispatch
@@ -161,13 +158,13 @@
 (defn- body
   "Dispatch to the per-mode body renderer. Topology + Sim render a
   body; Instances + Cascade do not (Instances is a JUMP affordance,
-  Cascade is dimmed). `dispatch` (rf2-nesy9) is threaded from `detail`.
+  Cascade is dimmed). `dispatch` is threaded from `detail`.
 
-  rf2-jholrb — the Sim sub-mode's plain-fn subtree (`sim/body` →
-  `SimChart` / `SimRail`) cannot recover the `:rf/xray` frame to
-  subscribe (Spec 004), so its sub values (`sim-values`) are derefed in
-  the `detail` reg-view and threaded down through here (mirrors the
-  rf2-wxu4l3 browse-list fix)."
+  The Sim sub-mode's plain-fn subtree (`sim/body` → `SimChart` /
+  `SimRail`) cannot recover the `:rf/xray` frame to subscribe (Spec
+  004), so its sub values (`sim-values`) are derefed in the `detail`
+  reg-view and threaded down through here (mirroring the browse-list
+  pattern)."
   [dispatch {:keys [sub-mode machine-id definition source-coord fit-signal
                     sim-values]}]
   (case sub-mode
@@ -223,25 +220,24 @@
     - `:rf.xray.static.machines/sub-mode` for the per-machine sub-
       mode (defaults to :topology)
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`."
   []
   (let [{:keys [rows selected-id]}
         @(rf/subscribe [:rf.xray.static.machines/data])
         row (some #(when (= selected-id (:machine-id %)) %) rows)
         definitions @(rf/subscribe [:rf.xray/machine-definitions])
         sub-mode @(rf/subscribe [:rf.xray.static.machines/sub-mode selected-id])
-        ;; rf2-6tw7t — fit-on-entry nonce (bumped by `:rf.xray.static/
-        ;; select-tab :machines`). Threaded down to the Topology body's
+        ;; Fit-on-entry nonce (bumped by `:rf.xray.static/select-tab
+        ;; :machines`). Threaded down to the Topology body's
         ;; `machine-canvas/Chart` `:fit-signal` so entering the Static
         ;; Machines tab re-frames the topology to view.
         fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])
-        ;; rf2-jholrb — the Sim sub-mode's plain-fn subtree (`sim/body` →
+        ;; The Sim sub-mode's plain-fn subtree (`sim/body` →
         ;; `SimChart` / `SimRail`) renders in its OWN React cycle and so
         ;; cannot recover the `:rf/xray` frame to `rf/subscribe` itself
         ;; (Spec 004). Deref the sim sub family HERE (in this reg-view,
         ;; where the frame IS in context) and thread the values down —
-        ;; mirroring the rf2-wxu4l3 browse-list fix. Only derefed on the
+        ;; mirroring the browse-list pattern. Only derefed on the
         ;; `:sim` sub-mode so the Topology/Instances/Cascade modes don't
         ;; subscribe to sim state. The subs short-circuit to nil when sim
         ;; isn't active for the selected machine, so this is cheap.

@@ -1,18 +1,15 @@
 (ns day8.re-frame2-xray.theme.a11y
-  "Shared accessibility helpers (rf2-7389r).
+  "Shared accessibility helpers.
 
   Xray ships six modal surfaces (Settings, Share, Spine-filter mute
   manager, Filter edit-popup, Cancellation-cascade popover, App-DB
-  segment-inspector popover). The P2 a11y audit (`ai/findings/2026-
-  05-20-xray-story-a11y-audit.md` Finding #3) flagged that none of
-  them carry the WAI-ARIA modal contract end-to-end — `role=\"dialog\"`
-  + `aria-modal=\"true\"` + an accessible name + focus capture on
-  open.
+  segment-inspector popover). Each carries the WAI-ARIA modal contract
+  end-to-end — `role=\"dialog\"` + `aria-modal=\"true\"` + an accessible
+  name + focus capture on open.
 
-  Rather than copy the contract into every modal (drift risk — the
-  audit observed exactly this drift already, with each modal sliding
-  away from a coherent ARIA story), this ns extracts the small bits
-  the six call sites share.
+  Rather than copy that contract into every modal (drift risk — each
+  modal would slide away from a coherent ARIA story), this ns is the
+  single source of truth the six call sites share.
 
   ## What lives here
 

@@ -1,6 +1,5 @@
 (ns panel-gallery.fixtures-app-db
-  "Pure fixture builders for the Xray App-db tab gallery
-  (rf2-sszlr — rebuild for new 6-tab Xray shape).
+  "Pure fixture builders for the Xray App-db tab gallery.
 
   The app-db-diff panel reads these slots from the Xray frame:
 
@@ -13,12 +12,7 @@
   The atomic `:rf.xray/app-db-current+diff` sub resolves the focused
   epoch's `:value` (`:db-after`) + `:before` (`:db-before`), and
   `:rf.xray/app-db-state` projects that into the current-state section
-  model the facade view renders. (rf2-p53m2 — the former composite
-  `:rf.xray/app-db-diff` had no production view consumer and was pruned.)
-
-  rf2-e9tb0 — `:pinned-slices-store` and `:pinned-slices` were
-  dropped when the pinned-watches strip was superseded by the
-  segment-inspector popup.
+  model the facade view renders.
 
   ## Why seed via `:rf.xray/sync-epoch-history`
 
@@ -68,8 +62,7 @@
 
 (defn empty-buffer
   "No epochs — panel renders the `[empty]` state with the
-  reserved-keys scaffolding only (rf2-e9tb0 dropped the pinned-watches
-  strip)."
+  reserved-keys scaffolding only."
   []
   [])
 
@@ -241,9 +234,8 @@
 
 ;; ---- tab-specific buffer builders --------------------------------------
 ;;
-;; Per the rf2-sszlr per-tab gallery spec the App-db tab needs richer
-;; variant coverage: tiny app-db, large app-db, sensitive paths, large
-;; sentinels, watched-keys diff highlighting.
+;; The App-db tab carries richer variant coverage: tiny app-db, large
+;; app-db, sensitive paths, large sentinels, watched-keys diff highlighting.
 
 (defn tiny-app-db-buffer
   "Single epoch whose db-after is a deliberately tiny three-key map.
@@ -284,8 +276,7 @@
   "Single epoch where multiple app-db paths carry `:rf/redacted`
   markers — across `:auth`, `:user/profile`, `:billing`. The panel's
   slice renderer surfaces each marker verbatim per Spec 009 §Privacy
-  + the new spec/015-Data-Classification opt-in path marks
-  (rf2-vw7f5)."
+  + the spec/015-Data-Classification opt-in path marks."
   []
   [(epoch-record
      {:epoch-id 22

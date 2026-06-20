@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.theme.modal-chrome
-  "Shared modal-chrome scaffold (rf2-7oxvd).
+  "Shared modal-chrome scaffold.
 
   ALL EIGHT of Xray's modal surfaces — Settings, Filter edit-popup,
   Share, Mute manager, App-DB segment-inspector, EDN-inspector popup,
@@ -12,7 +12,7 @@
   and the SAME boring-but-load-bearing wiring on each:
 
     * the `data-rf-xray-modal-positioning` attribute derived from the
-      `:rf.xray/modal-positioning` opt (rf2-om6fa);
+      `:rf.xray/modal-positioning` opt;
     * a click-to-dismiss `:on-click` on the backdrop + a
       `(.stopPropagation %)` `:on-click` on the dialog so clicks on
       the dialog body don't bubble out and close it;
@@ -21,7 +21,7 @@
       `a11y/dialog-ref` focus-trap callback (focus-on-open, Tab-trap,
       restore-on-close).
 
-  ## Design — slots, not flags (rf2-7oxvd, Option C)
+  ## Design — slots, not flags
 
   This ns extracts ONLY that genuinely-identical scaffold. Everything
   that varies between modals stays a value the caller SUPPLIES — never
@@ -44,10 +44,10 @@
       `:dialog-extra` (merged last so the caller can override anything,
       including the testid).
 
-  ## The palette is a caller too (rf2-7oxvd, Option A)
+  ## The palette is a caller too
 
-  The command palette (`palette/view`) was the eighth and last modal
-  to adopt this scaffold. Its apparent divergences all land cleanly on
+  The command palette (`palette/view`) renders through this scaffold.
+  Its apparent divergences all land cleanly on
   the existing slots — no per-palette flag, no new slot:
 
     * always-`:fixed` (no `:rf.xray/modal-positioning` subscribe) → it
@@ -58,24 +58,22 @@
     * its hand-rolled combobox/listbox ARIA stays in the `children`
       (the dialog-level role/aria-modal/accessible-name comes from
       `a11y/dialog-attrs` via `:label`, exactly the contract its
-      `palette/aria-cljs-test` already asserts).
+      `palette/aria-cljs-test` asserts).
 
-  Adopting the chrome ALSO gives the palette the `a11y/dialog-ref`
-  focus trap it previously lacked — a strict a11y improvement. The
-  trap intercepts only Tab/Shift+Tab, and the palette's sole focusable
-  is the input (rows drive a virtual `aria-activedescendant` cursor,
-  not real focus), so Tab wraps to the input and the arrow-key
-  navigation is untouched. (Earlier partial passes left the palette
-  out under the C-stance; Mike ruled Option A — full consolidation.)
+  The chrome gives the palette the `a11y/dialog-ref`
+  focus trap. The trap intercepts only Tab/Shift+Tab, and the palette's
+  sole focusable is the input (rows drive a virtual
+  `aria-activedescendant` cursor, not real focus), so Tab wraps to the
+  input and the arrow-key navigation is untouched.
 
   ## Tab-index
 
   `dialog-ref`'s focus-on-open fallback focuses the dialog ROOT when
   the dialog has no focusable child, which requires the root to carry a
   `tab-index`. Modals supply their own value (`\"-1\"` for the
-  text-style modals, `0` for the popovers that were tab-index 0
-  pre-rf2-7389r) via `:dialog-tab-index`; the backdrop's optional
-  `:backdrop-tab-index` mirrors the popovers' existing `-1` root."
+  text-style modals, `0` for the popovers) via `:dialog-tab-index`; the
+  backdrop's optional `:backdrop-tab-index` mirrors the popovers' `-1`
+  root."
   (:require [day8.re-frame2-xray.theme.a11y :as a11y]))
 
 (defn modal-chrome

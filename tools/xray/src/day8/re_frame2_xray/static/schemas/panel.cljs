@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.static.schemas.panel
-  "Top-level Schemas sub-tab for Xray's Static surface (rf2-o5f5f.4).
+  "Top-level Schemas sub-tab for Xray's Static surface.
 
   ## Browse-all verb
 
@@ -40,8 +40,8 @@
 
   Each row carries a source-coord chip (when the registered metadata
   surfaces `:file` / `:line`). Click dispatches
-  `:rf.xray/open-in-editor` per the rf2-evgf5 / rf2-g5q8d wiring —
-  same affordance the Trace + Issues panels use.
+  `:rf.xray/open-in-editor` — the same affordance the Trace + Issues
+  panels use.
 
   ## State slots (all under `:rf.xray.static.schemas/*`)
 
@@ -87,7 +87,7 @@
 (defn project-app-schema-rows
   "Flatten `{frame-id {path schema-meta}}` into row maps.
   `schema-meta` carries `:schema`, `:doc`, plus `:file`/`:line`/`:ns`
-  source-coord slots (Malli EDN + the rf2-5m5n2 source-coord stamp)."
+  source-coord slots (Malli EDN + the source-coord stamp)."
   [schemas-by-frame]
   (->> schemas-by-frame
        (mapcat (fn [[frame-id by-path]]
@@ -162,7 +162,8 @@
 
 (defn- header
   []
-  ;; rf2-6xezz — Mike-direction 2026-05-21: panel-name heading scrubbed.
+  ;; The header carries no panel-name heading — the L4 tab strip is the
+  ;; panel-name source-of-truth.
   [:div {:data-testid "rf-xray-static-schemas-header"
          :style       {:padding "4px 16px"}}])
 
@@ -170,9 +171,9 @@
 
 (defn- search-box
   [query total filtered?]
-  ;; rf2-nesy9 — render-time frame capture (rendered inside the schemas
-  ;; Panel reg-view), not a `:rf/xray` literal. rf2-1keg3 — the flex-row
-  ;; markup lives in the shared `search-box` component.
+  ;; Render-time frame capture (rendered inside the schemas Panel
+  ;; reg-view), not a `:rf/xray` literal. The flex-row markup lives in
+  ;; the shared `search-box` component.
   (let [frame (rf/current-frame-id)]
     [search-box/search-box
      {:testid-prefix   "rf-xray-static-schemas"
@@ -216,10 +217,10 @@
   [{:keys [kind id frame schema doc source-coord] :as _row}]
   (let [id-text (pr-str id)
         row-id  (str (name kind) "-" id-text)]
-    ;; rf2-mq8wk — list semantics. Schema rows are non-interactive
-    ;; catalogue entries (the only row-level affordance is the
-    ;; `open-chip` jump-to-source, which is itself focusable), so
-    ;; `role=listitem` is the correct shape rather than `role=button`.
+    ;; List semantics. Schema rows are non-interactive catalogue entries
+    ;; (the only row-level affordance is the `open-chip` jump-to-source,
+    ;; which is itself focusable), so `role=listitem` is the correct
+    ;; shape rather than `role=button`.
     [:li {:data-testid (str "rf-xray-static-schemas-row-" row-id)
           :role        "listitem"
           :style       {:display       "block"
@@ -246,13 +247,13 @@
          (pr-str frame)])
       (when (and source-coord (:file source-coord))
         [open-in-editor/open-chip source-coord])]
-     ;; rf2-2kwhw — the Malli schema EDN renders through the shared
-     ;; cljs-devtools EDN widget (spec 007:119 — "all values rendered
-     ;; via the cljs-devtools-shaped renderer") rather than raw
-     ;; `pr-str` + `[:code]`, so it gains expand/collapse, syntax-
-     ;; colouring parity, and the per-node copy host (rf2-f026h). The
-     ;; `node-key` is stable per (kind,id) so expand state survives
-     ;; reloads and doesn't collide across rows.
+     ;; The Malli schema EDN renders through the shared cljs-devtools EDN
+     ;; widget (spec 007:119 — "all values rendered via the
+     ;; cljs-devtools-shaped renderer") rather than raw `pr-str` +
+     ;; `[:code]`, so it gains expand/collapse, syntax-colouring parity,
+     ;; and the per-node copy host. The `node-key` is stable per
+     ;; (kind,id) so expand state survives reloads and doesn't collide
+     ;; across rows.
      [:div {:data-testid (str "rf-xray-static-schemas-schema-" row-id)
             :style {:margin-left "20px"
                     :margin-top  "2px"
@@ -276,8 +277,7 @@
   "Static Schemas panel root view. Subscribes to the schemas composite
   + the search-query slot and composes the header + search + flat list.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`."
   []
   (let [data @(rf/subscribe [:rf.xray.static.schemas/tab-data])
         {:keys [silent? schemas total filtered? query]} data]
@@ -351,7 +351,7 @@
 ;;
 ;; The raw value the production data sub reads. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so the override
-;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+;; branch lives in ONE place (the seam), not duplicated.
 
 (defn- registry-value
   "The three input registries assembled from public surfaces: app-db
@@ -414,7 +414,7 @@
   ;; The test-only override seam (`:rf.xray.static.schemas/set-registry-
   ;; override-for-test` + the `*-override` sub) is NOT installed here —
   ;; production registration carries no `-for-test` ids. Tests opt into
-  ;; it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+  ;; it via `install-test-overrides!`.
 
   ;; ---- production data sub ---------------------------------------------
 
@@ -445,8 +445,7 @@
     (fn [[{:keys [schemas-by-frame events subs]} observed-frame query] _query]
       (project-data schemas-by-frame events subs observed-frame query)))
 
-  ;; rf2-2moh1 — register the Static Schemas tab with the internal L4
-  ;; tab registry.
+  ;; Register the Static Schemas tab with the internal L4 tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :schemas
      :label "Schemas"
@@ -457,7 +456,7 @@
 
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam --------------------------------------------
 
 (defn install-test-overrides!
   "Install the Static Schemas panel's test-only override seam — the

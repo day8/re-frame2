@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.routes.row-expand
-  "Per-row inline expand renderer for the Static Routes flat list
-  (rf2-o5f5f.3).
+  "Per-row inline expand renderer for the Static Routes flat list.
 
   ## Shape
 
@@ -28,7 +27,7 @@
   Source-coord rendering reuses Xray's `open-in-editor` chip
   rendering when the registrar meta carries the optional
   `:rf.route/registered-at` slot. Absent → no chip (silent-by-
-  default per rf2-g3ghh / rf2-yn86j)."
+  default)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.static.routes.simulate-nav :as sim-nav]
             [day8.re-frame2-xray.theme.tokens
@@ -47,12 +46,11 @@
 
 (defn- value-block
   "Render an EDN value through the shared cljs-devtools EDN widget
-  (rf2-2kwhw — spec 007:119 'all values rendered via the cljs-devtools-
-  shaped renderer'). Replaces the prior raw-`pr-str` `[:pre]` block so
-  the schema / meta values gain expand/collapse, syntax-colouring
-  parity, and the per-node copy host (rf2-f026h). The `testid` wrapper
-  is preserved so existing per-block selectors still resolve; the
-  `node-key` is stable per block so expand state survives reloads."
+  (spec 007:119 'all values rendered via the cljs-devtools-shaped
+  renderer'). Schema / meta values gain expand/collapse, syntax-colouring
+  parity, and a per-node copy host. The `testid` wrapper lets per-block
+  selectors resolve; the `node-key` is stable per block so expand state
+  survives reloads."
   [testid node-key value]
   [:div {:data-testid testid
          :style       {:margin        "0"
@@ -103,7 +101,7 @@
   §4.4 — fires the cross-link event the registry installs so the
   user lands on the Dynamic Routing lens scoped to this route.
 
-  `dispatch` (rf2-nesy9) is threaded from the routes `Panel` reg-view
+  `dispatch` is threaded from the routes `Panel` reg-view
   (this button is invoked as a Reagent component and cannot recover the
   frame itself)."
   [dispatch route-id]
@@ -206,7 +204,7 @@
                                 (subs (pr-str route-id) 1))
               :style       {:margin "4px 0"}}
         (section-label "Matched keys")
-        ;; rf2-2kwhw — matched-keys vector through the shared widget's
+        ;; Matched-keys vector through the shared widget's
         ;; inline current-state renderer (cljs-devtools one-liner).
         [:div {:style {:font-family mono-stack
                        :font-size   "11px"

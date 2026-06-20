@@ -1,28 +1,20 @@
 (ns day8.re-frame2-xray.filters.pills
-  "Top-ribbon IN/OUT filter pills for Xray (rf2-ak4ms).
+  "Top-ribbon IN/OUT filter pills for Xray.
 
   Per `tools/xray/spec/018-Event-Spine.md` §3 + §7 the ribbon carries
-  a filter cluster — IN pills (green-bordered `+`) + OUT pills (red-
-  bordered `×`) per the authoritative reference events-ribbon
-  (rf2-3f2di A6). Clicking any pill opens the rich edit popup (see
+  a filter cluster — IN pills (green-bordered) + OUT pills (red-
+  bordered) per the authoritative reference events-ribbon.
+  Clicking any pill opens the rich edit popup (see
   `filters/edit_popup.cljs`); clicking `×` on a pill removes it without
   round-tripping through the popup. The `[ + ]` add-pill opens the popup
   empty + defaulted to IN.
 
-  ## rf2-3f2di A5 — two-bar split
+  ## Two-bar split
 
   The committed pills (`pills-view`) live on bar-2 (the events ribbon);
   the add(+) affordance (`add-pill`) is mounted separately on bar-1 (the
   chrome ribbon) beside the `Filters:` label, matching the reference
   chrome-ribbon / events-ribbon split.
-
-  ## Replaces #1397's window.prompt stub
-
-  PR #1397 shipped the 4-layer chrome with a `js/window.prompt` stub
-  inside `shell.cljs`'s `ribbon-filter-pills`. This ns is the proper
-  UI. The shell's `ribbon-filter-pills` delegates here so the only
-  surviving consumer of the prompt stub is the `(throw …)` line in
-  the test that asserts the stub is gone.
 
   ## Pills hover tooltip
 
@@ -41,7 +33,7 @@
 
   ## Pure hiccup
 
-  Same posture as the rest of Xray's view code (rf2-tijr): pure
+  Same posture as the rest of Xray's view code: pure
   hiccup, no per-substrate switches. Mount is via `reg-view` from the
   caller (`shell.cljs`'s `ribbon-filter-pills`)."
   (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]
@@ -50,26 +42,25 @@
 
 ;; ---- one pill ------------------------------------------------------------
 
-;; rf2-t2xba — the per-mode `+` / `×` LEADING glyph used to prefix the
-;; pill body has been retired. The Figma authority shows pills as
+;; The Figma authority shows pills as
 ;; `[text label] [trailing × delete button]` only — the include/exclude
 ;; signal is carried by the BORDER COLOUR (green = include, red = exclude,
-;; resolved by `pill-tone` below), not by a leading glyph. The trailing
-;; remove button is also rendered as `×` (distinct role: it's the
+;; resolved by `pill-tone` below), with no leading glyph. The trailing
+;; remove button is rendered as `×` (distinct role: it's the
 ;; click-target that removes the pill, scoped to the remove `<button>`
 ;; with its own aria-label).
 
 (defn- pill-tone [mode]
-  ;; rf2-3f2di A6 — green-bordered include (`:in`) pills, red-bordered
+  ;; Green-bordered include (`:in`) pills, red-bordered
   ;; exclude (`:out`) pills, per the authoritative reference events-ribbon
   ;; (`border: 1px solid var(--devtools-success)` for include,
-  ;; `--devtools-error` for exclude). Supersedes the prior magenta OUT
-  ;; tone; `:success`/`:error` are the reference's green/red tokens.
+  ;; `--devtools-error` for exclude). `:success`/`:error` are the
+  ;; reference's green/red tokens.
   (case mode :in (:success tokens) :out (:error tokens)))
 
 (defn- pill-kind
   "Read the pill's `:kind` slot, canonicalising via the typed-
-  predicate ns so legacy `{:pattern …}` pills surface as
+  predicate ns so bare `{:pattern …}` pills surface as
   `:event-id-pattern`."
   [pill]
   (:kind (typed/canonicalise-pill pill)))
@@ -92,25 +83,25 @@
   the pill directly (no popup round-trip for the common 'just delete
   it' case).
 
-  ## Typed-predicate kinds (rf2-piye4)
+  ## Typed-predicate kinds
 
-  Per Mike's rf2-drcyb closure, v1 ships three typed-predicate
+  v1 ships three typed-predicate
   kinds — `:machine`, `:http-correlation`, `:fx` — whose params are
   fully determined by the right-click source row. These pills are
   NOT editable in v1 (the popup is keyword-pattern-only); the body
   is non-clickable for typed pills and the user removes via the
-  `×` button. The legacy `:event-id-pattern` kind (back-compat for
-  pre-rf2-piye4 persisted shape) keeps its click-to-edit body.
+  `×` button. The `:event-id-pattern` kind (the bare
+  `{:pattern …}` shape) keeps its click-to-edit body.
 
   Props:
     `:mode`    `:in` | `:out`
     `:pill`    the pill record — either `{:pattern <kw-or-str>}`
-               (legacy keyword-pattern) or `{:kind <kw> :params {…}}`
+               (keyword-pattern) or `{:kind <kw> :params {…}}`
                (typed predicate)
     `:idx`     position in the mode bucket (drives the testid + the
                remove-filter event payload)
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `dispatch` is the frame-aware dispatcher captured by the
   caller's `reg-view` body so the edit / remove clicks land on the
   surrounding instance frame, not a `{:frame :rf/xray}` literal."
   [dispatch {:keys [mode pill idx]}]
@@ -121,7 +112,7 @@
         body-text   (pill-display pill)]
     [:span {:data-testid testid
             :data-pill-kind (name kind)
-            ;; rf2-3f2di A6 — reference events-ribbon pill shape:
+            ;; Reference events-ribbon pill shape:
             ;; `border-radius 4px`, `border 1px solid <tone>` (green for
             ;; include, red for exclude), transparent bg, tone-coloured
             ;; text + an `x` to remove.
@@ -150,9 +141,8 @@
                          :font-family mono-stack
                          :font-size   (:caption type-scale)
                          :white-space "nowrap"}}
-        ;; rf2-t2xba — body is label + trailing pencil only. The leading
-        ;; `+` / `×` mode glyph was retired (the border colour already
-        ;; carries the include/exclude signal).
+        ;; Body is label + trailing pencil only — no leading mode glyph
+        ;; (the border colour carries the include/exclude signal).
         (str body-text " ")
         ;; Pencil glyph per spec/018 §7 'Pill visual contract' —
         ;; visual cue that the pill body is the click-to-edit target.
@@ -167,10 +157,10 @@
                        :font-family mono-stack
                        :font-size   (:caption type-scale)
                        :white-space "nowrap"}}
-        ;; rf2-t2xba — body is label only; the leading mode glyph was
-        ;; retired (border colour carries the include/exclude signal).
+        ;; Body is label only — no leading mode glyph (border colour
+        ;; carries the include/exclude signal).
         body-text])
-     ;; rf2-xawwb — a VERTICAL DIVIDER sits before the `✕` (Figma-Make
+     ;; A VERTICAL DIVIDER sits before the `✕` (Figma-Make
      ;; surface): a 1px tone-coloured rule separating the pill body from
      ;; the remove affordance. The remove button keeps its own border-left
      ;; as the divider so it round-trips through the same tone; the explicit
@@ -199,13 +189,13 @@
   "The `[ + ]` add-filter affordance — opens the edit popup empty +
   defaulted to IN per spec/018 §7 'Trailing +'.
 
-  rf2-3f2di A5 — promoted to the bar-1 chrome ribbon (beside the
+  Mounted on the bar-1 chrome ribbon (beside the
   `Filters:` label) per the authoritative reference chrome-ribbon, which
   carries the add(+) on bar-1 while the committed pills live on bar-2
   (the events ribbon). Public so the shell mounts it directly in the
   chrome ribbon's left cluster.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `dispatch` is the frame-aware dispatcher captured by the
   caller's `reg-view` body."
   [dispatch]
   [:button {:data-testid "rf-xray-filter-add"
@@ -233,17 +223,16 @@
    "[ + ]"])
 
 (defn chrome-add-filter-button
-  "rf2-xawwb — the chrome-ribbon `+ filter` TEXT button (Figma-Make
-  surface). Replaces the prior `Filters:` label + plus-icon affordance
-  on bar-1 with a single outlined text button. Opens the SAME edit
+  "The chrome-ribbon `+ filter` TEXT button (Figma-Make
+  surface). A single outlined text button on bar-1. Opens the SAME edit
   popup as `add-pill` (`:rf.xray/open-edit-popup {:source :add :mode
-  :in}`) — only the surface changes; the add behaviour is retained.
+  :in}`).
 
   Outlined on the dark chrome band: a muted `chrome-ribbon-text-muted`
   border + ink so it reads as a secondary chrome affordance against the
   near-black ribbon.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `dispatch` is the frame-aware dispatcher captured by the
   caller's `reg-view` body."
   [dispatch]
   [:button {:data-testid "rf-xray-filter-add"
@@ -265,14 +254,14 @@
    "+ filter"])
 
 (defn events-add-filter-button
-  "rf2-xawwb — the events-ribbon add-filter `+` ICON button (Figma-Make
+  "The events-ribbon add-filter `+` ICON button (Figma-Make
   surface). Sits after the `filters:` contextual label on bar-2, before
-  the committed pills. Opens the SAME edit popup as `add-pill`; the add
-  behaviour is retained. A square bordered `+` icon-button on the light
+  the committed pills. Opens the SAME edit popup as `add-pill`. A
+  square bordered `+` icon-button on the light
   data canvas (the events ribbon stays on `bg-2`, not the dark chrome
   band).
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `dispatch` is the frame-aware dispatcher captured by the
   caller's `reg-view` body."
   [dispatch]
   [:button {:data-testid "rf-xray-filter-add-events"
@@ -313,18 +302,18 @@
 
 (defn pills-view
   "The committed filter pills cluster — green-bordered IN pills, then
-  red-bordered OUT pills (rf2-3f2di A6). Reads `:rf.xray/active-filters`
+  red-bordered OUT pills. Reads `:rf.xray/active-filters`
   via the caller; the caller is expected to be inside a `reg-view` so
   subscribes resolve to `:rf/xray`.
 
-  rf2-3f2di A5 — the add(+) affordance is NO LONGER part of this
+  The add(+) affordance is not part of this
   cluster: per the authoritative reference the committed pills live on
   bar-2 (the events ribbon) while the add(+) sits on bar-1 (the chrome
   ribbon, beside the `Filters:` label). The shell mounts `add-pill`
   directly in the chrome ribbon's left cluster and `pills-view` in the
   events ribbon.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher captured by the
+  `dispatch` is the frame-aware dispatcher captured by the
   caller's `reg-view` body, threaded to each `pill`."
   [dispatch {:keys [filters]}]
   [:div {:data-testid "rf-xray-ribbon-filters"

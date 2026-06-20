@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.palette.view
-  "View for the Xray command palette (rf2-wm7z4).
+  "View for the Xray command palette.
 
   Per `tools/xray/spec/007-UX-IA.md` §Command palette:
   - 560px centred modal
@@ -11,13 +11,12 @@
   `palette.cljs` wraps it in `reg-view` so its subscribes route to
   the surrounding `:rf/xray` frame via React context.
 
-  ## Modal layer (rf2-7oxvd)
+  ## Modal layer
 
-  Phase 1 layers the palette over the Xray shell's `shell-view`
+  The palette layers over the Xray shell's `shell-view`
   (mounted there so subscribes resolve through the shell's frame
   provider). The backdrop + dialog scaffold is the shared
-  `theme/modal-chrome` contract — the eighth and last Xray modal to
-  adopt it. The palette supplies its own `backdrop-style` /
+  `theme/modal-chrome` contract. The palette supplies its own `backdrop-style` /
   `dialog-style`, the `:label \"Command palette\"` accessible name, the
   `data-rf-xray-mode` marker (via `:dialog-extra`) and the
   click-outside dismiss (`:on-dismiss`); `modal-chrome` owns the
@@ -36,10 +35,10 @@
   not need to drop modifier hands. Because the input owns Esc, the
   palette passes NO chrome keydown handler (the edit-popup pattern).
 
-  ## Focus trap + the combobox cursor (rf2-7oxvd)
+  ## Focus trap + the combobox cursor
 
-  Adopting `modal-chrome` brings the `a11y/dialog-ref` focus trap the
-  palette previously lacked. The trap intercepts only `Tab` /
+  `modal-chrome` provides the `a11y/dialog-ref` focus trap. The trap
+  intercepts only `Tab` /
   `Shift+Tab`; the palette's sole real focusable is the search input
   (the result `<li>`s carry no tabindex — the cursor is a VIRTUAL
   selection tracked via `aria-activedescendant`, focus never leaves the
@@ -48,7 +47,7 @@
   `:auto-focus` — it skips focus-on-open when a descendant already
   holds focus — so there is no double-focus on mount.
 
-  ## Why every deferred dispatch captures the surrounding frame (rf2-w8lxg / rf2-r0o63 / rf2-nesy9)
+  ## Why every deferred dispatch captures the surrounding frame
 
   Subscribes resolve through the React-context tier at RENDER time —
   React's `_currentValue` for the `frame-context` is set to the
@@ -66,15 +65,13 @@
   slots untouched. Symptom: palette appears frozen — arrow keys,
   Enter, click on a row, ESC, backdrop click all no-op.
 
-  An EARLIER fix pinned each deferred handler to a `{:frame :rf/xray}`
-  literal — correct for the singleton shell but entrenching the
-  one-frame lock (rf2-1w07r). The current contract (rf2-r0o63 /
-  rf2-nesy9) captures the SURROUNDING instance frame instead:
+  So each deferred handler captures the SURROUNDING instance frame:
   `palette.cljs`'s `Modal` `reg-view` body has a frame-aware `dispatch`
   injected by the macro and threads it into `palette-view`, which fans
   it out to every row + key handler. Each deferred handler calls that
   captured `dispatch` (never the global `rf/dispatch`, never a
-  literal), so N isolated instances each route to their own frame."
+  `{:frame :rf/xray}` literal), so N isolated instances each route to
+  their own frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
@@ -83,7 +80,7 @@
 
 ;; ---- per-source visual style --------------------------------------------
 
-;; Per-source categorical legend (rf2-ad7zx.13). `:command` is the
+;; Per-source categorical legend. `:command` is the
 ;; primary action category → the single `:accent` (GitHub blue);
 ;; `:panel` keeps a fixed cool blue (`:info`) so it stays a distinct
 ;; category against the command accent. yellow/green/magenta are
@@ -222,13 +219,13 @@
   "DOM `id` of the palette result list. Stable per-modal (only one
   palette mounts at a time), so the input's `aria-controls` +
   `aria-activedescendant` references resolve without per-render id
-  churn. rf2-tt7ax."
+  churn."
   "rf-xray-palette-listbox")
 
 (defn- row-id
   "DOM `id` of result row `idx` — referenced by the input's
   `aria-activedescendant` so screen readers track the cursor highlight
-  as the user arrows up/down. rf2-tt7ax."
+  as the user arrows up/down."
   [idx]
   (str "rf-xray-palette-option-" idx))
 
@@ -263,7 +260,7 @@
 ;; ---- key handling -------------------------------------------------------
 
 (defn- handle-input-keydown
-  ;; EP-0002 (rf2-bd4div) — a deferred key handler fires at CLICK time,
+  ;; EP-0002 — a deferred key handler fires at CLICK time,
   ;; after render has committed and the frame context has unwound, so it
   ;; carries NO ambient frame stamp. It must therefore not `rf/subscribe`
   ;; the cursor itself (that ambient read raises `:rf.error/no-frame-context`
@@ -303,7 +300,7 @@
   the mount on `:rf.xray/palette-open?` — this fn assumes it's open
   and always renders.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
+  `dispatch` is the frame-aware dispatcher injected by the
   `palette/Modal` `reg-view` body — threaded into every row + key
   handler so deferred handlers land on the surrounding instance frame,
   not a `{:frame :rf/xray}` literal."
@@ -311,12 +308,12 @@
   (let [query   (or @(rf/subscribe [:rf.xray/palette-query]) "")
         results @(rf/subscribe [:rf.xray/palette-results])
         cursor  @(rf/subscribe [:rf.xray/palette-cursor])]
-    ;; rf2-7oxvd — shared backdrop + dialog scaffold. The palette keeps
+    ;; Shared backdrop + dialog scaffold. The palette keeps
     ;; its own `backdrop-style` / `dialog-style` and its `:auto-focus`
     ;; input owning Esc (handled in `handle-input-keydown`, exactly the
     ;; edit-popup pattern), so it passes NO chrome keydown handler.
     ;; `modal-chrome` owns the click-outside dismiss, the
-    ;; `a11y/dialog-attrs` (rf2-tt7ax role/aria-modal + the `:label`
+    ;; `a11y/dialog-attrs` (role/aria-modal + the `:label`
     ;; accessible name — no visible title bar) and the `a11y/dialog-ref`
     ;; focus trap. The trap intercepts only Tab/Shift+Tab; the palette's
     ;; sole focusable is the input (rows drive the combobox cursor via
@@ -344,7 +341,7 @@
                 :auto-focus   true
                 :value        query
                 :placeholder  "Search panels, events, frames, commands…"
-                ;; rf2-tt7ax — combobox/listbox wiring: `aria-label`
+                ;; Combobox/listbox wiring: `aria-label`
                 ;; names the input (no visible <label>); `aria-controls`
                 ;; + `aria-activedescendant` point at the listbox + the
                 ;; active row id so screen readers track the highlight

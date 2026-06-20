@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.panel-enum
   "SINGLE SOURCE OF TRUTH for the Xray panel enumeration — the set of
-  independently-mountable Xray panel surfaces (rf2-rapnr; absorbs the
-  guard-half of rf2-7b1z4; follow-on to the rf2-3nbl5.2 API-governance
-  keystone).
+  independently-mountable Xray panel surfaces. This is the
+  API-governance keystone that also carries the guard half of the
+  reconciliation.
 
   ## The problem this closes
 
-  \"The set of Xray panels\" had THREE projections that could silently
+  \"The set of Xray panels\" has THREE projections that could silently
   drift apart:
 
     1. THE MOUNT FACADE — the `mount-<panel>!` fn family in
@@ -16,14 +16,11 @@
        `tools/xray/spec/008-Embedding-Contract.md`.
     3. THE API MANIFEST — the `:cljs-only` rows for
        `day8.re-frame2-xray.panels` in `spec/api-manifest-metadata.edn`
-       (rf2-jhn46) that the CLJS enumeration probe (rf2-2mtte)
-       runtime-verifies.
+       that the CLJS enumeration probe runtime-verifies.
 
-  Before this ns, adding / removing / renaming a panel meant editing
-  each projection by hand and HOPING they stayed aligned — exactly the
-  drift class the keystone exists to kill. (A live example the guard
-  caught: `007-UX-IA.md` named `mount-views!`, a fn that no longer
-  exists, while omitting `mount-event-spine!`, a fn that does.)
+  Without a single source, adding / removing / renaming a panel means
+  editing each projection by hand and HOPING they stay aligned — exactly
+  the drift class the keystone exists to kill.
 
   ## The single source
 
@@ -38,11 +35,11 @@
     - The Xray API spec — the same guard reconciles the `mount-*!`
       names parsed out of `007-UX-IA.md` + `008-Embedding-Contract.md`
       against this set (bidirectional → RED on drift).
-    - The api-manifest `:cljs-only` rows — the rf2-2mtte CLJS probe +
-      the rf2-gkp0t `xray_spec_check` already reconcile the manifest's
-      `panels` rows against the live vars; because the live vars are
-      themselves guarded against this enum, the manifest inherits enum
-      coherence transitively.
+    - The api-manifest `:cljs-only` rows — the CLJS enumeration probe +
+      the `xray_spec_check` reconcile the manifest's `panels` rows
+      against the live vars; because the live vars are themselves
+      guarded against this enum, the manifest inherits enum coherence
+      transitively.
 
   A DRIFT between any projection and this source goes RED in CI.
 

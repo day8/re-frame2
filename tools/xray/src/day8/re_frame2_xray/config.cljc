@@ -1,11 +1,10 @@
 (ns day8.re-frame2-xray.config
   "Compile-time and runtime configuration for Xray.
 
-  Phase 1 held a single config concern: the 'Open in editor'
-  preference (rf2-evgf5). Xray now also exposes the default inline
-  layout-host selector, default auto-open switch (rf2-eehov), and the
-  ribbon filter pill seed + persistence key (rf2-ak4ms). Future phases
-  extend this with theme defaults, buffer depth, etc.
+  Holds Xray's config concerns: the 'Open in editor' preference, the
+  default inline layout-host selector, the default auto-open switch, and
+  the ribbon filter pill seed + persistence key. Future phases extend
+  this with theme defaults, buffer depth, etc.
 
   ## Why a separate config ns
 
@@ -47,7 +46,7 @@
 (def default-layout-host-selector
   "[data-rf-xray-host]")
 
-;; ---- Inline-host resize contract (rf2-um813) ----------------------------
+;; ---- Inline-host resize contract ----------------------------------------
 ;;
 ;; The host page owns sizing for `[data-rf-xray-host]` (per
 ;; spec/011-Launch-Modes.md §Layout host contract). To let developers
@@ -81,13 +80,13 @@
 
 (def default-layout-host-width
   "Default value Xray recommends for `--rf-xray-inline-width` when the
-  host does not override it. Bumped from 420px → 560px per rf2-9ovfb
-  (Pitch8 field feedback: event vectors with map payloads wrap awkwardly
-  at 420px; 560px reads much better for the Event Detail panel)."
+  host does not override it. 560px: event vectors with map payloads
+  wrap awkwardly at narrower widths; 560px reads well for the Event
+  Detail panel."
   "560px")
 
 (def default-panel-width-px
-  "Default panel width in pixels (rf2-x8h9y). Mirrors
+  "Default panel width in pixels. Mirrors
   `default-layout-host-width` (`\"560px\"`) without the unit so the
   numeric Settings slot, the resize handle's drag math, and the
   double-click reset can compose against one source of truth. The
@@ -99,52 +98,47 @@
   560)
 
 (def min-panel-width-px
-  "Lower clamp for the resize handle (rf2-x8h9y). 320px matches the
+  "Lower clamp for the resize handle. 320px matches the
   inline-host snippet's `min-width: 320px` floor — below this the
   L1 ribbon clusters start to wrap and the chrome becomes unusable."
   320)
 
 (def max-panel-width-fraction
   "Upper clamp for the resize handle expressed as a fraction of the
-  viewport width (rf2-x8h9y). 0.9 leaves a 10% sliver for the host
+  viewport width. 0.9 leaves a 10% sliver for the host
   app so the user always has a visual anchor back to their content;
   full-viewport coverage is the dedicated `:fullscreen` panel-position
   rather than a side-effect of dragging the handle off the left edge."
   0.9)
 
-;; ---- L2 event-list vertical resize (rf2-t2dsh) ---------------------------
+;; ---- L2 event-list vertical resize --------------------------------------
 ;;
 ;; The seam between the L2 event list and the L3 tab bar is a draggable
 ;; row-resize affordance. The height value persists through the same
 ;; Settings round-trip as the panel-width; floor + ceiling clamp so the
 ;; list cannot collapse below two rows + chrome (the documented L2 min)
-;; and cannot expand so far that the L4 detail panel disappears.
-;;
-;; The earlier browser-native `:resize \"vertical\"` corner-grip was
-;; retired in rf2-t2dsh: it carried no persistence, no keyboard
-;; affordance, and a tiny corner hit-target. The seam matches the
-;; left-edge panel-width handle's interaction model so all resize
-;; surfaces share one mental model (drag the seam, double-click to
+;; and cannot expand so far that the L4 detail panel disappears. The seam
+;; matches the left-edge panel-width handle's interaction model so all
+;; resize surfaces share one mental model (drag the seam, double-click to
 ;; reset, keyboard arrows for fine step).
 
 (def default-events-list-height-px
-  "Default L2 event-list height in pixels (rf2-t2dsh). 200px == 8 rows
-  × 22px + 7 × 2px gap + 8px outer padding, matching the rf2-htik0
-  Bug 2 tightened rhythm. The drag handle on the L2/L3 seam writes the
-  live value back through `:rf.xray/set-events-list-height-px`, which
-  clamps + persists + writes the inline `height` style on the next
-  paint."
+  "Default L2 event-list height in pixels. 200px == 8 rows × 22px +
+  7 × 2px gap + 8px outer padding, matching the tightened row rhythm.
+  The drag handle on the L2/L3 seam writes the live value back through
+  `:rf.xray/set-events-list-height-px`, which clamps + persists + writes
+  the inline `height` style on the next paint."
   200)
 
 (def min-events-list-height-px
-  "Lower clamp for the L2/L3 seam drag handle (rf2-t2dsh). 48px ==
-  2 rows + chrome, matching the previously documented `min-height`
-  ceiling that kept the list operable when dragged tight."
+  "Lower clamp for the L2/L3 seam drag handle. 48px == 2 rows + chrome,
+  the `min-height` floor that keeps the list operable when dragged
+  tight."
   48)
 
 (def max-events-list-height-fraction
   "Upper clamp for the L2/L3 seam drag handle expressed as a fraction
-  of the viewport height (rf2-t2dsh). 0.7 leaves a 30% sliver for the
+  of the viewport height. 0.7 leaves a 30% sliver for the
   L1 chrome + L3 tab bar + L4 detail panel — full-viewport L2 isn't a
   documented mode; clamping prevents the user dragging the seam below
   the bottom of the viewport, which would orphan the L3/L4 surfaces."
@@ -163,7 +157,7 @@
 
 (defn clamp-events-list-height-px
   "Pure helper: clamp `px` to the seam handle's [min, viewport×0.7]
-  range (rf2-t2dsh). Pass `viewport-height-px` explicitly so the helper
+  range. Pass `viewport-height-px` explicitly so the helper
   stays CLJC-pure and JVM-testable (no implicit `window.innerHeight`
   reach). Non-numeric input falls back to `default-events-list-height-px`
   so a malformed persisted payload never leaves the list at an
@@ -180,8 +174,7 @@
 (def default-accent-css-var
   "Name of the CSS custom property carrying Xray's accent colour (the
   GitHub blue `#539bf5` from `theme/tokens.cljc` / `spec/007-UX-IA.md`
-  §Colour system / `:accent` — the single Figma accent per
-  rf2-ad7zx.13). Published per rf2-9ovfb so:
+  §Colour system / `:accent` — the single Figma accent). Published so:
 
     - Host application stylesheets can colour their own dev chrome
       to match Xray (e.g. a resize-handle inset shadow, a dock-
@@ -209,38 +202,36 @@
 (def default-accent
   "Default value Xray publishes for `--rf-xray-accent` — the single
   Figma accent from `theme/tokens.cljc` (`:accent`, GitHub blue
-  `#539bf5` per rf2-ad7zx.13). Resolved through the canonical
-  `dark-palette` map so the accent hex has exactly one source of truth
-  (rf2-5kfxe.4). Matches the accent catalogued in `spec/007-UX-IA.md`
-  §Colour system.
+  `#539bf5`). Resolved through the canonical `dark-palette` map so the
+  accent hex has exactly one source of truth. Matches the accent
+  catalogued in `spec/007-UX-IA.md` §Colour system.
 
   Reads `dark-palette` (the literal hex map) rather than `tokens`
-  because `tokens` exposes CSS-variable strings (`var(--rf-xray-…)`)
-  post rf2-on4cm; this constant is the VALUE that gets published
-  INTO the CSS variable, not a reference to it. The Dynamic/Static
-  mode no longer flips the accent colour (rf2-ad7zx.13), so the single
-  `:accent` token is the host-published default."
+  because `tokens` exposes CSS-variable strings (`var(--rf-xray-…)`);
+  this constant is the VALUE that gets published INTO the CSS variable,
+  not a reference to it. The single `:accent` token is the
+  host-published default across both Dynamic and Static mode."
   (:accent tokens/dark-palette))
 
 (def default-layout-host-snippet
   ;; DOM order is `<main>` first, host `<aside>` second — flex flow
   ;; lays the aside on the right of the app column (per spec/011-
-  ;; Launch-Modes.md §Layout host contract, rf2-e07yk). CSS uses
+  ;; Launch-Modes.md §Layout host contract). CSS uses
   ;; `var(--rf-xray-inline-width, 560px)` so a host that pastes the
   ;; snippet verbatim gets:
-  ;;   - default geometry (560px flex-basis per rf2-9ovfb, 320px floor)
+  ;;   - default geometry (560px flex-basis, 320px floor)
   ;;   - a single one-line override path:
   ;;       :root { --rf-xray-inline-width: 720px; }
   ;;   - a user-draggable resize handle auto-injected by Xray
-  ;;     (per rf2-70u8q + spec/007-UX-IA.md §Resize affordance) — the
-  ;;     consumer no longer wires `resize: horizontal` / `overflow:
-  ;;     auto`; Xray mounts its own handle as soon as the shell
-  ;;     renders. Consumers that prefer the browser-native handle
-  ;;     opt out by setting `resize: horizontal` on the host (yield-
-  ;;     to-consumer detection per spec/007 §Yield-to-consumer).
+  ;;     (per spec/007-UX-IA.md §Resize affordance) — the consumer
+  ;;     need not wire `resize: horizontal` / `overflow: auto`; Xray
+  ;;     mounts its own handle as soon as the shell renders. Consumers
+  ;;     that prefer the browser-native handle opt out by setting
+  ;;     `resize: horizontal` on the host (yield-to-consumer detection
+  ;;     per spec/007 §Yield-to-consumer).
   ;;   - app content to the left stays in normal flex flow
   ;;     (no overlay, no body padding).
-  ;;   - `--rf-xray-accent` published on `:root` (rf2-9ovfb) so
+  ;;   - `--rf-xray-accent` published on `:root` so
   ;;     host stylesheets can colour their own dev chrome (resize
   ;;     handles, dock separators, story chips) to match Xray
   ;;     without forking the hex. Override on `:root` for a tinted
@@ -310,7 +301,7 @@
   []
   @auto-open?)
 
-;; ---- *keybinding-enabled?* (rf2-4eyik — embed-host opt-out for the
+;; ---- *keybinding-enabled?* (embed-host opt-out for the
 ;; global keydown listener) ------------------------------------------------
 ;;
 ;; Xray attaches a window-level capture-phase `keydown` listener
@@ -324,8 +315,7 @@
 ;; routinely register their own `Cmd/Ctrl+K` palette + their own
 ;; bindings. With Xray's listener attached at the capture phase the
 ;; host's own bindings never fire — the embed silently swallows
-;; keystrokes that belong to the host (rf2-q7who Thread A, observed
-;; via rf2-drprn).
+;; keystrokes that belong to the host.
 ;;
 ;; The flag is the host's surrender switch: set it to `false` BEFORE
 ;; the Xray preload runs (typically inside the host's boot sequence
@@ -345,8 +335,7 @@
          standalone Xray shell needs its Ctrl+Shift+C / Cmd-K / spine
          bindings). Set to `false` by embed hosts (Story RHS, third-
          party tool surfaces) whose own keybindings collide with
-         Xray's — `attach!` short-circuits to a no-op. Per rf2-4eyik
-         (rf2-q7who Thread A)."}
+         Xray's — `attach!` short-circuits to a no-op."}
   keybinding-enabled?
   (atom true))
 
@@ -362,8 +351,7 @@
 
 (defn keybinding-attach-enabled?
   "Return true when `keybinding/attach!` should install the global
-  keydown listener. Read by `keybinding/attach!` at attach time. Per
-  rf2-4eyik (rf2-q7who Thread A)."
+  keydown listener. Read by `keybinding/attach!` at attach time."
   []
   @keybinding-enabled?)
 
@@ -376,7 +364,7 @@
   editor
   (atom :vscode))
 
-;; ---- editor-explicitly-set? (rf2-4s08ov — open-in-editor DX hint) -------
+;; ---- editor-explicitly-set? (open-in-editor DX hint) --------------------
 ;;
 ;; The `editor` atom defaults to `:vscode`, so a host that NEVER calls
 ;; `set-editor!` / `(configure! {:rf.xray/editor …})` is indistinguishable
@@ -385,10 +373,9 @@
 ;; default scheme, but if VS Code is not the developer's editor the OS
 ;; has no handler and the click is a SILENT no-op (the URI resolves
 ;; fine — `Location.assign` fires — but nothing happens because no OS
-;; protocol handler is registered; JS cannot observe that failure). Per
-;; rf2-ffijtp the fix was documented; rf2-4s08ov surfaces an actionable
-;; "pick an editor in Settings" hint at click-time instead of the
-;; silent no-op.
+;; protocol handler is registered; JS cannot observe that failure).
+;; Xray surfaces an actionable "pick an editor in Settings" hint at
+;; click-time instead of the silent no-op.
 ;;
 ;; This flag records whether the host EXPLICITLY chose an editor.
 ;; `set-editor!` sets it true on any non-nil call (the host has signalled
@@ -403,7 +390,7 @@
          framework default the host never confirmed. Set `true` by
          `set-editor!` on any non-nil call. Read by `editor-configured?`
          to decide whether the open-in-editor click should hint to
-         pick an editor in Settings (rf2-4s08ov)."}
+         pick an editor in Settings."}
   editor-explicitly-set?
   (atom false))
 
@@ -422,10 +409,10 @@
                                    `{line}` / `{column}` placeholders.
     - `nil`               — reset to `:vscode` default.
 
-  Per rf2-4s08ov a non-nil call flips `editor-explicitly-set?` to true
-  (the host has confirmed an editor — even `:vscode` explicitly counts);
-  a nil reset clears the flag back to the unconfigured state so the
-  open-in-editor DX hint re-arms.
+  A non-nil call flips `editor-explicitly-set?` to true (the host has
+  confirmed an editor — even `:vscode` explicitly counts); a nil reset
+  clears the flag back to the unconfigured state so the open-in-editor
+  DX hint re-arms.
 
   Returns nothing."
   [e]
@@ -438,7 +425,7 @@
   `set-editor!` (or `xray-config/configure! {:rf.xray/editor …}`)
   pushed into the atom at boot. Settings popup's editor-override
   picker reads this to render the 'Project default: <name>' hint
-  next to the Reset button (per rf2-dudqz).
+  next to the Reset button.
 
   This is NOT the value `get-editor` returns when an end-user override
   is in play — it is the BASE the override sits on top of."
@@ -447,7 +434,7 @@
 
 (def ^:private valid-editor-override-keywords
   "Enumerated keyword overrides accepted by `valid-editor-override?`.
-  Mirror of `set-editor!`'s accepted shape (rf2-dudqz). Adding a new
+  Mirror of `set-editor!`'s accepted shape. Adding a new
   editor here requires a matching `defmethod` in
   `re-frame.source-coords.editor-uri/editor-uri`."
   #{:vscode :cursor :windsurf :zed :idea})
@@ -461,10 +448,10 @@
     - A `{:custom <string>}` map (any non-empty string).
 
   Returns false for every other shape — corrupted localStorage
-  payloads, hand-edits, legacy values from earlier experimental
-  shapes. The read-side `get-editor` filters through this predicate
-  (rf2-a1tv6) so a corrupted slot degrades to the host default rather
-  than passing a malformed value through to the URI builder."
+  payloads, hand-edits, malformed values. The read-side `get-editor`
+  filters through this predicate so a corrupted slot degrades to the
+  host default rather than passing a malformed value through to the URI
+  builder."
   [v]
   (or (nil? v)
       (contains? valid-editor-override-keywords v)
@@ -476,7 +463,7 @@
   "Return the editor preference Xray's 'Open in editor' affordance
   should target.
 
-  Three-tier resolution (per rf2-dudqz):
+  Three-tier resolution:
 
     1. **End-user override** — the `[:general :editor-override]`
        settings slot. Settable via the Settings popup → General tab
@@ -484,10 +471,9 @@
        localStorage like every other operator preference. Wins when
        non-nil so a mixed-editor teammate can flip their machine to
        a different editor without touching the host app's boot config.
-       rf2-a1tv6 — the slot is filtered through
-       `valid-editor-override?` on read; malformed payloads (a
-       corrupted localStorage write, a hand-edit, a stale
-       experimental shape) degrade to the host default instead of
+       The slot is filtered through `valid-editor-override?` on read;
+       malformed payloads (a corrupted localStorage write, a hand-edit,
+       a non-conforming shape) degrade to the host default instead of
        reaching the URI builder. A rejection emits a `tap>` so tests
        + operators can observe the corruption.
     2. **Host default** — the `editor` atom set by
@@ -510,7 +496,7 @@
     (or override @editor)))
 
 (defn editor-configured?
-  "True iff an editor has been EFFECTIVELY configured (rf2-4s08ov) —
+  "True iff an editor has been EFFECTIVELY configured —
   i.e. either the host explicitly set `:rf.xray/editor`
   (`editor-explicitly-set?`) OR a valid non-nil operator override sits
   in the `[:general :editor-override]` settings slot.
@@ -533,10 +519,10 @@
         override (when (valid-editor-override? raw) raw)]
     (boolean (or @editor-explicitly-set? (some? override)))))
 
-;; ---- *project-root* (rf2-5m5n2 — 'Open in editor' path prefix) ----------
+;; ---- *project-root* ('Open in editor' path prefix) ----------------------
 ;;
-;; Per rf2-zfy1e (Story) / rf2-5m5n2 (Xray): source-coords stamped at
-;; registration time are classpath-relative (the form-meta `:file` slot,
+;; Source-coords stamped at registration time are classpath-relative
+;; (the form-meta `:file` slot,
 ;; e.g. `"panel_gallery/event_detail_stories.cljs"`). Editor URI handlers
 ;; (`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.) resolve
 ;; `<path>` against the filesystem; a relative path fails with "Path does
@@ -547,8 +533,8 @@
 ;; The host application sets this once at boot via
 ;; `(xray-config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app/src"})`.
 ;; Default is nil — when unset, the source-coord file ships verbatim and
-;; the Open chip behaves exactly as it did pre-rf2-5m5n2 (useful for hosts
-;; whose source-paths are already absolute, and for tests).
+;; the Open chip ships the path unprefixed (useful for hosts whose
+;; source-paths are already absolute, and for tests).
 ;;
 ;; Xray's project-root is **independent** of Story's. Hosts that run
 ;; both tools may want different roots (e.g. an app-source root for
@@ -582,24 +568,22 @@
   []
   @project-root)
 
-;; ---- *egress-profile* (rf2-h40lt2 — EP-0015 per-(tool,frame) reveal grain) -
+;; ---- *egress-profile* (EP-0015 per-(tool,frame) reveal grain) -----------
 ;;
 ;; EP-0015 issue 7 / Spec 015 §Cross-tool visibility grain: on-box
 ;; visibility is per `(tool, frame)` — there is NO single process-global
 ;; `show-sensitive?` user toggle. Local tools default to
 ;; `:rf.egress/local-redacted` (suppress sensitive display); raw requires
-;; an explicit trusted-local opt-in (`:rf.egress/local-raw`). The
-;; predecessor process-global `:rf.privacy/show-sensitive?` boolean
-;; (rf2-azls9) is RETIRED and folded onto this named-boundary model —
-;; matching the Story migration (rf2-3t26eh) and the per-(tool,frame)
-;; `local_render.cljc` seam already shipped in this tool.
+;; an explicit trusted-local opt-in (`:rf.egress/local-raw`). This
+;; named-boundary model matches the per-(tool,frame) `local_render.cljc`
+;; seam shipped in this tool.
 ;;
 ;; This atom holds Xray's local-render egress PROFILE. Xray is a
 ;; framework-published trace consumer (its preload listener + the
 ;; trace-collector snapshot feed every panel), so every value-bearing slot
 ;; it surfaces on a dev surface ships under this profile. The "is a
-;; `:sensitive?` event visible?" decision is no longer a hand-held boolean:
-;; it derives from the profile's `:rf.size/include-sensitive?` resolution
+;; `:sensitive?` event visible?" decision derives from the profile's
+;; `:rf.size/include-sensitive?` resolution
 ;; via the framework projection table (`projection/profile-size-opts`), the
 ;; SAME table `project-egress` consumes — one source of truth, no
 ;; re-implemented redaction policy.
@@ -644,15 +628,14 @@
          `:sensitive?` redact/pass decision derives from this profile's
          `:rf.size/include-sensitive?` resolution via the framework
          projection table, the same table `project-egress` consumes (one
-         source of truth). Per EP-0015 (rf2-h40lt2), folding the retired
-         process-global `:rf.privacy/show-sensitive?` boolean (rf2-azls9)
-         onto the per-(tool,frame) frame-owned model."}
+         source of truth). Per EP-0015, on-box visibility is the
+         per-(tool,frame) frame-owned model."}
   egress-profile
   (atom default-egress-profile))
 
-;; ---- toggle-off callbacks (rf2-lqmje — retroactive scrub) ----------------
+;; ---- toggle-off callbacks (retroactive scrub) ---------------------------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub (rf2-lqmje), NARROWING the
+;; Per Spec 009 §Privacy §Retroactive-scrub, NARROWING the
 ;; egress profile from a sensitive-revealing boundary
 ;; (`:rf.egress/local-raw`) back to the redacting default MUST clear the
 ;; trace buffer — the reveal is NOT a one-way trapdoor. The collector only
@@ -729,14 +712,14 @@
   (boolean (:rf.size/include-sensitive? (projection/profile-size-opts profile))))
 
 (defn set-egress-profile!
-  "Replace Xray's local-render `:rf.egress/*` profile (EP-0015, rf2-h40lt2).
+  "Replace Xray's local-render `:rf.egress/*` profile (EP-0015).
   Xray's `configure!` calls this via `:rf.xray/egress-profile`. `nil`
   resets to the default (`:rf.egress/local-redacted` — fail-closed,
   sensitive display suppressed). An unknown profile keyword is rejected by
   `configure!` before reaching here; defence-in-depth, a non-member value
   coerces to the fail-closed default.
 
-  Per rf2-lqmje (Spec 009 §Privacy §Retroactive-scrub): when the call
+  Per Spec 009 §Privacy §Retroactive-scrub: when the call
   NARROWS the profile from a sensitive-revealing boundary
   (`:rf.egress/local-raw`) back to a redacting one, the trace buffer is
   cleared by invoking every registered `toggle-off-callbacks` entry. The
@@ -787,9 +770,8 @@
 
 (defn include-sensitive?
   "True iff Xray's current local-render profile reveals sensitive values
-  (i.e. resolves to `:rf.size/include-sensitive? true`). The successor to
-  the retired `get-show-sensitive` boolean read — the trace collector
-  consults this (via `suppress-sensitive?`) to decide whether a
+  (i.e. resolves to `:rf.size/include-sensitive? true`). The trace
+  collector consults this (via `suppress-sensitive?`) to decide whether a
   `:sensitive?` event is shown or redacted. Fail-closed by default."
   []
   (profile-includes-sensitive? @egress-profile))
@@ -797,17 +779,16 @@
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top
   level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
-  predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn
-  / rf2-iwqu9, every consumer of `:sensitive?` (Xray, Story,
-  story-mcp, re-frame2-pair-mcp) composes against ONE framework
-  primitive rather than reimplementing the five-token check. Per Spec
-  009 §Privacy."
+  predicate (re-exported as `re-frame.core/sensitive?`) — every consumer
+  of `:sensitive?` (Xray, Story, story-mcp, re-frame2-pair-mcp) composes
+  against ONE framework primitive rather than reimplementing the
+  five-token check. Per Spec 009 §Privacy."
   [ev]
   (privacy/sensitive? ev))
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by Xray's trace collector under
-  the current local-render egress profile (EP-0015, rf2-h40lt2)?
+  the current local-render egress profile (EP-0015)?
 
   Returns `true` iff (a) the event is `:sensitive? true` AND (b) the
   current profile does NOT reveal sensitive values (`include-sensitive?`
@@ -819,7 +800,7 @@
   (and (sensitive-event? ev)
        (not (include-sensitive?))))
 
-;; ---- *suppressed-counters* (rf2-azls9 — UI redaction indicator) ----------
+;; ---- *suppressed-counters* (UI redaction indicator) ---------------------
 ;;
 ;; The shell's bottom rail renders a `[● REDACTED N]` hint when sensitive
 ;; events were suppressed. The hint tells the user "you're seeing fewer
@@ -865,8 +846,8 @@
   (CLJC tests assert it directly); the dispatch is the reactive
   surface for CLJS.
 
-  Per rf2-1barg / rf2-nesy9: the dispatch targets the production Xray
-  shell frame via the named `defaults/default-frame-id` Var (NOT a bare
+  The dispatch targets the production Xray shell frame via the named
+  `defaults/default-frame-id` Var (NOT a bare
   `{:frame :rf/xray}` literal). This is a trace-collector infra seam,
   not a per-instance render affordance — `note-suppressed!` is called
   by the trace bus, which has no surrounding render/event frame, and
@@ -923,7 +904,7 @@
           (rf/dispatch [:rf.xray/reset-suppressed-counters frame-id]))))
    nil))
 
-;; ---- settings popup defaults + persistence (rf2-9poxq) ------------------
+;; ---- settings popup defaults + persistence ------------------------------
 ;;
 ;; The Settings popup modal (`settings/popup.cljs`) reads + writes a
 ;; settings map carrying user preferences for general / theme knobs.
@@ -940,13 +921,13 @@
 ;; subscription contract) folds onto `get-in` / `assoc-in` over the
 ;; same shape.
 ;;
-;; ## Locked decisions (rf2-9poxq R3, rf2-jh9ws)
+;; ## Locked decisions
 ;;
 ;; - auto-open-on-error default OFF (the user is in their app, not
 ;;   asking for Xray to interrupt them)
 ;; - panel-position default `:right-rail` (matches the existing
 ;;   `:rf.xray/layout-host-selector` inline-host posture)
-;; - theme default `:light` (rf2-3f2di — the authoritative reference
+;; - theme default `:light` (the authoritative reference
 ;;   `tools/xray/design-reference/xray_devtools_reference.cljs` renders
 ;;   light by default; Xray boots onto the same default. Both palettes
 ;;   exist in `theme/tokens.cljc` and the user can flip to dark.)
@@ -955,15 +936,15 @@
 ;;   subsequent inline-style reads via the published CSS custom
 ;;   property `--rf-xray-text-size`).
 ;;
-;; ## Migration (rf2-jh9ws)
+;; ## Unknown-section tolerance
 ;;
-;; Settings persisted with `:telemetry` key from prior sessions
-;; should NOT break. `load-settings-from-storage!` deep-merges over
-;; `default-settings` per-known-section, so any legacy `:telemetry`
-;; key in the persisted payload is silently dropped (the merge target
-;; no longer carries the slot). Same for `update-setting!` —
+;; A persisted payload carrying an unknown top-level section MUST NOT
+;; break. `load-settings-from-storage!` deep-merges over
+;; `default-settings` per-known-section, so any unknown top-level key in
+;; the persisted payload is silently dropped (the merge target only
+;; carries known slots). Same for `update-setting!` —
 ;; `valid-section-key?` rejects unknown `[section key]` paths so a
-;; rogue `[:telemetry :opt-in?]` write is a no-op + a tap>.
+;; write to an unknown section is a no-op + a tap>.
 
 (def settings-storage-key
   "localStorage key the settings round-trip uses. Versioned so a future
@@ -977,8 +958,7 @@
   against. See the comment block above for the rationale on each
   default.
 
-  ## :diff section (rf2-i39w2 — hiccup-diff micro-engine, Phase 3 of
-  rf2-abts7)
+  ## :diff section (hiccup-diff micro-engine)
 
   `:highlight-fn-ref-changes?` — opt-in toggle for the hiccup-diff
   engine's fn-ref classification (`ai/findings/2026-05-18-difftastic-
@@ -988,41 +968,38 @@
   `true` when diagnosing memoization issues — child re-renders because
   the parent passes a new fn every time.
 
-  ## :general additions (rf2-ttnst — Settings popup v1 expansion)
+  ## :general additions (Settings popup v1)
 
   - `:density` (#{:cosy :compact}, default `:cosy`) — vertical-rhythm
-    knob applied to Views detail rows + App-db diff rows. Per Mike's
-    2026-05-19 walkthrough the Comfy tier is dropped; only two
-    densities ship in v1. Consumers read `:rf.xray/density` and
-    branch padding/line-height. Runtime plumbing into individual
-    panels lands incrementally.
+    knob applied to Views detail rows + App-db diff rows. Two densities
+    ship in v1. Consumers read `:rf.xray/density` and branch
+    padding/line-height. Runtime plumbing into individual panels lands
+    incrementally.
   - `:show-tool-frames?` (boolean, default `false`) — when true the
     L1 frame picker dropdown reveals tool frames (`:rf/xray`,
     `:rf/pair2`). OFF by default per spec/007-UX-IA.md §Frame-
     observation isolation invariant I1.
   - `:long-keyword-threshold` (integer, default 24) — character count
     above which a fully-qualified keyword is elided in compact list
-    cells. Per spec/007-UX-IA.md §Long-keyword treatment; was
-    previously a fixed constant.
+    cells. Per spec/007-UX-IA.md §Long-keyword treatment.
   - `:show-unchanged-subs?` (boolean, default `false`) — always-expand
     pin for the Reactive panel's 'unchanged subs' disclosure (per
-    spec/021 §3.4 · rf2-wyvf2). OFF by default: unchanged subs are
+    spec/021 §3.4). OFF by default: unchanged subs are
     coverage signal, not signal-of-the-moment, so the panel hides
     them behind a footer disclosure that operator can flip per-
     cascade. Flip ON to always expand the disclosure inline.
 
   - `:show-ungrouped?` (boolean, default `false`) — opt-in surface
-    for the `:ungrouped` pseudo-cascade bucket (per rf2-r9lyy / Mike
-    2026-05-19 closure of rf2-q60yf). OFF by default: the L2 event
-    list filters `:ungrouped` (registry-time emits, frame lifecycle
-    outside a drain, `:rf.ssr/hydration-mismatch`, REPL evals) per
-    rf2-639lc — silent-by-default. Flip ON to reveal those events
+    for the `:ungrouped` pseudo-cascade bucket. OFF by default: the L2
+    event list filters `:ungrouped` (registry-time emits, frame
+    lifecycle outside a drain, `:rf.ssr/hydration-mismatch`, REPL
+    evals) — silent-by-default. Flip ON to reveal those events
     in L2 with a muted visual treatment; clicking the row focuses
     the bucket so downstream panels populate. Useful when debugging
     SSR / REPL / registry-time flows.
 
   - `:epoch-history` (integer, default 50) — depth of the per-frame
-    epoch ring buffer (per rf2-3zyyx / spec/021 §10.7, §13). Maps 1:1
+    epoch ring buffer (per spec/021 §10.7, §13). Maps 1:1
     to `(rf/configure! {:epoch-history {:depth N}})` — Xray's settings
     write through to that runtime knob via `apply-epoch-history!` so
     the live substrate ring resizes immediately on change AND the
@@ -1033,7 +1010,7 @@
     values save memory in long sessions, higher values retain more
     time-travel coverage.
 
-  ## :buffer section (rf2-ttnst — Settings popup v1 expansion)
+  ## :buffer section (Settings popup v1)
 
   Buffer-depth tunables surfaced in the Buffer tab.
 
@@ -1042,41 +1019,39 @@
     `re-frame.trace.tooling/default-cascades-retained`. Writes through
     to the runtime ring via `(rf/configure! {:trace-buffer
     {:cascades-retained N}})` — `apply-cascades-retained!` resizes the
-    live ring and `apply-all!` replays the persisted value on boot
-    (rf2-5u03ig). Renamed from `:trace-buffer/keep` per the rf2-3g9nw
-    D1=a ruling: the unit changed from events (1000) to cascades (50)
-    when Xray's separate ring was retired in favour of the framework's
-    per-frame cascade-keyed rings.
+    live ring and `apply-all!` replays the persisted value on boot.
+    The unit is cascades (50), retained in the framework's per-frame
+    cascade-keyed rings.
 
-  ## `:event-list-col-widths` (rf2-6ni62 — resizable event-list columns)
+  ## `:event-list-col-widths` (resizable event-list columns)
 
   Per-column pixel widths for the L2 event list's three user-resizable
   columns. The leading `event-id` column stays `flex: 1 1 auto` and
   absorbs any remaining width; the trailing three carry explicit widths
   the user drags via divider handles between cells. Persisted through
   the same settings round-trip so widths survive reload. Floors live in
-  `event-list-col-min-widths`; defaults match the pre-resize fixed
-  widths so a fresh install reads identically to the pre-feature shell.
+  `event-list-col-min-widths`; defaults give a fresh install a sensible
+  starting layout.
 
   Header + every row read these widths via the same
   `:rf.xray/event-list-col-widths` sub so the two surfaces never drift
   out of column alignment."
   {:general   {:text-size              13              ; px — slider range 10–18
-               :panel-position         :right-rail     ; :right-rail | :fullscreen (rf2-czcg5 dropped :popout — pop-out launches from the chrome ⛶ button)
-               :panel-width-px         default-panel-width-px ; rf2-x8h9y resize handle
-               :events-list-height-px  default-events-list-height-px ; rf2-t2dsh L2/L3 seam handle
+               :panel-position         :right-rail     ; :right-rail | :fullscreen (pop-out launches from the chrome ⛶ button)
+               :panel-width-px         default-panel-width-px ; resize handle
+               :events-list-height-px  default-events-list-height-px ; L2/L3 seam handle
                :auto-open-on-error?    false
                :density                :cosy           ; #{:cosy :compact}
                :show-tool-frames?      false
-               :show-unchanged-subs?   false           ; rf2-wyvf2 Reactive-panel disclosure pin
-               :show-ungrouped?        false           ; rf2-r9lyy opt-in pseudo-cascade surface
-               :epoch-history          50              ; rf2-3zyyx per-frame epoch ring depth
+               :show-unchanged-subs?   false           ; Reactive-panel disclosure pin
+               :show-ungrouped?        false           ; opt-in pseudo-cascade surface
+               :epoch-history          50              ; per-frame epoch ring depth
                :long-keyword-threshold 24
-               ;; rf2-ybjkx — user-side override of the OS-level
+               ;; User-side override of the OS-level
                ;; `prefers-reduced-motion: reduce` media query. Three
                ;; values:
-               ;;   :os      — defer to the OS pref (the historic
-               ;;              behaviour; CSS media query alone)
+               ;;   :os      — defer to the OS pref (CSS media query
+               ;;              alone)
                ;;   :always  — force reduced motion regardless of OS
                ;;   :never   — force full motion regardless of OS
                ;; Drives the `rf-xray-motion-override-{always,never}`
@@ -1084,7 +1059,7 @@
                ;; reads to override the media-query-derived
                ;; `--rf-xray-motion-scale`.
                :reduced-motion-override :os
-               ;; rf2-846h2 — user-side opt-in for the system-colors
+               ;; User-side opt-in for the system-colors
                ;; (Windows HCM) rendering path even when the OS HCM is
                ;; OFF. Default `false`. When `true`, the shell root +
                ;; `<html>` carry `data-rf-force-colors="active"`; the
@@ -1095,17 +1070,16 @@
                ;; chrome on demand. Additive to the OS detection —
                ;; both paths produce the same painted chrome.
                :use-system-colors?      false
-               ;; rf2-6ni62 — L2 event-list user-resizable column
-               ;; widths in pixels. Keys match the three resizable
-               ;; columns (`event-id` is flex). Defaults mirror the
-               ;; pre-resize fixed widths so a fresh install lays out
-               ;; identically. The drag-handle dispatch path clamps to
-               ;; `event-list-col-min-widths` before the write so the
+               ;; L2 event-list user-resizable column widths in pixels.
+               ;; Keys match the three resizable columns (`event-id` is
+               ;; flex). Defaults give a fresh install a sensible
+               ;; starting layout. The drag-handle dispatch path clamps
+               ;; to `event-list-col-min-widths` before the write so the
                ;; persisted payload is always in-range.
                :event-list-col-widths   {:source    52
                                          :timestamp 76
                                          :duration  60}
-               ;; rf2-dudqz — end-user editor override for Xray's
+               ;; End-user editor override for Xray's
                ;; 'Open in editor' click-to-source links. Mixed-editor
                ;; teams: the host app sets `:rf.xray/editor` once at
                ;; boot via `xray-config/configure!`, but individual
@@ -1125,7 +1099,7 @@
                ;; client-side; it never mutates the host's atom and
                ;; never reaches other browsers / tabs / users.
                :editor-override         nil}
-   :theme     :light                                 ; :light | :dark (rf2-3f2di — light default per the authority reference)
+   :theme     :light                                 ; :light | :dark (light default per the authority reference)
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:cascades-retained 50}})
 
@@ -1148,10 +1122,9 @@
     over the default's, so unknown nested keys in `src` survive but
     a section absent from `src` keeps its full default.
   - `:theme` — a flat keyword, not a nested map; take the src's value
-    or fall back to the default (rf2-jh9ws).
-  Any unknown TOP-LEVEL section in `src` (e.g. a legacy `:telemetry`
-  key) falls on the floor — the reconstruction only knows the sections
-  enumerated here."
+    or fall back to the default.
+  Any unknown TOP-LEVEL section in `src` falls on the floor — the
+  reconstruction only knows the sections enumerated here."
   [src]
   (-> default-settings
       (update :general merge (:general src))
@@ -1161,7 +1134,7 @@
 
 (defn clamp-panel-width-px
   "Pure helper: clamp `px` to the resize handle's [min, viewport×0.9]
-  range (rf2-x8h9y). Pass `viewport-width-px` explicitly so the helper
+  range. Pass `viewport-width-px` explicitly so the helper
   stays CLJC-pure and JVM-testable (no implicit `window.innerWidth`
   reach). Non-numeric input falls back to `default-panel-width-px` so
   a malformed persisted payload never leaves the panel at an unusable
@@ -1174,13 +1147,13 @@
           ceil   (max floor max-px)]
       (long (-> px (max floor) (min ceil))))))
 
-;; ---- L2 event-list column widths (rf2-6ni62) -----------------------------
+;; ---- L2 event-list column widths ----------------------------------------
 ;;
 ;; The L2 event list carries four columns — `event-id` (flex), `source`,
 ;; `timestamp`, `duration`. The trailing three are user-resizable via
-;; drag handles BETWEEN columns. Defaults below mirror the pre-resize
-;; fixed widths so a fresh install lays out exactly as it did before the
-;; feature. Floors keep any column from collapsing to nothing — sized
+;; drag handles BETWEEN columns. Defaults below give a fresh install a
+;; sensible starting layout. Floors keep any column from collapsing to
+;; nothing — sized
 ;; from the lowercase column-label width (per-column floor, not a single
 ;; 60px blanket) so the header `source` / `timestamp` / `duration`
 ;; lowercase labels always read.
@@ -1190,15 +1163,13 @@
 ;; returns a fully-resolved map every consumer can read against. The
 ;; drag-handle dispatch path clamps to the floor BEFORE the write, so
 ;; the persisted payload is always in-range; `resolve-event-list-col-
-;; widths` is defence-in-depth for legacy payloads that pre-date the
-;; clamp.
+;; widths` is defence-in-depth for any out-of-range persisted payload.
 
 (def event-list-col-default-widths
   "Default per-column widths in pixels for the L2 event list's three
   user-resizable columns. Keys match the column ids (`event-id` is
-  flex; never sized). Values mirror the pre-resize fixed widths
-  (rf2-pjjwh + rf2-3f2di + rf2-lnod7) so a fresh install lays out
-  identically to the pre-feature shell."
+  flex; never sized). Values give a fresh install a sensible starting
+  layout."
   {:source    52
    :timestamp 76
    :duration  60})
@@ -1373,11 +1344,10 @@
      payload) degrade silently to the defaults the atom already holds.
      Called from the preload's side-effect block on CLJS startup.
 
-     Per rf2-jh9ws: legacy `:telemetry` keys (from sessions prior to
-     the Telemetry section's removal) are silently dropped — the
-     per-section merge below only knows about known slots, so any
-     unknown top-level key in the persisted payload falls on the
-     floor without throwing."
+     Unknown top-level keys in the persisted payload are silently
+     dropped — the per-section merge below only knows about known
+     slots, so any unknown top-level key falls on the floor without
+     throwing."
      []
      (try
        (when-let [raw (storage-get settings-storage-key)]
@@ -1427,7 +1397,7 @@
        (catch :default _ nil)))
   nil)
 
-;; ---- *filter-pills* (rf2-ak4ms — ribbon filter seeds + storage key) -----
+;; ---- *filter-pills* (ribbon filter seeds + storage key) -----------------
 ;;
 ;; Per `tools/xray/spec/018-Event-Spine.md` §7 ribbon pills persist
 ;; via localStorage per host-app under a Xray-namespaced key. Two
@@ -1450,8 +1420,8 @@
 
 (def default-filters
   "Default ribbon filter set Xray ships with — empty, per spec/018 §7
-  'Empty defaults' / rf2-ak4ms: first-session honesty beats first-
-  session quietness. Shipping a default `:mouse-move` filter would
+  'Empty defaults': first-session honesty beats first-session
+  quietness. Shipping a default `:mouse-move` filter would
   silently hide events the user didn't know they were emitting."
   {:in [] :out []})
 
@@ -1503,18 +1473,18 @@
 
 (defn configure!
   "Top-level Xray configuration. Every key lives under the
-  `:rf.xray/*` reserved namespace (per rf2-xea9u — re-frame2 tools'
-  `configure!` surfaces own their own reserved sub-namespace beneath
-  the framework `:rf/*` root; `:rf.<tool>/*` is the canonical
-  convention for ALL re-frame2 tool boot-time config). The on-box
-  reveal grain is per-tool (EP-0015 issue 7): Xray's egress profile
-  lives under `:rf.xray/egress-profile`, Story's under
-  `:rf.story/egress-profile` — there is NO single cross-tool toggle.
+  `:rf.xray/*` reserved namespace (re-frame2 tools' `configure!`
+  surfaces own their own reserved sub-namespace beneath the framework
+  `:rf/*` root; `:rf.<tool>/*` is the canonical convention for ALL
+  re-frame2 tool boot-time config). The on-box reveal grain is per-tool
+  (EP-0015 issue 7): Xray's egress profile lives under
+  `:rf.xray/egress-profile`, Story's under `:rf.story/egress-profile` —
+  there is NO single cross-tool toggle.
 
-  Keys group by TOPICAL prefix in their local name (the
-  key-naming axis per rf2-dz35f / audit-of-audits #16): editor /
-  layout-host / launch / keybinding / static-mode / settings /
-  filters / render / trace / logging. New keys MUST join an existing
+  Keys group by TOPICAL prefix in their local name (the key-naming
+  axis): editor / layout-host / launch / keybinding / static-mode /
+  settings / filters / render / trace / logging. New keys MUST join an
+  existing
   cluster prefix when the dial belongs to an established topic;
   mint a new prefix only when the knob opens a new axis. The full
   navigation map — every cluster, every v1 key, every vision key —
@@ -1522,11 +1492,10 @@
 
   Accepts:
 
-    `{:rf.xray/editor <kw>}` — Xray's 'Open in editor' preference
-       (rf2-evgf5).
+    `{:rf.xray/editor <kw>}` — Xray's 'Open in editor' preference.
     `{:rf.xray/project-root <string>}` — on-disk root prepended to
        the source-coord's classpath-relative `:file` slot before the
-       editor URI ships (rf2-5m5n2). Default `nil`. Nil / blank
+       editor URI ships. Default `nil`. Nil / blank
        clears the slot; an absent key leaves the current value
        untouched. Hosts whose source-paths are already absolute can
        leave this unset.
@@ -1545,10 +1514,9 @@
        listener. Embed hosts (Story mounts Xray as RHS) set `false`
        so their own global keybindings — typically `Cmd/Ctrl+K` for
        the host's command palette — are not swallowed by Xray's
-       capture-phase listener. Per rf2-4eyik (rf2-q7who Thread A).
-       MUST be set BEFORE the Xray preload runs.
+       capture-phase listener. MUST be set BEFORE the Xray preload runs.
     `{:rf.xray/egress-profile <kw>}` — Xray's on-box dev-UI egress
-       profile (EP-0015 issue 7, rf2-h40lt2). One of the closed
+       profile (EP-0015 issue 7). One of the closed
        `:rf.egress/*` enum (`re-frame.projection/profiles`); for the
        on-box dev surface the relevant pair is `:rf.egress/local-redacted`
        (the fail-closed default — suppress `:sensitive? true` display; the
@@ -1556,14 +1524,13 @@
        `:rf.egress/local-raw` (the trusted-local operator opt-in — reveal
        sensitive AND large values verbatim on your own machine). An unknown
        profile raises `:rf.error/unknown-egress-profile`. `nil` resets to
-       the default. This REPLACES the retired process-global
-       `:rf.privacy/show-sensitive?` boolean (rf2-azls9): EP-0015 §Cross-tool
-       visibility grain rules on-box visibility per `(tool, frame)`, with NO
-       single process-global user toggle. Revealing is an explicit operator
-       act flipping THIS tool's grain to `:rf.egress/local-raw`, not a
-       future-event switch shared across every tool.
+       the default. EP-0015 §Cross-tool visibility grain rules on-box
+       visibility per `(tool, frame)`, with NO single process-global user
+       toggle. Revealing is an explicit operator act flipping THIS tool's
+       grain to `:rf.egress/local-raw`, not a future-event switch shared
+       across every tool.
     `{:rf.xray/settings <map>}` — bulk-replace the Settings popup
-       state map (rf2-9poxq). Shape mirrors `default-settings`. The
+       state map. Shape mirrors `default-settings`. The
        popup's event surface (`:rf.xray/settings-update`) is the
        normal per-knob write path; this key is the bulk-set escape
        hatch (e.g. host wants to ship its own default theme).
@@ -1571,8 +1538,8 @@
        seed pill set the registry hydrates `:active-filters` with on
        FIRST install (when localStorage is empty). Default `nil` per
        spec/018 §7 'Empty defaults' — first-session honesty beats
-       first-session quietness (rf2-ak4ms). Story testbeds use this
-       to inject a known starting point for reproducibility.
+       first-session quietness. Story testbeds use this to inject a
+       known starting point for reproducibility.
     `{:rf.xray/filters-storage-key <string>}` — localStorage key
        the filter persistence layer reads / writes. Default
        `\"re-frame2.xray.filters.v1\"`. Hosts that run multiple
@@ -1593,10 +1560,9 @@
   Unknown keys are silently ignored (forward-compat: future Xray
   releases will grow keys; older hosts passing newer keys MUST NOT
   break, and newer hosts passing older-Xray-unaware keys MUST NOT
-  break). Pre-alpha posture: the rename to `:rf.xray/*` per
-  rf2-xea9u is a hard cut — the legacy bare / dotted spellings
-  (`:editor`, `:auto-open?`, `:launch/auto-open?`, etc.) are NOT
-  accepted. Returns nothing."
+  break). Every config key is `:rf.xray/*`-namespaced; bare / dotted
+  spellings (`:editor`, `:auto-open?`, `:launch/auto-open?`, etc.) are
+  NOT accepted. Returns nothing."
   [{editor-opt          :rf.xray/editor
     project-root-opt    :rf.xray/project-root
     settings-opt        :rf.xray/settings
@@ -1607,14 +1573,14 @@
     filters-opt         :rf.xray/filters
     filters-key-opt     :rf.xray/filters-storage-key
     :as opts}]
-  ;; rf2-eilutf — gate on key PRESENCE, not value `some?`. `set-editor!`
-  ;; already treats `nil` as the reset-to-default + clear-the-explicit-
-  ;; flag case (the per-key setter's documented contract); gating on
-  ;; `some?` here made the bulk `configure!` surface NON-equivalent to
-  ;; `set-editor!` — `(configure! {:rf.xray/editor nil})` silently
-  ;; no-op'd, leaving `editor-configured?` stuck true after a host tried
-  ;; to reset. Mirror every other key below (all `contains?`-gated) so an
-  ;; explicit `nil` resets and an ABSENT key leaves the atom untouched.
+  ;; Gate on key PRESENCE, not value `some?`. `set-editor!` treats `nil`
+  ;; as the reset-to-default + clear-the-explicit-flag case (the per-key
+  ;; setter's documented contract); gating on `some?` here would make the
+  ;; bulk `configure!` surface NON-equivalent to `set-editor!` —
+  ;; `(configure! {:rf.xray/editor nil})` would silently no-op, leaving
+  ;; `editor-configured?` stuck true after a host tried to reset. Every
+  ;; key below is `contains?`-gated so an explicit `nil` resets and an
+  ;; ABSENT key leaves the atom untouched.
   (when (contains? opts :rf.xray/editor)
     (set-editor! editor-opt))
   (when (contains? opts :rf.xray/project-root)
@@ -1625,10 +1591,10 @@
     (set-auto-open! auto-open-opt))
   (when (contains? opts :rf.xray/keybinding-enabled?)
     (set-keybinding-enabled! keybinding-opt))
-  ;; rf2-h40lt2 — the EP-0015 per-(tool,frame) egress profile replaces the
-  ;; retired process-global `:rf.privacy/show-sensitive?` boolean. Reject an
-  ;; unknown profile loudly (`:rf.error/unknown-egress-profile`) — the enum
-  ;; is closed — rather than silently coercing to the default, so a typo'd
+  ;; The EP-0015 per-(tool,frame) egress profile governs on-box reveal
+  ;; grain. Reject an unknown profile loudly
+  ;; (`:rf.error/unknown-egress-profile`) — the enum is closed —
+  ;; rather than silently coercing to the default, so a typo'd
   ;; reveal request surfaces instead of leaving the operator on the
   ;; fail-closed default thinking they opted in.
   (when (contains? opts :rf.xray/egress-profile)
@@ -1643,17 +1609,16 @@
   ;; NB: `settings-opt` is the destructured bulk-config map; the
   ;; in-namespace defonce atom is reached via the fully-qualified
   ;; symbol (`day8.re-frame2-xray.config/settings`) to disambiguate.
-  ;; rf2-jh9ws: legacy `:telemetry` keys in the bulk-config map are
-  ;; silently dropped — the per-section merge here only knows about
-  ;; known slots.
+  ;; Unknown sections in the bulk-config map are silently dropped — the
+  ;; per-section merge here only knows about known slots.
   (when (contains? opts :rf.xray/settings)
     (when (map? settings-opt)
       (reset! day8.re-frame2-xray.config/settings
               (merge-known-sections settings-opt))
       #?(:cljs (write-storage!))))
-  ;; Filter seed + storage key (rf2-ak4ms). Storage key sets BEFORE
-  ;; seed so a host that overrides both in one call gets the seed
-  ;; persisted under the right key.
+  ;; Filter seed + storage key. Storage key sets BEFORE seed so a host
+  ;; that overrides both in one call gets the seed persisted under the
+  ;; right key.
   (when (contains? opts :rf.xray/filters-storage-key)
     (set-filters-storage-key! filters-key-opt))
   (when (contains? opts :rf.xray/filters)
@@ -1664,8 +1629,8 @@
 
 (defn editor-uri
   "Build an 'Open in editor' URI for `source-coord` using Xray's
-  configured editor + configured project-root (rf2-5m5n2). Thin
-  wrapper around `re-frame.source-coords.editor-uri/editor-uri` that
+  configured editor + configured project-root. Thin wrapper around
+  `re-frame.source-coords.editor-uri/editor-uri` that
   reads the current preference from the atom AND threads the
   configured project-root through the helper's 3-arg form. Returns a
   string URI, or nil when the source-coord has no `:file`."

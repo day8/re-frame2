@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.static.routes.browse-list
   "Flat list + search + per-row inline expand for the Static Routes
-  tab (rf2-o5f5f.3).
+  tab.
 
-  ## Shape (post-rf2-lq0ef + Static reshape)
+  ## Shape
 
   Routes are flat (no tree). Sort: `:path` ascending default. Search
   is substring across route-id + path + doc — shared with the Dynamic
@@ -63,10 +63,10 @@
   `routing-helpers/filter-rows`. State on
   `:rf.xray.static.routes/query`.
 
-  rf2-nesy9 — `dispatch` threaded from the routes `Panel` reg-view (via
-  `render`), not a render-time capture (this whole subtree is invoked as
-  a Reagent component and cannot recover the frame). rf2-1keg3 — the
-  flex-row markup lives in the shared `search-box` component."
+  `dispatch` is threaded from the routes `Panel` reg-view (via
+  `render`), not a render-time capture — this whole subtree is invoked as
+  a Reagent component and cannot recover the frame. The flex-row markup
+  lives in the shared `search-box` component."
   [dispatch query total-routes filtered?]
   [search-box/search-box
    {:testid-prefix   "rf-xray-static-routes"
@@ -82,7 +82,7 @@
 (defn- route-row
   "One row in the flat catalogue. No marker chip, no `:here` glyph —
   Static is event-INDEPENDENT. Clicking the row toggles the expand
-  surface. `dispatch` (rf2-nesy9) is threaded from the routes `Panel`
+  surface. `dispatch` is threaded from the routes `Panel`
   reg-view down into the expand surface's jump / sim-nav affordances."
   [dispatch
    {:keys [route-id path doc parent has-on-match? has-can-leave? tags meta]
@@ -102,7 +102,7 @@
                                        "2px solid transparent")
                       :border-radius "2px"
                       :line-height   "20px"}}
-   ;; rf2-mq8wk — keyboard a11y. The route row's clickable body toggles
+   ;; Keyboard a11y. The route row's clickable body toggles
    ;; the inline expand surface, so it carries the L2 event-row recipe
    ;; (shell.cljs:1068 `role=button` + `tab-index=0` + `aria-label` +
    ;; Enter/Space activation). `aria-expanded` mirrors the open state so
@@ -175,7 +175,7 @@
   [dispatch
    {:keys [silent? routes total-routes filtered? query] :as _data}
    {:keys [expanded sim-open routes-map]}]
-  ;; rf2-nesy9 — `dispatch` is the frame-aware dispatcher threaded from
+  ;; `dispatch` is the frame-aware dispatcher threaded from
   ;; the routes `Panel` reg-view (render is invoked as a Reagent
   ;; component, so it cannot recover the frame itself).
   (cond

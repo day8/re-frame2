@@ -1,13 +1,12 @@
 (ns day8.re-frame2-xray.static.machines.topology
-  "Topology mode renderer — Static-read view of a machine's state graph
-  (rf2-o5f5f.2; rf2-md9oz upgrade to interactive Chart adapter).
+  "Topology mode renderer — Static-read view of a machine's state graph.
 
   ## What it renders
 
   The Static Topology body embeds `machine-canvas/Chart` — the SAME
-  MachineChart surface the Dynamic Machines panel renders (rf2-gpzb4
-  xyflow migration). So the Static and Dynamic surfaces are the same
-  chart; pan / zoom / fit are driven by the mouse + xyflow's own
+  MachineChart surface the Dynamic Machines panel renders. So the
+  Static and Dynamic surfaces are the same chart; pan / zoom / fit are
+  driven by the mouse + xyflow's own
   on-canvas controls (drag to pan, wheel / pinch to zoom, the controls
   buttons to fit), NOT by Xray-owned keyboard shortcuts. There are NO
   implemented keyboard shortcuts (`+` / `-`, arrows, `f`, `0`) on either
@@ -30,7 +29,7 @@
   Dynamic do NOT hand a saved pan / zoom between each other. Each
   surface's viewport lives inside its own xyflow instance for the
   mount's lifetime. Fit-on-entry is the one piece Xray drives: entering
-  the Static Machines tab bumps a `:fit-signal` nonce (rf2-6tw7t) that
+  the Static Machines tab bumps a `:fit-signal` nonce that
   re-frames the topology (xyflow's one-shot `:fitView` + the layout-key
   auto-fit both leave a re-entered chart stale), so the chart opens
   framed to its content. After that, pan / zoom is the user's via the
@@ -48,13 +47,11 @@
 
   ## Definition-stale post-reload
 
-  Per the bead's §Topology mode + findings §3.3 the chart should
-  surface a 'definition reloaded' chip after a hot-reload changes
-  the machine spec while the user is looking at it. v1 ships the
-  scaffold without the reload-detection wiring — the chip will land
-  with a follow-on bead. The chart re-renders on every spec change
-  (the `machine-definitions` sub fires on framework hot-reload), so
-  the data shown is always live."
+  The chart re-renders on every spec change (the `machine-definitions`
+  sub fires on framework hot-reload), so the data shown is always live.
+  TODO: surface a 'definition reloaded' chip after a hot-reload changes
+  the machine spec while the user is looking at it (the reload-detection
+  wiring is not yet in place)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
@@ -79,34 +76,30 @@
   "Render the interactive MachineChart canvas for `definition`. NO
   highlight + NO after-rings — Static Topology is a static-read.
 
-  rf2-md9oz — delegates to `machine-canvas/Chart` (the same MachineChart
-  surface the Dynamic Machines panel renders) so the user gets mouse /
+  Delegates to `machine-canvas/Chart` (the same MachineChart surface
+  the Dynamic Machines panel renders) so the user gets mouse /
   controls-driven xyflow zoom / pan / fit on the Static surface too (no
   Xray-owned keyboard shortcuts — viewport gestures are xyflow's). The
   static-flavoured opts are:
 
     :show-after-rings?      false  — no focused-event lens on static.
     :testid                        — overrides the inner SVG testid
-                                     so the existing static-panel
-                                     tests still match.
+                                     so the static-panel tests match.
 
-  rf2-eao0s0 — forward the STATIC context shape (keys + type captions)
-  into the chart so the root Context band renders on the Static
-  Topology surface too. The Dynamic topology + focused-event charts
-  already pass this; the Static charts had been mounting only
-  definition / machine-id, so the root Context chrome was missing.
+  Forwards the STATIC context shape (keys + type captions) into the
+  chart so the root Context band renders on the Static Topology
+  surface, matching the Dynamic topology + focused-event charts.
   Derived via the SHARED `topology-view/static-context-shape` /
   `static-context-inferred?` helpers (which delegate to machines-viz
   `context-shape`) — no duplicate derivation. nil shape → the chart
   hides the panel; the declared-over-inferred provenance gates the
   `inferred from :data` badge."
   [dispatch {:keys [definition machine-id fit-signal]}]
-  ;; rf2-gpzb4 (2026-05-21 xyflow migration) — ELK is now driven
-  ;; internally by xyflow inside `mv-chart/MachineChart`; the
-  ;; host-side layout-or-fallback dance is gone.
-  ;; rf2-nesy9 — `dispatch` is threaded from `body` (the Static Machines
-  ;; detail subtree is invoked as Reagent components, so render-time
-  ;; frame recovery is unavailable).
+  ;; ELK is driven internally by xyflow inside `mv-chart/MachineChart`;
+  ;; the host does no layout itself.
+  ;; `dispatch` is threaded from `body` (the Static Machines detail
+  ;; subtree is invoked as Reagent components, so render-time frame
+  ;; recovery is unavailable).
   (let [engine "xyflow+elkjs"]
     [:div {:data-testid    "rf-xray-static-machines-topology-chart"
            :data-machine-id (str machine-id)
@@ -122,15 +115,15 @@
      [machine-canvas/Chart
       {:definition             definition
        :machine-id             machine-id
-       ;; rf2-eao0s0 — surface the STATIC context shape so the root
-       ;; Context band renders without a live snapshot (the Dynamic
-       ;; topology + focused-event charts already do this). Shape +
-       ;; provenance come from the shared machines-viz-backed helpers.
+       ;; Surface the STATIC context shape so the root Context band
+       ;; renders without a live snapshot (matching the Dynamic
+       ;; topology + focused-event charts). Shape + provenance come
+       ;; from the shared machines-viz-backed helpers.
        :context-band           (topology-view/static-context-shape definition)
        :context-band-inferred? (topology-view/static-context-inferred? definition)
        :show-after-rings?      false
-       ;; rf2-6tw7t — fit-on-entry nonce so entering the Static Machines
-       ;; tab re-frames the topology (xyflow's one-shot `:fitView` +
+       ;; Fit-on-entry nonce so entering the Static Machines tab
+       ;; re-frames the topology (xyflow's one-shot `:fitView` +
        ;; the layout-key auto-fit both leave a re-entered chart stale).
        :fit-signal             fit-signal
        :inner-testid           "rf-xray-static-machines-topology-svg"
@@ -142,11 +135,9 @@
 ;; ---- chart toolbar (open in popout) -------------------------------------
 
 (defn- popout-affordance
-  "Per the bead — 'Open chart in popout' affordance. v1 scaffolds the
-  affordance against the existing `:rf.xray.static.machines/open-
-  chart-popout` event (registered by the panel install). Popout
-  geometry lands in a follow-on bead (sibling of the second-window
-  rf2-u3qm1 work)."
+  "'Open chart in popout' affordance. Wired to the
+  `:rf.xray.static.machines/open-chart-popout` event (registered by
+  the panel install). TODO: popout window geometry."
   [dispatch machine-id]
    [:button
    {:data-testid "rf-xray-static-machines-topology-popout"
@@ -194,14 +185,13 @@
   "Render Topology mode for `machine-id`. `definition` is the
   registrar's spec map; `source-coord` is its lifted coord (or nil).
 
-  The embedded `machine-canvas/Chart` (rf2-md9oz) wraps the
-  machines-viz xyflow `MachineChart` (rf2-gpzb4), which manages
-  zoom / pan / fit internally — the body function itself is still
-  pure hiccup.
+  The embedded `machine-canvas/Chart` wraps the machines-viz xyflow
+  `MachineChart`, which manages zoom / pan / fit internally — the body
+  function itself is still pure hiccup.
 
-  `dispatch` (rf2-nesy9) is threaded from `definition_detail/body` so
-  the chart's state-click + the toolbar's pop-out land on the
-  surrounding instance frame."
+  `dispatch` is threaded from `definition_detail/body` so the chart's
+  state-click + the toolbar's pop-out land on the surrounding instance
+  frame."
   [dispatch {:keys [machine-id definition source-coord fit-signal] :as args}]
   (cond
     (nil? definition)

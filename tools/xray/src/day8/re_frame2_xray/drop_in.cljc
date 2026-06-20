@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.drop-in
-  "Drop-in mode for non-re-frame2 hosts (rf2-1o9cq, v1.1).
+  "Drop-in mode for non-re-frame2 hosts (v1.1).
 
   Xray's primary integration is as a dev-tool inside a re-frame2 app:
   the host's `re-frame.trace/emit!` calls fan trace events out to
@@ -88,8 +88,7 @@
   drop-in's pushes through Closure DCE. Hosts MAY call `attach!`
   unconditionally; in production it is a silent no-op.
 
-  Pre-alpha posture: no back-compat shims, no legacy spellings. The
-  API is a single arity-1 `attach!` taking an options map. Future
+  The API is a single arity-1 `attach!` taking an options map. Future
   modes (binary trace decoders, transit-over-websocket, etc.) add
   keys here additively."
   (:require [re-frame.interop :as interop]
@@ -168,8 +167,8 @@
   Xray-internal events carry `:frame :rf/xray`; host events cannot —
   so the filter is structurally a pass-through on this code path.
   Drop-in events carry no `:frame` so the trace collector routes them
-  to the frameless secondary ring (per the rf2-3g9nw D2=a ruling), the
-  same place the framework's frameless emits land.
+  to the frameless secondary ring, the same place the framework's
+  frameless emits land.
 
   Returns nothing. No-op when `event` is not a map (see
   `valid-event?`) or when the build is production (the `collect-

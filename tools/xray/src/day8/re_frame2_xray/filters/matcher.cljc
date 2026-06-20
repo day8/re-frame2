@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.matcher
-  "Pattern matching for Xray's IN/OUT filter pills (rf2-ak4ms).
+  "Pattern matching for Xray's IN/OUT filter pills.
 
   Per `tools/xray/spec/018-Event-Spine.md` §7 the filter system runs
   at the DATA layer (`:rf.xray/filtered-cascades` sub) — every consumer
@@ -170,7 +170,7 @@
   [cascades filters]
   (filterv #(keep-cascade? % filters) cascades))
 
-;; ---- frame-picker filter (rf2-oziyr) -------------------------------------
+;; ---- frame-picker filter ------------------------------------------------
 
 (defn keep-cascade-for-frame?
   "True iff `cascade`'s `:frame` matches the picker-selected
@@ -192,15 +192,15 @@
 (defn filter-cascades-by-frame
   "Restrict `cascades` to those whose `:frame` matches `picker-frame`.
   nil `picker-frame` returns `cascades` unchanged. Pure — no I/O, no
-  atoms read. Per spec/018 §3 Frame dropdown + rf2-oziyr."
+  atoms read. Per spec/018 §3 Frame dropdown."
   [cascades picker-frame]
   (if (nil? picker-frame)
     cascades
     (filterv #(keep-cascade-for-frame? % picker-frame) cascades)))
 
 (defn keep-cascade-for-view-scope?
-  "True iff `cascade` is in the picker-selected VIEW SCOPE `scope-frame`
-  (rf2-4vp5j). Like `keep-cascade-for-frame?` but the FRAMELESS
+  "True iff `cascade` is in the picker-selected VIEW SCOPE `scope-frame`.
+  Like `keep-cascade-for-frame?` but the FRAMELESS
   `:ungrouped` pseudo-cascade (nil `:frame` — registry-time emits /
   lifecycle outside a drain) is frame-AGNOSTIC and always survives the
   scope: it has no frame to match, and whether it RENDERS is gated
@@ -216,7 +216,7 @@
 
 (defn filter-cascades-by-view-scope
   "Restrict `cascades` to the picker-selected VIEW SCOPE `scope-frame`,
-  preserving frameless `:ungrouped` pseudo-cascades (rf2-4vp5j). nil
+  preserving frameless `:ungrouped` pseudo-cascades. nil
   `scope-frame` returns `cascades` unchanged. Pure — no I/O, no atoms
   read. The L2 list + hidden-count baseline read THIS (not the strict
   `filter-cascades-by-frame`) so a defaulted view scope never drops the

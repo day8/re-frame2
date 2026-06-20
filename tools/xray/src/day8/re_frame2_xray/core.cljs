@@ -8,7 +8,7 @@
   `init!` / `open!` / `open-overlay!` / `close!` / `toggle!` /
   `popout!` / `status` /
   `target-frame` + `set-target-frame!` / `focus!` (the host-facing
-  Story→Xray focus entry point, rf2-crtmq) / `load-theme` — plus the
+  Story→Xray focus entry point) / `load-theme` — plus the
   four highest-traffic boot-time config knobs exposed by `config.cljc`
   (`configure!` / `set-editor!` / `set-auto-open!` /
   `set-egress-profile!`).
@@ -54,14 +54,14 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
-            ;; rf2-5w06uu — require the INERT install-helper ns, NOT the
+            ;; Require the INERT install-helper ns, NOT the
             ;; side-effecting `day8.re-frame2-xray.preload`. Loading
             ;; `preload` runs its top-level boot block (settings load,
             ;; handler/collector registration, browser globals,
-            ;; keybinding attach, auto-open) — so requiring this facade
-            ;; to reach the MANUAL `init!`/`configure!` API used to fire
+            ;; keybinding attach, auto-open); requiring this facade to
+            ;; reach the MANUAL `init!`/`configure!` API must NOT fire
             ;; full preload behaviour before the host's `configure!`
-            ;; could win. `install` is load-inert; the side-effects fire
+            ;; can win. `install` is load-inert; the side-effects fire
             ;; only when `init!` (below) calls them.
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.keybinding :as keybinding]
@@ -93,7 +93,7 @@
   mount/open!)
 
 (def open-overlay!
-  "Debug/fallback launch path: mount Xray as the legacy fixed overlay
+  "Debug/fallback launch path: mount Xray as a fixed overlay
   under `document.body`. Not the default developer experience."
   mount/open-overlay!)
 
@@ -132,15 +132,13 @@
        :density      :compact           ;; / :cosy   (settings persist)
        :buffer-depths {:epoch 50}}      ;; per-frame ring depth
 
-  EP-0002 (rf2-bd4div) — the inspected-host opt is `:target-frame`,
-  distinct from Xray's OWN frame (`:own-frame`, the `:rf/xray` shell
-  frame where the chrome's app-db lives — a fixed singleton, not a
-  per-call opt). The legacy `:default-frame` key is RETIRED (pre-alpha,
-  no shim): it conflated the two roles and read like the ambient
-  `:rf/default` fallback this EP removes. Omitting `:target-frame` leaves
-  the inspected target UNSELECTED — the frame picker (or the mount-time
-  discovery policy) selects one; Xray does NOT default the target to
-  `:rf/default` (Spec 002 §Frame target resolution — the carried invariant).
+  EP-0002 — the inspected-host opt is `:target-frame`, distinct from
+  Xray's OWN frame (`:own-frame`, the `:rf/xray` shell frame where the
+  chrome's app-db lives — a fixed singleton, not a per-call opt).
+  Omitting `:target-frame` leaves the inspected target UNSELECTED — the
+  frame picker (or the mount-time discovery policy) selects one; Xray
+  does NOT default the target to `:rf/default` (Spec 002 §Frame target
+  resolution).
 
   Wires the five foundation side-effects (registry, trace-cb, epoch-cb,
   browser-API exports, keybinding listener), then threads each supplied
@@ -158,11 +156,9 @@
   - `:buffer-depths` — accepts `{:epoch <n>}`; writes `:general
     :epoch-history` and drives the substrate's per-frame ring
     (`:depth` + `:trace-events-keep` to the same n) so trace is
-    retained for every retained epoch. The `:trace` axis from prior
-    spec drafts is folded into this single knob per the rf2-3g9nw D1=a
-    ruling + Mike pair-debug 2026-05-27 (one operator knob, atomic
-    relationship). Passing `:trace` is silently dropped pending a
-    second-axis separation if one re-emerges.
+    retained for every retained epoch. Trace retention is folded into
+    this single knob (one operator knob, atomic relationship). Passing
+    a separate `:trace` axis is silently dropped.
 
   Unknown opt keys are silently ignored (forward-compat): a future
   release adds keys here without breaking older callers, and a host
@@ -175,21 +171,20 @@
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
-   ;; rf2-xxo3zz — install the browser-API exports on
+   ;; Install the browser-API exports on
    ;; `window.day8.re_frame2_xray.*` (same call the preload's boot
    ;; block makes). The palette pop-out fx + the Settings panel-position
    ;; effect late-bind their mount calls through these exports to break
    ;; the `mount → shell → palette/settings → mount` require cycle (see
-   ;; palette/events §mount-popout! + settings/effects §late-bind). Until
-   ;; this call landed, manual `init!` registered every handler but left
-   ;; the exports uninstalled, so those late-bound actions (palette
-   ;; Ctrl+Enter pop-out, Settings panel-position → fullscreen / back-to-
-   ;; inline, fullscreen, right-rail) silently no-op'd under the manual
-   ;; install path while the preload path worked. Idempotent: re-exports
+   ;; palette/events §mount-popout! + settings/effects §late-bind). The
+   ;; manual `init!` path must install the exports so those late-bound
+   ;; actions (palette Ctrl+Enter pop-out, Settings panel-position →
+   ;; fullscreen / back-to-inline, fullscreen, right-rail) fire under it
+   ;; just as they do under the preload path. Idempotent: re-exports
    ;; the same fn values.
    (install/install-browser-api-exports!)
    (keybinding/attach!)
-   ;; EP-0002 (rf2-bd4div) — select the explicit inspected TARGET frame in
+   ;; EP-0002 — select the explicit inspected TARGET frame in
    ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker
    ;; / mount discovery policy chooses); never a `:rf/default` fallback.
    (when target-frame
@@ -214,7 +209,7 @@
   scrubber / app-db / machine-inspector panels are observing — or
   **`nil` when UNSELECTED**.
 
-  EP-0002 (rf2-bd4div) — the inspected target starts UNSELECTED and is
+  EP-0002 — the inspected target starts UNSELECTED and is
   selected by host config (`init! {:target-frame …}` / `set-target-
   frame!`), the frame picker, or the mount-time discovery policy. It is
   NOT defaulted to `:rf/default`: `:rf/default` is an ordinary id, never
@@ -226,9 +221,7 @@
 
   Named parallel to the underlying `:rf.xray/target-frame` sub +
   `:rf.xray/set-target-frame` event (and the `set-target-frame!`
-  setter below) so the facade name matches runtime reality. Prior to
-  rf2-kmhvg the fn was `active-frame` — the rename eliminates the
-  `active` / `target` split."
+  setter below) so the facade name matches runtime reality."
   []
   (rf/with-frame :rf/xray
     (rf/subscribe-once [:rf.xray/target-frame])))
@@ -239,10 +232,9 @@
   `:rf.xray/target-frame` sub and every dependent panel re-fire on the
   standard reactive path.
 
-  EP-0002 (rf2-bd4div) — `nil` resets the target to UNSELECTED (the
-  panels render their no-frame-selected state and the picker prompts a
-  choice). It no longer resets THROUGH a synthesised `:rf/default`:
-  the inspected target is never absence-repaired to the ordinary
+  EP-0002 — `nil` resets the target to UNSELECTED (the panels render
+  their no-frame-selected state and the picker prompts a choice). The
+  inspected target is never absence-repaired to the ordinary
   `:rf/default` id (Spec 002 §Frame target resolution).
 
   Returns nothing."
@@ -251,7 +243,7 @@
     (rf/dispatch [:rf.xray/set-target-frame frame-id]))
   nil)
 
-;; ---- Story → Xray focus (rf2-crtmq) -------------------------------------
+;; ---- Story → Xray focus -------------------------------------------------
 ;;
 ;; The host-facing focus entry point: a host (Story) sends a small,
 ;; data-shaped focus command from a narrative beat / failed assertion /
@@ -266,7 +258,7 @@
   "Focus an embedded Xray surface from a host (Story) beat / assertion /
   inspect command. See `day8.re-frame2-xray.focus/focus!` for the full
   command shape + ownership contract. The host-facing channel for
-  StoryUI focus links (rf2-crtmq)."
+  StoryUI focus links."
   focus/focus!)
 
 (def valid-focus-panels
@@ -275,11 +267,9 @@
   :machines :routing :resources :derivation-graph :module-view}`. A host
   validates a panel selector against this set before sending a focus
   command (the host-friendly alias `:routes` normalises to `:routing`).
-  The Issues tab was removed per rf2-gbz39 (Option (c)), so `:issues` is
-  no longer focusable. This MIRRORS the live L4 tab registry
-  (`panel-registry/tab-ids-for-mode :dynamic`) — rf2-1sddi6 / rf2-7ed9ms
-  aligned the set to the shipped inventory. See
-  `day8.re-frame2-xray.focus/valid-panels`."
+  This MIRRORS the live L4 tab registry
+  (`panel-registry/tab-ids-for-mode :dynamic`) — the set tracks the
+  shipped inventory. See `day8.re-frame2-xray.focus/valid-panels`."
   focus/valid-panels)
 
 ;; ---- runtime theme override ---------------------------------------------
@@ -307,10 +297,9 @@
 
 (def configure!
   "Top-level Xray configuration. Every key lives under the
-  `:rf.xray/*` reserved namespace (per rf2-xea9u — the `:rf.<tool>/*`
-  convention for re-frame2 tools' boot-time config). The on-box reveal
-  grain is per-tool (EP-0015 issue 7): there is NO single cross-tool
-  toggle.
+  `:rf.xray/*` reserved namespace (the `:rf.<tool>/*` convention for
+  re-frame2 tools' boot-time config). The on-box reveal grain is
+  per-tool (EP-0015 issue 7): there is NO single cross-tool toggle.
 
     `{:rf.xray/editor <kw>}`                — 'Open in editor' preference.
     `{:rf.xray/layout-host-selector <css>}` — true-inline layout host selector.
@@ -338,10 +327,9 @@
 
 (def set-egress-profile!
   "Replace Xray's on-box dev-UI `:rf.egress/*` profile (EP-0015
-  per-(tool,frame) reveal grain, rf2-h40lt2). `:rf.egress/local-redacted`
+  per-(tool,frame) reveal grain). `:rf.egress/local-redacted`
   (default) suppresses `:sensitive? true` display in Xray's trace
   collector; `:rf.egress/local-raw` is the trusted-local operator opt-in
   that reveals sensitive AND large values verbatim. `nil` resets to the
-  default. Replaces the retired process-global `set-show-sensitive!`
-  (`:rf.privacy/show-sensitive?`)."
+  default."
   config/set-egress-profile!)

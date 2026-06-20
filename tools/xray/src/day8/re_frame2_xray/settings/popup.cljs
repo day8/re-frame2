@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.settings.popup
-  "Settings popup modal facade (rf2-9poxq).
+  "Settings popup modal facade.
 
   Per `tools/xray/spec/018-Event-Spine.md` §9 Settings popup the
   modal is a transient overlay rather than a sidebar panel: open,
@@ -8,7 +8,7 @@
   `:rf.xray/settings-open?` is false; closed-state cost is one
   subscribe + a `when`.
 
-  ## Sections (rf2-9poxq + rf2-jh9ws + rf2-ttnst + rf2-ou3pn + rf2-wknb3)
+  ## Sections
 
   Four inner tabs:
   General | Keybindings | Buffer | Diff. The top tab strip drives
@@ -17,31 +17,18 @@
   dialog's `on-key-down`, gated against the editable-target case so
   numeric inputs are not interrupted.
 
-  The Theme tab was retired (rf2-ou3pn) — the ribbon's sun/moon icon
-  is now the canonical light/dark affordance. The `:use-system-colors?`
-  HCM-override checkbox moved to General → Power user.
+  Light/dark is driven by the ribbon's sun/moon icon (the canonical
+  affordance). The `:use-system-colors?` HCM-override checkbox lives
+  under General → Power user.
 
-  The Filters tab was retired (rf2-wknb3) — full filter management
-  lives in the top-ribbon pill strip (`filters/pills.cljs`), the
-  per-pill edit popup (`filters/edit_popup.cljs`), and the mute
-  manager modal (rf2-ikuwt). The settings tab's only widget was a
-  dead-chrome 'Open auto-filter UI' button dispatching an
-  unregistered event.
+  Filter management lives in the top-ribbon pill strip
+  (`filters/pills.cljs`), the per-pill edit popup
+  (`filters/edit_popup.cljs`), and the mute manager modal.
 
-  Keybindings (rf2-ttnst) v1 is READ-ONLY — a chord catalogue plus
-  the master `:rf.xray/keybinding-enabled?` toggle. Rebind UI is the
-  v1.1 follow-on. Buffer (rf2-ttnst) carries the depth tunables plus
-  a destructive `Clear buffer now` affordance with a nested confirm
-  modal.
-
-  Dropped vs. the earlier spec catalogue (per Mike 2026-05-19
-  §0ter.4 walkthrough): Actions tab + factory-reset BIG RED BUTTON,
-  density Comfy tier, per-tab default expansion knob, accent
-  user swap, sub-output diff layout toggle, section-grouping
-  threshold, Popout as its own tab. The Telemetry tab was removed
-  earlier (rf2-jh9ws) — Xray ships no telemetry endpoint and the
-  v1 toggle was a broken affordance; per the text audit (rf2-yn86j)
-  the chrome must not pretend.
+  Keybindings is READ-ONLY — a chord catalogue plus the master
+  `:rf.xray/keybinding-enabled?` toggle. Buffer carries the depth
+  tunables plus a destructive `Clear buffer now` affordance with a
+  nested confirm modal.
 
   ## Modal layer
 
@@ -69,13 +56,13 @@
   `:rf.xray/settings-open?` is true; closed-state is a single
   subscribe + a `when` — cheap.
 
-  Per rf2-in6l2 `reg-view`-registered so the body's subscribes
-  route through the React-context tier to `:rf/xray`.
+  `reg-view`-registered so the body's subscribes route through the
+  React-context tier to `:rf/xray`.
 
-  rf2-nesy9 — the reg-view-injected `dispatch` (the frame-aware
-  dispatcher captured at render time) is threaded into `popup-view`
-  so every deferred `:on-*` handler in the popup tree lands on the
-  surrounding instance frame, not a `{:frame :rf/xray}` literal."
+  The reg-view-injected `dispatch` (the frame-aware dispatcher
+  captured at render time) is threaded into `popup-view` so every
+  deferred `:on-*` handler in the popup tree lands on the surrounding
+  instance frame, not a `{:frame :rf/xray}` literal."
   []
   (when @(rf/subscribe [:rf.xray/settings-open?])
     (view/popup-view dispatch)))

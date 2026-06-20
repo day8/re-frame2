@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.palette.subs
-  "Subscriptions for the Xray command palette (rf2-wm7z4).
+  "Subscriptions for the Xray command palette.
 
   ## Sub tree
 
@@ -23,14 +23,14 @@
   in source-item count). Acceptable because the modal is closed
   most of the time; when open the user is actively typing.
 
-  ## Sidebar items reference
+  ## Panel inventory
 
-  The panel list is the same one the sidebar renders (shell.cljs).
-  Importing the shell's `sidebar-items` directly would create a
-  shell→palette→shell cycle once we wire `Modal` into the shell;
-  instead the palette holds its own canonical list and the shell
-  reads from it. The list is small (~16 entries) and the
-  duplication cost is negligible compared to the cycle-break."
+  The palette reads its Dynamic + Static panel inventory directly
+  from the internal L4 tab registry (`panel-registry`), which has no
+  shell / palette dependencies — `palette-subs → panel-registry` is a
+  one-way edge. Adding a tab is a single `panel-registry/reg-l4-tab!`
+  call in the panel's `install!`; the palette's source aggregator
+  picks it up via `palette-panels` / `palette-static-tabs`."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.palette.sources :as sources]
@@ -38,15 +38,12 @@
 
 ;; ---- canonical panel list ------------------------------------------------
 ;;
-;; Per rf2-2moh1 the palette reads its Dynamic + Static panel inventory
-;; directly from the internal L4 tab registry. Adding a tab means a
-;; single `panel-registry/reg-l4-tab!` call in the panel's `install!`;
-;; the palette's source aggregator picks it up via the helpers below.
-;;
-;; The previous cycle-break rationale (avoiding `palette → shell →
-;; palette` by duplicating the tab list) is moot because the registry
-;; has no shell / palette dependencies — `palette-subs → panel-registry`
-;; is a one-way edge.
+;; The palette reads its Dynamic + Static panel inventory directly from
+;; the internal L4 tab registry. Adding a tab means a single
+;; `panel-registry/reg-l4-tab!` call in the panel's `install!`; the
+;; palette's source aggregator picks it up via the helpers below. The
+;; registry has no shell / palette dependencies — `palette-subs →
+;; panel-registry` is a one-way edge.
 
 (defn palette-panels
   "Dynamic-mode tab entries in the shape the palette source-aggregator
@@ -111,7 +108,7 @@
     (fn [db _query]
       (max 0 (or (get db :palette-cursor) 0))))
 
-  ;; rf2-ybjkx — last-used commands. Vector of command keyword ids
+  ;; Last-used commands. Vector of command keyword ids
   ;; (most-recent first; capped at `recents/max-recents`). The slot is
   ;; seeded from localStorage on first palette-open (see events.cljs
   ;; `:rf.xray/palette-open`) and bumped on every `:command`
@@ -122,9 +119,9 @@
 
   ;; Layer-2 — aggregates the searchable corpus. Depends on
   ;; `:rf.xray/trace-buffer` (recent events) + `:rf.xray/mode`
-  ;; (rf2-ybjkx mode filter) + `:rf.xray/palette-recents` (rf2-ybjkx
-  ;; recents boost). The registrar / frame snapshot lookups happen
-  ;; inside the body and ride the same recompute cadence.
+  ;; (mode filter) + `:rf.xray/palette-recents` (recents boost). The
+  ;; registrar / frame snapshot lookups happen inside the body and
+  ;; ride the same recompute cadence.
   (rf/reg-sub :rf.xray/palette-index
     :<- [:rf.xray/trace-buffer]
     :<- [:rf.xray/mode]
