@@ -34,7 +34,8 @@
   from EP-0014; §Routes expose algebra views) and the projected Malli
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.registrar :as registrar]
-            [re-frame.frame :as frame]))
+            [re-frame.frame :as frame]
+            [re-frame.derivation.node :as node]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -161,17 +162,13 @@
 
 (defn- with-source-coords
   "Attach the registrar's source-coordinate / doc metadata to a route node
-  when present — the `:source` map (Derivations §Errors and diagnostics) and
-  the `:doc`. Source coords are auto-captured by `reg-route` via
-  `re-frame.source-coords/merge-coords` (Spec 001 §Source-coordinate capture)."
+  when present — the `:source` map (Derivations §Errors and diagnostics, via
+  the shared `re-frame.derivation.node` leaf) and the `:doc`. Source coords
+  are auto-captured by `reg-route` via `re-frame.source-coords/merge-coords`
+  (Spec 001 §Source-coordinate capture)."
   [node route-meta]
-  (let [source (cond-> {}
-                 (contains? route-meta :ns)   (assoc :ns   (:ns   route-meta))
-                 (contains? route-meta :file) (assoc :file (:file route-meta))
-                 (contains? route-meta :line) (assoc :line (:line route-meta)))]
-    (cond-> node
-      (seq source)                 (assoc :source source)
-      (contains? route-meta :doc)  (assoc :doc (:doc route-meta)))))
+  (cond-> (node/attach-source node route-meta)
+    (contains? route-meta :doc) (assoc :doc (:doc route-meta))))
 
 (defn- node-for
   "Build the derivation/process algebra view of one registered route from its
@@ -194,16 +191,15 @@
   the `:source-form`, the route-owned resource activation `:resource-edges`
   (when declared), and source coords / doc."
   [route-id route-meta]
-  (-> {:id            :rf/route
-       :kind          :process
-       :refinement    :route-fact
-       :source-form   {:kind :reg-route :id route-id}
-       :inputs        route-transition-inputs
-       :output        route-output
-       :storage       :runtime-db
-       :evaluation    :on-route
-       :lifecycle     :frame
-       :materialized? true}
+  (-> (node/node-base :rf/route route-output
+                      {:kind          :process
+                       :storage       :runtime-db
+                       :evaluation    :on-route
+                       :lifecycle     :frame
+                       :materialized? true})
+      (assoc :refinement  :route-fact
+             :source-form {:kind :reg-route :id route-id}
+             :inputs      route-transition-inputs)
       (cond-> (seq (:resources route-meta))
         (assoc :resource-edges (resource-activation-edges route-meta)))
       (with-source-coords route-meta)))

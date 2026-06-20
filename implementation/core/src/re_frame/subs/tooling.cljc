@@ -24,7 +24,8 @@
   §Subscription topology vs subscription tracking."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as interop]
+            [re-frame.derivation.node :as node]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -270,33 +271,32 @@
   (Derivations §The node shape): a `:derivation` whose ephemeral output is
   evaluated on-demand and owned by its subscription-cache entry. `id` is the
   node's canonical fact identity (Derivations §Fact identity) — the sub id
-  for a static node, the concrete query vector for a live cache entry."
+  for a static node, the concrete query vector for a live cache entry.
+
+  The seven-key spine itself lives in the shared `re-frame.derivation.node`
+  leaf (rf2-2mkflj); this thin wrapper supplies the subscription family's
+  fixed classification."
   [id output]
-  {:id            id
-   :kind          :derivation
-   :output        output
-   :storage       :ephemeral
-   :evaluation    :on-demand
-   :lifecycle     :subscription-cache-entry
-   :materialized? false})
+  (node/node-base id output
+                  {:kind          :derivation
+                   :storage       :ephemeral
+                   :evaluation    :on-demand
+                   :lifecycle     :subscription-cache-entry
+                   :materialized? false}))
 
 (defn- with-source-coords
   "Attach the registrar's source-coordinate / schema / doc metadata to a
   node when present — the `:source` map (Derivations §Errors and
-  diagnostics) and the `:schema` fact. Functions stay opaque tokens; we
-  never serialize the executable body."
+  diagnostics, via the shared `re-frame.derivation.node` leaf) and the
+  `:schema` fact. Functions stay opaque tokens; we never serialize the
+  executable body."
   [node meta]
-  (let [source (cond-> {}
-                 (contains? meta :ns)   (assoc :ns   (:ns   meta))
-                 (contains? meta :file) (assoc :file (:file meta))
-                 (contains? meta :line) (assoc :line (:line meta)))]
-    (cond-> node
-      (seq source)             (assoc :source source)
-      (contains? meta :schema) (assoc :schema (:schema meta))
-      (contains? meta :doc)    (assoc :doc (:doc meta))
-      ;; The body fn is an opaque token — surfaced under :derive so a tool
-      ;; can show the function source/identity without it being serialized.
-      (contains? meta :handler-fn) (assoc :derive (:handler-fn meta)))))
+  (cond-> (node/attach-source node meta)
+    (contains? meta :schema) (assoc :schema (:schema meta))
+    (contains? meta :doc)    (assoc :doc (:doc meta))
+    ;; The body fn is an opaque token — surfaced under :derive so a tool
+    ;; can show the function source/identity without it being serialized.
+    (contains? meta :handler-fn) (assoc :derive (:handler-fn meta))))
 
 (defn- static-node-for
   "Build the static algebra view for one registered sub from its registrar

@@ -26,7 +26,8 @@
   Per [Derivations.md](../../../../../../spec/Derivations.md) and the
   projected Malli shapes in [Spec-Schemas
   §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
-  (:require [re-frame.flows.registry :as registry]
+  (:require [re-frame.derivation.node :as node]
+            [re-frame.flows.registry :as registry]
             [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -106,10 +107,7 @@
   [frame-id flow-id]
   (let [slot (registrar/lookup :flow flow-id)]
     (when (= frame-id (:frame slot))
-      (let [source (cond-> {}
-                     (contains? slot :ns)   (assoc :ns   (:ns   slot))
-                     (contains? slot :file) (assoc :file (:file slot))
-                     (contains? slot :line) (assoc :line (:line slot)))]
+      (let [source (node/source-coords slot)]
         (when (seq source) source)))))
 
 (defn- with-metadata
@@ -144,16 +142,15 @@
   coords / schema / doc."
   [frame-id flow]
   (let [flow-id (:id flow)]
-    (-> {:id            flow-id
-         :kind          :derivation
-         :source-form   {:kind :reg-flow :id flow-id}
-         :inputs        (declared-inputs flow)
-         :output        [:db (vec (:output-path flow))]
-         :storage       :app-db
-         :evaluation    :after-event
-         :lifecycle     :frame
-         :owner         [:frame frame-id]
-         :materialized? true}
+    (-> (node/node-base flow-id [:db (vec (:output-path flow))]
+                        {:kind          :derivation
+                         :storage       :app-db
+                         :evaluation    :after-event
+                         :lifecycle     :frame
+                         :materialized? true})
+        (assoc :source-form {:kind :reg-flow :id flow-id}
+               :inputs      (declared-inputs flow)
+               :owner       [:frame frame-id])
         (with-metadata frame-id flow))))
 
 (defn flow-algebra-view
