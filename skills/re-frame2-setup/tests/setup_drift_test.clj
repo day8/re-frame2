@@ -1,8 +1,7 @@
 ;;;; tests/setup_drift_test.clj — structural regression for the
 ;;;; re-frame2-setup skill's correctness-critical contract claims.
 ;;;;
-;;;; Guards the two drifts the skills-setup correctness review found
-;;;; (rf2-0qkyn):
+;;;; Guards two contract claims the setup skill must keep correct:
 ;;;;
 ;;;;   1. Lockstep is a BUILD/dependency discipline, not a boot-time
 ;;;;      runtime check. The runtime (`rf/init!` + `install-adapter!`)
@@ -30,17 +29,15 @@
 ;;;; CI: gated by the `skills-structural` job in .github/workflows/test.yml,
 ;;;; which loops `skills/re-frame2-setup/tests/*_test.clj`. The job fires when
 ;;;; `report-changed-surfaces.sh` classifies a `skills/re-frame2-setup/**`
-;;;; change as `skills_structural=true` (rf2-agi57x). So a fix this suite guards
-;;;; (the prose-drift Locks 1–12 below) can no longer regress silently —
-;;;; previously this was a local-only check.
+;;;; change as `skills_structural=true`. So the prose-drift Locks 1–12 below
+;;;; are guarded in CI, not just locally.
 ;;;;
 ;;;; What this suite does NOT cover: it is a PROSE-DRIFT / structural guard, not
 ;;;; a buildability smoke. It does not materialise the scaffold and run
 ;;;; `npm install` + `npx shadow-cljs compile app` — that heavier
 ;;;; generated-project smoke is deferred (pre-publish, the framework coords
 ;;;; resolve only against a reviewed monorepo checkout, so a full end-to-end
-;;;; build isn't a cheap per-PR gate yet; tracked as a decision-flagged
-;;;; follow-up under rf2-agi57x). Run `npm run test:cljs` / the substrate
+;;;; build isn't a cheap per-PR gate yet). Run `npm run test:cljs` / the substrate
 ;;;; contract tests for real-regression coverage of the wiring this skill
 ;;;; teaches.
 ;;;;
@@ -213,16 +210,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 3 — Xray layout host snippet matches the CURRENT published contract
-;; (right-side host, --rf-xray-inline-width-driven width). rf2-w4axt.
+;; (right-side host, --rf-xray-inline-width-driven width).
 ;;
 ;; The setup recipe scaffolds the `[data-rf-xray-host]` layout host. The
 ;; published contract (tools/xray/spec/011-Launch-Modes.md §Layout host
 ;; contract + the shipped examples/_shared/css) is a RIGHT-side host whose
-;; flex-basis reads `var(--rf-xray-inline-width, 560px)`. A prior revision
-;; scaffolded a LEFT-side host with a literal `flex: 0 0 420px`, which (a)
-;; put the panel on the wrong side and (b) ignored the persisted resize
-;; width Xray's drag handle writes. These guards fail if that stale shape
-;; (or the literal `420px`) reappears in the setup guidance.
+;; flex-basis reads `var(--rf-xray-inline-width, 560px)`. A LEFT-side host
+;; with a literal `flex: 0 0 420px` would (a) put the panel on the wrong
+;; side and (b) ignore the persisted resize width Xray's drag handle writes.
+;; These guards fail if that wrong shape (or the literal `420px`) appears in
+;; the setup guidance.
 ;; ---------------------------------------------------------------------------
 
 (deftest xray-host-snippet-consumes-inline-width-var
@@ -283,13 +280,13 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 4 — the reagent/dom CLJS-namespace troubleshooting row diagnoses the
-;; Maven/classpath side, NOT npm React. rf2-w4axt.
+;; Maven/classpath side, NOT npm React.
 ;;
 ;; `reagent.dom.client` ships from the `reagent/reagent` Maven coordinate on
 ;; the CLJS classpath; a missing npm React surfaces as a JS module error, not
-;; a missing .cljs namespace. A prior row told the author to `npm install
-;; react react-dom` to fix a missing CLJS namespace — wrong layer. This guard
-;; fails if the reagent/dom row is mapped back to npm-only recovery.
+;; a missing .cljs namespace. Telling the author to `npm install react
+;; react-dom` to fix a missing CLJS namespace is the wrong layer. This guard
+;; fails if the reagent/dom row is mapped to npm-only recovery.
 ;; ---------------------------------------------------------------------------
 
 (deftest reagent-dom-row-diagnoses-maven-not-npm
@@ -323,7 +320,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 5 — the dev CSP guidance matches the generator template's index.html.
-;; rf2-pxl6l.
 ;;
 ;; The template's root/resources/public/index.html ships a DEV-flavoured CSP
 ;; meta tag tuned to the runtime the scaffold produces:
@@ -333,12 +329,12 @@
 ;;     run.
 ;;   - NO meta `frame-ancestors` — browsers IGNORE it from a <meta> tag; it is a
 ;;     response-header-only directive, so it belongs in the production header.
-;; A prior revision documented a strict dev CSP (`style-src 'self'`, meta
-;; `frame-ancestors`), which diverged from the tested template and could cause
-;; first-run CSP violations / broken Xray styling. These guards fail if that
-;; stale strict-dev shape (or a meta `frame-ancestors`) reappears, and require
-;; the dev/prod split (a documented stricter production RESPONSE HEADER that
-;; adds `frame-ancestors`) to stay present.
+;; A strict dev CSP (`style-src 'self'`, meta `frame-ancestors`) would
+;; diverge from the tested template and cause first-run CSP violations /
+;; broken Xray styling. These guards fail if that strict-dev shape (or a meta
+;; `frame-ancestors`) appears, and require the dev/prod split (a documented
+;; stricter production RESPONSE HEADER that adds `frame-ancestors`) to stay
+;; present.
 ;; ---------------------------------------------------------------------------
 
 (defn- meta-csp-content
@@ -398,7 +394,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 6 — user-facing direct-run shadow-cljs commands are qualified with npx.
-;; rf2-pxl6l.
 ;;
 ;; A fresh project's only shadow-cljs is a LOCAL npm devDependency; bare
 ;; `shadow-cljs watch app` hits `command not found` when no global binary is on
@@ -421,15 +416,15 @@
 ;; ---------------------------------------------------------------------------
 ;; Lock 7 — the UIx/Helix manual path supplies substrate-specific VIEW code and
 ;; does NOT route UIx/Helix authors to the Reagent `reg-view` first-counter.
-;; rf2-74uffk.
 ;;
 ;; The Reagent first-counter leaf uses `reg-view` (auto-injected
 ;; dispatch/subscribe) — a Reagent-only construct. UIx/Helix have no
 ;; auto-injection: they read subs via the adapter `use-subscribe` hook and
-;; dispatch via `(:dispatch (rf/frame-handle))`. A prior revision only supplied
-;; deps/entry-root substitutions for UIx/Helix, leaving an author to combine a
-;; UIx/Helix entry ns with the Reagent `reg-view` counter — a non-compiling
-;; scaffold. These guards require the substrate VIEW snippets to be present in
+;; dispatch via `(:dispatch (rf/frame-handle))`. Supplying only
+;; deps/entry-root substitutions for UIx/Helix would leave an author to
+;; combine a UIx/Helix entry ns with the Reagent `reg-view` counter — a
+;; non-compiling scaffold. These guards require the substrate VIEW snippets to
+;; be present in
 ;; entry-namespace.md (matching the template's _uix/_helix/views.cljs) and
 ;; require SKILL.md + first-counter.md to steer UIx/Helix away from `reg-view`.
 ;; ---------------------------------------------------------------------------
@@ -487,15 +482,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 8 — the JS-module React recovery uses the PINNED baseline, not bare
-;; `npm install react react-dom` (which writes latest-from-npm). rf2-74uffk.
+;; `npm install react react-dom` (which writes latest-from-npm).
 ;;
 ;; The skill's default path copies the React/ReactDOM versions from the pinned
 ;; `implementation/package.json` (deps-versions.md §package.json) and only takes
-;; latest-from-npm on explicit opt-in. A prior revision's JS-module
-;; troubleshooting row advised bare `npm install react react-dom`, which writes
-;; npm's current `latest` into package.json — breaking reproducibility and
-;; risking a React/Reagent mismatch. This guard fails if that bare command
-;; reappears in the JS-module row and requires the pinned-baseline recovery.
+;; latest-from-npm on explicit opt-in. Bare `npm install react react-dom` would
+;; write npm's current `latest` into package.json — breaking reproducibility
+;; and risking a React/Reagent mismatch. This guard fails if that bare command
+;; appears in the JS-module row and requires the pinned-baseline recovery.
 ;; ---------------------------------------------------------------------------
 
 (deftest js-module-react-row-uses-pinned-baseline
@@ -525,7 +519,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 9 — the greenfield framework coordinate branches on PUBLICATION STATE.
-;; rf2-ol8l7a.
 ;;
 ;; re-frame2 is NOT on Clojars/npm yet (README §Status: "not yet published …
 ;; add as a :git/sha coordinate"). A `day8/re-frame2* {:mvn/version "<VERSION>"}`
@@ -569,17 +562,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 10 — the schema-missing contract is a LOUD error, not a CLJS soft-pass.
-;; rf2-ol8l7a.
 ;;
-;; Current core routes reg-app-schema / reg-app-schemas through :on-absent
-;; :throw — without `day8/re-frame2-schemas` they throw
+;; Core routes reg-app-schema / reg-app-schemas through :on-absent :throw —
+;; without `day8/re-frame2-schemas` they throw
 ;; :rf.error/schemas-artefact-missing (implementation/core/.../core_schemas.cljc).
 ;; Requiring `re-frame.schemas` wires Malli automatically, so a registered
-;; schema validates (Spec 010 §Schema implies validation on CLJS). A prior
-;; revision taught that missing the schemas artefact "soft-passes" on the normal
-;; setup path — false: it throws, and a present artefact validates. These guards
-;; fail if the soft-pass-on-the-setup-path framing reappears and require the
-;; loud-error / Malli-wired contract to be stated.
+;; schema validates (Spec 010 §Schema implies validation on CLJS). Teaching
+;; that missing the schemas artefact "soft-passes" on the normal setup path is
+;; false: it throws, and a present artefact validates. These guards fail if the
+;; soft-pass-on-the-setup-path framing appears and require the loud-error /
+;; Malli-wired contract to be stated.
 ;; ---------------------------------------------------------------------------
 
 (deftest schema-missing-artefact-is-loud-not-softpass
@@ -618,18 +610,18 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 11 — the FIRST canonical shadow-cljs.edn block carries the day-one Xray
-;; preload. rf2-agi57x.
+;; preload.
 ;;
 ;; Xray is a day-one dep (deps-versions.md) and index.html ships the
 ;; [data-rf-xray-host] column; the SKILL.md day-one shape + done-checklist both
-;; require `:devtools/preloads [day8.re-frame2-xray.preload]`. A prior revision
-;; presented the FIRST copyable shadow-cljs.edn block WITHOUT the preload (it
-;; arrived only in a later ":devtools (optional, for hot-reload)" section) — so
-;; the most obvious block to copy produced a compiling app whose right-side host
-;; stays empty: a false-green scaffold (the dep + host markup are present but
-;; nothing loads Xray). This guard fails if the day-one block drops the preload
-;; while the deps/checklist still require Xray, or if the section reverts to
-;; framing the preload as optional hot-reload material.
+;; require `:devtools/preloads [day8.re-frame2-xray.preload]`. Presenting the
+;; FIRST copyable shadow-cljs.edn block WITHOUT the preload (arriving only in a
+;; later ":devtools (optional, for hot-reload)" section) would make the most
+;; obvious block to copy produce a compiling app whose right-side host stays
+;; empty: a false-green scaffold (the dep + host markup are present but nothing
+;; loads Xray). This guard fails if the day-one block drops the preload while
+;; the deps/checklist still require Xray, or if the section frames the preload
+;; as optional hot-reload material.
 ;; ---------------------------------------------------------------------------
 
 (defn- first-shadow-build-block
@@ -672,12 +664,11 @@
 (deftest shadow-devtools-section-not-labelled-optional-hot-reload
   (testing "the :devtools section header no longer frames the Xray preload as optional hot-reload material"
     (let [body @shadow-cljs-md]
-      ;; The Contents TOC + the section header previously read
-      ;; ":devtools block (optional, for hot-reload)", implying the Xray preload
-      ;; is opt-in hot-reload tooling. It is the day-one default — not optional
-      ;; hot-reload material. (For the :browser target the module :init-fn re-runs
-      ;; after each hot reload by default, so no separate ^:dev/after-load hook is
-      ;; needed at all.)
+      ;; A ":devtools block (optional, for hot-reload)" TOC/section header
+      ;; would imply the Xray preload is opt-in hot-reload tooling. It is the
+      ;; day-one default — not optional hot-reload material. (For the :browser
+      ;; target the module :init-fn re-runs after each hot reload by default,
+      ;; so no separate ^:dev/after-load hook is needed at all.)
       (is (not (str/includes? body "optional, for hot-reload"))
           (str "shadow-cljs.md still labels the `:devtools` section "
                "\"optional, for hot-reload\". The Xray preload is the day-one "
@@ -687,20 +678,20 @@
 ;; ---------------------------------------------------------------------------
 ;; Lock 12 — the generator route is USER-RUN; the skill's allowed-tools do NOT
 ;; grant `clojure -Tnew create`, and the UIx/Helix greenfield route the skill
-;; EXECUTES is the manual scaffold. rf2-agi57x.
+;; EXECUTES is the manual scaffold.
 ;;
 ;; The skill documents the one-command `clojure -Tnew create …` generator as a
 ;; complete alternative, but its `allowed-tools` front-matter grants only
 ;; `clojure -Stree`, npm, and `shadow-cljs watch/compile` — NOT `-Tnew`. So the
 ;; skill must frame the generator as something the AUTHOR runs, while the route
 ;; the skill itself executes (esp. for UIx/Helix) is the manual scaffold whose
-;; commands the grant actually covers. A prior revision steered UIx/Helix users
-;; toward the generator as "the fastest/complete path" without flagging that the
-;; loaded skill cannot run it — weakening prompt ergonomics (the agent
-;; recommends a route it must then abandon or interrupt for extra tool access).
-;; These guards fail if the front-matter starts advertising `-Tnew`, or if the
-;; prose stops framing the generator as user-run / stops giving UIx/Helix an
-;; executable manual route.
+;; commands the grant actually covers. Steering UIx/Helix users toward the
+;; generator as "the fastest/complete path" without flagging that the loaded
+;; skill cannot run it weakens prompt ergonomics (the agent recommends a route
+;; it must then abandon or interrupt for extra tool access). These guards fail
+;; if the front-matter starts advertising `-Tnew`, or if the prose stops
+;; framing the generator as user-run / stops giving UIx/Helix an executable
+;; manual route.
 ;; ---------------------------------------------------------------------------
 
 (deftest allowed-tools-do-not-grant-generator-command
@@ -747,28 +738,27 @@
 ;; ---------------------------------------------------------------------------
 ;; Lock 13 — the PUBLIC entry-ramp docs (docs-site setup page + top-level
 ;; skills index) stay in sync with the current setup/template contract.
-;; rf2-79gtjr.
 ;;
-;; The authoritative SKILL.md / setup references / template API docs are
-;; correct, but two USER-FACING discoverability surfaces had drifted:
+;; The authoritative SKILL.md / setup references / template API docs are the
+;; source of truth; two USER-FACING discoverability surfaces must not drift
+;; from them:
 ;;
-;;   * docs/skills/re-frame2-setup.md taught the stale "all ten ship at the
-;;     same version" lockstep count (the contract is ELEVEN publishable
-;;     framework artefacts, with day8/re-frame2-xray on the same line — see
-;;     SKILL.md cardinal rule 2 + README.md), and linked the reference
-;;     leaves to a SINGULAR `…/skills/re-frame2-setup/reference` GitHub path
-;;     that 404s (the directory is `references`, plural). check_doc_slugs.py
-;;     can't catch either: it skips external http(s) URLs and does not
-;;     validate prose artefact counts.
+;;   * docs/skills/re-frame2-setup.md must teach the current lockstep count —
+;;     ELEVEN publishable framework artefacts, with day8/re-frame2-xray on the
+;;     same line (see SKILL.md cardinal rule 2 + README.md) — not a stale "all
+;;     ten ship at the same version" count, and must link the reference leaves
+;;     to the PLURAL `…/skills/re-frame2-setup/references` GitHub path (a
+;;     singular `…/reference` 404s). check_doc_slugs.py can't catch either: it
+;;     skips external http(s) URLs and does not validate prose artefact counts.
 ;;
-;;   * skills/README.md presented the one-shot generator as the published
-;;     `io.github.day8/re-frame2-template` `-Tnew create` form with NO
-;;     pre-split caveat — but that coord can't resolve pre-split (the
-;;     external repo doesn't exist yet; the working route is `:local/root`,
-;;     per tools/template/README.md + the setup skill's own cardinal rule 4).
+;;   * skills/README.md must caveat the one-shot generator: the published
+;;     `io.github.day8/re-frame2-template` `-Tnew create` form can't resolve
+;;     pre-split (the external repo doesn't exist yet; the working route is
+;;     `:local/root`, per tools/template/README.md + the setup skill's own
+;;     cardinal rule 4).
 ;;
 ;; These guards read the two public files off disk (no network) and fail if
-;; any of the three drifts reappears while check_doc_slugs.py stays green.
+;; any of the three drifts appears while check_doc_slugs.py stays green.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private docs-setup-page-md
@@ -843,7 +833,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 8 — the manual boot seed matches the generator's reset-boundary
-;; contract. rf2-xqds87.
+;; contract.
 ;;
 ;; The generator template seeds via an explicit `(rf/dispatch-sync
 ;; [...initialise])` under `(rf/with-frame :rf/default ...)`, NOT via a
