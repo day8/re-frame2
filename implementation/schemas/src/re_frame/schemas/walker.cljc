@@ -131,7 +131,7 @@
     ;; the per-slot :sensitive? inside `:my/user-schema` is invisible.
     ;; The supported route is registering the vector form so the walker
     ;; can introspect it (handler-meta :sensitive? is NOT a fallback).
-    (rf/reg-app-schema [:user] :my/user-schema)
+    (rf/reg-app-schema [:user] {:schema :my/user-schema})
 
   The walker is parameterised on the per-slot flag key (`:large?` /
   `:sensitive?`); both flags share identical structural recognition
@@ -270,7 +270,7 @@
 
     - Container-level props on the schema itself (the schema's OWN props,
       not a parent slot's) claim `base-path`. Covers
-      `(rf/reg-app-schema [:user :pdf] [:string {:large? true}])` — the
+      `(rf/reg-app-schema [:user :pdf] {:schema [:string {:large? true}]})` — the
       reg-app-schema path IS where the marker fires.
 
   Returns the accumulator map."
