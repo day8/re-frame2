@@ -1309,75 +1309,54 @@
     {:isError? true
      :reason :missing-frame}}
 
-   ;; EP-0023 §Surface dispositions — the public address is the FRAME id;
-   ;; the EP-0013 (realm, frame) address collapses to one public frame-id
-   ;; space and there is no public realm pin. The pin form pins the frame
-   ;; ONLY (no select-realm!); the labeled-internal installation-boundary
-   ;; slots (:realms / :operating-realm) still ride back as implementation
-   ;; structure off the frames-list re-read. (The per-frame :frame-realms map
-   ;; was removed under rf2-70owfr — the single default realm makes it
-   ;; informationless.)
-   {:fixture/id    :set-operating-frame/frame-pin-no-realm-arg
-    :fixture/doc   "set-operating-frame pins a FRAME (the public address, EP-0023); the emitted form pins via select-frame!, never select-realm! — there is no public realm pin."
+   ;; EP-0023 §Specification — the public address is the FRAME id (a single
+   ;; process-local frame-id space). The pin form pins the frame via
+   ;; select-frame!.
+   {:fixture/id    :set-operating-frame/frame-pin
+    :fixture/doc   "set-operating-frame pins a FRAME (the public address, EP-0023); the emitted form pins via select-frame!."
     :fixture/tool  "set-operating-frame"
     :fixture/args  {:frame ":shop/cart"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      ;; The form validates :shop/cart against (:frames (frames-list)) and
      ;; pins it via select-frame!, then frames-list reports it as :selected
-     ;; / :operating. The installation-boundary slots ride back labeled-
-     ;; internal.
+     ;; / :operating.
      ["select-frame!"             {:ok? true
                                    :frames [:rf/default :shop/cart]
                                    :app-frames [:shop/cart]
                                    :selected :shop/cart
-                                   :operating :shop/cart
-                                   :realms [:rf.realm/default]
-                                   :operating-realm :rf.realm/default
-                                   :selected-realm nil}]
+                                   :operating :shop/cart}]
      [:default                    nil]]
-    ;; The emitted form MUST pin the FRAME via select-frame! and MUST NOT
-    ;; pin a realm — select-realm! is not the public pin mechanism.
+    ;; The emitted form MUST pin the FRAME via select-frame!.
     :fixture/eval-form-must-contain
     ["select-frame!" ":frames" ":shop/cart"]
-    :fixture/eval-form-must-not-contain
-    ["select-realm!" "::shop"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :selected :shop/cart :operating :shop/cart}
-     :edn-contains-keys #{:realms :operating-realm :selected-realm}}}
+     :edn-contains-keys #{:frames :selected :operating}}}
 
    {:fixture/id    :reset-operating-frame/clears-pin
-    :fixture/doc   "reset-operating-frame clears the session frame pin (select-frame! nil) AND the runtime's internal installation-container pin (select-realm! nil — the realm is the internal installation substrate, not a public address; EP-0023 §Surface dispositions), returning the post-reset map with :selected nil, :selected-realm nil, and :operating-realm back at the default container (rf2-c6armm.9 #2)."
+    :fixture/doc   "reset-operating-frame clears the session frame pin (select-frame! nil), returning the post-reset map with :selected nil and :operating back at the tier-3/4 resolution."
     :fixture/tool  "reset-operating-frame"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ;; The clear-then-reread form: select-frame! nil, select-realm! nil, then
-     ;; frames-list reports BOTH pins cleared — :selected nil (multi-frame app →
-     ;; :operating nil, back to tier-4 ambiguous) AND :selected-realm nil
-     ;; (:operating-realm falls back to the default container). The substring
-     ;; match on "select-frame!" matches the single clear-then-reread form.
+     ;; The clear-then-reread form: select-frame! nil, then frames-list reports
+     ;; the pin cleared — :selected nil (multi-frame app → :operating nil, back
+     ;; to tier-4 ambiguous). The substring match on "select-frame!" matches
+     ;; the single clear-then-reread form.
      ["select-frame!"             {:ok? true
                                    :frames [:rf/default :stories]
                                    :selected nil
-                                   :operating nil
-                                   :realms [:rf.realm/default]
-                                   :selected-realm nil
-                                   :operating-realm :rf.realm/default}]
+                                   :operating nil}]
      [:default                    nil]]
-    ;; The emitted reset form MUST clear BOTH pins, not just the frame pin: a
-    ;; regression that dropped `select-realm! nil` would leave a stale operating
-    ;; realm after reset (subsequent tool calls scoped to the wrong realm) yet
-    ;; still pass a frame-only assertion (rf2-c6armm.9 #2).
+    ;; The emitted reset form MUST clear the frame pin and re-read.
     :fixture/eval-form-must-contain
-    ["select-frame! nil" "select-realm! nil" "frames-list"]
+    ["select-frame! nil" "frames-list"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :selected nil :operating nil
-                  :selected-realm nil :operating-realm :rf.realm/default}
-     :edn-contains-keys #{:frames :selected :operating
-                          :realms :selected-realm :operating-realm}}}
+     :edn-submap {:ok? true :selected nil :operating nil}
+     :edn-contains-keys #{:frames :selected :operating}}}
 
    {:fixture/id    :get-operating-frame/reports-triple
     :fixture/doc   "get-operating-frame returns the normative {:frames :selected :operating} triple; :selected reflects a prior set."

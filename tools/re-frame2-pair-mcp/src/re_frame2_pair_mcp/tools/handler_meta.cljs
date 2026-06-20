@@ -5,53 +5,21 @@
   Direct introspection on the registrar — `where is `:user/login`
   registered?` answered without a wide-authority `eval-cljs` round-trip.
 
-  ## Realm-targeting — the internal installation boundary (optional)
-
-  EP-0023 makes the public model `image -> frame -> event stream` and
-  demotes the EP-0013 realm to the INTERNAL installation / container
-  substrate (EP-0023 §Surface dispositions: \"realm — internal
-  installation/container\"; realm-scoped registrar queries are \"retained as
-  implementation/migration/tooling surface … Tooling may still expose the
-  internal installation boundary, but should label it as such\").
-
-  Both tools therefore accept an OPTIONAL `:realm` arg — a realm-id keyword
-  naming an INTERNAL installation container — for inspecting a multi-realm
-  installation's per-container registrar. It is NOT a public address and is
-  needed only when a tool wants to drill into the internal substrate. When
-  ABSENT (the overwhelming common case) the tools resolve through the
-  default registrar exactly as before — byte-identical (absence = the
-  default container, the documented default-resolution rule). When PRESENT,
-  the eval form routes through the INTERNAL generation-bypass seam
-  `(re-frame.realm/realm-handler-meta r kind id)` /
-  `(re-frame.realm/realm-registrations r kind)` — so the tool reads ONLY that
-  container's registrar. rf2-10nggz REMOVED the public `:realm` registrar-query
-  map arity from the facade (a registrar-query map is now ALWAYS frame-targeted);
-  the honestly-named `re-frame.realm/realm-*` readers survive as the
-  internal/tooling seam (the same host-registry seam Xray reads). It's additive
-  and degrades to the default path.
-
   ## Frame-targeting — the EP-0023 forward direction (rf2-srobm0)
 
   A frame's inspectable registration set is its RESOLVED IMAGE GENERATION: the
   same `(kind, id)` can resolve DIFFERENTLY per frame (two frames running
   different images each resolve their OWN descriptor). Both tools therefore
   accept an OPTIONAL `:frame` arg — a frame id (keyword) addressing the
-  OPERATING frame's universe. ABSENT ⇒ the byte-identical default-registrar
-  path. PRESENT ⇒ the read routes through the per-frame runtime fns
+  OPERATING frame's universe. ABSENT ⇒ the byte-identical process-global
+  registrar path. PRESENT ⇒ the read routes through the per-frame runtime fns
   (`frame-registrar-describe` / `frame-registrar-list`), which consume the
   PUBLIC facade reads `(rf/handler-meta {:frame f :kind k :id id})` /
   `(rf/handler-ids {:frame f :kind k})` (rf2-wkw8na) and resolve the
   `(kind, id)` set through that frame's OWN sealed image generation —
   surfacing the resolved descriptor's `:rf.provenance/ns` + inline/image +
   `:standard` facts (plus a normalized `:rf.image/coordinate` rollup naming
-  WHICH source won) the realm/default reads can't.
-
-  `:frame` and `:realm` are DISTINCT ADDRESS FAMILIES (EP-0023 §Id Spaces):
-  `:realm` reads an installation container's flat registrar atom (the internal
-  `re-frame.realm/realm-*` seam); `:frame` resolves through a live frame's sealed
-  generation. Passing BOTH is rejected by a tool-local guard
-  (`:frame-and-realm-mutually-exclusive`), surfaced before the eval round-trip —
-  the two are different reads and only one can apply. `list-subscriptions` is the
+  WHICH source won) the process-global reads can't. `list-subscriptions` is the
   per-frame exemplar these now mirror.
 
   ## handler-meta
@@ -204,31 +172,6 @@
   (str/join ", " (sort (map name supported-kinds))))
 
 ;; ---------------------------------------------------------------------------
-;; Realm targeting — the internal installation boundary (EP-0023 §Surface
-;; dispositions: realm is internal installation/container; realm-scoped
-;; registrar queries retained as tooling surface, labeled as such).
-;;
-;; The OPTIONAL `:realm` arg names an INTERNAL installation container (a
-;; realm-id keyword), not a public address. ABSENT ⇒ nil ⇒ the default
-;; container (the byte-identical existing path). PRESENT ⇒ the realm-id
-;; keyword threaded into the map-shaped query form. A blank/missing value
-;; parses to nil (absence = default container — no error, since `:realm` is
-;; optional); a non-blank but unreadable value returns `[:err …]` so the tool
-;; surfaces a structured `:invalid-realm-edn` rather than silently ignoring a
-;; typo'd realm.
-;; ---------------------------------------------------------------------------
-
-(defn- parse-realm
-  "Coerce the OPTIONAL `:realm` MCP arg (an internal installation-container
-  id keyword string) to a CLJS value. Returns `[:ok kw-or-nil]` — an
-  absent/blank value is `[:ok nil]` (absence = default container) — or
-  `[:err :invalid-realm-edn]` when a non-blank value won't read as EDN."
-  [s]
-  (if (or (nil? s) (and (string? s) (str/blank? s)))
-    [:ok nil]
-    (args/read-edn-arg s :missing-realm :invalid-realm-edn)))
-
-;; ---------------------------------------------------------------------------
 ;; Frame targeting — the EP-0023 forward direction (rf2-srobm0).
 ;;
 ;; The OPTIONAL `:frame` arg addresses the OPERATING frame's resolved image
@@ -260,10 +203,10 @@
 (defn- registrar-form
   "Build the eval form for a registrar `(kind, id)` lookup.
 
-  DEFAULT container (`realm` + `frame` both nil): route through
-  `re-frame2-pair.runtime/registrar-describe` — the existing path, which
+  DEFAULT (`frame` nil): route through
+  `re-frame2-pair.runtime/registrar-describe` — the process-global path, which
   carries the `:not-registered` envelope on a miss and the
-  `:handler-fn-hash` augmentation. Byte-identical to before.
+  `:handler-fn-hash` augmentation.
 
   EXPLICIT FRAME (`frame` set — rf2-srobm0): route through
   `re-frame2-pair.runtime/frame-registrar-describe`, which resolves the
@@ -271,31 +214,11 @@
   `(rf/handler-meta {:frame f …})` read) and surfaces the resolved
   descriptor's `:rf.provenance/ns` + inline/image + `:standard` facts plus
   the `:rf.image/coordinate` rollup. Same `:not-registered` / `handler-fn`
-  hygiene as `registrar-describe`.
-
-  EXPLICIT internal container (`realm` set): route through the INTERNAL
-  generation-bypass seam `(re-frame.realm/realm-handler-meta r kind id)` so the
-  read hits ONLY that installation container's registrar. rf2-10nggz REMOVED the
-  public `:realm` registrar-query map arity from the facade; the honestly-named
-  `re-frame.realm/realm-*` readers survive as the internal/tooling seam (the same
-  host-registry seam Xray reads). Wrap the result to match `registrar-describe`'s
-  shape — drop the unserialisable `:handler-fn` Function ref (rf2-l7vnd) and emit
-  the `{:ok? false :reason :not-registered …}` envelope on a miss — so the tool's
-  response is uniform across the default, frame-, and realm-targeted paths."
-  [realm frame kind id]
-  (cond
-    (some? frame)
+  hygiene as `registrar-describe`."
+  [frame kind id]
+  (if (some? frame)
     (ef/emit (ef/rt-call 'frame-registrar-describe frame kind id))
-
-    (nil? realm)
-    (ef/emit (ef/rt-call 'registrar-describe kind id))
-
-    :else
-    (let [q (ef/emit (ef/rt-call* 're-frame.realm/realm-handler-meta
-                                  realm kind id))]
-      (str "(if-let [m " q "] (dissoc m :handler-fn) "
-           "{:ok? false :reason :not-registered :kind " (pr-str kind)
-           " :id " (pr-str id) "})"))))
+    (ef/emit (ef/rt-call 'registrar-describe kind id))))
 
 (defn- machine-form
   "Build the eval form that wraps `re-frame.core/machine-meta` with the
@@ -321,11 +244,9 @@
   (let [build-id   (wire/arg-build conn args)
         kind-str   (wire/arg args :kind)
         id-str     (wire/arg args :id)
-        realm-str  (wire/arg args :realm)
         frame-str  (wire/arg args :frame)
         kind       (parse-kind kind-str)
         [id-tag id-val]       (parse-id id-str)
-        [realm-tag realm-val] (parse-realm realm-str)
         frame-val             (parse-frame frame-str)]
     (cond
       (nil? kind)
@@ -342,42 +263,6 @@
                         :id     id-str
                         :hint   (str "id must be an EDN-readable keyword, e.g. \":user/login\". "
                                      "For composite-key subs, pass the vector form.")}))
-
-      (= :err realm-tag)
-      (js/Promise.resolve
-        (wire/err-text {:ok?    false
-                        :reason realm-val
-                        :realm  realm-str
-                        :hint   "realm must be an EDN-readable keyword, e.g. \":shop/realm\"."}))
-
-      ;; rf2-srobm0 — :frame + :realm are DISTINCT address families (EP-0023
-      ;; §Id Spaces): two different reads, only one can apply. Reject here before
-      ;; the eval round-trip — they target distinct code paths (a live frame's
-      ;; image generation vs. an installation container's registrar).
-      (and (some? frame-val) (some? realm-val))
-      (js/Promise.resolve
-        (wire/err-text {:ok?    false
-                        :reason :frame-and-realm-mutually-exclusive
-                        :frame  frame-val
-                        :realm  realm-val
-                        :hint   (str ":frame and :realm are distinct address families "
-                                     "(EP-0023 §Id Spaces): :frame resolves through a "
-                                     "live frame's image generation, :realm reads an "
-                                     "installation container's registrar. Pass ONE.")}))
-
-      ;; The :machine kind derives its specs from the DEFAULT realm's :event
-      ;; handlers (rf/machine-meta inspects the default-realm registrar), so a
-      ;; realm-targeted machine lookup has no meaning yet — refuse loudly
-      ;; rather than silently ignore the :realm (the no-silent-swallow rule).
-      (and (some? realm-val) (= :machine kind))
-      (js/Promise.resolve
-        (wire/err-text {:ok?    false
-                        :reason :realm-unsupported-for-machine
-                        :realm  realm-val
-                        :kind   kind
-                        :hint   (str "machine specs derive from the default realm; "
-                                     "drop :realm to query machines, or use a registrar "
-                                     "kind (event/sub/…) for realm-targeted reads.")}))
 
       ;; rf2-srobm0 — machines are NOT registrar kinds and are absent from the
       ;; image generation resolver (Spec 005 — derived from :event handlers); a
@@ -406,15 +291,12 @@
       ;; miss / unserializable) each resolve cleanly.
       (let [inner-form (if (= :machine kind)
                          (machine-form id-val)
-                         (registrar-form realm-val frame-val kind id-val))
+                         (registrar-form frame-val kind id-val))
             wrapped    (renv/wrap-form inner-form)
-            ;; Stamp the resolved realm / frame onto the result ONLY when one
-            ;; was requested — the default-realm response stays byte-identical
-            ;; (no spurious :realm / :frame key for the common single-realm,
-            ;; default-path case). At most one of the two is present (the mix
-            ;; is rejected above), so the two stamps never collide.
-            stamp-realm (fn [m] (cond-> m
-                                  (some? realm-val) (assoc :realm realm-val)
+            ;; Stamp the resolved frame onto the result ONLY when one was
+            ;; requested — the process-global default response stays
+            ;; byte-identical (no spurious :frame key for the common case).
+            stamp-frame (fn [m] (cond-> m
                                   (some? frame-val) (assoc :frame frame-val)))]
         (probe/eval-after-runtime!
           conn build-id wrapped :handler-meta-failed
@@ -431,7 +313,7 @@
                       ;;     pass through, stamped with kind/id.
                       ;;   - genuine non-map (should not happen against a
                       ;;     healthy runtime): surface :unexpected-shape.
-                      (stamp-realm
+                      (stamp-frame
                         (cond
                           (not (map? meta-map))
                           {:ok? false :reason :unexpected-shape
@@ -446,7 +328,7 @@
                   ;; codec carries no kind/id; stamp them so the agent
                   ;; sees what it asked for.
                   result (if (renv/error? result)
-                           (stamp-realm (assoc result :kind kind :id id-val))
+                           (stamp-frame (assoc result :kind kind :id id-val))
                            result)]
               (if (renv/error? result)
                 (wire/err-text result)
@@ -459,43 +341,28 @@
 (defn- list-form
   "Build the eval form returning the sorted id vector for a kind.
 
-  DEFAULT container (`realm` + `frame` both nil): the fourteen registrar
-  kinds route through `re-frame2-pair.runtime/registrar-list`; `:machine`
-  wraps `re-frame.core/machines` (Spec 005 §Querying machines — every event
-  handler with `:rf/machine? true`). Byte-identical to before.
+  DEFAULT (`frame` nil): the fourteen registrar kinds route through
+  `re-frame2-pair.runtime/registrar-list`; `:machine` wraps
+  `re-frame.core/machines` (Spec 005 §Querying machines — every event handler
+  with `:rf/machine? true`).
 
   EXPLICIT FRAME (`frame` set — rf2-srobm0): route through
   `re-frame2-pair.runtime/frame-registrar-list`, which enumerates only the
   ids the frame's OWN image generation carries for the kind (the PUBLIC
   `(rf/handler-ids {:frame f :kind k})` read). `:machine` is rejected before
-  reaching here when a frame is supplied (machines are not in the resolver).
-
-  EXPLICIT internal container (`realm` set): route through the INTERNAL
-  generation-bypass seam `(re-frame.realm/realm-registrations r kind)` and lift
-  the sorted id vector off it, so the enumeration covers ONLY that installation
-  container's registrar. rf2-10nggz REMOVED the public `:realm` registrar-query
-  map arity from the facade; the honestly-named `re-frame.realm/realm-*` readers
-  survive as the internal/tooling seam (the same host-registry seam Xray reads).
-  `:machine` is rejected before reaching here when a realm is supplied (machines
-  derive from the default container)."
-  [realm frame kind]
+  reaching here when a frame is supplied (machines are not in the resolver)."
+  [frame kind]
   (cond
     (= :machine kind) "(vec (sort (re-frame.core/machines)))"
     (some? frame)     (ef/emit (ef/rt-call 'frame-registrar-list frame kind))
-    (nil? realm)      (ef/emit (ef/rt-call 'registrar-list kind))
-    :else             (str "(->> "
-                           (ef/emit (ef/rt-call* 're-frame.realm/realm-registrations
-                                                 realm kind))
-                           " keys sort vec)")))
+    :else             (ef/emit (ef/rt-call 'registrar-list kind))))
 
 (defn list-handlers-tool [conn args]
   (let [build-id  (wire/arg-build conn args)
         kind-str  (wire/arg args :kind)
-        realm-str (wire/arg args :realm)
         frame-str (wire/arg args :frame)
         kind      (parse-kind kind-str)
-        [realm-tag realm-val] (parse-realm realm-str)
-        frame-val             (parse-frame frame-str)]
+        frame-val (parse-frame frame-str)]
     (cond
       (nil? kind)
       (js/Promise.resolve
@@ -503,36 +370,6 @@
                         :reason :invalid-kind
                         :kind   kind-str
                         :hint   (str "kind must be one of: " (kinds-hint))}))
-
-      (= :err realm-tag)
-      (js/Promise.resolve
-        (wire/err-text {:ok?    false
-                        :reason realm-val
-                        :realm  realm-str
-                        :hint   "realm must be an EDN-readable keyword, e.g. \":shop/realm\"."}))
-
-      ;; rf2-srobm0 — :frame + :realm are distinct address families; reject
-      ;; the mix before the eval round-trip (two different reads, only one applies).
-      (and (some? frame-val) (some? realm-val))
-      (js/Promise.resolve
-        (wire/err-text {:ok?    false
-                        :reason :frame-and-realm-mutually-exclusive
-                        :frame  frame-val
-                        :realm  realm-val
-                        :hint   (str ":frame and :realm are distinct address families "
-                                     "(EP-0023 §Id Spaces): :frame enumerates a live "
-                                     "frame's image generation, :realm an installation "
-                                     "container's registrar. Pass ONE.")}))
-
-      (and (some? realm-val) (= :machine kind))
-      (js/Promise.resolve
-        (wire/err-text {:ok?    false
-                        :reason :realm-unsupported-for-machine
-                        :realm  realm-val
-                        :kind   kind
-                        :hint   (str "machine specs derive from the default realm; "
-                                     "drop :realm to list machines, or use a registrar "
-                                     "kind (event/sub/…) for realm-targeted enumeration.")}))
 
       ;; rf2-srobm0 — machines are not in the image generation resolver.
       (and (some? frame-val) (= :machine kind))
@@ -546,7 +383,7 @@
                                      "kind for a frame-targeted enumeration.")}))
 
       :else
-      (let [form (list-form realm-val frame-val kind)]
+      (let [form (list-form frame-val kind)]
         (probe/eval-after-runtime!
           conn build-id form :list-handlers-failed
           (fn [v]
@@ -555,5 +392,4 @@
                        :kind  kind
                        :ids   (vec v)
                        :count (count v)}
-                (some? realm-val) (assoc :realm realm-val)
                 (some? frame-val) (assoc :frame frame-val)))))))))
