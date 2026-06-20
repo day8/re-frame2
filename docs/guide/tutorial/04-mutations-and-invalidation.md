@@ -49,10 +49,6 @@ A mutation is the write-side counterpart of a resource. You register it with `re
   {:doc           "Favorite an article. POST /articles/:slug/favorite."
    :params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :post
-                               :url    (rh/full-url (str "/articles/" slug "/favorite"))}
-                     :decode  schema/ArticleResponse})
    ;; Seed the cached article detail from the write's own reply — the heart
    ;; flips the moment the server confirms.
    :populates     (fn [{:keys [slug]} result]
@@ -64,12 +60,16 @@ A mutation is the write-side counterpart of a resource. You register it with `re
                     [{:scope :rf.scope/global
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :conduit/session}
-                      :tags  #{[:feed]}}])})
+                      :tags  #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post
+               :url    (rh/full-url (str "/articles/" slug "/favorite"))}
+     :decode  schema/ArticleResponse}))
 ```
 
-Three keys do the work:
+Three things do the work:
 
-- **`:request`** describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id`, because the runtime owns reply addressing — and that ownership is what makes the stale-reply suppression below possible. There's one asymmetry from reads worth flagging: **writes never retry by default.** Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries only if its `:request` explicitly opts in. This one doesn't.
+- **The request fn** (the third positional arg) describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id`, because the runtime owns reply addressing — and that ownership is what makes the stale-reply suppression below possible. There's one asymmetry from reads worth flagging: **writes never retry by default.** Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries only if its request map explicitly opts in. This one doesn't.
 - **`:invalidates`** declares which tags the write makes stale on success. A single-scope write can use a bare tag set, like `#{[:article slug]}`. But favoriting breaks reads in *two* scopes: the article and lists are global, while your feed is keyed by session. So it returns a vector of descriptors, each naming its own scope. The second resolves through the `:conduit/session` resolver above, at settle time. One write, both scopes, declared once.
 - **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry. The populated value must be the resource's stored shape — the same `{:article …}` envelope a normal load produces, which is why we pass `result` whole. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
 
@@ -85,8 +85,8 @@ Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. T
     ;; ✗ WRONG — the feed lives in the SESSION scope, but this invalidates GLOBAL
     (rf/reg-mutation :conduit/post-to-feed
       {:params-schema [:map …]
-       :request       (fn [_ _] {:request {:method :post :url (rh/full-url "/articles")}})
-       :invalidates   (fn [_ _result] #{[:feed]})})   ;; resolves to :rf.scope/global
+       :invalidates   (fn [_ _result] #{[:feed]})}   ;; resolves to :rf.scope/global
+      (fn [_ _] {:request {:method :post :url (rh/full-url "/articles")}}))
     ```
 
     quietly *misses* `:conduit/feed`, because that resource is `:scope {:from-db :conduit/session}` — its entries live under `[:rf.scope/session {:username …}]`, never under global. The feed stays stale.
@@ -114,9 +114,6 @@ Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. T
       {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
        :params-schema [:map [:slug :string]]
        :scope         :rf.scope/global
-       :request       (fn [{:keys [slug]} _ctx]
-                        {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
-                         :decode  schema/ArticleResponse})
        ;; FORWARD: flip the heart + bump the count on every entry tagged
        ;; [:article slug] — the detail, every list, the session feed — at once.
        :optimistic-tags (fn [{:keys [slug]}]
@@ -133,7 +130,10 @@ Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. T
        :invalidates   (fn [{:keys [slug]} _result]
                         [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
                          {:scope {:from-db :conduit/session} :tags #{[:feed]}}])
-       :on-conflict   :invalidate})
+       :on-conflict   :invalidate}
+      (fn [{:keys [slug]} _ctx]
+        {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
+         :decode  schema/ArticleResponse}))
     ```
 
     Three things make this safe, and none of them are your job:
@@ -199,11 +199,6 @@ First, the write. Create and edit share one mutation that switches POST/PUT on w
                    [:body  :string]
                    [:tagList [:vector :string]]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug] :as draft} _ctx]
-                    {:request {:method (if slug :put :post)
-                               :url    (rh/full-url (if slug (str "/articles/" slug) "/articles"))
-                               :body   {:article (select-keys draft [:title :description :body :tagList])}}
-                     :decode  schema/ArticleResponse})
    ;; Lists always go stale; an edit also stales its own detail entry. A new
    ;; article has no prior slug — its detail loads fresh on navigate.
    :invalidates   (fn [{:keys [slug]} _result]
@@ -211,7 +206,12 @@ First, the write. Create and edit share one mutation that switches POST/PUT on w
                       :tags  (cond-> #{[:article-list]}
                                slug (conj [:article slug]))}
                      {:scope {:from-db :conduit/session}
-                      :tags  #{[:feed]}}])})
+                      :tags  #{[:feed]}}])}
+  (fn [{:keys [slug] :as draft} _ctx]
+    {:request {:method (if slug :put :post)
+               :url    (rh/full-url (if slug (str "/articles/" slug) "/articles"))
+               :body   {:article (select-keys draft [:title :description :body :tagList])}}
+     :decode  schema/ArticleResponse}))
 ```
 
 The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) so we can tell whether anything actually changed. Note what's *not* here: there's no `:status` field. The submission lifecycle Part 3 hand-rolled lives on the mutation instance instead — one of the things you get back by moving to mutations.
@@ -323,10 +323,10 @@ One gap is left. Write half an article, click the site logo, and the draft silen
 
 ;; src/conduit/routing.cljs — a new route for the editor, with the guard.
 (rf/reg-route :conduit.editor/new
-  {:path      "/editor"
-   :tags      #{:requires-auth}
+  {:tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
-   :can-leave [:editor/can-leave?]})
+   :can-leave [:editor/can-leave?]}
+  "/editor")
 ```
 
 (The example adds the `/editor/:slug` edit route the same way — same guard; its `:on-match` seeds the draft from the article read.)

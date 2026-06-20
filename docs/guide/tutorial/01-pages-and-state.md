@@ -191,24 +191,24 @@ Now for `core.cljs`. You're replacing the whole file from setup: the placeholder
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (rf/reg-route :conduit/home
-  {:doc  "The home page: the article feed."
-   :path "/"})
+  {:doc  "The home page: the article feed."}
+  "/")
 
 (rf/reg-route :conduit.article/show
   {:doc    "One article, addressed by its slug."
-   :path   "/article/:slug"
-   :params [:map [:slug :string]]})
+   :params [:map [:slug :string]]}
+  "/article/:slug")
 
 (rf/reg-route :rf.route/not-found
-  {:doc  "Fallback page for URLs that match nothing."
-   :path "/_404"})
+  {:doc  "Fallback page for URLs that match nothing."}
+  "/_404")
 ```
 
 !!! note "If routing isn't loaded"
 
     Forget that `[re-frame.routing]` require and the first `rf/reg-route` raises `:rf.error/routing-artefact-missing`. The error names the artefact and the namespace to require, so it's a quick fix — one more named failure mode for setup's collection.
 
-A route is a registry entry, exactly like an event or a sub: data, not components. `:path` is a pattern, `:slug` is a named segment, and whatever it captures arrives in the `:rf.route/params` sub your article page already reads. The `:params` schema names the capture's shape. Enforcement is opt-in: once the schemas artefact joins the classpath ([Validate with schemas](../how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as unmatched instead of limping through your views half-parsed. Until then the schema is checked-later documentation, and a single `:string` slug has nothing to fail anyway.
+A route is a registry entry, exactly like an event or a sub: data, not components. The path (the third positional arg) is a pattern, `:slug` is a named segment, and whatever it captures arrives in the `:rf.route/params` sub your article page already reads. The `:params` schema names the capture's shape. Enforcement is opt-in: once the schemas artefact joins the classpath ([Validate with schemas](../how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as unmatched instead of limping through your views half-parsed. Until then the schema is checked-later documentation, and a single `:string` slug has nothing to fail anyway.
 
 `:rf.route/not-found` is the one route id the framework reserves. Whenever a URL matches nothing, the runtime routes to it with the offending URL in `:rf.route/params`. Every app must register it — it's an ordinary route, and you own its page.
 
