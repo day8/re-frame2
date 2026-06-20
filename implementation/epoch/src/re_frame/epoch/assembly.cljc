@@ -125,9 +125,9 @@
 
   Per EP-0015 §15 (Epoch Redaction) + open-issue 6 disposition (RULED,
   hardened): `:redact-fn` is the PROJECTION-SIDE-ONLY advanced override.
-  Storage-side mutation was REMOVED — post-EP-0010 epoch records are
-  causal replay material; mutating them at rest corrupts the replay
-  contract. So this helper runs ONLY at the off-box egress boundary,
+  Epoch records are causal replay material (per EP-0010); mutating them at
+  rest would corrupt the replay contract, so storage stays raw. This
+  helper runs ONLY at the off-box egress boundary,
   inside `re-frame.epoch.tool-pair/projected-record`, AFTER the
   frame/profile `re-frame.projection/project-egress` projection. The ring
   buffer + every `register-epoch-listener!` listener deliver the RAW
