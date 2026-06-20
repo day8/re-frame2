@@ -1,14 +1,14 @@
 ;;;; tests/runtime/orient_test.clj
 ;;;;
-;;;; Babashka-runnable structural pin (rf2-3bu3d.8) that the runtime
-;;;; preload defines `orient` — the app-shape orientation summary the MCP
-;;;; `orient` tool wraps — and that it COMPOSES from the existing
-;;;; introspection surfaces (no parallel reimplementation) and carries the
-;;;; documented summary slots.
+;;;; Babashka-runnable structural pin that the runtime preload defines
+;;;; `orient` — the app-shape orientation summary the MCP `orient` tool
+;;;; wraps — and that it COMPOSES from the existing introspection surfaces
+;;;; (no parallel reimplementation) and carries the documented summary
+;;;; slots.
 ;;;;
-;;;; ## What rf2-3bu3d.8 adds
+;;;; ## What orient provides
 ;;;;
-;;;;   First-contact on an UNFAMILIAR app otherwise took several calls
+;;;;   First-contact on an UNFAMILIAR app otherwise takes several calls
 ;;;;   (discover-app + snapshot top-keys + list-handlers +
 ;;;;   list-subscriptions + machines). `orient` composes them into one
 ;;;;   compact map by REUSING the existing surfaces:
@@ -38,8 +38,8 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private defn-named rt/defn-named)
 (def ^:private form-contains? rt/form-contains?)
 
@@ -64,9 +64,9 @@
         "orient reuses `health` for liveness/frames.")
     (is (form-contains? #(= 'app-frame-ids %) form)
         "orient reuses `app-frame-ids` (tool frames split out).")
-    ;; rf2-srobm0 — the registry slot is now produced by the registry-view
-    ;; helpers (frame-registry-view ⊳ process-registry-view fallback); the
-    ;; process view still reuses `registrar-list` for the navigable ids.
+    ;; The registry slot is produced by the registry-view helpers
+    ;; (frame-registry-view ⊳ process-registry-view fallback); the process
+    ;; view reuses `registrar-list` for the navigable ids.
     (is (and (form-contains? #(= 'frame-registry-view %) form)
              (form-contains? #(= 'process-registry-view %) form))
         "orient composes its :registry from the frame/process registry-view helpers.")
@@ -76,7 +76,7 @@
 (deftest orient-excludes-tool-frames-from-top-keys
   ;; :app-db-top-keys must key on app frames (via app-frame-ids), so a
   ;; reserved :rf/* tool frame's inspection state can't overflow the
-  ;; first-contact summary (rf2-3bu3d.6 posture).
+  ;; first-contact summary.
   (let [form (defn-named 'orient)]
     (is (form-contains? #(= 'app-frame-ids %) form)
         "orient derives :app-db-top-keys keys from app-frame-ids — tool frames excluded.")))
@@ -93,10 +93,10 @@
    The `:registry` slot here mirrors the PROCESS-VIEW fallback shape
    (`process-registry-view`) — the byte-stable counts + navigable id vectors.
    Live, orient re-bases on the OPERATING FRAME's image generation when one
-   resolves (rf2-srobm0), adding `:basis :frame` + `:frame <id>` and keying
-   the counts off the frame's resolver; the process view carries `:basis
-   :process`. This mirror pins the documented summary slot shape, not the
-   per-basis resolution (the frame/process registry-view fns own that)."
+   resolves, adding `:basis :frame` + `:frame <id>` and keying the counts off
+   the frame's resolver; the process view carries `:basis :process`. This
+   mirror pins the documented summary slot shape, not the per-basis
+   resolution (the frame/process registry-view fns own that)."
   [{:keys [health app-fids app-dbs registrations machines]}]
   {:ok?      true
    :liveness {:debug-enabled?      (:debug-enabled? health)

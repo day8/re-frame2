@@ -6,11 +6,10 @@
 ;;;;
 ;;;; Why this test exists:
 ;;;;
-;;;; The MCP server's `discover-app` no longer cljs-eval-injects the
-;;;; runtime; it probes the load-time marker and refuses with
-;;;; `:reason :runtime-not-preloaded` if absent. The probe depends on
-;;;; the preload setting `js/globalThis.__re_frame2_pair_runtime` to a
-;;;; non-nil value. If that side-effect ever regresses (someone removes
+;;;; The MCP server's `discover-app` probes the load-time marker and
+;;;; refuses with `:reason :runtime-not-preloaded` if absent. The probe
+;;;; depends on the preload setting `js/globalThis.__re_frame2_pair_runtime`
+;;;; to a non-nil value. If that side-effect ever regresses (someone removes
 ;;;; the `defonce`, or renames the global) every re-frame2-pair session breaks
 ;;;; the same way: "runtime not preloaded" despite the preload being
 ;;;; in place. This structural check fails fast at PR time.
@@ -33,8 +32,8 @@
  (:require [clojure.test :refer [deftest is run-tests]]
  [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private all-forms rt/all-forms)
 (def ^:private form-contains? rt/form-contains?)
 

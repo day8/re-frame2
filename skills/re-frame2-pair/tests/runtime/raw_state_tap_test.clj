@@ -14,8 +14,8 @@
 ;;;; `rf/elide-wire-value` directly) — verbatim payloads only ride
 ;;;; when the gate is explicitly opted in.
 ;;;; 3. `raw-state-config` defaults to `:allow-raw-state? true` so a
-;;;; bare REPL session (no re-frame2-pair-mcp attached) sees the legacy
-;;;; behaviour. The MCP-server boot flips it to `false` via
+;;;; bare REPL session (no re-frame2-pair-mcp attached) sees verbatim
+;;;; payloads. The MCP-server boot flips it to `false` via
 ;;;; `configure-raw-state!`.
 ;;;;
 ;;;; Run: bb tests/runtime/raw_state_tap_test.clj
@@ -27,8 +27,8 @@
  (:require [clojure.test :refer [deftest is run-tests testing]]
  [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 
 (defn- find-top-form
  "Find the top-level form whose head matches `head-sym` and whose first
