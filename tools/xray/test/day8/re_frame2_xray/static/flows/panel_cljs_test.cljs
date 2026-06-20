@@ -18,6 +18,13 @@
     5. **Search filter** — substring across flow-id + path + doc."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-20359j — load-time hook so `reg-flow` / `flows-snapshot`
+            ;; resolve. The Static Flows panel reads the PRODUCTION data
+            ;; source `flows/flows-snapshot` (the per-frame flows atom is the
+            ;; sole store after rf2-en00bk; the registrar `:flow` slot is
+            ;; reserved-but-empty), so the live-source regression below
+            ;; registers real flows through `rf/reg-flow`.
+            [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -323,3 +330,118 @@
                            tree "rf-xray-edn-inspector-")]
         (is (seq widget-nodes)
             "at least one edn-inspector widget container present")))))
+
+;; -------------------------------------------------------------------------
+;; (6) LIVE production data source regression (rf2-20359j)
+;; -------------------------------------------------------------------------
+;;
+;; Every test above injects fixtures through the test-only OVERRIDE seam
+;; (`set-registered-flows-override-for-test`), which is exactly why CI
+;; stayed green after rf2-en00bk silently emptied the panel's real data
+;; source: the override branch never touches the production read. This
+;; section exercises the genuine PRODUCTION path — the
+;; `:rf.xray.static.flows/registered-flows` sub's `registered-flows-value`
+;; → `re-frame.flows/flows-snapshot` read — against REAL `reg-flow`
+;; registrations, with NO override installed.
+;;
+;; rf2-en00bk made the per-frame `flows` atom the SOLE store and left the
+;; registrar `:flow` slot RESERVED-but-empty. Before this PR the panel read
+;; `(host-registry/registrations :flow)` (→ now `{}`), so the production
+;; data source returned an EMPTY catalogue against real flows; after the
+;; repoint it reads `flows/flows-snapshot` and surfaces them. Reverting the
+;; `registered-flows-value` body back to the registrar read fails the first
+;; assertion below (empty catalogue) while every override-based test above
+;; stays green — proving the gap this regression closes.
+
+(defn- production-setup-xray!
+  "Install the PRODUCTION Static Flows wiring (no override seam) plus the
+  two host frames the live-source flows register against."
+  []
+  (registry/register-xray-handlers!)
+  (frame/reg-frame :rf/xray {})
+  (frame/reg-frame :flows-test/frame-a {:doc "host frame A"})
+  (frame/reg-frame :flows-test/frame-b {:doc "host frame B"}))
+
+(deftest live-source-reads-flows-snapshot-not-empty-registrar-slot
+  (testing "rf2-20359j — the PRODUCTION Static Flows data source reads
+            `flows/flows-snapshot` (the per-frame flows store) and surfaces
+            real `reg-flow` registrations. Pre-repoint it read the now-empty
+            registrar `:flow` slot and returned an empty catalogue (the panel
+            degraded silently); the override-based tests above could not see
+            this regression."
+    (production-setup-xray!)
+    ;; Register REAL flows against host frame A via the public facade.
+    (rf/reg-flow {:id          :user/full-name
+                  :inputs      [[:user :first] [:user :last]]
+                  :derive      (fn [first* last*] (str first* " " last*))
+                  :output-path [:derived :full-name]
+                  :doc         "concat first + last"}
+                 {:frame :flows-test/frame-a})
+    (rf/reg-flow {:id          :cart/total
+                  :inputs      [[:cart :items]]
+                  :derive      (fn [_] 0)
+                  :output-path [:cart :total]
+                  :doc         "sum of cart items"}
+                 {:frame :flows-test/frame-a})
+    ;; Read through the LIVE production sub — NOT the override seam — inside
+    ;; the :rf/xray frame the panel seats in. nil picker frame → list every
+    ;; frame's flows (see scope-to-frame), so the catalogue carries both.
+    (rf/with-frame :rf/xray
+      (let [snapshot @(rf/subscribe [:rf.xray.static.flows/registered-flows])]
+        (is (seq snapshot)
+            "production data source is NON-EMPTY against real flows (was {}
+             when reading the now-empty registrar :flow slot)")
+        (is (= #{:user/full-name :cart/total}
+               (set (keys (get snapshot :flows-test/frame-a))))
+            "frame A's two flows surface, keyed by frame in the per-frame shape"))
+      (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])]
+        (is (false? (:silent? data))
+            "tab-data is not silent — the panel renders rows, not the empty state")
+        (is (= 2 (:total data))
+            "both real flows reach the view-facing composite")))))
+
+(deftest live-source-surfaces-frame-divergent-definitions
+  (testing "rf2-20359j / Spec 013 — the SAME flow-id registered against two
+            frames carries each frame's OWN divergent definition in the
+            production data source. The old frame-blind registrar slot could
+            only ever show the last registrant; `flows/flows-snapshot` shows
+            both, and the panel scopes per frame."
+    (production-setup-xray!)
+    (let [derive-a (fn [first* last*] (str first* " " last*))
+          derive-b (fn [first* last*] (str last* ", " first*))]
+      ;; Same flow-id :user/full-name, two frames, DIVERGENT :derive +
+      ;; :output-path.
+      (rf/reg-flow {:id          :user/full-name
+                    :inputs      [[:user :first] [:user :last]]
+                    :derive      derive-a
+                    :output-path [:derived :natural]
+                    :doc         "first last"}
+                   {:frame :flows-test/frame-a})
+      (rf/reg-flow {:id          :user/full-name
+                    :inputs      [[:user :first] [:user :last]]
+                    :derive      derive-b
+                    :output-path [:derived :sortable]
+                    :doc         "last, first"}
+                   {:frame :flows-test/frame-b})
+      (rf/with-frame :rf/xray
+        (let [snapshot @(rf/subscribe [:rf.xray.static.flows/registered-flows])
+              entry-a  (get-in snapshot [:flows-test/frame-a :user/full-name])
+              entry-b  (get-in snapshot [:flows-test/frame-b :user/full-name])]
+          (is (some? entry-a) "frame A's entry present")
+          (is (some? entry-b) "frame B's entry present")
+          (is (= derive-a (:derive entry-a))
+              "frame A keeps its OWN :derive (not clobbered by frame B's later reg)")
+          (is (= derive-b (:derive entry-b))
+              "frame B keeps its OWN :derive")
+          (is (= [:derived :natural] (:output-path entry-a))
+              "frame A keeps its OWN :output-path")
+          (is (= [:derived :sortable] (:output-path entry-b))
+              "frame B keeps its OWN :output-path — divergent per frame")))
+      ;; Cross-check the introspection surface the Epoch panel's source link
+      ;; reads (`flow-meta-at` with an explicit :frame) agrees, frame-by-frame.
+      (is (= derive-a (:derive (flows/flow-meta-at :user/full-name
+                                                   {:frame :flows-test/frame-a})))
+          "flow-meta-at resolves frame A's divergent definition")
+      (is (= derive-b (:derive (flows/flow-meta-at :user/full-name
+                                                   {:frame :flows-test/frame-b})))
+          "flow-meta-at resolves frame B's divergent definition"))))

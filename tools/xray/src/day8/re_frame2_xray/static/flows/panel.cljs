@@ -22,15 +22,18 @@
   ## Data source
 
   Reads the registered flows through the public introspection surface
-  `(rf/registrations :flow)` (Tool-Pair.md §public APIs; spec/014
-  catalogues `:rf.xray/registered-flows` as `(rf/registrations :flow)`)
-  rather than reaching the private `re-frame.flows.registry/flows`
-  atom. The registrar slot keys on flow-id with `:frame` stamped per
-  entry (registry.cljc — `reg-flow` stamps `:frame` into the metadata),
-  so the sub groups the flat `{flow-id meta}` map by `:frame` back into
-  the `{frame-id {flow-id flow-map}}` shape the per-frame projection +
-  picker-scoping helpers consume. The view never reasons about the
-  registry's two-level shape directly.
+  `re-frame.flows/flows-snapshot` (Tool-Pair.md §public APIs; spec/014
+  catalogues `:rf.xray/registered-flows` as `flows/flows-snapshot`).
+  Since rf2-en00bk the per-frame `flows` atom is the SOLE store; the
+  registrar `:flow` kind is RESERVED-but-empty (no write), so the old
+  `(rf/registrations :flow)` read now returns `{}` (an empty catalogue).
+  `flows-snapshot` returns the whole-registry `{frame-id {flow-id
+  flow-map}}` value DIRECTLY — already in the per-frame shape the
+  projection + picker-scoping helpers consume, so no flat-to-grouped
+  regrouping is needed. The store is FRAME-DIVERGENT-per-id (Spec 013):
+  the same flow-id against two frames carries each frame's OWN definition,
+  which this panel surfaces per frame — a strict improvement over the old
+  frame-blind last-registration-wins registrar slot.
 
   Optional test override slot: `:rf.xray.static.flows/registered-
   flows-override` lets the CLJS test suite inject deterministic
@@ -47,7 +50,7 @@
   `[rf/frame-provider-existing {:frame :rf/xray}]` in `static/shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [day8.re-frame2-xray.host-registry :as host-registry]
+            [re-frame.flows :as flows]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
@@ -71,27 +74,6 @@
   (if (nil? frame-id)
     registry-snapshot
     (select-keys registry-snapshot [frame-id])))
-
-(defn registrations->by-frame
-  "Group the flat `(rf/registrations :flow)` shape — `{flow-id meta}`
-  where each `meta` carries a `:frame` stamped at `reg-flow`-time — back
-  into the per-frame `{frame-id {flow-id flow-map}}` shape the
-  projection + picker-scoping helpers consume.
-
-  An entry whose `:frame` slot is absent (defensive — every flow
-  registration stamps `:frame`) buckets under the distinct
-  `:rf.xray/no-frame-stamp` sentinel. Per EP-0002, a missing frame
-  stamp is NOT bucketed under `:rf/default` (an ordinary id that a real
-  flow may legitimately register in): conflating the two would
-  mis-attribute a stamp-less registration to a real frame's group.
-  Pure data — JVM-runnable."
-  [registrations]
-  (reduce-kv
-    (fn [acc flow-id meta]
-      (let [frame-id (get meta :frame :rf.xray/no-frame-stamp)]
-        (assoc-in acc [frame-id flow-id] meta)))
-    {}
-    registrations))
 
 (defn project-rows
   "Flatten `{frame-id {flow-id flow-map}}` into a flat vector of rows,
@@ -295,18 +277,28 @@
 ;; branch lives in ONE place (the seam), not duplicated.
 
 (defn- registered-flows-value
-  "The registered flows regrouped into the per-frame
-  `{frame-id {flow-id flow-map}}` shape from the HOST app's `:flow` registrar.
+  "The registered flows in the per-frame `{frame-id {flow-id flow-map}}`
+  shape, read directly from the authoritative flows store via
+  `re-frame.flows/flows-snapshot`.
 
-  Read via `host-registry/registrations` (the generation-bypassing
-  host-registry form), NOT a bare `(rf/registrations :flow)`: this runs inside the
-  `:rf.xray.static.flows/registered-flows` sub COMPUTATION, and Xray seats in
-  its OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
-  Xray's image generation — a bare read would resolve through Xray's OWN image
-  (no host `:flow` ids) and the panel would show an empty flow catalogue. See
-  `day8.re-frame2-xray.host-registry`."
+  Reads `flows/flows-snapshot` — the whole-registry `{frame-id {flow-id
+  flow-map}}` snapshot — NOT the registrar `:flow` slot. Since rf2-en00bk
+  the per-frame `flows` atom is the SOLE store; the registrar `:flow` kind
+  is RESERVED-but-empty (no write), so the old `(rf/registrations :flow)` /
+  `host-registry/registrations :flow` read now returns `{}` and the panel
+  rendered an empty catalogue. `flows-snapshot` deref's the process-global
+  `re-frame.flows.registry/flows` atom directly, so — unlike a registrar
+  read — it is generation-INDEPENDENT: it does not route through the
+  registrar resolver and is unaffected by Xray's sub build binding to its
+  OWN `:rf/xray` image generation. No regrouping is needed: the snapshot
+  is ALREADY in the per-frame `{frame-id {flow-id flow-map}}` shape the
+  projection + picker-scoping helpers consume, and is FRAME-DIVERGENT by
+  construction — the same flow-id registered against two frames carries
+  each frame's OWN `:inputs` / `:derive` / `:output-path`, a strict
+  improvement over the old frame-blind last-registration-wins registrar
+  slot (rf2-20359j)."
   []
-  (try (registrations->by-frame (host-registry/registrations :flow))
+  (try (flows/flows-snapshot)
        (catch :default _ {})))
 
 ;; ---- registrations -------------------------------------------------------
@@ -324,9 +316,8 @@
         — test-only override setter.
     - `:rf.xray.static.flows/registered-flows` — production data sub
                                                   reading the public
-                                                  `(rf/registrations
-                                                  :flow)` surface
-                                                  (or override).
+                                                  `flows/flows-snapshot`
+                                                  surface (or override).
     - `:rf.xray.static.flows/tab-data`         — view-facing composite."
   []
 
@@ -349,15 +340,16 @@
 
   ;; ---- production data sub ---------------------------------------------
 
-  ;; Read the registered flows through the public `(rf/registrations
-  ;; :flow)` introspection surface (Tool-Pair.md §public APIs) once per
-  ;; sub re-fire, then regroup the flat `{flow-id meta}` shape into the
-  ;; per-frame `{frame-id {flow-id flow-map}}` shape the projection +
-  ;; picker-scoping helpers consume. `:<-`-composing against
-  ;; `:rf.xray/trace-buffer` keeps the sub reactive against the same
-  ;; "something changed" pulse the other static-mode subs ride —
-  ;; without it, a fresh `reg-flow!` wouldn't surface until the next
-  ;; subscribe re-render.
+  ;; Read the registered flows through the public `flows/flows-snapshot`
+  ;; introspection surface (Tool-Pair.md §public APIs) once per sub
+  ;; re-fire. The snapshot is already in the per-frame `{frame-id
+  ;; {flow-id flow-map}}` shape the projection + picker-scoping helpers
+  ;; consume — no flat-to-grouped regroup needed (rf2-en00bk made the
+  ;; per-frame flows atom the sole store; the registrar `:flow` slot is
+  ;; reserved-but-empty). `:<-`-composing against `:rf.xray/trace-buffer`
+  ;; keeps the sub reactive against the same "something changed" pulse the
+  ;; other static-mode subs ride — without it, a fresh `reg-flow!`
+  ;; wouldn't surface until the next subscribe re-render.
   (rf/reg-sub :rf.xray.static.flows/registered-flows
     :<- [:rf.xray/trace-buffer]
     (fn [_buffer _query]

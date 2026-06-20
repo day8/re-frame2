@@ -70,13 +70,17 @@
          day8/re-frame2-routing {:local/root "../../implementation/routing"}
 
          ;; Per rf2-uhsqb — `day8/re-frame2-flows` is a hard dep of
-         ;; Xray. The Static Flows sub-tab reads
-         ;; `re-frame.flows.registry/flows` at view-render time to
-         ;; project the registered-flows catalogue. Same posture as
-         ;; the routing dep above: most real hosts already pull the
-         ;; flows artefact, but the Static Flows sub-tab must work
-         ;; (rendering an empty catalogue when no flows are registered)
-         ;; even for hosts that haven't registered any flows yet.
+         ;; Xray. The Static Flows sub-tab reads the public
+         ;; `re-frame.flows/flows-snapshot` introspection surface (and
+         ;; the Epoch panel's flow-step source link reads
+         ;; `re-frame.flows/flow-meta-at`) to project the registered-flows
+         ;; catalogue — the per-frame flows atom is the sole store after
+         ;; rf2-en00bk (the registrar `:flow` slot is reserved-but-empty),
+         ;; repointed off it by rf2-20359j. Same posture as the routing
+         ;; dep above: most real hosts already pull the flows artefact, but
+         ;; the Static Flows sub-tab must work (rendering an empty
+         ;; catalogue when no flows are registered) even for hosts that
+         ;; haven't registered any flows yet.
          day8/re-frame2-flows {:local/root "../../implementation/flows"}
 
          ;; Per rf2-o5f5f.4 — `day8/re-frame2-schemas` is a hard dep
