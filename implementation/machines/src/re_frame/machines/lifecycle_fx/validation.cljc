@@ -940,6 +940,30 @@
   (cond
     (nil? target)          nil
     (= :same-state target) nil
+    ;; An EMPTY vector is a malformed target SHAPE, not an unresolved path:
+    ;; Spec 005 §error taxonomy (005:4250) + Spec-Schemas §TransitionTarget
+    ;; require a NON-EMPTY vector path. `[]` names no node, so it can never
+    ;; be a real (resolvable-or-not) absolute path — it is a caller
+    ;; typo/schema error in the same class as `{:target 42}`. Reject it via
+    ;; the `:rf.error/machine-bad-target` (malformed-shape) branch BEFORE the
+    ;; generic keyword/vector resolution branch, so tools/conformance
+    ;; consumers that branch on `:rf.error/id` classify it correctly.
+    ;; Aligned with XState v5, which rejects malformed targets at machine
+    ;; creation rather than degrading them to a missing-state reference.
+    (and (vector? target) (empty? target))
+    (throw (validation-error
+             :rf.error/machine-bad-target
+             (str "the " slot " :target " (pr-str target) " on state "
+                  state-key " is malformed — an EMPTY vector is not a valid "
+                  "transition :target. A :target must be a keyword (sibling "
+                  "of the declaring state), a NON-EMPTY vector path (absolute "
+                  "from the region/machine root), or the :same-state "
+                  "self-target sentinel. Per Spec-Schemas §TransitionTarget "
+                  "([:or :keyword [:vector :keyword]]) + Spec 005 §error "
+                  "taxonomy (non-empty vector).")
+             {:state  state-key
+              :slot   slot
+              :target target}))
     (or (keyword? target) (vector? target))
     ;; A keyword is a sibling of the declaring state — owning compound is the
     ;; declaring state's PARENT (`drop-last path`). A vector is absolute.
