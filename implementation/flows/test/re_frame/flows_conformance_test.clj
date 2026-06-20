@@ -1,34 +1,19 @@
 (ns re-frame.flows-conformance-test
-  "Per rf2-4559c (audit rf2-o3hok §TE7). Drives every
-  `spec/conformance/fixtures/flow-*.edn` fixture through the live flows
-  runtime — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` /
+  "Drives every `spec/conformance/fixtures/flow-*.edn` fixture through the
+  live flows runtime — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` /
   `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the
   topological sort, the dirty-check `last-inputs` map, the
   outermost-`:after` `run-flows-on-db` walker, and the `:rf.flow/*`
-  trace vocabulary — and
-  asserts the conformance-corpus's recorded outcome against what the
-  artefact actually produces.
+  trace vocabulary — and asserts the conformance-corpus's recorded outcome
+  against what the artefact actually produces.
 
-  This is the flows artefact's own conformance gate. Pre-rf2-4559c the
-  flow fixtures rode the CORE artefact's `re-frame.conformance-test`
-  (the pattern rf2-d0wem set for machines and rf2-i3qc0 set for ssr;
-  analogous gap for flows). Two drawbacks:
-
-    1. Several flow-specific assertion channels — `:expect-trace-stream`,
-       `:flow-recompute-counts`, `:flow-graph-topology`,
-       `:flow-registry-after` — that the corpus documents under
-       `spec/conformance/README.md` §Fixture lifecycle were not exercised
-       by the core runner. Fixtures asserting only through those channels
-       passed silently because the matcher was absent.
-    2. The gate ran at the wrong artefact. A flows-touching PR could
-       break a fixture and only surface at core's gate — at which
-       point the failure has to be triaged across two artefacts.
-
-  This namespace closes both gaps. It runs at the flows artefact's
-  gate (so a flow regression fails the flows CI step), and it
-  implements the flow-specific matchers (so the corpus's lifecycle /
-  topology / dirty-check / hot-reload / trace contracts are checked
-  against the live runtime).
+  This is the flows artefact's own conformance gate. It runs at the flows
+  artefact's gate (so a flow regression fails the flows CI step, not core's),
+  and it implements the flow-specific assertion channels — `:expect-trace-stream`,
+  `:flow-recompute-counts`, `:flow-graph-topology`, `:flow-registry-after`
+  (documented under `spec/conformance/README.md` §Fixture lifecycle) — so the
+  corpus's lifecycle / topology / dirty-check / hot-reload / trace contracts
+  are checked against the live runtime.
 
   ## What this runner does
 
@@ -98,8 +83,8 @@
   silently skipped — a silent skip would let a new flow fixture's
   contract go entirely unchecked while the gate stayed green.
 
-  Concretely (rf2-lrf1se): out-of-claim / unclaimed-spec-version flow
-  fixtures are recorded as FAILURES (not non-blocking skips), so the
+  Concretely: out-of-claim / unclaimed-spec-version flow fixtures are
+  recorded as FAILURES (not non-blocking skips), so the
   suite's `(is (zero? failed))` assertion catches them. The fix is to
   extend `claimed-capabilities` (and implement the matcher) — a reviewed
   edit to this file — never to let the fixture skip. There is no

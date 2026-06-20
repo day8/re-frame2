@@ -1,5 +1,5 @@
 (ns re-frame.flows-path-cljs-test
-  "rf2-du585y — CLJS-host coverage for flow :output-path / overlap semantics
+  "CLJS-host coverage for flow :output-path / overlap semantics
   (EP-0012 §The :rf/path algebra).
 
   The flow path validation (`valid-path?` → `re-frame.path/segment?`) and the

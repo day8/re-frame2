@@ -1,6 +1,6 @@
 (ns re-frame.flows-trace-emit-elision-prod-test
-  "Per Spec 009 §Production builds (bead rf2-xxd6z) — RUNTIME prod-elision
-  contract for the `re-frame.flows` trace surface. Companion to the
+  "Per Spec 009 §Production builds — RUNTIME prod-elision contract for the
+  `re-frame.flows` trace surface. Companion to the
   string-grep sentinel sweep in `scripts/check-elision.cjs`: the grep
   catches keyword-literal survival in the bundle blob; this file pins
   the BEHAVIOUR — under `:advanced` + `goog.DEBUG=false`, a registered

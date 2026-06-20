@@ -3,8 +3,8 @@
   algorithm-level invariants that the registration / drain tests
   exercise only indirectly.
 
-  Per rf2-oozsq: pin the defensive throw in `extract-cycle-path` (the
-  closing-repeat cycle-path extractor). The branch is unreachable by
+  Pins the defensive throw in `extract-cycle-path` (the closing-repeat
+  cycle-path extractor). The branch is unreachable by
   construction — by Kahn's algorithm every stuck node has at least one
   stuck dep, so the next-dep lookup never returns nil — but the throw
   is load-bearing defence: a closing-repeat vector built from a dead

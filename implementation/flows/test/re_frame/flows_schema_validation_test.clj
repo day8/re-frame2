@@ -1,5 +1,5 @@
 (ns re-frame.flows-schema-validation-test
-  "JVM coverage for Spec 013 §Flow output validation (rf2-ee38b.9).
+  "JVM coverage for Spec 013 §Flow output validation.
 
   Pins the `:schema` flow-map key as load-bearing: a flow's computed
   `:derive` value is validated against its optional `:schema` on every

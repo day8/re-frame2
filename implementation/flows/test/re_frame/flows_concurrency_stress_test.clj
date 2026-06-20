@@ -1,11 +1,10 @@
 (ns re-frame.flows-concurrency-stress-test
-  "Per rf2-ztw5p — JVM concurrency stress coverage for the flows
-  surface (`reg-flow` / `clear-flow` / dirty-check / topo / failed-flow).
-  Mirrors the rf2-1gpx8 (machine actor) and rf2-35rgj (router) stress
-  patterns: many threads running independent per-frame cycles in
-  lockstep, asserting **no event dropped** and **no double-action**
-  invariants on counters that the deterministic single-shot suite
-  cannot detect.
+  "JVM concurrency stress coverage for the flows surface
+  (`reg-flow` / `clear-flow` / dirty-check / topo / failed-flow).
+  Mirrors the machine-actor and router stress patterns: many threads
+  running independent per-frame cycles in lockstep, asserting **no event
+  dropped** and **no double-action** invariants on counters that the
+  deterministic single-shot suite cannot detect.
 
   The deterministic flow tests in `flows_test.clj` cover correctness
   single-shot; this namespace pins the surface under parallel

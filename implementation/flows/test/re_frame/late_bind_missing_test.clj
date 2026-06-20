@@ -1,13 +1,12 @@
 (ns re-frame.late-bind-missing-test
-  "Per rf2-5b6x — assert the documented missing-artefact error contract for
-  the flows artefact's `re-frame.core` re-exports.
+  "Assert the documented missing-artefact error contract for the flows
+  artefact's `re-frame.core` re-exports.
 
   Each per-feature split (schemas / machines / routing / flows / http /
   ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
   ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. The contract was previously only
-  documented in prose; this test pins the runtime behaviour against
-  regression.
+  is absent from the classpath. This test pins that runtime behaviour
+  against regression.
 
   Strategy: the flows artefact IS on the classpath here (the test ns
   requires `re-frame.flows`, which fires the late-bind hook
@@ -16,8 +15,8 @@
   assertion, then restore it in `finally`. Identical mechanism as the
   test would use on CLJS.
 
-  Per Spec 002 §The late-bind seam, rf2-tfw3 (flows split), and the
-  prose at the call sites in `re-frame.core`."
+  Per Spec 002 §The late-bind seam and the prose at the call sites in
+  `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
