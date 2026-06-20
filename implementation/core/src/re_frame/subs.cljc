@@ -577,6 +577,45 @@
                                   query-id query-v frame-id e where)
         [recovery-qs true]))))
 
+(defn- release-input-ref!
+  "Release ONE `:<-` input ref by calling `unsubscribe`, surfacing a
+  throw as a dev breadcrumb instead of discarding it silently.
+
+  A layer-2+ reaction's disposal walks `input-signals` and `unsubscribe`s
+  each — symmetric with the per-input `subscribe` bumps taken at build
+  time. The walk is BEST-EFFORT: one input's `unsubscribe` throwing must
+  NOT skip the remaining inputs (a leaked sibling ref-count would compound),
+  so the caller keeps looping. Before rf2-is8ov5 the throw was caught and
+  dropped (`(catch … _ nil)`), leaving no trace — a ref-count leak from a
+  buggy custom-substrate `-dispose` was invisible.
+
+  Per Spec 009 §Observability channels (the `:rf.warning/teardown-hook-
+  exception` precedent in `frame/safe-call-hook!`): the throw is swallowed
+  to keep teardown best-effort AND a per-input `:rf.warning/sub-input-
+  dispose-exception` trace is emitted at its CAUSAL position so the leaked
+  release is traceable in long-lived SSR / test / tooling processes. It
+  rides the DIAGNOSTIC channel — `trace/emit-error!` sits inside
+  `interop/debug-enabled?`, so production CLJS bundles DCE it (the reference
+  substrate adapters do not throw here, so the production case is theoretical;
+  the gap is observability, not recovery). `:recovery :ignored` — the input
+  release is best-effort, exactly as the parent dispose walk continues.
+
+  `where` distinguishes the two release sites (`:on-dispose` for the cached
+  reaction's on-dispose callback, `:not-cached-release` for the symmetric
+  release on the escaped-caching path). Returns nil."
+  [frame-id input-q where]
+  (try
+    (unsubscribe frame-id input-q)
+    (catch #?(:clj Throwable :cljs :default) ex
+      (trace/emit-error! :rf.warning/sub-input-dispose-exception
+                         {:category         :rf.warning/sub-input-dispose-exception
+                          :frame            frame-id
+                          :rf.sub/query-v   input-q
+                          :exception        ex
+                          :where            where
+                          :recovery         :ignored})
+      nil)))
+
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve the input query-vectors (the literal
@@ -787,9 +826,11 @@
           ;; disposes the parent. Decrement inputs BEFORE clearing the
           ;; parent slot so the cache invariant ("ref-count reflects
           ;; live refs") holds at every observable moment.
+          ;; Best-effort per-input release: a throw from one input's
+          ;; `unsubscribe` surfaces a dev breadcrumb (rf2-is8ov5) and the
+          ;; loop continues so the remaining inputs still release.
           (doseq [input-q input-signals]
-            (try (unsubscribe frame-id input-q)
-                 (catch #?(:clj Throwable :cljs :default) _ nil)))
+            (release-input-ref! frame-id input-q :on-dispose))
           (swap! cache (fn [m]
                          (if (identical? reaction (get-in m [k :reaction]))
                            (dissoc m k)
@@ -812,8 +853,7 @@
                (not layer-1?)
                (seq input-signals))
       (doseq [input-q input-signals]
-        (try (unsubscribe frame-id input-q)
-             (catch #?(:clj Throwable :cljs :default) _ nil))))
+        (release-input-ref! frame-id input-q :not-cached-release)))
     reaction))
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
