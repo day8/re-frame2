@@ -530,7 +530,7 @@ Process-level data knobs live behind `(rf/configure! {<key> <opts>})`. The vocab
 
 | Key | Opts | Default | Status | What it tunes |
 |---|---|---|---|---|
-| `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :trace-events-keep 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth (the time-travel buffer), trace-event retention cap per record (defaults to `:depth` so each retained epoch keeps its trace), and an optional redactor invoked once per assembled record so ring and listeners see the same shape. |
+| `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :trace-events-keep 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth (the time-travel buffer), trace-event retention cap per record (defaults to `:depth` so each retained epoch keeps its trace), and an optional projection-side redactor applied only at off-box egress (inside `projected-record`) — the ring and listeners always deliver the raw record, so the redactor never affects `restore-epoch!` fidelity. |
 | `:trace-buffer` | `{:cascades-retained N}` | `{:cascades-retained 50}` | v1 (dev-only) | The dev-only per-frame trace ring's cascade-slot count. 0 disables retention (the surface stays live). An opts map without a usable `:cascades-retained` (e.g. the retired `{:depth N}` shape) is a no-op that emits a `:rf.warning/trace-buffer-unrecognised-opts` trace. |
 | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` substitutes a `:rf.size/large-elided` marker. 0 disables runtime auto-detect (only declared / schema entries elide). See [11 — Instrumentation](11-instrumentation.md). |
 

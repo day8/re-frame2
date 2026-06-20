@@ -37,10 +37,11 @@
   `replace-frame-state!` (EP-0001 rf2-3aizt1, decisions #2 + #9). This
   revives machine snapshots, the route slice, elision declarations, and SSR
   metadata (runtime-db state) alongside app-db — not just the app-db
-  partition. The app-db partition equals the epoch's retained `:db-after`
-  projection; a legacy / synthetic record carrying only `:db-after` (no
-  `:frame-state-after`) installs that as app-db and runtime-db nil, matching
-  the pre-EP behaviour. Per Tool-Pair §Time-travel: returns `true` on success,
+  partition. The canonical `:frame-state-after` is the ONLY restore source:
+  the `:db-after` slot is a retained app-db PROJECTION for tool diffs, never
+  a restore source (a record carrying no `:frame-state-after` is
+  malformed/unreachable on the current build path — there is no db-only
+  fallback). Per Tool-Pair §Time-travel: returns `true` on success,
   `false` on any
   of the seven documented failure modes (each emits a structured
   `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
