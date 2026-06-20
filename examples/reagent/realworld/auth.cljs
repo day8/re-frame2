@@ -130,12 +130,11 @@
 
 ;; `reg-machine` is the single registration home.
 ;; The auth machine carries a `:data-schema` (validating the snapshot's
-;; `:data` slot); registering it here (rather than the former hand-composed
-;; `reg-event` + `make-machine-handler`) stamps the `:rf/machine?` /
+;; `:data` slot); registering it here stamps the `:rf/machine?` /
 ;; `:rf/machine` metadata that makes the `:data-schema` LIVE (`(machine-meta
 ;; :auth/flow)` reads it, the `:where :machine-data` walker resolves it) AND
-;; bridges its redaction marks — both in one place. Under the old direct path
-;; the `:data-schema` was silently INERT (the exact bug). This
+;; bridges its redaction marks — both in one place. The metadata is what makes
+;; the `:data-schema` enforced rather than inert. This
 ;; machine validates only its `:data` (no outer event-vector `:schema`), so
 ;; the opts map carries just `:doc` + `:rf.http/decode-schemas`.
 (rf/reg-machine :auth/flow

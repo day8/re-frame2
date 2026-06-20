@@ -240,8 +240,8 @@
           ;; A markdown body so the article-detail page exercises the
           ;; sanitized CommonMark renderer (realworld-shared.markdown/render —
           ;; render): headings, bold/italic, inline + fenced code, a safe
-          ;; link, lists, plus full-CommonMark shapes the old hand-rolled
-          ;; subset could not do (a table, a nested list). The renderer emits
+          ;; link, lists, plus full-CommonMark shapes a hand-rolled subset would
+          ;; miss (a table, a nested list). The renderer emits
           ;; hiccup (never raw HTML), so this is real markup while any injected
           ;; `<script>` / `javascript:` link in user content degrades to inert
           ;; escaped text.
@@ -413,8 +413,8 @@
                reply via `:dispatch-later` —
                observable in the tape, time-travel-safe, NOT raw
                `js/setTimeout`. The delay lets the `:loading` UI state be
-               observable; `:after-ms` collapses the former schedule-reply
-               → `:dispatch-later` → deliver-reply chain into one
+               observable; `:after-ms` expresses the schedule-reply
+               → `:dispatch-later` → deliver-reply chain as one
                parameter of the same canned effect."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
@@ -452,15 +452,14 @@
 ;; unauthenticated user has no token to send).
 ;;
 ;; SINGLE SOURCE OF TRUTH: this is the ONE place the Bearer
-;; header is written. `realworld.http/request` no longer reads the token —
-;; it just composes the request map. Centralising the read here keeps the
+;; header is written. `realworld.http/request` composes the request map and
+;; leaves the token to this interceptor. Centralising the read here keeps the
 ;; example carried-frame-correct: the interceptor reads from `(:frame ctx)`
 ;; (the frame the cascade actually runs under, EP-0002), so the
-;; header tracks a renamed / multi-frame mount rather than a hard-coded
-;; `:rf/default`. (An earlier revision wired the token in BOTH `rh/request`
-;; and here as a side-by-side teaching duality; the `rh/request`
-;; copy hard-coded `:rf/default` and bypassed the carried invariant, so it
-;; was dropped — one read site, the recommended production shape.)
+;; header tracks a non-default / multi-frame mount rather than a hard-coded
+;; `:rf/default`. One read site is the recommended production shape — wiring the
+;; token into `rh/request` as well would hard-code `:rf/default` and bypass the
+;; carried invariant.
 
 (defn- bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))

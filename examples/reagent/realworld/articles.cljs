@@ -235,9 +235,9 @@
   ;; EP-0001: the route slice is durable routing runtime-db state.
   ;; `?page=` (1-indexed, durable on the route query) becomes the wire's
   ;; limit/offset window via `rh/paginate-path` (official RealWorld pagination).
-  ;; The active tag is now a `/tag/:tag` route PARAM (not `?tag=`).
-  ;; Read it off the route params + the page off the query. The WIRE stays
-  ;; `/articles?tag=…` — the frontend route shape changed, not the API.
+  ;; The active tag is a `/tag/:tag` route PARAM, read off the route params,
+  ;; with the page read off the query. The WIRE stays `/articles?tag=…` — the
+  ;; frontend route shape and the API query string are independent.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [current   (get-in rt [:rf.runtime/routing :current])
           tag       (get-in current [:params :tag])

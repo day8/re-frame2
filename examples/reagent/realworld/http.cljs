@@ -197,8 +197,8 @@
 ;;
 ;; Tests, SSR hydration, and replay fixtures supply an exact `:rf/time-ms` via
 ;; the dispatch opts (`{:rf.cofx {:rf/time-ms 1781078400123}}`); live code lets
-;; the router stamp it. There is no app-side clock cofx — `inject-cofx` is
-;; removed (EP-0017); declared `:rf/time-ms` is the one home.
+;; the router stamp it. The app declares no clock cofx of its own — the
+;; framework-provided `:rf/time-ms` is the one home for wall-clock time (EP-0017).
 
 ;; ============================================================================
 ;; FAILURE PROJECTION

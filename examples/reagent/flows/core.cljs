@@ -32,10 +32,9 @@
       settle in one walk — right after the handler, before the db install.
    3. RUNTIME-TOGGLEABLE DERIVATION — the discount is a feature gate. The
       `:rf.fx/reg-flow` / `:rf.fx/clear-flow` fx register and clear the
-      `:cart/discount-rate` flow from a handler, mid-event. v1's
-      `on-changes` interceptor cannot do this (it is wired into specific
-      events at registration time); flows are runtime-registered and
-      runtime-clearable.
+      `:cart/discount-rate` flow from a handler, mid-event. Flows are
+      runtime-registered and runtime-clearable — the derivation can be
+      switched on or off as state changes, not fixed at registration time.
 
    Demonstrates:
    - `rf/reg-flow`                                  (Spec 013 §Registration shape)

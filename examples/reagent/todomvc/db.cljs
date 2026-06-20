@@ -1,8 +1,8 @@
 (ns todomvc.db
   (:require [re-frame.core :as rf]))
 
-;; The :showing slot is no longer in the default db — Spec 012's :route slice
-;; owns it now. The :showing sub (in subs.cljs) derives :all/:active/:completed
+;; The default db carries no `:showing` slot — Spec 012's :route slice owns
+;; that fact. The :showing sub (in subs.cljs) derives :all/:active/:completed
 ;; from :rf.route/id.
 (def default-db
   {:todos (sorted-map)})

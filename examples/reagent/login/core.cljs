@@ -221,10 +221,10 @@
                (`{:kind :success :value ...}` / `{:kind :failure
                :failure ...}`) reaches the inner `:auth.login/success` /
                `:auth.login/failure` sub-events via the explicit
-               `:on-success` / `:on-failure` form. Collapses the former
+               `:on-success` / `:on-failure` form. The
                schedule-reply → `:dispatch-later` → deliver-reply chain
-               into one `:after-ms` parameter (the delay is a parameter
-               of the same canned effect, not a new fx)."
+               is expressed as one `:after-ms` parameter (the delay is a
+               parameter of the same canned effect, not a new fx)."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
