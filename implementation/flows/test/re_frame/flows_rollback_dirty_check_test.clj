@@ -1,33 +1,27 @@
 (ns re-frame.flows-rollback-dirty-check-test
-  "Per rf2-4wqu6 finding 1 — a POST-commit app-db schema rollback MUST roll
-  the flow dirty-check (`last-inputs`) bookkeeping back in lock-step with
-  app-db.
+  "A POST-commit app-db schema rollback rolls the flow dirty-check
+  (`last-inputs`) bookkeeping back in lock-step with app-db.
 
-  THE BUG. The flow transform runs as the router's OUTERMOST `:after`
-  interceptor: the moment a flow recomputes it advances THIS frame's
-  `last-inputs` row and folds the output into the chain's PENDING `:db`
-  effect. Whether that pending `:db` becomes DURABLE, however, is decided
-  AFTER the chain returns, in `commit-db-effect!`: a post-commit
-  schema / machine-data validation failure rolls app-db back to the
-  pre-handler value. `run-flows-on-db`'s OWN throw-path snapshot/restore
-  cannot cover that — the rollback lands OUTSIDE it.
+  The flow transform runs as the router's OUTERMOST `:after` interceptor: the
+  moment a flow recomputes it advances THIS frame's `last-inputs` row and
+  folds the output into the chain's PENDING `:db` effect. Whether that pending
+  `:db` becomes DURABLE, however, is decided AFTER the chain returns, in
+  `commit-db-effect!`: a post-commit schema / machine-data validation failure
+  rolls app-db back to the pre-handler value. `run-flows-on-db`'s OWN
+  throw-path snapshot/restore does not cover that — the rollback lands OUTSIDE
+  it. If the advanced `last-inputs` row survived such a rollback, the
+  dirty-check would believe the flow up-to-date even though app-db was restored
+  (the flow output gone): the next clean drain would see `=`-equal inputs, SKIP
+  the flow, and the output would never re-materialise.
 
-  Pre-fix the advanced `last-inputs` row SURVIVED the rollback. So even
-  though app-db was restored (the flow output gone), the dirty-check
-  believed the flow was up-to-date: the next clean drain saw `=`-equal
-  inputs, SKIPPED the flow, and the output NEVER re-materialised. A
-  deterministic dev/test failure path (a validator that rejects once and
-  then passes) could permanently suppress a flow until an input changed,
-  the flow re-registered, or fixtures reset the runtime.
-
-  THE FIX (rf2-4wqu6 finding 1). `flows-after-interceptor` snapshots the
-  draining frame's `last-inputs` rows BEFORE the flow transform advances
-  them (via the new `:flows/snapshot-last-inputs` hook) and stashes the
-  snapshot on the ctx. `commit-db-effect!`'s rollback arm restores it (via
-  `:flows/restore-last-inputs!`) the instant it rolls app-db back — the
-  exact mirror of the throw-path rollback, at the post-commit boundary the
-  flows artefact cannot reach. Frame-scoped (rf2-94ol5): a sibling frame's
-  container is a different atom and is untouched.
+  So `flows-after-interceptor` snapshots the draining frame's `last-inputs`
+  rows BEFORE the flow transform advances them (via the
+  `:flows/snapshot-last-inputs` hook) and stashes the snapshot on the ctx.
+  `commit-db-effect!`'s rollback arm restores it (via
+  `:flows/restore-last-inputs!`) the instant it rolls app-db back — the exact
+  mirror of the throw-path rollback, at the post-commit boundary the flows
+  artefact cannot reach. Frame-scoped: a sibling frame's container is a
+  different atom and is untouched.
 
   The validator seam is the pluggable predicate seam the rest of Spec 010
   uses (`set-schema-fns!`) so the test exercises the exact production
@@ -56,10 +50,9 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow / reg-app-schema are context-required
-  ;; frame-local — an ambient call under no scope raises
-  ;; :rf.error/no-frame-context. Pin :rf/default (an ordinary frame) as the
-  ;; established scope for the body.
+  ;; EP-0002: reg-flow / reg-app-schema are context-required frame-local — an
+  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
+  ;; :rf/default (an ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (try
     (binding [frame/*current-frame* :rf/default]
@@ -129,9 +122,9 @@
           "app-db rolled back to {:n 1} — the rejected :out write was discarded")
       (is (not (contains? (rf/app-db-value :rf/default) :out))
           ":out absent after the rollback")
-      ;; THE LOAD-BEARING FINDING-1 ASSERT: the flow's dirty-check row was
-      ;; rolled back in lock-step. Pre-fix it stayed advanced to [1], so the
-      ;; flow looked up-to-date despite its output never reaching app-db.
+      ;; THE LOAD-BEARING ASSERT: the flow's dirty-check row was rolled back
+      ;; in lock-step. A surviving advanced row would leave the flow looking
+      ;; up-to-date despite its output never reaching app-db.
       (is (not (contains? (flows/last-inputs-snapshot) :double))
           (str "flow :double's last-inputs row was rolled back with app-db "
                "(pre-fix it stayed advanced to {:double {:rf/default [1]}}, "
@@ -139,9 +132,9 @@
                (pr-str (flows/last-inputs-snapshot))))
 
       ;; Flip the validator to accept, then drive a CLEAN drain whose event
-      ;; does NOT change :n (the flow's only input). Pre-fix this no-op drain
-      ;; would skip the flow on =-equal inputs and :out would NEVER appear.
-      ;; Post-fix the rolled-back dirty-check forces a recompute.
+      ;; does NOT change :n (the flow's only input). The rolled-back
+      ;; dirty-check forces a recompute; a surviving advanced row would skip
+      ;; the flow on =-equal inputs and :out would never appear.
       (reset! reject-out? false)
       (rf/dispatch-sync [:touch-other])
 
