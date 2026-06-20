@@ -43,9 +43,10 @@
        `:params` / `:query` schema declares any `:sensitive?` slot (decided
        through the SAME shared `:schemas/redact-validation-tags` seam).
 
-  Both stamp `:sensitive? true`, so the MCP egress gate
+  Both stamp `:sensitive? true`, so the MCP egress filter
   (`re-frame.mcp-base.sensitive/strip-sensitive`) ALSO drops the whole event
-  with the boot gate OFF — defence in depth (asserted below).
+  when `--allow-sensitive-reads` is disabled (`include? false`, the
+  restrictive default) — defence in depth (asserted below).
 
   ## Net property (verify-by-revert)
 
@@ -224,20 +225,21 @@
 (deftest machine-exception-sensitive-event-drops-at-mcp-egress
   (testing "rf2-md2wn0 — the production fail-closed contract: a sensitive
             machine's exception event is DROPPED by sens/strip-sensitive
-            when include-sensitive is OFF (the whole-event defence-in-depth
-            layer, not just per-slot redaction). This is the assertion the
-            old direct-projection test could never make — it only proved the
-            tag-level stamp, which MCP egress does not read."
+            when --allow-sensitive-reads is disabled (include? false, the
+            whole-event defence-in-depth layer, not just per-slot redaction).
+            This is the assertion the old direct-projection test could never
+            make — it only proved the tag-level stamp, which MCP egress does
+            not read."
     (declare-machine-marks!)
     (let [out          (emit-machine-action-exception-for sensitive-machine-id)
           [kept dropped] (sens/strip-sensitive [out] false)]
       (is (some? out) "the machine-action-exception trace was delivered")
       ;; The event production actually emits IS classified sensitive by the
-      ;; egress gate, so the boot-gate-off path drops it.
+      ;; egress filter, so the allow-sensitive-disabled path drops it.
       (is (true? (sens/sensitive-event? out))
           "MCP egress classifies the emitted event as sensitive (top-level flag)")
       (is (= 1 dropped) "the sensitive machine exception event dropped")
-      (is (empty? kept) "nothing egressed with the gate off"))))
+      (is (empty? kept) "nothing egressed with --allow-sensitive-reads disabled"))))
 
 (deftest machine-exception-data-verbatim-for-plain-machine
   (testing "rf2-zsm03 — a machine with NO :sensitive mark rides
@@ -351,8 +353,9 @@
   (testing "rf2-zsm03 / rf2-sxmeqs / rf2-md2wn0 — across arbitrary nestings of
             the sentinel inside :exception-data, a sensitive machine elides
             the WHOLE slot and hoists the TOP-LEVEL :sensitive?; the sentinel
-            never survives AND sens/strip-sensitive drops the event with the
-            gate off. Run over BOTH id-keys so the preferred :actor-id branch
+            never survives AND sens/strip-sensitive drops the event with
+            --allow-sensitive-reads disabled. Run over BOTH id-keys so the
+            preferred :actor-id branch
             (production) AND the :machine-id fallback both get property
             coverage — on the REAL emit path."
     (declare-machine-marks!)
@@ -451,20 +454,21 @@
 
 ;; ===========================================================================
 ;; REDACTION IS AT-SOURCE — the scrub happens at the trace egress chokepoint,
-;; so the sentinel is gone from the event REGARDLESS of the MCP boot gate.
-;; Unlike the MCP whole-event drop (which would also hide the useful "an
-;; action threw" / "a navigate rejected" signal from the agent), per-slot
-;; redaction lets the agent SEE the structural error while the secret stays
-;; off-box. So we pass the redacted events through the MCP egress with the
-;; gate ON (include? true — the MOST permissive, fully opted-in path) and
-;; confirm the sentinel STILL never reaches the boundary: the protection is
-;; the source scrub, not a gate decision.
+;; so the sentinel is gone from the event REGARDLESS of the --allow-sensitive-
+;; reads opt-in. Unlike the MCP whole-event drop (which would also hide the
+;; useful "an action threw" / "a navigate rejected" signal from the agent),
+;; per-slot redaction lets the agent SEE the structural error while the secret
+;; stays off-box. So we pass the redacted events through the MCP egress with
+;; --allow-sensitive-reads ENABLED (include? true — the MOST permissive, fully
+;; opted-in path) and confirm the sentinel STILL never reaches the boundary:
+;; the protection is the source scrub, not an opt-in decision.
 ;; ===========================================================================
 
 (deftest redaction-survives-even-the-opt-in-mcp-egress
-  (testing "rf2-zsm03 — the per-slot scrub is at-source: even with the MCP
-            boot gate fully ON (include? true), neither the machine
-            :exception-data nor the navigate :error egresses the sentinel"
+  (testing "rf2-zsm03 — the per-slot scrub is at-source: even with
+            --allow-sensitive-reads fully ENABLED (include? true), neither the
+            machine :exception-data nor the navigate :error egresses the
+            sentinel"
     (declare-machine-marks!)
     (let [machine-ev (emit-machine-action-exception-for sensitive-machine-id)
           nav-trace  (capture-navigate-failure sensitive-params-schema)

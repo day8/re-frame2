@@ -10,7 +10,10 @@
   crosses the trust boundary into the agent surface. Per Spec 009 Privacy:
   a trace event stamped top-level `:sensitive? true` MUST be DROPPED when
   the caller has not opted in (`include? = false`, the published default -
-  the `--allow-sensitive-reads` boot gate OFF). The pull-mode epoch tools
+  `--allow-sensitive-reads` disabled). NOTE the polarity: the restrictive
+  default is the *disabled* opt-in, which is the most protective posture
+  (sensitive events are dropped); enabling `--allow-sensitive-reads` is the
+  operator's deliberate raw-egress choice. The pull-mode epoch tools
   (`trace-window`, `watch-epochs`) and the snapshot tool feed their
   trace / epoch slices through `strip-sensitive` / `scrub-snapshot`; a
   miss here ships a declared-sensitive event off-box.
@@ -19,12 +22,13 @@
 
   ## Two complementary egress checks
 
-  1. **`strip-sensitive`** - the trace-event vector filter. With the gate
-     OFF, every `:sensitive?`-stamped event (including the fail-closed
-     malformed-truthy variants per rf2-ih7g4) MUST be removed.
-  2. **`scrub-snapshot`** - the per-frame snapshot walker. With the gate
-     OFF, no sensitive event may survive in any frame's `:traces` /
-     `:epochs` slice, at any frame-map shape.
+  1. **`strip-sensitive`** - the trace-event vector filter. With
+     `--allow-sensitive-reads` disabled (`include? false`), every
+     `:sensitive?`-stamped event (including the fail-closed malformed-truthy
+     variants per rf2-ih7g4) MUST be removed.
+  2. **`scrub-snapshot`** - the per-frame snapshot walker. With
+     `--allow-sensitive-reads` disabled, no sensitive event may survive in
+     any frame's `:traces` / `:epochs` slice, at any frame-map shape.
 
   ## Why property-style
 
@@ -32,7 +36,8 @@
   event vectors that interleave sensitive / non-sensitive / malformed-
   stamp events at arbitrary positions and counts, and snapshot maps with
   arbitrary frame counts + arbitrary sensitive/clean mixes - then asserts
-  the SENTINEL-bearing sensitive events never survive the gate-OFF egress.
+  the SENTINEL-bearing sensitive events never survive the
+  allow-sensitive-disabled egress.
   A hostile corpus pins the fail-closed malformed-stamp variants
   (string `\"true\"`, keyword, number, non-empty coll) that the rf2-ih7g4
   fail-CLOSED posture must drop.
@@ -41,7 +46,8 @@
 
   Reverting `sensitive-event?` to match only the literal `true`
   (the pre-rf2-ih7g4 fail-OPEN check) makes the malformed-stamp property
-  go RED - a `:sensitive? \"true\"` event survives the gate-OFF egress.
+  go RED - a `:sensitive? \"true\"` event survives the
+  allow-sensitive-disabled egress.
   Reverting the `scrub-snapshot` `:traces`/`:epochs` scrub makes the
   snapshot property go RED. Confirmed by temporary local revert + restore
   (see PR Quality gates)."
@@ -72,7 +78,8 @@
 ;;
 ;; The warning's having FIRED is still asserted structurally — the
 ;; `malformed-count` counter is the framework's observability hook, pinned by
-;; `gate-off-malformed-stamp-counts-as-dropped` — so the fail-closed log path
+;; `allow-sensitive-disabled-malformed-stamp-counts-as-dropped` — so the
+;; fail-closed log path
 ;; stays exercised + verified. A RED run keeps these diagnostics (the runner
 ;; replays the buffer), and clojure.test routes FAIL/ERROR/summary output
 ;; through `*test-out*` (the real `*out*`), so failure reporting is untouched.
@@ -86,8 +93,9 @@
   `gen/contains-string?` (rf2-n5bkm7).
 
   Why a deep scan and not just `:tags :value` + `sensitive-event?`
-  (rf2-h2yvs finding 1): the gate-OFF contract is \"the sentinel never
-  survives,\" not merely \"no survivor is still classified sensitive in its
+  (rf2-h2yvs finding 1): the allow-sensitive-disabled contract is \"the
+  sentinel never survives,\" not merely \"no survivor is still classified
+  sensitive in its
   primary slot.\" The generated sensitive event also plants the sentinel in
   `:tags :received`; a survivor with its `:sensitive?` stamp stripped (so it
   no longer classifies sensitive) and the sentinel only in `:received` would
@@ -147,13 +155,14 @@
   (gen/gen-vec (gen/gen-int 0 13) gen-event))
 
 ;; ---------------------------------------------------------------------------
-;; PROPERTY 1 - gate OFF: strip-sensitive removes every sensitive +
-;; malformed-stamp event; the sentinel never survives.
+;; PROPERTY 1 - allow-sensitive-reads DISABLED: strip-sensitive removes every
+;; sensitive + malformed-stamp event; the sentinel never survives.
 ;; ---------------------------------------------------------------------------
 
-(deftest gate-off-strips-every-sensitive-event
-  (testing "rf2-6wvh5 - with include? false (gate OFF), strip-sensitive drops
-            every :sensitive?-stamped (and malformed-truthy) event across 400
+(deftest allow-sensitive-disabled-strips-every-sensitive-event
+  (testing "rf2-6wvh5 - with include? false (--allow-sensitive-reads disabled,
+            the restrictive default), strip-sensitive drops every
+            :sensitive?-stamped (and malformed-truthy) event across 400
             generated mixed event vectors; the sentinel never survives"
     (let [result (gen/for-all
                    gen-event-vec 400 23
@@ -170,7 +179,7 @@
                        (and (not-any? contains-sentinel? kept)
                             (not-any? sens/sensitive-event? kept)))))]
       (is (nil? result)
-          (str "a sensitive event survived the gate-OFF egress: "
+          (str "a sensitive event survived the allow-sensitive-disabled egress: "
                (pr-str (when result (dissoc result :threw))))))))
 
 (deftest deep-scan-catches-secondary-slot-sentinel-survivor
@@ -187,7 +196,7 @@
                           :tags {:value "public-data"
                                  :received [sentinel]}}
           [kept dropped] (sens/strip-sensitive [survivor] false)]
-      ;; The gate keeps it (it is not classified sensitive) ...
+      ;; strip-sensitive keeps it (it is not classified sensitive) ...
       (is (= [survivor] kept))
       (is (zero? dropped))
       ;; ... so the OLD narrow checks would BOTH read clean (vacuous green):
@@ -200,7 +209,7 @@
           "the deep scan MUST catch the sentinel hiding in :tags :received")
       (is (contains-sentinel? survivor)))))
 
-(deftest gate-off-malformed-stamp-counts-as-dropped
+(deftest allow-sensitive-disabled-malformed-stamp-counts-as-dropped
   (testing "rf2-ih7g4 fail-closed - a malformed truthy stamp is dropped AND
             bumps the observability counter (not silently passed)"
     (doseq [stamp malformed-stamps]
@@ -219,14 +228,14 @@
                  " must bump the counter exactly once per event"))))))
 
 ;; ---------------------------------------------------------------------------
-;; PROPERTY 2 - gate ON + opt-in: include? true ships everything verbatim
-;; (the operator's deliberate raw-egress choice). Confirms the gate is the
-;; single control point - not an unconditional scrub.
+;; PROPERTY 2 - allow-sensitive-reads ENABLED (opt-in): include? true ships
+;; everything verbatim (the operator's deliberate raw-egress choice). Confirms
+;; the opt-in is the single control point - not an unconditional scrub.
 ;; ---------------------------------------------------------------------------
 
-(deftest gate-on-opt-in-passes-through-verbatim
+(deftest allow-sensitive-enabled-opt-in-passes-through-verbatim
   (testing "with include? true (operator opted in via --allow-sensitive-reads),
-            strip-sensitive is identity - the gate is the sole control point"
+            strip-sensitive is identity - the opt-in is the sole control point"
     (let [result (gen/for-all
                    gen-event-vec 200 29
                    (fn [events]
@@ -236,7 +245,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Snapshot generators + PROPERTY 3 - scrub-snapshot leaves no sensitive
-;; event in any frame's :traces / :epochs slice with the gate OFF.
+;; event in any frame's :traces / :epochs slice with --allow-sensitive-reads
+;; disabled.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private gen-frame
@@ -280,10 +290,11 @@
                   (some sens/sensitive-event? slices)))))
         scrubbed))
 
-(deftest gate-off-scrub-snapshot-leaves-no-sensitive-event
-  (testing "rf2-6wvh5 - with include? false, scrub-snapshot strips sensitive
-            events from EVERY frame's :traces/:epochs across 300 generated
-            multi-frame snapshots; :app-db is left untouched"
+(deftest allow-sensitive-disabled-scrub-snapshot-leaves-no-sensitive-event
+  (testing "rf2-6wvh5 - with include? false (--allow-sensitive-reads disabled),
+            scrub-snapshot strips sensitive events from EVERY frame's
+            :traces/:epochs across 300 generated multi-frame snapshots;
+            :app-db is left untouched"
     (let [result (gen/for-all
                    gen-snapshot 300 31
                    (fn [snap]
