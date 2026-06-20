@@ -520,8 +520,22 @@ its own `mcp-conformance-{re-frame2-pair,story}` job, parallel to the
 existing `node-test-tools-{re-frame2-pair,story}-mcp` jobs. Same
 Node 24 + JDK 21 setup as those jobs.
 
-The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
+The `mcp-conformance-re-frame2-pair` job runs four steps in sequence:
 
+0. **`test:unit`** (rf2-md05gp) — the FULL pure-Node unit-regression
+   cluster: every `node --test` row from the authoritative inventory in
+   `scripts/test-all.cjs` (exec-safety, runner-watchdog, runner-cleanup,
+   hermetic-setup-timeout, port-file-escape, dedup-envelope,
+   call-coverage-ratchet, classification-ratchet). These are the harness's
+   own regression nets — watchdog teardown of hung clients, awaited
+   hermetic cleanup, bounded setup commands, symlink-safe port-file reads,
+   dedup-envelope decoding, and the call/classification ratchets. It runs
+   FIRST so a cheap unit regression fails before the heavier server boots,
+   and is the natural home for the unit set (Node-only, no `clojure`).
+   `test:unit` DERIVES its set from `test-all.cjs` rather than re-listing,
+   so a new `node --test` row is picked up automatically. Pre-rf2-md05gp
+   only `exec-safety` ran in CI; the other seven gates were in the local
+   inventory but dead in CI, so a regression they guard could ship green.
 1. **`test:re-frame2-pair`** — degraded-mode conformance against the SDK's
    strict schemas.
 2. **`test:re-frame2-pair-live-overflow`** — the gated live variant. Runs
@@ -550,8 +564,11 @@ ratchet) and **`test:flag-gates`** (the cross-MCP CLI flag-vocabulary
 conformance — story-mcp `--allow-writes` default-OFF for all three gated
 write tools + the ungated snippet-only path + opt-in + hard-rename
 rejection). Both need `clojure`. The `callTool` coverage ratchet's own
-unit tests (`test:call-coverage-ratchet`) run with the cheap Node unit
-tests via `npm test`.
+unit tests (`test:call-coverage-ratchet`) run in PR CI as part of the
+`test:unit` cluster in the `mcp-conformance-re-frame2-pair` job (above) —
+the Node unit set is server-agnostic, so it runs once there rather than
+being duplicated in this `clojure`-only job. Locally the full inventory
+(unit + e2e + live + story) runs via `npm test` (`scripts/test-all.cjs`).
 
 ## Why a separate artefact?
 
