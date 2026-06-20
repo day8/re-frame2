@@ -1622,6 +1622,22 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
+      ;; rf2-3hamsq — non-empty floor. This is the DEFAULT `npm run
+      ;; test:cljs` PR gate. The CLJS variant inlines fixtures at COMPILE
+      ;; time via the all-fixtures macro, so a wrong test-RUNTIME cwd
+      ;; can't empty it — but a build-time glob returning empty, or a
+      ;; capability-vocab rename that orphans every fixture, would still
+      ;; pass the lone (zero? (count failed)) vacuously. Assert that
+      ;; fixtures actually executed:
+      ;;   - (pos? (count run)) catches the fully-empty case;
+      ;;   - the expected-minimum (>= 150) catches partial mass-orphaning
+      ;;     (today's runnable count is 186 of 188; the corpus grows).
+      (is (pos? (count run))
+          "at least one claim-applicable CLJS conformance fixture must have executed")
+      (is (>= (count run) 150)
+          (str "CLJS conformance corpus runnable-fixture floor (>= 150): only "
+               (count run) " executed — a build-time glob fault or a "
+               "capability-vocab rename has orphaned the corpus."))
       ;; Silent-on-success (rf2-try1x): the corpus summary only prints
       ;; when there are failures. See the JVM mirror in
       ;; conformance_test.clj for the rationale.
