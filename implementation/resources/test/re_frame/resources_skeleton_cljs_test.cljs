@@ -141,7 +141,7 @@
   (testing "a fn resolver scope is accepted"
     (is (= :test/fn
            (resources/reg-resource :test/fn
-                                   (assoc (valid-spec) :scope (fn [] :rf.scope/global)) valid-request))))))
+                                   (assoc (valid-spec) :scope (fn [] :rf.scope/global)) valid-request)))))
 
 (deftest resource-kind-in-closed-set
   (testing ":resource is a valid registrar kind"
