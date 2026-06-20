@@ -30,10 +30,12 @@
  *
  * Per rf2-o38lb: env-var driven defaults are constrained to
  * `implementation/out/` unless the explicit opt-in flag
- * `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1` is set in the environment.
+ * `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is set in the environment.
  * The audit's secondary finding was that env-controlled path overrides
  * could become an arbitrary file-write primitive in CI / downstream
- * environments inheriting state from a wrapper.
+ * environments inheriting state from a wrapper. The same knob also gates
+ * out-of-tree READ sources (a custom `STORY_BUILD_INDEX_HTML` template),
+ * hence the path-neutral name rather than a write-only one.
  */
 
 'use strict';

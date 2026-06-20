@@ -185,8 +185,8 @@ releases. Per rf2-21rfv (pragmatic stance, 2026-05-14): path-policy
 constrains `STORY_BUILD_OUTPUT_DIR` to `implementation/out/` and
 `STORY_BUILD_INDEX_HTML` to `<repo>/implementation/`, `<repo>/examples/`,
 or `<repo>/tools/` (rf2-p8f2s — tool-owned testbeds). Out-of-tree paths
-require the explicit opt-in
-`RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1`. The check is a safety net
+— a write target OR a read source — require the explicit opt-in
+`RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`. The check is a safety net
 against accidents (env unset / mistyped path turning a build into a
 `rm -rf` outside the repo), not a hardened sandbox — devs running this
 script already control the process. Downstream consumers publishing
