@@ -181,14 +181,14 @@
       (is (= ev (reply/complete target (route-reply/live-reply ctx {:title "Welcome"})))
           "complete-live IS re-frame.reply/complete over live-reply — no bespoke path"))
     (testing "the EP-0011 functor law holds at the route surface: complete-live
-              composes with re-frame.reply/map-target"
+              composes with re-frame.reply/map-completed-event"
       (let [ctx    {:route-id :r :nav-token "n" :loader-id :l}
             target [:article/load-replied {:id "A"}]
             f      (fn [event] [:wrapped event])
             reply  (route-reply/live-reply ctx {:title "Welcome"})]
-        (is (= (reply/complete (reply/map-target f target) reply)
+        (is (= (reply/complete (reply/map-completed-event f target) reply)
                (f (reply/complete target reply)))
-            "complete(map-target(f, t), reply) == f(complete(t, reply))")))
+            "complete(map-completed-event(f, t), reply) == f(complete(t, reply))")))
     (testing "a nil target yields nil — no continuation to complete"
       (is (nil? (route-reply/complete-live {:nav-token "n"} nil {:title "x"}))))))
 

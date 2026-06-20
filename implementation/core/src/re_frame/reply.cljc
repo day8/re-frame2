@@ -11,9 +11,9 @@
 
     - target normalization (vector-prefix ↔ descriptor form),
     - completion (append the reply map to the target per `:delivery`),
-    - reply-target mapping — the functor law (`map-target` changes ONLY
-      the completed event, never issuance / `:work/id` / status /
-      cancellation / staleness / tracing),
+    - reply-target mapping — the functor law (`map-completed-event`
+      changes ONLY the completed event, never issuance / `:work/id` /
+      status / cancellation / staleness / tracing),
     - reply-map schema validation (the closed `:status` taxonomy +
       value/error conventions + the data-only invariant),
     - data-only trace summaries (every wire-bearing slot routes through
@@ -190,7 +190,7 @@
   `:rf.reply/invalid-target` rather than letting a bogus `{}` / `{:event nil}` /
   `{:event :x}` travel on to `complete` (which would `(vec event)` it into a
   garbage dispatch shape). Validating here means EVERY downstream consumer
-  (`complete`, `map-target`, `durable-target`, `target->short-form`) inherits
+  (`complete`, `map-completed-event`, `durable-target`, `target->short-form`) inherits
   the guarantee — the target is either nil or a well-formed descriptor."
   [target]
   (cond
@@ -258,12 +258,12 @@
 
   This is the pure core the functor law is stated over:
 
-      (complete (map-target f target) reply) == (f (complete target reply))
+      (complete (map-completed-event f target) reply) == (f (complete target reply))
 
   `complete` does NOT dispatch, validate, or suppress — issuance, stale
   checks, ledger writes, and tracing are the family/runtime's job and are
-  unaffected by `map-target` (the functor law). A nil target yields nil (no
-  delivery)."
+  unaffected by `map-completed-event` (the functor law). A nil target yields
+  nil (no delivery)."
   [target reply]
   (when-let [{:keys [event delivery] :as d} (normalize-target target)]
     (let [base (case delivery
@@ -284,25 +284,25 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Reply-target mapping — the functor (Managed-Effects §Reply mapping and the
-;; functor law). `map-target` rewrites ONLY the completed event; it never
-;; touches issuance, `:work/id`, status, cancellation, stale checks, or
+;; functor law). `map-completed-event` rewrites ONLY the completed event; it
+;; never touches issuance, `:work/id`, status, cancellation, stale checks, or
 ;; tracing — those are not stored on the target at all, so the law holds
 ;; structurally.
 ;; ---------------------------------------------------------------------------
 
-(defn map-target
+(defn map-completed-event
   "Map the reply target through an event-transform `f` (an event→event pure
   fn). Returns a normalized target whose completion equals `f` applied to
   the original completion:
 
-      (complete (map-target f target) reply) == (f (complete target reply))
+      (complete (map-completed-event f target) reply) == (f (complete target reply))
 
   `f` receives the fully-completed event (the target event with the reply
   map already appended) and returns the relocated/rewrapped event. Mapping
   composes by composing `::post` accumulators, so the functor laws hold:
 
-      (map-target identity target)        == target          ;; identity
-      (map-target f (map-target g target)) == (map-target (comp f g) target)
+      (map-completed-event identity target)        == target          ;; identity
+      (map-completed-event f (map-completed-event g target)) == (map-completed-event (comp f g) target)
 
   Mapping a target changes ONLY the completed event — never issuance, work
   id, status classification, cancellation, stale checks, or tracing (none

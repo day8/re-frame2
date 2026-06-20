@@ -876,16 +876,16 @@ status classification, cancellation, stale checks, or tracing.
 In abstract form:
 
 ```text
-complete(map-reply-target(f, target), reply)
+complete(map-completed-event(f, target), reply)
   == f(complete(target, reply))
 ```
 
 Identity and composition must hold:
 
 ```text
-map-reply-target(identity, target) == target
-map-reply-target(comp(f, g), target)
-  == map-reply-target(f, map-reply-target(g, target))
+map-completed-event(identity, target) == target
+map-completed-event(comp(f, g), target)
+  == map-completed-event(f, map-completed-event(g, target))
 ```
 
 Concrete example:
@@ -905,7 +905,7 @@ Concrete example:
     (conj (pop event) (update reply :value :article))))
 
 (= (rf.reply/complete
-     (rf.reply/map-target select-article-event target)
+     (rf.reply/map-completed-event select-article-event target)
      reply)
    (select-article-event
      (rf.reply/complete target reply)))

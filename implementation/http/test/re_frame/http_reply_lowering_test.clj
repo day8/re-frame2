@@ -179,7 +179,7 @@
 ;; reply payload as the final arg of the reply target's event — IS the shared
 ;; `re-frame.reply/complete` `:delivery :append` over the `:rf.http/compat-
 ;; reply` payload. These pin that HTTP rides the shared target functions
-;; (`complete` / `map-target`) rather than a family-private append, and that
+;; (`complete` / `map-completed-event`) rather than a family-private append, and that
 ;; the EP-0011 functor law holds over HTTP's compat target — not only that the
 ;; canonical reply map is constructed.
 ;; ===========================================================================
@@ -200,23 +200,23 @@
                  (reply/complete [:svc/failed] fp))))))))
 
 (deftest http-compat-target-satisfies-functor-law
-  (testing "rf2-9u1tvq — the EP-0011 reply-mapping functor law holds over HTTP's compat target: complete(map-target(f,t),reply) == f(complete(t,reply)); identity + composition"
+  (testing "rf2-9u1tvq — the EP-0011 reply-mapping functor law holds over HTTP's compat target: complete(map-completed-event(f,t),reply) == f(complete(t,reply)); identity + composition"
     (let [payload (http-reply/reply->public-payload
                     (http-reply/success-reply base-ctx {:title "Welcome"}))
           target  [:article/load {:id 42}]
           ;; relocate the completed reply into a wrapper event (the Cmd.map role)
           wrap    (fn [ev] [:wrap ev])
           tag     (fn [ev] (conj ev :tag))]
-      (testing "the law: complete(map-target(f, target), reply) == f(complete(target, reply))"
-        (is (= (reply/complete (reply/map-target wrap target) payload)
+      (testing "the law: complete(map-completed-event(f, target), reply) == f(complete(target, reply))"
+        (is (= (reply/complete (reply/map-completed-event wrap target) payload)
                (wrap (reply/complete target payload)))))
-      (testing "identity: map-target(identity, target) completes to the plain completion"
-        (is (= (reply/complete (reply/map-target identity target) payload)
+      (testing "identity: map-completed-event(identity, target) completes to the plain completion"
+        (is (= (reply/complete (reply/map-completed-event identity target) payload)
                (reply/complete target payload))))
-      (testing "composition: map-target(comp f g) == map-target f ∘ map-target g"
-        (is (= (reply/complete (reply/map-target (comp wrap tag) target) payload)
-               (reply/complete (reply/map-target wrap (reply/map-target tag target)) payload))))
-      (testing "mapping changes ONLY the completed event — the canonical reply facts (work-id / status) are untouched by map-target"
+      (testing "composition: map-completed-event(comp f g) == map-completed-event f ∘ map-completed-event g"
+        (is (= (reply/complete (reply/map-completed-event (comp wrap tag) target) payload)
+               (reply/complete (reply/map-completed-event wrap (reply/map-completed-event tag target)) payload))))
+      (testing "mapping changes ONLY the completed event — the canonical reply facts (work-id / status) are untouched by map-completed-event"
         (let [reply (http-reply/success-reply base-ctx {:title "Welcome"})]
           ;; work-id / status are not stored on the target, so mapping cannot
           ;; touch them — the law is structural.
