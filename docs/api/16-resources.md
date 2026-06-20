@@ -13,9 +13,9 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
 - **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (reg-resource resource-id resource-spec)
+  (reg-resource resource-id resource-spec request-fn)
   ```
-- **Description**: Register a resource as data. Validates the spec — the **required, fail-closed `:scope` policy** first, then `:params-schema` and `:request` — and writes a `:resource`-kind registrar entry. Returns `resource-id`.
+- **Description**: Register a resource as data. The `request-fn` (which returns the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args map) is the third positional arg. Validates the spec — the **required, fail-closed `:scope` policy** first, then `:params-schema` — and writes a `:resource`-kind registrar entry. Returns `resource-id`.
 - **In the wild**: see the [examples](#examples-and-cross-references) below.
 
 ### The resource spec
@@ -27,18 +27,18 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
    :params-schema [:map [:slug :string]]      ;; REQUIRED — validates + canonicalizes params
    :data-schema   :app/article                ;; validates successful data when decode supports it
 
-   :request                                    ;; REQUIRED — returns a Spec 014 managed-HTTP args map
-   (fn [{:keys [slug]} _ctx]
-     {:request {:method :get :url (str "/api/articles/" slug)}
-      :decode  :app/article})
-
    :scope          :rf.scope/global            ;; REQUIRED — an explicit, auditable claim
    :transport      :rf.http/managed            ;; the only initial-scope transport
    :stale-after-ms 60000
    :gc-after-ms    300000
    :poll-interval-ms 5000                      ;; (optional) revalidate every 5s while actively owned + visible
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})
-   :sensitive?     false})
+   :sensitive?     false}
+
+  ;; REQUIRED request fn (third positional arg) — returns a Spec 014 managed-HTTP args map
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :app/article}))
 ```
 
 **Required keys**:
@@ -47,7 +47,7 @@ Resources are an **optional, post-v1 capability** — they ship in `day8/re-fram
 |---|---|
 | `:params-schema` | Validates and canonicalizes params (the resource's identity). |
 | `:scope` | The scope **policy** — `:rf.scope/global`, a resolver, or `:rf.scope/from-caller`. **Required, fail-closed** — no policy is a loud `:rf.error/resource-missing-scope-policy`. There is no implicit default; a user-scoped read must say so. |
-| `:request` | For `:transport :rf.http/managed`, returns a [Spec 014](../../spec/014-HTTPRequests.md) args map. MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
+| request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [Spec 014](../../spec/014-HTTPRequests.md) args map. MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
 | `:data-schema` | Validates successful data when transport decode supports it. |
 
 **Optional keys**: `:doc`, `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:infinite` + the infinite-only keys (`:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, `:refetch` — see [Infinite resources](#infinite-resources)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
@@ -160,8 +160,8 @@ A resource may declare an optional **`:poll-interval-ms`** policy: while an entr
   {:scope            {:from-db :app/session}
    :params-schema    [:map]
    :poll-interval-ms 15000           ;; refresh every 15s while someone owns it + the tab is visible
-   :request (fn [_ _ctx] {:request {:method :get :url "/notifications/unread"} :decode :json})
-   :tags    (fn [_ _] #{[:notifications]})})
+   :tags    (fn [_ _] #{[:notifications]})}
+  (fn [_ _ctx] {:request {:method :get :url "/notifications/unread"} :decode :json}))
 ```
 
 Semantics (per [016 §Polling](../../spec/016-Resources.md#polling)):
@@ -186,15 +186,16 @@ An **infinite resource** is the load-more / infinite-scroll feed counterpart of 
    :params-schema    [:map [:filter :keyword]]   ;; FEED identity (filter/sort) — NOT the page cursor
    :scope            {:from-db :app/session}
    :page-data-schema :app/timeline-page          ;; validates ONE page (decode target + per-page egress)
-   :request                                       ;; reserved ctx carries the page context (R8 — no new arity)
-   (fn [{:keys [filter]} {:rf.resource/keys [page-param]}]
-     {:request {:method :get :url "/api/timeline"
-                :params (cond-> {:filter filter :limit 20} page-param (assoc :cursor page-param))}
-      :decode  :app/timeline-page})
    :next-page-param  (fn [last-page _all-pages]    ;; REQUIRED; nil = the single terminal
                        (get-in last-page [:page-info :next-cursor]))
    :page->items      :items                        ;; REQUIRED when a page is non-vector/enveloped (loud over guessing)
-   :tags             (fn [{:keys [filter]} _] #{[:feed filter]})})
+   :tags             (fn [{:keys [filter]} _] #{[:feed filter]})}
+
+  ;; request fn (third positional arg) — reserved ctx carries the page context (R8 — no new arity)
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param]}]
+    {:request {:method :get :url "/api/timeline"
+               :params (cond-> {:filter filter :limit 20} page-param (assoc :cursor page-param))}
+     :decode  :app/timeline-page}))
 ```
 
 Key semantics:
@@ -255,30 +256,30 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 - **Kind**: function (post-v1 lib)
 - **Signature**:
   ```clojure
-  (reg-mutation mutation-id mutation-spec)
+  (reg-mutation mutation-id mutation-spec request-fn)
   ```
-- **Description**: Register a mutation as data under `mutation-id`. Validates the spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
+- **Description**: Register a mutation as data under `mutation-id`. The `request-fn` (the [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP write) is the third positional arg. Validates the spec and writes a `:mutation`-kind registrar entry (the causal-write counterpart of `:resource`). Returns `mutation-id`. An app that omits the resources artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
 
 ```clojure
 (rf/reg-mutation :article/save
   {:params-schema :app/article          ;; REQUIRED — validates + canonicalizes params
-   :request                             ;; REQUIRED — a Spec 014 managed-HTTP write
-   (fn [{:keys [slug] :as article} _ctx]
-     {:request {:method :put :url (str "/api/articles/" slug) :body article}
-      :decode  :app/article})
    :invalidates  (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
    :patches      (fn [params result] {scoped-key (fn [old result] (merge old result))})
    :populates    (fn [params result] {scoped-key result})
    :scope        :rf.scope/global       ;; the cache scope invalidation/patch defaults to
-   :invalidate-timing :after-success})  ;; | :before-request | :after-failure | :after-settle
-```
+   :invalidate-timing :after-success}   ;; | :before-request | :after-failure | :after-settle
+
+  ;; REQUIRED request fn (third positional arg) — a Spec 014 managed-HTTP write
+  (fn [{:keys [slug] :as article} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug) :body article}
+     :decode  :app/article}))
 
 **Required keys**:
 
 | Key | Notes |
 |---|---|
 | `:params-schema` | Validates and canonicalizes the write's params. |
-| `:request` | Returns a [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args map (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (rejected if present). **Write retries are OPT-IN** and live in this returned args map's own `:retry` (see the note below) — never a `reg-mutation` spec key. |
+| request fn (3rd positional arg) | Returns a [Spec 014](../../spec/014-HTTPRequests.md) managed-HTTP args map (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (rejected if present). **Write retries are OPT-IN** and live in this returned args map's own `:retry` (see the note below) — never a `reg-mutation` spec key. |
 
 **Optional keys**: `:invalidates` (`(fn [params result] → #{tag …})` — the tags made stale on success, composed with `:rf.resource/invalidate-tags`, scoped), `:patches` / `:populates` (controlled resource-entry transforms / seeds applied on success **before** invalidation, keyed by scoped key, via the same durable entry shape + structural sharing the read path uses), `:scope` (the cache scope the invalidation / patch / populate targets), `:invalidate-timing` (`:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle`), `:transport`, `:doc`.
 
