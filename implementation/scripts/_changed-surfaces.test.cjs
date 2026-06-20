@@ -694,6 +694,27 @@ test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser ga
   assert.equal(result.story_xray_browser, 'true');
 });
 
+// rf2-eqjxya — examples-staging.cjs is the SHARED staging/cleaning helper
+// (stageShared / cleanStageDirs / stageExample) require'd by the adapter-smoke
+// orchestrator (serve-and-run-examples-tests.cjs → adapter_testbed_smokes) AND
+// both Story launchers (serve-and-run-story-{feature-load-tests,play-scripts}.cjs
+// → story_xray_browser). Like the shared port-resolver.cjs above, it must fire
+// BOTH browser gates so a regression in the staging code can't ship green by
+// skipping the gates that serve its staged output.
+test('examples/scripts/examples-staging.cjs (shared staging helper) fires BOTH browser gates (rf2-eqjxya)', () => {
+  const result = classify('examples/scripts/examples-staging.cjs');
+  assert.equal(
+    result.adapter_testbed_smokes,
+    'true',
+    'examples-staging.cjs is imported by the adapter-smoke orchestrator; it must fire adapter_testbed_smokes',
+  );
+  assert.equal(
+    result.story_xray_browser,
+    'true',
+    'examples-staging.cjs is imported by both Story launchers; it must fire story_xray_browser',
+  );
+});
+
 test('examples/scripts static-only scanners stay on the always-on JS harness path, no browser gate (rf2-y9o5e3)', () => {
   for (const file of [
     'examples/scripts/check-examples-assets.cjs',
