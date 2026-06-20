@@ -59,22 +59,19 @@
                     :page->items       :items
                     :initial-page-param "p0"
                     :page-data-schema  :app/timeline-page
-                    :refetch           {:refetch-all-pages? false :refetch-window 3})
-             base-infinite-request)))))
+                    :refetch           {:refetch-all-pages? false :refetch-window 3}) base-infinite-request)))))
 
 (deftest infinite-without-next-page-param-rejected
   (testing ":infinite true with NO :next-page-param => infinite-missing-next-page-param (R8 gate)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"infinite-missing-next-page-param"
           (registry/reg-resource :feed/no-next
-                                 (dissoc (base-infinite-spec) :next-page-param)
-                                 base-infinite-request))))
+                                 (dissoc (base-infinite-spec) :next-page-param) base-infinite-request))))
   (testing ":next-page-param present but NOT a fn => same gate"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"infinite-missing-next-page-param"
           (registry/reg-resource :feed/bad-next
-                                 (assoc (base-infinite-spec) :next-page-param :not-a-fn)
-                                 base-infinite-request)))))
+                                 (assoc (base-infinite-spec) :next-page-param :not-a-fn) base-infinite-request)))))
 
 (deftest non-infinite-resource-untouched
   (testing "an ordinary (non-:infinite) resource needs no :next-page-param"
@@ -100,76 +97,64 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/false-flag
-                                 (assoc (base-infinite-spec) :infinite false)
-                                 base-infinite-request))))
+                                 (assoc (base-infinite-spec) :infinite false) base-infinite-request))))
   (testing ":infinite \"true\" (string) is not the literal selector => invalid-resource-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/string-flag
-                                 (assoc (base-infinite-spec) :infinite "true")
-                                 base-infinite-request)))))
+                                 (assoc (base-infinite-spec) :infinite "true") base-infinite-request)))))
 
 (deftest prev-page-param-shape-validated
   (testing "a non-fn :prev-page-param => invalid-resource-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/bad-prev
-                                 (assoc (base-infinite-spec) :prev-page-param :not-a-fn)
-                                 base-infinite-request))))
+                                 (assoc (base-infinite-spec) :prev-page-param :not-a-fn) base-infinite-request))))
   (testing "a fn :prev-page-param is accepted"
     (is (= :feed/good-prev
            (registry/reg-resource :feed/good-prev
                                   (assoc (base-infinite-spec)
-                                         :prev-page-param (fn [_first _all] nil))
-                                  base-infinite-request))))))
+                                         :prev-page-param (fn [_first _all] nil)) base-infinite-request)))))
 
 (deftest page-accessor-shape-validated
   (testing "a keyword :page->items is accepted"
     (is (= :feed/kw-acc
            (registry/reg-resource :feed/kw-acc
-                                  (assoc (base-infinite-spec) :page->items :items)
-                                  base-infinite-request))))
+                                  (assoc (base-infinite-spec) :page->items :items) base-infinite-request))))
   (testing "a fn :page->items is accepted"
     (is (= :feed/fn-acc
            (registry/reg-resource :feed/fn-acc
-                                  (assoc (base-infinite-spec) :page->items (fn [p] (:items p)))
-                                  base-infinite-request)))))
+                                  (assoc (base-infinite-spec) :page->items (fn [p] (:items p))) base-infinite-request))))
   (testing "a :page->items that is neither keyword nor fn => invalid-resource-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/bad-acc
-                                 (assoc (base-infinite-spec) :page->items 99)
-                                 base-infinite-request)))))
+                                 (assoc (base-infinite-spec) :page->items 99) base-infinite-request)))))
 
 (deftest refetch-policy-shape-validated
   (testing "a well-formed :refetch policy registers"
     (is (= :feed/rf-ok
            (registry/reg-resource :feed/rf-ok
                                   (assoc (base-infinite-spec)
-                                         :refetch {:refetch-all-pages? true :refetch-window 5})
-                                  base-infinite-request)))
+                                         :refetch {:refetch-all-pages? true :refetch-window 5}) base-infinite-request)))
     (is (= :feed/rf-empty
            (registry/reg-resource :feed/rf-empty
-                                  (assoc (base-infinite-spec) :refetch {})
-                                  base-infinite-request))))
+                                  (assoc (base-infinite-spec) :refetch {}) base-infinite-request))))
   (testing "a non-map :refetch => invalid-resource-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/rf-nonmap
-                                 (assoc (base-infinite-spec) :refetch true)
-                                 base-infinite-request))))
+                                 (assoc (base-infinite-spec) :refetch true) base-infinite-request))))
   (testing "a non-boolean :refetch-all-pages? => invalid-resource-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/rf-badbool
-                                 (assoc (base-infinite-spec) :refetch {:refetch-all-pages? :yes})
-                                 base-infinite-request))))
+                                 (assoc (base-infinite-spec) :refetch {:refetch-all-pages? :yes}) base-infinite-request))))
   (testing "a non-integer :refetch-window => invalid-resource-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-spec"
           (registry/reg-resource :feed/rf-badwin
-                                 (assoc (base-infinite-spec) :refetch {:refetch-window 1.5})
-                                 base-infinite-request)))))
+                                 (assoc (base-infinite-spec) :refetch {:refetch-window 1.5}) base-infinite-request)))))
 
 (deftest infinite-resource-predicate
   (testing "infinite-resource? recognises the :infinite true marker"
