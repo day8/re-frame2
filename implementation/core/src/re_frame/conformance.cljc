@@ -92,14 +92,19 @@
                  ;; canonical :rf.error/id rides on ex-data for structured
                  ;; branching.
                  (cond
+                   ;; rf2:builder-bypass-ok — :count's message is pinned by the
+                   ;; conformance corpus as the sub-exception :exception-message;
+                   ;; it stays bare prose without the [:rf.<id>] token by design.
                    (string? x)    (throw (ex-info "cannot count a string"
                                                    {:rf.error/id :rf.error/conformance-cannot-count-string
                                                     :where    'rf/conformance-eval
                                                     :recovery :no-recovery}))
+                   ;; rf2:builder-bypass-ok — see :count message-pinning note above.
                    (char? x)      (throw (ex-info "cannot count a string"
                                                    {:rf.error/id :rf.error/conformance-cannot-count-string
                                                     :where    'rf/conformance-eval
                                                     :recovery :no-recovery}))
+                   ;; rf2:builder-bypass-ok — see :count message-pinning note above.
                    (nil? x)       (throw (ex-info "cannot count nil"
                                                    {:rf.error/id :rf.error/conformance-cannot-count-nil
                                                     :where    'rf/conformance-eval
@@ -438,6 +443,9 @@
     ;; uniquely among conformance throws — the message string stays the
     ;; fixture's text rather than the discriminator kw. The canonical
     ;; :rf.error/id slot still rides on ex-data for structured branching.
+    ;; rf2:builder-bypass-ok — the :throw op's message IS the fixture-supplied
+    ;; text, re-emitted downstream as :exception-message; it stays the prose
+    ;; (no [:rf.<id>] token) by design. The :rf.error/id rides on ex-data.
     :throw     (throw (ex-info (str (second step))
                                {:rf.error/id   :rf.error/conformance-throw-step
                                 :where         'rf/conformance-eval
