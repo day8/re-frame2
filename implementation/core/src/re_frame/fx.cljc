@@ -183,6 +183,110 @@
   (or (-> frame-record :config :platform)
       (interop/active-platform)))
 
+;; ---- :dispatch-later host-timer side table (rf2-uxz52g) -------------------
+;;
+;; `:dispatch-later` arms a host-clock timer (`interop/set-timeout!`) whose
+;; thunk dispatches the deferred event into its frame. The host handle must
+;; be RETAINED so `destroy-frame!` can cancel a still-pending timer for a
+;; frame that is torn down before it fires — otherwise the armed timer + its
+;; captured closure leak until it fires, and the deferred dispatch is
+;; dead-on-arrival anyway (it lands in a destroyed frame, where `dispatch!`
+;; recovers it as a `:rf.error/frame-destroyed` diagnostic). Under frame
+;; churn (long-running SSR / test processes) that is unbounded retention.
+;;
+;; This MIRRORS the resources stale / GC / poll timer side table
+;; (`re-frame.resources.timers/timer-table`) and the machines `:after`
+;; timer table: a module-level transient host cache keyed by frame, holding
+;; ONLY the opaque non-serializable host handle, NEVER runtime-db, never on
+;; the SSR / hydration / epoch wire, cleared per-frame on frame destroy. A
+;; fired timer drops its OWN entry before dispatching, so the table holds
+;; exactly the set of still-pending timers.
+
+(defonce ^:private dispatch-later-counter
+  ;; Monotonic counter minting a unique id per armed `:dispatch-later` so
+  ;; two timers in the same frame (same or different events) never collide
+  ;; on a side-table slot. The id is opaque bookkeeping — it never escapes
+  ;; this ns.
+  (atom 0))
+
+(defonce
+  ^{:private true
+    :doc "Host-side side table of pending `:dispatch-later` timer handles,
+   keyed by `[frame-id timer-id]` → an opaque host handle from
+   `re-frame.interop/set-timeout!`. Transient host state (NOT runtime-db),
+   so an epoch restore cannot rewind / recycle it and it never rides the
+   SSR / hydration / epoch wire. A fired timer drops its own entry;
+   `release-frame!` cancels + drops every still-pending timer for a
+   destroyed frame (frame/destroy-frame! via the `:fx/on-frame-destroyed!`
+   late-bind hook). Mirrors `re-frame.resources.timers/timer-table`."}
+  dispatch-later-timers
+  (atom {}))
+
+(defn- arm-dispatch-later!
+  "Arm a `:dispatch-later` host timer that dispatches `event` with `opts`
+  after `ms`, RETAINING its handle in `dispatch-later-timers` under
+  `[frame-id timer-id]` so `release-frame!` can cancel it on frame destroy.
+  The timer thunk drops its OWN slot BEFORE dispatching, so the table tracks
+  exactly the pending set (a fired timer leaves no residue). Returns nil."
+  [frame-id ms event opts]
+  (let [timer-id (swap! dispatch-later-counter inc)
+        k        [frame-id timer-id]
+        handle   (interop/set-timeout!
+                   (fn []
+                     ;; Drop our own slot first — the timer has fired, so its
+                     ;; handle is spent; a later `release-frame!` must not try
+                     ;; to cancel a fired handle, and the table must not retain
+                     ;; a fired timer.
+                     (swap! dispatch-later-timers dissoc k)
+                     ;; Sticky hook (rf2-f72pd) — the timer callback fires per
+                     ;; scheduled :dispatch-later. When the frame was destroyed
+                     ;; before the timer fired, this slot was already cancelled
+                     ;; + dropped by `release-frame!`, so this thunk never runs;
+                     ;; on the live path `dispatch!` enqueues into the frame.
+                     (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
+                       (dispatch! event opts)))
+                   ms)]
+    (swap! dispatch-later-timers assoc k handle)
+    nil))
+
+(defn release-frame!
+  "Cancel + drop EVERY still-pending `:dispatch-later` timer for a destroyed
+  `frame-id` (rf2-uxz52g). Invoked from `frame/destroy-frame!` via the
+  `:fx/on-frame-destroyed!` late-bind hook so a timer armed before destroy
+  never fires a dead-on-arrival dispatch into the torn-down frame, and its
+  armed host handle + captured closure are released promptly rather than
+  leaking until the delay elapses. Idempotent — a frame with no pending
+  timers is a no-op. Returns nil."
+  [frame-id]
+  (doseq [[[fid _tid :as k] handle] @dispatch-later-timers]
+    (when (= fid frame-id)
+      (interop/clear-timeout! handle)
+      (swap! dispatch-later-timers dissoc k)))
+  nil)
+
+(defn reset-dispatch-later-timers!
+  "Cancel + drop EVERY frame's pending `:dispatch-later` timers (test
+  isolation, rf2-uxz52g). Published via `:fx/reset-dispatch-later-timers!`
+  so the shared CLJS `make-reset-runtime-fixture` reset-hooks table clears it
+  per test — host-side transient state the runtime / frames reset does not
+  touch, so without this a stale armed timer from a sibling test could fire
+  mid-next-test. Returns nil."
+  []
+  (doseq [[_ handle] @dispatch-later-timers]
+    (interop/clear-timeout! handle))
+  (reset! dispatch-later-timers {})
+  nil)
+
+;; Publish the frame-destroy cleanup + test-isolation reset through the
+;; late-bind registry (mirroring `:resources/on-frame-destroyed!` /
+;; `:machines/reset-timers!`). `re-frame.frame/destroy-frame!` cannot
+;; static-require this ns (fx requires nothing of frame, and a back-require
+;; would invert the load order), so the hook is the seam. Bound once at
+;; ns-load — `re-frame.fx` ships in every canonical build (core.cljc
+;; side-effect-requires it), so the hook is always present.
+(late-bind/set-fn! :fx/on-frame-destroyed!           release-frame!)
+(late-bind/set-fn! :fx/reset-dispatch-later-timers!  reset-dispatch-later-timers!)
+
 ;; ---- do-fx ----------------------------------------------------------------
 
 (declare dispatch-fx-handler)
@@ -415,18 +519,20 @@
    ;; (carrying the same `:source-detail {:ms <ms>}`) when the parent
    ;; envelope is machine-internal, matching the `:dispatch` fx
    ;; handler's machine-action discriminator above.
+   ;;
+   ;; Per rf2-uxz52g: the armed host handle is RETAINED in the
+   ;; `dispatch-later-timers` side table (keyed by frame) so
+   ;; `destroy-frame!` can cancel a still-pending timer for a frame torn
+   ;; down before it fires (a fired timer drops its own slot). Without the
+   ;; retain, the armed timer + its captured closure leak until the delay
+   ;; elapses, and the deferred dispatch is dead-on-arrival in the
+   ;; destroyed frame.
    (fn [frame-id parent-envelope {:keys [ms event]}]
      (let [machine? (:rf.machine/internal? parent-envelope)
            opts (assoc (child-dispatch-opts frame-id parent-envelope)
                        :source        (if machine? :machine-action :fx-dispatch-later)
                        :source-detail {:ms ms})]
-       (interop/set-timeout!
-         (fn []
-           ;; Sticky hook (rf2-f72pd) — same as above; the timer
-           ;; callback fires per scheduled :dispatch-later.
-           (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
-             (dispatch! event opts)))
-         ms)))
+       (arm-dispatch-later! frame-id ms event opts)))
 
    ;; Per Spec 013 — flows are frame-scoped. The flow registers against
    ;; the dispatching frame.

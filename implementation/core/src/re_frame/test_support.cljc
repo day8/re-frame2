@@ -229,6 +229,15 @@
     :machines/reset-timers!          — cancel in-flight `:after` wall-clock
                                        timers so a stale timer from a
                                        sibling test can't survive.
+    :fx/reset-dispatch-later-timers! — cancel every frame's pending
+                                       `:dispatch-later` host timers
+                                       (rf2-uxz52g) so a stale armed timer
+                                       from a sibling test can't fire mid-
+                                       next-test. Host-side transient state
+                                       the `frames` reset above does not
+                                       touch (mirrors `:machines/reset-
+                                       timers!`); always bound (re-frame.fx
+                                       ships in core).
     :machines/reset-spawn-order!     — drop the per-frame spawn-order
                                        channel (rf2-vsigt) so a stale
                                        entry from a sibling test can't
@@ -297,6 +306,7 @@
    {:hook :flows/reset-last-inputs!        :phase :pre-dispose}
    {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
    {:hook :machines/reset-timers!          :phase :post-dispose}
+   {:hook :fx/reset-dispatch-later-timers! :phase :post-dispose}
    {:hook :machines/reset-spawn-order!     :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :routing/reset-nav-counters!     :phase :post-dispose}

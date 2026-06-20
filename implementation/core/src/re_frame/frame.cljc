@@ -2042,6 +2042,20 @@
         ;; destroyed frame in each host cache. No-op when re-frame.resources
         ;; is absent (the artefact is optional).
         (safe-call-hook! :resources/on-frame-destroyed! id)
+        ;; Cancel + drop the destroyed frame's still-pending
+        ;; `:dispatch-later` host timers (rf2-uxz52g). Each arms a host-clock
+        ;; timer whose thunk dispatches the deferred event into THIS frame;
+        ;; left armed across destroy it fires a dead-on-arrival dispatch into
+        ;; a torn-down frame, and its armed handle + captured closure leak
+        ;; until the delay elapses (unbounded under frame churn in long-running
+        ;; SSR / test processes). The handles live in a host-side side table
+        ;; in `re-frame.fx` (NOT runtime-db — off the epoch/SSR egress wire),
+        ;; mirroring the resources / machines timer tables; this hook releases
+        ;; the frame's slice. Reached via late-bind because `re-frame.fx`
+        ;; static-requires nothing of `re-frame.frame` (a back-require would
+        ;; invert the load order); the hook is bound at boot since fx ships in
+        ;; every canonical build.
+        (safe-call-hook! :fx/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
         ;; Per Spec 009 §Per-frame trace rings:
