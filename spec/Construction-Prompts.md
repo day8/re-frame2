@@ -387,13 +387,14 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
      :guards
      {:under-retry-limit
       ;; Has this login had fewer than 3 prior attempts?
-      (fn [data _event]
+      (fn [{:keys [data]}]
         (< (:attempts data) 3))}
 
      :actions
      {:begin-submit
       ;; Clear the prior error and emit the HTTP request for credential check.
-      (fn [_data [_ creds]]
+      ;; Destructure the credentials out of the :event vector.
+      (fn [{[_ creds] :event}]
         {:data {:error nil}
          :fx   [[:http {:method     :post
                         :url        "/api/login"
@@ -403,23 +404,23 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
       :record-failure
       ;; Bump the attempts counter and surface a credentials error.
-      (fn [data _event]
+      (fn [{:keys [data]}]
         {:data {:attempts (inc (:attempts data))
                 :error    :credentials}})
 
       :lock-out
       ;; Lock the account after exceeding the retry limit.
-      (fn [_snap _event]
+      (fn [_ctx]
         {:data {:error :locked}})
 
       :clear-error
       ;; Reset the error before re-submitting.
-      (fn [_snap _event]
+      (fn [_ctx]
         {:data {:error nil}})
 
       :clear-and-record-success
       ;; On successful auth, clear any residual error state.
-      (fn [_snap _event]
+      (fn [_ctx]
         {:data {:error nil}})}
 
      :states
@@ -507,7 +508,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ;; ... inside the machine spec:
 :actions
 {:spawn-fetch
- (fn [_ [_ url]]
+ (fn [{[_ url] :event}]
    {:fx [[:rf.machine/spawn {:machine-id :request/protocol
                              :id-prefix  :request/protocol
                              :data       {:url url}
