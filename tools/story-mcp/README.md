@@ -68,7 +68,7 @@ The four categories, at a glance:
 - **Docs** (10) — `list-stories`, `get-story`, `get-variant`, `list-tags`,
   `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
   `explain-variant`, `get-docs-markdown`.
-- **Testing** (4) — `run-variant`, `snapshot-identity`, `run-a11y`,
+- **Testing** (4) — `run-variant`, `snapshot-identity`, `read-a11y-violations`,
   `read-failures`.
 - **Write** (3, gated) — `register-variant`, `unregister-variant`,
   `record-as-variant`.
@@ -95,7 +95,7 @@ tools/story-mcp/
         ├── schemas.cljc                          ; recurring JSON-schema fragments
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
         ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, explain-variant, get-docs-markdown
-        ├── testing.cljc                          ; run-variant, snapshot-identity, run-a11y, read-failures
+        ├── testing.cljc                          ; run-variant, snapshot-identity, read-a11y-violations, read-failures
         ├── write.cljc                            ; gated: register-variant, unregister-variant
         └── recorder.cljc                         ; gated: record-as-variant
 └── test/

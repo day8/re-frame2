@@ -21,7 +21,7 @@ Do **not** load this leaf to learn how to author a variant body's *contents* —
    │ preview-variant    eyeball one render │  ───▶  │ read-failures    full :rf.assert/* set │
    │ get-variant        read it back        │  hand  │ (loop until :status :pass)             │
    │ explain-variant    why did it resolve  │  off   │ record-as-variant  capture a cascade   │
-   │ unregister-variant tear down            │        │ run-a11y / snapshot-identity           │
+   │ unregister-variant tear down            │        │ read-a11y-violations / snapshot-identity           │
    └──────────────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
@@ -41,7 +41,7 @@ Per `tools/story-mcp/spec/002-Tool-Registry.md`, the story-mcp catalogue is twen
 | Onboard | `get-story-instructions` | Dev | the EDN-first constraint, canonical body keys, the seven `:rf.assert/*` events, the four-phase lifecycle, the inclusion-tag vocabulary — one self-contained string. Call once per session, before authoring. |
 | Enumerate | `list-stories` / `get-story` / `variant->edn` / `list-tags` / `list-modes` / `list-decorators` / `list-assertions` / `list-substrates` | Docs / Dev | navigate an unfamiliar Story registry while authoring |
 
-What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, and `record-as-variant` are the **Testing**-category run tools (plus the recorder bridge). They surface the live runtime's verdict and captured values, so they live in `re-frame2-pair`'s allow-list — not here. The drift gate (`scripts/check_skill_mcp_drift.py`) pins this split: it marks exactly those five as `intentional_server_only` for `re-frame2`, so an attempt to add them here fails the gate.
+What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, and `record-as-variant` are the **Testing**-category run tools (plus the recorder bridge). They surface the live runtime's verdict and captured values, so they live in `re-frame2-pair`'s allow-list — not here. The drift gate (`scripts/check_skill_mcp_drift.py`) pins this split: it marks exactly those five as `intentional_server_only` for `re-frame2`, so an attempt to add them here fails the gate.
 
 `preview-variant`, `run-variant`, and `read-failures` all speak the SAME unified run-result the human Story UI reads (spec/017 §Run result) — there is no agent-only result vocabulary. The headline is the top-level `:status` ∈ `{:pass :fail :cannot-run :error}`. You'll see that `:status` on a `preview-variant` here; the *verdict-driven loop* over it is the run side.
 

@@ -376,7 +376,13 @@ produce distinct hashes — the same tuple input `run-variant` /
  :content-hash string}
 ```
 
-### `run-a11y`
+### `read-a11y-violations`
+
+READS the axe-core violations a variant's in-browser a11y panel has
+already accumulated — it does NOT execute axe-core. A diagnostic
+re-read of stored panel state (the `read-` no-recompute vocabulary, the
+sibling of `read-failures`); calling it neither runs a fresh check nor
+proves the variant accessible.
 
 **Input.**
 

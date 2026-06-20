@@ -205,7 +205,7 @@
 (defn with-include-sensitive
   "Inject the `:include-sensitive` slot into a tool's `:properties`
   map. Used by the six tools that surface a live or plan-resolved frame
-  VALUE — `preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+  VALUE — `preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
   `explain-variant`, `record-as-variant` (the affected set is the single
   source of truth at `registry/tool-descriptors` §Sensitive-read gate).
 
@@ -277,7 +277,7 @@
 ;;   - READ-ONLY tools: get-story-instructions, list-substrates,
 ;;     list-stories, get-story, get-variant, list-tags, list-modes,
 ;;     list-decorators, list-assertions, get-docs-markdown, variant->edn,
-;;     explain-variant (rf2-ba86n.17), snapshot-identity, run-a11y,
+;;     explain-variant (rf2-ba86n.17), snapshot-identity, read-a11y-violations,
 ;;     read-failures.
 ;;
 ;;   - DESTRUCTIVE tools: preview-variant (dispatches events into a

@@ -163,7 +163,7 @@ MAPPINGS: list[Mapping] = [
     # - re-frame2 (authoring) owns: get-story-instructions, list-*, get-*,
     #   variant->edn, preview-variant, register-variant, unregister-variant.
     # - re-frame2-pair (live-session) owns: run-variant, read-failures,
-    #   snapshot-identity, run-a11y, record-as-variant.
+    #   snapshot-identity, read-a11y-violations, record-as-variant.
     # Each mapping marks the OTHER skill's tools as `intentional_server_only`
     # so the gate only fires when the canonical owner forgets a tool.
     # The host prefix is `re-frame2-story-mcp` per both skills' allowed-tools
@@ -232,7 +232,7 @@ MAPPINGS: list[Mapping] = [
             "run-variant",
             "read-failures",
             "snapshot-identity",
-            "run-a11y",
+            "read-a11y-violations",
             "record-as-variant",
         }),
     ),

@@ -272,7 +272,7 @@
     headless run resolves to `:cannot-run`.
   - `:rf.assert/a11y` requires `:a11y-engine` — an axe-style scan, reusing
     the existing `re-frame.story.ui.a11y` axe-core hook (the
-    `violations-by-frame` atom the MCP `run-a11y` tool already reads). No
+    `violations-by-frame` atom the MCP `read-a11y-violations` tool already reads). No
     P1 headless/hiccup runner advertises `:a11y-engine`, so a headless run
     resolves to `:cannot-run`.
 

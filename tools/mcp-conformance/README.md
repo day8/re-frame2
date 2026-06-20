@@ -501,7 +501,7 @@ so CI runs one JVM boot here instead of two near-identical ones.
    `Story not found`
 5. `register-variant` → `get-variant` (body `:doc` round-trips through
    EDN text) → `variant->edn` (the rf2-vyacl outputSchema-defect twin) +
-   `run-a11y` (JVM-standalone empty read) → `preview-variant`
+   `read-a11y-violations` (JVM-standalone empty read) → `preview-variant`
    (`:lifecycle` surfaces) → `run-variant` (vacuous pass) →
    `read-failures` (total=0) → `snapshot-identity` (stable content-hash
    twice) → `record-as-variant` (recorder bridge wired, rf2-luhdu) →
