@@ -106,18 +106,38 @@
   The walk-back + snapshot fallbacks are the case-B refinement per
   spec/021 §6.2 / §17.4.1 (rf2-dbi87) — even when the focused epoch
   has no transition, render the topology with the most-recent-known
-  state annotated as `:current`."
+  state annotated as `:current`.
+
+  The live-snapshot fallback preserves ALL THREE Spec 005 `:state`
+  arms so the chart's multi-active highlight (`chart.layout/highlight-ids`,
+  threaded via `machine-canvas/Chart`'s `:current-state`) can light EVERY
+  active leaf of a PARALLEL machine. A region-map (`{:data :loading
+  :form :neutral}`) is passed through UNCHANGED — narrowing it to
+  keyword/vector dropped the parallel snapshot before the chart could
+  render the N-active highlight (a live parallel machine showed no
+  active regions while the wrapper still claimed `data-current-state-source
+  = \"snapshot\"`). See machines-viz `API.md` §`:current-state`."
   [machine-id current-state-path trace-events epoch-history snapshot-state]
   (or current-state-path
       (trace-state/current-state-from-traces trace-events machine-id)
       (trace-state/current-state-from-epoch-history epoch-history machine-id)
-      ;; Live-snapshot fallback. The snapshot's `:state` slot is a
-      ;; bare keyword per Spec 005 §State; coerce to a path vector
-      ;; via `normalise-path` (vector / keyword / nil are all handled).
+      ;; Live-snapshot fallback. The snapshot's `:state` slot is one of
+      ;; the three Spec 005 `:state` arms: a flat keyword (`:authing`),
+      ;; a hierarchical path (`[:auth :authing]`), or — for a PARALLEL
+      ;; machine — a region-map (`{:data :loading :form :neutral}`) of N
+      ;; simultaneously-active leaves. All three forward through to
+      ;; `:current-state`; the chart resolves whichever arm via
+      ;; `chart.layout/highlight-ids` (which subsumes all three).
       (when (some? snapshot-state)
         (cond
           (keyword? snapshot-state) [snapshot-state]
           (vector? snapshot-state)  snapshot-state
+          ;; PARALLEL region-map — pass through unchanged so every active
+          ;; region leaf lights up (the multi-active highlight). Dropping
+          ;; it here is the rf2-di7mda bug: the chart CAN render N-active,
+          ;; but the caller blanked the topology for a live parallel
+          ;; machine.
+          (map? snapshot-state)     snapshot-state
           :else                     nil))))
 
 (defn Topology
@@ -138,12 +158,19 @@
                            recent-known transition for this machine
                            when the focused epoch has none (case B
                            per spec/021 §6.2).
-    :snapshot-state      — optional live snapshot state (a keyword or
-                           a path vector — per Spec 005 §State).
-                           Used as the final fallback for the
+    :snapshot-state      — optional live snapshot state — any of the
+                           three Spec 005 §State arms: a flat keyword
+                           (`:authing`), a hierarchical path
+                           (`[:auth :authing]`), or — for a PARALLEL
+                           machine — a region-map (`{:data :loading
+                           :form :neutral}`) of N simultaneously-active
+                           leaves. Used as the final fallback for the
                            current-state ● annotation when neither the
                            focused epoch nor the history buffer carries
-                           a transition for this machine.
+                           a transition for this machine. A region-map
+                           forwards through to `:current-state` so the
+                           chart lights EVERY active region leaf (the
+                           multi-active highlight — rf2-di7mda).
     :height              — outer wrapper height (default `'100%'` so the
                            chart fills its container — the topology is the
                            centrepiece and should not sit in a fixed box).
