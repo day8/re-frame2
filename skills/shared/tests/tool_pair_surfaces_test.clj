@@ -2,30 +2,27 @@
 ;;;; shared Tool-Pair surface enumeration.
 ;;;;
 ;;;; `tool-pair-surfaces.md` is the single shared-corpus pointer at the
-;;;; consumer-facing Tool-Pair surfaces. The skills/shared correctness
-;;;; review (rf2-eca6x.1) found its direct-read entries named raw runtime
-;;;; reads (`app-db-value`, `compute-sub`, `sub-cache`) WITHOUT carrying
-;;;; the MUST-level off-box wire-egress contract from spec/Tool-Pair.md —
-;;;; so a consuming skill routing/drafting upstream Tool-Pair work from
-;;;; this leaf could describe direct reads as raw values rather than
-;;;; `rf/elide-wire-value`-scrubbed egress with sensitive/large defaults
-;;;; suppressed. The existing `retro_protocol_test.clj` suite does not
-;;;; cover this leaf, so the drift was unguarded.
+;;;; consumer-facing Tool-Pair surfaces. Its direct-read entries MUST name
+;;;; the off-box wire-egress contract from spec/Tool-Pair.md — direct reads
+;;;; are `rf/elide-wire-value`-scrubbed egress with sensitive/large defaults
+;;;; suppressed, not raw runtime reads — so a consuming skill routing /
+;;;; drafting upstream Tool-Pair work from this leaf describes the egress
+;;;; correctly. `retro_protocol_test.clj` does not cover this leaf, so this
+;;;; suite guards it directly.
 ;;;;
-;;;; rf2-c9xgp follow-up: the wire-surface list was ALSO stale against the
-;;;; current re-frame2-pair-mcp catalogue — it named a standalone
-;;;; `get-app-db` / `sub-cache` tool that the catalogue does not ship, and
-;;;; omitted the real subscription-read egress (`read-sub`,
+;;;; The wire-surface list MUST match the current re-frame2-pair-mcp
+;;;; catalogue: it names the real subscription-read egress (`read-sub`,
 ;;;; `list-subscriptions` with `:include-values`) and `dispatch-dry-run`,
-;;;; all under the same `--allow-sensitive-reads` fail-closed posture.
-;;;; This suite now pins the CURRENT privacy-relevant tool names so a
-;;;; future catalogue drift (a renamed/dropped read tool, a new app-db
-;;;; egress tool that skips the elision posture) fails loudly here.
+;;;; all under the same `--allow-sensitive-reads` fail-closed posture, and
+;;;; does NOT name a standalone `get-app-db` / `sub-cache` tool the
+;;;; catalogue doesn't ship. This suite pins the CURRENT privacy-relevant
+;;;; tool names so a catalogue drift (a renamed/dropped read tool, a new
+;;;; app-db egress tool that skips the elision posture) fails loudly here.
 ;;;;
 ;;;; This file pins the load-bearing direct-read privacy tokens and the
-;;;; link to the Tool-Pair direct-read section, so a future edit that
-;;;; strips the elision invariant from the shared surface guidance fails
-;;;; loudly. Mirrors `retro_protocol_test.clj`'s structural-drift shape.
+;;;; link to the Tool-Pair direct-read section, so an edit that strips the
+;;;; elision invariant from the shared surface guidance fails loudly.
+;;;; Mirrors `retro_protocol_test.clj`'s structural-drift shape.
 ;;;;
 ;;;; Run:    bb skills/shared/tests/tool_pair_surfaces_test.clj   (from repo root)
 ;;;;         bb tests/tool_pair_surfaces_test.clj                 (from skills/shared/)
@@ -75,7 +72,7 @@
       ;; egress surfaces — NOT a standalone `get-app-db` / `sub-cache` tool.
       ;; A consuming skill drafting upstream work must see the shipped wire
       ;; vocabulary, not only the raw `app-db-value` / `compute-sub` runtime
-      ;; API (rf2-eca6x.1) and not a stale tool name (rf2-c9xgp).
+      ;; API, and not a tool name the catalogue doesn't ship.
       (is (and (str/includes? body "snapshot")
                (str/includes? body "get-path")
                (str/includes? body "read-sub")
@@ -89,8 +86,7 @@
 (deftest subscription-reads-and-dry-run-named-as-gated-egress
   (testing "subscription-value reads + dispatch-dry-run are pinned under the same fail-closed posture"
     (let [body @surfaces-md]
-      ;; rf2-c9xgp: the original four-name list omitted the real
-      ;; subscription-read egress and the dry-run app-db/fx egress. Both
+      ;; The subscription-read egress and the dry-run app-db/fx egress both
       ;; ride the SAME `--allow-sensitive-reads` posture (read-sub.cljs /
       ;; list_subscriptions.cljs route :value through elide-wire-value;
       ;; dispatch-dry-run is gated per re-frame2-pair-mcp/README.md:200).
@@ -110,11 +106,11 @@
 (deftest get-app-db-only-as-generic-not-current-tool
   (testing "get-app-db is framed as a generic/third-party class, never a current pair-mcp tool"
     (let [body @surfaces-md]
-      ;; rf2-c9xgp: `get-app-db` is NOT a current re-frame2-pair-mcp tool —
-      ;; the catalogue reaches app-db via `snapshot`/`get-path`. The leaf
-      ;; may keep `get-app-db` only as a generic / third-party direct-read
-      ;; class name. If it appears at all, it must be near a generic/third-
-      ;; party qualifier, never presented as a shipped pair-mcp tool.
+      ;; `get-app-db` is NOT a re-frame2-pair-mcp tool — the catalogue
+      ;; reaches app-db via `snapshot`/`get-path`. The leaf may keep
+      ;; `get-app-db` only as a generic / third-party direct-read class
+      ;; name. If it appears at all, it must be near a generic/third-party
+      ;; qualifier, never presented as a shipped pair-mcp tool.
       (when (str/includes? body "get-app-db")
         (is (or (str/includes? body "generic / third-party")
                 (str/includes? body "generic/third-party")
@@ -141,20 +137,18 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — the public egress boundary is `project-egress`, NOT `elide-wire-value`
-;; (rf2-2s4jre)
 ;;
-;; EP-0015 moved the public egress boundary up a layer: `rf/project-egress`
-;; is the record-level boundary primitive (resolves a `:rf.egress/*` profile +
-;; known `:frame`, applies frame-owned classification, fails closed with no
-;; frame), and `rf/elide-wire-value` is the low-level tree walker it delegates
-;; to. spec/015 §project-egress + implementation/SECURITY.md pin this split;
-;; spec/015:264 says tools/sinks should rarely call `elide-wire-value`
-;; directly. The earlier leaf taught `elide-wire-value` as "the single
-;; normative direct-value emission site" — that wording teaches new direct-
-;; read surfaces to hand-call the low-level walker (hand-assembling
-;; `:rf.size/*` opts) and bypass closed-profile validation + fail-closed
-;; frame seeding. These pins keep the boundary primitive named and forbid the
-;; stale boundary-overload wording from creeping back.
+;; `rf/project-egress` is the record-level boundary primitive (resolves a
+;; `:rf.egress/*` profile + known `:frame`, applies frame-owned
+;; classification, fails closed with no frame), and `rf/elide-wire-value` is
+;; the low-level tree walker it delegates to. spec/015 §project-egress +
+;; implementation/SECURITY.md pin this split; spec/015:264 says tools/sinks
+;; should rarely call `elide-wire-value` directly. Teaching
+;; `elide-wire-value` as "the single normative direct-value emission site"
+;; would push new direct-read surfaces to hand-call the low-level walker
+;; (hand-assembling `:rf.size/*` opts) and bypass closed-profile validation +
+;; fail-closed frame seeding. These pins keep the boundary primitive named
+;; and forbid the boundary-overload wording from creeping in.
 ;; ---------------------------------------------------------------------------
 
 (deftest project-egress-named-as-the-public-boundary
@@ -177,10 +171,10 @@
 (deftest elide-wire-value-not-overloaded-as-the-boundary
   (testing "the leaf does NOT teach elide-wire-value as the single normative direct-value emission site"
     (let [body @surfaces-md]
-      ;; rf2-2s4jre: the stale framing called the low-level walker "the single
-      ;; normative direct-value emission site". Post-EP-0015 the boundary is
-      ;; `project-egress`; the walker is delegated to. Guard the exact stale
-      ;; phrasings so a regression to walker-as-boundary fails loudly.
+      ;; The public boundary is `project-egress`; the low-level walker is
+      ;; delegated to, not "the single normative direct-value emission site".
+      ;; Guard the exact walker-as-boundary phrasings so a regression to that
+      ;; framing fails loudly.
       (is (not (str/includes? body "single normative direct-value emission site"))
           (str "tool-pair-surfaces.md again calls `elide-wire-value` \"the "
                "single normative direct-value emission site\". Post-EP-0015 "
@@ -245,21 +239,18 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — the leaf enumerates the FULL upstream-routing surface catalogue
-;; (rf2-985x1t)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The independent correctness review (rf2-985x1t) found the leaf advertised
-;; only an abbreviated subset of the Tool-Pair surface families: it stopped
-;; at trace / registrar / epoch-restore / schema / source-coord / direct
-;; reads and OMITTED render-driving + dispatch-settle, view-plane reads /
-;; view attribution, the signal recorder, and the operating-frame trio —
-;; all of which the authoritative contract (spec/Tool-Pair.md) and the
-;; current re-frame2-pair-mcp catalogue ship. A retro finding about
-;; deterministic dispatch->settle->DOM, read-ui/read-dom provenance,
-;; human-interaction recording, or multi-frame operating-frame ambiguity
-;; could therefore be mislabeled as pair-tool friction and filed against
-;; the wrong layer. These tests pin the current catalogue tokens so a
-;; future re-narrowing of the leaf fails loudly here.
+;; The leaf MUST enumerate every Tool-Pair surface family — trace, registrar,
+;; epoch-restore, schema, source-coord, direct reads, render-driving +
+;; dispatch-settle, view-plane reads / view attribution, the signal recorder,
+;; and the operating-frame trio — all of which the authoritative contract
+;; (spec/Tool-Pair.md) and the current re-frame2-pair-mcp catalogue ship.
+;; An abbreviated subset would let a retro finding about deterministic
+;; dispatch->settle->DOM, read-ui/read-dom provenance, human-interaction
+;; recording, or multi-frame operating-frame ambiguity be mislabeled as
+;; pair-tool friction and filed against the wrong layer. These tests pin the
+;; current catalogue tokens so a re-narrowing of the leaf fails loudly here.
 
 (deftest render-driving-and-settle-enumerated
   (testing "the leaf names render-driving via flush-render! and the dispatch :settle mode"
@@ -304,16 +295,16 @@
 (deftest watch-until-differentiated-from-raf-recorder
   (testing "the leaf differentiates watch-until (server polling) from the rAF record/read-recording recorder (rf2-3bu4ik)"
     (let [body @surfaces-md]
-      ;; rf2-3bu4ik: the leaf used to group `watch-until` with the rAF-backed
-      ;; `record` / `read-recording` recorder as one "rAF observer" triplet.
-      ;; The current contract (tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md
-      ;; + tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/watch_until.cljs)
-      ;; keeps them separate: `record` installs a rAF observer with a
-      ;; `:recording-id` change log; `watch-until` has the MCP SERVER poll a
-      ;; cheap runtime read on a fixed cadence — NO rAF loop, NO browser-side
-      ;; mailbox, NO recording registry. A consuming skill that conflates them
-      ;; misdiagnoses a watch-until failure as an rAF / recording-registry
-      ;; problem. This pin fails loudly if the differentiation regresses.
+      ;; `watch-until` and the rAF-backed `record` / `read-recording`
+      ;; recorder are SEPARATE surfaces (tools/re-frame2-pair-mcp/spec/
+      ;; 003-Tool-Catalogue.md + tools/re-frame2-pair-mcp/src/
+      ;; re_frame2_pair_mcp/tools/watch_until.cljs): `record` installs a rAF
+      ;; observer with a `:recording-id` change log; `watch-until` has the MCP
+      ;; SERVER poll a cheap runtime read on a fixed cadence — NO rAF loop, NO
+      ;; browser-side mailbox, NO recording registry. A consuming skill that
+      ;; conflates them misdiagnoses a watch-until failure as an rAF /
+      ;; recording-registry problem. This pin fails loudly if the
+      ;; differentiation regresses.
       (is (contains-any? body ["server polls" "server-side poll" "server-side"
                                "server poll" "polls a cheap runtime read"])
           (str "tool-pair-surfaces.md no longer describes `watch-until` as a "
@@ -343,43 +334,34 @@
                "rf2-985x1t).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock — the operating-frame / registrar guidance teaches the post-EP-0023
-;; PUBLIC model with the realm coordinate REMOVED ENTIRELY: the frame id is
-;; the whole address; there is NO realm dimension, public OR internal,
-;; anywhere in the wire/resolution shape.
+;; Lock — the operating-frame / registrar guidance teaches the PUBLIC model
+;; where the frame id is the whole address: there is NO realm dimension,
+;; public OR internal, anywhere in the wire/resolution shape.
 ;;
-;; History of this lock block:
-;;   * rf2-wpwckr pinned the EP-0013 disposition-3 realm-aware PUBLIC model
-;;     (the `rf/realm-ids` / `rf/frame-realm` facade pair + a public `:realm`
-;;     pin). SUPERSEDED.
-;;   * The EP-0023 intermediate disposition demoted the realm to
-;;     LABELED-INTERNAL installation substrate (read from `re-frame.realm` /
-;;     `re-frame.frame`), with the inspect envelope still carrying `:realms` /
-;;     `:operating-realm` / `:selected-realm` (always nil) slots. SUPERSEDED.
-;;   * rf2-udl74a (PR #4811) ATOMICALLY REMOVED the `re-frame.realm` /
-;;     `re-frame.app-value` / `re-frame.migration` substrate. There is now NO
-;;     realm coordinate at all — public or internal. The operating-frame wire
-;;     envelope is FRAME-ONLY: `:frames` / `:app-frames` / `:selected` /
-;;     `:operating`, with the `:realms` / `:operating-realm` / `:selected-realm`
-;;     / `:frame-realms` slots GONE (pinned at the wire layer by
-;;     tools/mcp-conformance/.../operating_frame_address_test.clj
-;;     §no-realm-slots-on-the-envelope; the runtime emitter is the pair preload
-;;     `frames-list`).
+;; The operating-frame wire envelope is FRAME-ONLY: `:frames` / `:app-frames`
+;; / `:selected` / `:operating`. It carries no `:realms` / `:operating-realm`
+;; / `:selected-realm` / `:frame-realms` slots, and there is no `re-frame.realm`
+;; substrate, no `rf/realm-ids` / `rf/frame-realm` facade, and no public
+;; `:realm` pin. The frame-only envelope is pinned at the wire layer by
+;; tools/mcp-conformance/.../operating_frame_address_test.clj
+;; §no-realm-slots-on-the-envelope; the runtime emitter is the pair preload
+;; `frames-list`.
 ;;
-;; These pins now (a) FAIL LOUDLY if the leaf re-introduces ANY realm coordinate
-;; as a LIVE surface — the removed facade pair, a public `:realm` pin, a
-;; labeled-internal substrate read, or a realm slot on the inspect envelope —
-;; and (b) keep the correct frame-only public model + the realm-removed history
-;; pinned. Mirrors the frame-only collapse in the re-frame2-pair / re-frame2-xray
-;; skill wording and the wire-vocab conformance gate.
+;; These pins FAIL LOUDLY if the leaf introduces ANY realm coordinate as a
+;; LIVE surface — a facade pair, a public `:realm` pin, a labeled-internal
+;; substrate read, or a realm slot on the inspect envelope — and keep the
+;; frame-only public model pinned. Mirrors the frame-only model in the
+;; re-frame2-pair / re-frame2-xray skill wording and the wire-vocab
+;; conformance gate.
 ;; ---------------------------------------------------------------------------
 
 (deftest realm-vocab-only-as-removed-history-never-live
   (testing "any realm mention is framed as REMOVED, never as a live facade/substrate surface (rf2-udl74a)"
     (let [body @surfaces-md
-          ;; If the leaf names the removed facade exports / internal namespaces
-          ;; at all, they MUST appear inside an explicit removed/gone framing,
-          ;; never as a live surface. rf2-udl74a deleted the whole substrate.
+          ;; If the leaf names the (absent) facade exports / internal
+          ;; namespaces at all, they MUST appear inside an explicit
+          ;; removed/gone framing, never as a live surface — there is no
+          ;; realm substrate.
           names-realm-symbol? (or (str/includes? body "realm-ids")
                                   (str/includes? body "frame-realm")
                                   (str/includes? body "re-frame.realm")
@@ -395,8 +377,7 @@
                  "+ the `rf/realm-ids` / `rf/frame-realm` facade exports "
                  "atomically — there is no realm coordinate, public or "
                  "internal. Any realm mention is retired-history only.")))
-      ;; The EP-0023-intermediate labeled-internal substrate framing is ALSO
-      ;; stale now (the substrate it described was deleted). The leaf must NOT
+      ;; There is no labeled-internal realm substrate. The leaf must NOT
       ;; teach the realm as a LIVE labeled-internal surface a tool reads.
       (is (not (contains-any? body ["survives only as **labeled-internal"
                                     "retained only as the labeled-internal"
@@ -466,14 +447,13 @@
                "frame id, so the arg is required (no implicit/realm target).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock — the four partition-aware state-injection mutators (rf2-7g9htq.2)
+;; Lock — the four partition-aware state-injection mutators
 ;;
-;; The leaf used to name only `replace-app-db!` / `reset-app-db!` (the
-;; app-db-only halves), under-teaching the post-EP-0001 partition-aware
-;; write API. spec/Tool-Pair.md §Pair-tool writes defines FOUR mutators;
-;; a skill that omits the runtime-db / full-frame siblings can describe
-;; arbitrary repro / story state injection as app-db-only and miss the
-;; full-frame install (`replace-frame-state!`) for machine snapshots /
+;; spec/Tool-Pair.md §Pair-tool writes defines FOUR partition-aware
+;; mutators, not just the app-db-only `replace-app-db!` / `reset-app-db!`
+;; halves. A skill that omits the runtime-db / full-frame siblings can
+;; describe arbitrary repro / story state injection as app-db-only and miss
+;; the full-frame install (`replace-frame-state!`) for machine snapshots /
 ;; routes / elision / SSR metadata. These pins fail loudly if the leaf
 ;; mentions `replace-app-db!` but drops either partition-aware sibling.
 ;; ---------------------------------------------------------------------------
@@ -501,10 +481,10 @@
                "story/repro tool relies on (rf2-7g9htq.2).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock — restore-epoch is whole-frame-state, not app-db-only (rf2-7g9htq /
-;; rf2-7a1mkv). The leaf must teach that restore reinstalls BOTH partitions
-;; via replace-frame-state!, so a consuming skill doesn't describe machine
-;; snapshots / routes / elision as surviving time-travel.
+;; Lock — restore-epoch is whole-frame-state, not app-db-only. The leaf must
+;; teach that restore reinstalls BOTH partitions via replace-frame-state!, so
+;; a consuming skill doesn't describe machine snapshots / routes / elision as
+;; surviving time-travel.
 ;; ---------------------------------------------------------------------------
 
 (deftest restore-epoch-named-as-frame-state-both-partitions
@@ -521,17 +501,17 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — the privacy-relevant read catalogue covers the STREAMING reads +
-;; the signal recorder, not just the one-shot direct-read set (rf2-7g9htq.3).
+;; the signal recorder, not just the one-shot direct-read set.
 ;;
-;; The earlier leaf scoped the fail-closed egress map to the one-shot set
-;; (snapshot / get-path / read-sub / list-subscriptions / dispatch-dry-run)
-;; and omitted the streaming reads (subscribe / trace-window / watch-epochs)
-;; and the signal recorder — all of which are privacy-bearing off-box reads
-;; under the SAME default-off gate. A consuming skill using this leaf as the
-;; privacy map could treat streaming epoch reads and recordings as outside
-;; the boundary. These pins keep the broader catalogue + its emission sites
-;; (elide-wire-value for direct values / recorded samples; projected-record
-;; for epoch records) visible at the leaf.
+;; The fail-closed egress map covers the one-shot set (snapshot / get-path /
+;; read-sub / list-subscriptions / dispatch-dry-run) AND the streaming reads
+;; (subscribe / trace-window / watch-epochs) AND the signal recorder — all
+;; privacy-bearing off-box reads under the SAME default-off gate. Scoping the
+;; map to the one-shot set alone would let a consuming skill treat streaming
+;; epoch reads and recordings as outside the boundary. These pins keep the
+;; broader catalogue + its emission sites (elide-wire-value for direct values
+;; / recorded samples; projected-record for epoch records) visible at the
+;; leaf.
 ;; ---------------------------------------------------------------------------
 
 (deftest streaming-reads-named-as-gated-egress
@@ -568,18 +548,18 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — the linked authoritative direct-read privacy specs describe the
-;; runtime-db elision registry, NOT the retired app-db one (rf2-kvpr74)
+;; runtime-db elision registry, NOT the app-db one
 ;;
 ;; `tool-pair-surfaces.md` points agents at spec/Tool-Pair.md §Direct-read
 ;; privacy and spec/Security.md §Direct-read privacy as the "Full contract".
-;; Per EP-0001 the elision declaration registry is durable runtime-db state
-;; at `[:rf.runtime/elision …]` (implementation/core/src/re_frame/elision.cljc),
-;; NOT the retired app-db `[:rf/runtime :elision …]` root. A spec that still
-;; teaches the app-db path in CURRENT TENSE produces false-green direct-read
-;; privacy checks (a walker reading a dead registry emits raw values). This
-;; guard fails on a CURRENT-TENSE `[:rf/runtime :elision …]` reference in
-;; either linked spec or the shared leaf, allowing only explicit retired-
-;; history mentions (a line that names the path as retired / no-longer-used).
+;; The elision declaration registry is durable runtime-db state at
+;; `[:rf.runtime/elision …]` (implementation/core/src/re_frame/elision.cljc),
+;; NOT the app-db `[:rf/runtime :elision …]` root. A spec that teaches the
+;; app-db path in CURRENT TENSE produces false-green direct-read privacy
+;; checks (a walker reading a dead registry emits raw values). This guard
+;; fails on a CURRENT-TENSE `[:rf/runtime :elision …]` reference in either
+;; linked spec or the shared leaf, allowing only explicit retired-history
+;; mentions (a line that names the path as retired / no-longer-used).
 ;; ---------------------------------------------------------------------------
 
 (defn- retired-framing?
@@ -636,21 +616,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — the leaf carries an AVAILABILITY-TIER model, not a flat names-only
-;; catalogue (rf2-1inyqr)
+;; catalogue
 ;;
-;; The skills/shared best-practice review (rf2-1inyqr finding 1) found the
-;; leaf taught a flat `## The surfaces` catalogue with no capability /
-;; availability annotation — so a consuming skill could name the right
-;; Tool-Pair family while teaching the WRONG operational model: treating an
-;; absent epoch artefact like a broken pair tool, assuming `sub-cache` is
-;; portable to JVM/SSR, expecting `data-rf-view` in a production build, or
-;; abandoning usable production probes because the flat list hid which
-;; surfaces still answer. The authoritative tiers live in spec/Tool-Pair.md
-;; (dev-gate via `interop/debug-enabled?`, the `day8/re-frame2-epoch`
-;; artefact home + absent-artefact split, the CLJS-only `sub-cache` note,
-;; the 006 `data-rf-view` production-elision gate). These pins fail loudly
-;; if the leaf regresses to a names-only catalogue that drops the tier
-;; qualifiers.
+;; The leaf MUST annotate each surface with its capability / availability
+;; tier, not teach a flat `## The surfaces` catalogue. A names-only list
+;; lets a consuming skill name the right Tool-Pair family while teaching the
+;; WRONG operational model: treating an absent epoch artefact like a broken
+;; pair tool, assuming `sub-cache` is portable to JVM/SSR, expecting
+;; `data-rf-view` in a production build, or abandoning usable production
+;; probes because a flat list hides which surfaces still answer. The
+;; authoritative tiers live in spec/Tool-Pair.md (dev-gate via
+;; `interop/debug-enabled?`, the `day8/re-frame2-epoch` artefact home +
+;; absent-artefact split, the CLJS-only `sub-cache` note, the 006
+;; `data-rf-view` production-elision gate). These pins fail loudly if the
+;; leaf regresses to a names-only catalogue that drops the tier qualifiers.
 ;; ---------------------------------------------------------------------------
 
 (deftest availability-tiers-section-present
@@ -698,7 +677,7 @@
       ;; data-rf-view is already pinned by view-plane-reads-enumerated; here
       ;; we pin the AVAILABILITY claim — that it rides the production-elision
       ;; gate, so a production-attached session must not expect the view↔DOM
-      ;; map to be populated (rf2-1inyqr).
+      ;; map to be populated.
       (is (contains-any? body ["data-rf-view` not stamped"
                                "data-rf-view / data-rf2-source-coord"
                                "data-rf2-source-coord` / `data-rf-view`"
