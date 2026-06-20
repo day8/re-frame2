@@ -1189,7 +1189,7 @@ The frame affordances are organised by **what you are trying to do**, not by mec
 - **Own** — create + destroy a frame lifetime: `make-frame` + `destroy-frame!` (explicit), `with-new-frame` (create + bind + destroy on block exit), and `frame-provider` (the UI-owned boundary — create-on-mount, provide the id to descendants, destroy-on-unmount, idempotent re-mount).
 - **Hold (carry a frame's ops as a value, across async):** `frame-handle` (the public carry primitive). The robust carrier — the **primary** model for async and tooling. (`frame-bound-fn` / `frame-bound-fn*` are retiered to internal namespaces under EP-0024 where `frame-handle` expresses the real use cases — see [§frame-bound-fn](#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference).)
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
-- **Reads:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `frame-id` (value → id accessor), `snapshot-of`, `frame-ids`, `frame-meta`.
+- **Reads:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `frame-value->id` (value → id accessor), `snapshot-of`, `frame-ids`, `frame-meta`.
 
 **`scope` vs `own` vs `carry` are three separate jobs (EP-0024), one spelling each:**
 
