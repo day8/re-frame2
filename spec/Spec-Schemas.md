@@ -102,11 +102,8 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); the `:rf/dispatch-origin` axis was collapsed into `:source`. Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:on-create`), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site), `:other` (escape hatch)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
-   [:rf.realm/id           {:optional true} :keyword]                      ;; EP-0013 step 4 — the OWNING realm, carried BESIDE :frame (never a realm-qualified frame tuple). STAMPED only for a NON-default realm; ABSENT means the default realm (the documented absence-is-default rule), so the single-realm envelope is byte-identical. The runtime routes the cascade's event/sub/fx/cofx resolution through this realm's registrar.
    [:rf.cofx               {:optional true} #'Cofx]])                      ;; EP-0017 recordable coeffects — runtime-guaranteed to carry `:rf/time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.cofx` below + [002 §Recordable coeffects])
 ```
-
-> **`:rf.realm/id` carries the owning realm beside the frame (EP-0013 step 4).** The realm-routed resolution path is live: the runtime resolves a frame's event / subscription / fx / cofx handlers from the owning frame's realm registrar. The realm is **carried** — an explicit `:realm` dispatch opt, the realm the carried frame belongs to, or inherited by a child dispatch — never an ambient default (the EP-0002 carried invariant; no `with-realm`). Stamped **only for a non-default realm**; absence is the default realm. The stamp rides **beside** `:rf.frame/id` (never a realm-qualified frame tuple), so it never breaks any shipped `:rf.frame/id` carrier (EP-0010 replay records, EP-0011 reply maps, EP-0016 continuation payloads). See [002 §Frames reference realms](002-Frames.md#frames-reference-realms).
 
 > **`:rf.world/inputs` is renamed to `:rf.cofx` (EP-0017).** The EP-0010 envelope field `:rf.world/inputs` is **retired** — renamed to the flat `:rf.cofx` map, no alias, no coexistence window (EP-0007 rule 2). Supplying `:rf.world/inputs` in dispatch opts is a hard error `:rf.error/world-inputs-renamed` naming `:rf.cofx`. See [002 §Recordable coeffects](002-Frames.md#recordable-coeffects).
 
@@ -130,11 +127,10 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]]
    [:origin                {:optional true} :keyword]                       ;; actor identity tag — defaults to :app when omitted
-   [:realm                 {:optional true} [:or :keyword :map]]            ;; EP-0013 step 4 — the OWNING realm (a realm-id keyword or the realm map). Absent → the realm the carried frame belongs to, else the default realm (absence-is-default). The runtime normalizes it to the envelope's `:rf.realm/id` (stamped only when non-default) and resolves the cascade's handlers through that realm's registrar.
    [:rf.cofx               {:optional true} #'Cofx]])                       ;; EP-0017 recordable coeffects — caller-supplied for replay/tests/SSR; runtime stamps `:rf/time-ms` when omitted
 ```
 
-The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event} opts)` with `:frame` resolved per the EP-0002 carried invariant, `:rf.realm/id` resolved from the `:realm` opt (or the carried scope), and `:rf.cofx` ensured to carry `:rf/time-ms`. The runtime asserts `:event` and `:frame` are present after the merge.
+The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event} opts)` with `:frame` resolved per the EP-0002 carried invariant and `:rf.cofx` ensured to carry `:rf/time-ms`. The runtime asserts `:event` and `:frame` are present after the merge.
 
 <a id="rfworldinputs"></a>
 
@@ -2897,9 +2893,7 @@ The normalized **algebra view** every declared fact / process lowers to — the 
   ;; the :parametric marker (static graph for a parametric source form, never
   ;; speculatively executed — the don't-execute rule). Function values
   ;; (:derive, :input-producer) are opaque tokens — symbol / source-coord /
-  ;; registry meta — never serialized executables. The :realm/id / :app/id /
-  ;; :module/id fields are RESERVED for the EP-0013 relocation (issue-6
-  ;; disposition) and are NEVER required in slice-1.
+  ;; registry meta — never serialized executables.
   [:map
    [:id           :any]
    [:kind         DerivationKind]
@@ -2920,11 +2914,7 @@ The normalized **algebra view** every declared fact / process lowers to — the 
    [:scope-resolver {:optional true} :any]    ;; named-resolver enrichment (id + declared inputs), EP-0014 issue-3
    [:schema       {:optional true} :any]
    [:source       {:optional true} :rf/source-coord-meta]
-   [:step-delta   {:optional true} :any]      ;; opaque fn token — reserved; the delta LAW is semantic-only in slice-1
-   ;; Reserved for the EP-0013 relocation — never required in slice-1:
-   [:realm/id     {:optional true} :any]
-   [:app/id       {:optional true} :any]
-   [:module/id    {:optional true} :any]])
+   [:step-delta   {:optional true} :any]])    ;; opaque fn token — reserved; the delta LAW is semantic-only in slice-1
 
 (def DerivationEdge
   ;; One explicit dependency edge in the graph view. :role names why the edge
@@ -3649,56 +3639,21 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
 
 > **Layer:** Runtime
 > **Owner:** [Runtime-Subsystems §Runtime realms](Runtime-Subsystems.md#runtime-realms--the-container)
-> **Status:** post-v1 (EP-0013 — built through stage 9; **the `realm` / `install!` / `reinstall!` / `dispose-realm!` constructors + map-shaped realm queries are retained-internal substrate, removed from the public `re-frame.core` facade by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)** — the public composition surface is the image/frame model)
+> **Status:** **REMOVED.** The EP-0013 realm / app-value / install substrate was retired (no public facade under [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md), then deleted in full by [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)). The public composition model is `image → frame → event stream`.
 
-The internal installation-container record ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md), accepted 2026-06-11; graduated final 2026-06-12; **retained-internal under EP-0023**). A realm (installation container) owns the **non-durable operational layer** an app runs in — the registrar it dispatches against, the installed adapter selection, the capability map, the frame registry, and the host-transient subsystem state — distinct from the *durable* `:rf.runtime/*` subsystems which live inside the frames the container owns ([`:rf/runtime-db`](#rfframe-state-the-two-partition-projection-and-rfruntime-db-the-runtime-partition)). As of EP-0013 **stage 9** the container has a constructor — `re-frame.realm/construct-realm` (the name is reserved vocabulary, ruled `realm` and never `runtime`, EP-0013 issue 1) — that stands up a hermetic, registered container to seat an app value into and target the container-scoped queries against; `dispose-realm!` is its teardown counterpart (it tears down the container's adapter + host-transient state, then drops it from the registry — the default container is never disposed). The **container-targeted registrar query** (D1 stage 8) — the map-shaped `(registrations {:realm r :kind k})` / `(handler-meta {:realm r :kind k :id id})` forms that read only the specified container's registrar (issue 11) — exists alongside. **All of these are internal substrate, not public-facade exports** (EP-0023 §Surface dispositions): a tool that needs them requires the internal `re-frame.realm` namespace directly. The process creates one **default container** (`:rf.realm/id` = `:rf.realm/default`) that backs existing `reg-*` / adapter-install / registrar-query call shapes; absence of an explicit container means the default, an explicit documented rule (a single-app process never spells a container — the byte-identical single-container path).
+The EP-0013 *runtime realm* — the internal installation-container record that owned the registrar an app dispatched against, the installed app value, the adapter selection, the capability map, the frame registry, and the host-transient subsystem tables — **no longer exists**. There is no `re-frame.realm` namespace, no `realm` / `install!` / `reinstall!` / `dispose-realm!` constructor, no installed-app slot, and no realm coordinate on any wire record. The reference runtime keys frames by the bare process-local frame-id with no realm dimension, and a frame's event / subscription / fx / cofx handlers resolve directly against the process registrar.
 
-```clojure
-(def Realm
-  ;; Open map; an implementation MAY represent it as a record for host
-  ;; efficiency, but MUST expose this data projection for tooling /
-  ;; conformance (the realm-scoped registrar queries + the installed-app
-  ;; read surface project over it).
-  [:map
-   [:rf.realm/id   :keyword]                                ;; stable, process-unique; the default realm is :rf.realm/default
-   [:adapter       {:optional true} :any]                   ;; the realm's adapter SELECTION (capability) — render roots own concrete instances. CLJS reference: a keyword id (:reagent / :uix / :helix / :plain-atom) or the adapter value
-   [:capabilities  {:optional true} [:map-of :keyword :any]] ;; :rf.capability/* → service map/record (http, clock, random, schemas, routes, ssr, test doubles). Checked by install! against the app's :requires
-   [:frames        {:optional true} [:set :keyword]]        ;; frame ids registered in this realm — unique WITHIN the realm (not globally)
-   [:host-transient {:optional true} [:map-of :keyword #'HostTransientDescriptor]] ;; subsystem-id → descriptor for the realm-owned non-durable side tables
-   ;; --- the installed app value (shipped, stage 7); :lifecycle still D3-reserved ---
-   [:app           {:optional true} :any]                   ;; the installed app VALUE — the immutable descriptor program install!/reinstall! seat at the realm boundary
-   [:lifecycle     {:optional true} [:map [:disposed? {:optional true} :boolean]]]]) ;; D3-RESERVED, never required (dispose-realm! drops the registry entry rather than stamping a slot)
-```
-
-The `:app` slot holds the **installed app value** (registrations as immutable descriptors): `rf/install!` lowers an app value into the realm's registrar and records the seated value here, so `rf/reinstall!` can diff against it and `installed-app` returns it in preference to the recomputable projection. A realm booted purely through the `reg-*` sugar path leaves `:app` absent and projects its program over the registrar instead — the slot is populated only by an explicit `install!`. The `:rf.realm/id` record-shape slot was reserved early; the `:rf.realm/*` + `:rf.capability/*` namespace rows are now reserved in the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) table.
-
-> **The "registrar it dispatches against" clause — realm-routed resolution is live.** "Dispatches against" is the **settled decision**, and the realm-routed resolution path is **shipped** (EP-0013 step 4): a **constructed** realm owns the registrar that event / subscription / fx / cofx resolution routes against, so the runtime resolves a frame's handlers from the **owning frame's realm registrar**. The realm is **carried** beside the frame (`:rf.realm/id` rides beside `:rf.frame/id` on the dispatch envelope — see the `:rf.realm/id` carrier note above), and `install!` binds the realm registrar during seating. Frames key by `(realm, frame-id)` (a bare id for the default realm); the earlier `:frame`-into-non-default-realm refusal (`:rf.error/realm-frames-unsupported`) is **lifted**, so `install!` / `reinstall!` seat `:frame` descriptors into the target realm (see [Runtime-Subsystems §What a realm owns](Runtime-Subsystems.md#what-a-realm-owns) and [EP-0013 §Implementation errata](../docs/EP/EP-0013-app-values-and-runtime-realms.md#implementation-errata)).
+The retired realm/app/module construction model — and its worked schema examples — is documented historically in [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) and its supersession in [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) / [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md). The current composition model — `rf/image` assembly and frame creation + the event stream — is owned by [EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) and [002-Frames](002-Frames.md).
 
 ### `:rf/host-transient-descriptor` (EP-0013)
 
 > **Layer:** Runtime
 > **Owner:** [Runtime-Subsystems §Host-transient subsystem state](Runtime-Subsystems.md#host-transient-subsystem-state)
-> **Status:** post-v1 (EP-0013 D1 — internal record)
+> **Status:** **REMOVED.** The realm-owned host-transient *descriptor inventory* was retired with the realm substrate ([EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)). Host-transient state itself survives, owned per-frame.
 
-The descriptor a realm-owned **host-transient** subsystem table declares ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) D1, issue 13 disposition). Host-transient state is the framework-owned operational state that is *not* durable frame-state — HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles, adapter render roots/disposers. It is owned by the realm (subsystems MAY key entries per-frame), torn down on frame/realm destroy, and **MUST NOT ride the wire**. This is the non-durable sibling of the durable five-clause runtime-subsystem contract ([Runtime-Subsystems](Runtime-Subsystems.md)); the per-subsystem host-transient grading column there records each shipped subsystem's scope / teardown / test-reset.
+The EP-0013 `HostTransientDescriptor` record described the entries in a **realm-owned** host-transient inventory — a registration table the now-removed realm walked on teardown. That inventory mechanism **no longer exists** (no production subsystem ever registered a descriptor; the shipped subsystems tear down via named ordered frame-destroy hooks instead).
 
-```clojure
-(def HostTransientDescriptor
-  [:map
-   [:id             :keyword]                               ;; e.g. :rf.http/in-flight, :rf.route/nav-counters, :rf.machine/timers
-   [:storage-class  [:= :host-transient]]                   ;; the :host-transient member of the four-class storage axis (Derivations)
-   [:scope          [:enum :frame :realm]]                  ;; :frame — entries keyed per-frame; :realm — one realm-scoped table
-   [:durability     [:= :none]]                             ;; never serialized; never rides restore / SSR
-   [:teardown       {:optional true} :any]                  ;; opaque fn token — the destroy-frame! / realm-dispose cleanup hook
-   [:test-reset     {:optional true} :any]                  ;; opaque fn token — the hermetic-test reset hook
-   [:snapshot       {:optional true} :any]                  ;; nil — excluded from snapshots explicitly
-   [:classification {:optional true}
-    [:map
-     [:egress?    {:optional true} :boolean]
-     [:sensitive? {:optional true} :boolean]]]])             ;; EP-0015 registration-owned classification metadata
-```
-
-The function-valued fields (`:teardown`, `:test-reset`) are opaque tokens — symbol / source-coord / registry meta — and are **never serialized**, consistent with the durable-vs-transient split ([002 §Durable vs transient](002-Frames.md#durable-vs-transient)). `:storage-class` is the `:host-transient` member of the four-class storage axis owned by [Derivations](Derivations.md).
+Host-transient *state* is still a first-class storage class: the framework-owned operational state that is **not** durable frame-state — HTTP abort handles, timers, nav counters, scroll caches, flow last-input caches, machine timer handles, adapter render roots/disposers. It is owned per-frame, torn down on frame destroy, and **MUST NOT ride the wire**. Its storage-class membership (`:host-transient`, alongside `:ephemeral` / `:app-db` / `:runtime-db`) is owned by [Derivations §the storage axis](Derivations.md); the per-subsystem teardown/test-reset grading lives in [Runtime-Subsystems](Runtime-Subsystems.md).
 
 ### `:rf/preset-expansion`
 
@@ -3766,7 +3721,6 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
   [:map
    [:epoch-id      :any]                                                    ;; opaque, unique within a frame's history
    [:frame         :keyword]
-   [:rf.realm/id   {:optional true} :keyword]                               ;; EP-0013 step 4 — the OWNING realm the cascade settled in, carried BESIDE :frame (never a realm-qualified frame tuple, so it never breaks any shipped frame-id carrier). STAMPED only for a NON-default realm; ABSENT means the default realm (the documented absence-is-default rule), so the single-realm epoch record is byte-identical. Mirrors the `:rf/dispatch-envelope` `:rf.realm/id` carrier: a multi-realm pair tool routes epoch history by realm off this slot. The qualified `:rf.realm/id` spelling (not a bare projection) is the single canonical spelling of the realm fact across every framework record (envelope / replay / reply / continuation / epoch), per EP-0013 OI-2 — the deliberate carve-out from the bare record-layer vocabulary
    [:committed-at  :any]                                                    ;; timestamp
    [:event-id      :keyword]                                                ;; the event that triggered the cascade
    [:trigger-event [:vector :any]]                                          ;; the full event vector
@@ -3838,8 +3792,6 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
 
 - **Trace-tag layer** — keys under a trace event's `:tags` (per [009 §`:tags` key scheme](009-Instrumentation.md#tags-is-the-open-ended-bag) and [`:rf/trace-event`](#rftrace-event)): every framework identity tag is the **qualified `:rf.*` form** — the epoch id is `:rf.epoch/id`, dispatch correlation is `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id`, the cascade run id is `:rf.trace/event-id` — with the single documented bare carve-out `:frame` for the universal per-event routing key (CI-pinned; see [009 §Canonical per-frame routing key](009-Instrumentation.md#tags-is-the-open-ended-bag) and [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). There is no second frame-trace spelling: `:rf.frame/id` is the deliberately-distinct **coeffect/runtime-context** spelling of the same stamp (EP-0002 R3, per [Conventions §Public-opt vs runtime-context spelling](Conventions.md)), not a trace tag.
 - **Record/projection layer** — the `:rf/epoch-record` fields and the `group-cascades` / cascade-bundle output slots (per [009 §Cascade projection](009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)): a cohesive, deliberately-**bare** vocabulary (`:epoch-id`, `:dispatch-id`, `:event-id`, `:frame`, `:trigger-event`, `:committed-at`, `:db-before` / `:db-after`, `:outcome`, …). Bareness here is the structural signal "this is a projected record slot, not a raw trace tag." The runtime *reads* the qualified trace tags (`:rf.epoch/id`, `:rf.trace/dispatch-id`, `:rf.trace/event-id`) when assembling the record and *projects* them into the bare record slots; consumers reading a record/bundle always use the bare slot, consumers reading raw `:tags` always use the qualified tag. The record-layer `:epoch-id` and `:dispatch-id` are the **same correlation ids** as the trace-tag `:rf.epoch/id` / `:rf.trace/dispatch-id`; `:event-id` is an **explicitly non-identity payload field** — the head keyword of `:trigger-event` (e.g. `:cart/add`), naming *which* event ran, not a correlation handle (the correlation handle is `:dispatch-id`). It therefore legitimately stays bare per the one-name-per-fact rule.
-
-**`:rf.realm/id` — the owning realm, beside the frame (EP-0013 step 4).** The epoch record carries the realm the cascade settled in under `:rf.realm/id`, **beside** the bare `:frame` slot — never a realm-qualified frame tuple, so the slot never breaks any shipped frame-id carrier (per EP-0013 OI-2 disposition; the same wire-shape ruling that governs the [`:rf/dispatch-envelope`](#rfdispatch-envelope) `:rf.realm/id` carrier, the EP-0010 replay records, the EP-0011 reply maps, and the EP-0016 continuation payloads). It is **stamped only for a non-default realm**; **absence means the default realm**, the documented absence-is-default rule — so a single-realm process's epoch records are byte-identical and a multi-realm pair tool routes epoch history by realm off this one slot. It is the **deliberate qualified carve-out** from the bare record-layer vocabulary above: the realm fact has one canonical spelling — the qualified `:rf.realm/id` — across *every* framework record (envelope, replay, reply, continuation, and this epoch record), so it is spelled qualified here rather than projected to a bare slot.
 
 **Structured slots are derived from `:trace-events`.** The `:sub-runs`, `:renders`, and `:effects` slots are pre-computed projections of the underlying `:trace-events` stream, surfacing the per-sub / per-render / per-effect activity of the cascade in a shape pair-shaped tools can route off without re-folding the raw trace each time. The legacy `:trace-events` slot remains the raw underpinning; the structured slots derive from it.
 
