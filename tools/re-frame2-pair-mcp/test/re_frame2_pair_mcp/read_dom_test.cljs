@@ -1,10 +1,10 @@
 (ns re-frame2-pair-mcp.read-dom-test
-  "Unit tests for the read-dom raw-DOM-plane read tool (rf2-nfjil).
+  "Unit tests for the read-dom raw-DOM-plane read tool.
 
   Two layers:
 
     1. Form composition — `read-dom-form` builds the browser-side CLJS
-       source. Since rf2-q0r7e it is a THIN runtime call —
+       source. It is a THIN runtime call —
        `(re-frame2-pair.runtime/dom-read {...})` — composed via the shared
        `eval-form` DSL (the SAME plumbing read-ui uses), not an inlined
        raw eval string. We assert it carries the load-bearing pieces (the
@@ -41,11 +41,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest form-is-thin-runtime-call
-  ;; rf2-q0r7e — read-dom no longer inlines its DOM-read core as a raw
-  ;; eval string; it emits `(re-frame2-pair.runtime/dom-read {...})` via
-  ;; the shared `eval-form` DSL, the SAME plumbing read-ui uses. The
-  ;; per-node projection lives in the runtime's `node->content`, shared
-  ;; with ui-read.
+  ;; read-dom emits `(re-frame2-pair.runtime/dom-read {...})` via the
+  ;; shared `eval-form` DSL, the SAME plumbing read-ui uses, rather than
+  ;; inlining its DOM-read core as a raw eval string. The per-node
+  ;; projection lives in the runtime's `node->content`, shared with
+  ;; ui-read.
   (let [form (#'read-dom/read-dom-form "#app .counter" nil
                                        read-dom/default-limit
                                        read-dom/default-max-text
@@ -70,31 +70,30 @@
           (str "read-dom form must be read-only — found mutator " mutator)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-w2mjm / rf2-q0r7e — the unresolved-symbol-alias guard, now over the
-;; SHARED form (covers BOTH read-dom AND read-ui).
+;; The unresolved-symbol-alias guard, over the SHARED form (covers BOTH
+;; read-dom AND read-ui).
 ;;
-;; The bug it pins: the inlined eval string is sent over nREPL and
+;; The bug-class it pins: an inlined eval string is sent over nREPL and
 ;; evaluated in the BROWSER cljs-eval context, which aliases NOTHING
 ;; beyond cljs.core + JS interop (it is not a namespace that :requires
-;; anything). rf2-5ffuv: the original read-dom form lowered the tag with
-;; `(str/lower-case ...)` — `str` is unresolved there, so the whole form
-;; evaluated to nil (a compile-level miss, NOT a caught error), and EVERY
-;; read-dom call came back :read-dom-blank-result, while read-ui — which
-;; called a runtime fn rather than inlining source — stayed green.
+;; anything). A form that lowered a tag with `(str/lower-case ...)` —
+;; where `str` is unresolved there — would evaluate to nil (a
+;; compile-level miss, NOT a caught error), making EVERY such call come
+;; back :read-dom-blank-result.
 ;;
-;; rf2-w2mjm generalised the guard from a brittle alias BLOCKLIST to a
-;; PARSE-and-prove approach: parse the generated form, assert every PLAIN
-;; symbol resolves to a special form, a `cljs.core` name, a JS-interop
-;; form, a local binding, OR the runtime-ns-qualified call (the runtime
-;; preload provides that ns). Any residual require-only alias fails the
-;; test BY NAME.
+;; The guard is a PARSE-and-prove approach rather than a brittle alias
+;; BLOCKLIST: parse the generated form, assert every PLAIN symbol
+;; resolves to a special form, a `cljs.core` name, a JS-interop form, a
+;; local binding, OR the runtime-ns-qualified call (the runtime preload
+;; provides that ns). Any residual require-only alias fails the test BY
+;; NAME.
 ;;
-;; rf2-q0r7e folded read-dom onto the SAME runtime-call plumbing read-ui
-;; uses, so a SINGLE guard now covers BOTH ops: a fix or a break on the
-;; shared eval-form path cannot diverge between them. The guard runs over
-;; read-dom-form AND read-ui-form variants, and an adversarial case below
-;; proves it FIRES on an alias trap injected into either op's form — so it
-;; cannot silently rot into a no-op.
+;; read-dom and read-ui share the SAME runtime-call plumbing, so a SINGLE
+;; guard covers BOTH ops: a fix or a break on the shared eval-form path
+;; cannot diverge between them. The guard runs over read-dom-form AND
+;; read-ui-form variants, and an adversarial case below proves it FIRES
+;; on an alias trap injected into either op's form — so it cannot
+;; silently rot into a no-op.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private cljs-core+special
@@ -189,7 +188,7 @@
          set)))
 
 (deftest form-carries-no-unresolved-symbol-alias
-  ;; The bug-class guard, over the SHARED form for BOTH ops (rf2-q0r7e).
+  ;; The bug-class guard, over the SHARED form for BOTH ops.
   ;; A residual symbol is the alias trap that nils the form out.
   (doseq [[label form]
           [;; read-dom variants (raw DOM plane).
@@ -212,10 +211,10 @@
                (sort suspects))))))
 
 (deftest guard-fires-on-injected-alias-trap
-  ;; ADVERSARIAL — proves the guard is not a no-op (rf2-q0r7e). We forge
-  ;; the EXACT rf2-w2mjm failure on the SHARED eval-form path: a require-
-  ;; only alias (`str/lower-case`) reaching into either op's emitted form
-  ;; via the `rt-raw` escape hatch (the realistic vector — a hand-built raw
+  ;; ADVERSARIAL — proves the guard is not a no-op. We forge the alias-
+  ;; trap failure on the SHARED eval-form path: a require-only alias
+  ;; (`str/lower-case`) reaching into either op's emitted form via the
+  ;; `rt-raw` escape hatch (the realistic vector — a hand-built raw
   ;; source fragment that reaches for an aliased symbol). The guard MUST
   ;; surface `str/lower-case` (and the bare `sel`) as suspects for both the
   ;; dom-read- and ui-read-shaped injections — if it didn't, the live
@@ -341,13 +340,12 @@
                  (done))))))
 
 (deftest bad-selector-error-forwarded
-  ;; rf2-q7cavs — a genuine `:ok? false` runtime failure envelope (a
-  ;; thrown malformed-selector) MUST ride as `:isError true`, per
+  ;; A genuine `:ok? false` runtime failure envelope (a thrown
+  ;; malformed-selector) MUST ride as `:isError true`, per
   ;; spec/003-Tool-Catalogue.md §381 ("every `:ok? false` is
-  ;; `isError:true`"). Before the fix, `map-result-or-blank` routed ANY
-  ;; map through `ok-text`, so this failure shipped `isError:false` —
-  ;; violating the contract AND making the transient failure
-  ;; cache-eligible (could mask a later success).
+  ;; `isError:true`"). Routing any map through `ok-text` would ship
+  ;; `isError:false` — violating the contract AND making the transient
+  ;; failure cache-eligible (could mask a later success).
   (async done
     (let [canned {:ok? false :reason :rf.error/read-dom-bad-selector
                   :selector "###" :message "bad selector"}]
@@ -365,22 +363,21 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-r5erl — a BLANK eval result must NOT crash the MCP envelope.
+;; A BLANK eval result must NOT crash the MCP envelope.
 ;;
 ;; `cljs-eval-value` resolves to `nil` when shadow returns a blank value
-;; (the runtime didn't answer the eval). The original read-dom threaded
-;; that nil straight into `(wire/ok-text nil)`, whose `(clj->js nil)`
-;; structuredContent is JS `null` — and the SDK's outputSchema validation
-;; rejects a null structuredContent at the TRANSPORT layer
-;; (`expected record at structuredContent, received null`), bypassing the
-;; normal `{:ok? false}` error contract. read-dom now turns a blank
-;; result into a structured error; the envelope's structuredContent is a
-;; non-null record either way.
+;; (the runtime didn't answer the eval). Threading that nil straight into
+;; `(wire/ok-text nil)`, whose `(clj->js nil)` structuredContent is JS
+;; `null`, would have the SDK's outputSchema validation reject a null
+;; structuredContent at the TRANSPORT layer (`expected record at
+;; structuredContent, received null`), bypassing the normal `{:ok? false}`
+;; error contract. read-dom turns a blank result into a structured error;
+;; the envelope's structuredContent is a non-null record either way.
 ;; ---------------------------------------------------------------------------
 
 (deftest blank-eval-result-becomes-structured-error-not-host-failure
   (async done
-    ;; nil canned value = the blank shadow eval that triggered rf2-r5erl.
+    ;; nil canned value = a blank shadow eval.
     (-> (tu/with-stubbed-eval! nil
           (fn []
             (read-dom/read-dom-tool (fresh-conn) #js {:selector "body" :limit 1})))
@@ -392,8 +389,8 @@
                    (is (= :rf.error/read-dom-blank-result (:reason edn))
                        "structured reason, not a transport exception")
                    (is (= "body" (:selector edn)) "echoes the selector"))
-                 ;; The load-bearing rf2-r5erl assertion: structuredContent
-                 ;; is a NON-NULL record so the SDK outputSchema check passes.
+                 ;; The load-bearing assertion: structuredContent is a
+                 ;; NON-NULL record so the SDK outputSchema check passes.
                  (is (some? (j/get r :structuredContent))
                      "structuredContent must NOT be null (the rf2-r5erl crash)")
                  (is (object? (j/get r :structuredContent))
@@ -401,8 +398,8 @@
                  (done))))))
 
 (deftest happy-result-echoes-canonical-build
-  ;; rf2-8t3ct / rf2-fmho5 — a successful read-dom echoes the canonical
-  ;; resolved :build so the agent sees (and can round-trip) the target.
+  ;; A successful read-dom echoes the canonical resolved :build so the
+  ;; agent sees (and can round-trip) the target.
   (async done
     (let [canned {:ok? true :selector "body" :count 0 :truncated? false :nodes []}]
       (-> (tu/with-stubbed-eval! canned

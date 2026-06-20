@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions
-  "Tool: get-re-frame2-pair-instructions (rf2-fnpqg) — agent-onboarding text.
+  "Tool: get-re-frame2-pair-instructions — agent-onboarding text.
 
   Mirrors story-mcp's `get-story-instructions`. Returns an inline
   prose summary of re-frame2-pair-mcp's tool catalogue + the conventions an
@@ -11,17 +11,15 @@
   is self-contained — no resource read at boot, one MCP frame, zero
   socket bytes. The structural peer in story-mcp
   (`story-instructions-text` in `re-frame.story-mcp.tools.dev`) uses
-  the same inline-`(str ...)` shape, kept aligned per rf2-93cew so AI
-  pairs reading both servers see one answer to the onboarding-text
-  question."
+  the same inline-`(str ...)` shape, kept aligned so AI pairs reading
+  both servers see one answer to the onboarding-text question."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def instructions-text
   "Inline onboarding prose. Inline `(str ...)` of `\\n`-glued lines —
-  see the ns docstring for the rationale (mirrors story-mcp per
-  rf2-93cew). Edit this string when the catalogue changes; the
-  docstring on `re-frame2-pair-mcp.tools/tool-descriptors` is the
-  structural peer."
+  see the ns docstring for the rationale (mirrors story-mcp). Edit
+  this string when the catalogue changes; the docstring on
+  `re-frame2-pair-mcp.tools/tool-descriptors` is the structural peer."
   (str
     "re-frame2-pair-mcp agent quick reference.\n"
     "Full spec: tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md.\n"

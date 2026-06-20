@@ -1,33 +1,31 @@
 (ns re-frame2-pair-mcp.test-utils
-  "Shared test helpers (rf2-ambfv, rf2-wnrpi).
+  "Shared test helpers.
 
   Home for fns that only the test corpus uses but that conceptually
   sit alongside the production code.
 
-  ## Wire-envelope extractors (rf2-wnrpi)
+  ## Wire-envelope extractors
 
   The MCP tools return a `#js {:content #js [#js {:text \"...edn...\"}]}`
   envelope (with an optional `:isError true`). Four trivial extractors
-  used to walk that shape were copy-pasted privately across at least
-  five suites (`conformance_test`, `handler_meta_test`, `invoke_test`,
-  `cache_test`, `dispatch_test`). They are hoisted here so a wire-shape
-  change touches one definition rather than five drifting copies:
+  walk that shape, shared across the suites that need them
+  (`conformance_test`, `handler_meta_test`, `invoke_test`,
+  `cache_test`, `dispatch_test`) so a wire-shape change touches one
+  definition rather than several drifting copies:
 
     - `args->js`     — CLJS arg map → the `#js {}` object tools read.
     - `extract-text` — pull the first content item's `:text` string.
     - `extract-edn`  — `extract-text` then `edn/read-string`.
     - `error?`       — truthy `:isError` slot.
 
-  ## Stub installer (rf2-wnrpi)
+  ## Stub installer
 
   `with-stubbed-eval!` installs a Promise-returning stub over
   `nrepl/cljs-eval-value` and restores it in `.finally` so cleanup
-  outlives async resolution. Two suites (`probe_test`, `dispatch_test`)
-  hand-rolled near-identical copies; the corpus driver in
-  `conformance_test` keeps its own richer `eval-script`/`forms-seen`
-  variant (different contract), and `invoke_test` keeps its
-  fixture-scoped restore (rf2-wb06a race) deliberately — neither is
-  collapsed here.
+  outlives async resolution. The corpus driver in `conformance_test`
+  keeps its own richer `eval-script`/`forms-seen` variant (different
+  contract), and `invoke_test` keeps its fixture-scoped restore (race
+  avoidance) deliberately — neither is collapsed here.
 
   ## `dedup-expand`
 
@@ -37,13 +35,12 @@
   `de-dupe.core/expand`; the MCP server never calls the inverse, so the
   helper lives here, signalling \"test-only\" by location.
 
-  ## Test-only base re-exports (rf2-ttspi7)
+  ## Test-only base re-exports
 
   `token-estimate`, `overflow-hint-fallback`, and `truncate-preview`
-  used to be re-exported from the production `tools.cap` /
-  `tools.result-envelope` namespaces SOLELY so the test corpus could
-  reach them — production code calls `base-overflow` / `base-cap`
-  directly and never used the local aliases. Hosting them here (the
+  are test-only handles on the cross-MCP token rule, the
+  overflow-fallback hint, and the preview cap. Production code calls
+  `base-overflow` / `base-cap` directly; hosting these here (the
   test-only home) keeps the production surface lean while still pinning
   the cross-MCP token rule + overflow-fallback contract + preview cap in
   one shared test-side place."
@@ -90,18 +87,17 @@
 ;; ---------------------------------------------------------------------------
 ;; Stub installer — async-safe `cljs-eval-value` override.
 ;;
-;; ## Identity-guarded restore (rf2-j4d5ty)
+;; ## Identity-guarded restore
 ;;
 ;; `nrepl/cljs-eval-value` is a single shared-mutable global. Every stub
 ;; installer across the corpus mutates its root via `set!`. A `.finally`-
 ;; scoped restore resolves on a microtask that can land AFTER cljs.test's
 ;; `done` has advanced to a NEIGHBOURING namespace's test — which has
 ;; ALREADY installed ITS own stub. An unconditional `(set! global orig)`
-;; then clobbers that fresh stub back to a stale fn mid-eval, and the
-;; victim test reaches the real socket (`cached port file disappeared` /
-;; `re-find must match against a string`). The race is order-dependent,
-;; so it migrates with test ordering (rf2-wb06a's fixture-boundary fix
-;; narrowed but did not close it for the `.finally`-restore suites).
+;; would then clobber that fresh stub back to a stale fn mid-eval, and the
+;; victim test would reach the real socket (`cached port file disappeared`
+;; / `re-find must match against a string`). The race is order-dependent,
+;; so it migrates with test ordering.
 ;;
 ;; `restore-eval!` makes every restore IDENTITY-GUARDED: it restores
 ;; `orig` ONLY when the global is still the exact `stub` this installer
@@ -115,7 +111,7 @@
   ONLY when the current global is still `stub` (the fn this installer
   set). A late restore whose stub has already been superseded by a
   neighbouring test becomes a no-op, so it can never clobber a fresh
-  stub (rf2-j4d5ty)."
+  stub."
   [stub orig]
   (when (identical? nrepl/cljs-eval-value stub)
     (set! nrepl/cljs-eval-value orig)))
@@ -124,21 +120,21 @@
   "Identity-guarded restore of `nrepl/jvm-eval` — the `jvm-eval` twin of
   `restore-eval!`. Same shared-mutable-global hazard, same guard: a late
   `.finally` only restores when the global is still this installer's
-  `stub` (rf2-j4d5ty)."
+  `stub`."
   [stub orig]
   (when (identical? nrepl/jvm-eval stub)
     (set! nrepl/jvm-eval orig)))
 
 (defn restore-cljs-eval!
   "Identity-guarded restore of `nrepl/cljs-eval` — the lower-level
-  `cljs-eval` twin of `restore-eval!`. Same hazard + guard (rf2-j4d5ty)."
+  `cljs-eval` twin of `restore-eval!`. Same hazard + guard."
   [stub orig]
   (when (identical? nrepl/cljs-eval stub)
     (set! nrepl/cljs-eval orig)))
 
 (defn restore-freshness!
   "Identity-guarded restore of `freshness/jvm-build-freshness`. Same
-  hazard + guard as `restore-eval!` (rf2-j4d5ty)."
+  hazard + guard as `restore-eval!`."
   [stub orig]
   (when (identical? freshness/jvm-build-freshness stub)
     (set! freshness/jvm-build-freshness orig)))
@@ -149,7 +145,7 @@
   returns a Promise) and restore the original in `.finally` so cleanup
   outlives async resolution.
 
-  Restore is identity-guarded (rf2-j4d5ty): a late `.finally` cannot
+  Restore is identity-guarded: a late `.finally` cannot
   clobber a neighbouring test's freshly-installed stub.
 
   This is the simple, value-returning variant used by suites that don't
@@ -169,8 +165,8 @@
 
 (defn with-stubbed-freshness!
   "Stub `freshness/jvm-build-freshness` to resolve to `jvm-half` (a map
-  or nil) for the duration of `body-fn`, restoring in `.finally`
-  (rf2-ertqw). `discover-app` now assembles a freshness token, which
+  or nil) for the duration of `body-fn`, restoring in `.finally`.
+  `discover-app` assembles a freshness token, which
   reads the JVM-side shadow worker state via `jvm-eval`; in a unit test
   with no live nREPL that probe would attempt a real socket. Stub it so
   discover-app tests stay hermetic and deterministic.
@@ -201,32 +197,32 @@
     v))
 
 ;; ---------------------------------------------------------------------------
-;; Test-only base re-exports (rf2-ttspi7).
+;; Test-only base re-exports.
 ;;
 ;; Production code calls `base-overflow` / `base-cap` directly; these
-;; aliases existed only so the test corpus could reach the cross-MCP
-;; token rule, the overflow-fallback hint, and the preview cap. Hosting
-;; them here keeps the production namespaces lean.
+;; aliases let the test corpus reach the cross-MCP token rule, the
+;; overflow-fallback hint, and the preview cap. Hosting them here keeps
+;; the production namespaces lean.
 ;; ---------------------------------------------------------------------------
 
 (defn token-estimate
   "Delegates to `re-frame.mcp-base.overflow/token-estimate` — the
-  cross-MCP `(quot (count s) 4)` token approximation. Test-only home for
-  what `tools.cap` used to re-export (rf2-ttspi7)."
+  cross-MCP `(quot (count s) 4)` token approximation. Test-only handle
+  on the cross-MCP token rule."
   [s]
   (base-overflow/token-estimate s))
 
 (def overflow-hint-fallback
   "The cross-MCP overflow-marker fallback hint string, sourced from
-  `re-frame.mcp-base.overflow/overflow-hint-fallback`. Test-only home for
-  what `tools.cap` used to re-export (rf2-ttspi7)."
+  `re-frame.mcp-base.overflow/overflow-hint-fallback`. Test-only handle
+  on the overflow-fallback contract."
   base-overflow/overflow-hint-fallback)
 
 (defn truncate-preview
   "Truncate `text` to `result-envelope/preview-cap` chars with a
   char-count suffix — the same shape the runtime wrap emits. Test-only
-  home for what `tools.result-envelope` used to re-export (rf2-ttspi7);
-  pins the preview contract against the single-sourced production cap."
+  handle on the preview contract, pinned against the single-sourced
+  production cap."
   [text]
   (let [n (count text)]
     (if (> n renv/preview-cap)

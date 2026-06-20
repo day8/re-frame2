@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.resource-controls-test
-  "Unit tests for session-wide resource controls on streaming surfaces
-  (rf2-3ijbl). Pins each gate's contract:
+  "Unit tests for session-wide resource controls on streaming surfaces.
+  Pins each gate's contract:
 
     1. Concurrent-stream cap — acquire/release accounting, rejection
        shape, idempotent release floor.
@@ -33,8 +33,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest default-values-match-documented-shape
-  ;; The bead (rf2-3ijbl) names these four defaults. Each is exposed
-  ;; via `default-value` so the test isn't reaching into a private.
+  ;; These four defaults are exposed via `default-value` so the test
+  ;; isn't reaching into a private.
   (is (= 10    (resource/default-value :max-concurrent-streams))
       "10 streams: generous for normal use, tight enough to cap loops")
   (is (= 100   (resource/default-value :max-events-per-sec))
@@ -220,7 +220,7 @@
 
 (deftest parse-resource-flags-ignores-unknown
   ;; Future flags MUST not break older invocations. Symmetric with
-  ;; `parse-launch-flags` in server.cljs (rf2-c2dtu pattern).
+  ;; `parse-launch-flags` in server.cljs.
   (let [cfg (resource/parse-resource-flags
               ["--unknown-flag=foo"
                "--max-concurrent-streams=5"
@@ -263,11 +263,10 @@
     (is (empty? (resource/read-resource-env env-obj)))))
 
 (deftest apply-resource-config-flags-win-over-env-on-conflict
-  ;; Precedence contract (rf2-ee38b.18 — was the merge-config passthrough
-  ;; test): a CLI flag on the command line is the more deliberate choice
-  ;; than an inherited env var. Asserted end-to-end through
-  ;; `apply-resource-config!` + `current-config` rather than a named
-  ;; `merge` wrapper — the precedence IS `merge`'s rightmost-wins
+  ;; Precedence contract: a CLI flag on the command line is the more
+  ;; deliberate choice than an inherited env var. Asserted end-to-end
+  ;; through `apply-resource-config!` + `current-config` rather than a
+  ;; named `merge` wrapper — the precedence IS `merge`'s rightmost-wins
   ;; contract, so we pin the behaviour at the real call site.
   (let [env-cfg  {:max-concurrent-streams 5
                   :max-events-per-sec     50}

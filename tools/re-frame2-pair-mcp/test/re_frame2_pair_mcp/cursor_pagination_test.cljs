@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.cursor-pagination-test
   "Unit tests for the cursor-pagination mechanism on `trace-window`
-  and `watch-epochs` (rf2-kbqq3).
+  and `watch-epochs`.
 
   Both tools accept `:limit` (int, default 50) + `:cursor` (opaque
   string). Responses carry `:next-cursor`, `:has-more?` and
@@ -72,17 +72,16 @@
     (is (= payload decoded))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ee38b.18 — INTEGER epoch-ids (the real-runtime fidelity fix).
+;; INTEGER epoch-ids (real-runtime fidelity).
 ;;
 ;; The reference epoch runtime (`re-frame/epoch/state.cljc`
 ;; `next-epoch-id` = `(swap! counter inc)`) emits INTEGER epoch-ids, and
-;; Spec-Schemas declares `:epoch-id` as `:any`. The prior local
-;; `decode-cursor` required `(string? (:after-id v))`, so an
-;; integer-bearing second-page cursor decoded as `::malformed` →
-;; spurious `:rf.mcp/cursor-stale`, breaking pagination against the
-;; actual runtime. These pin the contract to `:any` — the tests use REAL
-;; integer ids, not synthesised strings, so a regression to a `string?`
-;; guard fails here.
+;; Spec-Schemas declares `:epoch-id` as `:any`. `decode-cursor` must
+;; accept any `:after-id` shape: an integer-bearing second-page cursor
+;; round-trips intact rather than decoding as `::malformed` and tripping
+;; a spurious `:rf.mcp/cursor-stale`. These pin the contract to `:any` —
+;; the tests use REAL integer ids, not synthesised strings, so a
+;; regression to a `string?` guard fails here.
 ;; ---------------------------------------------------------------------------
 
 (deftest cursor-round-trips-integer-after-id
@@ -259,14 +258,13 @@
         "Records returned in original order")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ee38b.18 — second-page pagination with REAL integer epoch-ids.
+;; Second-page pagination with REAL integer epoch-ids.
 ;;
-;; This is the scenario the prior `string?` guard broke: the runtime
-;; emits integer epoch-ids, so the cursor carries an integer :after-id,
-;; and the second-page decode previously failed as `::malformed`. The
-;; `make-int-epoch` helper builds records keyed by INTEGER ids (mirroring
-;; `re-frame/epoch/state.cljc`'s `(swap! counter inc)`), so this walks
-;; the exact shape the real runtime produces.
+;; The runtime emits integer epoch-ids, so the cursor carries an integer
+;; :after-id and the second-page decode must accept it (never `::malformed`).
+;; The `make-int-epoch` helper builds records keyed by INTEGER ids
+;; (mirroring `re-frame/epoch/state.cljc`'s `(swap! counter inc)`), so
+;; this walks the exact shape the real runtime produces.
 ;; ---------------------------------------------------------------------------
 
 (defn- make-int-epoch [n]
@@ -304,9 +302,9 @@
 
 (deftest five-page-walk-over-integer-id-ring-returns-distinct-records-in-order
   ;; The full acceptance walk with REAL integer ids — pagination over 5
-  ;; batches returns 50 distinct integer-keyed records in order. Pre-fix
-  ;; this would have aborted after page 1 (the page-2 cursor decoding as
-  ;; stale).
+  ;; batches returns 50 distinct integer-keyed records in order. A
+  ;; page-2 cursor decoding as stale would abort the walk after page 1;
+  ;; this guards against that.
   (let [hist (vec (for [n (range 50)] (make-int-epoch n)))
         walk (loop [cursor-str nil
                     pages      []
@@ -406,15 +404,14 @@
         "Page 1 + page 2 = original 50 records, no admission of fresh ones")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mb17rj — watch-epochs carries the sticky :pred in the continuation
-;; cursor.
+;; watch-epochs carries the sticky :pred in the continuation cursor.
 ;;
-;; THE BUG: `watch-epochs`'s first-call `:next-cursor` encoded :after-id /
-;; :frame but NOT the predicate, and the host derived the filter ONLY from
-;; the `:pred` arg. An agent paginating via the documented opaque-cursor
-;; flow (pass back JUST `:cursor`, no `:pred`) kept the sticky frame but
-;; LOST the predicate → page 2+ ran `epoch-matches?` with `{}` = MATCH-ALL,
-;; returning every epoch after the watermark unfiltered, with an envelope
+;; `watch-epochs`'s first-call `:next-cursor` encodes :after-id / :frame
+;; AND the predicate. An agent paginating via the documented opaque-cursor
+;; flow (pass back JUST `:cursor`, no `:pred`) keeps both the sticky frame
+;; and the predicate, so page 2+ runs `epoch-matches?` with the original
+;; predicate rather than degrading to `{}` (MATCH-ALL) — which would
+;; return every epoch after the watermark unfiltered, with an envelope
 ;; identical to a correctly-filtered page so the agent couldn't detect it.
 ;;
 ;; These pins exercise BOTH ends of the round-trip:
@@ -515,14 +512,12 @@
                     (.then (fn [_result]
                              (let [form-str (first @forms)]
                                (is (some? form-str) "a runtime form was emitted")
-                               ;; THE REGRESSION ASSERTION: the emitted
-                               ;; epoch-matches? call carries the sticky
-                               ;; predicate from the cursor.
+                               ;; The emitted epoch-matches? call carries
+                               ;; the sticky predicate from the cursor.
                                (is (re-find #"epoch-matches\? \{:event-id :ev/login\}"
                                             form-str)
                                    "page-2 form filters by the sticky pred from the cursor")
-                               ;; And NOT the match-all empty map — the
-                               ;; pre-fix behaviour.
+                               ;; And NOT the match-all empty map.
                                (is (not (re-find #"epoch-matches\? \{\}" form-str))
                                    "page-2 form must NOT degrade to match-all {}")
                                (done))))))))))))

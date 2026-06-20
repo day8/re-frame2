@@ -1,11 +1,11 @@
 (ns re-frame2-pair-mcp.discover-app-representation-test
-  "Pin the id-representation contract of discover-app's output (rf2-cg37y).
+  "Pin the id-representation contract of discover-app's output.
 
-  First live pair session (2026-05-29) surfaced that discover-app
-  responses mixed id forms WITHIN one payload — running-builds /
-  frames as short names (`step-deck`) in one place, full keywords
-  (`:examples/step-deck`) in the adjacent hint string. A first-time
-  caller had to guess which field used which form.
+  A discover-app response must use ONE id form throughout a payload —
+  never running-builds / frames as short names (`step-deck`) in one place
+  and full keywords (`:examples/step-deck`) in the adjacent hint string,
+  which would force a first-time caller to guess which field used which
+  form.
 
   ## The contract these tests pin
 
@@ -38,8 +38,8 @@
 
 (def ^:private multi-frame-health
   "An ambiguous-frame health payload — exercises the `:note` string
-  branch that embeds the frame ids, the place the representation mix
-  was first seen."
+  branch that embeds the frame ids, where representation consistency
+  matters most."
   {:ok?                        true
    :debug-enabled?             true
    :coord-annotation-enabled?  true

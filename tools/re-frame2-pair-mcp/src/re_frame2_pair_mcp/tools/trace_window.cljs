@@ -1,24 +1,24 @@
 (ns re-frame2-pair-mcp.tools.trace-window
   "Tool: trace-window — epochs in the last N ms.
 
-  Cursor pagination (rf2-kbqq3): the response is bounded at `:limit`
+  Cursor pagination: the response is bounded at `:limit`
   items (default 50). When more remain, `:next-cursor` is non-nil. The
   cursor encodes a sticky `:until-ms` so subsequent pages see the same
   window the first call did — fresh epochs landing during pagination
   don't sneak in mid-iteration.
 
   Post-eval shrink pipeline lives in
-  `re-frame2-pair-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
+  `re-frame2-pair-mcp.tools.wire-pipeline`. This tool body
   builds the eval form, awaits the runtime response, and routes the
   epoch vector through `run-wire-pipeline` with `:kind :epoch-vector`.
 
-  ## Empty-result advisory (rf2-fb4hn)
+  ## Empty-result advisory
 
   When the response would carry `:count 0` but the frame's
   per-frame epoch-history is non-empty, an `:advisory` rides on
   the envelope distinguishing \"nothing happened\" from \"events exist
-  but fell outside the time window\". Pre-rf2-fb4hn the operator had no
-  way to tell these apart and routinely misread \"empty window\" as
+  but fell outside the time window\". Without it the operator can't
+  tell these apart and may misread \"empty window\" as
   \"the MCP isn't capturing my events\". The advisory names the
   history count and points to `snapshot` as the historical-inspection
   surface."
@@ -35,29 +35,28 @@
 (defn trace-window-tool [conn raw-args]
   (let [ms        (or (wire/arg raw-args :ms) 1000)
         build-id  (wire/arg-build conn raw-args)
-        ;; rf2-lbm21 — coerce `:frame` via the colon-tolerant
+        ;; Coerce `:frame` via the colon-tolerant
         ;; `->frame-keyword` (the shared `fresh-keyword` path), not the
         ;; raw `(keyword ...)` of `arg-keyword`. A documented `:rf/default`
-        ;; / `:foo` frame-id passed with its leading colon used to mint
-        ;; the malformed `::rf/default`, matching no frame. Same fix
-        ;; rf2-ldfnx applied to dispatch.
+        ;; / `:foo` frame-id passed with its leading colon must resolve
+        ;; rather than minting the malformed `::rf/default`, which matches
+        ;; no frame. Same coercion `dispatch` uses.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        ;; rf2-c2dtu / rf2-p1qli — the `--allow-sensitive-reads` boot gate
+        ;; The `--allow-sensitive-reads` boot gate
         ;; forces `:include-sensitive false` when OFF (the default), via
         ;; the single intention-naming predicate `raw-state-allowed?`
         ;; (positive sense — true when operator opted in at launch).
-        ;; rf2-6wvh5 — the
-        ;; pull-mode epoch ring egresses full epoch records carrying
+        ;; The pull-mode epoch ring egresses full epoch records carrying
         ;; `:db-before` / `:db-after` (and `:trigger-event` /
-        ;; `:trace-events`) app-db snapshots; before rf2-6wvh5 they rode
-        ;; the wire verbatim, leaking a declared-sensitive / declared-
-        ;; large slot. The fix routes each egressed record through
+        ;; `:trace-events`) app-db snapshots, any of which can hold a
+        ;; declared-sensitive / declared-large slot. Each egressed record
+        ;; routes through
         ;; `re-frame.core/projected-record` — the framework's SINGLE
         ;; normative off-box-egress emission site (Security.md §Epoch
         ;; privacy posture; core.cljc names the hand-walk an anti-pattern
         ;; "one missed `mapv projected-record` away from a leak").
-        ;; rf2-m9duxl — `incl?` (gate-ON + explicit `:include-sensitive
-        ;; true`) NO LONGER bypasses projection. It is threaded as the
+        ;; `incl?` (gate-ON + explicit `:include-sensitive
+        ;; true`) does NOT bypass projection. It is threaded as the
         ;; `{:include-sensitive? true}` egress opt INTO `projected-record`,
         ;; lifting ONLY the app-db sensitive axis; fx-args / runtime-db /
         ;; large slots / `:redact-fn` stay fail-closed. Every egressed page
@@ -86,12 +85,12 @@
             history-call (if sticky-frame
                            (ef/rt-call 'epoch-history sticky-frame)
                            (ef/rt-call 'epoch-history))
-            ;; rf2-6wvh5 — the egress slice (`page`) is the ONLY vector
+            ;; The egress slice (`page`) is the ONLY vector
             ;; that crosses the wire, so projection happens HERE, after
             ;; the cursor `:limit` cap, before the records ship. Each
             ;; record ALWAYS routes through `re-frame.core/projected-record`
             ;; (which reads `:frame` off the record itself and elides all
-            ;; four payload slots). rf2-m9duxl — `incl?` threads
+            ;; four payload slots). `incl?` threads
             ;; `{:include-sensitive? true}` INTO the projection (app-db
             ;; sensitive axis only); it does NOT disable projection.
             page-src       (str "(vec (take " limit " filtered))")
@@ -110,7 +109,7 @@
                                    (str "(filterv #(and (>= (or (:committed-at %) 0) " cutoff-ms ")"
                                         "                (<= (or (:committed-at %) 0) " until-ms "))"
                                         " sliced)"))
-                      ;; rf2-6wvh5 — `:page` is the egress slice, projected
+                      ;; `:page` is the egress slice, projected
                       ;; for off-box egress via `projected-record` (each
                       ;; record's `:db-before` / `:db-after` /
                       ;; `:trigger-event` / `:trace-events` slots elide

@@ -1,22 +1,22 @@
 (ns re-frame2-pair-mcp.sticky-build-invoke-test
-  "End-to-end one-step sticky-build pin (rf2-jkwu4).
+  "End-to-end one-step sticky-build pin.
 
   THE NORTH STAR: after a SINGLE `discover-app`, an agent should be able
   to call EVERY other pair tool with NO `build` arg and have it just
   work — even with several shadow builds running. The lower-level pieces
   are pinned elsewhere (`build_id_cache_test` for the `:resolved-build-id`
   cache + `arg-build` precedence; `port_to_build_test` for the `:port`
-  resolver writing the cache). This suite closes the loop the live repro
-  exercised: drive the REAL `discover-app` then a REAL no-`build` tool
-  call THROUGH `tools/invoke` (the single MCP egress) on the SAME conn,
-  and assert the second call's per-tool body resolves the build
-  `discover-app` stuck — NOT the `:app` env default.
+  resolver writing the cache). This suite closes the loop: drive the
+  REAL `discover-app` then a REAL no-`build` tool call THROUGH
+  `tools/invoke` (the single MCP egress) on the SAME conn, and assert
+  the second call's per-tool body resolves the build `discover-app`
+  stuck — NOT the `:app` env default.
 
-  The live repro (2026-06-03, 5 builds running):
+  The scenario guarded, with several builds running:
 
-    discover-app {port 8033} -> resolves :examples/machine-epochs, OK
-    orient {}                -> FAILED :build-not-running :app  (the bug)
-    read-dom {selector ...}  -> FAILED :build-not-running :app  (the bug)
+    discover-app {port 8033} -> resolves :examples/machine-epochs
+    orient {}                -> targets the resolved build, not :app
+    read-dom {selector ...}  -> targets the resolved build, not :app
 
   These tests prove the build STICKS across the `invoke` boundary so the
   follow-up no-`build` calls target the resolved build."
@@ -132,8 +132,8 @@
             (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; A later EXPLICIT :build overrides AND updates the sticky default
-;; (rf2-lbm21), so the NEXT no-build call inherits the override.
+;; A later EXPLICIT :build overrides AND updates the sticky default,
+;; so the NEXT no-build call inherits the override.
 ;; ---------------------------------------------------------------------------
 
 (deftest later-explicit-build-overrides-and-restickies

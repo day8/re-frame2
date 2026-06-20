@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.tools.describe-image
   "Tool: describe-image — describe the IMAGE GENERATION a frame is running
-  (rf2-srobm0; EP-0023 Use-Case 7 + Ref-Plan item 17).
+  (EP-0023 Use-Case 7 + Ref-Plan item 17).
 
   ## What this answers
 
@@ -13,7 +13,7 @@
   not the realm-wide registrar union.
 
   Routes through the runtime preload's `describe-image`, which reads ONLY
-  the PUBLIC facade `rf/frame-generation` read shipped by rf2-wkw8na.
+  the PUBLIC facade `rf/frame-generation` read.
   EP-0023 forbids tools from consuming `re-frame.live-frame` /
   `re-frame.image-assembly` internals directly; the facade re-surfaces the
   behaviour through the public read.

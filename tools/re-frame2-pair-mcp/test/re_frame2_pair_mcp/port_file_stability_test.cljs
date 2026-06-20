@@ -1,20 +1,16 @@
 (ns re-frame2-pair-mcp.port-file-stability-test
-  "Regression for the port-file discovery drift (rf2-ww877w).
+  "Regression for port-file discovery stability.
 
-  THE BUG: discovery resolved a port via an explicit `--port-file` (or
-  the shadow HTTP probe) but did NOT surface WHICH file it read. The
-  server then DERIVED a fixed `<project-home>/.shadow-cljs/nrepl.port`
-  as the cached `:port-file`. For an explicit
-  `target/shadow-cljs/nrepl.port` that derivation produced the
-  non-existent `target/shadow-cljs/.shadow-cljs/nrepl.port`. The very
-  next `ensure-connection!` read that derived path as MISSING, treated
-  it as a shadow shutdown, closed the socket, forced rediscovery, and
-  reset the per-connection build/probe caches — on every tool call.
-
-  THE FIX: discovery surfaces the exact `:port-file` it resolved
-  (nrepl.cljs); the server caches that path verbatim instead of
-  deriving one. A second `ensure-connection!` then re-reads the SAME
-  file, sees the SAME port, and stays on the cached connection.
+  Discovery surfaces the exact `:port-file` it resolved (nrepl.cljs);
+  the server caches that path verbatim. A second `ensure-connection!`
+  re-reads the SAME file, sees the SAME port, and stays on the cached
+  connection — rather than deriving a fixed
+  `<project-home>/.shadow-cljs/nrepl.port`, which for an explicit
+  `target/shadow-cljs/nrepl.port` would point at a non-existent
+  `target/shadow-cljs/.shadow-cljs/nrepl.port` and make the next
+  `ensure-connection!` mis-read the path as missing, close the socket,
+  force rediscovery, and reset the per-connection build/probe caches on
+  every tool call.
 
   These tests exercise the server's `ensure-connection!` cached-path
   branch directly with a stubbed `fs.readFileSync`, asserting the
@@ -55,10 +51,9 @@
       (let [explicit-pf "C:/repo/target/shadow-cljs/nrepl.port"
             conn        (nrepl/make-conn 7001 "127.0.0.1")
             ;; The exact file discovery resolved is present and reads 7001;
-            ;; the bug's DERIVED path
+            ;; a DERIVED path
             ;; (C:/repo/target/shadow-cljs/.shadow-cljs/nrepl.port) does NOT
-            ;; exist, so if the server had cached THAT it would mis-fire the
-            ;; "vanished" branch.
+            ;; exist, so caching THAT would mis-fire the "vanished" branch.
             restore!    (with-fs-read (reads-port-at explicit-pf "7001"))]
         (server/set-discovered-for-tests!
           {:conn conn :port 7001 :port-file explicit-pf
@@ -83,7 +78,7 @@
 (deftest cached-probe-winning-candidate-stays-on-connection
   (testing "a winning HTTP-probe candidate (target/shadow-cljs/nrepl.port) is reused when unchanged (rf2-ww877w)"
     (async done
-      ;; The probe winner was target/shadow-cljs/nrepl.port, NOT the
+      ;; The probe winner is target/shadow-cljs/nrepl.port, NOT a
       ;; derived .shadow-cljs/nrepl.port. Cache the winning path; re-read
       ;; sees the same port ⇒ stay put.
       (let [winning-pf "/abs/proj/root/target/shadow-cljs/nrepl.port"

@@ -1,13 +1,12 @@
 (ns re-frame2-pair-mcp.discover-app-reserved-frame-test
-  "Pin discover-app's reserved-frame-aware operating-frame resolution
-  (rf2-3bu3d.4).
+  "Pin discover-app's reserved-frame-aware operating-frame resolution.
 
-  ROOT CAUSE this fixes: any app instrumented with Xray carries a
-  `:rf/xray` TOOL frame alongside its one app frame. The pre-fix
-  ambiguity logic counted ALL frames, so EVERY Xray-instrumented app (the
-  common pairing case) was reported `:ambiguous-frame` on discover-app —
-  forcing a `frames/select` + retry up front for a choice that didn't
-  exist (there is exactly ONE app frame).
+  CONTEXT: any app instrumented with Xray carries a `:rf/xray` TOOL frame
+  alongside its one app frame. The ambiguity logic excludes reserved
+  `:rf/*` tool frames from the count, so an Xray-instrumented app (the
+  common pairing case) with exactly ONE app frame is NOT reported
+  `:ambiguous-frame` on discover-app — no `frames/select` + retry tax for
+  a choice that doesn't exist.
 
   CONTRACT these tests pin (the runtime's `health` computes the
   reserved-frame-aware `:ambiguous-frame?` + `:app-frames`; discover-app

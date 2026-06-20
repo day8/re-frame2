@@ -8,13 +8,13 @@
      (`slice-app-db-in-snapshot`). The `:path` arg (when supplied)
      wins over the slice-level mode; an empty path `[]` is
      semantically equivalent to `:full`.
-  2. Diff-encoding (rf2-1wdzp) and structural dedup (rf2-obpa9) of
+  2. Diff-encoding and structural dedup of
      each frame's `:epochs` slice (`diff-encode-epochs-in-snapshot`,
      `dedup-epochs-in-snapshot`).
   3. Lazy-summary default for non-app-db rich slices
      (`summarise-other-slices-in-snapshot`).
 
-  ## Mode resolution (rf2-u2029)
+  ## Mode resolution
 
   The resolved mode for each slice is governed by:
 
@@ -60,10 +60,10 @@
 
 (def ^:const full-epochs-cap
   "Default record cap on the `:epochs` slice when it resolves to `:full`
-  mode (rf2-lbm21). `:full` mode ships each epoch record VERBATIM —
+  mode. `:full` mode ships each epoch record VERBATIM —
   including its `:db-before` / `:db-after` app-db pair — so an
-  unbounded 50-record history pr-strs to ~50× the app-db (the
-  171K-token overflow the bead reports). Capping to the most-recent N
+  unbounded 50-record history pr-strs to ~50× the app-db (a
+  multi-100K-token overflow). Capping to the most-recent N
   records keeps full mode usable for the common 'what just happened?'
   read while the wire-cap stays a backstop for the rest. An agent that
   needs the full history pages via `trace-window` / `watch-epochs`
@@ -103,21 +103,21 @@
           ;; status-entry-or-nil]`. The status entry is non-nil only on
           ;; a path miss; the fold below threads it into the `:status`
           ;; map. No side-channel atom — both outputs flow through the
-          ;; accumulator (rf2-k7otmg).
+          ;; accumulator.
           process-frame
           (fn [frame-map]
             (if-not (and (map? frame-map) (contains? frame-map :app-db))
               [frame-map nil]
               (let [db (:app-db frame-map)]
                 (cond
-                  ;; No path + summary mode (rf2-tygdv default): summarise.
+                  ;; No path + summary mode (the default): summarise.
                   (and (nil? path) (not full?))
                   [(update frame-map :app-db summary/tree-summary) nil]
-                  ;; No path + full mode: full slice (rf2-u2029 opt-in).
+                  ;; No path + full mode: full slice (opt-in).
                   (nil? path)
                   [frame-map nil]
                   ;; Root path (`[]`): return full db (agent opted in
-                  ;; explicitly). Equivalent to legacy default behaviour.
+                  ;; explicitly).
                   (empty? path)
                   [frame-map nil]
                   ;; Path supplied: get-in with missing sentinel.
@@ -172,14 +172,14 @@
 
 (defn cap-full-epochs-in-snapshot
   "Bound the `:epochs` slice to the most-recent `cap` records on every
-  frame whose `:epochs` resolved to `:full` mode (rf2-lbm21).
+  frame whose `:epochs` resolved to `:full` mode.
 
   Only fires in `:full` mode — in `:summary` mode the slice is already a
   one-line `{:rf.mcp/summary ...}` marker, and `:diff` epochs-mode has
   collapsed each `:db-after` to a small patch, so neither needs the cap.
   Full mode is the overflow path: each record carries a verbatim
   `:db-before` / `:db-after` app-db pair, so an unbounded history blows
-  the wire budget (the 171K-token report).
+  the wire budget.
 
   Keeps the LAST `cap` records (epoch-history is chronological,
   oldest→newest, so the tail is 'what just happened'). The `:epochs`
@@ -225,7 +225,7 @@
 
 (defn diff-encode-epochs-in-snapshot
   "Walk the per-frame snapshot map and diff-encode every frame's
-  `:epochs` slice (rf2-1wdzp). `mode :full` short-circuits — the
+  `:epochs` slice. `mode :full` short-circuits — the
   snapshot passes through unchanged. Other slices are untouched; only
   the `:epochs` slot of each frame map is rewritten."
   [snapshot mode]
@@ -243,7 +243,7 @@
 
 (defn dedup-epochs-in-snapshot
   "Walk the per-frame snapshot map and apply structural dedup
-  (rf2-obpa9) to every frame's `:epochs` slice. Dedup is per-frame —
+  to every frame's `:epochs` slice. Dedup is per-frame —
   cross-frame share-pooling would require a single table spanning
   every frame's slice, which is a follow-on optimisation; per-frame
   is the safe default and matches the table-reset policy

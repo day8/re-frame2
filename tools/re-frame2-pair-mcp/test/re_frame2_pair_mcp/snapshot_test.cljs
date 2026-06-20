@@ -12,7 +12,7 @@
   Tests require the public parsers directly from
   `re-frame2-pair-mcp.tools.args` — the source ns is the contract.
 
-  Production-form integration coverage for rf2-vflrg lives in
+  Production-form integration coverage for the elision walk lives in
   `re-frame2-pair-mcp.elision-test` (via the `build-snapshot-form`
   mirror); see the note at the bottom of this file."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -21,9 +21,9 @@
             [re-frame2-pair-mcp.tools.eval-form :as ef]))
 
 (deftest frames-default-is-app-not-all
-  ;; rf2-3bu3d.6 — the DEFAULT scope (absent arg) is `:app` (app frames
-  ;; only, reserved :rf/* tool frames excluded), NOT `:all`. Explicit
-  ;; "all" is the opt-in to tool-frame state.
+  ;; The DEFAULT scope (absent arg) is `:app` (app frames only, reserved
+  ;; :rf/* tool frames excluded), NOT `:all`. Explicit "all" is the
+  ;; opt-in to tool-frame state.
   (is (= :app (args/parse-frames-arg nil))
       "absent frames arg defaults to :app (app frames only)")
   (is (= :all (args/parse-frames-arg "all"))
@@ -61,8 +61,8 @@
   (is (= [:app-db :sub-cache] (args/parse-include-arg #js ["app-db" "sub-cache"]))))
 
 (deftest snapshot-state-form-is-edn-readable
-  ;; The MCP server lifts the opts map into the eval-form DSL
-  ;; (rf2-dpzpe), which renders `(re-frame2-pair.runtime/snapshot-state
+  ;; The MCP server lifts the opts map into the eval-form DSL, which
+  ;; renders `(re-frame2-pair.runtime/snapshot-state
   ;; {:frames :all :include [...]})`. Assert against the parsed opts
   ;; map rather than regex-matching the source string.
   (let [opts {:frames :all
@@ -75,20 +75,18 @@
            (-> edn second :include)))))
 
 ;; ---------------------------------------------------------------------------
-;; Note on rf2-vflrg integration coverage:
+;; Note on elision integration coverage:
 ;;
-;; Eval-form composition for the snapshot tool (now walking BOTH `:app-db`
+;; Eval-form composition for the snapshot tool (walking BOTH `:app-db`
 ;; and `:sub-cache` through `re-frame.core/elide-wire-value`, threading
 ;; `:include-sensitive` into the walker's opt) is pinned in
 ;; `re-frame2-pair-mcp.elision-test` via the production `build-snapshot-form`
 ;; mirror — see `snapshot-form-walks-both-app-db-and-sub-cache` and
 ;; `snapshot-form-threads-include-sensitive`.
 ;;
-;; Historical note: `invoke-test` used to stub `snapshot/snapshot-tool`
-;; via direct `set!` with `.finally` restoration; the `.finally` could
-;; outrun the test's `(done)`, leaking the stub into the next async
-;; test (rf2-wb06a). Fixed by moving restoration to a `use-fixtures`
-;; `:after` step — cleanup is now Promise-chain-independent. The
-;; mirror approach here is still preferred for isolation, but it is
-;; no longer a race-safety necessity.
+;; Async stub isolation: tests that stub a tool fn restore it from a
+;; `use-fixtures` `:after` step rather than a Promise `.finally`, so
+;; cleanup is Promise-chain-independent and a `.finally` can't outrun a
+;; test's `(done)` and leak the stub into the next async test. The
+;; mirror approach here keeps this suite stub-free for full isolation.
 ;; ---------------------------------------------------------------------------

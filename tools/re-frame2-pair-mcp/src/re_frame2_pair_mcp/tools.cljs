@@ -10,38 +10,36 @@
   | discover-app  | Verify nREPL + confirm the preloaded runtime + health     |
   | eval-cljs     | Eval a CLJS form, return the value                        |
   | dispatch      | Fire a re-frame2 event with :origin :pair                 |
-  | dispatch-dry-run | Simulate a cascade without committing it (rf2-17hvp)   |
+  | dispatch-dry-run | Simulate a cascade without committing it               |
   | restore-epoch | Time-travel undo — rewind a frame to a prior epoch        |
-  |               | (gated behind --allow-writes; rf2-ee38b.18)              |
+  |               | (gated behind --allow-writes)                            |
   | replace-app-db| State injection — replace a frame's app-db with EDN data  |
-  |               | (gated behind --allow-writes; rf2-ee38b.18)              |
+  |               | (gated behind --allow-writes)                            |
   | trace-window  | Epochs in the last N ms                                   |
   | watch-epochs  | Pull-mode live epoch streaming                            |
   | tail-build    | Wait for a hot-reload to land                             |
   | snapshot      | Coarse-grained per-frame state read (mega-op)             |
-  | get-path      | Direct read-by-path against a frame's app-db (rf2-tygdv)  |
+  | get-path      | Direct read-by-path against a frame's app-db             |
   | read-dom      | View-plane read — querySelector -> per-node text/attrs    |
-  |               | EDN; read-only, text/node-capped (rf2-nfjil)             |
+  |               | EDN; read-only, text/node-capped                         |
   | record        | Install a background signal recorder, return a            |
-  |               | :recording-id (rf2-zo4b9)                                 |
+  |               | :recording-id                                            |
   | read-recording| Read back a recorder's change-log; :drain / :stop         |
-  |               | (rf2-zo4b9)                                              |
-  | watch-until   | Block until a predicate over a signal holds (rf2-zo4b9)   |
-  | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
-  |               | watch-epochs (rf2-hq49)                                   |
+  | watch-until   | Block until a predicate over a signal holds              |
+  | subscribe     | Streaming trace/epoch channel — push-mode counterpart to  |
+  |               | watch-epochs                                             |
   | unsubscribe   | Close a streaming subscription                            |
   | list-subscriptions | List the live reactive sub-cache for a frame —       |
-  |               | matches snapshot :sub-cache (rf2-qicji)                  |
+  |               | matches snapshot :sub-cache                              |
   | list-streams  | List active streaming-tap subscriptions + queue stats    |
-  |               | (rf2-qicji; the streaming diagnostic list-subscriptions  |
-  |               | formerly carried, wrapping subscription-info)            |
+  |               | (the streaming-diagnostic surface, wrapping              |
+  |               | subscription-info)                                       |
   | handler-meta  | Registration metadata for a (kind, id) — source-coord +   |
-  |               | :rf.source/uri (rf2-pctf8)                                |
-  | list-handlers | All registered ids under a kind (rf2-pctf8; renamed from  |
-  |               | registry-list per rf2-4y595)                              |
-  | get-re-frame2-pair-instructions | Inline agent-onboarding text (rf2-fnpqg)         |
+  |               | :rf.source/uri                                           |
+  | list-handlers | All registered ids under a kind                          |
+  | get-re-frame2-pair-instructions | Inline agent-onboarding text             |
 
-  ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
+  ## Per-tool / per-concern layout
 
   This namespace is the public façade — `invoke` glue, internal
   dispatch, and re-exported descriptor surface. The tool bodies and the
@@ -50,7 +48,7 @@
 
   - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
     `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`,
-    `writes` (the --allow-writes gate, rf2-ee38b.18).
+    `writes` (the --allow-writes gate).
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
     `restore-epoch`, `replace-app-db`, `trace-window`, `watch-epochs`,
     `tail-build`, `snapshot`, `get-path`, `read-dom`, `record`,
@@ -61,10 +59,10 @@
   - Descriptors: `descriptors-knobs` (universal knob property data),
     `descriptors-data` (per-tool descriptor maps), `descriptors`
     (`tool-descriptors-js` + the knob splicers).
-  - Registry (rf2-47g8l): `registry` — the single map binding name →
+  - Registry: `registry` — the single map binding name →
     descriptor + handler + cacheable?; the three downstream views are
     derived from it.
-  - Precheck: `precheck` (the rf2-36xod cheap-hash short-circuit).
+  - Precheck: `precheck` (the cheap-hash short-circuit).
 
   ## Result shape
 
@@ -129,8 +127,8 @@
       (when (and best (<= d cutoff)) best))))
 
 (defn- unknown-tool-envelope
-  "Build the `:unknown-tool` error envelope. Additive over the historical
-  `{:ok? false :reason :unknown-tool :tool name}` shape: carries a
+  "Build the `:unknown-tool` error envelope: `{:ok? false :reason
+  :unknown-tool :tool name}` plus a
   recovery-shaped `:hint` (the surface's honest-error standard — cf.
   cache.cljs `:rf.mcp/cache-hit` :hint, roots_discovery.cljs discovery
   hints, server.cljs port hints) pointing the agent at `tools/list` plus
@@ -153,14 +151,14 @@
   loop simple.
 
   Lookup is a single `(get registry/handler-for name)` — the registry
-  is the only place tool names are enumerated (rf2-47g8l). Every
+  is the only place tool names are enumerated. Every
   registered handler is a uniform 3-arity `(fn [conn args extra])`; the
   registry adapts 2-arity per-tool handlers internally.
 
   An unknown name returns the recovery-shaped `:unknown-tool` envelope
   (`unknown-tool-envelope`) — a `:hint` pointing at `tools/list` plus the
   live `:available-tools` catalogue and a `:did-you-mean` near-match, so a
-  model that typo'd a name (rf2-tkmik) can recover without a dead end."
+  model that typo'd a name can recover without a dead end."
   [conn name args extra]
   (if-let [handler (get registry/handler-for name)]
     (handler conn args extra)
@@ -168,14 +166,14 @@
       (wire/err-text (unknown-tool-envelope name)))))
 
 (defn refuse-unknown-tool
-  "Server-boundary pre-dispatch guard for unknown tool names (rf2-4mc6q1).
+  "Server-boundary pre-dispatch guard for unknown tool names.
   Returns the recovery-shaped `:unknown-tool` `wire/err-text` envelope
   when `name` is NOT a registered tool, so `server.cljs/handle-call` can
-  reject a typo or removed alias LOCALLY — BEFORE `ensure-connection!`
+  reject a typo or unrecognised name LOCALLY — BEFORE `ensure-connection!`
   runs any nREPL discovery. Returns `nil` for a registered name (it must
   proceed to normal dispatch).
 
-  Mirrors `writes/refuse-pre-connection` (rf2-wz66k7): the server runs
+  Mirrors `writes/refuse-pre-connection`: the server runs
   `ensure-connection!` for EVERY tool before the dispatcher is reached,
   so on a stock / misconfigured install with no nREPL port the discovery
   step REJECTS with `:nrepl-port-not-found` and an unknown name never
@@ -195,15 +193,14 @@
     (wire/err-text (unknown-tool-envelope name))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-boundary pipeline (rf2-3z0zi).
+;; Wire-boundary pipeline.
 ;;
-;; Four steps thread through `boundary-step/run-step-pipeline`. Each
+;; Steps thread through `boundary-step/run-step-pipeline`. Each
 ;; step's `:run` receives the live context (carrying `:result` and
 ;; `:precheck-hash`) and returns a Promise of the next context. The
 ;; `:skip-when?` predicates encode the per-step skip rules
-;; declaratively — no inline conditionals in the orchestrator
-;; (renamed from `:short-circuit?` per rf2-l0isf; the actual
-;; semantics are skip-this-step, not halt-the-chain).
+;; declaratively — no inline conditionals in the orchestrator. The
+;; predicate's semantics are skip-this-step, not halt-the-chain.
 ;;
 ;; Adding a future step (request-level redaction, metrics, path-prefix
 ;; slicing, per-call elision toggle) is one map-entry addition here
@@ -212,7 +209,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- canonicalize-build-step
-  "Step -1 — forgiving suffix→canonical build resolution (rf2-qda59).
+  "Step -1 — forgiving suffix→canonical build resolution.
   Runs BEFORE every other step so the conn's `:build-alias` cache is
   populated before any per-tool body reads `wire/arg-build`. Resolves the
   requested build (`wire/requested-build` — explicit `:build` arg, else
@@ -222,7 +219,7 @@
   so a no-`:build` follow-up call inherits the canonical form rather than
   the suffix `stick-build!` just stored.
 
-  ## Bare-default fast path (rf2-qda59 CI-race repair)
+  ## Bare-default fast path
 
   A no-`:build` call that falls through to the bare env / `:app` default
   (no explicit `:build` arg AND no sticky `:resolved-build-id`) is NOT
@@ -233,19 +230,18 @@
        (`SHADOW_CLJS_BUILD_ID` / `:app`) is a full build id by
        construction — never a suffix an operator typed — so it needs no
        suffix→canonical mapping. A default that isn't running surfaces via
-       the downstream `ensure-runtime!` diagnostic ladder exactly as
-       before; the alias step would only have round-tripped to re-derive
-       the id it was already handed.
-    2. **It un-breaks the streaming subscribe gate.** The pre-fix step
-       prepended a serial `active-builds` jvm-eval to EVERY first tool
-       call — including `subscribe`'s registration path. On a slow
-       hermetic CI runner that extra round-trip pushed `subscribe!`
-       registration past the live-subscribe conformance test's dispatch
-       head-start, so the dispatched cascade landed before the
-       subscription existed and zero `notifications/progress` frames
-       arrived (the bus only queues for already-registered subs). The
-       feature targets an operator who TYPES a build (`:build
-       machine-epochs`); the no-arg default never needed the trip.
+       the downstream `ensure-runtime!` diagnostic ladder; the alias step
+       would only round-trip to re-derive the id it was already handed.
+    2. **It keeps the streaming subscribe gate fast.** Prepending a
+       serial `active-builds` jvm-eval to EVERY first tool call —
+       including `subscribe`'s registration path — would, on a slow
+       hermetic CI runner, push `subscribe!` registration past the
+       live-subscribe conformance test's dispatch head-start, so the
+       dispatched cascade lands before the subscription exists and zero
+       `notifications/progress` frames arrive (the bus only queues for
+       already-registered subs). Suffix-forgiveness targets an operator
+       who TYPES a build (`:build machine-epochs`); the no-arg default
+       needs no trip.
 
   Suffix-forgiveness is fully preserved for the case it was built for:
   an explicit `:build` arg, or a sticky suffix stuck from a prior
@@ -280,7 +276,7 @@
           (.catch (fn [_] ctx))))))
 
 (defn- precheck-step
-  "Step 0 — rf2-36xod cheap-hash short-circuit. For precheck-eligible
+  "Step 0 — cheap-hash short-circuit. For precheck-eligible
   tools (cache enabled AND tool registers a precheck-target), fetches
   the runtime-side hash via one bencode round-trip and consults the
   cache. On a hit, writes the marker to `:result` (which trips
@@ -306,7 +302,7 @@
       (.then (fn [result-js] (assoc ctx :result result-js)))))
 
 (defn- apply-cache-step
-  "Step 2 — rf2-3rt1f post-eval result-hash cache. On a hash match
+  "Step 2 — post-eval result-hash cache. On a hash match
   replaces `:result` with the cache-hit marker; on a miss stores the
   new hash (plus the precheck-hash from step 0 if present) and leaves
   `:result` unchanged."
@@ -315,7 +311,7 @@
        (assoc ctx :result)))
 
 (defn- apply-cap-step
-  "Step 3 — rf2-rvyzy wire-boundary token-budget enforcement. When
+  "Step 3 — wire-boundary token-budget enforcement. When
   `:result` exceeds the per-call cap, replaces it with the
   `:rf.mcp/overflow` marker."
   [{:keys [result cap-opts] :as ctx}]
@@ -340,17 +336,16 @@
   | `:apply-cache`    | `:isError` result (errors must not poison cache) OR |
   |                   | result is already a wire-bounded marker             |
   | `:apply-cap`      | result is a wire-bounded marker (cache-hit /        |
-  |                   | overflow are sub-cap by construction — rf2-gktyn)   |
+  |                   | overflow are sub-cap by construction)               |
 
   Cache before cap is the right order: a cache hit emits a sub-100-
   byte marker that's trivially under any reasonable cap, so flipping
   the order would never change behaviour but would waste a token
   walk on the hit path.
 
-  `:skip-when?` is the per-step skip predicate (renamed from
-  `:short-circuit?` per rf2-l0isf — the prior name read as
-  halt-the-chain semantics; the actual semantics are skip-this-step
-  and continue to the next step's own predicate)."
+  `:skip-when?` is the per-step skip predicate: when it returns true the
+  step is skipped and the chain continues to the next step's own
+  predicate (skip-this-step, not halt-the-chain)."
   [{:name       :canonicalize-build
     :run        canonicalize-build-step}
    {:name       :precheck
@@ -375,7 +370,7 @@
   The four-step pipeline lives in `wire-boundary-pipeline` and is
   threaded by `boundary-step/run-step-pipeline`:
 
-  0. **`:precheck`** (`precheck/fetch-precheck-hash`, rf2-36xod) —
+  0. **`:precheck`** (`precheck/fetch-precheck-hash`) —
      for precheck-eligible tools, issue one cheap nREPL eval to
      compute the runtime-side hash and compare to the stored
      `:precheck-hash`. On a match, write the
@@ -388,7 +383,7 @@
   1. **`:dispatch`** — per-tool implementation. Skipped if the
      precheck step already produced a result.
 
-  2. **`:apply-cache`** (`cache/apply-cache`, rf2-3rt1f) —
+  2. **`:apply-cache`** (`cache/apply-cache`) —
      post-eval per-session response cache keyed on a hash of the
      result's text payload. On a hit the result is replaced with
      `{:rf.mcp/cache-hit ... :via :result-hash}` — the agent host
@@ -399,18 +394,18 @@
      0, it's recorded alongside the result hash so the NEXT call
      can short-circuit via the precheck path.
 
-  3. **`:apply-cap`** (`cap/apply-cap`, rf2-rvyzy) — responses
+  3. **`:apply-cap`** (`cap/apply-cap`) — responses
      whose serialised size exceeds the per-call cap (default 5,000
      tokens, configurable via the `max-tokens` MCP arg) are replaced
      with `{:rf.mcp/overflow ...}`. Silent truncation is not
      allowed. Already-marker results bypass — the marker envelopes
-     are sub-cap by construction (rf2-gktyn).
+     are sub-cap by construction.
 
   `extra` carries the MCP `extra` payload (signal + sendNotification +
   _meta.progressToken) for streaming tools. Non-streaming tools ignore
   it."
   [conn name args extra]
-  ;; rf2-lbm21 — session-sticky operating build. An explicit `:build` on
+  ;; Session-sticky operating build. An explicit `:build` on
   ;; any tool call (except `discover-app`, which owns its success-gated
   ;; cache lifecycle) becomes the sticky default for subsequent
   ;; no-`:build` calls. `arg-build` stays a pure read; the write lives
@@ -419,7 +414,7 @@
     (wire/stick-build! conn args))
   (let [cap (cap/max-tokens-arg args)]
     (if (cap/invalid-arg? cap)
-      ;; rf2-5rdit — a negative `:max-tokens` resolves to a
+      ;; A negative `:max-tokens` resolves to a
       ;; `{:rf.mcp/invalid-arg {...}}` rejection rather than a negative
       ;; cap. Short-circuit into an `isError: true` result BEFORE the
       ;; pipeline runs: the tool is never dispatched and the malformed
@@ -429,7 +424,7 @@
       ;; agent reads the actionable rejection and corrects the arg.
       (js/Promise.resolve (wire/err-text cap))
       (let [enabled? (args/parse-bool-arg args :cache)
-            ;; rf2-olvr5 finding 3 — fold the RESOLVED build into the
+            ;; Fold the RESOLVED build into the
             ;; cache identity so a precheck-hash collision across two
             ;; builds on the one nREPL connection can't serve the wrong
             ;; build's payload. `arg-build` is a pure read (runs AFTER
@@ -447,7 +442,7 @@
                       :cache-opts {:tool name :args args :enabled? enabled? :build build}
                       :cap-opts   {:tool name :cap cap}}]
         (-> (bs/run-and-extract wire-boundary-pipeline ctx)
-            ;; rf2-olvr5 finding 3 — a successful operating-frame mutation
+            ;; A successful operating-frame mutation
             ;; (set / reset) shifts where every omitted-`:frame` read
             ;; resolves, so any cached payload keyed only on `(tool, build,
             ;; args)` would be served against the WRONG frame (the

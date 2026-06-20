@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.descriptors
-  "MCP `tools/list` descriptor builder (rf2-vrbwx, rf2-47g8l).
+  "MCP `tools/list` descriptor builder.
 
   The descriptor *data* lives in `descriptors-data.cljs`; the *catalogue
   index* (name → descriptor + handler + cacheable?) lives in

@@ -1,11 +1,11 @@
 (ns re-frame2-pair-mcp.port-to-build-test
-  "URL/port -> build resolution via the shadow-cljs :dev-http map (rf2-fyf0h).
+  "URL/port -> build resolution via the shadow-cljs :dev-http map.
 
   A pair session starts from the browser URL of the open tab (e.g.
   http://localhost:8031/counter), but discover-app speaks build-ids. The
-  first live session (2026-05-29) had the agent grep the repo for 8031 to
-  learn that port maps to the step_deck testbed before connecting. These
-  tests pin the new `:port` arg path:
+  `:port` arg bridges the two: an operator passes the port from the URL
+  and discover-app resolves the build serving it. These tests pin the
+  `:port` arg path:
 
     - `probe/resolve-build-by-port` reads the :dev-http map JVM-side and
       returns the build whose :output-dir is served on that port.

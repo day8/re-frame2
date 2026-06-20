@@ -1,26 +1,27 @@
 (ns re-frame2-pair-mcp.tools.result-envelope
-  "Total, TAGGED result codec across the MCP↔runtime boundary (rf2-qobqy).
+  "Total, TAGGED result codec across the MCP↔runtime boundary.
 
-  ## The problem this closes
+  ## What this codec guarantees
 
-  The CLJS→wire value path had no total, tagged envelope, so distinct
-  outcomes collapsed to a bare `null` (or a stringly `:unexpected-shape`),
-  costing round-trips and producing wrong conclusions:
+  The CLJS→wire value path carries a total, tagged envelope so distinct
+  outcomes stay distinct instead of collapsing to a bare `null` (or a
+  stringly `:unexpected-shape`), which would cost round-trips and produce
+  wrong conclusions. Without the tag:
 
-    - `eval-cljs` returned `null` for (a) a genuine `nil`, (b) an
+    - `eval-cljs` would return `null` for (a) a genuine `nil`, (b) an
       UNRESOLVED symbol / wrong-ns guess (which looks identical to nil),
       and (c) an UNSERIALIZABLE value — a value `pr-str` can render but
       `cljs.reader/read-string` cannot read back (a raw `#object[...]`,
       a `#js {...}` literal, a Function ref). The blank-value path in
       `nrepl/cljs-eval-value` reads all three as `nil`.
-    - `handler-meta` returned `:ok? false :reason :unexpected-shape`
+    - `handler-meta` would return `:ok? false :reason :unexpected-shape`
       while the real meta sat in `:value` as a STRING the caller had to
       re-parse.
 
-  The project already has wire-SIZE machinery — elision, dedup, the
+  The project's wire-SIZE machinery — elision, dedup, the
   token-budget cap (`re-frame.mcp-base.*`, `tools.elision`,
-  `tools.dedup`, `tools.cap`). It did NOT have wire-FIDELITY/typing.
-  This namespace adds the typing layer and composes ON TOP of elision:
+  `tools.dedup`, `tools.cap`) — handles payload size; this namespace is
+  the wire-FIDELITY/typing layer and composes ON TOP of elision:
   the runtime-side wrap classifies the value, and the elision walker (if
   the caller routes through it) still runs over the `:value` payload —
   this codec never bypasses size machinery, it only tags the outcome.
@@ -79,9 +80,10 @@
     :eval-error     → `{:ok? false :reason :rf.error/eval-cljs-threw …}`.
     :unserializable → `{:ok? false :reason :rf.error/unserializable …}`.
 
-  Legacy untagged values (a runtime that hasn't been re-preloaded, or a
+  Untagged values (a runtime without the wrap preloaded, or a
   tool that doesn't wrap) flow through `envelope->result` unchanged via
-  the fall-through arm — the codec is additive, never a hard cutover."
+  the fall-through arm — the codec is additive: an untagged value is a
+  valid input and projects straight to `(on-value v)`."
   (:require [clojure.string :as str]
             [re-frame.mcp-base.vocab :as base-vocab]))
 
@@ -100,12 +102,12 @@
   wire as `:preview`. Long enough to identify the shape, short enough to
   stay well under the token cap on its own.
 
-  Public (rf2-ttspi7) so the test-only `test-utils/truncate-preview`
+  Public so the test-only `test-utils/truncate-preview`
   pins against the SAME single-sourced cap the runtime wrap embeds."
   240)
 
 ;; ---------------------------------------------------------------------------
-;; REPL-special pass-through (rf2-cum40 CI repair).
+;; REPL-special pass-through.
 ;;
 ;; shadow-cljs's `cljs-eval` compiles a handful of forms as REPL SPECIALS
 ;; — `require`, `require-macros`, `import`, `use`, `ns`, `in-ns`, `refer`,
@@ -117,15 +119,13 @@
 ;; statement into an expression slot and the browser REPL throws
 ;; `SyntaxError: Unexpected token ';'` → `:repl/exception!`. The require's
 ;; module never loads, and a follow-on form referencing the namespace dies
-;; with `Cannot read properties of undefined`. (Surfaced by the
-;; live-redaction conformance gate, whose seed `(require 're-frame.epoch)`
-;; broke the moment the typed codec actually executed.)
+;; with `Cannot read properties of undefined`.
 ;;
 ;; The codec can't classify a module-load side effect anyway — `require`
 ;; returns nil — so wrapping buys nothing here. `wrap-form` detects a
 ;; leading REPL-special and returns the form VERBATIM so shadow gives it
 ;; the top-level handling it needs; the untagged nil result then flows
-;; through `envelope->result`'s legacy passthrough arm as `(on-value nil)`,
+;; through `envelope->result`'s passthrough arm as `(on-value nil)`,
 ;; i.e. `:ok? true :value nil` — the correct shape for a require.
 ;; ---------------------------------------------------------------------------
 
@@ -137,7 +137,7 @@
 
 (defn repl-special?
   "True when `form-str` is a top-level call to a shadow REPL-special op
-  that must NOT be wrapped (rf2-cum40). Cheap textual probe: strip leading
+  that must NOT be wrapped. Cheap textual probe: strip leading
   whitespace + a single opening paren, then read the first token. A
   `(require ...)` / `(ns ...)` / etc. matches; `(+ 1 2)`, `(require-foo)`
   (not an exact match), and a bare value do not. Quote-prefixed forms
@@ -163,7 +163,7 @@
 
 (defn wrap-form
   "Wrap `form-str` so the runtime classifies its result into a tagged
-  `:rf.mcp/result` envelope (rf2-qobqy). The wrap:
+  `:rf.mcp/result` envelope. The wrap:
 
     1. Evaluates the user form inside a `try`. A throw → the
        `:eval-error` tag carrying the message + ex-data when present
@@ -180,17 +180,18 @@
   The probe is conservative: any throw from the round-trip read, OR a
   rendered text starting with an unreadable reader-macro token, counts
   as unserializable. This keeps a `#object[Function]` / `#js {…}` from
-  riding back as a bare nil (the historical collapse).
+  riding back as a bare nil — it rides back tagged `:unserializable`
+  instead, so the agent sees what it actually was.
 
   The whole wrap is itself wrapped in an outer `try` so a failure in the
   classification machinery degrades to an `:eval-error` envelope rather
   than throwing on the wire.
 
   REPL-special forms (`require` / `ns` / `import` / …) are returned
-  VERBATIM (rf2-cum40) — shadow only honours their special compilation at
+  VERBATIM — shadow only honours their special compilation at
   the top level, and burying them in the wrapper's expression context
   breaks them (`SyntaxError: Unexpected token ';'`). Their untagged result
-  flows through `envelope->result`'s legacy passthrough."
+  flows through `envelope->result`'s passthrough."
   [form-str]
   (if (repl-special? form-str)
     form-str
@@ -241,8 +242,8 @@
   (and (map? v) (contains? v result-key)))
 
 (defn envelope->result
-  "Project a tagged `:rf.mcp/result` envelope (or a legacy untagged
-  value) onto the calling tool's result map (rf2-qobqy).
+  "Project a tagged `:rf.mcp/result` envelope (or an untagged
+  value) onto the calling tool's result map.
 
   `on-value` is the tool's own success shaper — a 1-arity fn
   `(fn [genuine-value] => result-map)`. It is invoked for BOTH the
@@ -255,9 +256,8 @@
     :unserializable → {:ok? false :reason :rf.error/unserializable
                        :type … :preview … :hint …}
 
-  Legacy / untagged `v` (a runtime that predates the wrap, or a tool
-  that didn't wrap) flows straight to `(on-value v)` — the codec is
-  additive.
+  An untagged `v` (a runtime without the wrap, or a tool that didn't
+  wrap) flows straight to `(on-value v)` — the codec is additive.
 
   Returns the tool result map (NOT a wire envelope — the caller wraps
   it with `wire/ok-text` / `wire/err-text`). `error?` on the returned
@@ -313,13 +313,12 @@
   the tag. Reads the `::codec-error` metadata stamped by
   `envelope->result` — so an `on-value` result carrying `:ok? false`
   (a legitimate structured answer like `:not-registered`) is NOT an
-  error here and rides back as `wire/ok-text` exactly as before the
-  codec landed."
+  error here and rides back as `wire/ok-text`."
   [result-map]
   (boolean (some-> result-map meta ::codec-error)))
 
-;; `truncate-preview` (the test-only preview-shape helper) moved to
-;; `re-frame2-pair-mcp.test-utils/truncate-preview` (rf2-ttspi7) — the
+;; `truncate-preview` (the test-only preview-shape helper) lives in
+;; `re-frame2-pair-mcp.test-utils/truncate-preview` — the
 ;; MCP server never calls it; only tests assert the preview contract.
-;; It pins against the same `preview-cap` constant below (now public so
+;; It pins against the same `preview-cap` constant above (public so
 ;; the single source of truth stays here).

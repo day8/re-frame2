@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.freshness-test
-  "Unit tests for the freshness / liveness token (rf2-ertqw).
+  "Unit tests for the freshness / liveness token.
 
   The token's job is to make 'the runtime I'm reading is stale /
   disconnected / serving a STALE BUILD' obvious up front. These tests
@@ -8,7 +8,7 @@
   graceful degradation when the JVM half can't be read.
 
   The load-bearing case is `:stale-build`: a build whose last flush is
-  newer than the moment the browser code loaded — the rf2-lo28u killer."
+  newer than the moment the browser code loaded."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.tools.freshness :as fresh]))
 
@@ -198,7 +198,7 @@
               (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Actionable liveness on a quiet runtime (rf2-jkwu4).
+;; Actionable liveness on a quiet runtime.
 ;;
 ;; A `:liveness :unknown` / `:no-runtime` verdict is the agent's ONLY
 ;; early warning before a later read returns blank — and the agent can't
@@ -225,12 +225,11 @@
             (done))))))
 
 (deftest unknown-hint-diagnoses-the-zombie-shadow-case
-  ;; rf2-646lr field report: discover-app stayed :liveness :unknown for an
-  ;; entire session because MULTIPLE / ZOMBIE shadow-cljs JVMs held the
-  ;; ports — reads worked (the socket reached a runtime) but the build
-  ;; worker lived in a different JVM, so the worker lookup missed. The
-  ;; :unknown hint must NAME that case and recommend the `npx shadow-cljs
-  ;; stop` → single-watch remediation that actually frees the orphan ports.
+  ;; MULTIPLE / ZOMBIE shadow-cljs JVMs holding the ports keep discover-app
+  ;; at :liveness :unknown — reads work (the socket reaches a runtime) but
+  ;; the build worker lives in a different JVM, so the worker lookup misses.
+  ;; The :unknown hint must NAME that case and recommend the `npx shadow-cljs
+  ;; stop` → single-watch remediation that frees the orphan ports.
   (async done
     (-> (with-jvm-half! nil ; nil JVM half ⇒ :unknown
           (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
@@ -260,7 +259,7 @@
             (done))))))
 
 (deftest no-runtime-hint-is-actionable-with-the-port
-  ;; The repro's quiet-runtime case: the WS heartbeat went stale → the
+  ;; The quiet-runtime case: the WS heartbeat is stale → the
   ;; verdict is :no-runtime. The hint must tell the human to reload the
   ;; exact URL, then re-run discover-app.
   (async done
@@ -294,7 +293,7 @@
               (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; retry-once-on-nil — one retry before degrading to :unknown (rf2-jkwu4).
+;; retry-once-on-nil — one retry before degrading to :unknown.
 ;;
 ;; A nil first read of the build-worker state is most often a transient
 ;; socket hiccup, not a genuinely-unreadable old shadow. One retry
@@ -303,7 +302,7 @@
 ;; retry pays a single extra round-trip only on the cold/degraded path.
 ;;
 ;; The combinator is pure (takes a Promise-returning thunk), so these
-;; tests need NO global var stub — sidestepping the rf2-wb06a
+;; tests need NO global var stub — sidestepping the
 ;; .finally-after-done stub-leak race entirely.
 ;; ---------------------------------------------------------------------------
 
@@ -351,7 +350,7 @@
 
 (deftest jvm-build-freshness-skips-retry-without-a-socket
   ;; A conn with no live socket short-circuits to nil with NO round-trip
-  ;; (and so no retry) — preserved from the original contract.
+  ;; (and so no retry).
   (async done
     (let [conn (atom {:socket nil :closed? true})]
       (-> (fresh/jvm-build-freshness conn :app)

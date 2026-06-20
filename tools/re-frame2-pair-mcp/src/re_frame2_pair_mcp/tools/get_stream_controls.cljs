@@ -1,16 +1,16 @@
 (ns re-frame2-pair-mcp.tools.get-stream-controls
   "Tool: get-stream-controls — read-only diagnostic over the SERVER-SIDE
-  streaming resource-control state (rf2-a0kxsb).
+  streaming resource-control state.
 
   ## What this answers
 
   When a stream is denied, quiet, throttled, or terminated for sustained
   overflow, the operator needs to ask the MCP surface what the
   server-side resource controller currently believes — effective caps,
-  active slot count, token-bucket pressure, abuse-window count. Before
-  this tool that state lived ONLY in code/test seams + a passive stderr
-  banner + the rejection envelopes themselves; there was no first-class
-  way to query it live.
+  active slot count, token-bucket pressure, abuse-window count. This
+  tool is the first-class way to query that state live, where it
+  otherwise surfaces only indirectly through code/test seams, a passive
+  stderr banner, and the rejection envelopes themselves.
 
   `list-streams` answers the complementary RUNTIME question (\"what
   trace/epoch/fx streams are open in the browser?\") — it wraps the

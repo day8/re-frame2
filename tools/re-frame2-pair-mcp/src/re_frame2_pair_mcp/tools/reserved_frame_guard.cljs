@@ -1,16 +1,15 @@
 (ns re-frame2-pair-mcp.tools.reserved-frame-guard
   "Server-side backstop: refuse a WHOLESALE (unsliced) read of a reserved
-  `:rf/*` TOOL frame (rf2-qef58).
+  `:rf/*` TOOL frame.
 
   ## Why a server guard, when the skill already steers
 
-  rf2-ihqpn (#2845) taught the `re-frame2-pair` skill to orient first and
-  never wholesale-read a tool frame, after a live pair session blew a
-  single read past 126K tokens reading the `:rf/xray` frame's entire
-  working set (epoch ring + trace buffer + panel state). The skill
-  STEERS; this guard ENFORCES — a stray `path: []` of `:rf/xray` can no
-  longer blow the context window regardless of agent judgment. Skill
-  steers, MCP guards.
+  The `re-frame2-pair` skill steers the agent to orient first and
+  never wholesale-read a tool frame — a single read of the `:rf/xray`
+  frame's entire working set (epoch ring + trace buffer + panel state)
+  can blow well past 100K tokens. The skill STEERS; this guard ENFORCES
+  — a stray `path: []` of `:rf/xray` can no longer blow the context
+  window regardless of agent judgment. Skill steers, MCP guards.
 
   ## What is refused
 
@@ -34,13 +33,13 @@
       `[:rf.xray/epochs 0]`) is exactly the targeted-drill the agent is
       steered toward, so it is always allowed.
     - The DEFAULT snapshot scope (`frames :app`) — reserved tool frames
-      are already excluded from it (rf2-3bu3d.6), so a default-scope read
+      are already excluded from it, so a default-scope read
       never reaches the guard.
 
   ## The reserved-frame predicate
 
   `reserved-tool-frame?` mirrors the runtime's predicate of the same name
-  (`re-frame2-pair.runtime/reserved-tool-frame?`, rf2-3bu3d.4): the rule
+  (`re-frame2-pair.runtime/reserved-tool-frame?`): the rule
   is the reserved-namespace CONVENTION (spec/Conventions.md §Reserved
   namespaces — framework-owned ids live under the single `:rf/*` root),
   NOT a hardcoded `:rf/xray` literal, so the guard holds for every `:rf/*`
@@ -50,7 +49,7 @@
   canonical APP frame, so it is never treated as a tool frame.
 
   This is the server-side mirror: the snapshot tool already filters the
-  LIVE registry through the runtime predicate app-side (rf2-3bu3d.6), but
+  LIVE registry through the runtime predicate app-side, but
   the guard must refuse BEFORE the eval round-trip — a refusal, not a
   transform — so it re-states the same rule over the keyword the agent
   named. The rule is one line; the two copies can't drift because they
@@ -61,7 +60,7 @@
   "True when `frame-id` names a framework-reserved `:rf/*` TOOL frame.
 
   Server-side mirror of `re-frame2-pair.runtime/reserved-tool-frame?`
-  (rf2-3bu3d.4) — the reserved-namespace convention (namespace = \"rf\"),
+  — the reserved-namespace convention (namespace = \"rf\"),
   minus the `:rf/default` carve-out (the canonical app frame). A
   non-keyword / un-namespaced id (a user's `:stories`, `:sandbox`) is an
   app frame and returns false."
@@ -78,7 +77,7 @@
 
 (defn- refusal
   "Build the `{:ok? false ...}` refusal envelope for a wholesale read of a
-  reserved tool frame. Echoes the skill's wording (rf2-ihqpn / ops.md):
+  reserved tool frame. Echoes the skill's wording (ops.md):
   names the frame, explains the cost, and redirects to `orient` (the
   bounded orientation op) plus a targeted slice. `frame-desc` is the human
   string for the scope being refused (a frame id like `:rf/xray`, or
@@ -117,7 +116,7 @@
        least one reserved frame (e.g. `[:rf/xray]`).
 
   The DEFAULT scope `:app` already excludes reserved tool frames
-  (rf2-3bu3d.6) so it never refuses. A sliced read (non-`[]` `path`) is
+  so it never refuses. A sliced read (non-`[]` `path`) is
   the targeted drill the agent is steered toward and is always allowed.
 
   `frames` is the parsed frames arg (`:app` / `:all` / a keyword vector);
@@ -157,7 +156,7 @@
   resolved frame here, so this client-side guard does not fire on the
   omitted-`:frame` path). That omitted-`:frame` case is NOT an escape
   hatch: `set-operating-frame` refuses to PIN a reserved `:rf/*` tool
-  frame (rf2-wdxyx3 finding 1), so the runtime's `current-frame` resolver
+  frame, so the runtime's `current-frame` resolver
   can never return a reserved frame at tier 2 — an omitted-`:frame` read
   resolves to an APP frame (or refuses with `:ambiguous-frame`), never a
   tool frame. So the only way to address a reserved frame is the explicit

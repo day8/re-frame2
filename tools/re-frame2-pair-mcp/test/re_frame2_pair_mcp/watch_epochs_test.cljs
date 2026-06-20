@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.watch-epochs-test
   "Unit tests for the `watch-epochs` MCP tool — specifically the
-  empty-result advisory added in rf2-fb4hn.
+  empty-result advisory.
 
   watch-epochs returns matches that landed AFTER a :since-id AND
   satisfy an optional :pred. When matches is empty the operator wants
@@ -11,9 +11,9 @@
       point at the predicate.
     - Genuinely empty history — no advisory.
 
-  Pre-rf2-fb4hn these three cases all looked identical (empty matches +
-  no further detail), feeding a misread that the listener wasn't
-  capturing events."
+  Without the advisory these three cases all look identical (empty
+  matches + no further detail), feeding a misread that the listener
+  isn't capturing events; the advisory disambiguates them."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]

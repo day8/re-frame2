@@ -1,6 +1,5 @@
 (ns re-frame2-pair-mcp.orient-test
-  "Unit tests for the orient tool (rf2-3bu3d.8) — the app-shape
-  orientation summary.
+  "Unit tests for the orient tool — the app-shape orientation summary.
 
   The tool is a thin wrapper over the runtime `orient` fn: it emits the
   `(re-frame2-pair.runtime/orient)` form and shapes the response. Here we
@@ -15,17 +14,17 @@
   The runtime `orient` composition is exercised by the bb structural pin
   (tests/runtime/orient_test.clj in the skill).
 
-  ## Stub lifetime — fixture-scoped, not Promise-chain-scoped (rf2-wb06a)
+  ## Stub lifetime — fixture-scoped, not Promise-chain-scoped
 
   Each test installs its `cljs-eval-value` stub via a bare `set!` (no
   per-test `.finally`); a `use-fixtures :each :after` step unconditionally
-  restores the pristine original captured at ns-load. This makes cleanup
+  restores the pristine original captured at ns-load. This keeps cleanup
   independent of the Promise chain: a `.finally`-scoped restore fires
-  AFTER cljs.test's `done` has already advanced to the next test, which
-  in the full suite let a neighbour's late restore clobber THIS test's
+  AFTER cljs.test's `done` has already advanced to the next test, which in
+  the full suite would let a neighbour's late restore clobber THIS test's
   freshly-installed stub mid-eval — surfacing as a flaky
   `connect EADDRNOTAVAIL` from the real socket fn. The fixture boundary
-  closes that race (the same fix invoke_test carries)."
+  closes that race (the same approach invoke_test uses)."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -50,11 +49,10 @@
               :ambiguous-frame? false :runtime-instance-id "abc"}
    :frames   {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default}
    :app-db-top-keys {:rf/default [:cart :route :user]}
-   ;; rf2-uydhif: the runtime orient counts carry the three EP-0016
-   ;; resources-artefact kinds (:resource / :mutation / :resource-scope)
-   ;; — see the orient descriptor example in descriptors_data.cljs. The
-   ;; pre-EP-0016 sample omitted them, so a runtime that dropped a kind
-   ;; from the counts map would have passed green here.
+   ;; The runtime orient counts carry the three EP-0016 resources-artefact
+   ;; kinds (:resource / :mutation / :resource-scope) — see the orient
+   ;; descriptor example in descriptors_data.cljs. Including them here means
+   ;; a runtime that dropped a kind from the counts map fails this pin.
    :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6
                        :frame 2 :route 4 :flow 0 :head 0 :error-projector 0
                        :resource 3 :mutation 2 :resource-scope 1}
@@ -65,7 +63,7 @@
 
 (defn- stub-eval!
   "Install a `cljs-eval-value` stub via a bare `set!` (NO `.finally` —
-  cleanup is the `:after` fixture's job, rf2-wb06a). Records the emitted
+  cleanup is the `:after` fixture's job). Records the emitted
   (non-probe) form into `captured*` and resolves it with `canned`.
   PROBE-AWARE: the preload-probe sentinel form (`__re_frame2_pair_runtime`)
   is answered with `true` so the tool's `ensure-runtime!` preflight passes
@@ -119,8 +117,8 @@
                  (done))))))
 
 (deftest excludes-tool-frames-from-app-db-top-keys
-  ;; The rf2-3bu3d.6 posture: :app-db-top-keys is keyed by APP frames
-  ;; only — a reserved :rf/xray tool frame is in :frames :all but NOT in
+  ;; The posture: :app-db-top-keys is keyed by APP frames only — a
+  ;; reserved :rf/xray tool frame is in :frames :all but NOT in
   ;; :app-db-top-keys (the runtime excludes it). We assert the tool
   ;; passes the runtime's shape through faithfully.
   (async done
@@ -146,9 +144,9 @@
                  (done))))))
 
 (deftest echoes-resolved-build-for-round-tripping
-  ;; rf2-8t3ct / rf2-fmho5 — orient echoes the canonical resolved :build
-  ;; (the session-sticky target when :build is omitted) so the agent sees
-  ;; which build it oriented against.
+  ;; orient echoes the canonical resolved :build (the session-sticky
+  ;; target when :build is omitted) so the agent sees which build it
+  ;; oriented against.
   (async done
     (stub-eval! nil sample-summary)
     (-> (orient/orient-tool (fresh-conn) #js {})
@@ -159,7 +157,7 @@
 
 (deftest echoes-session-sticky-build-when-omitted
   ;; With a session target cached (a prior discover-app), orient with no
-  ;; :build arg resolves to AND echoes that sticky target (rf2-fmho5).
+  ;; :build arg resolves to AND echoes that sticky target.
   (async done
     (stub-eval! nil sample-summary)
     (let [conn (fresh-conn)]

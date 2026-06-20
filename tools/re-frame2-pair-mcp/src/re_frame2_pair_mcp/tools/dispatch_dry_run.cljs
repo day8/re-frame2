@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.dispatch-dry-run
-  "Tool: dispatch-dry-run — simulate a cascade without committing it (rf2-17hvp).
+  "Tool: dispatch-dry-run — simulate a cascade without committing it.
 
   Wraps the preload runtime's `dispatch-dry-run` primitive
   (`(rf/dispatch-dry-run event-v opts)`), which composes the
@@ -16,7 +16,7 @@
   app-db AND trims the assembled would-be epoch from the ring. There
   is no state change for the `--allow-writes` gate to protect against.
 
-  ## Why this IS `--allow-sensitive-reads`-gated (rf2-z7roa)
+  ## Why this IS `--allow-sensitive-reads`-gated
 
   Dry-run mutates nothing, but it is an AI-facing READ surface: the
   happy-path envelope returns the would-be app-db verbatim under
@@ -26,10 +26,10 @@
   from app-db, so a stock MCP session could leak those to the model
   even though the `--allow-sensitive-reads` default is OFF.
 
-  The fix reuses the EXISTING read-surface posture (snapshot /
-  get-path / subscribe, rf2-c2dtu / rf2-vflrg) rather than minting a
-  new confirmation gate. The two egress slots egress under DIFFERENT
-  policies because they are different keyspaces:
+  It reuses the read-surface posture of snapshot / get-path /
+  subscribe rather than minting a new confirmation gate. The two egress
+  slots egress under DIFFERENT policies because they are different
+  keyspaces:
 
     - `:db-state-after-simulation` (the would-be app-db) is run
       through `re-frame.core/elide-wire-value` SERVER-SIDE (app-side,
@@ -51,7 +51,7 @@
       prove them safe. This is the same leak class as an epoch
       record's `:effects[*].args`, which `projected-record` already
       FAILS CLOSED off-box (`elide-effect-row`). Consistency wins
-      (rf2-6to9xj, EP-0015 §13 residual): off-box egress fails closed
+      (EP-0015 §13): off-box egress fails closed
       here too — `:args` redacts to `:rf/redacted` for EVERY recorded
       fx BY DEFAULT, while the value-free row structure (`:fx-id`, the
       effect kind) rides through so the operator still sees WHICH
@@ -66,9 +66,9 @@
     - `:cascade-summary` is a depth-bounded projection (path lists +
       counts, not verbatim values) so it rides through unwalked, the
       same way `dispatch` / `replace-app-db` / `restore-epoch` surface
-      it (rf2-6yqdl).
+      it.
 
-  ## Raw-state tap signal (rf2-z7roa / rf2-c2dtu)
+  ## Raw-state tap signal
 
   The dry-run primitive internally calls `restore-epoch` to roll back,
   and the preload's tap-emitting surfaces default to RAW payloads until
@@ -78,7 +78,7 @@
   the runtime's tap consumers see the gated (default-elided) posture
   too — not just the wire payload.
 
-  ## event arg is EDN data (rf2-vflrg posture)
+  ## event arg is EDN data
 
   Identical to `dispatch` — the `event` arg is parsed as EDN
   server-side and required to be a vector. Host-form source
@@ -95,7 +95,7 @@
   happen if the http call resolved to this stub response?') without
   losing the dry-run's roll-back guarantee.
 
-  ## Accepts scripted recordable coeffects (rf2-3q7gep · EP-0017)
+  ## Accepts scripted recordable coeffects (EP-0017)
 
   EP-0017 makes `:rf.cofx` a first-class dispatch edge for exact
   recordable facts (`:rf/time-ms`, provided boundary facts, and
@@ -157,7 +157,7 @@
 
 (defn- redact-fx-args-src
   "CLJS source for a fn that FAIL-CLOSES the `:would-fire-effects[*]
-  :args` slot of the runtime envelope (rf2-6to9xj, EP-0015 §13 residual).
+  :args` slot of the runtime envelope (EP-0015 §13).
 
   Each recorded fx call's `:args` is the RAW fx-handler argument — an
   HTTP request body, a dispatched event vector, a payment map. These are
@@ -198,7 +198,7 @@
 
 (defn- elide-envelope-src
   "CLJS source for a fn that walks the runtime envelope's app-db-rooted
-  egress slot through `re-frame.core/elide-wire-value` (rf2-z7roa):
+  egress slot through `re-frame.core/elide-wire-value`:
 
     - `:db-state-after-simulation` — the would-be app-db verbatim.
 
@@ -210,13 +210,13 @@
   The `:would-fire-effects[*].args` slot is NOT walked here — those are
   RAW fx-handler args (HTTP bodies, dispatched event vectors, payment
   maps) that are NOT app-db-rooted, so the walker cannot prove them safe.
-  They fail closed via `redact-fx-args-src` (rf2-6to9xj), matching
+  They fail closed via `redact-fx-args-src`, matching
   `projected-record`'s `:effects[*].args` posture, independently of
   whether this size-elision walker runs at all.
 
   `:cascade-summary` is a depth-bounded projection (path lists + counts,
   not verbatim values) and is intentionally NOT walked, matching the
-  other cascade-summary surfaces (rf2-6yqdl).
+  other cascade-summary surfaces.
 
   Only the happy-path envelope (`:ok? true`) carries the db slot, so a
   soft-failure envelope (`:no-epoch-recorded` / `:no-new-epoch`) flows
@@ -241,8 +241,8 @@
   (let [event-str    (wire/arg raw-args :event)
         build-id     (wire/arg-build conn raw-args)
         frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        ;; rf2-hf7m9j — coerce override VALUES (colon-prefixed string ->
-        ;; keyword) and REJECT any other value. A raw `js->clj
+        ;; Coerce override VALUES (colon-prefixed string -> keyword) and
+        ;; REJECT any other value. A raw `js->clj
         ;; :keywordize-keys true` leaves a `{":http": ":stub-http"}`
         ;; target as the string `":stub-http"`, which core silently falls
         ;; through to the original fx — for dry-run that defeats the
@@ -250,8 +250,8 @@
         ;; recording stub and fire the real effect). See `parse-fx-overrides`.
         fx-r         (args/parse-fx-overrides (wire/arg raw-args :fx-overrides))
         fx-overrides (when (= :ok (first fx-r)) (second fx-r))
-        ;; rf2-3q7gep · EP-0017 — caller-scripted recordable coeffects, the
-        ;; same data-not-source gate `dispatch` already carries. The agent
+        ;; EP-0017 — caller-scripted recordable coeffects, the
+        ;; same data-not-source gate `dispatch` carries. The agent
         ;; supplies `cofx "{:rf/time-ms …}"` (EDN data, parsed by the SHARED
         ;; `args/parse-cofx`) so a dry-run of a time-dependent or
         ;; provided-cofx event runs against the EXACT causal token the
@@ -264,10 +264,10 @@
         ;; value the runtime's `:rf/dispatch-opts` validation would reject.
         cofx-r       (args/parse-cofx (wire/arg raw-args :cofx))
         cofx         (when (= :ok (first cofx-r)) (second cofx-r))
-        ;; rf2-z7roa — dry-run is an AI-facing READ surface (it returns
-        ;; the would-be app-db + recorded fx args). Gate its egress on
-        ;; the SAME `--allow-sensitive-reads` posture as snapshot /
-        ;; get-path / subscribe (rf2-c2dtu / rf2-vflrg). Gate OFF (the
+        ;; Dry-run is an AI-facing READ surface (it returns the would-be
+        ;; app-db + recorded fx args). Gate its egress on the SAME
+        ;; `--allow-sensitive-reads` posture as snapshot / get-path /
+        ;; subscribe. Gate OFF (the
         ;; default) forces the walker on (`elision` true) and forces
         ;; sensitive slots to redact (`include-sensitive` false); gate
         ;; ON lets the per-call args win.
@@ -277,7 +277,7 @@
         incl?        (if (raw-state/raw-state-allowed?)
                        (args/parse-bool-arg raw-args :include-sensitive)
                        false)
-        ;; rf2-6to9xj — :would-fire-effects[*].args are RAW fx-handler
+        ;; :would-fire-effects[*].args are RAW fx-handler
         ;; arguments NOT rooted at app-db, so `elide-wire-value` cannot
         ;; prove them safe (same leak class as an epoch record's
         ;; :effects[*].args). Off-box egress FAILS CLOSED: :args redacts to
@@ -288,30 +288,30 @@
         incl-fx-args? (if (raw-state/raw-state-allowed?)
                         (args/parse-bool-arg raw-args :include-fx-args)
                         false)
-        ;; rf2-suoj2 — `elision-opts-edn` takes the walker-aligned
-        ;; `include-large?` polarity directly. MCP `elision` true =
-        ;; emit markers = `:include-large?` false; hence `(not elision?)`.
+        ;; `elision-opts-edn` takes the walker-aligned `include-large?`
+        ;; polarity directly. MCP `elision` true = emit markers =
+        ;; `:include-large?` false; hence `(not elision?)`.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)
-        ;; rf2-t55hxg.13 — fail-CLOSED: the size walker over the app-db-
-        ;; rooted `:db-state-after-simulation` slot runs UNLESS the caller
-        ;; opted into BOTH raw axes (`:elision false` AND `:include-sensitive
+        ;; Fail-CLOSED: the size walker over the app-db-rooted
+        ;; `:db-state-after-simulation` slot runs UNLESS the caller opted
+        ;; into BOTH raw axes (`:elision false` AND `:include-sensitive
         ;; true`). A bare `:elision false` still walks so a declared-
         ;; sensitive db slot redacts to `:rf/redacted` while large content
-        ;; passes. Pre-fix the walker gated on `elision?` alone, so a gate-
-        ;; ON `:elision false` leaked sensitive db state off-box. (The fx-
-        ;; args fail-close at stage 1 is independent and unaffected.)
+        ;; passes — a gate-ON `:elision false` must not leak sensitive db
+        ;; state off-box. (The fx-args fail-close at stage 1 is
+        ;; independent and unaffected.)
         walk?        (elision/walk-required? (not elision?) incl?)
         frame-edn    (if frame
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
         [tag payload] (parse-event-edn event-str)]
     (cond
-      ;; rf2-hf7m9j — reject an invalid fx-overrides target up front so a
+      ;; Reject an invalid fx-overrides target up front so a
       ;; string stub can't silently defeat the no-fx-execute guarantee.
       (= :err (first fx-r))
       (js/Promise.resolve (wire/err-text (second fx-r)))
 
-      ;; rf2-3q7gep · EP-0017 — a malformed `cofx` map (non-map / unreadable
+      ;; EP-0017 — a malformed `cofx` map (non-map / unreadable
       ;; / non-integer :rf/time-ms) short-circuits to an honest isError
       ;; before the dispatch eval, the same gate `dispatch` applies, rather
       ;; than threading a value the runtime would reject deep in the eval.
@@ -326,7 +326,7 @@
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides)
-                        ;; rf2-3q7gep · EP-0017 — thread the scripted
+                        ;; EP-0017 — thread the scripted
                         ;; recordable coeffects under the flat `:rf.cofx`
                         ;; opts key the router reads, exactly as `dispatch`
                         ;; does. The map is `pr-str`'d as an EDN literal by
@@ -339,7 +339,7 @@
             ;; transform it server-side in two composed stages (the walker
             ;; reaches the live elision registry only app-side):
             ;;
-            ;;   1. fx-args fail-close (rf2-6to9xj, ALWAYS) — the
+            ;;   1. fx-args fail-close (ALWAYS) — the
             ;;      `:would-fire-effects[*].args` slot carries RAW fx-handler
             ;;      arguments that are NOT app-db-rooted, so the size walker
             ;;      cannot prove them safe. Off-box egress fails closed:
@@ -348,7 +348,7 @@
             ;;      `:include-fx-args true`). This runs on BOTH the
             ;;      elision-on and elision-off paths — turning the size
             ;;      walker off must NOT re-leak the unprovable fx args.
-            ;;   2. size-elision walk (rf2-z7roa, when `elision?`) — the
+            ;;   2. size-elision walk (when `elision?`) — the
             ;;      app-db-rooted `:db-state-after-simulation` slot runs
             ;;      through `re-frame.core/elide-wire-value`; the marker
             ;;      count piggybacks on the same round-trip so the client
@@ -375,10 +375,10 @@
           conn build-id form :dispatch-dry-run-failed
           (fn [resp]
                      ;; Eval-form shape: `{:value <env> :elided-count N}`
-                     ;; (matching snapshot / get-path, rf2-e35a5). The
-                     ;; runtime fn ALWAYS returns a map, so an unwrapped
-                     ;; non-map `:value` means a degraded / pre-rf2-17hvp
-                     ;; runtime answered — surface it as `:unexpected-shape`.
+                     ;; (matching snapshot / get-path). The runtime fn
+                     ;; ALWAYS returns a map, so an unwrapped non-map
+                     ;; `:value` means a degraded runtime answered —
+                     ;; surface it as `:unexpected-shape`.
                      (let [new-shape? (and (map? resp) (contains? resp :elided-count))
                            env        (if new-shape? (:value resp) resp)
                            elided     (when new-shape? (:elided-count resp))
@@ -387,17 +387,16 @@
                                           (assoc env :elision elision?)
                                           {:elided (or elided 0)})
                                         {:ok? false :reason :unexpected-shape :value env})]
-                       ;; rf2-wdxyx3 finding 2 — a known-tool runtime
-                       ;; failure (`:ok? false`, e.g. the reducer rejected
-                       ;; the event / an interceptor early-returned →
-                       ;; `:no-new-epoch`, or a degraded runtime →
-                       ;; `:unexpected-shape`) MUST ride back as an
+                       ;; A known-tool runtime failure (`:ok? false`, e.g.
+                       ;; the reducer rejected the event / an interceptor
+                       ;; early-returned → `:no-new-epoch`, or a degraded
+                       ;; runtime → `:unexpected-shape`) rides back as an
                        ;; `isError` envelope, matching the dispatch /
                        ;; read-sub no-silent-success parity model and the
-                       ;; published wire contract. The old `ok-text` shape
-                       ;; let a non-landed dry-run read as green. The
-                       ;; structured `:reason`/`:hint` rides through
-                       ;; verbatim so the caller still sees why.
+                       ;; published wire contract — a non-landed dry-run
+                       ;; must not read as green. The structured
+                       ;; `:reason`/`:hint` rides through verbatim so the
+                       ;; caller still sees why.
                        (if (false? (:ok? result))
                          (wire/err-text result)
                          (wire/ok-text result)))))))))

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.handler-meta-test
-  "Unit tests for the `handler-meta` + `list-handlers` MCP tools (rf2-pctf8).
+  "Unit tests for the `handler-meta` + `list-handlers` MCP tools.
 
   Both tools build a CLJS form that calls into the preloaded runtime
   (`re-frame2-pair.runtime/registrar-describe` / `registrar-list` for
@@ -30,20 +30,19 @@
 ;; Helpers.
 ;;
 ;; The wire-envelope extractors live in `test-utils` (shared across
-;; suites, rf2-wnrpi). `args-js` is aliased to the shared `args->js`.
+;; suites). `args-js` is aliased to the shared `args->js`.
 ;;
-;; ## Stub lifetime — fixture-scoped, not Promise-chain-scoped (rf2-wb06a)
+;; ## Stub lifetime — fixture-scoped, not Promise-chain-scoped
 ;;
 ;; `with-canned-eval!` / `with-form-capture!` install a `cljs-eval-value`
-;; stub via a bare `set!` and DO NOT restore it in a per-call `.finally`;
-;; a `use-fixtures :each :after` step unconditionally restores the
-;; pristine original captured at ns-load. A `.finally`-scoped restore
-;; fires AFTER cljs.test's `done` has advanced to the next test, which in
-;; the full cross-namespace suite let a neighbour's late restore clobber
-;; another test's freshly-installed stub mid-eval — surfacing as a probe
-;; reaching the real socket fn (`first-positive-probe-runs-one-eval`
-;; flaking on `@calls = 0`). The fixture boundary closes that race — the
-;; same fix orient_test / invoke_test carry.
+;; stub via a bare `set!` and intentionally do NOT restore it in a
+;; per-call `.finally`; a `use-fixtures :each :after` step unconditionally
+;; restores the pristine original captured at ns-load. A `.finally`-scoped
+;; restore would fire AFTER cljs.test's `done` has advanced to the next
+;; test, which in the full cross-namespace suite would let a neighbour's
+;; late restore clobber another test's freshly-installed stub mid-eval —
+;; surfacing as a probe reaching the real socket fn. The fixture boundary
+;; closes that race; orient_test / invoke_test follow the same pattern.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private args-js tu/args->js)
@@ -119,14 +118,13 @@
 ;; The tool short-circuits on bad args BEFORE reaching `probe/ensure-runtime!`.
 ;; A nil conn never gets touched on these paths.
 ;;
-;; rf2-wnrpi: these six tests used to call `(.then p (fn [r] (is ...)))`
-;; from a SYNCHRONOUS deftest body — the deftest returned before the
-;; Promise resolved, so cljs.test recorded each as passed with ZERO
-;; assertions. The error-envelope contract for both tools was therefore
-;; effectively untested (a flipped `:invalid-kind` reason or an NPE on
-;; the nil conn would have passed green). Each now wraps the `.then` in
-;; `(async done ...)` so the assertions actually run before the test
-;; completes — mirroring `dispatch_test` / `probe_test`.
+;; Each test wraps its `.then` assertions in `(async done ...)` so the
+;; assertions actually run before the test completes — a synchronous
+;; deftest body would return before the Promise resolved, letting
+;; cljs.test record the test as passed with ZERO assertions. The
+;; error-envelope contract for both tools (a flipped `:invalid-kind`
+;; reason or an NPE on the nil conn) is therefore genuinely exercised,
+;; mirroring `dispatch_test` / `probe_test`.
 ;; ---------------------------------------------------------------------------
 
 (deftest handler-meta-rejects-missing-kind
@@ -215,22 +213,22 @@
           "drift here would make agents learn two vocabularies for one concept"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-l7vnd regression — handler-meta returns :ok? true with the real
-;; data as top-level keys; the bug shape was :ok? false :reason
-;; :unexpected-shape with the actual map embedded as an EDN string.
+;; Regression — handler-meta returns :ok? true with the real data as
+;; top-level keys, never :ok? false :reason :unexpected-shape with the
+;; actual map embedded as an EDN string.
 ;;
-;; Pre-rf2-l7vnd path the runtime emitted a map containing
-;; `:handler-fn <Function>`; `pr-str` rendered that as
-;; `#object[Function ...]`; nrepl's `read-edn-safe` couldn't parse it
-;; back; the tool body fell into `(not (map? v))` and stuffed the raw
-;; string under `:value`. Two complementary defences pin the fix:
+;; The hazard: a runtime meta map containing `:handler-fn <Function>`
+;; renders via `pr-str` as `#object[Function ...]`, which nrepl's
+;; `read-edn-safe` cannot parse back; a naive tool body would then fall
+;; into `(not (map? v))` and stuff the raw string under `:value`. Two
+;; complementary defences guard against that:
 ;;
-;;   - Runtime side (skills/re-frame2-pair/preload/...): dissoc'd
+;;   - Runtime side (skills/re-frame2-pair/preload/...): dissocs
 ;;     :handler-fn before returning. Pinned structurally by the
 ;;     babashka test `registrar_describe_test.clj`.
 ;;
-;;   - MCP tool side (here): defensive re-parse so a future runtime
-;;     slip emitting a stringified map still surfaces as :ok? true.
+;;   - MCP tool side (here): defensive re-parse so a runtime slip
+;;     emitting a stringified map still surfaces as :ok? true.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-canned-eval!
@@ -256,7 +254,7 @@
                     true
                     canned-handler-value))))]
     ;; Bare set!, NO per-call .finally restore — the :after fixture
-    ;; restores the pristine value (rf2-wb06a; see the ns header).
+    ;; restores the pristine value (see the ns header).
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn))))))
@@ -291,13 +289,12 @@
 
 (deftest handler-meta-unserializable-surfaces-structured
   (testing "rf2-qobqy: a runtime meta map that can't round-trip as EDN now rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
-    ;; The pre-rf2-qobqy path defensively re-parsed a stringified map.
-    ;; The typed result codec (rf2-qobqy) makes that obsolete: the
-    ;; RUNTIME classifies an unserializable meta map (a `#object`
-    ;; Function slot, a `#js {…}`) into a tagged `:rf.mcp/result
-    ;; :unserializable` envelope with a `:preview`. The tool surfaces
-    ;; the STRUCTURED error stamped with the requested kind/id — never
-    ;; the meta-map-as-string the old :unexpected-shape path carried.
+    ;; The typed result codec means the RUNTIME classifies an
+    ;; unserializable meta map (a `#object` Function slot, a `#js {…}`)
+    ;; into a tagged `:rf.mcp/result :unserializable` envelope with a
+    ;; `:preview`. The tool surfaces the STRUCTURED error stamped with
+    ;; the requested kind/id — never the meta-map-as-string a
+    ;; :unexpected-shape path would carry.
     (async done
       (let [tagged {:rf.mcp/result :unserializable
                     :type "object"
@@ -371,7 +368,7 @@
                   (js/Promise.resolve true)
                   (do (reset! form-atom form-str) (js/Promise.resolve canned)))))]
     ;; Bare set!, NO per-call .finally restore — the :after fixture
-    ;; restores the pristine value (rf2-wb06a; see the ns header).
+    ;; restores the pristine value (see the ns header).
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn))))))
@@ -408,26 +405,24 @@
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0016 resource kinds — happy-path EXECUTION coverage (rf2-uydhif).
+;; EP-0016 resource kinds — happy-path EXECUTION coverage.
 ;;
 ;; The descriptor tests above pin the resources kinds in the enum vocab.
-;; But every happy-path EXECUTION fixture used kind "event" — nothing
-;; proved that handler-meta / list-handlers actually accept "resource",
-;; "mutation", and "resource-scope", route them through the registrar
-;; (NOT the :machine wrapper or a wrong-kind path), and stamp the
-;; requested :kind / :id back onto the response. A renamed id, a kind
+;; These tests prove handler-meta / list-handlers actually accept
+;; "resource", "mutation", and "resource-scope", route them through the
+;; registrar (NOT the :machine wrapper or a wrong-kind path), and stamp
+;; the requested :kind / :id back onto the response. A renamed id, a kind
 ;; dropped from `registrar-kinds`, or a kind silently mis-routed through
-;; `machine-form` would have passed green. These close that gap by
-;; driving each EP-0016 kind through the tool with a canned runtime
-;; response and asserting (a) the kind is accepted (not :invalid-kind),
-;; (b) the emitted form routes through the registrar-describe /
-;; registrar-list path (never machine-meta / machines), and (c) the
-;; requested kind/id ride back stamped on the response.
+;; `machine-form` would fail here. Each EP-0016 kind is driven through
+;; the tool with a canned runtime response, asserting (a) the kind is
+;; accepted (not :invalid-kind), (b) the emitted form routes through the
+;; registrar-describe / registrar-list path (never machine-meta /
+;; machines), and (c) the requested kind/id ride back stamped on the
+;; response.
 ;;
-;; One focused test per (tool, kind) — the existing file's one-concern
-;; style. Each drives a single canned eval; no multi-case reduce/async
-;; interplay. The stubs restore via the fixture (rf2-wb06a), not a
-;; per-call .finally.
+;; One focused test per (tool, kind) — the file's one-concern style.
+;; Each drives a single canned eval; no multi-case reduce/async
+;; interplay. The stubs restore via the fixture, not a per-call .finally.
 ;; ---------------------------------------------------------------------------
 
 (defn- handler-meta-accepts-kind-test
@@ -594,7 +589,7 @@
     (async done (list-handlers-routes-through-registrar-list-test "resource-scope" ":resource-scope" done))))
 
 ;; ---------------------------------------------------------------------------
-;; Frame-targeting — the EP-0023 forward direction (rf2-srobm0).
+;; Frame-targeting — the EP-0023 forward direction.
 ;;
 ;; The OPTIONAL `:frame` arg re-keys the lookup through THAT frame's running
 ;; image generation — routing through the per-frame runtime fns

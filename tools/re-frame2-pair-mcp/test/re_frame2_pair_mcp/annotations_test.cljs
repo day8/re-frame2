@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.annotations-test
-  "Pin rf2-94p8q — every MCP tool descriptor MUST carry an
+  "Every MCP tool descriptor MUST carry an
   `:annotations` map advertising the MCP tool-annotation hints
   (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`). Agent hosts use these to auto-approve read-only
@@ -43,10 +43,9 @@
               (str "annotations on tool " name " is not a JS object")))))))
 
 (deftest classification-matrix-matches-bead
-  (testing "annotation matrix matches the rf2-94p8q matrix"
-    ;; Spot-check the key classifications from the bead. A future
-    ;; rebalance is a behaviour change, not an accident — this test
-    ;; surfaces it.
+  (testing "annotation matrix matches the classification matrix"
+    ;; Spot-check the key classifications. A future rebalance is a
+    ;; behaviour change, not an accident — this test surfaces it.
     (let [by-name (into {} (map (juxt :name :annotations)) tools/tool-descriptors)]
       ;; Read-only tools
       (doseq [n ["discover-app" "snapshot" "get-path" "trace-window"

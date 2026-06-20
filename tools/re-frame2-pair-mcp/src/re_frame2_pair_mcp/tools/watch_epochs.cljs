@@ -5,7 +5,7 @@
   aren't streaming — we return one bundle of matches per call. Callers
   that want a tight loop call us repeatedly with the same `since-id`.
 
-  Cursor pagination (rf2-kbqq3): a single poll's matches vector is
+  Cursor pagination: a single poll's matches vector is
   bounded by `:limit` (default 50). When more matches remain in the
   current ring, `:next-cursor` rides the response — the agent calls
   back with the cursor to consume the remainder. The cursor is the
@@ -13,11 +13,11 @@
   `:cursor` takes precedence (it carries sticky pred/frame state).
 
   Post-eval shrink pipeline lives in
-  `re-frame2-pair-mcp.tools.wire-pipeline` (rf2-ae8ie). This tool body
+  `re-frame2-pair-mcp.tools.wire-pipeline`. This tool body
   builds the eval form, awaits the runtime response, and routes the
   matches vector through `run-wire-pipeline` with `:kind :epoch-vector`.
 
-  ## Empty-result advisory (rf2-fb4hn)
+  ## Empty-result advisory
 
   When the response would carry `:count 0` but the frame's per-frame
   epoch-history is non-empty, an `:advisory` rides on the envelope
@@ -39,26 +39,24 @@
 
 (defn watch-epochs-tool [conn raw-args]
   (let [build-id  (wire/arg-build conn raw-args)
-        ;; rf2-lbm21 — colon-tolerant `:frame` coercion (the shared
+        ;; Colon-tolerant `:frame` coercion (the shared
         ;; `fresh-keyword` path) so a `:rf/default`-with-colon frame-id
         ;; resolves instead of minting the malformed `::rf/default`.
-        ;; Same fix rf2-ldfnx applied to dispatch.
+        ;; Same coercion `dispatch` uses.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         since-id  (wire/arg raw-args :since-id)
-        ;; rf2-c2dtu / rf2-p1qli — the `--allow-sensitive-reads` boot gate
+        ;; The `--allow-sensitive-reads` boot gate
         ;; forces `:include-sensitive false` when OFF (the default), via
         ;; the single intention-naming predicate `raw-state-allowed?`
         ;; (positive sense — true when operator opted in at launch).
-        ;; rf2-6wvh5 — Pull-mode
-        ;; `watch-epochs` egresses full epoch records carrying
+        ;; Pull-mode `watch-epochs` egresses full epoch records carrying
         ;; `:db-before` / `:db-after` (and `:trigger-event` /
-        ;; `:trace-events`) app-db snapshots; before rf2-6wvh5 they rode
-        ;; the wire verbatim. The fix routes each egressed record through
-        ;; `re-frame.core/projected-record` — the framework's single
-        ;; normative off-box-egress emission site (Security.md §Epoch
-        ;; privacy posture).
-        ;; rf2-m9duxl — `incl?` (gate-ON + explicit `:include-sensitive
-        ;; true`) NO LONGER bypasses projection. It is threaded as the
+        ;; `:trace-events`) app-db snapshots. Each egressed record routes
+        ;; through `re-frame.core/projected-record` — the framework's
+        ;; single normative off-box-egress emission site (Security.md
+        ;; §Epoch privacy posture).
+        ;; `incl?` (gate-ON + explicit `:include-sensitive
+        ;; true`) does NOT bypass projection. It is threaded as the
         ;; `{:include-sensitive? true}` egress opt INTO `projected-record`,
         ;; lifting ONLY the app-db sensitive axis; the orthogonal fx-args /
         ;; runtime-db / large axes and the app `:redact-fn` stay
@@ -80,14 +78,14 @@
             ;; so the agent's continuation flow stays consistent.
             effective-after (or (:after-id cursor-in) since-id)
             sticky-frame    (or (:frame cursor-in) frame)
-            ;; rf2-mb17rj — sticky `:pred`, mirroring the
+            ;; Sticky `:pred`, mirroring the
             ;; `:frame`/`:after-id` pattern above and trace-window's
             ;; sticky `:ms`/`:until-ms`. The cursor encodes the
             ;; first-call predicate; a continuation that passes back
             ;; ONLY `:cursor` (the documented opaque-cursor flow)
-            ;; restores it here. Without this, page 2+ fell back to
+            ;; restores it here. Without it, page 2+ would fall back to
             ;; `(or pred-map {})` = `{}` = MATCH-ALL — every epoch
-            ;; after the watermark returned unfiltered, with an
+            ;; after the watermark would return unfiltered, with an
             ;; envelope identical to a correctly-filtered page so the
             ;; agent couldn't detect the drop.
             sticky-pred     (or (:pred cursor-in) pred-arg)
@@ -102,10 +100,10 @@
             history-call (if sticky-frame
                            (ef/rt-call 'epoch-history sticky-frame)
                            (ef/rt-call 'epoch-history))
-            ;; rf2-6wvh5 — the `:pred` filter runs on the RAW records
+            ;; The `:pred` filter runs on the RAW records
             ;; server-side (never egressed); the capped `:page` is the
             ;; egress slice, ALWAYS projected via `projected-record` for
-            ;; off-box egress. rf2-m9duxl — `incl?` threads
+            ;; off-box egress. `incl?` threads
             ;; `{:include-sensitive? true}` INTO the projection (app-db
             ;; sensitive axis only), it does NOT disable projection.
             page-src       (str "(vec (take " limit " matches))")
@@ -116,7 +114,7 @@
                       'page          (ef/rt-raw (egress/project-page-src page-src incl?))
                       'next-id       (ef/rt-raw
                                        "(when (< (count page) (count matches)) (:epoch-id (last page)))")
-                      ;; rf2-fb4hn: history-count surfaces the
+                      ;; history-count surfaces the
                       ;; per-frame ring depth so the tool can advise
                       ;; on the \"empty matches but non-empty history\"
                       ;; case the operator typically misreads as
@@ -157,7 +155,7 @@
                                          :ms       nil
                                          :until-ms nil
                                          :frame    sticky-frame
-                                         ;; rf2-mb17rj — carry the sticky
+                                         ;; Carry the sticky
                                          ;; predicate so page 2+ keeps
                                          ;; filtering. nil when no pred was
                                          ;; supplied (round-trips losslessly
@@ -166,7 +164,7 @@
                       remaining     (or (:remaining v) 0)
                       history-count (or (:history-count v) 0)
                       since-count   (or (:since-count v) 0)
-                      ;; rf2-fb4hn: two distinct empty-result
+                      ;; Two distinct empty-result
                       ;; explainers, picked by the runtime data:
                       ;;
                       ;;   - since-count = 0 + history-count > 0

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.with-indicators-test
-  "Conformance gate for `wire/with-indicators` (rf2-n505f).
+  "Conformance gate for `wire/with-indicators`.
 
   ## The MUST rule
 
@@ -28,11 +28,7 @@
     that walks a tree-typed payload references `with-indicators`.
     A new tool that walks a payload but bypasses the helper would
     only be caught by hand-review today; this test makes the bypass
-    a build failure.
-
-  Round-1 TE8 (rf2-zjqh8) flagged the missing test; rf2-n505f
-  promoted it to P0 after round-2 confirmed the choke-point had
-  stabilised."
+    a build failure."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.wire :as wire]))
@@ -152,9 +148,9 @@
 (deftest subscribe-emit-site-routes-through-with-indicators
   ;; Subscribe emits indicators on each progress tick AND on the
   ;; final result. Either site routes through with-indicators; the
-  ;; module-level grep is fine. Post rf2-zkca8.3 the emit helpers
-  ;; (progress-payload, emit-progress-tick!, final-summary) live
-  ;; in subscribe.cljs alongside the streaming-loop body.
+  ;; module-level grep is fine. The emit helpers (progress-payload,
+  ;; emit-progress-tick!, final-summary) live in subscribe.cljs
+  ;; alongside the streaming-loop body.
   (let [src (read-source "src/re_frame2_pair_mcp/tools/subscribe.cljs")]
     (is (contains-with-indicators? src)
         "subscribe.cljs MUST route its envelope through wire/with-indicators")))

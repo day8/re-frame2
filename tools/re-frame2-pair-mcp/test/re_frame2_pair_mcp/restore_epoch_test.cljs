@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.restore-epoch-test
-  "Unit tests for the restore-epoch tool (rf2-ee38b.18).
+  "Unit tests for the restore-epoch tool.
 
   Time-travel undo — rewinds a frame's whole frame-state (BOTH app-db
   and runtime-db) to a recorded prior epoch's `:frame-state-after` via
@@ -25,13 +25,13 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; The tool now issues TWO evals on the happy path: the
-;; `configure-raw-state!` signal (raw-state/signal-runtime!, rf2-6nks4)
-;; and the `restore-epoch` form. The stub matches by substring — the
-;; configure eval resolves to nil (swallowed); the restore eval resolves
-;; to `canned-value`. `captured*` records the LAST non-configure form
-;; (the restore form) so the existing form-shape assertions keep working;
-;; `with-captured-all!` (below) records EVERY form for ordering tests.
+;; The tool issues TWO evals on the happy path: the
+;; `configure-raw-state!` signal (raw-state/signal-runtime!) and the
+;; `restore-epoch` form. The stub matches by substring — the configure
+;; eval resolves to nil (swallowed); the restore eval resolves to
+;; `canned-value`. `captured*` records the LAST non-configure form (the
+;; restore form) so the form-shape assertions work; `with-captured-all!`
+;; (below) records EVERY form for ordering tests.
 (defn- with-captured-eval!
   [captured* canned-value body-fn]
   (let [orig nrepl/cljs-eval-value
@@ -51,7 +51,7 @@
 
 (defn- with-captured-all!
   "Record EVERY emitted form (configure + restore) in order, so a test
-  can assert the raw-state signal precedes the restore eval (rf2-6nks4)."
+  can assert the raw-state signal precedes the restore eval."
   [forms* canned-value body-fn]
   (let [orig nrepl/cljs-eval-value
         run  (fn [form-str]
@@ -167,10 +167,10 @@
 
 (deftest surfaces-restore-rejected-when-runtime-returns-false
   ;; restore-epoch returns false on any failure (aged-out id,
-  ;; drain-in-flight, …); the app-db is unchanged. rf2-or8s29: this
-  ;; soft failure is NOT a terminal-empty outcome — the write did not
-  ;; land — so it MUST ride as an isError result carrying the reason,
-  ;; not a success-shaped envelope the host reads as a landed write.
+  ;; drain-in-flight, …); the app-db is unchanged. This soft failure is
+  ;; NOT a terminal-empty outcome — the write did not land — so it MUST
+  ;; ride as an isError result carrying the reason, not a success-shaped
+  ;; envelope the host reads as a landed write.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!
@@ -188,11 +188,11 @@
                    (done)))))))
 
 (deftest surfaces-isError-when-runtime-returns-structured-failure-map
-  ;; rf2-or8s29 — a newer runtime can return a structured
-  ;; `{:ok? false :reason :restore-rejected ...}` map (not the legacy
-  ;; bare `false`). The tool MUST still route a `{:ok? false ...}` map
-  ;; to isError — passing the map through to `ok-text` would report a
-  ;; rejected restore as success.
+  ;; The runtime can return a structured
+  ;; `{:ok? false :reason :restore-rejected ...}` map (as well as a bare
+  ;; `false`). The tool MUST route a `{:ok? false ...}` map to isError —
+  ;; passing the map through to `ok-text` would report a rejected restore
+  ;; as success.
   (async done
     (let [failure-envelope {:ok? false :restored? false
                             :reason :restore-rejected
@@ -210,12 +210,11 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cascade summary (rf2-6yqdl) — the runtime's restore-epoch helper now
-;; returns a structured envelope on success carrying :cascade-summary +
+;; Cascade summary — the runtime's restore-epoch helper returns a
+;; structured envelope on success carrying :cascade-summary +
 ;; :unreplayable-effects. The tool passes the runtime map through
-;; unchanged when the runtime returned a map; falls back to the legacy
-;; envelope when the runtime returned plain `true` (pre-rf2-6yqdl
-;; runtimes).
+;; unchanged when the runtime returned a map; falls back to a synthesised
+;; envelope when the runtime returned plain `true`.
 ;; ---------------------------------------------------------------------------
 
 (deftest cascade-summary-passes-through-on-success
@@ -253,7 +252,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-6nks4 (finding-2) — sensitive cascade-summary :event-vector egress.
+;; Sensitive cascade-summary :event-vector egress.
 ;;
 ;; The runtime's restore-cascade-summary redacts the target epoch's raw
 ;; :event-vector to :rf/redacted when the epoch is sensitive AND the
@@ -326,9 +325,9 @@
                    (done)))))))
 
 (deftest legacy-true-runtime-falls-back-to-stub-envelope
-  ;; A pre-rf2-6yqdl runtime returns plain `true` on success. The tool
-  ;; falls back to the historical synthesised envelope so the wire
-  ;; stays sane even against an out-of-date preload.
+  ;; A runtime that returns plain `true` on success. The tool falls back
+  ;; to a synthesised envelope so the wire stays sane even against an
+  ;; out-of-date preload.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!

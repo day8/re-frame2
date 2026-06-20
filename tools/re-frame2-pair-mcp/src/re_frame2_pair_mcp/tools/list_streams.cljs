@@ -1,7 +1,6 @@
 (ns re-frame2-pair-mcp.tools.list-streams
   "Tool: list-streams — list active STREAMING-tap subscriptions opened
-  via `subscribe` (rf2-qicji; the streaming diagnostic formerly carried
-  by `list-subscriptions`).
+  via `subscribe`.
 
   ## What this answers
 
@@ -18,15 +17,13 @@
   (confirm the sub is still registered, check `:queue-depth` /
   `:overflow-reason` for evidence of a dead consumer).
 
-  ## rf2-qicji rename
+  ## Relationship to list-subscriptions
 
-  This tool is the streaming-tap diagnostic that `list-subscriptions`
-  used to be. rf2-qicji repointed `list-subscriptions` at the LIVE
-  reactive sub-cache (the answer to \"what reactive subscriptions are
-  active?\", matching `snapshot :sub-cache`); the streaming-tap
-  diagnostic kept its behaviour and moved here under an accurate name.
-  The two distinct concepts — reactive sub-cache vs streaming tap — no
-  longer share one name. No back-compat shim (pre-alpha).
+  This tool is the streaming-tap diagnostic. Its sibling
+  `list-subscriptions` reads the LIVE reactive sub-cache (the answer to
+  \"what reactive subscriptions are active?\", matching `snapshot
+  :sub-cache`). The two are distinct concepts — reactive sub-cache vs
+  streaming tap — each with its own accurately-named tool.
 
   Args (all optional):
     :topic   keyword or string — filter to a single topic
@@ -46,7 +43,7 @@
 (defn- filter-form
   "Build the per-sub `filterv` body — `subs` when no filters apply, a
   one-predicate `filterv` when exactly one, an `and`-combined chain
-  when both. The form is composed Clojure-side (rf2-ambfv) so the
+  when both. The form is composed Clojure-side so the
   runtime never sees `(if nil ...)` no-op branches for absent
   filters."
   [topic sub-id]

@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.tools.list-subscriptions
   "Tool: list-subscriptions — list the LIVE reactive subscriptions
-  materialised in a frame's per-frame sub-cache (rf2-qicji).
+  materialised in a frame's per-frame sub-cache.
 
   ## What this answers
 
@@ -11,30 +11,22 @@
   `sub-cache` fn) — the SAME accessor `snapshot :sub-cache` uses, so the
   two never disagree.
 
-  ## rf2-qicji — wrong-source → right-source
+  ## Relationship to list-streams
 
-  Before rf2-qicji this tool wrapped `re-frame2-pair.runtime/
-  subscription-info`, which reads the STREAMING-tap registry (the
-  trace / epoch / fx / error queues opened by `subscribe`). That
-  registry is empty unless a streaming `subscribe` is open, so
-  `list-subscriptions {frame :rf/default}` returned `{:subs []}` even
-  when the frame had live reactive subscriptions — a false-empty
-  correctness bug (the live evidence: `snapshot :sub-cache` showed
-  `[[\"mounted?\"]]` for the same frame while this tool said `[]`).
-
-  The fix routes `list-subscriptions` through `sub-cache-info` so it
-  reports the live reactive cache. The streaming-tap diagnostic was NOT
-  lost — it moved to the accurately-named `list-streams` tool (which
-  still wraps `subscription-info`). The two distinct concepts no longer
-  share one name.
+  `list-subscriptions` routes through `sub-cache-info`, reporting the
+  live reactive cache — the SAME source `snapshot :sub-cache` reads, so
+  the two never disagree. The complementary streaming-tap diagnostic
+  (the trace / epoch / fx / error queues opened by `subscribe`, read via
+  `subscription-info`) lives in the accurately-named `list-streams`
+  tool. The two are distinct concepts — reactive sub-cache vs streaming
+  tap — each with its own tool.
 
   ## Disposal
 
   The reactive sub-cache is ref-counted and live: an entry appears the
   moment a view subscribes and DISAPPEARS when the last consumer
   disposes the reaction. So a sub that's been disposed (its view
-  unmounted, no other subscribers) no longer shows up here — the
-  acceptance contract per rf2-qicji.
+  unmounted, no other subscribers) no longer shows up here.
 
   ## Args (all optional)
 
@@ -56,7 +48,7 @@
            :input-kind k :realized-inputs [...]} ...]`). Empty `:subs`
   vector when nothing is subscribed in the frame.
 
-  ## rf2-e3acps — realized parametric input egress
+  ## Realized parametric input egress
 
   `:include-values true` also surfaces each live entry's `:input-kind`
   (`:db` / `:static` / `:parametric`) and `:realized-inputs` — the
@@ -71,7 +63,7 @@
   raw — only the per-sub `:value` slot is run through the egress
   redaction walker below.
 
-  ## rf2-f1ose — `:include-values` egress redaction
+  ## `:include-values` egress redaction
 
   `:include-values true` ships each subscription's current `:value`
   (the deref) over the MCP wire. That value reads the SAME reactive
@@ -98,10 +90,10 @@
   (let [build-id (wire/arg-build conn raw-args)
         frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         ;; `:include-values` rides the shared bool-args accept-shape
-        ;; contract (rf2-c4fmh) — `true` / `"true"` / `"yes"` / ... all
+        ;; contract — `true` / `"true"` / `"yes"` / ... all
         ;; resolve; default false.
         incl-vals? (args/parse-bool-arg raw-args :include-values)
-        ;; rf2-f1ose — the `--allow-sensitive-reads` boot gate forces
+        ;; The `--allow-sensitive-reads` boot gate forces
         ;; `:elision true` + `:include-sensitive false` when OFF (the
         ;; default), mirroring snapshot / get-path. `incl-sensitive?`
         ;; threads into the walker's `:rf.size/include-sensitive?` opt;
@@ -125,13 +117,13 @@
                         (pr-str frame)
                         (ef/emit (ef/rt-call 'current-frame)))
         elision-opts  (elision/elision-opts-edn (not elision?) incl-sensitive?)
-        ;; rf2-t55hxg.13 — fail-CLOSED: walk UNLESS the caller opted into
+        ;; Fail-CLOSED: walk UNLESS the caller opted into
         ;; both raw axes (`:elision false` AND `:include-sensitive true`).
         ;; A bare `:elision false` still walks so a declared-sensitive sub
         ;; `:value` redacts to `:rf/redacted` while large content passes.
         walk?         (elision/walk-required? (not elision?) incl-sensitive?)
         base-call     (ef/emit (ef/rt-call 'sub-cache-info opts))
-        ;; rf2-f1ose — when values ride the wire AND the walker is
+        ;; When values ride the wire AND the walker is
         ;; required, map each `:subs` entry's `:value` through
         ;; `elide-wire-value` server-side before the result ships. The
         ;; query-vectors-only shape (`:include-values false`) carries no

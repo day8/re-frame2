@@ -1,15 +1,15 @@
 (ns re-frame2-pair-mcp.tools.record
-  "Tools: record + read-recording — first-class signal recorder (rf2-zo4b9).
+  "Tools: record + read-recording — first-class signal recorder.
 
   ## Why a recorder primitive
 
-  Intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing
-  race, only reproducible under real mouse input) need a recorder:
-  install an observer, let the human interact, read back a change-log.
-  That move used to be hand-built each session — a `requestAnimationFrame`
-  loop pushing focus-slot + DOM snapshots into `window.__zoombug`. It was
-  decisive but bespoke and footgun-prone (rAF timing, change-dedup,
-  teardown). This first-classes it.
+  Intermittent / human-in-the-loop bugs (a render-timing race only
+  reproducible under real mouse input) need a recorder: install an
+  observer, let the human interact, read back a change-log. `record`
+  first-classes that move so it needn't be hand-built each session as a
+  bespoke, footgun-prone `requestAnimationFrame` loop pushing focus-slot
+  + DOM snapshots into a global (rAF timing, change-dedup, teardown all
+  solved once here).
 
   ## The op pair
 
@@ -46,7 +46,7 @@
   reaches the browser runtime and has an observable side-effect on the
   runtime's recording registry, but no app-state mutation).
 
-  ## Off-box-egress redaction (rf2-8fin7.2)
+  ## Off-box-egress redaction
 
   Read-only addresses no-MUTATION, NOT sensitive-VALUE egress. The
   `{:app-db [path]}` / `{:sub [query-v]}` signals sample raw app-db-derived
@@ -127,9 +127,9 @@
   into the runtime predicate below). Unknown keys are dropped.
 
   Returns the tagged `[:ok m]` / `[:err :invalid-stop-edn]` shape
-  (mirroring `parse-filter-arg`, rf2-5kbkl / rf2-e2i29) so the caller can
-  surface a malformed `stop` EDN as an honest `:ok? false` error rather
-  than recording with the silent default window. The success shapes:
+  (mirroring `parse-filter-arg`) so the caller can surface a malformed
+  `stop` EDN as an honest `:ok? false` error rather than recording with
+  the silent default window. The success shapes:
 
     - `[:ok {}]`   — absent `stop` (runtime applies its default
                      wall-clock window).
@@ -139,12 +139,11 @@
 
   The failure shape `[:err :invalid-stop-edn]` is returned when a `stop`
   EDN STRING fails to `read-string`, OR reads cleanly but is not a map
-  (e.g. `\"[:ms 5000]\"`). Pre-rf2-e2i29 both branches silently collapsed
-  to `{}` — a typo'd `stop {:ms 5000}` (wanting a 5s window) silently got
-  the default window with no corrective signal, the same broken-success
-  shape rf2-5kbkl eliminated for the filter arg. The tag lets `record-tool`
-  short-circuit to the same honest-error envelope `:no-signals` already
-  uses, before touching the nREPL socket."
+  (e.g. `\"[:ms 5000]\"`). Surfacing the error rather than silently
+  collapsing to `{}` means a typo'd `stop {:ms 5000}` (wanting a 5s
+  window) gets a corrective signal instead of the default window. The
+  tag lets `record-tool` short-circuit to the same honest-error envelope
+  `:no-signals` already uses, before touching the nREPL socket."
   [raw]
   (cond
     (nil? raw)    [:ok {}]
@@ -166,8 +165,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The MCP surface takes a DATA predicate (EDN), never host source — the
-;; same injection-closing posture `dispatch` / `replace-app-db` adopted
-;; (rf2-vflrg). We compile the data predicate into a CLJS fn server-side-
+;; same injection-closing posture `dispatch` / `replace-app-db` adopt.
+;; We compile the data predicate into a CLJS fn server-side-
 ;; emitted-into-the-form so the runtime's `start-recording!` / `watch-until`
 ;; receives a real `:pred-fn`. The predicate map is matched against the
 ;; positional sample map `{<signal-index> <value>}`:
@@ -192,7 +191,7 @@
   always DATA, never host source: a hostile `:equals (js/alert \"x\")`
   becomes `(quote (js/alert \"x\"))` — compared as a literal list, never
   evaluated. Same injection-closing posture as `dispatch` /
-  `replace-app-db` (rf2-vflrg). The `:path` vector and the `:signal` index
+  `replace-app-db`. The `:path` vector and the `:signal` index
   are quoted / integer-coerced for the same reason."
   [pred]
   (when (map? pred)
@@ -244,7 +243,7 @@
   slot carries synthesised CLJS source, which can't ride the EDN-literal
   arg path).
 
-  rf2-8fin7.2 — `elision-opts` is the rendered `elision-opts-edn` walker
+  `elision-opts` is the rendered `elision-opts-edn` walker
   map (the `--allow-sensitive-reads` gate + per-call `:include-sensitive`
   posture). It rides as `:elide-opts` so the runtime's sampler elides
   each `:app-db` / `:sub` value for off-box egress before it lands in the
@@ -268,29 +267,29 @@
   (let [build-id    (wire/arg-build conn raw-args)
         frame       (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         signals     (parse-signals-arg (wire/arg raw-args :signals))
-        ;; rf2-e2i29 — `parse-stop-arg` returns the tagged
+        ;; `parse-stop-arg` returns the tagged
         ;; `[:ok m]` / `[:err :invalid-stop-edn]` shape (mirroring
-        ;; `parse-filter-arg`, rf2-5kbkl). A malformed `stop` EDN
-        ;; short-circuits to an honest `:ok? false` envelope below rather
-        ;; than silently collapsing to `{}` (the default wall-clock
-        ;; window) — a typo'd `stop {:ms 5000}` would otherwise record
-        ;; with the wrong stop condition and no corrective signal.
+        ;; `parse-filter-arg`). A malformed `stop` EDN short-circuits to
+        ;; an honest `:ok? false` envelope below rather than silently
+        ;; collapsing to `{}` (the default wall-clock window) — a typo'd
+        ;; `stop {:ms 5000}` would otherwise record with the wrong stop
+        ;; condition and no corrective signal.
         [stop-tag stop] (parse-stop-arg (wire/arg raw-args :stop))
         max-entries (let [m (wire/arg raw-args :max-entries)]
                       (when (and (number? m) (pos? m)) (long m)))
-        ;; rf2-8fin7.2 — the `:app-db` / `:sub` samples this recorder ships
-        ;; back via `read-recording` must be elided for off-box egress.
-        ;; Same gate posture as snapshot / get-path / trace-window
-        ;; (rf2-c2dtu / rf2-p1qli): the `--allow-sensitive-reads` boot gate
-        ;; forces `:include-sensitive false` + `:elision true` when OFF
-        ;; (the published default); gate ON honours the per-call args.
+        ;; The `:app-db` / `:sub` samples this recorder ships back via
+        ;; `read-recording` must be elided for off-box egress. Same gate
+        ;; posture as snapshot / get-path / trace-window: the
+        ;; `--allow-sensitive-reads` boot gate forces `:include-sensitive
+        ;; false` + `:elision true` when OFF (the published default);
+        ;; gate ON honours the per-call args.
         elision?    (if (raw-state/raw-state-allowed?)
                       (args/parse-bool-arg raw-args :elision)
                       true)
         incl?       (if (raw-state/raw-state-allowed?)
                       (args/parse-bool-arg raw-args :include-sensitive)
                       false)
-        ;; rf2-suoj2 polarity — MCP `elision` true = emit markers =
+        ;; Polarity — MCP `elision` true = emit markers =
         ;; `:include-large?` false, hence `(not elision?)`.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)]
     (cond
@@ -301,10 +300,10 @@
            :hint (str "usage: record {signals '[{:focus true} {:dom \"#count\"} "
                       "{:app-db [:cart :items]}]' [stop {:ms 30000}] [frame :rf/default]}")}))
 
-      ;; rf2-e2i29 — the `stop` EDN failed to parse (or read clean but
-      ;; non-map). Surface an honest `:ok? false` error (same
-      ;; one-cond-branch shape as `:no-signals` above) instead of
-      ;; recording with the silent default window. No nREPL socket touched.
+      ;; The `stop` EDN failed to parse (or read clean but non-map).
+      ;; Surface an honest `:ok? false` error (same one-cond-branch shape
+      ;; as `:no-signals` above) instead of recording with the silent
+      ;; default window. No nREPL socket touched.
       (= :err stop-tag)
       (js/Promise.resolve
         (wire/err-text
@@ -316,11 +315,11 @@
 
       :else
       (let [form (start-recording-form signals stop frame max-entries elision-opts)]
-        ;; rf2-8fin7.2 — the signalled prelude inserts `signal-runtime!`
-        ;; between `ensure-runtime!` and the eval (the raw-state tap gate,
-        ;; rf2-c2dtu) so the runtime is in the OFF posture before the
-        ;; background sampler ticks. The plain `eval-after-runtime!` skips
-        ;; the signal step, so this uses the `-signalled!` sibling.
+        ;; The signalled prelude inserts `signal-runtime!` between
+        ;; `ensure-runtime!` and the eval (the raw-state tap gate) so the
+        ;; runtime is in the OFF posture before the background sampler
+        ;; ticks. The plain `eval-after-runtime!` skips the signal step,
+        ;; so this uses the `-signalled!` sibling.
         (probe/eval-after-runtime-signalled!
           conn build-id form :record-failed
           (fn [envelope] (wire/ok-text envelope)))))))

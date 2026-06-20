@@ -1,9 +1,9 @@
 (ns re-frame2-pair-mcp.elision-test
-  "Unit tests for the size-elision wire-marker integration (rf2-urjnc).
+  "Unit tests for the size-elision wire-marker integration.
 
   Per `tools/re-frame2-pair-mcp/spec/Principles.md` §\"Size-elision wire markers\",
   the `snapshot` and `get-path` tools call
-  `re-frame.core/elide-wire-value` (rf2-v9tw2) server-side inside the
+  `re-frame.core/elide-wire-value` server-side inside the
   CLJS eval form before any payload crosses the wire. A declared
   `:large?` slot or an over-threshold leaf is substituted with a
   `{:rf.size/large-elided {:path [...] :handle [:rf.elision/at <path>]
@@ -18,7 +18,7 @@
   aren't surfaced as standalone public fns.
 
   `:elision` MCP-arg normalisation lives on the shared table-driven
-  parser (`re-frame2-pair-mcp.tools.args/parse-bool-arg`, rf2-c4fmh);
+  parser (`re-frame2-pair-mcp.tools.args/parse-bool-arg`);
   see `re-frame2-pair-mcp.args-test` for the coverage.
 
   Live end-to-end coverage runs against a real shadow-cljs build via
@@ -33,7 +33,7 @@
 ;; ---------------------------------------------------------------------------
 ;; elision-opts-edn — EDN-render the walker's opts map for inlining.
 ;;
-;; Post-rf2-suoj2: the helper takes walker-aligned `include-large?` /
+;; The helper takes walker-aligned `include-large?` /
 ;; `include-sensitive?` polarities (both pass-through booleans — true
 ;; ⇒ walker leaves the slot alone). Call sites convert from the MCP
 ;; arg `elision` (operator-facing on/off) via `(not elision?)`.
@@ -41,7 +41,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; walk-required? — the fail-CLOSED predicate gating the per-slot walker
-;; on every AI-facing read surface (EP-0015, rf2-t55hxg.13).
+;; on every AI-facing read surface (EP-0015).
 ;;
 ;; The walker is the ONLY thing on the direct-read surfaces that redacts a
 ;; frame-declared-sensitive slot. It MUST run unless the caller opted into
@@ -54,8 +54,8 @@
   (testing "off-box default (both false) ⇒ walk (sensitive + large redact)"
     (is (true? (elision/walk-required? false false))))
   (testing "bare :elision false (large in, sensitive NOT opted in) ⇒ STILL walk"
-    ;; This is the rf2-t55hxg.13 fix: pre-fix this combination skipped the
-    ;; walker and leaked sensitive slots off-box.
+    ;; Fail-closed: this combination walks the slot so sensitive content
+    ;; never leaks off-box.
     (is (true? (elision/walk-required? true false))))
   (testing "sensitive opt-in but large elides (include-large? false) ⇒ walk"
     (is (true? (elision/walk-required? false true))))
@@ -89,7 +89,7 @@
       (is (contains? parsed :rf.size/include-large?)))))
 
 ;; ---------------------------------------------------------------------------
-;; Eval-form composition for snapshot-tool (rf2-urjnc).
+;; Eval-form composition for snapshot-tool.
 ;;
 ;; The snapshot-tool builds a CLJS eval form sent over nREPL. With
 ;; elision enabled, the form wraps `(re-frame2-pair.runtime/snapshot-state
@@ -107,28 +107,28 @@
 (defn- build-snapshot-form
   "Mirror of the snapshot-tool's eval-form composition. Two arms:
   elision on/off. Keep in lockstep with `snapshot-tool` in
-  `tools/snapshot.cljs`. Post-rf2-e35a5 both arms wrap the snapshot
+  `tools/snapshot.cljs`. Both arms wrap the snapshot
   in `{:value <snap> :elided-count N}` so the count piggybacks on
   the same nREPL round-trip — no separate client-side walk.
 
-  Post-rf2-vflrg the walker fires on BOTH `:app-db` and `:sub-cache`
+  The walker fires on BOTH `:app-db` and `:sub-cache`
   slices and threads `include-sensitive?` into the walker's
   `:rf.size/include-sensitive?` opt.
 
-  Post-rf2-jj1xer (EP-0001 ruling #14) the elision-on branch ALSO
+  Per EP-0001 ruling #14 the elision-on branch ALSO
   default-redacts the `:machines` slice (runtime-db-partition state) to
   `:rf/redacted` unless the operator opted in (`include-sensitive?` true
   here mirrors the production `incl?` opt-in axis)."
   ([opts elision?] (build-snapshot-form opts elision? false))
   ([opts elision? include-sensitive?]
-   ;; rf2-suoj2 — helper takes walker-aligned `include-large?`; flip
+   ;; Helper takes walker-aligned `include-large?`; flip
    ;; from the MCP-arg `elision?` polarity here, mirroring the
    ;; production call site in `tools/snapshot.cljs`.
    (let [elision-opts-form (elision/elision-opts-edn (not elision?) include-sensitive?)
-         ;; rf2-jj1xer — runtime-db (`:machines`) is redacted off-box by
+         ;; Runtime-db (`:machines`) is redacted off-box by
          ;; default; the opt-in axis is `incl?` (here `include-sensitive?`).
          redact-runtime-db? (not include-sensitive?)
-         ;; rf2-t55hxg.13 — fail-CLOSED: the per-slot walker over
+         ;; Fail-CLOSED: the per-slot walker over
          ;; `:app-db` / `:sub-cache` runs UNLESS the caller opted into BOTH
          ;; raw axes (`:elision false` ⇒ include-large? true AND
          ;; `:include-sensitive true`). A bare `:elision false` still walks
@@ -136,7 +136,7 @@
          walk-slices?       (elision/walk-required? (not elision?) include-sensitive?)
          ;; The whole reduction fires when ANY transform is active.
          walk-snapshot?     (or walk-slices? redact-runtime-db?)
-         ;; rf2-3bu3d.6 — on the `:app` default scope the form piggybacks
+         ;; On the `:app` default scope the form piggybacks
          ;; the excluded reserved tool frames; off that path it is `[]`.
          tool-frames-form (if (= :app (:frames opts))
                             "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
@@ -173,11 +173,11 @@
             " :tool-frames-excluded " tool-frames-form "}")))))
 
 (deftest snapshot-form-full-raw-opt-in-wraps-bare-snap-with-zero-count
-  ;; Post-rf2-e35a5: even with no transforms active, the form returns the
+  ;; Even with no transforms active, the form returns the
   ;; `{:value v :elided-count N}` envelope so the wire-pipeline doesn't
   ;; need a branched response shape.
   ;;
-  ;; rf2-t55hxg.13 — the bare-snap (no walker) path is reached ONLY on the
+  ;; The bare-snap (no walker) path is reached ONLY on the
   ;; full-raw opt-in: `:elision false` (include-large? true) AND
   ;; `:include-sensitive true`. A bare `:elision false` (the third arg
   ;; left false) STILL walks — see snapshot-form-bare-elision-false-still-walks.
@@ -195,11 +195,11 @@
     (is (not (re-find #":machines :rf/redacted" form)))))
 
 (deftest snapshot-form-bare-elision-false-still-walks
-  ;; rf2-t55hxg.13 — fail-CLOSED. A BARE `:elision false` (no sensitive
+  ;; Fail-CLOSED. A BARE `:elision false` (no sensitive
   ;; opt-in) STILL routes `:app-db` / `:sub-cache` through the walker:
   ;; large content passes (`include-large? true`) but a declared-sensitive
-  ;; slot redacts (`include-sensitive? false`). Pre-fix this skipped the
-  ;; walker entirely — the EP-0015 sensitive bypass.
+  ;; slot redacts (`include-sensitive? false`). This guards the EP-0015
+  ;; sensitive-bypass surface.
   (let [form (build-snapshot-form {:frames :all
                                    :include [:app-db :sub-cache]}
                                   false   ; elision off (include-large? true)
@@ -231,7 +231,7 @@
     (is (re-find #":rf\.size/include-large\? false" form))))
 
 (deftest snapshot-form-walks-both-app-db-and-sub-cache
-  ;; rf2-vflrg — the snapshot eval form now walks BOTH `:app-db` AND
+  ;; The snapshot eval form walks BOTH `:app-db` AND
   ;; `:sub-cache` slices through `elide-wire-value`. Per Tool-Pair
   ;; §Direct-read privacy posture, the `sub-cache` direct-read surface
   ;; MUST route through the wire walker with off-box defaults.
@@ -253,9 +253,9 @@
     (is (not (re-find #"contains\? fmap :epochs" form)))))
 
 (deftest snapshot-form-redacts-machines-runtime-db-off-box-by-default
-  ;; EP-0001 rf2-jj1xer / ruling #14 — the `:machines` slice is RUNTIME-DB
-  ;; state (machine snapshots moved to the runtime-db partition in
-  ;; rf2-vzld77). Per Spec 011 §Off-box redaction the runtime-db partition
+  ;; EP-0001 ruling #14 — the `:machines` slice is RUNTIME-DB
+  ;; state (machine snapshots live in the runtime-db partition).
+  ;; Per Spec 011 §Off-box redaction the runtime-db partition
   ;; is REDACTED/OMITTED off-box by default. So the elision-on form (the
   ;; default off-box posture, `include-sensitive?` false) substitutes the
   ;; `:machines` slice with `:rf/redacted`.
@@ -276,7 +276,7 @@
         "trusted-local opt-in ⇒ :machines is NOT redacted (richer diagnostics)")))
 
 (deftest snapshot-form-threads-include-sensitive
-  ;; rf2-vflrg — `:include-sensitive?` flows through to the walker's
+  ;; `:include-sensitive?` flows through to the walker's
   ;; `:rf.size/include-sensitive?` opt so the same MCP arg that opts
   ;; in to forwarding sensitive traces / epochs also opts in to seeing
   ;; the raw value at sensitive paths in the :app-db / :sub-cache
@@ -289,7 +289,7 @@
         "include-sensitive? true ⇒ sensitive slots pass through")))
 
 (deftest snapshot-form-counts-elision-markers-server-side
-  ;; rf2-e35a5: the eval form returns `{:value <snap> :elided-count N}`
+  ;; The eval form returns `{:value <snap> :elided-count N}`
   ;; so the elision count rides back on the same nREPL round-trip.
   ;; The wire-pipeline reads the count from opts instead of re-walking
   ;; client-side.
@@ -304,7 +304,7 @@
     (is (re-find #"tree-seq coll\? seq walked" form))))
 
 (deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
-  ;; rf2-3bu3d.6 — on the DEFAULT `:app` scope the eval form computes the
+  ;; On the DEFAULT `:app` scope the eval form computes the
   ;; reserved :rf/* tool frames it excluded (via the runtime predicate)
   ;; and rides them back on the same round-trip under
   ;; `:tool-frames-excluded`, so the wire response can name them in a
@@ -331,7 +331,7 @@
       (is (re-find #":tool-frames-excluded \[\]" form)))))
 
 ;; ---------------------------------------------------------------------------
-;; Eval-form composition for get-path-tool (rf2-urjnc).
+;; Eval-form composition for get-path-tool.
 ;;
 ;; The get-path-tool eval form does `(get-in db path)` then passes the
 ;; resolved value through the walker. The walker's `:path` opt is set
@@ -341,11 +341,11 @@
 
 (defn- build-get-path-form
   "Mirror of the get-path-tool's eval-form composition. Keep in
-  lockstep with `get-path-tool` in tools.cljs. Post-rf2-e35a5: the
+  lockstep with `get-path-tool` in tools.cljs. The
   happy-path envelope carries `:elided-count` so the wire-pipeline
   reads the count from opts instead of re-walking the scalar.
 
-  Post-rf2-vflrg the four-arity form takes `include-sensitive?` and
+  The four-arity form takes `include-sensitive?` and
   threads it into the walker's `:rf.size/include-sensitive?` opt."
   ([path frame elision?] (build-get-path-form path frame elision? false))
   ([path frame elision? include-sensitive?]
@@ -354,11 +354,11 @@
                          (str "(re-frame2-pair.runtime/snapshot " (pr-str frame) ")")
                          "(re-frame2-pair.runtime/snapshot)")
          frame-edn     (if frame (pr-str frame) "(re-frame2-pair.runtime/current-frame)")
-         ;; rf2-suoj2 — helper takes walker-aligned `include-large?`;
+         ;; Helper takes walker-aligned `include-large?`;
          ;; flip from the MCP-arg `elision?` polarity here, mirroring
          ;; the production call site in `tools/get_path.cljs`.
          elision-opts  (elision/elision-opts-edn (not elision?) include-sensitive?)
-         ;; rf2-t55hxg.13 — fail-CLOSED: walk UNLESS the caller opted into
+         ;; Fail-CLOSED: walk UNLESS the caller opted into
          ;; both raw axes (`:elision false` AND `:include-sensitive true`).
          ;; Mirrors `walk?` in tools/get_path.cljs.
          walk?         (elision/walk-required? (not elision?) include-sensitive?)
@@ -393,9 +393,9 @@
           "    {:ok? true :exists? true :path path :value elided-v :elided-count n}))"))))
 
 (deftest get-path-form-full-raw-opt-in-bypasses-walker
-  ;; rf2-t55hxg.13 — the raw value rides the wire ONLY on the full-raw
+  ;; The raw value rides the wire ONLY on the full-raw
   ;; opt-in: `:elision false` (include-large? true) AND
-  ;; `:include-sensitive true`. Post-rf2-e35a5 the value flows through the
+  ;; `:include-sensitive true`. The value flows through the
   ;; `elided-v` binding (a pass-through here) and the count is zero.
   (let [form (build-get-path-form [:user :uploaded-pdf] :rf/default false true)]
     (is (not (re-find #"elide-wire-value" form)))
@@ -404,10 +404,10 @@
     (is (re-find #"n 0" form))))
 
 (deftest get-path-form-bare-elision-false-still-walks
-  ;; rf2-t55hxg.13 — fail-CLOSED. A BARE `:elision false` (no sensitive
+  ;; Fail-CLOSED. A BARE `:elision false` (no sensitive
   ;; opt-in) STILL walks: large content passes (`include-large? true`) but
   ;; a declared-sensitive slot redacts (`include-sensitive? false`).
-  ;; Pre-fix this bypassed the walker — the EP-0015 sensitive bypass.
+  ;; This guards the EP-0015 sensitive-bypass surface.
   (let [form (build-get-path-form [:user :token] :rf/default false false)]
     (is (re-find #"re-frame\.core/elide-wire-value v" form)
         "bare :elision false MUST still walk — no sensitive bypass")
@@ -449,7 +449,7 @@
     (is (not= -1 (.indexOf form edn)))))
 
 (deftest get-path-form-threads-include-sensitive
-  ;; rf2-vflrg — `include-sensitive?` threads through to the walker's
+  ;; `include-sensitive?` threads through to the walker's
   ;; `:rf.size/include-sensitive?` opt. Default is off (sensitive paths
   ;; redact); opt in with `true`.
   (let [form-default  (build-get-path-form [:user :token] :rf/default true false)
@@ -460,13 +460,13 @@
         "include-sensitive? true ⇒ raw value at sensitive paths")))
 
 ;; ---------------------------------------------------------------------------
-;; Composition × wire-cap (rf2-rvyzy fallback).
+;; Composition × wire-cap fallback.
 ;;
 ;; Elision runs FIRST (server-side, inside the eval form). When elision
 ;; is on and a `:large?` path matches, the response shrinks to the
 ;; marker and the wire-cap stays a backstop. When elision is OFF, the
-;; raw payload rides and the wire-cap may still trip — that fallback
-;; is the existing rf2-rvyzy mechanism.
+;; raw payload rides and the wire-cap may still trip — that is the
+;; wire-cap fallback mechanism.
 ;;
 ;; The cap check itself is a pure function over the assembled MCP
 ;; result envelope; we test that elision-off still produces a payload
@@ -475,9 +475,9 @@
 
 (deftest wire-cap-composes-with-full-raw-opt-in
   ;; Sanity: the snapshot form on the full-raw opt-in (`:elision false`
-  ;; AND `:include-sensitive true`, rf2-t55hxg.13) is plain EDN — it has
+  ;; AND `:include-sensitive true`) is plain EDN — it has
   ;; no marker shape on the way out, so when the runtime returns a raw
-  ;; value the cap measures the raw bytes (the rf2-rvyzy fallback).
+  ;; value the cap measures the raw bytes (the wire-cap fallback).
   (let [form (build-snapshot-form {:frames :all :include [:app-db]} false true)]
     ;; No `:rf.size/*` shapes in the form when the walker is skipped; the
     ;; marker emission is entirely the walker's job.
@@ -502,7 +502,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; Wire-pipeline `:server-elided` opt (rf2-e35a5).
+;; Wire-pipeline `:server-elided` opt.
 ;;
 ;; The wire-pipeline's `:snapshot-map` and `:scalar-value` arms read
 ;; the elision count from the `:server-elided` opt instead of re-walking
@@ -524,7 +524,7 @@
     :reason :schema :handle [:rf.elision/at [:user :uploaded-pdf]]}})
 
 (deftest snapshot-map-arm-uses-server-elided-when-supplied
-  ;; rf2-e35a5: when `:server-elided` is on opts, the arm uses it
+  ;; When `:server-elided` is on opts, the arm uses it
   ;; directly. The payload might or might not actually contain
   ;; markers — we trust the server-side count because the walker
   ;; that inserted the markers was the one counting.
@@ -558,7 +558,7 @@
         "Missing :server-elided ⇒ local walk picks up the marker")))
 
 (deftest scalar-value-arm-uses-server-elided-when-supplied
-  ;; rf2-e35a5: `:scalar-value` arm reads `:server-elided` for the
+  ;; The `:scalar-value` arm reads `:server-elided` for the
   ;; common `get-path` path — the eval form pre-counts.
   (let [{:keys [indicators]}
         (wp/run-wire-pipeline marker
@@ -588,9 +588,9 @@
   ;; render this verbatim into the EDN sent over nREPL. The kw shape
   ;; is normative per the walker's docstring; a rename in the framework
   ;; surface needs a co-ordinated update here.
-  ;; Post-rf2-vflrg both opts ride the same map; assert against the
+  ;; Both opts ride the same map; assert against the
   ;; parsed form so map-key-order doesn't matter.
-  ;; Post-rf2-suoj2 helper params are walker-aligned: `include-large?
+  ;; Helper params are walker-aligned: `include-large?
   ;; false` = emit markers (the elision-ON call-site posture).
   (let [parsed-elide-on  (cljs.reader/read-string (elision/elision-opts-edn false))
         parsed-elide-off (cljs.reader/read-string (elision/elision-opts-edn true))]
@@ -600,11 +600,11 @@
     (is (false? (:rf.size/include-sensitive? parsed-elide-off)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-vflrg — `:include-sensitive?` threads through `elision-opts-edn`.
+;; `:include-sensitive?` threads through `elision-opts-edn`.
 ;;
 ;; Per Tool-Pair §Direct-read privacy posture, the `snapshot` and
 ;; `get-path` direct-read surfaces MUST honour
-;; `:rf.size/include-sensitive?`. EP-0015 §10 (rf2-qus09h) reframes the
+;; `:rf.size/include-sensitive?`. EP-0015 §10 frames the
 ;; two-arity form as named-profile adoption: the `include-sensitive?`
 ;; posture names a `:rf.egress/*` profile (`off-box-tool` default /
 ;; `local-raw` opt-in) whose `:rf.size/*` floor the framework resolves;
@@ -620,8 +620,8 @@
 
 (deftest elision-opts-edn-include-sensitive-true-opts-in
   ;; The documented opt-in flow: `:include-sensitive? true` selects the
-  ;; trusted-local `:rf.egress/local-raw` boundary (EP-0015 §10,
-  ;; rf2-qus09h). Sensitive slots then pass through unmodified.
+  ;; trusted-local `:rf.egress/local-raw` boundary (EP-0015 §10).
+  ;; Sensitive slots then pass through unmodified.
   (let [parsed (cljs.reader/read-string (elision/elision-opts-edn false true))]
     (is (true? (:rf.size/include-sensitive? parsed))
         "two-arity true ⇒ local-raw ⇒ walker passes sensitive values through")))
@@ -633,7 +633,7 @@
     (is (= parsed-explicit parsed-default))))
 
 (deftest elision-opts-edn-resolves-named-egress-profiles
-  ;; EP-0015 §10 profile adoption (rf2-qus09h): the posture
+  ;; EP-0015 §10 profile adoption: the posture
   ;; (`include-sensitive?`) names a `:rf.egress/*` profile, resolved to its
   ;; `:rf.size/*` floor via the cross-MCP `mcp-base.egress` mirror (pinned
   ;; byte-identical to the framework table by the mcp-conformance
@@ -662,8 +662,8 @@
           "local-raw includes large too — the trusted-local boundary"))))
 
 (deftest posture->profile-maps-posture-to-named-boundary
-  ;; The posture→profile mapping is the explicit EP-0015 §10 naming
-  ;; (rf2-qus09h): off-box-tool is the off-box default; local-raw is the
+  ;; The posture→profile mapping is the explicit EP-0015 §10 naming:
+  ;; off-box-tool is the off-box default; local-raw is the
   ;; trusted-local opt-in.
   (is (= :rf.egress/off-box-tool (elision/posture->profile false))
       "not-opted-in ⇒ the MCP/AI tool wire boundary")

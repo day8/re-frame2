@@ -7,23 +7,23 @@
 
   1. boot: parse launch flags, build the MCP `Server`, connect the
      stdio transport. The persistent nREPL socket is NOT opened
-     here — discovery is lazy (rf2-3grub) so it can ask the MCP
-     client for workspace roots after initialization completes.
+     here — discovery is lazy so it can ask the MCP client for
+     workspace roots after initialization completes.
   2. `initialize`: standard MCP handshake. Server learns the client's
      capabilities (`roots`, `elicitation`).
   3. `tools/list`: returns the full tool catalogue — see
      `tools.registry/tools` for the authoritative list (the single
      source of truth).
-  4. `tools/call` (first time): runs the port-discovery cascade
-     (rf2-3grub) — the five-step precedence:
+  4. `tools/call` (first time): runs the port-discovery cascade —
+     the five-step precedence:
 
-        1. `--port-file <path>` explicit override (rf2-3dbwh)
+        1. `--port-file <path>` explicit override
         2. `$SHADOW_CLJS_NREPL_PORT` env var
         3. MCP `roots/list` → walk for `shadow-cljs.edn` → port-file
-        4. Shadow HTTP probe at `:9630` → `/api/project-info` (rf2-umoz2)
-        5. CWD-relative scan (legacy fallback)
+        4. Shadow HTTP probe at `:9630` → `/api/project-info`
+        5. CWD-relative scan (final fallback)
 
-     Step 3 is the rf2-3grub primary path — generic, zero-config, no
+     Step 3 is the primary path — generic, zero-config, no
      port-range guessing. On ambiguity (2+ shadow builds in the
      workspace), the server drives `elicitation/create` to ask the user
      which project. The result (port + project-home) is cached for the
@@ -90,7 +90,7 @@
        "(the cwd-independent escape hatch)."))
 
 ;; ---------------------------------------------------------------------------
-;; Session-cache for the lazy-discovered project (rf2-3grub).
+;; Session-cache for the lazy-discovered project.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private session-state
@@ -108,11 +108,10 @@
        :discovery-error <ex-info | nil>}   ;; LAST failure, diagnostic only
 
   Resetting `:discovered? false` triggers a full re-discovery on the
-  next tool call — used by the operator-initiated re-attach branch
-  (deferred to a follow-up bead).
+  next tool call — used by the operator-initiated re-attach branch.
 
   `:discovery-error` records the most recent failed-discovery rejection
-  for diagnostics; it does NOT gate (rf2-r6yly). While `:discovered?` is
+  for diagnostics; it does NOT gate. While `:discovered?` is
   false, every tool call re-runs the cascade, so a recoverable failure
   (shadow not up at the first call) self-heals on a later call once the
   operator starts the build."
@@ -125,14 +124,15 @@
 
 (defn session-state-snapshot
   "Deref the private `session-state` for tests — read-only window onto
-  the resolved-endpoint cache (rf2-r6yly retry regression)."
+  the resolved-endpoint cache (exercises the lazy-discovery retry
+  contract)."
   []
   @session-state)
 
 (defn reset-session-state-for-tests!
   "Reset `session-state` to the pristine pre-discovery shape. Exposed for
   tests so the lazy-discovery retry contract can be exercised from a
-  known slate (rf2-r6yly)."
+  known slate."
   []
   (reset! session-state {:project-home    nil
                          :port-file       nil
@@ -145,14 +145,14 @@
   "Stand in for `discover-and-cache!`'s success side effect — record a
   resolved conn (no port-file, so the per-call re-read fast-path returns
   it verbatim) and flip `:discovered?`. Exposed so a stub discovery thunk
-  can mimic a successful attach without the npm SDK (rf2-r6yly)."
+  can mimic a successful attach without the npm SDK."
   [conn]
   (swap! session-state assoc :conn conn :discovered? true :discovery-error nil))
 
 (defn set-discovered-for-tests!
   "Record a FULLY-discovered session (conn + port + the exact cached
   port-file) and flip `:discovered?`. Exposed so the port-file-stability
-  contract (rf2-ww877w) can be exercised: a second `ensure-connection!`
+  contract can be exercised: a second `ensure-connection!`
   call must stay on the cached conn when the cached port-file still reads
   the same port — without re-deriving a `.shadow-cljs/nrepl.port` that
   may not be the file discovery actually resolved."
@@ -244,7 +244,7 @@
   (nrepl/make-conn port "127.0.0.1"))
 
 (defn- discover-and-cache!
-  "First-tool-call discovery (rf2-3grub). Run the five-step cascade in
+  "First-tool-call discovery. Run the five-step cascade in
   `nrepl/discover-port` with the captured Server's `listRoots` as the
   injected roots-discovery fn. On `:ambiguous` (2+ shadow candidates),
   drive `elicitation/create` to ask the user. Cache the chosen port +
@@ -266,19 +266,18 @@
                     conn (new-conn-for-port port)]
                 (swap! session-state assoc
                        :project-home ph
-                       ;; rf2-ww877w — PREFER the exact port-file discovery
-                       ;; resolved (explicit `--port-file`, roots candidate,
-                       ;; or the winning HTTP-probe candidate). Every
-                       ;; discovery mode that yields a `:project-home` now
-                       ;; also yields the `:port-file` that actually read, so
-                       ;; the derived `.shadow-cljs/nrepl.port` below is a
-                       ;; pure defensive backstop — never reached for those
-                       ;; modes. The pre-fix shape DERIVED unconditionally
-                       ;; from `ph`, producing e.g.
+                       ;; PREFER the exact port-file discovery resolved
+                       ;; (explicit `--port-file`, roots candidate, or the
+                       ;; winning HTTP-probe candidate). Every discovery mode
+                       ;; that yields a `:project-home` also yields the
+                       ;; `:port-file` that actually read, so the derived
+                       ;; `.shadow-cljs/nrepl.port` below is a pure defensive
+                       ;; backstop — never reached for those modes. Deriving
+                       ;; unconditionally from `ph` would produce e.g.
                        ;; `target/shadow-cljs/.shadow-cljs/nrepl.port` for an
-                       ;; explicit `target/shadow-cljs/nrepl.port`; the next
-                       ;; `ensure-connection!` saw that path missing and
-                       ;; forced a needless reconnect + per-conn cache reset.
+                       ;; explicit `target/shadow-cljs/nrepl.port`, which the
+                       ;; next `ensure-connection!` would see as missing and
+                       ;; force a needless reconnect + per-conn cache reset.
                        :port-file    (or (:port-file result)
                                          (when ph
                                            (node-path/join ph ".shadow-cljs/nrepl.port")))
@@ -335,38 +334,36 @@
      restarted; close the stale socket, swap in a NEW conn for the new
      port (or force re-discovery).
 
-  Path 3 is where the genuine rf2-l9ixp \"operator restarted shadow
-  against a different build\" reset happens: a restart almost always
-  grabs a new ephemeral port, so the new conn from `new-conn-for-port`
-  starts with EMPTY build-id caches (`:probed-builds` /
-  `:resolved-build-id` / `:build-alias`). The transport-layer
-  `nrepl/connect!` deliberately does NOT clear those caches on a
-  same-port reopen (rf2-c3dsr) — that would wipe a valid sticky build on
-  a transient socket hiccup — so this layer (which actually observes the
-  port change) owns the invalidation, alongside operator `close!`.
+  Path 3 is where the genuine \"operator restarted shadow against a
+  different build\" reset happens: a restart almost always grabs a new
+  ephemeral port, so the new conn from `new-conn-for-port` starts with
+  EMPTY build-id caches (`:probed-builds` / `:resolved-build-id` /
+  `:build-alias`). The transport-layer `nrepl/connect!` deliberately
+  does NOT clear those caches on a same-port reopen — that would wipe a
+  valid sticky build on a transient socket hiccup — so this layer (which
+  actually observes the port change) owns the invalidation, alongside
+  operator `close!`.
 
-  ## Discovery failure is RETRIED, never sticky (rf2-r6yly)
+  ## Discovery failure is RETRIED, never sticky
 
   A failed discovery (`discover-and-cache!` rejected: no nREPL port yet,
   shadow not started, ambiguous-and-declined) leaves `:discovered? false`
   and records `:discovery-error` for diagnostics — but it does NOT wedge
-  the session. Each subsequent tool call RE-RUNS the cascade. The earlier
-  shape short-circuited on a cached `:discovery-error`, so once discovery
-  failed once (e.g. a tool call landed before `shadow-cljs watch` was up)
-  EVERY later call replayed the stale rejection forever — the operator
-  had to restart the whole MCP server even after starting shadow, because
-  nothing ever re-attempted. The cascade is bounded (sync env/flag steps;
-  the async roots/HTTP probes cap at `shadow-discovery/probe-timeout-ms`),
-  so re-running it per call on the failure path is cheap and is the only
+  the session. Each subsequent tool call RE-RUNS the cascade, so a
+  recoverable failure (e.g. a tool call landed before `shadow-cljs watch`
+  was up) self-heals once the operator starts the build — no MCP-server
+  restart needed. The cascade is bounded (sync env/flag steps; the async
+  roots/HTTP probes cap at `shadow-discovery/probe-timeout-ms`), so
+  re-running it per call on the failure path is cheap and is the only
   thing that lets a session self-heal when the operator fixes the
   underlying cause. `:discovery-error` is kept purely as a diagnostic
-  breadcrumb of the LAST failure; it no longer gates.
+  breadcrumb of the LAST failure; it does not gate.
 
   Returns a Promise resolving to the live conn atom, or rejecting with a
   fresh structured discovery error when the cascade still can't resolve.
 
   The 2-arity injects the discovery thunk so the retry contract can be
-  unit-tested without the npm SDK / a live shadow (rf2-r6yly); production
+  unit-tested without the npm SDK / a live shadow; production
   uses the 1-arity, which threads in `discover-and-cache!`."
   ([launch-flags] (ensure-connection! launch-flags discover-and-cache!))
   ([launch-flags discover-fn]
@@ -377,9 +374,9 @@
           (.then (fn [_] (:conn @session-state)))
           (.catch (fn [e]
                     ;; Record the last failure for diagnostics only — the
-                    ;; next tool call re-runs discovery (rf2-r6yly); a
-                    ;; recoverable failure (shadow not up yet) must not
-                    ;; permanently wedge the session.
+                    ;; next tool call re-runs discovery; a recoverable
+                    ;; failure (shadow not up yet) must not permanently
+                    ;; wedge the session.
                     (swap! session-state assoc :discovery-error e)
                     (js/Promise.reject e))))
 
@@ -420,9 +417,9 @@
         name   (j/get params :name)
         args   (or (j/get params :arguments) #js {})]
     (if-let [unknown (tools/refuse-unknown-tool name)]
-      ;; rf2-4mc6q1 — a name absent from the registry (a typo or a removed
-      ;; alias such as `registry-list`) is rejected HERE, before `ensure-
-      ;; connection!`. Otherwise a stock install with no nREPL port runs
+      ;; A name absent from the registry (a typo, or an alias the registry
+      ;; doesn't carry such as `registry-list`) is rejected HERE, before
+      ;; `ensure-connection!`. Otherwise a stock install with no nREPL port runs
       ;; discovery, REJECTS with `:nrepl-port-not-found`, and the request
       ;; never reaches `dispatch-tool*` — so the `:unknown-tool` recovery
       ;; affordances (`:hint` → tools/list, `:available-tools`,
@@ -432,8 +429,8 @@
       ;; depth (direct `tools/invoke` callers + the conformance corpus).
       (js/Promise.resolve unknown)
       (if-let [refusal (writes/refuse-pre-connection name)]
-        ;; rf2-wz66k7 — a gated write tool (restore-epoch / replace-app-db)
-        ;; with `--allow-writes` OFF is refused HERE, before `ensure-
+        ;; A gated write tool (restore-epoch / replace-app-db) with
+        ;; `--allow-writes` OFF is refused HERE, before `ensure-
         ;; connection!`. Otherwise a stock install with no nREPL port returns
         ;; a misleading `:nrepl-port-not-found` (or runs discovery /
         ;; elicitation) for a request that should be refused locally — the
@@ -443,7 +440,7 @@
         (handle-call* launch-flags name args extra)))))
 
 (defn handle-call-for-tests
-  "Test seam onto the private `handle-call` (rf2-wz66k7). Lets the
+  "Test seam onto the private `handle-call`. Lets the
   server-boundary test drive a `tools/call` request through the SAME
   pre-dispatch path the SDK invokes — proving a disabled write tool is
   refused with `:rf.error/writes-disabled` BEFORE `ensure-connection!`
@@ -457,18 +454,18 @@
 (defn- handle-call*
   "Normal tool-dispatch path: ensure the nREPL connection, then route to
   the tool dispatcher. Reached for every tool EXCEPT a gated write
-  refused at the pre-connection boundary (rf2-wz66k7)."
+  refused at the pre-connection boundary."
   [launch-flags name args extra]
   (-> (ensure-connection! launch-flags)
       (.then (fn [conn]
                (-> (tools/invoke conn name args extra)
                    (.catch (fn [err]
                              (log! "handler threw for" name "—" (.-message err))
-                             ;; rf2-or8s29 — route the server-level error
-                             ;; envelope through `wire/result` so the
-                             ;; structuredContent projection preserves
-                             ;; keyword namespaces (a raw `clj->js` here
-                             ;; truncated `:rf.error/*` reason values).
+                             ;; Route the server-level error envelope through
+                             ;; `wire/result` so the structuredContent
+                             ;; projection preserves keyword namespaces (a raw
+                             ;; `clj->js` here truncates `:rf.error/*` reason
+                             ;; values).
                              (wire/result {:ok?     false
                                            :reason  :handler-threw
                                            :message (.-message err)}
@@ -483,9 +480,9 @@
                 payload (if-let [cs (:candidates data)]
                           (assoc payload :candidates cs)
                           payload)]
-            ;; rf2-or8s29 — same namespace-preserving projection as the
-            ;; handler-threw path; a raw `clj->js` dropped the namespace
-            ;; on `:rf.error/*` reason values.
+            ;; Same namespace-preserving projection as the handler-threw
+            ;; path; a raw `clj->js` drops the namespace on `:rf.error/*`
+            ;; reason values.
             (wire/result payload true))))))
 
 ;; ---------------------------------------------------------------------------
@@ -497,7 +494,7 @@
   descriptors and `tools/call` routed to `call-handler` (a `(req,
   extra) → Promise<result>` fn).
 
-  Capabilities declared at construction (rf2-3grub):
+  Capabilities declared at construction:
 
   - `:tools`   — the tool catalogue (this is what we serve).
 
@@ -549,15 +546,15 @@
   Last occurrence wins (consistent with argv override semantics).
   Returns nil when the flag is absent or given without a value.
 
-  Used by both `--port-file` (rf2-3dbwh) and `--http-port` (rf2-umoz2);
-  one parser, one shape — so a future string-valued flag lands here
-  without growing a per-flag micro-parser.
+  Used by both `--port-file` and `--http-port`; one parser, one shape —
+  so a future string-valued flag lands here without growing a per-flag
+  micro-parser.
 
-  ## DRY-on-5 trigger (rf2-xnbvz)
+  ## DRY-on-5 trigger
 
-  Today two string-valued flags ride through this helper. If a fifth
-  lands, switch to a declared schema (vector of `{:flag :type :env}`
-  maps reduced over) — more elegant than five hand-rolled `parse-X-flag`
+  Two string-valued flags ride through this helper. If a fifth lands,
+  switch to a declared schema (vector of `{:flag :type :env}` maps
+  reduced over) — more elegant than five hand-rolled `parse-X-flag`
   helpers. Not needed at 2; the 3rd and 4th can ride through unchanged."
   [flag-name argv]
   (let [equals-prefix (str flag-name "=")]
@@ -589,7 +586,7 @@
   (parse-string-value-flag "--port-file" argv))
 
 (defn- parse-http-port-flag
-  "Pluck the value of the `--http-port` launch flag (rf2-umoz2) and
+  "Pluck the value of the `--http-port` launch flag and
   coerce to an int. Returns nil when absent / malformed.
 
   Shadow's web server is fixed by its own `:http :port` config; the
@@ -604,8 +601,7 @@
 (defn parse-launch-flags
   "Pluck the named launch flags out of the raw process argv. Flags today:
 
-    --no-eval                — opt OUT of the `eval-cljs` tool (rf2-a0z0h;
-                               inverts the prior rf2-cxx5s default). Default
+    --no-eval                — opt OUT of the `eval-cljs` tool. Default
                                is eval-cljs ENABLED — it is the REPL primitive
                                of a pair-debug session. The threat-model
                                rationale (eval expresses every write the
@@ -614,13 +610,12 @@
                                in `tools/eval_cljs.cljs`.
     --allow-sensitive-reads  — opt-in to raw state on snapshot / get-path /
                                subscribe AND raw-value `tap>` emissions from
-                               the preload's `app-db-reset!` (rf2-c2dtu).
-                               Default OFF. Canonical cross-MCP name
-                               (rf2-2x3ql) — matches story-mcp's identically
-                               named gate (rf2-g9fje / rf2-uaymx).
+                               the preload's `app-db-reset!`.
+                               Default OFF. Canonical cross-MCP name —
+                               matches story-mcp's identically named gate.
     --allow-writes           — opt-in to the state-mutating tools
                                `restore-epoch` (time-travel undo) and
-                               `replace-app-db` (state injection), rf2-ee38b.18.
+                               `replace-app-db` (state injection).
                                Default OFF. Without the flag both return
                                `{:ok? false :reason :rf.error/writes-disabled}`
                                without touching the nREPL socket. `dispatch`
@@ -630,12 +625,12 @@
                                against eval-driven writes (eval-cljs can
                                express the same writes).
     --port-file <path>       — explicit, cwd-independent nREPL port-file
-                               path (rf2-3dbwh). Highest precedence in the
+                               path. Highest precedence in the
                                port-discovery chain — see
                                `nrepl/discover-port`. Accepts both
                                `--port-file <path>` and `--port-file=<path>`.
     --http-port <n>          — override shadow-cljs's HTTP server port
-                               for the auto-discovery probe (rf2-umoz2).
+                               for the auto-discovery probe.
                                Defaults to 9630 (shadow's standard).
                                Only used when steps 1-2 of the cascade
                                miss; setting it has no effect when
@@ -644,8 +639,8 @@
 
   Returns `{:eval-allowed? bool :allow-raw-state? bool :allow-writes? bool
   :port-file str-or-nil :http-port int-or-nil}`.
-  `:eval-allowed?` is true by default (the published-build posture);
-  passing `--no-eval` flips it false. Unknown flags are ignored —
+  `:eval-allowed?` is true by default; passing `--no-eval` flips it
+  false. Unknown flags are ignored —
   node's shadow-cljs entry passes its own argv prelude (script path),
   and future flags can land here without breaking older invocations."
   [argv]
@@ -656,7 +651,7 @@
    :http-port        (parse-http-port-flag argv)})
 
 ;; ---------------------------------------------------------------------------
-;; Launch-config diagnostics (rf2-a0kxsb).
+;; Launch-config diagnostics.
 ;;
 ;; The parsers above are deliberately PERMISSIVE — they pluck the flags
 ;; they understand and silently ignore everything else (a typo, a stale
@@ -692,12 +687,13 @@
   #{"--port-file" "--http-port"})
 
 (def ^:private removed-launch-flags
-  "Legacy flag names that were renamed / removed (pre-alpha, no
-  back-compat shim). An operator carrying a stale `~/.claude.json`
-  gets an INTENTIONAL diagnostic naming the replacement rather than a
-  silent no-op that leaves the server in an unexpected posture.
-  `--allow-raw-state` → `--allow-sensitive-reads` (rf2-2x3ql);
-  `--allow-eval` → removed, eval now defaults ON (rf2-a0z0h)."
+  "Flag names this server does not accept, mapped to a diagnostic
+  naming the replacement (pre-alpha, no back-compat shim). An operator
+  carrying a stale `~/.claude.json` gets an INTENTIONAL diagnostic
+  naming the replacement rather than a silent no-op that leaves the
+  server in an unexpected posture. `--allow-raw-state` maps to
+  `--allow-sensitive-reads`; `--allow-eval` has no replacement — eval-cljs
+  defaults ON, so pass `--no-eval` to opt OUT."
   {"--allow-raw-state" "renamed to --allow-sensitive-reads (rf2-2x3ql)"
    "--allow-eval"      "removed — eval-cljs now defaults ENABLED; pass --no-eval to opt OUT (rf2-a0z0h)"})
 
@@ -723,7 +719,7 @@
   :rf.config/issue <kw> :rf.config/effect <string>}` — the rejected
   input, what's wrong, and the effective fallback the operator gets.
 
-  Detects, against the declared flag schema (rf2-a0kxsb):
+  Detects, against the declared flag schema:
 
     - `:removed-flag`        — a renamed / removed legacy flag (names the
                                replacement; pre-alpha, no silent no-op).
@@ -791,7 +787,7 @@
                     :rf.config/effect   "non-numeric --http-port — falling back to the default shadow HTTP port (9630)"}
 
                    ;; Resource-control flag in the SPACE form. The resource
-                   ;; parser only accepts `--name=N` (rf2-3ijbl), so a
+                   ;; parser only accepts `--name=N`, so a
                    ;; space-form `--max-concurrent-streams 20` is silently
                    ;; dropped — name it as a malformed usage.
                    (and (contains? resource/flag->key prefix)
@@ -855,21 +851,21 @@
   (raw-state/set-allow-raw-state! allow-raw-state?)
   (writes/set-allow-writes! allow-writes?)
   (log! "eval-cljs:" (if eval-allowed? "enabled (default; pass --no-eval to opt out)" "DISABLED (--no-eval)"))
-  ;; The "allowed" / "gated" wording matches the rf2-uaymx (b) story-mcp
-  ;; `--allow-sensitive-reads` shape (rf2-g9fje); rf2-2x3ql aligns
-  ;; pair-mcp on the same canonical CLI-flag name so operators reading
-  ;; multi-MCP logs see one vocabulary.
+  ;; The "allowed" / "gated" wording matches story-mcp's
+  ;; `--allow-sensitive-reads` shape — pair-mcp uses the same canonical
+  ;; CLI-flag name so operators reading multi-MCP logs see one
+  ;; vocabulary.
   (log! "Sensitive reads:" (if allow-raw-state? "allowed (--allow-sensitive-reads)" "gated (default; pass --allow-sensitive-reads to opt in)"))
-  ;; rf2-ee38b.18 — the state-mutating tool gate. Default OFF;
-  ;; restore-epoch / replace-app-db replace app-db wholesale and the
-  ;; gate keeps the named-write audit trail clean. Note: this gate
-  ;; does NOT defend against eval-driven writes (eval-cljs can
-  ;; express the same writes); see rf2-a0z0h for the rationale.
+  ;; The state-mutating tool gate. Default OFF; restore-epoch /
+  ;; replace-app-db replace app-db wholesale and the gate keeps the
+  ;; named-write audit trail clean. Note: this gate does NOT defend
+  ;; against eval-driven writes (eval-cljs can express the same
+  ;; writes); see `tools/eval_cljs.cljs` for the rationale.
   (log! "Writes:" (if allow-writes? "ENABLED (--allow-writes)" "disabled (default; pass --allow-writes to opt in)")))
 
 (defn- apply-resource-controls!
   "Read resource-control config from env + CLI flags and push it into
-  the resource-controls atoms (rf2-3ijbl). Logs the effective values
+  the resource-controls atoms. Logs the effective values
   so operators can confirm at startup which caps are in force."
   [argv]
   (let [env-cfg  (resource/read-resource-env)
@@ -884,10 +880,10 @@
 (defn main [& args]
   (let [argv         (vec args)
         launch-flags (parse-launch-flags argv)]
-    ;; rf2-a0kxsb — name any misconfigured launch input (typo'd flags,
-    ;; removed legacy names, malformed values, invalid env vars) BEFORE
-    ;; the gates are applied and the transport announces readiness, so a
-    ;; silent posture-mismatch surfaces in the boot log.
+    ;; Name any misconfigured launch input (typo'd flags, unaccepted
+    ;; legacy names, malformed values, invalid env vars) BEFORE the gates
+    ;; are applied and the transport announces readiness, so a silent
+    ;; posture-mismatch surfaces in the boot log.
     (log-launch-diagnostics! argv)
     (apply-launch-flags! launch-flags)
     (apply-resource-controls! argv)
@@ -895,7 +891,7 @@
       (log! "nREPL port-file (--port-file):" pf))
     (when-let [hp (:http-port launch-flags)]
       (log! "shadow HTTP port (--http-port):" hp))
-    ;; rf2-3grub — port discovery is LAZY (first tool call). We boot the
+    ;; Port discovery is LAZY (first tool call). We boot the
     ;; transport with the discovery cascade ready to fire on demand. This
     ;; matters because the MCP `roots/list` request can only succeed
     ;; AFTER the client's `initialize` handshake completes — i.e. after

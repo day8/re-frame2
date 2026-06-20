@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.roots-discovery-test
-  "Unit tests for the workspace-roots discovery cascade (rf2-3grub).
+  "Unit tests for the workspace-roots discovery cascade.
 
   Three surfaces under test:
 

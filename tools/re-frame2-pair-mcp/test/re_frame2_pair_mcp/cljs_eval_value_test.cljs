@@ -1,20 +1,20 @@
 (ns re-frame2-pair-mcp.cljs-eval-value-test
   "Unit tests for `nrepl/cljs-eval-value` — the value-unwrap seam every
-  tool's runtime read flows through (rf2-ynjts.19).
+  tool's runtime read flows through.
 
   ## Why this suite exists
 
   `cljs-eval-value` is the single most load-bearing fn in the artefact:
   every tool that reads from the runtime (`snapshot`, `get-path`,
   `dispatch`, `eval-cljs`, the probe, …) calls it to turn shadow-cljs's
-  string-encoded `cljs-eval` response into the actual CLJS value. Yet
-  the whole existing corpus STUBS `cljs-eval-value` itself (see
+  string-encoded `cljs-eval` response into the actual CLJS value. The
+  rest of the corpus STUBS `cljs-eval-value` itself (see
   `test_utils/with-stubbed-eval!`, `eval_cljs_test`, `conformance_test`)
-  — so its own unwrap logic was never exercised by a unit test. A
-  regression in any of its branches (the `:results` peek, the
-  `:ex`-reject, the inner `:err`-reject, the blank→nil short-circuit, or
-  the `read-edn-safe` parse-failure fallback) would slip past 707
-  green tests because every one of them mocks the very fn under test.
+  — so its own unwrap logic needs a dedicated home. A regression in any
+  of its branches (the `:results` peek, the `:ex`-reject, the inner
+  `:err`-reject, the blank→nil short-circuit, or the `read-edn-safe`
+  parse-failure fallback) would slip past the suites that mock the very
+  fn under test; this one exercises it directly.
 
   ## Seam
 
@@ -166,8 +166,8 @@
 ;; Inner :err map → reject. When the OUTER EDN parses to a map carrying
 ;; a non-blank :err (a shadow-side cljs-eval compile warning/error,
 ;; distinct from an nREPL :ex), the unwrap rejects rather than returning
-;; the error map as a "value". rf2-mvdwv promotes this to a structured
-;; ex-info carrying `:reason :rf.error/eval-cljs-compile-error`.
+;; the error map as a "value". It surfaces as a structured ex-info
+;; carrying `:reason :rf.error/eval-cljs-compile-error`.
 ;; ---------------------------------------------------------------------------
 
 (deftest inner-err-map-rejects
@@ -189,13 +189,12 @@
                   (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mvdwv — an UNRESOLVED SYMBOL is the headline regression. shadow
-;; emits an `:eval-compile-warnings` REPL message: the analyzer warning
-;; text lands in the response `:err`, yet shadow STILL pushes a "nil" into
-;; `:results`. The pre-fix branch order peeked `:results` first, so the
-;; "nil" won and the compile warning was swallowed as a silent
-;; `{:ok? true :value nil}`. The :err branch now takes precedence so the
-;; failure surfaces instead of nil'ing out.
+;; An UNRESOLVED SYMBOL is the headline case. shadow emits an
+;; `:eval-compile-warnings` REPL message: the analyzer warning text lands
+;; in the response `:err`, yet shadow STILL pushes a "nil" into
+;; `:results`. The :err branch takes precedence over the `:results` peek,
+;; so the failure surfaces as a rejection instead of being swallowed as a
+;; silent `{:ok? true :value nil}`.
 ;; ---------------------------------------------------------------------------
 
 (deftest unresolved-symbol-warning-rejects-not-silent-nil
@@ -227,7 +226,7 @@
 (deftest clean-results-with-blank-err-still-resolves-value
   ;; A clean eval leaves :err blank ("") — the :err branch must NOT fire
   ;; on a blank :err, so the value still unwraps normally. Pins that the
-  ;; rf2-mvdwv precedence flip doesn't hijack the happy path.
+  ;; :err precedence doesn't hijack the happy path.
   (async done
     (-> (with-stubbed-cljs-eval!
           {:value "{:results [\"42\"] :err \"\" :ns cljs.user}"}

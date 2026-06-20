@@ -1,18 +1,18 @@
 (ns re-frame2-pair-mcp.tools.replace-app-db
-  "Tool: replace-app-db — state injection (rf2-ee38b.18).
+  "Tool: replace-app-db — state injection.
 
   The Tool-Pair `replace-app-db!` write primitive per
-  spec/Tool-Pair.md §Pair-tool writes (renamed from `reset-frame-db!`,
-  EP-0001 rf2-tfepxu — a db-shaped name never silently replaces
-  runtime-db): replace a frame's `app-db` with an arbitrary value the
-  runtime never recorded — the explicit JSON-loaded-bug-repro use case.
-  Wraps the preload runtime's `app-db-reset!`
-  (`(rf/replace-app-db! frame-id new-db)`), which bypasses the dispatch
-  loop, replaces the container directly, and records a synthetic
-  `:rf/epoch-record` (`:event-id :rf.epoch/db-replaced`) so a subsequent
-  `restore-epoch` can rewind past the injection.
+  spec/Tool-Pair.md §Pair-tool writes. Its db-shaped name reflects its
+  scope precisely — it replaces a frame's `app-db` (never silently the
+  runtime-db) with an arbitrary value the runtime never recorded — the
+  explicit JSON-loaded-bug-repro use case. Wraps the preload runtime's
+  `app-db-reset!` (`(rf/replace-app-db! frame-id new-db)`), which
+  bypasses the dispatch loop, replaces the container directly, and
+  records a synthetic `:rf/epoch-record`
+  (`:event-id :rf.epoch/db-replaced`) so a subsequent `restore-epoch`
+  can rewind past the injection.
 
-  ## Gate (rf2-ee38b.18)
+  ## Gate
 
   A write surface — gated behind `--allow-writes` (default OFF). When
   the gate is closed the tool returns `:rf.error/writes-disabled`
@@ -22,7 +22,7 @@
 
   The `db` arg is parsed as EDN and emitted into the runtime call via
   the normal `pr-str` path (NO `rt-raw` splice) — the same
-  injection-closing posture `dispatch` takes (rf2-vflrg). A
+  injection-closing posture `dispatch` takes. A
   prompt-injected `(println :pwn)` string is data, not code; it would
   read as a symbol/list literal and be injected verbatim (and almost
   certainly rejected by the frame's app-schema), never executed.
@@ -33,7 +33,7 @@
   `app-db-reset!` already returns a structured `{:ok? false :reason
   :reset-rejected ...}` on those soft failures; we pass it through.
 
-  ## Raw-state tap signal MUST precede app-db-reset! (rf2-z7roa)
+  ## Raw-state tap signal MUST precede app-db-reset!
 
   The preload's `app-db-reset!` taps BOTH the previous and the next
   app-db value through `tap>` so the human sees what the agent
@@ -46,11 +46,11 @@
   surface had a chance to signal the runtime.
 
   So this tool — like the direct-read surfaces (snapshot / get-path /
-  subscribe, rf2-c2dtu) — issues `raw-state/signal-runtime!` AFTER
+  subscribe) — issues `raw-state/signal-runtime!` AFTER
   `ensure-runtime!` and BEFORE the `app-db-reset!` eval. The signal
   reconfigures the runtime's posture before every state-emitting eval
-  (rf2-olvr5 finding 2 — the runtime's posture resets on reload, so a
-  cached 'delivered' flag would let a post-reload reset tap raw values);
+  (the runtime's posture resets on reload, so a cached 'delivered' flag
+  would let a post-reload reset tap raw values);
   concurrent calls for the same build still share ONE in-flight
   configure Promise, so a reset can never tap raw values ahead of the
   posture landing. This is why `replace-app-db` does NOT use the plain
@@ -65,7 +65,7 @@
 ;; The `db` arg has NO shape constraint — a frame's app-db is
 ;; conventionally a map but the runtime accepts any value the frame's
 ;; app-schema admits, so we only require readability. That's exactly the
-;; shared `args/read-edn-arg` core (rf2-jkake.19); the richer
+;; shared `args/read-edn-arg` core; the richer
 ;; vector-shape `dispatch` parser is deliberately not shared with it.
 
 (defn replace-app-db-tool [conn raw-args]
@@ -93,11 +93,11 @@
                      (ef/rt-call 'app-db-reset! new-db frame)
                      (ef/rt-call 'app-db-reset! new-db))
               form (ef/emit call)]
-          ;; rf2-z7roa — the signalled prelude lands `signal-runtime!`
+          ;; The signalled prelude lands `signal-runtime!`
           ;; between `ensure-runtime!` and the `app-db-reset!` eval so the
           ;; runtime's tap-emitting surface is in its gated (default-elided)
           ;; posture BEFORE the reset taps the pre-/post-reset app-db. This
-          ;; mirrors the direct-read surfaces' prelude (rf2-c2dtu) rather
+          ;; mirrors the direct-read surfaces' prelude rather
           ;; than the plain `probe/eval-after-runtime!` (no signal step).
           (probe/eval-after-runtime-signalled!
             conn build-id form :replace-app-db-failed
@@ -106,11 +106,11 @@
               ;; ({:ok? true :frame ...} / {:ok? false :reason
               ;; :reset-rejected ...}). Pass it through; default to a
               ;; generic shape if the runtime returned a non-map (degraded
-              ;; / pre-rf2-c2dtu runtime).
+              ;; runtime).
               (let [result (if (map? v)
                              v
                              {:ok? false :reason :unexpected-shape :value v :frame frame})]
-                ;; rf2-or8s29 — a soft failure (the runtime's
+                ;; A soft failure (the runtime's
                 ;; `{:ok? false :reason :reset-rejected ...}` OR the
                 ;; non-map `:unexpected-shape` fallback) means the
                 ;; injection did NOT land; it is not a terminal-empty

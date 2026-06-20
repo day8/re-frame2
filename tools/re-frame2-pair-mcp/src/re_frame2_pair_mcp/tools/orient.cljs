@@ -1,15 +1,15 @@
 (ns re-frame2-pair-mcp.tools.orient
-  "Tool: orient — app-shape orientation summary in one round-trip
-  (rf2-3bu3d.8).
+  "Tool: orient — app-shape orientation summary in one round-trip.
 
   ## What this answers
 
   \"What is this app and what can I drive?\" — the first-contact question
-  when an agent connects to an UNFAMILIAR app. Orienting otherwise took
-  several calls: `discover-app` (frames / health) + `snapshot` summary
-  (app-db top-keys) + `list-handlers` (event-ids) + `list-subscriptions`
-  (sub-ids) + machines / routes. `orient` composes those into ONE compact
-  map by reusing the existing introspection surfaces (runtime-side
+  when an agent connects to an UNFAMILIAR app. Without it, orienting
+  takes several calls: `discover-app` (frames / health) + `snapshot`
+  summary (app-db top-keys) + `list-handlers` (event-ids) +
+  `list-subscriptions` (sub-ids) + machines / routes. `orient` composes
+  those into ONE compact map by reusing the existing introspection
+  surfaces (runtime-side
   `orient` → `health` + `app-frame-ids` + `registrar-list` +
   `app-db-value` top-keys + `rf/machines`) — no reinvention.
 
@@ -34,8 +34,8 @@
 
   Reserved `:rf/*` tool frames (Xray's `:rf/xray`, SSR slots, …) are split
   out of `:frames` (`:app` vs `:all`) and EXCLUDED from `:app-db-top-keys`
-  (the rf2-3bu3d.6 posture) so a first-contact orientation doesn't
-  overflow on tool-frame inspection state.
+  so a first-contact orientation doesn't overflow on tool-frame
+  inspection state.
 
   Read-only + idempotent across same-state calls — no side-effect beyond
   the idempotent listener install `health` performs."
@@ -50,9 +50,9 @@
       conn build-id form :orient-failed
       (fn [v]
         (if (map? v)
-          ;; rf2-8t3ct / rf2-fmho5 — echo the canonical resolved `:build`
-          ;; so the agent sees which build this orientation ran against
-          ;; (the session-sticky target when `:build` was omitted) and can
+          ;; Echo the canonical resolved `:build` so the agent sees
+          ;; which build this orientation ran against (the
+          ;; session-sticky target when `:build` was omitted) and can
           ;; copy it straight into later calls.
           (wire/ok-text (assoc v :build build-id))
           (wire/err-text {:ok? false :reason :unexpected-shape :value v :build build-id}))))))

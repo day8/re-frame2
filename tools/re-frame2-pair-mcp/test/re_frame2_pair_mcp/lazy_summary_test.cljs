@@ -1,10 +1,9 @@
 (ns re-frame2-pair-mcp.lazy-summary-test
-  "Unit tests for the lazy-summary default generalised to every rich
-  snapshot slice (rf2-u2029).
+  "Unit tests for the lazy-summary default across every rich snapshot
+  slice.
 
-  rf2-tygdv landed a `{:rf.mcp/summary ...}` marker as the default for
-  the `:app-db` slice. rf2-u2029 generalises that default to every
-  rich slice in the snapshot response — `:sub-cache`, `:machines`,
+  A `{:rf.mcp/summary ...}` marker is the default for every rich slice
+  in the snapshot response — `:app-db`, `:sub-cache`, `:machines`,
   `:epochs`, `:traces` — so a discovery snapshot ('I don't know which
   slice carries the answer') stays under the wire cap by construction.
 
@@ -237,7 +236,7 @@
   "Build a fixture snapshot with realistically heavy slices: a 1MB
   app-db, a 100-entry sub-cache, 10 epoch records each carrying a full
   app-db `:db-before`, and a 200-entry trace ring buffer. Mirrors the
-  shape rf2-jlq5j's findings doc flagged as cap-blowing."
+  cap-blowing shape the lazy-summary default must tame."
   []
   (let [big-map (apply hash-map
                        (mapcat (fn [i] [(keyword (str "k" i))
@@ -259,10 +258,10 @@
                          :timestamp i}))}}))
 
 (deftest discovery-snapshot-fits-the-wire-cap
-  ;; rf2-jlq5j flagged the discovery snapshot ('I don't know which
-  ;; slice carries the answer') as the worst-case wire blow. With the
-  ;; lazy-summary default, every rich slice collapses to a marker —
-  ;; the entire response fits the 5,000-token cap.
+  ;; The discovery snapshot ('I don't know which slice carries the
+  ;; answer') is the worst-case wire blow. With the lazy-summary
+  ;; default, every rich slice collapses to a marker — the entire
+  ;; response fits the 5,000-token cap.
   (let [fat (make-fat-snapshot)
         ;; In the real pipeline, slice-app-db-in-snapshot runs upstream
         ;; and turns :app-db into a summary marker. Simulate that here.
@@ -277,9 +276,9 @@
              "Got " tokens " tokens, " (count wire) " chars."))))
 
 (deftest full-mode-blows-the-cap-as-expected
-  ;; The opt-in :full mode is the legacy behaviour — agents who pass
-  ;; it accept the wire cost. This test pins the budget POSTURE: the
-  ;; same fat snapshot under :full mode is dramatically larger.
+  ;; The opt-in :full mode ships the raw payload — agents who pass it
+  ;; accept the wire cost. This test pins the budget POSTURE: the same
+  ;; fat snapshot under :full mode is dramatically larger.
   (let [fat (make-fat-snapshot)
         with-app-db-full fat
         {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
@@ -293,8 +292,8 @@
 (deftest summary-vs-full-shrink-factor
   ;; Quantify the wire-byte impact. The summary marker scales with the
   ;; top-level shape (keys + count + bytes hint), not with the
-  ;; underlying payload. The shrink factor is the load-bearing claim
-  ;; the bead description ties acceptance to.
+  ;; underlying payload. The shrink factor is the load-bearing
+  ;; acceptance criterion.
   (let [fat                (make-fat-snapshot)
         with-app-db-summary (update-in fat [:rf/default :app-db] summary/tree-summary)
         with-app-db-full   fat
@@ -303,8 +302,8 @@
         full-wire    (pr-str (:snapshot (pipeline/summarise-other-slices-in-snapshot
                                           with-app-db-full {} :full)))
         ratio (/ (count full-wire) (count summary-wire))]
-    ;; Silent-on-success (rf2-try1x): the measured numbers ride on
-    ;; the failing-assertion message; agents on the green path don't
+    ;; Silent-on-success: the measured numbers ride on the
+    ;; failing-assertion message; agents on the green path don't
     ;; burn context on the per-test diagnostic.
     (is (> ratio 50)
         (str "Lazy-summary MUST shrink the discovery snapshot by at "

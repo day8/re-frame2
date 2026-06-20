@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.boundary-step
-  "Pluggable wire-boundary step-pipeline (rf2-3z0zi).
+  "Pluggable wire-boundary step-pipeline.
 
   ## Why a step-pipeline
 
@@ -8,17 +8,16 @@
 
       precheck → dispatch → apply-cache → apply-cap
 
-  Before this ns landed the four phases were hardcoded inline in
-  `invoke` as a hand-threaded Promise chain. Each phase had its own
-  short-circuit rule (`apply-cache` skips `:isError`; `apply-cap`
-  skipped nothing). The ordering invariant was prose-only — the
-  `invoke` docstring described it; the impl had to be read top-to-
-  bottom to verify it.
+  Each phase carries its own short-circuit rule (`apply-cache` skips
+  `:isError`; `apply-cap` skips nothing). Expressing the sequence as
+  named, declarative data — rather than a hand-threaded Promise chain
+  — makes the ordering invariant explicit and inspectable instead of
+  prose-only.
 
-  This namespace is the round-2 parallel of round-1's named
-  wire-pipeline win (`tools/wire-pipeline.cljs`): the same lens
-  (turn an implicit ordering into named, declarative data) applied
-  one level up. Each step is a map:
+  This namespace mirrors the named wire-pipeline in
+  `tools/wire-pipeline.cljs`: the same lens (turn an implicit ordering
+  into named, declarative data) applied one level up. Each step is a
+  map:
 
   ```clojure
   {:name       :apply-cap
@@ -33,10 +32,9 @@
   - `:skip-when?` — optional predicate over the pre-`:run` context.
                     When truthy, THIS step is skipped (its `:run` is
                     not called) and the pipeline continues to the
-                    next step. Pure on the context; cheap. Renamed
-                    from `:short-circuit?` (rf2-l0isf) — the prior
-                    name read as halt-the-chain semantics; the
-                    actual semantics are skip-this-step.
+                    next step. Pure on the context; cheap. The name
+                    is deliberate: the semantics are skip-this-step,
+                    NOT halt-the-chain.
 
   ## Context shape
 
@@ -52,7 +50,7 @@
   Every step receives this context. The `:result` slot is the running
   payload — nil before `:dispatch` runs, populated thereafter. Steps
   that produce a result write it; steps that consume it read it. The
-  `:precheck-hash` slot is the cheap-hash from rf2-36xod; the
+  `:precheck-hash` slot is the cheap precheck hash; the
   `apply-cache` step consumes it to record on a miss.
 
   ## Skip-when semantics

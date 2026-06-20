@@ -1,22 +1,21 @@
 (ns re-frame2-pair-mcp.onboarding-catalogue-test
-  "Drift guard for the inline onboarding catalogue (rf2-eey14).
+  "Drift guard for the inline onboarding catalogue.
 
   `get-re-frame2-pair-instructions` ships a prose `## Tool catalogue`
   section (an inline string in `tools/get_re_frame2_pair_instructions`)
   that an AI agent reads to learn what tools exist. Unlike the
   `tools/list` descriptors — which are GENERATED from the single
   `registry/tools` source and so cannot drift — the onboarding prose is
-  hand-maintained. It HAD drifted: six registered tools (orient,
-  read-sub, read-ui, set/reset/get-operating-frame) were missing, so a
-  model following the catalogue reached for snapshot / raw eval instead
-  of the bounded reads, or guessed frame targeting instead of the
-  operating-frame ops.
+  hand-maintained, so it can drift out of sync with the registered tool
+  set. A missing tool (e.g. orient, read-sub, read-ui,
+  set/reset/get-operating-frame) leaves a model reaching for snapshot /
+  raw eval instead of the bounded reads, or guessing frame targeting
+  instead of the operating-frame ops.
 
-  The existing `scripts/check_skill_mcp_drift.py` cross-checks the
-  SKILL.md allowed-tools vs the descriptors — NOT this inline prose — so
-  it passed straight through the gap. This suite closes it at the source:
-  the catalogue MUST enumerate exactly the registered tool set, no
-  omissions and no phantom names.
+  `scripts/check_skill_mcp_drift.py` cross-checks the SKILL.md
+  allowed-tools vs the descriptors — NOT this inline prose — so this
+  suite guards the prose at the source: the catalogue MUST enumerate
+  exactly the registered tool set, no omissions and no phantom names.
 
   Parse contract: each tool is listed on its own line as
   `\"  <name>          — <one-liner>\"` — two leading spaces, the tool

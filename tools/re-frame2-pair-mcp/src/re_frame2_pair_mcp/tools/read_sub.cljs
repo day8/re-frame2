@@ -1,8 +1,8 @@
 (ns re-frame2-pair-mcp.tools.read-sub
-  "Tool: read-sub — validated one-shot subscription read (rf2-3bu3d.7).
+  "Tool: read-sub — validated one-shot subscription read.
 
   Reading a subscription value is the SINGLE most common read on any
-  re-frame2 app, and the pre-existing options all leaked:
+  re-frame2 app. Two lower-level approaches each leak:
 
     (a) raw `eval-cljs` `@(re-frame.core/subscribe [:foo args])` — works,
         but stringly (the caller must know the ns alias), UNVALIDATED (a
@@ -13,7 +13,7 @@
         materialised in the cache; a not-yet-mounted sub is absent.
 
   `read-sub` is the first-class read with NO-SILENT-SWALLOW PARITY with
-  `dispatch` (rf2-3bu3d.2 / rf2-3bu3d.3 / rf2-vflrg):
+  `dispatch`:
 
     1. Parse the `sub` arg as EDN ONCE server-side and require a
        `vector?` shape — host-form source (`(rf/subscribe ...)`) is
@@ -22,7 +22,7 @@
        The payload is data, not host source.
     2. VALIDATE the sub-id against the live `:sub` registrar (runtime-side
        `read-sub!` → `validate-sub-id`): an unknown id returns the SAME
-       structured `:reason :unknown-id` + `:nearest` matches dispatch now
+       structured `:reason :unknown-id` + `:nearest` matches dispatch
        returns — never a silent nil.
     3. Subscribe + deref ONCE; a deref/computation throw returns
        `:reason :sub-error` (a structured error, not a bare nil).
@@ -98,7 +98,7 @@
   / `:sub-error` / `:not-a-sub-vector`) carry no `:value` slot, so the
   elision walk fires only on `(:ok? res)`.
 
-  `walk?` (rf2-t55hxg.13) — whether the walker fires at all. NOT
+  `walk?` — whether the walker fires at all. NOT
   `elision?`: a bare `:elision false` still walks (sensitive redacts,
   large passes via `elision-opts`); only a deliberate full-raw opt-in
   (`:elision false` AND `:include-sensitive true`) ships the value bare."
@@ -124,9 +124,9 @@
         frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         sub-str  (wire/arg raw-args :sub)
         ;; Same `--allow-sensitive-reads` gate posture as snapshot's
-        ;; `:sub-cache` slice / get-path / list-subscriptions (rf2-c2dtu /
-        ;; rf2-vflrg / rf2-f1ose): gate OFF forces elision on + sensitive
-        ;; off; the per-call args win only when the operator opted in.
+        ;; `:sub-cache` slice / get-path / list-subscriptions: gate OFF
+        ;; forces elision on + sensitive off; the per-call args win only
+        ;; when the operator opted in.
         elision? (if (raw-state/raw-state-allowed?)
                    (args/parse-bool-arg raw-args :elision)
                    true)
@@ -136,7 +136,7 @@
         ;; `elision-opts-edn` takes walker-aligned `include-large?` — MCP
         ;; `elision` true = emit markers = `:include-large?` false.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)
-        ;; rf2-t55hxg.13 — fail-CLOSED: walk UNLESS the caller opted into
+        ;; Fail-CLOSED: walk UNLESS the caller opted into
         ;; both raw axes (`:elision false` AND `:include-sensitive true`).
         ;; A bare `:elision false` still walks so a declared-sensitive sub
         ;; value redacts to `:rf/redacted` while large content passes.

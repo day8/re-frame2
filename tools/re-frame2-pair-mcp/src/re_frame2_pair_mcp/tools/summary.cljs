@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.summary
-  "Tree-summary marker primitive (rf2-tygdv, generalised rf2-u2029).
+  "Tree-summary marker primitive.
 
   Per the cross-MCP wire-protocol §\"4. Lazy summary\", the
   default response mode for a rich nested value is a *summary*, not the
@@ -17,26 +17,25 @@
   application of summarise / path-slice / diff-encode / dedup — lives
   in `tools/snapshot-pipeline.cljs`.
 
-  ## Approximate `:bytes` field (rf2-qta8j, sampled rf2-lbm21)
+  ## Approximate `:bytes` field
 
   The `:bytes` field is a *cheap* approximation, not a precise count.
-  Earlier shape computed `(count (pr-str v))` on every branch which
-  deeply serialised the full value just to discard the string — the
-  whole point of `tree-summary` is to AVOID shipping the deep value,
-  so paying for a full pr-str just to drop it contradicts the marker's
-  cost model. On a 54MB app-db slice (per `lazy_summary_test` fixture)
-  that's a 54MB string allocation + ~13M tokens of serialisation work
-  per summary.
+  It deliberately avoids `(count (pr-str v))`, which would deeply
+  serialise the full value just to discard the string — the whole
+  point of `tree-summary` is to AVOID shipping the deep value, so
+  paying for a full pr-str just to drop it would contradict the
+  marker's cost model. On a 54MB app-db slice (per `lazy_summary_test`
+  fixture) that would be a 54MB string allocation + ~13M tokens of
+  serialisation work per summary.
 
   The estimate is `~ entry-count × per-entry-bytes`. Per-entry-bytes is
-  SAMPLED from one representative entry (rf2-lbm21): the prior fixed
-  8-/16-byte constants assumed every entry was a scalar, which under-
-  reported a collection of deep entries by ~1000×. The dominant
-  offender was the `:epochs` slice — a vector of epoch records, each
-  carrying a full `:db-before` / `:db-after` app-db pair. A 20-record
-  slice estimated `20 × 8 = 160` bytes while the FULL expansion ran to
-  ~171K tokens; an agent reading the `:bytes` hint to decide whether to
-  drill (`mode full`) saw a slice that looked trivial and blew its
+  SAMPLED from one representative entry, so the hint reflects per-entry
+  depth rather than assuming every entry is a scalar. The depth matters
+  most for the `:epochs` slice — a vector of epoch records, each
+  carrying a full `:db-before` / `:db-after` app-db pair: a 20-record
+  slice expands to ~171K tokens, so a flat-scalar estimate
+  (`20 × 8 = 160` bytes) would look trivial and an agent reading the
+  `:bytes` hint to decide whether to drill (`mode full`) would blow its
   budget on expansion. Sampling one entry's serialised size captures
   the per-entry depth so the hint reflects the full-expansion cost.
 
@@ -57,21 +56,21 @@
   64)
 
 ;; ---------------------------------------------------------------------------
-;; Sampled `:bytes` estimator (rf2-qta8j, rf2-lbm21).
+;; Sampled `:bytes` estimator.
 ;;
 ;; `:bytes` ≈ entry-count × per-entry-bytes, where per-entry-bytes is
 ;; SAMPLED from one representative entry rather than assumed a flat
-;; scalar constant. The prior fixed constants (8 for coll entries, 16
-;; for map entries) under-reported a collection of DEEP entries — most
-;; egregiously the `:epochs` slice, where each vector entry is a full
-;; epoch record carrying a `:db-before` / `:db-after` app-db pair. A
-;; 20-record slice reported `20 × 8 = 160` bytes while the full
-;; expansion was ~171K tokens — the ~1000× miss rf2-lbm21 fixes.
+;; scalar constant. A flat constant would under-report a collection of
+;; DEEP entries — most egregiously the `:epochs` slice, where each
+;; vector entry is a full epoch record carrying a `:db-before` /
+;; `:db-after` app-db pair. A 20-record slice's full expansion runs to
+;; ~171K tokens; a flat `20 × 8 = 160` byte estimate would be a ~1000×
+;; under-report, which sampling avoids.
 ;;
 ;; Sampling reads ONE entry's serialised size (and, for maps, one
 ;; value's), so the cost is `O(one-entry-depth)` — independent of N.
-;; Floors keep tiny scalar entries from rounding to zero and preserve
-;; the old order-of-magnitude shape for shallow collections.
+;; Floors keep tiny scalar entries from rounding to zero and preserve a
+;; sensible order-of-magnitude shape for shallow collections.
 ;; ---------------------------------------------------------------------------
 
 (def ^:const ^:private map-key-overhead-bytes
@@ -82,7 +81,7 @@
 
 (def ^:const ^:private coll-entry-floor-bytes
   "Floor for a sampled vector / set / seq entry — a bare scalar entry
-  (`1`, `:x`) prints to ~1-4 chars; floor at 8 to keep the old shape
+  (`1`, `:x`) prints to ~1-4 chars; floor at 8 to keep a sensible shape
   for shallow collections and avoid zero-byte estimates."
   8)
 
@@ -121,15 +120,15 @@
   `summary-keys-cap` entries and flagged via `:keys-truncated? true`
   so the marker can never blow the wire cap.
 
-  The `:bytes` field is an APPROXIMATION (per rf2-qta8j). Earlier
-  shape deep-serialised the value with `(count (pr-str v))` — that
-  pays the very cost the summary marker exists to avoid (a 54MB
-  app-db slice burns a 54MB string allocation to compute a single
-  integer estimate). The current implementation multiplies the
-  entry count by a per-entry constant — see the namespace docstring
+  The `:bytes` field is an APPROXIMATION. It deliberately avoids
+  deep-serialising the value with `(count (pr-str v))` — that would
+  pay the very cost the summary marker exists to avoid (a 54MB
+  app-db slice would burn a 54MB string allocation to compute a single
+  integer estimate). Instead it multiplies the
+  entry count by a sampled per-entry size — see the namespace docstring
   for the constants and rationale.
 
-  Scalars are returned unchanged (rf2-ambfv): they already fit the
+  Scalars are returned unchanged: they already fit the
   wire cap by definition, so wrapping them in a summary marker would
   add tokens without saving any."
   [v]
@@ -140,7 +139,7 @@
           shown   (if (> n summary-keys-cap)
                     (vec (take summary-keys-cap ks))
                     (vec ks))
-          ;; Sample one value to capture per-value depth (rf2-lbm21).
+          ;; Sample one value to capture per-value depth.
           ;; `(first (vals v))` is O(1) — it doesn't realise the rest.
           first-val (when (pos? n) (val (first v)))]
       {:rf.mcp/summary (cond-> {:type   :map

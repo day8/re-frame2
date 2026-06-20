@@ -1,11 +1,10 @@
 (ns re-frame2-pair-mcp.raw-state-test
-  "Unit tests for the `--allow-sensitive-reads` boot gate (rf2-c2dtu;
-  CLI flag aligned cross-MCP per rf2-2x3ql) and the single
-  intention-naming predicate `raw-state-allowed?` (rf2-p1qli).
+  "Unit tests for the `--allow-sensitive-reads` boot gate and the single
+  intention-naming predicate `raw-state-allowed?`.
 
   Internal Clojure identifiers (`allow-raw-state?` atom, `:allow-raw-state?`
-  keyword, `raw-state-allowed?` predicate) retain the legacy `raw-state`
-  naming; only the operator-facing CLI flag was renamed (rf2-2x3ql).
+  keyword, `raw-state-allowed?` predicate) use the `raw-state` naming;
+  the operator-facing CLI flag is `--allow-sensitive-reads`.
 
   Pins the three behaviours the gate guarantees:
 
@@ -13,7 +12,7 @@
        both return false; per-tool branches force redact + elide
        regardless of per-call args.
     2. Opt-in state — flipping the gate flips the predicate so the
-       per-call args win again (pre-rf2-c2dtu posture).
+       per-call args win again.
     3. `parse-launch-flags` parses `--allow-sensitive-reads` and rides
        alongside `--no-eval` without interference.
 
@@ -25,7 +24,7 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
-;; rf2-wb06a — the signal-runtime! tests `set!` the module-level
+;; The signal-runtime! tests `set!` the module-level
 ;; `nrepl/cljs-eval-value`. Restore the pristine original in a
 ;; fixture-scoped `:after` (NOT a per-test `.finally`, which fires after
 ;; `done` and can clobber a neighbour namespace's stub mid-eval). Also
@@ -45,8 +44,8 @@
 
 (deftest default-gate-is-off
   ;; Pre-boot / freshly-loaded ns: the raw-state gate is OFF (default).
-  ;; The sibling eval-cljs gate defaults ON post-rf2-a0z0h; this test
-  ;; asserts only the raw-state surface.
+  ;; The sibling eval-cljs gate defaults ON; this test asserts only the
+  ;; raw-state surface.
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/allow-raw-state-enabled?)))
   (is (false? (raw-state/raw-state-allowed?))
@@ -57,7 +56,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest opt-in-flips-predicate
-  ;; --allow-sensitive-reads ⇒ per-call args win (pre-rf2-c2dtu posture).
+  ;; --allow-sensitive-reads ⇒ per-call args win.
   (raw-state/set-allow-raw-state! true)
   (is (true?  (raw-state/allow-raw-state-enabled?)))
   (is (true?  (raw-state/raw-state-allowed?))
@@ -66,12 +65,12 @@
   (raw-state/set-allow-raw-state! false))
 
 ;; ---------------------------------------------------------------------------
-;; raw-state-allowed? predicate semantics (rf2-p1qli).
+;; raw-state-allowed? predicate semantics.
 ;; ---------------------------------------------------------------------------
 
 (deftest raw-state-allowed-tracks-gate
-  ;; The single intention-naming predicate (rf2-p1qli) matches its truth
-  ;; value to the operator's opt-in state — positive sense, no inversion.
+  ;; The single intention-naming predicate matches its truth value to
+  ;; the operator's opt-in state — positive sense, no inversion.
   ;; Per-tool bodies branch on this directly:
   ;;
   ;;   (if (raw-state/raw-state-allowed?)
@@ -120,7 +119,7 @@
     (is (true? (:allow-raw-state? flags)))))
 
 (deftest parse-launch-flags-defaults
-  ;; Post-rf2-a0z0h: eval-cljs defaults ON; raw-state defaults OFF.
+  ;; eval-cljs defaults ON; raw-state defaults OFF.
   (let [flags (server/parse-launch-flags [])]
     (is (true? (:eval-allowed? flags))
         "eval-cljs gate defaults ON (rf2-a0z0h)")
@@ -130,38 +129,37 @@
 (deftest parse-launch-flags-ignores-unknown
   ;; The PARSER stays permissive — future flags + node/shadow wrapper
   ;; argv must not break the parse. The validation layer
-  ;; (`launch-diagnostics`, rf2-a0kxsb) is what NAMES the unknown flag at
-  ;; boot; see `launch-diagnostics-*` below. The parser itself just
-  ;; plucks what it understands and leaves the rest alone.
+  ;; (`launch-diagnostics`) is what NAMES the unknown flag at boot; see
+  ;; `launch-diagnostics-*` below. The parser itself just plucks what it
+  ;; understands and leaves the rest alone.
   (let [flags (server/parse-launch-flags ["--no-such-flag" "--allow-sensitive-reads"])]
     (is (true? (:allow-raw-state? flags)))))
 
 (deftest parse-launch-flags-old-name-rejected
-  ;; Hard rename (rf2-2x3ql): the legacy `--allow-raw-state` flag is no
-  ;; longer recognised. No back-compat shim — passing it must NOT enable
-  ;; the gate. (rf2-a0kxsb: it now ALSO earns a :removed-flag diagnostic
-  ;; naming the replacement — see `launch-diagnostics-names-removed-flag`.)
+  ;; The `--allow-raw-state` flag is not recognised. No back-compat shim
+  ;; — passing it does NOT enable the gate. It ALSO earns a :removed-flag
+  ;; diagnostic naming the replacement — see
+  ;; `launch-diagnostics-names-removed-flag`.
   (let [flags (server/parse-launch-flags ["--allow-raw-state"])]
     (is (false? (:allow-raw-state? flags))
-        "Legacy --allow-raw-state must not enable the gate post-rename")))
+        "--allow-raw-state must not enable the gate")))
 
 (deftest parse-launch-flags-legacy-allow-eval-is-noop
-  ;; Hard removal (rf2-a0z0h, pre-alpha): the legacy `--allow-eval`
-  ;; opt-in flag is no longer recognised because the default flipped to
-  ;; ON. No back-compat shim — passing it does not change the gate (the
-  ;; gate is on regardless). rf2-a0kxsb: rather than a SILENT no-op, the
-  ;; validation layer now emits an intentional :removed-flag diagnostic
+  ;; The `--allow-eval` opt-in flag is not recognised because the eval
+  ;; default is ON. No back-compat shim — passing it does not change the
+  ;; gate (the gate is on regardless). Rather than a SILENT no-op, the
+  ;; validation layer emits an intentional :removed-flag diagnostic
   ;; naming the replacement (see `launch-diagnostics-names-removed-flag`);
   ;; the parsed gate state is unchanged (still default ON).
   (let [flags (server/parse-launch-flags ["--allow-eval"])]
     (is (true? (:eval-allowed? flags))
-        "Legacy --allow-eval must NOT disable the gate (gate stays at default ON)")))
+        "--allow-eval must NOT disable the gate (gate stays at default ON)")))
 
 ;; ---------------------------------------------------------------------------
-;; Launch-config diagnostics (rf2-a0kxsb). The parsers stay permissive;
-;; this layer scans the SAME argv against the declared flag schema and
-;; returns structured diagnostics naming any rejected / suspicious input
-;; + its effective fallback. `main` logs each at boot before readiness.
+;; Launch-config diagnostics. The parsers stay permissive; this layer
+;; scans the SAME argv against the declared flag schema and returns
+;; structured diagnostics naming any rejected / suspicious input + its
+;; effective fallback. `main` logs each at boot before readiness.
 ;; ---------------------------------------------------------------------------
 
 (deftest launch-diagnostics-clean-config-empty
@@ -230,7 +228,7 @@
     (is (= [] (server/resource-env-diagnostics #js {})))))
 
 ;; ---------------------------------------------------------------------------
-;; --port-file launch flag (rf2-3dbwh) — explicit, cwd-independent port file.
+;; --port-file launch flag — explicit, cwd-independent port file.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-launch-flags-port-file-defaults-nil
@@ -270,10 +268,10 @@
         "later --port-file overrides earlier (argv override semantics)")))
 
 ;; ---------------------------------------------------------------------------
-;; --http-port (rf2-umoz2). Same parsing shape as --port-file (one shared
+;; --http-port. Same parsing shape as --port-file (one shared
 ;; `parse-string-value-flag` helper underneath); these tests pin the
 ;; cross-cutting accept-shape (space + equals + missing-value + numeric
-;; coercion) for the new flag.
+;; coercion) for the flag.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-launch-flags-http-port-defaults-nil
@@ -307,13 +305,12 @@
     (is (false? (:eval-allowed? flags)))))
 
 ;; ---------------------------------------------------------------------------
-;; signal-runtime! — re-signals before EVERY state-emitting eval
-;; (rf2-olvr5 finding 2). The runtime's raw-state posture resets to its
-;; permissive default on every page/runtime reload, so caching a per-build
-;; "delivered" flag (the pre-fix shape) left a post-reload runtime tapping
-;; RAW app-db. The signal now reconfigures each call; only a CONCURRENT
-;; in-flight configure for the same build is deduped (the rf2-z7roa race
-;; guard).
+;; signal-runtime! — re-signals before EVERY state-emitting eval. The
+;; runtime's raw-state posture resets to its permissive default on every
+;; page/runtime reload, so caching a per-build "delivered" flag would
+;; leave a post-reload runtime tapping RAW app-db. The signal
+;; reconfigures each call; only a CONCURRENT in-flight configure for the
+;; same build is deduped (the race guard).
 ;; ---------------------------------------------------------------------------
 
 (deftest signal-runtime-reconfigures-each-call
@@ -344,8 +341,7 @@
 
 (deftest signal-runtime-dedups-concurrent-in-flight
   ;; Two CONCURRENT signals for the same build (issued before the first
-  ;; configure resolves) share ONE in-flight Promise — the rf2-z7roa race
-  ;; guard, preserved across the rf2-olvr5 re-signal change.
+  ;; configure resolves) share ONE in-flight Promise — the race guard.
   (async done
     (let [calls (atom 0)
           ;; A configure that only resolves when we tell it to, so both

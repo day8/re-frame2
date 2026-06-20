@@ -1,24 +1,23 @@
 (ns re-frame2-pair-mcp.build-id-cache-test
-  "Unit tests for the session-scoped `:resolved-build-id` cache (rf2-l9ixp).
+  "Unit tests for the session-scoped `:resolved-build-id` cache.
 
-  Adjacent to `probe_test.cljs`, which pins the `:probed-builds` cache
-  (rf2-sjpx0). The two caches share a lifecycle (cleared by `close!` and
-  reborn empty on a fresh `ensure-connection!` conn, but PRESERVED across
-  a transient same-port socket reopen — rf2-c3dsr); their semantics
-  differ:
+  Adjacent to `probe_test.cljs`, which pins the `:probed-builds` cache.
+  The two caches share a lifecycle (cleared by `close!` and reborn empty
+  on a fresh `ensure-connection!` conn, but PRESERVED across a transient
+  same-port socket reopen); their semantics differ:
 
     - `:probed-builds` is a set keyed by build-id, tracking which builds
       have had their `__re_frame2_pair_runtime` marker confirmed live.
     - `:resolved-build-id` is the single build-id `discover-app` last
       resolved — the default for tool calls that don't pass `:build`.
 
-  The cache removes a 2026-05-25 pair-debug friction: after a successful
+  The cache removes a pair-debug friction: without it, after a successful
   `discover-app` against `examples/step-deck`, every subsequent tool
-  call still needed `build: examples/step-deck` or it silently defaulted
-  to `:app` (the env-var fallback) and returned `:runtime-not-preloaded`
+  call still needs `build: examples/step-deck` or it silently defaults
+  to `:app` (the env-var fallback) and returns `:runtime-not-preloaded`
   looking like a fresh discovery failure.
 
-  The fix has three pieces, exercised by the deftests below:
+  The cache has three pieces, exercised by the deftests below:
 
     1. `discover-app` writes the resolved build-id into the conn-atom
        on success.
@@ -26,7 +25,7 @@
        when no explicit `:build` arg is passed.
     3. An explicit `:build` arg always wins (no surprise).
     4. nREPL `close!` clears the cache (a transport-only `connect!`
-       reopen of the same port deliberately PRESERVES it — rf2-c3dsr)."
+       reopen of the same port deliberately PRESERVES it)."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
@@ -60,16 +59,14 @@
    :ambiguous-frame?           false})
 
 ;; ---------------------------------------------------------------------------
-;; `wire/arg-build` — colon tolerance (rf2-8ohwv).
+;; `wire/arg-build` — colon tolerance.
 ;; ---------------------------------------------------------------------------
 
 (deftest arg-build-tolerates-a-leading-colon
-  ;; rf2-8ohwv: the human-facing hint shows the colon form
-  ;; (`--build=:examples/step-deck`) but the MCP arg used to want the bare
-  ;; form — a leading colon double-prepended into the malformed
-  ;; `::examples/step-deck` and failed the round-trip. Both forms must now
-  ;; resolve to the SAME keyword, and a doubled colon must never reach the
-  ;; resolver.
+  ;; The human-facing hint shows the colon form
+  ;; (`--build=:examples/step-deck`); the MCP arg also accepts the bare
+  ;; form. Both forms resolve to the SAME keyword, and a doubled colon
+  ;; never reaches the resolver (no `::examples/step-deck`).
   (let [conn (fresh-conn)]
     (is (= :examples/step-deck
            (wire/arg-build conn (tu/args->js {:build "examples/step-deck"})))
@@ -82,9 +79,9 @@
         "the two forms are indistinguishable post-coercion")))
 
 (deftest arg-build-colon-tolerance-on-bare-build
-  ;; The non-namespaced case the original `keyword` mishandled too:
-  ;; `:app` → `::app` (a `user`-ns keyword) → probes a build that doesn't
-  ;; exist. Both forms must land on `:app`.
+  ;; The non-namespaced case: `app` and `:app` both land on `:app`,
+  ;; never the malformed `::app` (a `user`-ns keyword) that would probe a
+  ;; build that doesn't exist.
   (let [conn (fresh-conn)]
     (is (= :app (wire/arg-build conn (tu/args->js {:build "app"}))))
     (is (= :app (wire/arg-build conn (tu/args->js {:build ":app"}))))))
@@ -107,8 +104,8 @@
     (is (= :app (wire/arg-build conn args)))))
 
 (deftest arg-build-with-cache-uses-cached-build-id
-  ;; rf2-l9ixp contract: a cached resolved-build-id is the default when
-  ;; the operator omits `:build` — overrides the `:app` env fallback.
+  ;; The contract: a cached resolved-build-id is the default when the
+  ;; operator omits `:build` — overrides the `:app` env fallback.
   (let [conn (fresh-conn)
         args (tu/args->js {})]
     (swap! conn assoc :resolved-build-id :examples/step-deck)
@@ -135,9 +132,9 @@
 
 (deftest arg-build-explicit-predicate-treats-cache-as-deliberate
   ;; A session-cache hit is treated as a deliberate choice — the
-  ;; eval-path resolver (rf2-ivlb3) honours it verbatim rather than
-  ;; second-guessing via auto-detect. Without this, the cache would be
-  ;; useless on a multi-build workspace.
+  ;; eval-path resolver honours it verbatim rather than second-guessing
+  ;; via auto-detect. Without this, the cache would be useless on a
+  ;; multi-build workspace.
   (let [conn (fresh-conn)
         args (tu/args->js {})]
     (is (false? (wire/arg-build-explicit? conn args))
@@ -254,14 +251,13 @@
     (is (nil? (:resolved-build-id @conn)))))
 
 ;; ---------------------------------------------------------------------------
-;; Single-build auto-selection (rf2-v70kv).
+;; Single-build auto-selection.
 ;;
-;; discover-app used to default an omitted :build to :app; on a checkout
-;; where :app isn't the running watch, the first no-arg call failed by
-;; construction. When EXACTLY ONE build runs, discover-app now selects it
-;; and notes the choice. Zero/many running keeps the existing diagnostic
-;; (which lists the running builds) — never a silent most-recently-active
-;; pick.
+;; When EXACTLY ONE build runs, discover-app with an omitted :build
+;; selects that build and notes the choice — so a checkout where :app
+;; isn't the running watch still resolves on the first no-arg call.
+;; Zero/many running falls back to the diagnostic (which lists the
+;; running builds) — never a silent most-recently-active pick.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-running-builds!
@@ -345,7 +341,7 @@
               (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Round-trippable build ids (rf2-8t3ct).
+;; Round-trippable build ids.
 ;;
 ;; The canonical build id is a keyword (`:examples/step-deck`). A value
 ;; copied out of a discover-app result's `:build` / `:build-id` slot must
@@ -365,8 +361,8 @@
           (.then
             (fn [result]
               (let [edn (tu/extract-edn result)]
-                ;; rf2-8t3ct — both the historical :build-id and the new
-                ;; input-name-matching :build carry the canonical keyword.
+                ;; Both :build-id and the input-name-matching :build carry
+                ;; the canonical keyword.
                 (is (= :examples/step-deck (:build-id edn)))
                 (is (= :examples/step-deck (:build edn))
                     "discover-app echoes a canonical :build matching the input arg name")
@@ -380,7 +376,7 @@
 (deftest canonical-build-round-trips-from-both-alias-forms
   ;; The echoed canonical keyword, re-serialised either as the bare
   ;; qualified string or the colon form, resolves identically — the
-  ;; deterministic alias contract (rf2-8t3ct). The two alias forms are
+  ;; deterministic alias contract. The two alias forms are
   ;; exactly the colon-tolerance axis: `subs (str kw) 1` (drop the
   ;; leading `:`) and `str kw` (keep it) both read back to `kw`.
   (let [conn      (fresh-conn)
@@ -397,7 +393,7 @@
         "the two alias forms are indistinguishable post-coercion")))
 
 ;; ---------------------------------------------------------------------------
-;; Per-session isolation (rf2-fmho5).
+;; Per-session isolation.
 ;;
 ;; The sticky target lives on the per-connection conn-atom, NOT in a
 ;; process-global. The MCP stdio model spawns one server process (and
@@ -435,7 +431,7 @@
         "the sticky target is per-conn-atom, never shared across sessions")))
 
 ;; ---------------------------------------------------------------------------
-;; Ambiguous-target / no-target structured error (rf2-fmho5).
+;; Ambiguous-target / no-target structured error.
 ;;
 ;; "If no session target exists and multiple runtimes are available, fail
 ;; with a clear ambiguous-target error listing candidates." The eval-path
@@ -453,7 +449,7 @@
     ;; NB restore `probe/running-builds` INLINE before calling `done` —
     ;; a `.finally`-scoped restore fires AFTER `done` advances to the next
     ;; test and would leak the multi-build stub into a neighbour (the
-    ;; rf2-wb06a race the orient/invoke suites document).
+    ;; cross-test stub race the orient/invoke suites document).
     (let [orig probe/running-builds
           restore! (fn [] (set! probe/running-builds orig))
           conn (fresh-conn)]
@@ -480,7 +476,7 @@
   ;; A session-sticky target (set by a prior discover-app) is treated as
   ;; deliberate — `resolve-build!` resolves to it verbatim even on a
   ;; multi-build workspace, so the sticky default actually removes the
-  ;; ambiguity instead of re-triggering it (rf2-fmho5 + rf2-l9ixp).
+  ;; ambiguity instead of re-triggering it.
   (async done
     (let [conn (fresh-conn)]
       ;; Cache a session target, then resolve with explicit? derived from
@@ -522,24 +518,23 @@
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; :port-discover sticky path — faithful no-pre-probe end-to-end (rf2-hu6q0).
+;; :port-discover sticky path — faithful no-pre-probe end-to-end.
 ;;
-;; The live repro (2026-06-03/04, multi-build):
+;; The flow these tests guard (multi-build):
 ;;
 ;;   discover-app {port 8033} -> OK, resolves :examples/machine-epochs
-;;   orient {}  (NO :build)   -> FAILED :build-not-running :app   (the bug)
+;;   orient {}  (NO :build)   -> must target :examples/machine-epochs
 ;;
 ;; `sticky_build_invoke_test/port-discover-sticks-build-through-invoke`
-;; already drives discover-app{port} then a no-build call through
-;; `tools/invoke` — but it PRE-SEEDS `:probed-builds` with the resolved
-;; build, so `discover-app`'s own `ensure-runtime!` short-circuits without
-;; the real preload probe. In the LIVE flow the `:port`-resolved build is
-;; NOT pre-probed — discover-app must run the actual
-;; `runtime-preloaded?` round-trip (a DISTINCT eval form from the
-;; `(runtime/health)` read) and `mark-conn-probed!` itself before reaching
-;; the cache-writing branch.
+;; drives discover-app{port} then a no-build call through `tools/invoke`,
+;; but it PRE-SEEDS `:probed-builds` with the resolved build, so
+;; `discover-app`'s own `ensure-runtime!` short-circuits without the real
+;; preload probe. In the LIVE flow the `:port`-resolved build is NOT
+;; pre-probed — discover-app must run the actual `runtime-preloaded?`
+;; round-trip (a DISTINCT eval form from the `(runtime/health)` read) and
+;; `mark-conn-probed!` itself before reaching the cache-writing branch.
 ;;
-;; These tests close that gap: a form-DISCRIMINATING stub answers the
+;; These tests cover that path: a form-DISCRIMINATING stub answers the
 ;; preload-probe form with `true` and the health form with the health map
 ;; — exactly what a live runtime returns — so the `:port` branch exercises
 ;; the real probe-then-mark-then-cache sequence, then a no-build call
@@ -570,8 +565,8 @@
 (deftest port-discover-without-pre-probe-still-caches
   ;; discover-app{port} on a multi-build setup, with NO pre-seeded
   ;; `:probed-builds` — discover-app must probe the resolved build live,
-  ;; mark it probed, AND write `:resolved-build-id`. The faithful repro of
-  ;; the live first-contact call.
+  ;; mark it probed, AND write `:resolved-build-id`. The faithful model of
+  ;; a live first-contact call.
   (async done
     (let [conn         (fresh-conn)
           orig-running probe/running-builds

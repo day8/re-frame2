@@ -1,11 +1,11 @@
 (ns re-frame2-pair-mcp.tools.handler-meta
-  "Tools: handler-meta + list-handlers (rf2-pctf8; list-handlers renamed
-  from registry-list per rf2-4y595 — NAMING.md `list-<things>` shape).
+  "Tools: handler-meta + list-handlers (the `list-<things>` shape per
+  NAMING.md).
 
   Direct introspection on the registrar — `where is `:user/login`
   registered?` answered without a wide-authority `eval-cljs` round-trip.
 
-  ## Frame-targeting — the EP-0023 forward direction (rf2-srobm0)
+  ## Frame-targeting — the EP-0023 forward direction
 
   A frame's inspectable registration set is its RESOLVED IMAGE GENERATION: the
   same `(kind, id)` can resolve DIFFERENTLY per frame (two frames running
@@ -15,7 +15,7 @@
   registrar path. PRESENT ⇒ the read routes through the per-frame runtime fns
   (`frame-registrar-describe` / `frame-registrar-list`), which consume the
   PUBLIC facade reads `(rf/handler-meta {:frame f :kind k :id id})` /
-  `(rf/handler-ids {:frame f :kind k})` (rf2-wkw8na) and resolve the
+  `(rf/handler-ids {:frame f :kind k})` and resolve the
   `(kind, id)` set through that frame's OWN sealed image generation —
   surfacing the resolved descriptor's `:rf.provenance/ns` + inline/image +
   `:standard` facts (plus a normalized `:rf.image/coordinate` rollup naming
@@ -30,17 +30,17 @@
   (per Spec-Schemas `:rf/source-coord-meta` — merged flat onto
   `:rf/registration-metadata`), plus `:doc`, `:tags`, the registrar
   kind, and (per Spec 001 §The public registrar query API) whatever
-  custom slots the `reg-*` macro emitted. The wire-pipeline (post-
-  rf2-cibp8) decorates every map that carries a usable source-coord
-  shape with an `:rf.source/uri` string — so the AI host renders an
-  immediate jump-to-editor link off the handler-meta response.
+  custom slots the `reg-*` macro emitted. The wire-pipeline decorates
+  every map that carries a usable source-coord shape with an
+  `:rf.source/uri` string — so the AI host renders an immediate
+  jump-to-editor link off the handler-meta response.
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`,
   `frame`, `route`, `flow`, `head`, `error-projector`, `resource`,
   `mutation`, `resource-scope`, `machine` — the closed v1 registrar set
   (per Spec 001 §Registry model; the three resources-artefact kinds are
-  EP-0016 / rf2-f8s9g6; `interceptor` is EP-0022). App-db schemas are NOT
-  a registrar kind (rf2-cq1ak); their metadata lives in the schemas
+  EP-0016; `interceptor` is EP-0022). App-db schemas are NOT
+  a registrar kind; their metadata lives in the schemas
   artefact's per-frame side-table, surfaced via `rf/app-schemas` /
   `rf/app-schema-meta-at`. The fourteen registrar kinds map directly to
   `rf/handler-meta`; `machine` routes
@@ -96,14 +96,14 @@
   table — the closed v1 registrar set (per Spec 001 §Registry model),
   including the three resources-artefact kinds `:resource` / `:mutation`
   / `:resource-scope` (Spec 001 §Registry model — `reg-resource` /
-  `reg-mutation` / `reg-resource-scope`; EP-0016 / rf2-f8s9g6). They
+  `reg-mutation` / `reg-resource-scope`; EP-0016). They
   enumerate / describe through the same kind-agnostic
   `re-frame2-pair.runtime/registrar-list` + `registrar-describe`
   accessors as every other kind — so `list-handlers {kind \"resource-scope\"}`
   enumerates the named scope resolvers and `handler-meta {kind
   \"resource-scope\" id …}` surfaces a resolver's declared `:inputs` +
   `:whole-db?` cost (the EP-0016 disposition-2 inspectability promise).
-  `registrar-describe`'s `strip-fns` (rf2-f8s9g6) keeps the nested handler
+  `registrar-describe`'s `strip-fns` keeps the nested handler
   fns (`:request` / `:tags` / `:invalidates` / `:populates` / `:resolve`)
   off the EDN wire so the serializable structure rides cleanly.
 
@@ -118,10 +118,10 @@
   so `list-handlers {kind \"interceptor\"}` enumerates the registered ids
   and `handler-meta {kind \"interceptor\" id …}` surfaces the descriptor
   (the `:rf/interceptor-descriptor` slot the registrar retains for tooling).
-  Without it, registered interceptors were not inspectable via the pair-MCP
-  handler-meta tool (flagged during rf2-0adhqs.2).
+  This is what makes registered interceptors inspectable via the pair-MCP
+  handler-meta tool.
 
-  App-db schemas (rf2-cq1ak) are intentionally absent — they are NOT
+  App-db schemas are intentionally absent — they are NOT
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
   it routes through `rf/machine-meta` (which inspects `:event`-kind
@@ -158,7 +158,7 @@
 
   Returns `[:ok parsed]` on success or `[:err reason]` on a read
   failure (`:missing-id` / `:invalid-id-edn`) — the shared
-  `args/read-edn-arg` readability core (rf2-jkake.19). A bare
+  `args/read-edn-arg` readability core. A bare
   keyword-shaped string (leading `:`) round-trips through `read-string`;
   a plain word like `\"foo\"` reads as a symbol — the caller's
   `:not-registered` lookup then surfaces that it isn't a registered id."
@@ -172,7 +172,7 @@
   (str/join ", " (sort (map name supported-kinds))))
 
 ;; ---------------------------------------------------------------------------
-;; Frame targeting — the EP-0023 forward direction (rf2-srobm0).
+;; Frame targeting — the EP-0023 forward direction.
 ;;
 ;; The OPTIONAL `:frame` arg addresses the OPERATING frame's resolved image
 ;; generation. ABSENT ⇒ nil ⇒ the byte-identical default-registrar path.
@@ -196,8 +196,8 @@
 ;; `re-frame2-pair.runtime/registrar-describe` (already published; carries
 ;; the `:not-registered` envelope on miss). For `:machine` we wrap
 ;; `re-frame.core/machine-meta` directly — the runtime ns has no
-;; machine-aware wrapper today, and adding one is out of scope (lives in
-;; rf2-pctf8's caller side, not the runtime preload).
+;; machine-aware wrapper, so the wrapping lives on the tool's caller
+;; side rather than in the runtime preload.
 ;; ---------------------------------------------------------------------------
 
 (defn- registrar-form
@@ -208,7 +208,7 @@
   carries the `:not-registered` envelope on a miss and the
   `:handler-fn-hash` augmentation.
 
-  EXPLICIT FRAME (`frame` set — rf2-srobm0): route through
+  EXPLICIT FRAME (`frame` set): route through
   `re-frame2-pair.runtime/frame-registrar-describe`, which resolves the
   `(kind, id)` through the frame's OWN sealed image generation (the PUBLIC
   `(rf/handler-meta {:frame f …})` read) and surfaces the resolved
@@ -226,11 +226,12 @@
   map or a structured `:not-registered` map. Keeps the tool's response
   shape uniform across kinds.
 
-  rf2-l7vnd: `dissoc :handler-fn` for the same reason `registrar-describe`
-  drops it — a raw Function ref is unreadable on the EDN wire and made
-  the tool envelope misreport :unexpected-shape. The machine surface
-  doesn't always carry one, but the dissoc is idempotent and cheap and
-  keeps the response shape EDN-clean by construction across both kinds.
+  `dissoc :handler-fn` for the same reason `registrar-describe`
+  drops it — a raw Function ref is unreadable on the EDN wire and would
+  make the tool envelope misreport :unexpected-shape. The machine
+  surface doesn't always carry one, but the dissoc is idempotent and
+  cheap and keeps the response shape EDN-clean by construction across
+  both kinds.
 
   The composed form is one expression so the eval is a single
   round-trip — composition is the same idiom every other tool uses."
@@ -264,7 +265,7 @@
                         :hint   (str "id must be an EDN-readable keyword, e.g. \":user/login\". "
                                      "For composite-key subs, pass the vector form.")}))
 
-      ;; rf2-srobm0 — machines are NOT registrar kinds and are absent from the
+      ;; Machines are NOT registrar kinds and are absent from the
       ;; image generation resolver (Spec 005 — derived from :event handlers); a
       ;; frame-targeted machine lookup has no resolution. Refuse loudly rather
       ;; than resolve to a confusing :not-registered.
@@ -280,12 +281,12 @@
                                      "frame-targeted read.")}))
 
       :else
-      ;; rf2-qobqy: wrap the runtime form in the typed result codec so
+      ;; Wrap the runtime form in the typed result codec so
       ;; an unserializable meta map (a `#object[Function]` slot that
       ;; slips past the runtime's `dissoc :handler-fn`, a `#js {…}`
       ;; literal) rides back as a STRUCTURED `:unserializable` envelope
-      ;; — never the stringly `:unexpected-shape` re-parse the prior
-      ;; shape carried, and never a meta map smuggled as a STRING in
+      ;; — never a stringly `:unexpected-shape` re-parse, and never a
+      ;; meta map smuggled as a STRING in
       ;; `:value`. `envelope->result`'s `on-value` receives the genuine
       ;; PARSED meta map (or nil), so the three logical shapes (hit /
       ;; miss / unserializable) each resolve cleanly.
@@ -346,7 +347,7 @@
   `re-frame.core/machines` (Spec 005 §Querying machines — every event handler
   with `:rf/machine? true`).
 
-  EXPLICIT FRAME (`frame` set — rf2-srobm0): route through
+  EXPLICIT FRAME (`frame` set): route through
   `re-frame2-pair.runtime/frame-registrar-list`, which enumerates only the
   ids the frame's OWN image generation carries for the kind (the PUBLIC
   `(rf/handler-ids {:frame f :kind k})` read). `:machine` is rejected before
@@ -371,7 +372,7 @@
                         :kind   kind-str
                         :hint   (str "kind must be one of: " (kinds-hint))}))
 
-      ;; rf2-srobm0 — machines are not in the image generation resolver.
+      ;; Machines are not in the image generation resolver.
       (and (some? frame-val) (= :machine kind))
       (js/Promise.resolve
         (wire/err-text {:ok?    false

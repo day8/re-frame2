@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.wire-cap-test
-  "Unit tests for the wire-boundary token-budget cap (rf2-rvyzy).
+  "Unit tests for the wire-boundary token-budget cap.
 
   Per `tools/re-frame2-pair-mcp/spec/Principles.md` §\"Tight token budget per
   response\", every MCP `tools/call` response is bounded at ~5,000
@@ -10,9 +10,8 @@
   Tests pin the public helpers directly from
   `re-frame2-pair-mcp.tools.cap`: `max-tokens-arg`, `overflow-payload`,
   `sum-payload-tokens`, `apply-cap`, `overflow-hints`, `default-max-tokens`.
-  The two cross-MCP re-exports that production never used —
-  `token-estimate` and `overflow-hint-fallback` — moved to
-  `re-frame2-pair-mcp.test-utils` (rf2-ttspi7) and are pinned via `tu/`
+  The two test-only helpers `token-estimate` and `overflow-hint-fallback`
+  live in `re-frame2-pair-mcp.test-utils` and are pinned via `tu/`
   here. A rename or signature change surfaces as a failing test rather
   than a silent contract drift.
 
@@ -73,7 +72,7 @@
   (is (= cap/default-max-tokens (cap/max-tokens-arg #js {"max-tokens" "bogus"}))))
 
 (deftest max-tokens-arg-negative-rejected-with-invalid-arg
-  ;; rf2-5rdit — a negative `:max-tokens` resolves to an
+  ;; A negative `:max-tokens` resolves to an
   ;; `{:rf.mcp/invalid-arg {...}}` rejection, NOT a negative cap (which
   ;; would over-trip apply-cap and lock the agent out). The `invoke`
   ;; chokepoint surfaces it as an isError result via `wire/err-text`.
@@ -145,11 +144,11 @@
       (is (re-find #"Narrow scope" (:hint marker))))))
 
 (deftest apply-cap-overflow-marker-key-keeps-namespace-in-structured-slot
-  ;; rf2-or8s29 — the overflow marker is built OUTSIDE the per-tool
-  ;; callbacks (cap/result-io build-overflow-result); before the fix it
-  ;; used a raw namespace-lossy `clj->js`, so SDK-friendly hosts reading
-  ;; structuredContent saw `"overflow"` (the marker key truncated) and
-  ;; missed the marker. Now it routes through `wire/result`.
+  ;; The overflow marker is built OUTSIDE the per-tool callbacks
+  ;; (cap/result-io build-overflow-result) and routes through
+  ;; `wire/result`, so SDK-friendly hosts reading structuredContent see
+  ;; the fully-qualified marker key. A raw namespace-lossy `clj->js`
+  ;; would truncate it to `"overflow"` and the host would miss the marker.
   (let [big (apply str (repeat 4000 "x"))
         r   (ok-text-result {:huge big})
         out (cap/apply-cap r {:tool "snapshot" :cap 500})
@@ -197,16 +196,15 @@
     (is (identical? r out))))
 
 ;; ---------------------------------------------------------------------------
-;; :structuredContent counts toward the cap (rf2-ycfu1).
+;; :structuredContent counts toward the cap.
 ;;
 ;; `wire/ok-text` / `wire/err-text` write the SAME payload into BOTH
 ;; `:content[*].text` (pr-str EDN) and `:structuredContent` (clj->js JSON
 ;; projection) on EVERY result. Both ride the wire. The cap MUST size
 ;; the structured slot too — a small-:content / huge-:structuredContent
 ;; response that the text gate alone judges under-budget would otherwise
-;; bust the MCP token budget. story-mcp already fixed this class
-;; (rf2-mzndx); the mcp-base contract pins it (rf2-13wbe finding 2,
-;; `structured-content-counted-toward-budget`).
+;; bust the MCP token budget. The mcp-base contract pins this class
+;; (`structured-content-counted-toward-budget`).
 ;; ---------------------------------------------------------------------------
 
 (defn- dual-coded-result
@@ -228,11 +226,10 @@
         "structuredContent JSON bytes MUST be summed alongside the text slot")))
 
 (deftest apply-cap-trips-on-huge-structured-content-under-small-text
-  ;; THE acceptance test (rf2-ycfu1): a response whose `:content` text is
-  ;; tiny but whose `:structuredContent` is huge MUST trip the overflow
-  ;; marker. FAILS before the cap.cljs fix (the structured slot was never
-  ;; counted, so the text-only sum stayed under cap and the raw oversize
-  ;; body shipped); PASSES after.
+  ;; THE acceptance test: a response whose `:content` text is tiny but
+  ;; whose `:structuredContent` is huge MUST trip the overflow marker.
+  ;; Without counting the structured slot the text-only sum stays under
+  ;; cap and the raw oversize body would ship; counting it trips the cap.
   (let [r   (dual-coded-result {:ok? true} {:big-payload (big-string 30000)})
         out (cap/apply-cap r {:tool "snapshot" :cap 1000})
         edn (read-edn out)]
@@ -256,14 +253,14 @@
     (is (identical? r out))))
 
 ;; ---------------------------------------------------------------------------
-;; The load-bearing scenario: 5MB app-db snapshot — the failure mode
-;; flagged in rf2-jlq5j's findings doc.
+;; The load-bearing scenario: 5MB app-db snapshot — the worst-case
+;; payload size the cap must contain.
 ;; ---------------------------------------------------------------------------
 
 (deftest five-mb-snapshot-is-bounded-at-wire-boundary
-  ;; rf2-jlq5j: a 5MB app-db snapshot pr-strs to ~5.6M chars ⇒ ~1.4M
-  ;; tokens, 290× the 5,000-token cap. Today: silent context
-  ;; corruption. After this fix: structured marker, agent retries with
+  ;; A 5MB app-db snapshot pr-strs to ~5.6M chars ⇒ ~1.4M tokens, 290×
+  ;; the 5,000-token cap. Without the cap this is silent context
+  ;; corruption; with it, a structured marker so the agent retries with
   ;; narrower args.
   (let [big-app-db (apply str (repeat (* 5 1024 1024) "x"))  ;; 5 MB
         snapshot {:rf/default {:app-db big-app-db}}
@@ -298,7 +295,7 @@
           (str "Missing overflow hint for tool: " t)))))
 
 ;; ---------------------------------------------------------------------------
-;; apply-cap short-circuits on wire-bounded markers (rf2-gktyn).
+;; apply-cap short-circuits on wire-bounded markers.
 ;;
 ;; Cache-hit and overflow envelopes are emitted by the cache + cap
 ;; steps themselves; they are sub-cap by construction. Re-applying
@@ -339,13 +336,12 @@
         "non-marker payload over budget is still capped")))
 
 (deftest apply-cap-caps-over-budget-lookalike-marker-key
-  ;; rf2-3xd9i9 regression: the marker detector used to match on the
-  ;; marker-key PREFIX, so an over-budget payload whose LEADING key merely
-  ;; STARTS WITH a marker key — e.g. `:rf.mcp/overflowed` — was wrongly
-  ;; treated as an already-bounded marker and short-circuited PAST the cap
-  ;; walk, shipping the raw over-budget body. With the exact-key fix the
-  ;; lookalike is NOT a marker, so apply-cap still walks it and replaces
-  ;; the over-budget body with the real `:rf.mcp/overflow` marker.
+  ;; Regression guard: the marker detector matches on the EXACT marker
+  ;; key, not a prefix. An over-budget payload whose LEADING key merely
+  ;; STARTS WITH a marker key — e.g. `:rf.mcp/overflowed` — is NOT a
+  ;; marker, so apply-cap still walks it and replaces the over-budget
+  ;; body with the real `:rf.mcp/overflow` marker. A prefix match would
+  ;; wrongly short-circuit PAST the cap walk and ship the raw body.
   (let [big   (apply str (repeat 8000 "x"))
         ;; Single-key map ⇒ pr-str renders `:rf.mcp/overflowed` as the
         ;; leading top-level key, the precise cap-bypass shape.
@@ -361,7 +357,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; cap-message — per-notification wire-cap for a single serialised EDN
-;; message string (rf2-wz66k7).
+;; message string.
 ;;
 ;; The `subscribe` streaming loop ships its per-tick payload as the
 ;; `:message` of a `notifications/progress` notification — which NEVER
@@ -387,10 +383,10 @@
   (is (nil? (cap/cap-message nil {:tool "subscribe" :cap 500}))))
 
 (deftest cap-message-over-budget-emits-overflow-marker
-  ;; THE Finding-1 acceptance: an oversized per-tick message is REPLACED
-  ;; with the `:rf.mcp/overflow` marker EDN, not shipped raw. Before the
-  ;; fix the progress notification bypassed the cap entirely and a
-  ;; multi-megabyte tick busted the per-notification token budget.
+  ;; An oversized per-tick message is REPLACED with the
+  ;; `:rf.mcp/overflow` marker EDN, not shipped raw. Without this gate a
+  ;; progress notification bypasses the cap entirely and a multi-megabyte
+  ;; tick busts the per-notification token budget.
   (let [big (apply str (repeat 8000 "x"))
         msg (pr-str {:sub-id "s" :events [{:huge big}]})
         out (cap/cap-message msg {:tool "subscribe" :cap 500})

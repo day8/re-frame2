@@ -1,23 +1,22 @@
 (ns re-frame2-pair-mcp.conformance-test
-  "Per rf2-xkxbv (audit rf2-7hie3 §TE3). Drives the re-frame2-pair-mcp tool catalogue
+  "Drives the re-frame2-pair-mcp tool catalogue
   through `tools/invoke` against a stub `conn` and asserts the recorded
   wire-shape EDN — the artefact's contract suite, sibling to:
 
-    - `re-frame.conformance-test`            (core fixtures; rf2-d0wem)
-    - `re-frame.ssr-conformance-test`        (ssr fixtures;  rf2-i3qc0)
-    - `re-frame.schemas-conformance-test`    (schemas;       rf2-2l08g)
-    - `re-frame.flows-conformance-test`      (flows;         rf2-4559c)
-    - `re-frame.machines-conformance-test`   (machines;      rf2-d0wem)
+    - `re-frame.conformance-test`            (core fixtures)
+    - `re-frame.ssr-conformance-test`        (ssr fixtures)
+    - `re-frame.schemas-conformance-test`    (schemas)
+    - `re-frame.flows-conformance-test`      (flows)
+    - `re-frame.machines-conformance-test`   (machines)
 
   ## Why a conformance corpus for re-frame2-pair-mcp
 
   The unit suite covers each tool's INNER logic in isolation
   (`get_path_test`, `snapshot_test`, `subscribe_test`, etc.) and the
-  pipeline wire-up (`invoke_test`, `cache_test`, `wire_cap_test`). What
-  was missing pre-rf2-xkxbv: a single corpus that pins the
-  *outer* shape — for each MCP tool, given a canonical `tools/call`
-  input and a deterministic stub `conn`, what wire envelope does
-  `tools/invoke` produce?
+  pipeline wire-up (`invoke_test`, `cache_test`, `wire_cap_test`). This
+  corpus pins the *outer* shape — for each MCP tool, given a canonical
+  `tools/call` input and a deterministic stub `conn`, what wire envelope
+  does `tools/invoke` produce?
 
   That's the contract the agent host actually consumes. Without a
   corpus pinning it, an accidental rename (`:reason :missing-event` →
@@ -139,13 +138,13 @@
 
   The `forms-seen` atom records every form-string the stub is asked to
   resolve so a fixture's `:fixture/eval-form-must-contain` slot can
-  pin the SHAPE of the form sent over nREPL — used by the rf2-c2dtu
-  raw-state fixtures to verify the gate forces
+  pin the SHAPE of the form sent over nREPL — used by the raw-state
+  fixtures to verify the gate forces
   `:rf.size/include-sensitive? false` server-side (the walker-option
   namespaced keyword, NOT the wire-key — the wire-key is the
-  unqualified `:include-sensitive` post-rf2-ihq4d).
+  unqualified `:include-sensitive`).
 
-  rf2-7tgfk: also stubs `nrepl/jvm-eval` so the preload-failure
+  Also stubs `nrepl/jvm-eval` so the preload-failure
   diagnostic ladder doesn't short-circuit to `:nrepl-unreachable` on
   every preload-missing fixture. The default JVM stub:
     - returns `{:value \"1\"}` for the `1` health-probe so
@@ -172,7 +171,7 @@
                       (js/Promise.resolve (run-eval-script eval-script form-str))))
          default-jvm-script
          ;; First-match wins; this is the failure-path default the
-         ;; rf2-7tgfk diagnostic ladder relies on.
+         ;; diagnostic ladder relies on.
          [["active-builds" {:value "[:app]"}]
           [:default        {:value "1"}]]
          effective-jvm-script (or jvm-eval-script default-jvm-script)
@@ -288,7 +287,7 @@
 (def corpus
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
-  Coverage matrix today (rf2-xkxbv, rf2-fnpqg):
+  Coverage matrix:
 
     | Tool                   | Happy | Missing-arg | Degraded-runtime |
     |------------------------|-------|-------------|-------------------|
@@ -352,12 +351,12 @@
     {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
    ;; ---------- eval-cljs --------------------------------------------------
-   ;; The launch-flag gate (rf2-a0z0h; inverts the prior rf2-cxx5s
-   ;; default) ships DEFAULT-ON in published builds — the operator
-   ;; passes `--no-eval` to opt OUT. Fixtures that drive the post-gate
-   ;; logical paths (`:happy`, `:missing-form`, `:no-runtime-for-build`)
-   ;; rely on the default ON state; the `:disabled-via-no-eval` fixture
-   ;; pins the opt-out envelope via `:fixture/eval-allowed? false`.
+   ;; The launch-flag gate ships DEFAULT-ON in published builds — the
+   ;; operator passes `--no-eval` to opt OUT. Fixtures that drive the
+   ;; post-gate logical paths (`:happy`, `:missing-form`,
+   ;; `:no-runtime-for-build`) rely on the default ON state; the
+   ;; `:disabled-via-no-eval` fixture pins the opt-out envelope via
+   ;; `:fixture/eval-allowed? false`.
    {:fixture/id    :eval-cljs/disabled-via-no-eval
     :fixture/doc   "eval-cljs with --no-eval (gate flipped OFF) returns :rf.error/eval-cljs-disabled."
     :fixture/tool  "eval-cljs"
@@ -372,8 +371,8 @@
    {:fixture/id    :eval-cljs/happy
     :fixture/doc   "eval-cljs (gate at default ON) with explicit :build returns {:ok? true :value v} on a successful runtime eval."
     :fixture/tool  "eval-cljs"
-    ;; Explicit :build short-circuits the rf2-ivlb3 auto-detect (which
-    ;; would jvm-eval `active-builds` — not stubbed by this cljs-eval-only
+    ;; Explicit :build short-circuits the auto-detect (which would
+    ;; jvm-eval `active-builds` — not stubbed by this cljs-eval-only
     ;; harness). The runtime-sentinel preflight still runs.
     :fixture/args  {:form "(+ 1 2)" :build "app"}
     :fixture/eval-script
@@ -384,10 +383,10 @@
     {:isError? false
      :edn-submap {:ok? true :value 3 :build :app}}}
 
-   ;; rf2-qobqy — the typed result envelope distinguishes a GENUINE nil,
-   ;; an eval-error, and an unserializable value where the old path
-   ;; collapsed all three to a bare null. The runtime classifies the
-   ;; result into a tagged `:rf.mcp/result` map; the server projects it.
+   ;; The typed result envelope distinguishes a GENUINE nil, an
+   ;; eval-error, and an unserializable value rather than collapsing all
+   ;; three to a bare null. The runtime classifies the result into a
+   ;; tagged `:rf.mcp/result` map; the server projects it.
    {:fixture/id    :eval-cljs/typed-nil
     :fixture/doc   "eval-cljs of a form that genuinely returns nil rides back as :ok? true :value nil — a tagged :rf.mcp/result :nil, NOT a collapsed null (rf2-qobqy)."
     :fixture/tool  "eval-cljs"
@@ -453,10 +452,9 @@
     {:isError? true
      :reason :missing-form}}
 
-   ;; ---- await opt-in (rf2-xn4f9) ----
-   ;; :await false (the default) MUST preserve the pre-rf2-xn4f9
-   ;; semantics — the form is sent verbatim, no await wrapper. Pin that
-   ;; via :fixture/eval-form-must-not-contain.
+   ;; ---- await opt-in ----
+   ;; :await false (the default) sends the form verbatim — no await
+   ;; wrapper. Pin that via :fixture/eval-form-must-not-contain.
    {:fixture/id    :eval-cljs/await-default-off-no-wrap
     :fixture/doc   "eval-cljs without :await sends the form verbatim — no await wrapper, no mailbox slot (rf2-xn4f9 default :await false)."
     :fixture/tool  "eval-cljs"
@@ -533,11 +531,11 @@
                   :build :app}}}
 
    ;; ---------- dispatch ---------------------------------------------------
-   ;; rf2-3bu3d.2 — the DEFAULT dispatch now returns the CONSEQUENCE via
+   ;; The DEFAULT dispatch returns the CONSEQUENCE via
    ;; `dispatch-consequence!`: `:db-changed? :changed-paths :effects-fired
    ;; :no-op?` so a no-op is VISIBLE, plus `:resolved` echoing the parsed
-   ;; event (rf2-3bu3d.3). The runtime fn is `dispatch-consequence!`, not
-   ;; the old `pair-dispatch!` transport ack.
+   ;; event. The runtime fn is `dispatch-consequence!`, distinct from the
+   ;; `pair-dispatch!` transport ack used by the :queued path.
    {:fixture/id    :dispatch/happy
     :fixture/doc   "default dispatch returns the consequence via dispatch-consequence! (rf2-3bu3d.2 / rf2-3bu3d.3)."
     :fixture/tool  "dispatch"
@@ -556,8 +554,8 @@
      :edn-submap {:mode :sync :ok? true :db-changed? true :no-op? false
                   :resolved [:counter/inc]}}}
 
-   ;; rf2-3bu3d.2 — a genuine NO-OP is now VISIBLE: `:db-changed? false
-   ;; :effects-fired [] :no-op? true` instead of a fake success ack.
+   ;; A genuine NO-OP is VISIBLE: `:db-changed? false :effects-fired []
+   ;; :no-op? true` rather than a bare success ack.
    {:fixture/id    :dispatch/no-op-visible
     :fixture/doc   "a no-op dispatch returns :db-changed? false :effects-fired [] :no-op? true (rf2-3bu3d.2)."
     :fixture/tool  "dispatch"
@@ -574,10 +572,10 @@
      :edn-submap {:mode :sync :ok? true :db-changed? false
                   :effects-fired [] :no-op? true}}}
 
-   ;; rf2-3bu3d.3 — an unknown event-id is VALIDATED at the wire boundary
-   ;; and returns a structured :unknown-id error with :nearest matches,
-   ;; WITHOUT dispatching (the runtime `dispatch-consequence!` short-
-   ;; circuits on the validation miss). No silent no-op success.
+   ;; An unknown event-id is VALIDATED at the wire boundary and returns a
+   ;; structured :unknown-id error with :nearest matches, WITHOUT
+   ;; dispatching (the runtime `dispatch-consequence!` short-circuits on
+   ;; the validation miss). No silent no-op success.
    {:fixture/id    :dispatch/unknown-id-validated
     :fixture/doc   "dispatch of an unregistered event-id surfaces :reason :unknown-id + :nearest, never a silent success (rf2-3bu3d.3)."
     :fixture/tool  "dispatch"
@@ -595,8 +593,8 @@
      :edn-submap {:ok? false :reason :unknown-id :id :rf/xrayy
                   :nearest [:rf/xray :rf/default] :resolved [:rf/xrayy]}}}
 
-   ;; rf2-3bu3d.2 — `:queued true` opts into the async transport-ack: the
-   ;; runtime `pair-dispatch!` return rides back with `:mode :queued` and
+   ;; `:queued true` opts into the async transport-ack: the runtime
+   ;; `pair-dispatch!` return rides back with `:mode :queued` and
    ;; `:settled? false` when the cascade hasn't drained.
    {:fixture/id    :dispatch/queued-settled-false
     :fixture/doc   "dispatch :queued true returns the async ack (:mode :queued :settled? false) (rf2-3bu3d.2)."
@@ -634,12 +632,12 @@
     :fixture/expect
     {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
 
-   ;; rf2-ldfnx — frame-targeted dispatch routes to the named frame. The
-   ;; documented `frame` arg is the colon-prefixed id (":rf/xray";
-   ;; Tool-Catalogue §Id representation). The emitted runtime call MUST
-   ;; carry the well-formed `:frame :rf/xray` opt and MUST NOT mint the
-   ;; malformed `::rf/xray` (namespace ":rf") that raw `(keyword ...)`
-   ;; produced — the silent-no-op the bead targets.
+   ;; Frame-targeted dispatch routes to the named frame. The documented
+   ;; `frame` arg is the colon-prefixed id (":rf/xray"; Tool-Catalogue
+   ;; §Id representation). The emitted runtime call MUST carry the
+   ;; well-formed `:frame :rf/xray` opt and MUST NOT mint the malformed
+   ;; `::rf/xray` (namespace ":rf") that raw `(keyword ...)` would produce
+   ;; — which would be a silent no-op.
    {:fixture/id    :dispatch/frame-targeted-routes
     :fixture/doc   "dispatch frame ':rf/xray' emits {:frame :rf/xray} in the runtime opts — NOT the malformed ::rf/xray (rf2-ldfnx). Routes through dispatch-consequence! (rf2-3bu3d.2)."
     :fixture/tool  "dispatch"
@@ -657,12 +655,10 @@
     {:isError? false
      :edn-submap {:mode :sync :ok? true :frame :rf/xray}}}
 
-   ;; rf2-ldfnx — when the named frame cannot be targeted (head did not
-   ;; advance), the runtime returns {:ok? false :reason :no-new-epoch}.
-   ;; The tool MUST surface a structured ERROR envelope, never a
-   ;; {:mode :sync} success. The pre-fix shape merged {:mode :sync} over
-   ;; the failure and emitted a non-isError envelope — the silent
-   ;; wrong-success this bead fixes.
+   ;; When the named frame cannot be targeted (head did not advance), the
+   ;; runtime returns {:ok? false :reason :no-new-epoch}. The tool MUST
+   ;; surface a structured ERROR envelope, never a {:mode :sync} success
+   ;; merged over the failure (which would be a silent wrong-success).
    {:fixture/id    :dispatch/frame-untargetable-error
     :fixture/doc   "dispatch surfaces the runtime's {:ok? false :reason :no-new-epoch} as an :isError envelope with NO :mode slot (rf2-ldfnx)."
     :fixture/tool  "dispatch"
@@ -679,10 +675,10 @@
     {:isError? true
      :edn-submap {:ok? false :reason :no-new-epoch :frame :rf/xray}}}
 
-   ;; rf2-gfu33 — render-settle. `:await-render true` wraps the settle
-   ;; Promise in the await mailbox; the wrap-form eval returns the
-   ;; mailbox sentinel and the poll read resolves to the dispatch
-   ;; envelope with `:settled? true`. The emitted settle form MUST route
+   ;; Render-settle. `:await-render true` wraps the settle Promise in the
+   ;; await mailbox; the wrap-form eval returns the mailbox sentinel and
+   ;; the poll read resolves to the dispatch envelope with
+   ;; `:settled? true`. The emitted settle form MUST route
    ;; the flush through the substrate-agnostic adapter primitive
    ;; (`re-frame.interop/after-render`) + the paint boundary
    ;; (`requestAnimationFrame`) and force synchronous dispatch.
@@ -716,7 +712,7 @@
     {:isError? false
      :edn-submap {:ok? true :mode :sync :settled? true :epoch-id 9}}}
 
-   ;; ---------- dispatch-dry-run (rf2-17hvp) ------------------------------
+   ;; ---------- dispatch-dry-run ------------------------------------------
    ;; Dry-run is NOT --allow-writes-gated: the override-set ensures no
    ;; observable effect escapes, and restore-epoch rewinds the would-be
    ;; epoch. No gate needed because the contract IS "no state change".
@@ -770,13 +766,13 @@
     {:isError? true
      :reason :not-an-event-vector}}
 
-   ;; rf2-z7roa — dry-run is an AI-facing READ surface. Gate OFF (the
-   ;; default published posture) MUST run the app-db-rooted egress slot
+   ;; Dry-run is an AI-facing READ surface. Gate OFF (the default
+   ;; published posture) MUST run the app-db-rooted egress slot
    ;; (:db-state-after-simulation) through the elision walker server-side,
    ;; with sensitive slots forced to redact and large slots forced to
-   ;; elide. rf2-6to9xj — the :would-fire-effects[*].args slot is NOT
-   ;; app-db-rooted, so it FAILS CLOSED (assoc :rf/redacted) rather than
-   ;; running through the walker. The eval form must carry the walker call
+   ;; elide. The :would-fire-effects[*].args slot is NOT app-db-rooted, so
+   ;; it FAILS CLOSED (assoc :rf/redacted) rather than running through the
+   ;; walker. The eval form must carry the walker call
    ;; (for the db slot) + the safe walker opts + the fx-args redaction
    ;; (touching :would-fire-effects), and must signal the raw-state tap
    ;; posture (configure-raw-state!) before the dispatch.
@@ -809,11 +805,10 @@
     {:isError? false
      :edn-submap {:ok? true :dry-run? true :elision true}}}
 
-   ;; rf2-t55hxg.13 — fail-CLOSED. Gate ON + a BARE `:elision false` (no
+   ;; Fail-CLOSED. Gate ON + a BARE `:elision false` (no
    ;; `:include-sensitive true`) MUST still walk the app-db-rooted
    ;; `:db-state-after-simulation` slot: large content passes
    ;; (`include-large? true`) but a declared-sensitive db slot redacts.
-   ;; Pre-fix this asserted no walker wrap — that was the sensitive bypass.
    {:fixture/id    :dispatch-dry-run/gate-on-bare-elision-false-still-walks
     :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through elide-wire-value with :rf.size/include-sensitive? false, :rf.size/include-large? true (rf2-t55hxg.13)."
     :fixture/tool  "dispatch-dry-run"
@@ -833,10 +828,10 @@
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
 
-   ;; rf2-t55hxg.13 — the deliberate full-raw opt-in (`:elision false` AND
+   ;; The deliberate full-raw opt-in (`:elision false` AND
    ;; `:include-sensitive true`) is the ONLY combination that skips the db
-   ;; walker. With `:include-fx-args` unset the fx args still fail closed
-   ;; (rf2-6to9xj), so the form still touches `:would-fire-effects`.
+   ;; walker. With `:include-fx-args` unset the fx args still fail closed,
+   ;; so the form still touches `:would-fire-effects`.
    {:fixture/id    :dispatch-dry-run/gate-on-full-raw-opt-out
     :fixture/doc   "dispatch-dry-run ON + :elision false + :include-sensitive true ships the raw simulation details — NO walker wrap for the db slot (rf2-z7roa / rf2-t55hxg.13)."
     :fixture/tool  "dispatch-dry-run"
@@ -854,9 +849,9 @@
     {:isError? false
      :edn-submap {:ok? true :elision false}}}
 
-   ;; rf2-6to9xj — the :would-fire-effects[*].args slot carries RAW
-   ;; fx-handler arguments (HTTP bodies, dispatched event vectors, payment
-   ;; maps) NOT rooted at app-db, so the schema-path walker cannot prove
+   ;; The :would-fire-effects[*].args slot carries RAW fx-handler
+   ;; arguments (HTTP bodies, dispatched event vectors, payment maps) NOT
+   ;; rooted at app-db, so the schema-path walker cannot prove
    ;; them safe. Off-box egress FAILS CLOSED: :args redacts to :rf/redacted
    ;; for every fx by default, while :fx-id rides through. The emitted form
    ;; carries the fail-close (assoc :args :rf/redacted on :would-fire-effects).
@@ -898,7 +893,7 @@
     {:isError? true
      :edn-submap {:ok? false :reason :no-new-epoch}}}
 
-   ;; ---------- restore-epoch (rf2-ee38b.18 — gated write) ----------------
+   ;; ---------- restore-epoch (gated write) -------------------------------
    ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
    ;; the gate-closed envelope (no nREPL round-trip); the happy fixture
    ;; flips :fixture/allow-writes? and pins the success shape. epoch-id is
@@ -939,10 +934,10 @@
     {:isError? true
      :reason :missing-epoch-id}}
 
-   ;; rf2-or8s29 — a restore that the runtime REJECTS (legacy bare
-   ;; `false`: aged-out id, drain-in-flight) means the write did not land.
-   ;; It MUST ride as isError carrying :restore-rejected, NOT a
-   ;; success-shaped envelope the host reads as a landed write.
+   ;; A restore that the runtime REJECTS (a bare `false`: aged-out id,
+   ;; drain-in-flight) means the write did not land. It MUST ride as
+   ;; isError carrying :restore-rejected, NOT a success-shaped envelope
+   ;; the host reads as a landed write.
    {:fixture/id    :restore-epoch/rejected-false
     :fixture/doc   "restore-epoch with --allow-writes ON whose runtime returns false (rejected restore) rides as isError :restore-rejected (rf2-or8s29)."
     :fixture/tool  "restore-epoch"
@@ -957,7 +952,7 @@
     {:isError? true
      :edn-submap {:ok? false :restored? false :reason :restore-rejected :epoch-id 999}}}
 
-   ;; ---------- replace-app-db (rf2-ee38b.18 — gated write) ---------------
+   ;; ---------- replace-app-db (gated write) ------------------------------
    {:fixture/id    :replace-app-db/disabled-default
     :fixture/doc   "replace-app-db with --allow-writes OFF returns :rf.error/writes-disabled without touching the runtime."
     :fixture/tool  "replace-app-db"
@@ -981,9 +976,9 @@
      [:default                    nil]]
     :fixture/eval-form-must-contain
     ["app-db-reset! {:counter 0}"
-     ;; rf2-z7roa — the raw-state tap posture is signalled (the unit
-     ;; suite pins it lands BEFORE app-db-reset!; the corpus pins it
-     ;; IS emitted on the write path with the gate-OFF posture).
+     ;; The raw-state tap posture is signalled (the unit suite pins it
+     ;; lands BEFORE app-db-reset!; the corpus pins it IS emitted on the
+     ;; write path with the gate-OFF posture).
      "configure-raw-state!"
      ":allow-raw-state? false"]
     :fixture/expect
@@ -1001,7 +996,7 @@
     {:isError? true
      :reason :missing-db}}
 
-   ;; rf2-or8s29 — a replace the runtime REJECTS
+   ;; A replace the runtime REJECTS
    ;; ({:ok? false :reason :reset-rejected ...}: no-such-frame,
    ;; replace-during-drain, schema-mismatch) means the injection did NOT
    ;; land. It MUST ride as isError carrying the reason, NOT a
@@ -1075,7 +1070,7 @@
     :fixture/args  {:frames "all"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ;; rf2-e35a5: the snapshot eval form now wraps its result as
+     ;; The snapshot eval form wraps its result as
      ;; `{:value <snap> :elided-count N}` so the elision count rides
      ;; back on the same nREPL round-trip; the wire-pipeline reads
      ;; the count from opts instead of re-walking client-side.
@@ -1101,9 +1096,9 @@
     :fixture/args  {:path "[:counter]"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ;; rf2-e35a5: eval form pre-counts elision markers; the
-     ;; envelope carries `:elided-count` so the wire-pipeline reads
-     ;; the count from opts instead of re-walking the scalar.
+     ;; The eval form pre-counts elision markers; the envelope carries
+     ;; `:elided-count` so the wire-pipeline reads the count from opts
+     ;; instead of re-walking the scalar.
      [:default                    {:ok? true :exists? true :path [:counter]
                                    :value 42 :elided-count 0}]]
     :fixture/expect
@@ -1133,10 +1128,10 @@
     {:isError? true
      :edn-submap {:ok? false :reason :path-not-found}}}
 
-   ;; ---------- read-dom (rf2-nfjil — raw DOM plane read) -----------------
+   ;; ---------- read-dom (raw DOM plane read) -----------------------------
    ;; The whole read runs browser-side in the preloaded runtime fn
-   ;; (re-frame2-pair.runtime/dom-read — shared plumbing with read-ui since
-   ;; rf2-q0r7e); the corpus stubs the form's canned envelope, matching on
+   ;; (re-frame2-pair.runtime/dom-read — shared plumbing with read-ui);
+   ;; the corpus stubs the form's canned envelope, matching on
    ;; the `dom-read` runtime call. Pins the outer wire shape: matched
    ;; :count + per-node {:tag :text :attrs}, the large-text elision marker,
    ;; the missing-arg gate, and the bad-selector error reason.
@@ -1217,7 +1212,7 @@
     :fixture/expect
     {:isError? true}}
 
-   ;; ---------- list-subscriptions (reactive sub-cache, rf2-qicji) --------
+   ;; ---------- list-subscriptions (reactive sub-cache) -------------------
    {:fixture/id    :list-subscriptions/empty
     :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. The runtime sentinel is present (only the sub-cache query is empty) — a missing sentinel would be a preflight failure (isError), not an empty success."
     :fixture/tool  "list-subscriptions"
@@ -1228,7 +1223,7 @@
     :fixture/expect
     {:isError? false}}
 
-   ;; ---------- list-streams (streaming-tap diagnostic, rf2-qicji) --------
+   ;; ---------- list-streams (streaming-tap diagnostic) -------------------
    {:fixture/id    :list-streams/empty
     :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope. The runtime sentinel is present (only the subscription-info query is empty) — a missing sentinel would be a preflight failure (isError), not an empty success."
     :fixture/tool  "list-streams"
@@ -1239,7 +1234,7 @@
     :fixture/expect
     {:isError? false}}
 
-   ;; ---------- operating-frame trio (rf2-zomfq) --------------------------
+   ;; ---------- operating-frame trio --------------------------------------
    ;; The three Tool-Pair §Tool-surface-obligations ops. The runtime
    ;; surfaces them via `frames-list` (the {:frames :selected :operating}
    ;; triple) and `select-frame!`; the tools compose validate-then-pin /
@@ -1390,7 +1385,7 @@
      :edn-submap {:ok? true :selected nil :operating nil}}}
 
    ;; ---------- get-re-frame2-pair-instructions ------------------------------------
-   ;; Inline-text tool (rf2-fnpqg). No nREPL round-trip; the result is a
+   ;; Inline-text tool. No nREPL round-trip; the result is a
    ;; pure-data def in the bundle, so the eval-script is irrelevant.
    {:fixture/id    :get-re-frame2-pair-instructions/happy
     :fixture/doc   "get-re-frame2-pair-instructions returns {:ok? true :tool ... :text <prose>}."
@@ -1402,14 +1397,13 @@
     {:isError? false
      :edn-submap {:ok? true :tool "get-re-frame2-pair-instructions"}}}
 
-   ;; ---------- rf2-c2dtu raw-state boot-gate -----------------------------
+   ;; ---------- raw-state boot-gate ---------------------------------------
    ;; The default-OFF gate forces `:include-sensitive false` AND
    ;; `:elision true` on every snapshot / get-path / subscribe call,
    ;; regardless of the per-call arg. The gate-ON path defers to the
-   ;; caller's args (pre-rf2-c2dtu posture). The wire-key drops the
-   ;; trailing `?` post-rf2-ihq4d; the namespaced walker-option keyword
-   ;; `:rf.size/include-sensitive?` retains it (internal framework key,
-   ;; not on the wire).
+   ;; caller's args. The wire-key carries no trailing `?`; the namespaced
+   ;; walker-option keyword `:rf.size/include-sensitive?` retains it
+   ;; (internal framework key, not on the wire).
    {:fixture/id    :raw-state/snapshot-gated-default-forces-redact
     :fixture/doc   "Gate OFF + caller passes :include-sensitive true ⇒ form must carry :rf.size/include-sensitive? false."
     :fixture/tool  "snapshot"
@@ -1453,11 +1447,10 @@
     :fixture/expect
     {:isError? false}}
 
-   ;; rf2-t55hxg.13 — fail-CLOSED. A BARE `:elision false` (no
-   ;; `:include-sensitive true`) MUST still walk: large content passes
-   ;; (`include-large? true`) but a declared-sensitive `:app-db` /
-   ;; `:sub-cache` slot redacts to `:rf/redacted`. Pre-fix this fixture
-   ;; asserted the walker was skipped — that was the sensitive bypass.
+   ;; Fail-CLOSED. A BARE `:elision false` (no `:include-sensitive true`)
+   ;; MUST still walk: large content passes (`include-large? true`) but a
+   ;; declared-sensitive `:app-db` / `:sub-cache` slot redacts to
+   ;; `:rf/redacted`.
    {:fixture/id    :raw-state/snapshot-bare-elision-false-still-walks
     :fixture/doc   "Gate ON + :elision false (no sensitive opt-in) ⇒ form must STILL call elide-wire-value with include-sensitive? false (sensitive redacts, large passes)."
     :fixture/tool  "snapshot"
@@ -1474,9 +1467,9 @@
     :fixture/expect
     {:isError? false}}
 
-   ;; rf2-t55hxg.13 — the ONLY combination that skips the walker is the
-   ;; deliberate full-raw local opt-in: `:elision false` AND
-   ;; `:include-sensitive true` (the operator's `:rf.egress/local-raw` act).
+   ;; The ONLY combination that skips the walker is the deliberate
+   ;; full-raw local opt-in: `:elision false` AND `:include-sensitive true`
+   ;; (the operator's `:rf.egress/local-raw` act).
    {:fixture/id    :raw-state/snapshot-full-raw-opt-in-skips-walker
     :fixture/doc   "Gate ON + :elision false + :include-sensitive true ⇒ full-raw opt-in, form must NOT call elide-wire-value over the slices."
     :fixture/tool  "snapshot"
@@ -1536,11 +1529,10 @@
     :fixture/expect
     {:isError? false}}
 
-   ;; ---------- handler-meta (rf2-wnrpi, finding G7) ----------------------
-   ;; Previously handler-meta / list-handlers had NO outer-wire-shape pin
-   ;; in the corpus — their unit suite carried error paths only (and even
-   ;; those were silently skipped pre-rf2-wnrpi). These fixtures put both
-   ;; tools inside the "every tool" cross-tool ratchet the corpus promises.
+   ;; ---------- handler-meta ----------------------------------------------
+   ;; These fixtures put handler-meta / list-handlers inside the "every
+   ;; tool" cross-tool ratchet the corpus promises, pinning their
+   ;; outer-wire shape (the unit suite covers their error paths).
    {:fixture/id    :handler-meta/happy
     :fixture/doc   "handler-meta on a registered (kind,id) merges :ok? true + the requested kind/id onto the runtime meta map."
     :fixture/tool  "handler-meta"
@@ -1564,7 +1556,7 @@
     {:isError? true
      :reason :invalid-kind}}
 
-   ;; ---------- list-handlers (rf2-wnrpi, finding G7) ---------------------
+   ;; ---------- list-handlers ---------------------------------------------
    {:fixture/id    :list-handlers/happy
     :fixture/doc   "list-handlers returns the sorted id vector + :count for a kind, wrapped :ok? true."
     :fixture/tool  "list-handlers"
@@ -1588,7 +1580,7 @@
     {:isError? true
      :reason :invalid-kind}}
 
-   ;; ---------- get-stream-controls (rf2-a0kxsb) --------------------------
+   ;; ---------- get-stream-controls ---------------------------------------
    ;; Server-side resource-control diagnostic. No nREPL round-trip — the
    ;; tool reads in-process atoms — so the eval-script is a bare default
    ;; (the tool never asks the stub anything). Pins the outer envelope
@@ -1631,24 +1623,23 @@
   :failure ...}`.
 
   Honors `:fixture/eval-allowed?` — flips the eval-cljs launch-flag gate
-  (rf2-a0z0h; inverts the prior rf2-cxx5s default) for this fixture's
-  invocation and restores it afterward. Default ON mirrors the
-  published-build posture (eval-cljs is the REPL primitive); opt-out
-  fixtures (`:disabled-via-no-eval`) explicitly set `false` to exercise
-  the gate-closed envelope. When the key is absent, the fixture inherits
-  the default-ON state.
+  for this fixture's invocation and restores it afterward. Default ON
+  mirrors the published-build posture (eval-cljs is the REPL primitive);
+  opt-out fixtures (`:disabled-via-no-eval`) explicitly set `false` to
+  exercise the gate-closed envelope. When the key is absent, the fixture
+  inherits the default-ON state.
 
-  Honors `:fixture/allow-raw-state?` (rf2-c2dtu) — flips the raw-state
-  boot gate. Default OFF mirrors the published-build posture; opt-in
-  fixtures verify that an operator who passed `--allow-sensitive-reads`
-  gets the legacy per-call-arg-wins behaviour."
+  Honors `:fixture/allow-raw-state?` — flips the raw-state boot gate.
+  Default OFF mirrors the published-build posture; opt-in fixtures verify
+  that an operator who passed `--allow-sensitive-reads` gets the
+  per-call-arg-wins behaviour."
   [{:fixture/keys [id tool args eval-script expect eval-allowed?
                     allow-raw-state? allow-writes?
                     eval-form-must-contain eval-form-must-not-contain]}]
   (cache/clear!)
   (let [;; eval-allowed? defaults true (mirrors the published-build gate
-        ;; state post-rf2-a0z0h); a fixture sets `false` to exercise
-        ;; the --no-eval opt-out path.
+        ;; state); a fixture sets `false` to exercise the --no-eval
+        ;; opt-out path.
         eval-allowed?-effective (if (nil? eval-allowed?) true (boolean eval-allowed?))
         js-args         (args->js args)
         forms-seen      (atom [])
@@ -1669,10 +1660,9 @@
         (-> (tools/invoke nil tool js-args nil)
             (.then (fn [result]
                      (let [[ok? msg]    (check-fixture-result result expect)
-                           ;; rf2-c2dtu — pin the gate-induced shape of
-                           ;; the eval form sent over nREPL. A `must-
-                           ;; contain` substring missing from EVERY form
-                           ;; observed = fail.
+                           ;; Pin the gate-induced shape of the eval form
+                           ;; sent over nREPL. A `must-contain` substring
+                           ;; missing from EVERY form observed = fail.
                            form-strs    @forms-seen
                            any-has?     (fn [needle]
                                           (some #(str/includes? % needle) form-strs))
@@ -1736,8 +1726,7 @@
               (let [all     @results
                     passed  (filter :passed? all)
                     failed  (remove :passed? all)]
-                ;; Silent-on-success (rf2-try1x): summary prints only
-                ;; on failure.
+                ;; Silent-on-success: summary prints only on failure.
                 (when (seq failed)
                   (println)
                   (println "re-frame2-pair-mcp conformance corpus:")

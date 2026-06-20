@@ -1,16 +1,16 @@
 (ns re-frame2-pair-mcp.list-subscriptions-test
   "Unit tests for the `list-subscriptions` + `list-streams` MCP tools.
 
-  ## rf2-qicji split
+  ## Two distinct sources
 
-  `list-subscriptions` used to wrap the streaming-tap registry
-  (`re-frame2-pair.runtime/subscription-info`) and returned
-  `{:subs []}` even when a frame had live reactive subscriptions — a
-  false-empty correctness bug. rf2-qicji repointed `list-subscriptions`
-  at the LIVE reactive sub-cache (via the runtime's `sub-cache-info` fn,
-  which reads the SAME `re-frame.subs.tooling/sub-cache-snapshot` source
-  `snapshot`'s `:sub-cache` slice reads), and moved the streaming-tap
-  diagnostic to the accurately-named `list-streams` tool.
+  `list-subscriptions` reads the LIVE reactive sub-cache (via the
+  runtime's `sub-cache-info` fn, which reads the SAME
+  `re-frame.subs.tooling/sub-cache-snapshot` source that `snapshot`'s
+  `:sub-cache` slice reads). `list-streams` wraps the streaming-tap
+  registry (`re-frame2-pair.runtime/subscription-info`). Keeping the
+  two separate means a frame with live reactive subscriptions reports
+  them accurately, with the streaming-tap diagnostic on its own
+  accurately-named tool.
 
   These tests pin:
    - the two descriptors (shape + arg contracts) so an accidental
@@ -38,7 +38,7 @@
   (some #(when (= nm (:name %)) %) tools/tool-descriptors))
 
 ;; ---------------------------------------------------------------------------
-;; list-subscriptions — reactive sub-cache descriptor (rf2-qicji)
+;; list-subscriptions — reactive sub-cache descriptor
 ;; ---------------------------------------------------------------------------
 
 (deftest list-subscriptions-descriptor-present
@@ -68,7 +68,7 @@
       (is (re-find #"rf2-qicji" desc)))))
 
 ;; ---------------------------------------------------------------------------
-;; list-subscriptions — wrong-source → right-source (the rf2-qicji fix)
+;; list-subscriptions — reads the reactive cache, not the streaming taps
 ;; ---------------------------------------------------------------------------
 
 (deftest list-subscriptions-eval-form-reads-reactive-sub-cache
@@ -122,7 +122,7 @@
           "snapshot's :sub-cache slice is the peer source list-subscriptions now reads"))))
 
 ;; ---------------------------------------------------------------------------
-;; list-streams — the relocated streaming-tap diagnostic (rf2-qicji)
+;; list-streams — the streaming-tap diagnostic
 ;; ---------------------------------------------------------------------------
 
 (deftest list-streams-descriptor-present

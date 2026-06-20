@@ -1,17 +1,14 @@
 (ns re-frame2-pair-mcp.tail-build-test
-  "Unit tests for the `tail-build` MCP tool — specifically the
-  probe-value diagnostics added in rf2-36awg.
+  "Unit tests for the `tail-build` MCP tool — specifically its
+  probe-value diagnostics.
 
-  Pre-rf2-36awg the tool returned `{:ok? true :soft? false}` on success
-  and `{:ok? false :reason :timed-out :note \"...likely a compile
-  error.\"}` on timeout. Neither response carried the probe values
-  themselves, so the operator could not tell:
+  The probe-value envelope lets the operator tell:
 
     - Did the probe form evaluate at all?
     - Did the probe return the same value before / after the reload?
     - Did the probe form raise on every iteration?
 
-  These tests pin the new envelope shape so the diagnostic stays
+  These tests pin the envelope shape so the diagnostic stays
   visible across refactors of the polling loop."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -65,7 +62,7 @@
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 ;; ---------------------------------------------------------------------------
-;; Soft delay — no probe supplied; envelope is unchanged from pre-rf2-36awg.
+;; Soft delay — no probe supplied; the envelope carries no probe-values.
 ;; ---------------------------------------------------------------------------
 
 (deftest no-probe-soft-resolves
@@ -151,10 +148,10 @@
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-wz66k7 — `:wait-ms` is validated as a positive-millisecond integer
-;; BEFORE the poll loop. A non-numeric value (`"bogus"`) made the
+;; `:wait-ms` is validated as a positive-millisecond integer
+;; BEFORE the poll loop. A non-numeric value (`"bogus"`) would make the
 ;; `(>= elapsed wait-ms)` comparison `(>= n NaN)` — never true — so a
-;; stuck probe polled the nREPL socket FOREVER. The tool now short-circuits
+;; stuck probe would poll the nREPL socket FOREVER. The tool short-circuits
 ;; to an honest validation error WITHOUT touching nREPL.
 ;; ---------------------------------------------------------------------------
 

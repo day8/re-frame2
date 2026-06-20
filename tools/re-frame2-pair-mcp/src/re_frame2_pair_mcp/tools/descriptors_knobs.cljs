@@ -22,11 +22,11 @@
                      "`{:rf.mcp/invalid-arg ...}` error (rf2-5rdit).")})
 
 (def limit-property
-  "Per-tool descriptor slot for the `:limit` cursor-pagination knob
-  (rf2-kbqq3). Applied to surfaces that ship epoch vectors and would
-  otherwise blow the wire-cap on a single call: `trace-window` and
-  `watch-epochs`. Default 50 — sized to fit the 5K-token cap after
-  diff-encode (rf2-1wdzp) + dedup (rf2-obpa9)."
+  "Per-tool descriptor slot for the `:limit` cursor-pagination knob.
+  Applied to surfaces that ship epoch vectors and would otherwise blow
+  the wire-cap on a single call: `trace-window` and `watch-epochs`.
+  Default 50 — sized to fit the 5K-token cap after diff-encode +
+  dedup."
   {:type        "integer"
    :description (str "Maximum number of epoch records in the response "
                      "(default 50). The default is sized to fit the "
@@ -36,8 +36,8 @@
                      "pass the cursor back to fetch the next page.")})
 
 (def cursor-property
-  "Per-tool descriptor slot for the opaque `:cursor` continuation token
-  (rf2-kbqq3). Applied to `trace-window` and `watch-epochs`."
+  "Per-tool descriptor slot for the opaque `:cursor` continuation token.
+  Applied to `trace-window` and `watch-epochs`."
   {:type        "string"
    :description (str "Opaque cursor returned by a previous call's "
                      "`:next-cursor`. Pass back verbatim to fetch the "
@@ -47,7 +47,7 @@
                      "drop the cursor and restart, or widen the window.")})
 
 (def dedup-property
-  "Per-tool descriptor slot for the `:dedup` opt-out (rf2-obpa9).
+  "Per-tool descriptor slot for the `:dedup` opt-out.
   Applied to surfaces that ship epoch slices (`snapshot`,
   `trace-window`, `watch-epochs`) and to the `subscribe` streaming
   channel — the surfaces where repeated subtrees dominate the wire
@@ -64,13 +64,13 @@
                      "`expand`.")})
 
 (def elision-property
-  "Per-tool descriptor slot for the `:elision` opt-out (rf2-urjnc).
+  "Per-tool descriptor slot for the `:elision` opt-out.
   Applied to every surface that egresses an `:app-db`-rooted VALUE through
   the per-slot walker: the direct-read app-db readers (`snapshot`,
   `get-path`, `read-sub`), `list-subscriptions :include-values`' per-sub
-  `:value` (rf2-f1ose), the streaming `subscribe` payload values (rf2-vr2hn),
+  `:value`, the streaming `subscribe` payload values,
   and the signal-recorder sample values — `record`'s `:app-db` / `:sub`
-  samples and `watch-until`'s `:sample` / `:last-sample` (rf2-8fin7.2) —
+  samples and `watch-until`'s `:sample` / `:last-sample` —
   surfaces where a declared-`:large?` slot or a declared-`:sensitive?` leaf
   would otherwise ride off-box verbatim. Default `true`. (The pull-mode
   epoch tools — `trace-window`, `watch-epochs`, and `dispatch`'s
@@ -108,7 +108,7 @@
                      "it.")})
 
 (def cache-property
-  "Per-tool descriptor slot for the `:cache` opt-in (rf2-3rt1f).
+  "Per-tool descriptor slot for the `:cache` opt-in.
   Applied to read-tool descriptors via `with-cache-knob`. Default
   `false` — opt-in until the agent host has been taught the
   `:rf.mcp/cache-hit` marker shape."

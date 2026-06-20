@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.writes
-  "Write-authority boot-gate (rf2-ee38b.18).
+  "Write-authority boot-gate.
 
   The Tool-Pair contract names two FIRST-CLASS write primitives the
   pair server is the canonical consumer of:
@@ -38,13 +38,13 @@
   requests. Tests flip the atom directly via `set-allow-writes!`.
 
   Symmetric with:
-    - rf2-c2dtu `--allow-sensitive-reads`  (raw reads; tools/raw_state.cljs)
+    - `--allow-sensitive-reads`  (raw reads; tools/raw_state.cljs)
 
-  ## Composition with eval-cljs (rf2-a0z0h)
+  ## Composition with eval-cljs
 
   This gate protects the named-write audit trail (\"did my app produce
   this state change, or did the pair tool?\"). It is NOT a defence
-  against eval-driven writes — `eval-cljs` (default ON post-rf2-a0z0h)
+  against eval-driven writes — `eval-cljs` (on by default)
   can express any write `--allow-writes` would block. For a true
   read-only debug session compose `--no-eval` with `--allow-writes`
   absent."
@@ -87,7 +87,7 @@
                   "to opt in. Read tools and dispatch are unaffected.")}))
 
 ;; ---------------------------------------------------------------------------
-;; Server-boundary pre-dispatch gate (rf2-wz66k7).
+;; Server-boundary pre-dispatch gate.
 ;;
 ;; The write-tool BODIES (`restore-epoch-tool` / `replace-app-db-tool`)
 ;; each refuse `:rf.error/writes-disabled` as their first action without
@@ -95,27 +95,27 @@
 ;; server handler (`server.cljs/handle-call`) calls `ensure-connection!`
 ;; for EVERY tool BEFORE the tool body runs. On a stock install with no
 ;; nREPL port available, that connection step REJECTS (`:nrepl-port-not-
-;; found`) and the tool body — and thus its write gate — NEVER fires. So a
-;; disabled `restore-epoch` / `replace-app-db` returned a misleading
-;; discovery error instead of the intended destructive-tool refusal, and
-;; (when discovery WAS available) performed unnecessary connect /
-;; elicitation work for a request that should be refused locally.
+;; found`) and the tool body — and thus its write gate — never fires; the
+;; refusal would surface as a misleading discovery error instead of the
+;; intended destructive-tool refusal, and (when discovery WAS available)
+;; the server would perform unnecessary connect / elicitation work for a
+;; request that should be refused locally.
 ;;
 ;; This set + predicate let the server refuse the gated writes at the
 ;; pre-dispatch boundary — BEFORE `ensure-connection!` — when writes are
-;; off, restoring the "default-safe write posture is observably true at
-;; the MCP boundary" contract (spec/Tool-Pair.md §Pair-tool writes;
+;; off, so the "default-safe write posture is observably true at the MCP
+;; boundary" contract holds (spec/Tool-Pair.md §Pair-tool writes;
 ;; tools/writes.cljs §Default-safe). The tool-body gates STAY (defence in
-;; depth + the direct-call test surface); this is the missing outer ring.
+;; depth + the direct-call test surface); this is the outer ring.
 
 (def gated-write-tools
-  "Tool names refused at the server boundary when `--allow-writes` is OFF
-  (rf2-wz66k7). These two MUTATE app-db wholesale and can be refused with
+  "Tool names refused at the server boundary when `--allow-writes` is OFF.
+  These two MUTATE app-db wholesale and can be refused with
   NO runtime connection — the gate is a pure function of the boot flag."
   #{"restore-epoch" "replace-app-db"})
 
 (defn refuse-pre-connection
-  "Server-boundary pre-dispatch guard (rf2-wz66k7). Returns the
+  "Server-boundary pre-dispatch guard. Returns the
   `:rf.error/writes-disabled` result when `tool` is a gated write tool
   AND `--allow-writes` is OFF — so `server.cljs/handle-call` can refuse it
   locally BEFORE `ensure-connection!` runs (no nREPL socket touched, no

@@ -1,9 +1,9 @@
 (ns re-frame2-pair-mcp.tools.resource-controls
-  "Session-wide resource controls for streaming surfaces (rf2-3ijbl).
+  "Session-wide resource controls for streaming surfaces.
 
   An MCP session is one stdio-attached server process — see
-  `cache.cljs` (rf2-3rt1f) for the equivalence. Per-sub queue caps and
-  drop-oldest-on-overflow already live runtime-side (rf2-ho4ve), but a
+  `cache.cljs` for the equivalence. Per-sub queue caps and
+  drop-oldest-on-overflow already live runtime-side, but a
   buggy or hostile client can still:
 
     1. Open many concurrent `subscribe` calls — each allocates a fresh
@@ -31,7 +31,7 @@
   ## Per-session event rate-limit (token bucket)
 
   `check-rate!` is called once per poll cycle BEFORE the destructive
-  drain (rf2-uvfph). The session-wide token bucket refills at
+  drain. The session-wide token bucket refills at
   `max-events-per-sec` (default 100) and caps at the same value. When a
   token is available the caller drains + emits; when the bucket is empty
   `check-rate!` returns `false` and the caller DEFERS the cycle — it
@@ -76,10 +76,10 @@
 
   ## Symmetry with sibling gates
 
-  Pre-existing re-frame2-pair-mcp gates:
-    - `eval-cljs/eval-allowed?` (`--no-eval` opt-out) — rf2-a0z0h
-      (inverts the prior rf2-cxx5s default-OFF posture)
-    - `raw-state/allow-raw-state?` (`--allow-sensitive-reads`) — rf2-c2dtu
+  Sibling re-frame2-pair-mcp gates:
+    - `eval-cljs/eval-allowed?` (`--no-eval` opt-out — eval is on by
+      default)
+    - `raw-state/allow-raw-state?` (`--allow-sensitive-reads`)
 
   This namespace adds:
     - `max-concurrent-streams` (`--max-concurrent-streams` /
@@ -379,7 +379,7 @@
 (def flag->key
   "Map of CLI-flag prefix → config key. Single source of truth; both
   the parser and the documentation reflect from this map. Public so
-  `server/launch-diagnostics` (rf2-a0kxsb) can recognise resource-control
+  `server/launch-diagnostics` can recognise resource-control
   flags as known when scanning argv for typos."
   {"--max-concurrent-streams"   :max-concurrent-streams
    "--max-events-per-sec"       :max-events-per-sec
@@ -389,7 +389,7 @@
 (def env->key
   "Map of env-var name → config key. Symmetric with `flag->key` — same
   four gates, different config surface. Public so
-  `server/resource-env-diagnostics` (rf2-a0kxsb) can name a set-but-invalid
+  `server/resource-env-diagnostics` can name a set-but-invalid
   env var at boot."
   {"RE_FRAME2_PAIR_MCP_MAX_STREAMS"              :max-concurrent-streams
    "RE_FRAME2_PAIR_MCP_MAX_EVENTS_PER_SEC"       :max-events-per-sec
@@ -458,9 +458,9 @@
 
   Returns the applied map — `set-config!`'s post-merge value so the
   caller sees the actual gates in force (with defaults filled in for
-  keys the operator didn't override). Returning the bare merge of
-  overrides (without defaults) caused a startup-banner regression
-  where unset gates printed as blank values."
+  keys the operator didn't override). The defaults must be present in
+  the returned map so the startup banner prints a value for every gate,
+  including the ones the operator left untouched."
   [env-cfg flag-cfg]
   (set-config! (merge env-cfg flag-cfg)))
 

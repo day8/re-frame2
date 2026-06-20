@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.subscribe-test
-  "Unit tests for the streaming subscribe / unsubscribe tools (rf2-hq49).
+  "Unit tests for the streaming subscribe / unsubscribe tools.
 
   These tests cover the MCP-arg → runtime-form translation (the EDN
   shape we send over nREPL), the filter-arg parser (JSON object vs
@@ -22,10 +22,10 @@
 ;; public surface directly so a rename or signature change surfaces
 ;; as a failing test rather than a silent contract drift.
 ;;
-;; rf2-5kbkl — the parser returns the tagged `[:ok m]` /
+;; The parser returns the tagged `[:ok m]` /
 ;; `[:err :invalid-filter-edn]` shape (mirroring `read-edn-arg`). A
 ;; malformed filter EDN surfaces as an honest `:ok? false` error rather
-;; than the pre-fix `{:invalid-filter-edn raw}` MAP that flowed straight
+;; than a `{:invalid-filter-edn raw}` map that would flow straight
 ;; into the runtime `:filter` slot as a nonsense filter.
 
 (deftest filter-arg-nil-passes-through
@@ -40,8 +40,8 @@
          (args/parse-filter-arg "{:touches-path [:cart :items]}"))))
 
 (deftest filter-arg-malformed-edn-is-err-tagged
-  ;; The regression: an unparseable EDN string must NOT become a
-  ;; nonsense `{:invalid-filter-edn raw}` map — it returns the honest
+  ;; An unparseable EDN string must NOT become a nonsense
+  ;; `{:invalid-filter-edn raw}` map — it returns the honest
   ;; `[:err :invalid-filter-edn]` tag so the caller short-circuits.
   (is (= [:err :invalid-filter-edn]
          (args/parse-filter-arg "(((")))) ;; unbalanced delimiters
@@ -58,7 +58,7 @@
   (is (= [:ok {:op-type :error}]
          (args/parse-filter-arg {:op-type :error}))))
 
-;; rf2-5kbkl — end-to-end at the tool boundary: a malformed filter EDN
+;; End-to-end at the tool boundary: a malformed filter EDN
 ;; makes `subscribe-tool` short-circuit to an honest `:ok? false`
 ;; envelope (`:reason :invalid-filter-edn`, `:isError true`) WITHOUT
 ;; touching the nREPL socket or reserving a stream slot — rather than
@@ -67,7 +67,7 @@
 ;; subscribe-form tests above).
 
 (deftest subscribe-tool-malformed-filter-errors-honestly
-  ;; The headline regression. A malformed filter EDN makes
+  ;; A malformed filter EDN makes
   ;; `subscribe-tool` short-circuit to an honest `:ok? false` envelope
   ;; (`:reason :invalid-filter-edn`, `:isError true`) — the `cond`
   ;; branch fires BEFORE the `:else` arm reserves a stream slot or
@@ -86,11 +86,11 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-uvfph — numeric subscribe-control validation. The five integer
-;; knobs (buffer caps, poll-ms, max-ms, max-events) were forwarded raw to
-;; the runtime budget / poll loop / termination caps with NO lower bound.
-;; Negatives collapsed the queue budget (empty probe), spun the poll loop,
-;; or silently disabled the intended bound. The args helpers vet them.
+;; Numeric subscribe-control validation. The five integer knobs (buffer
+;; caps, poll-ms, max-ms, max-events) feed the runtime budget / poll loop
+;; / termination caps. The args helpers vet them so a negative can't
+;; collapse the queue budget (empty probe), spin the poll loop, or
+;; silently disable the intended bound.
 ;; ---------------------------------------------------------------------------
 
 (deftest positive-int-arg-absent-is-ok-nil
@@ -125,19 +125,19 @@
   (let [[tag _] (args/parse-positive-int-arg "max-events" "soon")]
     (is (= :err tag) "non-numeric junk is rejected")))
 
-;; rf2-ykv9a0 cross-runtime safe-integer guard, routed through
-;; `base-args/coerce-finite-long` by rf2-ttspi7. A whole numeric (or
-;; numeric string) ABOVE the JS safe-integer ceiling (2^53 − 1 =
+;; Cross-runtime safe-integer guard, routed through
+;; `base-args/coerce-finite-long`. A whole numeric (or numeric string)
+;; ABOVE the JS safe-integer ceiling (2^53 − 1 =
 ;; 9 007 199 254 740 991) is NOT losslessly representable across both
-;; hosts; before the routing it slipped past `coerce-int`'s
-;; `Number.isInteger` check (a double like 9007199254740993 is "integral"
-;; in JS) and reached the runtime budget, while mcp-base's `max-tokens`
-;; rejected the same value — the divergence this closes.
+;; hosts. A bare `Number.isInteger` check would admit such a value (a
+;; double like 9007199254740993 is "integral" in JS); the finite-long
+;; guard rejects it, keeping the runtime budget in lockstep with
+;; mcp-base's `max-tokens`, which rejects the same value.
 
 (deftest positive-int-arg-rejects-over-safe-integer
   ;; 2^53 + 1 — past the safe-integer window. `Number.isInteger` is true
-  ;; for it (it's a whole double), so it would have passed the OLD
-  ;; coerce-int; the finite/range guard now rejects it as a bad numeric.
+  ;; for it (it's a whole double), but the finite/range guard rejects it
+  ;; as a bad numeric.
   (let [over (+ 9007199254740992 1)
         [tag env] (args/parse-positive-int-arg "max-buffered-events" over)]
     (is (= :err tag) "an over-safe-integer numeric is rejected, not forwarded")
@@ -218,16 +218,15 @@
                    (is (= "max-events" (:arg edn))))
                  (done))))))
 
-;; The VALID-filter path "works unchanged" is pinned by the
+;; The VALID-filter path is pinned by the
 ;; `subscribe-form-with-trace-and-filter` / `-fx-topic` round-trip tests
 ;; above: a well-formed filter rides into the runtime `subscribe!`
-;; `:filter` opts slot. With the rf2-5kbkl change those still hold
-;; because `parse-filter-arg` now unwraps the `[:ok m]` tag back to the
-;; same `filter-map` the form constructor consumes.
+;; `:filter` opts slot. `parse-filter-arg` unwraps the `[:ok m]` tag
+;; back to the same `filter-map` the form constructor consumes.
 
 ;; The subscribe-form constructor is private. Re-implement here over
 ;; the eval-form DSL to pin the IR + emitted source we send to the
-;; runtime (rf2-dpzpe). Tests assert against opts-map data shape via
+;; runtime. Tests assert against opts-map data shape via
 ;; `cljs.reader/read-string` over the emitted form — no regex over
 ;; raw source, no whitespace fragility.
 
@@ -274,7 +273,7 @@
     (is (= {:event-id :http/get} (:filter opts)))))
 
 (deftest subscribe-form-carries-both-budgets
-  ;; rf2-ho4ve: the wire shape must always carry BOTH :max-buffered-events
+  ;; The wire shape must always carry BOTH :max-buffered-events
   ;; and :max-buffered-bytes — the runtime applies an OR-combined budget,
   ;; so half the pair would leak through to the runtime's default for the
   ;; missing slot. Pin the round-trip here.
@@ -286,10 +285,9 @@
 ;; subscribe! whitelist.
 
 (deftest recognised-topics
-  ;; Per rf2-mscih `:frameless` joins the recognised set as the
-  ;; explicit opt-in channel for events with no
-  ;; `:rf.trace/dispatch-id` — registration emits, REPL evals,
-  ;; lifecycle outside any cascade.
+  ;; `:frameless` is in the recognised set as the explicit opt-in
+  ;; channel for events with no `:rf.trace/dispatch-id` — registration
+  ;; emits, REPL evals, lifecycle outside any cascade.
   (let [recognised #{:trace :epoch :fx :error :frameless}]
     (is (contains? recognised :trace))
     (is (contains? recognised :epoch))
@@ -299,11 +297,11 @@
     (is (not (contains? recognised :unknown)))))
 
 ;; The progress payload shape — the MCP notifications/progress
-;; notification we emit on each batch tick. Per rf2-ho4ve `_meta.data`
-;; slot now carries `:dropped-events`, `:dropped-bytes`, and
-;; `:overflow-reason` (stringified keyword) so the AI client can
-;; pattern-match on WHICH budget tripped without re-parsing EDN. The
-;; official MCP SDK preserves `_meta` in progress callbacks.
+;; notification we emit on each batch tick. The `_meta.data` slot
+;; carries `:dropped-events`, `:dropped-bytes`, and `:overflow-reason`
+;; (stringified keyword) so the AI client can pattern-match on WHICH
+;; budget tripped without re-parsing EDN. The official MCP SDK
+;; preserves `_meta` in progress callbacks.
 
 (defn- progress-payload
   [progress-token tick events-edn dropped-events dropped-bytes overflow-reason]
@@ -339,8 +337,8 @@
     (is (= 12345 (j/get-in p [:_meta :data :dropped-bytes])))
     (is (= ":max-buffered-bytes" (j/get-in p [:_meta :data :overflow-reason])))))
 
-;; Unsubscribe + drain form pinning — built over the eval-form DSL
-;; (rf2-dpzpe). The expected source strings are the DSL's emit output;
+;; Unsubscribe + drain form pinning — built over the eval-form DSL.
+;; The expected source strings are the DSL's emit output;
 ;; a rename of the runtime ns flows through `ef/runtime-ns`.
 
 (defn- unsubscribe-form [sub-id]
@@ -358,7 +356,7 @@
          (drain-form "sub-xyz"))))
 
 ;; ---------------------------------------------------------------------------
-;; Byte+event overflow budget — rf2-ho4ve corner-matrix
+;; Byte+event overflow budget — corner-matrix
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Parallel fixture of the runtime's `evict-oldest` / `enqueue!`
@@ -483,8 +481,8 @@
     (is (nil?  (:overflow-reason sub)))))
 
 ;; ---------------------------------------------------------------------------
-;; merge-drain — pure state update for the streaming-loop accumulators
-;; (rf2-c0h8p). The fn lives in `tools/subscribe.cljs`; it's the
+;; merge-drain — pure state update for the streaming-loop accumulators.
+;; The fn lives in `tools/subscribe.cljs`; it's the
 ;; single source of truth for how a drain's contributions fold into
 ;; the rolling per-stream state map.
 ;;
@@ -598,17 +596,16 @@
     (is (= 5 (:elided-large s2)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-vr2hn — `--allow-sensitive-reads` boot gate on the drain eval form.
+;; `--allow-sensitive-reads` boot gate on the drain eval form.
 ;;
 ;; The drain envelope's `:events` slot rides the nREPL wire verbatim. For
 ;; the `:epoch` topic that means full epoch records (`:db-after` /
 ;; `:db-before` / `:app-db`) — a hostile per-call arg shouldn't be able
 ;; to talk an operator who didn't pass `--allow-sensitive-reads` into shipping
 ;; raw state. The gate mirrors the snapshot / get-path / trace-window
-;; pattern (rf2-c2dtu): when OFF, the drain form wraps `:events` with
+;; pattern: when OFF, the drain form wraps `:events` with
 ;; `re-frame.core/elide-wire-value` server-side, sensitive slots redact,
-;; large slots elide. When ON, the bare drain ships raw — the
-;; pre-rf2-vr2hn posture.
+;; large slots elide. When ON, the bare drain ships raw.
 ;; ---------------------------------------------------------------------------
 
 (deftest drain-form-gated-elision-wraps-events
@@ -631,24 +628,22 @@
         "sensitive slots redact when the caller did NOT opt in")))
 
 (deftest drain-form-resolves-elision-frame-per-element
-  ;; rf2-1we9fa / rf2-7737vq — the trace-walk arm resolves the elision
-  ;; `:frame` PER ELEMENT inside the walk BY LAYER, NOT once for the whole
-  ;; drain. Cascade bundles are keyed by `[frame dispatch-id]`, so an
-  ;; all-frame stream — or a filter frame that differs from the operating
-  ;; frame — carries cascades from several frames in one tick. Per EP-0015
-  ;; sensitive/large declarations are per-frame, so each element MUST be
-  ;; elided against its OWN frame: a DERIVED cascade record's top-level
-  ;; `:frame` slot, else a frameless RAW event's frame via the canonical
+  ;; The trace-walk arm resolves the elision `:frame` PER ELEMENT inside
+  ;; the walk BY LAYER, NOT once for the whole drain. Cascade bundles are
+  ;; keyed by `[frame dispatch-id]`, so an all-frame stream — or a filter
+  ;; frame that differs from the operating frame — carries cascades from
+  ;; several frames in one tick. Per EP-0015 sensitive/large declarations
+  ;; are per-frame, so each element MUST be elided against its OWN frame:
+  ;; a DERIVED cascade record's top-level `:frame` slot, else a frameless
+  ;; RAW event's frame via the canonical
   ;; `re-frame.trace/trace-event-frame` reader ([:tags :frame]). The
-  ;; operating frame (`(re-frame2-pair.runtime/current-frame)`) survives
-  ;; as the GENUINELY FRAMELESS FALLBACK only (EP-0002 rf2-bd4div: the
-  ;; nREPL eval thread carries no ambient `with-frame` scope, so a truly
-  ;; frameless element would otherwise fail closed and redact away).
+  ;; operating frame (`(re-frame2-pair.runtime/current-frame)`) serves
+  ;; as the GENUINELY FRAMELESS FALLBACK only (EP-0002: the nREPL eval
+  ;; thread carries no ambient `with-frame` scope, so a truly frameless
+  ;; element would otherwise fail closed and redact away).
   ;;
-  ;; This test REPLACES the prior `drain-form-threads-operating-frame`,
-  ;; which PINNED the buggy "one operating frame for every cascade"
-  ;; behaviour. Trace-event topic — the walker arm carries the per-element
-  ;; frame resolution.
+  ;; Trace-event topic — the walker arm carries the per-element frame
+  ;; resolution.
   (let [form (sub/drain-form "sub-frame" :trace true false)]
     (is (str/includes? form "(re-frame2-pair.runtime/current-frame)")
         "the operating frame is resolved app-side as the frameless fallback")
@@ -678,12 +673,12 @@
         "include-sensitive? true threads into the walker opts")))
 
 (deftest drain-form-bare-elision-false-still-walks-trace
-  ;; rf2-t55hxg.13 — fail-CLOSED. Pre-fix a gate-ON `:elision false` on a
-  ;; trace-event topic shipped the bare `drain-subscription!` call with NO
-  ;; walker — which let a declared-sensitive frame slot inside a cascade
-  ;; leak off-box WITHOUT the per-call `:include-sensitive true` opt-in (the
-  ;; EP-0015 two-key gate collapse). A BARE `:elision false` (incl? false)
-  ;; now STILL walks: large content passes (`include-large? true`) but a
+  ;; Fail-CLOSED. A gate-ON `:elision false` on a trace-event topic must
+  ;; NOT ship the bare `drain-subscription!` call with NO walker — that
+  ;; would let a declared-sensitive frame slot inside a cascade leak
+  ;; off-box WITHOUT the per-call `:include-sensitive true` opt-in (the
+  ;; EP-0015 two-key gate). A BARE `:elision false` (incl? false) STILL
+  ;; walks: large content passes (`include-large? true`) but a
   ;; declared-sensitive slot redacts to `:rf/redacted`.
   (let [form (sub/drain-form "sub-raw" :trace false false)]
     (is (str/includes? form "drain-subscription!"))
@@ -700,7 +695,7 @@
         "subscribe always emits large markers (the trace surface elides large slots)")))
 
 (deftest drain-form-full-raw-opt-in-bare-drain-trace
-  ;; rf2-t55hxg.13 — the deliberate full-raw local opt-in (`:elision
+  ;; The deliberate full-raw local opt-in (`:elision
   ;; false` AND `:include-sensitive true`) is the ONLY combination that
   ;; ships raw trace events with no walker (the operator's `local-raw` act).
   (let [form (sub/drain-form "sub-raw" :trace false true)]
@@ -722,7 +717,7 @@
         "embedded quotes survive as escaped EDN literals")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mahffz (EP-0015 §13) — the `:epoch` topic's `:events` slot egresses
+;; EP-0015 §13 — the `:epoch` topic's `:events` slot egresses
 ;; whole `:rf/epoch-record`s. Those carry the structured `:effects` rows
 ;; whose `:args` slot is payload-bearing fx input (an HTTP body, a payment
 ;; map) — NOT rooted at app-db, so the schema-path-keyed
@@ -730,10 +725,8 @@
 ;; Security.md §Epoch privacy posture, off-box epoch egress MUST route
 ;; through `re-frame.core/projected-record` — the single normative
 ;; emission site, which FAILS CLOSED on `:effects[].args` — NOT the
-;; per-slot wire-value walker. Pre-rf2-mahffz the streaming `:epoch`
-;; drain reused the cascade walker (`elide-wire-value`) on whole records,
-;; leaking `:effects[].args`. The fix routes the `:epoch` topic's
-;; `:events` through `projected-record`, mirroring `watch-epochs` /
+;; per-slot wire-value walker. The streaming `:epoch` drain routes the
+;; `:events` slot through `projected-record`, mirroring `watch-epochs` /
 ;; `trace-window`.
 ;; ---------------------------------------------------------------------------
 
@@ -768,7 +761,7 @@
         "elision? false does not disable epoch projection — sensitive axis governs")))
 
 (deftest drain-form-epoch-include-sensitive-routes-through-projection
-  ;; rf2-m9duxl — gate ON + `:include-sensitive true` (incl? true) does NOT
+  ;; Gate ON + `:include-sensitive true` (incl? true) does NOT
   ;; bypass the epoch projection. The `:events` slot STILL routes through
   ;; `projected-record`, threading `{:include-sensitive? true}` as the
   ;; egress opt (app-db sensitive axis ONLY). fx-args / runtime-db / large
@@ -799,18 +792,18 @@
         "frameless events are not epoch records — no projected-record")))
 
 ;; ---------------------------------------------------------------------------
-;; Cascade-bundle wire format (rf2-mscih) — drain envelope shape, slot
+;; Cascade-bundle wire format — drain envelope shape, slot
 ;; selection on the progress payload, and cross-frame `:dispatch-id`
 ;; merge.
 ;; ---------------------------------------------------------------------------
 
 (deftest drain-form-handles-both-cascade-and-events-slots
-  ;; rf2-mscih — for a TRACE-event topic (cascade-bundle `:trace`/`:fx`/
+  ;; For a TRACE-event topic (cascade-bundle `:trace`/`:fx`/
   ;; `:error` ship `:cascades`; `:frameless` ships `:events`), `drain-form`
   ;; with elision ON wraps WHICHEVER trace-event slot the runtime produced.
   ;; The walker arm uses `cond->` over slot presence so it's slot-agnostic
   ;; WITHIN the trace-event family; the runtime determines which slot the
-  ;; drain envelope carries. (rf2-mahffz: the `:epoch` topic's `:events`
+  ;; drain envelope carries. (The `:epoch` topic's `:events`
   ;; take a DIFFERENT primitive — `projected-record` — so they are NOT in
   ;; this walker arm; covered by `drain-form-epoch-*` above.)
   (let [form (sub/drain-form "sub-1" :trace true false)]
@@ -824,7 +817,7 @@
         "the walker is applied to whichever trace-event slot is present")))
 
 (deftest progress-payload-uses-cascades-slot-on-cascade-bundle-topics
-  ;; rf2-mscih — the progress payload's load slot is named per the
+  ;; The progress payload's load slot is named per the
   ;; topic's wire shape: `:cascades` for cascade-bundle topics
   ;; (`:trace`/`:fx`/`:error`), `:events` for flat topics
   ;; (`:epoch`/`:frameless`).
@@ -867,7 +860,7 @@
     (is (contains? bundle :parent-dispatch-id))))
 
 (deftest cross-frame-cascade-merge-by-dispatch-id
-  ;; rf2-mscih cross-frame contract — a single cascade can fan out
+  ;; Cross-frame contract — a single cascade can fan out
   ;; across frames; every emit on every frame shares the same
   ;; `:rf.trace/dispatch-id`. Consumers merge by `:dispatch-id` to
   ;; reconstruct the cross-frame view per Tool-Pair §Cross-frame
@@ -907,7 +900,7 @@
         "the merged slot exposes both frames' contributions")))
 
 (deftest frameless-channel-shape-is-flat-events-not-bundles
-  ;; rf2-mscih frameless contract — registration emits / REPL / boot
+  ;; Frameless contract — registration emits / REPL / boot
   ;; lifecycle ride under `:events` (flat) on the `:frameless` topic.
   ;; No cascade structure to bundle; the frameless events carry no
   ;; `:rf.trace/dispatch-id` tag.
@@ -930,15 +923,15 @@
         "frameless events MUST carry no :rf.trace/dispatch-id tag")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-wz66k7 — the per-tick progress notification is wire-capped.
+;; The per-tick progress notification is wire-capped.
 ;;
 ;; `emit-progress-tick!` ships its per-tick payload as the `:message` of a
 ;; `notifications/progress` notification. That notification NEVER crosses
 ;; the `invoke` chokepoint where `apply-cap` runs on `tools/call` RESULTS,
-;; so before this fix an oversized drain shipped a multi-megabyte progress
-;; message un-capped — busting the per-notification token budget the spec
-;; pins. The fix runs the `:message` through `cap/cap-message` with the
-;; per-call cap threaded down from `subscribe-tool`.
+;; so without its own cap an oversized drain would ship a multi-megabyte
+;; progress message — busting the per-notification token budget the spec
+;; pins. The `:message` runs through `cap/cap-message` with the per-call
+;; cap threaded down from `subscribe-tool`.
 ;; ---------------------------------------------------------------------------
 
 (defn- capture-progress-message
@@ -978,10 +971,9 @@
         "the flat-topic payload rides under :events")))
 
 (deftest emit-progress-tick-oversized-payload-is-overflow-marked
-  ;; THE Finding-1 acceptance test (rf2-wz66k7): an oversized per-tick
-  ;; drain MUST emit an overflow marker on the progress channel, NOT a
-  ;; multi-megabyte raw message. FAILS before the fix (the notification
-  ;; bypassed the cap); PASSES after.
+  ;; An oversized per-tick drain MUST emit an overflow marker on the
+  ;; progress channel, NOT a multi-megabyte raw message — the
+  ;; per-notification cap applies to the progress channel too.
   (let [fat (apply str (repeat 4000 "x"))
         big-events (vec (repeat 50 {:payload fat}))
         msg (capture-progress-message big-events 500)
@@ -1009,11 +1001,10 @@
         "the full fat payload rides when the cap is disabled")))
 
 (deftest cursor-stale-does-not-apply-to-subscribe-streams
-  ;; rf2-mscih clarification — `:rf.mcp/cursor-stale` is a cursor-
-  ;; pagination concern (`trace-window` / `watch-epochs`), not a
-  ;; streaming concern. The `subscribe` surface is forward-only with
-  ;; no cursor; the cascade-bundle wire reshape introduces no new
-  ;; cursor surface.
+  ;; `:rf.mcp/cursor-stale` is a cursor-pagination concern
+  ;; (`trace-window` / `watch-epochs`), not a streaming concern. The
+  ;; `subscribe` surface is forward-only with no cursor; the
+  ;; cascade-bundle wire shape carries no cursor surface.
   (let [;; A streaming subscription's final summary — no cursor slot.
         subscribe-summary {:ok? true
                            :sub-id "sub-1"

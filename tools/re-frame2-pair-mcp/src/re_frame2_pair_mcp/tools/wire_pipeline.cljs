@@ -1,19 +1,19 @@
 (ns re-frame2-pair-mcp.tools.wire-pipeline
-  "Named wire-shrink pipeline (rf2-ae8ie). One fn per call-site —
+  "Named wire-shrink pipeline. One fn per call-site —
   every tool that returns a payload over the MCP wire routes it
   through `run-wire-pipeline`, parameterised by the payload kind.
 
   ## Why a named pipeline
 
-  Before this ns each tool body re-derived its own subset of the
-  shrink steps inline in its `let` binding. The ordering invariant
+  Without it each tool body would re-derive its own subset of the
+  shrink steps inline in its `let` binding, and the ordering invariant
   (dedup-BEFORE-summary · elision-count-AFTER-dedup-BEFORE-summary ·
-  summary-BEFORE-cap) lived implicitly in `snapshot-tool`'s
-  let-sequence; the abbreviated trace-window / watch-epochs / get-path
-  pipelines each re-derived their own subset. Three local-obvious
-  copies of one rule cost nothing — until the rule changes. A named
-  pipeline encodes the invariant once; a future step (say a
-  `redact-interceptor` walker) lands here once instead of in three places.
+  summary-BEFORE-cap) would live implicitly across `snapshot-tool`'s
+  let-sequence and the abbreviated trace-window / watch-epochs /
+  get-path pipelines — several local-obvious copies of one rule, which
+  cost nothing until the rule changes. A named pipeline encodes the
+  invariant once; a future step (say a `redact-interceptor` walker)
+  lands here once instead of in three places.
 
   ## Ordering invariant
 
@@ -25,12 +25,12 @@
         → dedup               (structural sharing across the wire)
         → indicator-count     (count :rf.size/large-elided markers)
         → summary             (lazy-summary for non-app-db rich slices)
-        → source-uri          (rf2-cibp8: splice :rf.source/uri onto
+        → source-uri          (splice :rf.source/uri onto
                                every :source-coord map; runs after
                                shrink so no URI build is wasted on
                                summary-replaced subtrees)
 
-  ## Indicator counting (rf2-e35a5)
+  ## Indicator counting
 
   When the SERVER-SIDE eval form already counted markers (snapshot +
   get-path, where `elide-wire-value` ran app-side and the count flows
@@ -118,13 +118,13 @@
       → slice-app-db (path-slice or full)
       → diff-encode-epochs
       → dedup-epochs
-      → count elision markers (from `:server-elided` opt; rf2-e35a5)
+      → count elision markers (from `:server-elided` opt)
       → summarise other slices
 
   Returns `{:value snapshot :indicators {:dropped N :elided N
   :path-status M :resolved-modes M}}`.
 
-  Per rf2-e35a5: `:server-elided` rides in on opts when the
+  `:server-elided` rides in on opts when the
   `snapshot` eval form counted markers app-side. Dedup never
   touches `:app-db` (only `:epochs`), so the server-side count is
   exact post-pipeline. Falls back to a tree-walk when the opt is
@@ -133,7 +133,7 @@
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
         [scrubbed dropped]    (sensitive/scrub-snapshot-sensitive snapshot incl?)
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot scrubbed path app-db-mode)
-        ;; rf2-lbm21 — cap the full-mode `:epochs` slice to the most-recent
+        ;; Cap the full-mode `:epochs` slice to the most-recent
         ;; N records BEFORE diff-encode + dedup so those operate on the
         ;; bounded set. Only fires when `:epochs` resolves to `:full`
         ;; (the verbatim-`:db-before`/`:db-after` overflow path); a no-op
@@ -145,7 +145,7 @@
         diff-encoded          (pipeline/diff-encode-epochs-in-snapshot capped mode)
         deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
         ;; :elided-large counts upstream-pre-elided markers per
-        ;; Spec 009 §Indicator field (rf2-8cntr).
+        ;; Spec 009 §Indicator field.
         elided                (if (some? server-elided)
                                 server-elided
                                 (base-elision/count-elided-markers deduped))
@@ -179,10 +179,10 @@
         encoded        (dedup/diff-encode-epochs kept mode)
         deduped        (dedup/dedup-value encoded dedup?)
         ;; :elided-large counts upstream-pre-elided markers per
-        ;; Spec 009 §Indicator field (rf2-8cntr) — shared by
+        ;; Spec 009 §Indicator field — shared by
         ;; `trace-window` and `watch-epochs`.
         ;;
-        ;; rf2-mb17rj — count the markers over the PRE-dedup payload
+        ;; Count the markers over the PRE-dedup payload
         ;; (`encoded`), not `deduped`. `dedup-value` pools N identical
         ;; `:rf.size/large-elided` maps into ONE structural-sharing
         ;; cache entry, so walking `deduped` undercounts (1 instead of
@@ -211,7 +211,7 @@
   what's actually being shipped — a `:path-not-found` envelope (no
   `:value` slot) bypasses the walk entirely.
 
-  Per rf2-e35a5 the count is sourced from `:server-elided` on opts
+  The count is sourced from `:server-elided` on opts
   when the eval form counted markers app-side (the common path).
   Falls back to a local walk only when the opt is missing — a
   defensive seam for tests or a degraded eval-form shape.
@@ -219,7 +219,7 @@
   Returns `{:value v :indicators {:elided N}}`."
   [v {:keys [server-elided]}]
   ;; :elided-large counts upstream-pre-elided markers per
-  ;; Spec 009 §Indicator field (rf2-8cntr).
+  ;; Spec 009 §Indicator field.
   {:value      v
    :indicators {:elided (if (some? server-elided)
                           server-elided
@@ -242,7 +242,7 @@
   - `:slice-mode`     global `:summary` / `:full` mode for non-app-db slices.
   - `:slice-modes`    per-slice override map.
   - `:server-elided`  integer count of `:rf.size/large-elided` markers
-                      inserted server-side (rf2-e35a5). When present,
+                      inserted server-side. When present,
                       the `:snapshot-map` and `:scalar-value` arms use
                       this instead of re-walking the payload. Missing
                       ⇒ falls back to a local walk.
@@ -253,7 +253,7 @@
   pipeline is a fixed surface; a dynamic-dispatch fallback has no
   legitimate use.
 
-  After the per-kind arm returns, the source-URI decorator (rf2-cibp8)
+  After the per-kind arm returns, the source-URI decorator
   splices `:rf.source/uri` onto every `:source-coord`-bearing map in
   the result. Runs last so the decoration walks only the
   post-shrink tree — summary-replaced slices ship as `{:rf.mcp/summary

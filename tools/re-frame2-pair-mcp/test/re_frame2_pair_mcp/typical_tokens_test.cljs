@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.typical-tokens-test
-  "Sanity check for rf2-6sddv — every tool descriptor in re-frame2-pair-mcp's
+  "Sanity check that every tool descriptor in re-frame2-pair-mcp's
   `tool-descriptors` carries a positive-integer `:typicalTokens` hint
   and that hint survives the `clj->js` projection in
   `tool-descriptors-js` (so `tools/list` consumers see it on the wire

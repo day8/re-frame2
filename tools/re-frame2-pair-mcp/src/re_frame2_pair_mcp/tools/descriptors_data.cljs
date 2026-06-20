@@ -6,10 +6,10 @@
   registry entry per tool, descriptor included by name) without
   forcing the registry to inline ~280 lines of descriptor blobs.
 
-  Per rf2-zkca8's carve-out for catalogue-shaped leaves, this file
-  is permitted to exceed the standard ≤250-line ceiling — splitting
-  it per-tool would force readers to chase across twelve files when
-  comparing descriptor shapes.
+  As a catalogue-shaped leaf, this file is permitted to exceed the
+  standard ≤250-line ceiling — splitting it per-tool would force
+  readers to chase across twelve files when comparing descriptor
+  shapes.
 
   Universal knobs (`max-tokens`, `cache`) are spliced via
   `descriptors-knobs/with-budget-knob` and `with-cache-knob` inside
@@ -17,19 +17,18 @@
   knobs (limit, cursor, dedup, elision) reach in by name below.
 
   Each entry carries `:name`, `:description`, `:inputSchema`,
-  `:outputSchema` (rf2-3l3be — describes the `:structuredContent`
-  payload shape; agent hosts use it to validate the result client-
-  side), and `:typicalTokens` (rf2-6sddv) — an informational
-  ballpark of the response-payload size in tokens that AI clients
-  use to budget calls and pick size-conscious args (`max-tokens`,
-  `cache`, `cursor`) without trial-and-error. Hint only; the real
-  cap is enforced separately."
+  `:outputSchema` (describes the `:structuredContent` payload shape;
+  agent hosts use it to validate the result client-side), and
+  `:typicalTokens` — an informational ballpark of the response-payload
+  size in tokens that AI clients use to budget calls and pick
+  size-conscious args (`max-tokens`, `cache`, `cursor`) without
+  trial-and-error. Hint only; the real cap is enforced separately."
   (:require [re-frame2-pair-mcp.tools.descriptors-knobs :as knobs]))
 
 ;; ---------------------------------------------------------------------------
-;; Recurring outputSchema fragments (rf2-3l3be).
+;; Recurring outputSchema fragments.
 ;;
-;; The `:structuredContent` payload (rf2-hj3pi) is `clj->js` of the
+;; The `:structuredContent` payload is `clj->js` of the
 ;; EDN payload — keywords become string keys (`:ok?` → `"ok?"`). Tool
 ;; results split into two coarse families:
 ;;
@@ -90,7 +89,7 @@
                      "§Universal: wire-boundary token cap.")})
 
 ;; ---------------------------------------------------------------------------
-;; Tool annotations (rf2-94p8q).
+;; Tool annotations.
 ;;
 ;; mcp_best_practices.md guidance: every tool descriptor SHOULD declare
 ;; annotation hints so agent hosts (Claude Code, Continue) can auto-
@@ -118,7 +117,7 @@
   "Read-only AND idempotent — `snapshot`, `get-path`, `discover-app`,
   `tail-build`, `list-subscriptions`, `handler-meta`, `list-handlers`
   return the same answer for the same args + same runtime state.
-  (`list-subscriptions` reads the live reactive sub-cache, rf2-qicji —
+  (`list-subscriptions` reads the live reactive sub-cache —
   idempotent across same-state calls just like `snapshot :sub-cache`.)"
   {:readOnlyHint   true
    :idempotentHint true
@@ -160,7 +159,7 @@
    :openWorldHint  true})
 
 (def ^:private stream-controls-annotations
-  "Annotations for `get-stream-controls` (rf2-a0kxsb) — pure read over
+  "Annotations for `get-stream-controls` — pure read over
   the server's IN-PROCESS resource-control atoms. Read-only and
   idempotent across same-state calls. `:openWorldHint false`: unlike
   `list-streams` it does NOT reach the browser runtime over nREPL — the
@@ -170,7 +169,7 @@
    :openWorldHint  false})
 
 (def ^:private record-annotations
-  "Annotations for `record` (rf2-zo4b9) — installs a read-only observer
+  "Annotations for `record` — installs a read-only observer
   on the runtime. `:readOnlyHint true` because the recorder never mutates
   app-db / the DOM (every signal sampler only reads), but NOT
   `:idempotentHint` (each call mints a fresh recording-id and starts a
@@ -183,7 +182,7 @@
 
 (def ^:private session-pin-annotations
   "Annotations for the session-mutating operating-frame ops
-  (`set-operating-frame`, `reset-operating-frame`, rf2-zomfq). They
+  (`set-operating-frame`, `reset-operating-frame`). They
   mutate the per-session frame pin in the runtime preload — NOT app-db,
   NOT the DOM — so `:readOnlyHint false` (they write *session* state)
   but NOT `:destructiveHint` (no irreversible app effect; a wrong pin is
@@ -218,9 +217,8 @@
 ;; One def per tool, in catalogue order (per
 ;; spec/003-Tool-Catalogue.md). Each section is bounded by a comment
 ;; rule so a reader scrolling through the file can land on a tool
-;; without grepping. The file's leaf-size exemption (rf2-zkca8 —
-;; catalogue-shaped leaves) earns the length; the section navigation
-;; (rf2-rk2c7) earns the scannability.
+;; without grepping. The catalogue-shaped-leaf size exemption earns
+;; the length; the section navigation earns the scannability.
 ;; ===========================================================================
 
 ;; ---------------------------------------------------------------------------
@@ -1777,7 +1775,7 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
-;; describe-image (rf2-srobm0 — EP-0023 Use-Case 7 / Ref-Plan item 17)
+;; describe-image (EP-0023 Use-Case 7 / Ref-Plan item 17)
 ;; ---------------------------------------------------------------------------
 
 (def describe-image
@@ -1838,7 +1836,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; set-operating-frame / reset-operating-frame / get-operating-frame
-;; (rf2-zomfq — the three Tool-Pair §Tool-surface-obligations ops)
+;; (the three Tool-Pair §Tool-surface-obligations ops)
 ;; ---------------------------------------------------------------------------
 
 (def set-operating-frame

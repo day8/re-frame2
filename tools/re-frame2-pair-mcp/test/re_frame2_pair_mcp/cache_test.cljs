@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.cache-test
-  "Unit tests for the per-session response cache (rf2-3rt1f).
+  "Unit tests for the per-session response cache.
 
   Per `tools/re-frame2-pair-mcp/spec/Principles.md` §\"Per-session response
   cache\", every read-tool result passes through an 8-slot LRU keyed
@@ -38,8 +38,8 @@
   (cond-> #js {:content #js [#js {:type "text" :text text}]}
     error? (j/assoc! :isError true)))
 
-;; `args-js` + `extract-text` are the shared wire-envelope extractors
-;; (rf2-wnrpi) — one definition in `test-utils`, aliased here.
+;; `args-js` + `extract-text` are the shared wire-envelope extractors —
+;; one definition in `test-utils`, aliased here.
 (def ^:private args-js tu/args->js)
 (def ^:private extract-text tu/extract-text)
 
@@ -51,8 +51,8 @@
     (and (map? v) (contains? v :rf.mcp/cache-hit))))
 
 ;; ---------------------------------------------------------------------------
-;; `:cache` MCP-arg normalisation now lives on the shared table-driven
-;; parser — see `re-frame2-pair-mcp.args-test` (rf2-c4fmh).
+;; `:cache` MCP-arg normalisation lives on the shared table-driven
+;; parser — see `re-frame2-pair-mcp.args-test`.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@
   (is (not (cache/cacheable? "unknown-tool"))))
 
 (deftest cacheable-excludes-get-operating-frame
-  ;; rf2-flm0iz — `get-operating-frame` is a read of VOLATILE runtime
+  ;; `get-operating-frame` is a read of VOLATILE runtime
   ;; state (the live frame registry + the per-session pin), not a
   ;; function of frame app-db. Both axes can move WITHOUT an app-db
   ;; mutation and WITHOUT a `set-operating-frame` / `reset-operating-
@@ -143,7 +143,7 @@
     (is (not= (cache/hash-result ok) (cache/hash-result err)))))
 
 ;; ---------------------------------------------------------------------------
-;; The load-bearing scenarios from the bead.
+;; The load-bearing scenarios.
 ;; ---------------------------------------------------------------------------
 
 (deftest fresh-call-stores-and-returns-unchanged
@@ -233,7 +233,7 @@
         "action tools never poison the cache")))
 
 (deftest get-operating-frame-never-serves-stale-cache-hit
-  ;; rf2-flm0iz — the load-bearing scenario. Two byte-identical
+  ;; The load-bearing scenario. Two byte-identical
   ;; `get-operating-frame` responses MUST NOT collapse into a
   ;; `:rf.mcp/cache-hit` marker, because the resolved frame triple can
   ;; have changed underneath identical bytes (a frame mounted/unmounted,
@@ -392,10 +392,10 @@
           "cache-hit marker fits well under a 5K-token cap"))))
 
 (deftest cache-hit-marker-carries-via-slot
-  ;; rf2-36xod: the marker carries `:via` to distinguish a pre-eval
-  ;; short-circuit (`:precheck`) from the legacy post-eval match
-  ;; (`:result-hash`). Agents that read the marker can attribute the
-  ;; saving correctly; tooling can graph cache-hit volume by source.
+  ;; The marker carries `:via` to distinguish a pre-eval short-circuit
+  ;; (`:precheck`) from the post-eval match (`:result-hash`). Agents that
+  ;; read the marker can attribute the saving correctly; tooling can
+  ;; graph cache-hit volume by source.
   (let [args (args-js {:frame ":rf/default"})
         text "{:ok? true :app-db {:k :v}}"
         opts {:tool "snapshot" :args args :enabled? true}]
@@ -406,7 +406,7 @@
           "apply-cache hit annotates :via :result-hash"))))
 
 ;; ---------------------------------------------------------------------------
-;; Precheck — rf2-36xod. Decide cache-hit BEFORE running the tool.
+;; Precheck — decide cache-hit BEFORE running the tool.
 ;;
 ;; Same `apply-cache` contract — same `(tool, args)` key, same LRU
 ;; semantics, same marker shape — but with an extra `:precheck-hash`
@@ -452,7 +452,7 @@
 
 (deftest precheck-returns-nil-when-no-current-hash
   ;; Caller has no precheck wiring for this tool → passes nil → we
-  ;; return nil and let the legacy post-eval path take over.
+  ;; return nil and let the post-eval path take over.
   (let [args (args-js {:frame ":rf/default"})
         opts {:tool "snapshot" :args args :enabled? true}]
     ;; Prime the cache with a precheck-hash.
@@ -519,12 +519,11 @@
         "matching key → precheck hits")))
 
 (deftest precheck-build-discriminates-key
-  ;; rf2-olvr5 finding 3 — the cache key includes the resolved BUILD. A
-  ;; precheck-hash primed for (get-path, args, build-A) MUST NOT serve a
-  ;; lookup for (get-path, args, build-B) even when the hashes collide
-  ;; (two builds on one nREPL connection with the same app-db-hash). The
-  ;; pre-fix key was `(tool, args)` only — a cross-build collision served
-  ;; the wrong build's payload.
+  ;; The cache key includes the resolved BUILD. A precheck-hash primed
+  ;; for (get-path, args, build-A) MUST NOT serve a lookup for
+  ;; (get-path, args, build-B) even when the hashes collide (two builds
+  ;; on one nREPL connection with the same app-db-hash) — otherwise a
+  ;; cross-build collision would serve the wrong build's payload.
   (let [args   (args-js {:path "[:k]"})
         h      22222
         opts-a {:tool "get-path" :args args :enabled? true :build :app}
@@ -591,10 +590,9 @@
         "precheck-hash supplied at store time is queryable on the next call")))
 
 (deftest precheck-hash-absent-when-not-supplied
-  ;; Backwards-compat path. When `apply-cache` is called WITHOUT
-  ;; `:precheck-hash` (the rf2-3rt1f-era call sites), the stored
+  ;; When `apply-cache` is called WITHOUT `:precheck-hash`, the stored
   ;; entry doesn't carry one; future precheck attempts on that key
-  ;; return nil and the legacy post-eval cache catches the hit.
+  ;; return nil and the post-eval cache catches the hit.
   (let [args (args-js {:frame ":rf/default"})
         opts {:tool "snapshot" :args args :enabled? true}
         text "{:k :v}"]
@@ -602,7 +600,7 @@
     (cache/apply-cache (mcp-result text) opts)
     (is (nil? (cache/precheck opts 12345))
         "no stored :precheck-hash → precheck returns nil")
-    ;; Legacy post-eval path still works.
+    ;; Post-eval path still works.
     (let [hit (cache/apply-cache (mcp-result text) opts)]
       (is (cache-hit-result? hit)
           "post-eval cache-hit still fires when text matches")

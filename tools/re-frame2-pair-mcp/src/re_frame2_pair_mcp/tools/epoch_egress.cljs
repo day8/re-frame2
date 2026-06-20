@@ -1,20 +1,20 @@
 (ns re-frame2-pair-mcp.tools.epoch-egress
-  "Off-box projection wrap for the pull-mode epoch tools (rf2-6wvh5).
+  "Off-box projection wrap for the pull-mode epoch tools.
 
   `trace-window` and `watch-epochs` egress full epoch records — each
   carrying `:db-before` / `:db-after` app-db snapshots (plus
-  `:trigger-event` / `:trace-events`) — over the MCP wire. Before
-  rf2-6wvh5 the page of records the runtime shipped rode the nREPL wire
-  verbatim: the `:epoch-vector` wire-pipeline arm
+  `:trigger-event` / `:trace-events`) — over the MCP wire. The
+  `:epoch-vector` wire-pipeline arm
   (`re-frame2-pair-mcp.tools.wire-pipeline`) only DROPS whole epochs
   STAMPED `:rf.epoch/sensitive?` and then diff-encodes / dedups the rest
   — none of which redact a declared-sensitive SLOT (e.g.
-  `[:auth :password]`) sitting inside `:db-before` / `:db-after`. So a
-  schema-declared `:sensitive?` slot rode off-box verbatim even with the
-  `--allow-sensitive-reads` gate OFF (the published default).
+  `[:auth :password]`) sitting inside `:db-before` / `:db-after`. Without
+  the projection this ns applies, a schema-declared `:sensitive?` slot
+  would ride off-box verbatim even with the `--allow-sensitive-reads`
+  gate OFF (the published default).
 
   The framework forbids exactly this hand-walk. `re-frame.core`
-  (core.cljc §projected egress, rf2-mrsck) names `projected-record` /
+  (core.cljc §projected egress) names `projected-record` /
   `projected-history` the single normative off-box-egress emission site
   and states that tools egressing the epoch ring MUST route through it
   rather than walking `(epoch-history frame-id)` and re-wrapping by hand
@@ -32,7 +32,7 @@
   the records the MCP server receives already carry `:rf/redacted` /
   `:rf.size/large-elided` markers in their payload slots.
 
-  ## Gate parity with snapshot / get-path / subscribe (rf2-c2dtu)
+  ## Gate parity with snapshot / get-path / subscribe
 
   The `--allow-sensitive-reads` boot gate (`raw-state/raw-state-allowed?`)
   governs whether a caller's `:include-sensitive true` is honoured. The
@@ -41,7 +41,7 @@
   - Gate OFF (default) — `include-sensitive` is forced false, so
     `project?` is true: every egressed record is routed through
     `projected-record` under the `:rf.egress/off-box-tool` profile
-    (rf2-nmjcll — sensitive slots redact, large slots elide WITH the
+    (sensitive slots redact, large slots elide WITH the
     structural digest the tool needs). A hostile per-call
     `:include-sensitive true` cannot talk an operator who did not pass
     `--allow-sensitive-reads` into shipping raw state.
@@ -50,7 +50,7 @@
     operator's explicit opt-in. This is the operator's deliberate choice
     to see verbatim state.
 
-  ## Named-egress profile: `:rf.egress/off-box-tool` (rf2-nmjcll)
+  ## Named-egress profile: `:rf.egress/off-box-tool`
 
   Pair-MCP is an OFF-BOX TOOL WIRE — epoch records cross to an external
   agent — so per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10)
@@ -59,44 +59,44 @@
   default. Both share the redact/elide floor (sensitive → `:rf/redacted`,
   large → `:rf.size/large-elided`); off-box-tool additionally carries the
   `:rf.size/include-digests?` structural indicators a tool needs to reason
-  about an elided slot's shape. Omitting the profile shipped the
-  hosted-observability marker — a fail-degraded contract gap, closed by
-  `egress-opts-edn` naming the profile unconditionally.
+  about an elided slot's shape. `egress-opts-edn` names the profile
+  unconditionally, so the off-box wire always ships the tool marker, never
+  the less-informative hosted-observability one.
 
   `projected-record` is the framework's single off-box emission site — it
   carries hard `:include-sensitive? false` / `:include-large? false`
   defaults and handles all four payload-bearing slots
   (`:db-before`, `:db-after`, `:trigger-event`, `:trace-events`)
-  including the `:trace-events` per-event re-root (rf2-ta0y7). Using it
+  including the `:trace-events` per-event re-root. Using it
   directly (rather than a per-slot `elide-wire-value` hand-walk) keeps
   the projection single-sourced in the framework and removes the
   \"one missed slot\" leak surface the core docstring warns about.
 
-  ## `:include-sensitive` routes THROUGH projection, never around it (rf2-m9duxl)
+  ## `:include-sensitive` routes THROUGH projection, never around it
 
   The `--allow-sensitive-reads` boot gate + per-call `:include-sensitive
   true` opt-in does NOT disable `projected-record`. It is threaded as the
   `:include-sensitive? true` egress opt INTO the projection (composed OVER
-  the `:rf.egress/off-box-tool` profile floor — rf2-nmjcll), lifting ONLY
+  the `:rf.egress/off-box-tool` profile floor), lifting ONLY
   the app-db sensitive axis. The other independent projection axes stay at
   their fail-closed defaults regardless of `:include-sensitive`:
 
   - `:effects[*].args` (payload-bearing fx-handler input) stay
     `:rf/redacted` — they are a different keyspace from app-db sensitive
     values, governed by the orthogonal `:include-fx-args?` opt
-    (rf2-rlt3sv / Security.md §Off-box egress).
+    (Security.md §Off-box egress).
   - the `:rf.db/runtime` frame-state partition stays `:rf/redacted` —
-    governed by the orthogonal `:include-runtime-db?` opt (rf2-5w06uu).
+    governed by the orthogonal `:include-runtime-db?` opt.
   - app-db `:large?` slots stay `:rf.size/large-elided` — governed by the
     independent `:include-large?` opt.
   - the app-installed `:redact-fn` advanced override still runs over the
     projected record.
 
-  Pre-rf2-m9duxl these tools treated `:include-sensitive true` as a FULL
-  raw epoch bypass — `(not incl?)` disabled projection wholesale — which
-  conflated the app-db sensitive axis with every other axis and shipped
-  the raw fx-args / runtime-db partition / un-`:redact-fn`'d record. That
-  contradicted Security.md §98-108 (off-box epoch egress MUST route through
+  `:include-sensitive` lifts only the app-db sensitive axis — it is NOT a
+  full raw epoch bypass. The app-db sensitive axis is independent of every
+  other axis, so the raw fx-args / runtime-db partition / un-`:redact-fn`'d
+  record never ship merely because sensitive app-db values were requested.
+  This holds Security.md §98-108 (off-box epoch egress MUST route through
   `projected-record`; `:include-fx-args?` is orthogonal to app-db
   `:include-sensitive?` / `:include-large?`) and the EP-0015 projected-record
   contract. There is no app-db-`:include-sensitive`-implied raw escape
@@ -106,9 +106,9 @@
 
 (defn egress-opts-edn
   "Render the `projected-record` egress opts as an EDN string for inlining
-  into a CLJS eval form (rf2-m9duxl, rf2-nmjcll).
+  into a CLJS eval form.
 
-  ## Named-egress profile: `:rf.egress/off-box-tool` on EVERY path (rf2-nmjcll)
+  ## Named-egress profile: `:rf.egress/off-box-tool` on EVERY path
 
   Pair-MCP is an OFF-BOX TOOL WIRE — epoch records cross to an external
   agent — so per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10)
@@ -120,11 +120,11 @@
   needs to reason about an elided slot's shape. The off-box-tool profile
   turns digests ON. Both boundaries fail-closed identically on the
   sensitive / large redaction axes (projection.cljc §profile->size-opts);
-  the ONLY difference the profile makes here is the digest indicators, so
-  this is a fail-degraded contract gap (the off-box wire shipped the
-  hosted-observability marker, less informative than the tool profile the
-  direct-read surfaces already resolve via `tools.elision`), not a raw-data
-  leak. The named selector is the framework's primary boundary answer —
+  the ONLY difference the profile makes here is the digest indicators —
+  the off-box-tool marker is more informative than the
+  hosted-observability one (the same tool profile the direct-read
+  surfaces resolve via `tools.elision`), and neither leaks raw data. The
+  named selector is the framework's primary boundary answer —
   *\"which boundary is this?\"* — and a pair-MCP epoch wire is always the
   tool boundary. So the profile is emitted UNCONDITIONALLY (default + the
   trusted-local sensitive opt-in path alike); it is never the
@@ -132,7 +132,7 @@
 
   `incl?` is the resolved `:include-sensitive` opt-in (the
   `--allow-sensitive-reads` boot gate AND the per-call arg — see each
-  tool's `incl?` derivation). When true it adds the legacy unqualified
+  tool's `incl?` derivation). When true it adds the unqualified
   `:include-sensitive? true` ADVANCED override on TOP of the profile floor
   — lifting ONLY the app-db sensitive axis through the projection (the
   override composes over the off-box-tool floor per
@@ -143,7 +143,7 @@
   orthogonal `:include-fx-args?` / `:include-runtime-db?` / `:include-large?`
   axes stay at their fail-closed off-box-tool floor — `:include-sensitive`
   alone never lifts fx-args, the runtime-db partition, or large-slot
-  elision (Security.md §Off-box egress; rf2-rlt3sv / rf2-5w06uu)."
+  elision (Security.md §Off-box egress)."
   [incl?]
   (if incl?
     "{:rf.egress/profile :rf.egress/off-box-tool :include-sensitive? true}"
@@ -151,22 +151,21 @@
 
 (defn project-dispatch-result-src
   "CLJS source that projects the epoch-bearing slots of a dispatch
-  `:trace` / `:settle` result map for off-box egress (rf2-olvr5
-  finding 1). `result-src` is a raw CLJS expression that evaluates to
-  the runtime dispatch fn's return (a map, or a non-map degraded value).
+  `:trace` / `:settle` result map for off-box egress. `result-src` is a
+  raw CLJS expression that evaluates to the runtime dispatch fn's return
+  (a map, or a non-map degraded value).
 
   `dispatch-and-collect` (`:trace`) returns the cascade envelope PLUS a
   full `:epoch` — the verbatim assembled `:rf/epoch-record` carrying
   `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` app-db
   snapshots. `dispatch-and-settle!` (`:settle`) additionally returns
   `:render-events` — the view-lifecycle trace events folded out of that
-  epoch's `:trace-events`. Both rode the nREPL/MCP wire VERBATIM before
-  this fix, bypassing the framework's off-box projection: a schema-
-  declared `:sensitive?` slot inside `:db-before`/`:db-after` (or inside
-  a render event's `:rf.event/db` tag) leaked to the MCP/LLM boundary
-  with `--allow-sensitive-reads` OFF (the published default) — the same
-  hole rf2-6wvh5 closed for the pull-mode `trace-window` / `watch-epochs`
-  surfaces.
+  epoch's `:trace-events`. Both carry app-db material, so without this
+  projection a schema-declared `:sensitive?` slot inside
+  `:db-before`/`:db-after` (or inside a render event's `:rf.event/db`
+  tag) would leak to the MCP/LLM boundary with `--allow-sensitive-reads`
+  OFF (the published default) — the same surface the pull-mode
+  `trace-window` / `watch-epochs` tools guard.
 
   The emitted source ALWAYS routes `:epoch` through
   `re-frame.core/projected-record` (the single normative off-box-egress
@@ -179,7 +178,7 @@
 
   `incl?` (the resolved `:include-sensitive` opt-in) is threaded as the
   `{:include-sensitive? true}` egress opt INTO `projected-record` — NOT as a
-  projection bypass (rf2-m9duxl). It lifts ONLY the app-db sensitive axis;
+  projection bypass. It lifts ONLY the app-db sensitive axis;
   fx-args / runtime-db / large slots / `:redact-fn` stay at their
   fail-closed defaults. There is no `:include-sensitive`-implied raw escape
   hatch — the epoch always crosses the wire projected.
@@ -215,13 +214,13 @@
 
   The emitted source ALWAYS maps each record through
   `re-frame.core/projected-record` under the `:rf.egress/off-box-tool`
-  egress profile (rf2-nmjcll — Pair-MCP is an off-box tool wire; see
+  egress profile (Pair-MCP is an off-box tool wire; see
   `egress-opts-edn`) — sensitive payload slots land as `:rf/redacted`,
   large slots as `:rf.size/large-elided` markers CARRYING the structural
-  `:digest` the tool profile enables. There is no projection bypass
-  (rf2-m9duxl): a page NEVER crosses the off-box wire unprojected, and it
-  NEVER crosses under the bare 1-arity hosted-observability default (which
-  would omit the tool digests — rf2-nmjcll).
+  `:digest` the tool profile enables. There is no projection bypass: a
+  page NEVER crosses the off-box wire unprojected, and it NEVER crosses
+  under the bare 1-arity hosted-observability default (which would omit
+  the tool digests).
 
   `incl?` (the resolved `:include-sensitive` opt-in — the
   `--allow-sensitive-reads` boot gate AND the per-call arg) is threaded as
@@ -229,20 +228,19 @@
   composed OVER the off-box-tool floor, lifting ONLY the app-db sensitive
   axis. The orthogonal fx-args / runtime-db / large axes and the app
   `:redact-fn` stay at their fail-closed off-box-tool defaults regardless of
-  `:include-sensitive` (Security.md §Off-box egress; rf2-rlt3sv /
-  rf2-5w06uu). Before rf2-m9duxl `:include-sensitive true` disabled
-  projection wholesale, shipping the raw fx-args / runtime-db partition /
-  un-`:redact-fn`'d record — the conflation rf2-m9duxl closes.
+  `:include-sensitive` (Security.md §Off-box egress). `:include-sensitive`
+  never disables projection wholesale: the raw fx-args / runtime-db
+  partition / un-`:redact-fn`'d record stay redacted regardless.
 
   `projected-record` returns `nil` for non-map input; the page is a
   vector of epoch-record maps, so the `mapv` is total. The fn is a pure
-  data transform with no side effects. Both `incl?` branches now thread the
-  named profile through a fn literal — the bare 1-arity reference is gone
-  (it could not name the off-box-tool boundary — rf2-nmjcll)."
+  data transform with no side effects. Both `incl?` branches thread the
+  named profile through a fn literal so the off-box-tool boundary is named
+  on every record."
   [page-sym incl?]
   (let [p        (name page-sym)
         opts-edn (egress-opts-edn incl?)]
     ;; #(projected-record % {:rf.egress/profile :rf.egress/off-box-tool …}) via
     ;; a fn literal so the named off-box-tool boundary (+ any sensitive
-    ;; opt-in) rides into EVERY record's projection (rf2-nmjcll).
+    ;; opt-in) rides into EVERY record's projection.
     (str "(mapv (fn [r#] (re-frame.core/projected-record r# " opts-edn ")) " p ")")))

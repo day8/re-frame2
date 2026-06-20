@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.eval-form-test
-  "Tests for the mini-DSL that composes CLJS eval forms (rf2-dpzpe).
+  "Tests for the mini-DSL that composes CLJS eval forms.
 
   Two assertion styles cover the surface:
 
@@ -9,7 +9,7 @@
     drift downstream.
   - **Emit output** — `emit` renders to a CLJS source string.
     Tests pin the exact output for a handful of representative
-    forms drawn from the six migrated tool sites; this is the
+    forms drawn from the six tool sites; this is the
     contract every tool body relies on."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
@@ -99,12 +99,12 @@
                             (ef/rt-raw "snap"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Migration round-trips — the six tool sites pinned at the wire shape.
+;; Round-trips — the six tool sites pinned at the wire shape.
 ;; ---------------------------------------------------------------------------
 
 (deftest subscribe-form-shape
-  ;; Migrated from subscribe.cljs:69. Pin the wire shape — the runtime
-  ;; sees `(re-frame2-pair.runtime/subscribe! {opts-map})`.
+  ;; Pin the wire shape — the runtime sees
+  ;; `(re-frame2-pair.runtime/subscribe! {opts-map})`.
   (let [opts {:topic :trace
               :max-buffered-events 500
               :max-buffered-bytes  5000000}
@@ -115,7 +115,7 @@
                second)))))
 
 (deftest subscribe-form-carries-both-budgets
-  ;; rf2-ho4ve: regression — both budgets must round-trip.
+  ;; Regression: both budgets must round-trip.
   (let [opts {:topic :trace
               :max-buffered-events 1000
               :max-buffered-bytes  2000000}
@@ -133,17 +133,17 @@
          (ef/emit (ef/rt-call 'drain-subscription! "sub-xyz")))))
 
 (deftest precheck-form-shape-no-frame
-  ;; rf2-9pe31 — precheck routes through the O(1) cached accessor.
+  ;; Precheck routes through the O(1) cached accessor.
   (is (= "(re-frame2-pair.runtime/app-db-hash)"
          (ef/emit (ef/rt-call 'app-db-hash)))))
 
 (deftest precheck-form-shape-with-frame
-  ;; rf2-9pe31 — explicit-frame arm names the frame on the cheap accessor.
+  ;; Explicit-frame arm names the frame on the cheap accessor.
   (is (= "(re-frame2-pair.runtime/app-db-hash :rf/default)"
          (ef/emit (ef/rt-call 'app-db-hash :rf/default)))))
 
 (deftest snapshot-state-form-is-edn-readable
-  ;; Migrated from snapshot.cljs:62. The non-elision arm.
+  ;; The non-elision arm.
   (let [opts {:frames :all
               :include [:app-db :sub-cache :machines :epochs :traces]}
         form (ef/emit (ef/rt-call 'snapshot-state opts))
@@ -152,7 +152,7 @@
     (is (= opts (second edn)))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-lbfzu — `::call*` qsym handling + collection-recursion.
+;; `::call*` qsym handling + collection-recursion.
 ;; ---------------------------------------------------------------------------
 
 (deftest rt-call*-symbol-qsym-emits-fully-qualified
@@ -162,26 +162,23 @@
          (ef/emit (ef/rt-call* 're-frame.core/elide-wire-value)))))
 
 (deftest rt-call*-bare-symbol-emits-verbatim
-  ;; A bare symbol (no namespace) emits as just the name. Pre-rf2-9pe31
-  ;; the precheck-form built `(hash ...)` via this path; post-rf2-9pe31
-  ;; the precheck routes through `app-db-hash` (the cached O(1)
-  ;; accessor), but the bare-symbol arm remains useful for other
-  ;; future call sites that need an unqualified host fn.
+  ;; A bare symbol (no namespace) emits as just the name. The precheck
+  ;; routes through `app-db-hash` (the cached O(1) accessor), but the
+  ;; bare-symbol arm remains useful for other call sites that need an
+  ;; unqualified host fn.
   (is (= "(hash)" (ef/emit (ef/rt-call* 'hash)))))
 
 (deftest rt-call*-string-qsym-emits-verbatim
-  ;; Round-2 dead-branch fix: the previous impl had
-  ;; `(if (symbol? qsym) (str qsym) (str qsym))` — both arms
-  ;; identical. Pin that a string qsym renders the same way the
-  ;; symbol does (verbatim, no auto-quoting), so a future caller
-  ;; can pass a pre-qualified string and get correct source.
+  ;; A string qsym renders the same way the symbol does (verbatim, no
+  ;; auto-quoting), so a caller can pass a pre-qualified string and get
+  ;; correct source.
   (is (= "(some.ns/foo 1)"
          (ef/emit (ef/rt-call* "some.ns/foo" 1)))))
 
 (deftest emit-arg-recurses-into-vectors-of-nodes
-  ;; rf2-lbfzu / EF3 — a vector mixing scalar data and IR nodes
-  ;; previously `pr-str`'d the whole vector, including the IR
-  ;; literal. Now the recursion walks element-wise.
+  ;; A vector mixing scalar data and IR nodes is walked element-wise,
+  ;; so an IR node inside the vector emits as source rather than being
+  ;; `pr-str`'d as a literal.
   (is (= "(re-frame2-pair.runtime/foo [1 bar])"
          (ef/emit (ef/rt-call 'foo [1 (ef/rt-raw "bar")])))))
 

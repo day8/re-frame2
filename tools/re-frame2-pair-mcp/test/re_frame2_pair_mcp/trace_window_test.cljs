@@ -1,25 +1,27 @@
 (ns re-frame2-pair-mcp.trace-window-test
   "Unit tests for the `trace-window` MCP tool — the authoritative-ring
-  read contract (rf2-ertqw) and the empty-result advisory (rf2-fb4hn).
+  read contract and the empty-result advisory.
 
-  ## Authoritative-ring read (rf2-ertqw)
+  ## Authoritative-ring read
 
   `trace-window` MUST read the framework's per-frame epoch-history RING
   — `(rf/epoch-history frame-id)`, the SAME source `eval-cljs` hits
   directly — NOT a parallel session-side capture buffer that only fills
-  while a listener is attached. The buffer-vs-ring split was the
-  silent-WRONG-read this bead kills: the buffer returned EMPTY while the
-  ring HELD epochs. `reads-the-authoritative-ring` pins that the emitted
-  eval form calls `epoch-history`, and `non-empty-ring-returns-epochs`
-  proves a populated ring's epochs ride back (not empty).
+  while a listener is attached. A session-side buffer can return EMPTY
+  while the ring HOLDS epochs, so reading the ring is the only
+  drift-free source. `reads-the-authoritative-ring` pins that the
+  emitted eval form calls `epoch-history`, and
+  `non-empty-ring-returns-epochs` proves a populated ring's epochs ride
+  back (not empty).
 
-  ## Empty-result advisory (rf2-fb4hn)
+  ## Empty-result advisory
 
-  Pre-rf2-fb4hn the tool returned `:count 0` with no explanation when
-  the time window excluded every event in the per-frame ring. Operators
-  routinely misread this as \"events aren't being captured\" when in
-  fact events existed but fell outside `:ms`. The advisory distinguishes
-  \"genuinely empty history\" from \"window excludes the history\"."
+  When the time window excludes every event in the per-frame ring the
+  tool returns `:count 0` WITH an advisory explaining why. Operators
+  otherwise misread a bare `:count 0` as \"events aren't being captured\"
+  when in fact events existed but fell outside `:ms`. The advisory
+  distinguishes \"genuinely empty history\" from \"window excludes the
+  history\"."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -54,7 +56,7 @@
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 ;; ---------------------------------------------------------------------------
-;; Authoritative-ring read contract (rf2-ertqw).
+;; Authoritative-ring read contract.
 ;; ---------------------------------------------------------------------------
 
 (defn- capturing-eval!

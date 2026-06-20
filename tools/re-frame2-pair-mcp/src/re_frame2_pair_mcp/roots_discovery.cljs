@@ -1,21 +1,20 @@
 (ns re-frame2-pair-mcp.roots-discovery
-  "Workspace-roots–based discovery of the consumer project's nREPL port file
-  (rf2-3grub). The proper generic solution to the cwd-leak the rf2-umoz2
-  HTTP probe partially addressed.
+  "Workspace-roots–based discovery of the consumer project's nREPL port file.
+  The generic solution to the cwd-leak: zero hardcoding, no shadow-specific
+  port probing.
 
-  ## The problem one more time
+  ## The problem
 
   shadow-cljs writes its nREPL port to a relative path inside the consumer
   project (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`,
   `.nrepl-port`). The MCP server runs as a subprocess of the agent host
   (Claude Code / Cursor / Copilot); the host picks its own cwd, frequently
-  `$HOME` or the host's install dir. Three pre-existing escape hatches
-  worked but each carried hardcoding (operator config) or shadow-specific
-  port probing:
+  `$HOME` or the host's install dir. Other escape hatches exist, but each
+  carries hardcoding (operator config) or shadow-specific port probing:
 
-  - `--port-file <absolute-path>`    (rf2-3dbwh) — operator config.
+  - `--port-file <absolute-path>`    — operator config.
   - `$SHADOW_CLJS_NREPL_PORT`        — operator config.
-  - Shadow HTTP probe at `:9630`     (rf2-umoz2) — shadow-specific.
+  - Shadow HTTP probe at `:9630`     — shadow-specific.
 
   ## What this namespace adds
 
@@ -42,7 +41,7 @@
   ## Fallbacks for older clients
 
   If `roots/list` rejects (older client, no capability), the caller
-  (`nrepl.cljs`) falls through to the rf2-umoz2 HTTP probe + cwd-scan
+  (`nrepl.cljs`) falls through to the HTTP probe + cwd-scan
   cascade. The fallback path is observable: `discover-via-roots` resolves
   to `:reason :workspace-discovery-unsupported` (vs the
   `:no-running-shadow-in-workspace` branch where roots WAS supported but
@@ -62,7 +61,7 @@
   root + one or two levels below — enough for the typical layouts
   (root-level edn, `<root>/implementation/edn`, monorepo `<root>/<pkg>/edn`)
   without scanning arbitrary deep trees. A monorepo with deeper nesting
-  can still use the rf2-umoz2 HTTP probe fallback, or pass `--port-file`."
+  can still use the HTTP probe fallback, or pass `--port-file`."
   3)
 
 (def ^:const ^:private skip-dir-names
@@ -125,7 +124,7 @@
   returning a JS array of Dirent-shaped objects with `.name` and
   `.isDirectory()`.
 
-  Public-for-test (rf2-3grub) — the bedrock primitive every higher-level
+  Public-for-test — the bedrock primitive every higher-level
   fn here depends on; pinning it directly is what gives the discovery
   cascade unit coverage without a live shadow + Claude Code session."
   [readdir-fn start-dir]
