@@ -13,14 +13,14 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-app-schema path schema)
-  (reg-app-schema path schema opts)
+  (reg-app-schema path {:schema schema})
+  (reg-app-schema path {:schema schema :frame frame})
   ```
-- **Description**: "Attach this Malli schema to this `app-db` path." **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (per rf2-cq1ak app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector.
+- **Description**: "Attach this Malli schema to this `app-db` path." The schema rides the metadata map under `:schema`; the optional frame target rides `:frame` in the same map. **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (per rf2-cq1ak app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector.
 - **Example**:
   ```clojure
   (rf/reg-app-schema [:cells]
-    [:map [:cells/grid [:map-of :keyword :string]]])
+    {:schema [:map [:cells/grid [:map-of :keyword :string]]]})
   ```
 - **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
@@ -40,7 +40,7 @@ This chapter covers the registration macros (rowed in [01 — Core](01-core.md),
   ```
 - **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
-The path-keyed-not-id-keyed asymmetry is principled. Paths are first-class in `get-in` / `assoc-in` / `update-in`; schemas-at-paths matches the dataflow grain; the lookup site (`app-schema-at [:user]`) reads the same way the write site (`(assoc-in db [:user] ...)`) reads. Spelling it as `(reg-app-schema :user/schema schema)` would have shifted the registration's id away from the dataflow grain.
+The path-keyed-not-id-keyed asymmetry is principled. Paths are first-class in `get-in` / `assoc-in` / `update-in`; schemas-at-paths matches the dataflow grain; the lookup site (`app-schema-at [:user]`) reads the same way the write site (`(assoc-in db [:user] ...)`) reads. Spelling it as `(reg-app-schema :user/schema {:schema schema})` would have shifted the registration's id away from the dataflow grain.
 
 See [Conventions §`reg-*` return-value rule](../../spec/Conventions.md#reg--return-value-convention) for the wider convention this row participates in.
 

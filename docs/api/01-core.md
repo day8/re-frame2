@@ -221,14 +221,14 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-app-schema path schema)
-  (reg-app-schema path schema opts)
+  (reg-app-schema path {:schema schema})
+  (reg-app-schema path {:schema schema :frame frame})
   ```
-- **Description**: "Declare the Malli schema for this `app-db` path." **Path is the registration id** — the only `reg-*` keyed by path rather than keyword, because schemas-at-paths matches the dataflow grain. See [08 — Schemas](08-schemas.md).
+- **Description**: "Declare the Malli schema for this `app-db` path." **Path is the registration id** — the only `reg-*` keyed by path rather than keyword, because schemas-at-paths matches the dataflow grain. The schema rides the metadata map under `:schema`; the optional frame target rides `:frame`. See [08 — Schemas](08-schemas.md).
 - **Example**:
   ```clojure
   (rf/reg-app-schema [:cells]
-    [:map [:cells/grid [:map-of :keyword :string]]])
+    {:schema [:map [:cells/grid [:map-of :keyword :string]]]})
   ```
 - **In the wild**: [7GUIs](https://github.com/day8/re-frame2/tree/main/examples/reagent/seven_guis)
 
@@ -272,14 +272,14 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-route id metadata)
+  (reg-route id metadata path)
   ```
-- **Description**: Register a route as data: `:path`, `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](06-routing.md).
+- **Description**: Register a route as data: the path is the third positional arg; the metadata map carries `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave`. See [06 — Routing](06-routing.md).
 - **Example**:
   ```clojure
   (rf/reg-route :route/home
-    {:path     "/"
-     :on-match [[:home/load]]})
+    {:on-match [[:home/load]]}
+    "/")
   ```
 - **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing)
 

@@ -1,6 +1,6 @@
 # 06 — Routing
 
-Routes in re-frame2 are *data*. You register a route with metadata — `:path`, `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave` — and the runtime turns URL changes into events the same way every other input source does. There's no parallel router state; the current route lives in the frame's **runtime-db** partition under `[:rf.runtime/routing :current]` (read it via the `:rf/route` sub); navigation is just dispatching an event; in-flight navigation is just an event sequence the cascade is mid-way through.
+Routes in re-frame2 are *data*. You register a route with a path and metadata — `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave` — and the runtime turns URL changes into events the same way every other input source does. There's no parallel router state; the current route lives in the frame's **runtime-db** partition under `[:rf.runtime/routing :current]` (read it via the `:rf/route` sub); navigation is just dispatching an event; in-flight navigation is just an event sequence the cascade is mid-way through.
 
 The point isn't novelty — every SPA framework has a router. The point is that **routing-as-state** means the router is debuggable with the same tools that debug everything else. Time-travel works. The trace bus sees navigation. Tests dispatch `:rf.route/navigate` like any other event. There's no special "router debug mode" because the router doesn't have its own mode.
 
@@ -13,27 +13,26 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-route id metadata)
+  (reg-route id metadata path)
   ```
-- **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the metadata carries the URL shape, the match events, and the guards.
+- **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the path is the third positional arg (the URL shape); the metadata map carries the match events and the guards.
 - **In the wild**: [routing](https://github.com/day8/re-frame2/tree/main/examples/reagent/routing) · [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
 
 ### A minimal route
 
 ```clojure
 (rf/reg-route :route/cart
-  {:path     "/cart"
-   :on-match [[:cart/load-items]]})
+  {:on-match [[:cart/load-items]]}
+  "/cart")
 ```
 
-`:path` is the URL shape — colon-prefixed segments capture into `:params`. `:on-match` is the event vector (or vector of event vectors) the runtime dispatches when the route activates. That's the whole minimal contract; everything else is optional.
+The third positional arg is the URL shape — colon-prefixed segments capture into `:params`. `:on-match` is the event vector (or vector of event vectors) the runtime dispatches when the route activates. That's the whole minimal contract; everything else is optional.
 
 ### Reserved metadata keys
 
 | Key | Notes |
 |---|---|
 | `:doc` | Free-form description; pair tools read this. |
-| `:path` | The URL shape — `/users/:id/posts/:slug`, etc. |
 | `:params` | Schemas for path segments (per [Spec-Schemas](../../spec/Spec-Schemas.md)). |
 | `:query` | Schemas for query-string keys. |
 | `:query-defaults` | Default values for query keys absent from the URL. |
