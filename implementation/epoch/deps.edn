@@ -29,10 +29,9 @@
 ;; Tool-Pair §Time-travel §Production elision) — production builds
 ;; (`:advanced` + `goog.DEBUG=false`) elide every recorded shape,
 ;; the projection walker, and the restore predicates whether or not
-;; the artefact is on the classpath. The split is therefore *also* a
-;; dev-time bundle-shape improvement: development builds that don't
-;; opt into the pair-tool surface no longer carry the namespace at
-;; all.
+;; the artefact is on the classpath. Keeping it a separate artefact is
+;; *also* a dev-time bundle-shape win: development builds that don't opt
+;; into the pair-tool surface carry none of the namespace at all.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;

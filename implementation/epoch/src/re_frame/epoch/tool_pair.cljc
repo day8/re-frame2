@@ -102,10 +102,9 @@
   two are soft-pass: we can't disprove validity, so we treat the db
   as valid.
 
-  Single walk over the schema set — callers that previously chained
-  `schema-validate-ok?` + `failing-paths-for` paid two walks where one
-  suffices. The validity question is `(empty? (failing-schema-paths
-  frame-id db))`."
+  Single walk over the schema set: the validity question is
+  `(empty? (failing-schema-paths frame-id db))`, so callers get both the
+  yes/no answer and the failing paths from one traversal."
   [frame-id db]
   (let [schemas  (registered-app-schemas frame-id)
         validate (malli-validate-fn)]
@@ -163,15 +162,14 @@
           spec-snapshot-version))
 
 ;; EP-0001 (rf2-vzld77 / rf2-3aizt1 / rf2-k4xe7u) — the machine snapshots
-;; and route slice are DURABLE runtime-db partition state. rf2-vzld77 moved
-;; them to the namespaced runtime-db root keys `:rf.runtime/machines` /
-;; `:rf.runtime/routing`; the restore-precondition readers below take the
+;; and route slice are DURABLE runtime-db partition state, addressed at the
+;; namespaced runtime-db root keys `:rf.runtime/machines` /
+;; `:rf.runtime/routing`. The restore-precondition readers below take the
 ;; runtime-db PARTITION value (`(:rf.db/runtime frame-state)`) and walk those
-;; namespaced paths. Pre-fix they read the retired app-db `[:rf/runtime …]`
-;; path off the epoch-recorded app-db (which is now empty → silently nil), so
-;; the missing-handler-machine + version-drift preconditions no longer fired
-;; (rf2-k4xe7u). The epoch now captures the whole frame-state (decision #2),
-;; so `check-restore-preconditions!` passes the runtime-db partition here.
+;; namespaced paths. The epoch captures the whole frame-state (decision #2),
+;; so `check-restore-preconditions!` passes the runtime-db partition here,
+;; against which the missing-handler-machine + version-drift preconditions
+;; fire.
 (def ^:private machine-snapshots-path
   "Path to the machine-snapshots map inside the runtime-db partition value."
   [:rf.runtime/machines :snapshots])
@@ -228,7 +226,7 @@
 
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
   frame-state (EP-0001 rf2-3aizt1 / rf2-k4xe7u — machine snapshots + route
-  slice are runtime-db state, NOT the retired app-db `[:rf/runtime …]` path).
+  slice are runtime-db partition state).
 
   Per rf2-ocg1: machine lookup goes through the event registry, NOT
   the internal `:head` registrar kind. The latter is unrelated to
@@ -554,7 +552,7 @@
 ;;
 ;; Late-bound so epoch never statically depends on the optional Resources
 ;; artefact — absent the artefact the hook is nil and the runtime-db installs
-;; verbatim (the pre-rf2-7r5mc2 behaviour, correct for an app with no resources).
+;; verbatim, which is correct for an app with no resources.
 
 (defn reconcile-runtime-db-on-restore
   "Reconcile the runtime-db partition of a `frame-state` value about to be
@@ -950,10 +948,10 @@
 ;; of `project-egress`'s `:rf.observe/*` record kinds, so each tree slot is
 ;; handed to `project-egress` as a KINDLESS tree value (the direct-read
 ;; path), which delegates to `elide-wire-value` against the frame's
-;; classification. This replaces the prior ad-hoc `elide-wire-value` calls
-;; with the frame/profile projection primitive (EP-0015 bead-plan item 10).
+;; classification. Routing every slot through the frame/profile projection
+;; primitive (EP-0015 bead-plan item 10) keeps elision in one place.
 ;;
-;; Two slots are value-bearing in ways the original four-slot model missed:
+;; Two slots are value-bearing and need the same projection walk:
 ;;
 ;;   - The CANONICAL frame-state slots `:frame-state-before` /
 ;;     `:frame-state-after` (EP-0001 rf2-3aizt1 decision #2 + ruling #14):
@@ -1040,7 +1038,7 @@
   selects the boundary (default `:rf.egress/off-box-observability`); MCP /
   AI / tool consumers pass `:rf.egress/off-box-tool` to receive the
   structural marker indicators / counters the tool profile enables. The
-  selected profile is the floor; the legacy unqualified `:include-sensitive?`
+  selected profile is the floor; the unqualified `:include-sensitive?`
   / `:include-large?` opts default `false` (the off-box safe path) and, when
   a trusted-local caller opts them back in, compose on top as ADVANCED
   explicit `:rf.size/*` overrides (the override wins — see
@@ -1577,11 +1575,11 @@
   `:rf.event/v` trace tag (`capture/find-trigger-event`); they are NOT
   routed through the marks-projection chokepoint at emit time, NOR are they
   rooted at the frame's app-db, so the schema-path-keyed `elide-wire-value`
-  walker cannot prove any of them safe. (The prior projection routed this
-  slot through the generic `project-payload-slot`, which roots the walk at
-  the frame's app-db classification — so a secret carried positionally in
-  the event vector, e.g. `[:login \"topsecret\"]`, egressed RAW because no
-  app-db sensitive declaration matches the trigger-event path.)
+  walker cannot prove any of them safe. (Routing this slot through the
+  generic `project-payload-slot` would root the walk at the frame's app-db
+  classification — so a secret carried positionally in the event vector,
+  e.g. `[:login \"topsecret\"]`, would egress RAW because no app-db
+  sensitive declaration matches the trigger-event path.)
 
   A safe per-event projection cannot be proven, so off-box egress FAILS
   CLOSED (Spec 009 §Privacy / sensitive data in traces + Security.md
@@ -1679,7 +1677,7 @@
       tool) should pass. An unknown profile is rejected against the closed
       enum (a typo is a loud error, never a silent permissive walk).
 
-  The legacy unqualified `:include-*` keys are ADVANCED per-call overrides
+  The unqualified `:include-*` keys are ADVANCED per-call overrides
   composed OVER the selected profile (NOT the primary boundary selector):
 
       {:include-sensitive?  <bool>   ;; reveal app-db sensitive values
