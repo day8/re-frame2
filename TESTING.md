@@ -202,8 +202,8 @@ pass (017 §`:cannot-run` aggregation rule).
 
 **Failed-run artifacts.** A failed plan run can emit a
 `:rf.test/run-artifact` — the serializable, data-shaped record of one run
-(seed, event program, fx decisions, epoch tape, trace, result) — enough
-to replay it deterministically and re-derive the same evidence
+(seed, scripted event stream, fx decisions, epoch tape, trace, result) —
+enough to replay it deterministically and re-derive the same evidence
 (017 §Artifacts — Run artifact, §Run artifact and replay). A gate MAY
 capture and upload that artifact for a failed run so the failure is
 replayable off-CI; the artifact also feeds the determinism gate and the
