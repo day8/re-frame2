@@ -6,10 +6,10 @@
 ;;;; Why a parallel implementation lives here:
 ;;;;
 ;;;;   `preload/re_frame2_pair/runtime.cljs` is a CLJS-only file loaded
-;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It now
+;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It
 ;;;;   aliases the CANONICAL parser `re-frame.source-coords/parse-source-coord`
-;;;;   (the source-coord contract owner; rf2-nr7vf2 collapsed the formerly-
-;;;;   triplicated parser onto it — the inverse of `format-source-coord`).
+;;;;   (the source-coord contract owner — the inverse of
+;;;;   `format-source-coord`).
 ;;;;   Loading that core `.cljc` ns under bb would drag in re-frame.interop +
 ;;;;   the editor-uri sibling, so this script keeps a dependency-free mirror
 ;;;;   of the four-segment parse and asserts behaviour against samples cribbed

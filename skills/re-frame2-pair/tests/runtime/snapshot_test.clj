@@ -33,11 +33,11 @@
 ;; under test routes by `:include` keys and assembles one map per
 ;; frame-id.
 
-;; EP-0001 rf2-vzld77 — machine snapshots are RUNTIME-DB-partition state.
-;; The fixture now carries a `:runtime-db` partition per frame (read via
-;; `rf/runtime-db-value` in production); the `:machines` slice sources its
-;; `:state` from `[:rf.runtime/machines :snapshots]` there, NOT from app-db
-;; `:rf/runtime`. KEEP IN SYNC with preload/re_frame2_pair/runtime.cljs.
+;; Machine snapshots are RUNTIME-DB-partition state. The fixture carries a
+;; `:runtime-db` partition per frame (read via `rf/runtime-db-value` in
+;; production); the `:machines` slice sources its `:state` from
+;; `[:rf.runtime/machines :snapshots]` there, NOT from app-db `:rf/runtime`.
+;; KEEP IN SYNC with preload/re_frame2_pair/runtime.cljs.
 (def fixture-frames
  {:rf/default {:app-db {:cart {:items 3 :total 4200}}
  :runtime-db {:rf.runtime/machines {:snapshots {:auth {:state :authed}}}}
@@ -51,7 +51,7 @@
  :sub-cache {[:stories/active] {:value :checkout :ref-count 1}}
  :epochs [{:epoch-id "s1" :event-id :stories/load}]
  :traces [{:id 3 :operation :rf.event/dispatched :tags {:frame :stories}}]}
- ;; rf2-3bu3d.6 — a reserved :rf/* TOOL frame (Xray's inspector frame).
+ ;; A reserved :rf/* TOOL frame (Xray's inspector frame).
  ;; Its :app-db is the huge tool-frame inspection state that the default
  ;; `:app` scope MUST exclude so the first read doesn't overflow on it.
  :rf/xray {:app-db {:xray/inspector {:xray-mega-state :massive}}
@@ -67,11 +67,10 @@
 (defn stub-epoch-history [fid] (get-in fixture-frames [fid :epochs]))
 (defn stub-machines [] [:auth :session]) ;; global registrar surface
 (defn stub-trace-buffer
- "Per rf2-g1b2m / rf2-8uwce the framework's `trace-buffer` is now
- per-frame and cascade-keyed; the frame-id is the required first arg.
- Per rf2-mscih the snapshot `:traces` slice now ships cascade-bundles
- by default (the framework's storage unit), matching the streaming
- subscribe wire shape. This stub returns the fixture's `:traces`
+ "The framework's `trace-buffer` is per-frame and cascade-keyed; the
+ frame-id is the required first arg. The snapshot `:traces` slice ships
+ cascade-bundles by default (the framework's storage unit), matching the
+ streaming subscribe wire shape. This stub returns the fixture's `:traces`
  vector directly — the loosely-typed stub is shape-agnostic; the
  production snapshot slice calls `(trace-tooling/trace-buffer
  frame-id)` (zero-arg opts) for the cascade-bundle default."
@@ -86,12 +85,12 @@
 (def ^:private all-snapshot-slices
  [:app-db :sub-cache :machines :epochs :traces])
 
-;; rf2-3bu3d.6 — reserved-frame predicate + app-frame view. KEEP IN SYNC
-;; with `reserved-tool-frame?` / `app-frame-ids` in
-;; preload/re_frame2_pair/runtime.cljs (landed rf2-3bu3d.4). A `:rf/*`
-;; frame is a TOOL frame (Xray's :rf/xray, SSR slots) excluded from the
-;; default snapshot scope; the sole `:rf/default` carve-out is an ordinary
-;; APP frame id (no framework privilege), not a tool frame.
+;; Reserved-frame predicate + app-frame view. KEEP IN SYNC with
+;; `reserved-tool-frame?` / `app-frame-ids` in
+;; preload/re_frame2_pair/runtime.cljs. A `:rf/*` frame is a TOOL frame
+;; (Xray's :rf/xray, SSR slots) excluded from the default snapshot scope;
+;; the sole `:rf/default` carve-out is an ordinary APP frame id (no
+;; framework privilege), not a tool frame.
 
 (defn- reserved-tool-frame? [frame-id]
  (and (keyword? frame-id)
@@ -105,17 +104,16 @@
  (case slice
  :app-db (stub-get-frame-db frame-id)
  :sub-cache (stub-sub-cache frame-id)
- ;; rf2-vzld77 — machine snapshots read from the RUNTIME-DB partition
- ;; at [:rf.runtime/machines :snapshots], NOT app-db :rf/runtime.
+ ;; Machine snapshots read from the RUNTIME-DB partition at
+ ;; [:rf.runtime/machines :snapshots], NOT app-db :rf/runtime.
  :machines {:ids (vec (stub-machines))
  :state (or (get-in (stub-runtime-db frame-id)
  [:rf.runtime/machines :snapshots])
  {})}
  :epochs (vec (stub-epoch-history frame-id))
- ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; per
- ;; rf2-mscih the snapshot `:traces` slice ships cascade-bundles
- ;; by default (the framework's storage unit, matching the
- ;; streaming subscribe wire shape per Tool-Pair §Reading the
+ ;; The trace ring is per-frame; the snapshot `:traces` slice ships
+ ;; cascade-bundles by default (the framework's storage unit, matching
+ ;; the streaming subscribe wire shape per Tool-Pair §Reading the
  ;; per-frame trace ring). Production runtime calls
  ;; `(trace-tooling/trace-buffer frame-id)` (zero-arg opts).
  :traces (vec (stub-trace-buffer frame-id))
@@ -132,9 +130,9 @@
  ([{:keys [frames include]
  :or {frames :app include all-snapshot-slices}}]
  (let [fids (cond
- ;; rf2-3bu3d.6 — DEFAULT scope `:app` = app frames only
- ;; (reserved :rf/* tool frames excluded). `:all` is the
- ;; explicit opt-in to tool-frame state.
+ ;; DEFAULT scope `:app` = app frames only (reserved :rf/*
+ ;; tool frames excluded). `:all` is the explicit opt-in
+ ;; to tool-frame state.
  (= :app frames) (app-frame-ids)
  (= :all frames) (vec (stub-frame-ids))
  (sequential? frames) (vec frames)
@@ -147,11 +145,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest default-scope-is-app-frames-excludes-reserved-tool-frames
- ;; rf2-3bu3d.6 — THE bead's central assertion. The no-arg / default
- ;; snapshot returns the APP frames only; the reserved :rf/xray TOOL
- ;; frame is EXCLUDED so the first read doesn't overflow on tool-frame
- ;; inspection state. RED before the fix (default was :all → :rf/xray
- ;; was present); GREEN after.
+ ;; The central assertion. The no-arg / default snapshot returns the APP
+ ;; frames only; the reserved :rf/xray TOOL frame is EXCLUDED so the first
+ ;; read doesn't overflow on tool-frame inspection state.
  (let [snap (snapshot-state)]
  (testing "default scope = app frames; reserved :rf/* tool frame excluded"
  (is (= #{:rf/default :stories} (set (keys snap)))
@@ -165,7 +161,7 @@
  (str fid " missing slice keys"))))))
 
 (deftest explicit-all-includes-reserved-tool-frames
- ;; rf2-3bu3d.6 — the opt-in. `:all` returns EVERY frame INCLUDING the
+ ;; The opt-in. `:all` returns EVERY frame INCLUDING the
  ;; reserved :rf/xray tool frame.
  (let [snap (snapshot-state {:frames :all})]
  (is (= #{:rf/default :stories :rf/xray} (set (keys snap)))
@@ -185,9 +181,8 @@
  "naming :rf/xray explicitly includes it")))
 
 (deftest app-db-slice-delegates-to-frame-db
- ;; rf2-vzld77 — the app-db partition no longer carries machine snapshots
- ;; (they moved to runtime-db); the `:app-db` slice is the pure app
- ;; partition.
+ ;; The app-db partition does not carry machine snapshots (those live in
+ ;; runtime-db); the `:app-db` slice is the pure app partition.
  (let [snap (snapshot-state {:include [:app-db]})]
  (is (= {:cart {:items 3 :total 4200}}
  (get-in snap [:rf/default :app-db])))

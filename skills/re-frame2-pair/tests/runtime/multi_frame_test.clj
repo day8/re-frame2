@@ -87,12 +87,12 @@
   (reset! selected-frame frame-id)
   {:ok? true :frame frame-id})
 
-;; rf2-3bu3d.4 — reserved-frame-aware resolution. KEEP IN SYNC with
+;; Reserved-frame-aware resolution. KEEP IN SYNC with
 ;; `reserved-tool-frame?` / `app-frame-ids` / `current-frame` in
 ;; preload/re_frame2_pair/runtime.cljs. A `:rf/*` frame is a TOOL frame (Xray's
 ;; `:rf/xray`, SSR slots) EXCLUDED from the ambiguity count, with the sole
 ;; `:rf/default` carve-out (an ordinary app frame id per Conventions.md §Reserved
-;; namespaces / EP-0002).
+;; namespaces).
 
 (defn reserved-tool-frame? [frame-id]
   (and (keyword? frame-id)
@@ -112,7 +112,7 @@
            (first app-fids))))))
 
 ;; ---------------------------------------------------------------------------
-;; Mirror of `ambiguous-frame-error` (rf2-n58jxo) — the enriched refusal
+;; Mirror of `ambiguous-frame-error` — the enriched refusal
 ;; envelope: operation, op-specific context, available app frames, the
 ;; current pin, and the concrete fix.
 ;;
@@ -238,7 +238,7 @@
     (is (= :ghost (current-frame :ghost)))))
 
 ;; ---------------------------------------------------------------------------
-;; Reserved-frame-aware resolution (rf2-3bu3d.4)
+;; Reserved-frame-aware resolution
 ;;
 ;; A `:rf/*` TOOL frame (`:rf/xray`, an SSR slot) is excluded from the
 ;; ambiguity count; the sole remaining APP frame auto-selects. `:rf/default`
@@ -297,7 +297,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Tier-3 sole-app-frame resolution (frame-only — there is no realm/container
-;; dimension; the re-frame.realm substrate was removed, rf2-udl74a).
+;; dimension).
 ;; ---------------------------------------------------------------------------
 
 (deftest single-app-frame-resolves
@@ -337,9 +337,9 @@
       (catch clojure.lang.ExceptionInfo e
         (let [data (ex-data e)]
           (is (= :ambiguous-frame (:reason data)))
-          ;; rf2-n58jxo — the throw carries the enriched diagnostics: the
-          ;; operation, the event being dispatched, the available app
-          ;; frames, the current pin, and a fix-bearing hint.
+          ;; The throw carries the enriched diagnostics: the operation, the
+          ;; event being dispatched, the available app frames, the current
+          ;; pin, and a fix-bearing hint.
           (is (= :dispatch (:operation data)))
           (is (= [:cart/apply-coupon "SPRING25"] (:event data)))
           (is (= #{:rf/default :stories} (set (:available-frames data)))
@@ -383,7 +383,7 @@
     (let [result (subs-sample [:counter])]
       (is (false? (:ok? result)))
       (is (= :ambiguous-frame (:reason result)))
-      ;; rf2-n58jxo — enriched: operation, the query, the available frames.
+      ;; Enriched: operation, the query, the available frames.
       (is (= :subs-sample (:operation result)))
       (is (= [:counter] (:query result)))
       (is (= #{:rf/default :stories} (set (:available-frames result)))))))
