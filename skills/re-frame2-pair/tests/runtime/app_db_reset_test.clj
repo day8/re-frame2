@@ -5,13 +5,13 @@
 ;;;;
 ;;;; Why this test exists:
 ;;;;
-;;;; `app-db-reset!` previously reached into `(rf/handler-meta :frame
-;;;; frame-id)` looking for an `:app-db` key — not the canonical
-;;;; Tool-Pair write surface — and could plausibly return
-;;;; `{:ok? true}` without mutating state or appending the synthetic
-;;;; epoch that `restore-epoch` depends on. The fix delegates to
-;;;; `rf/replace-app-db!` (Tool-Pair §Pair-tool writes; renamed from
-;;;; `rf/reset-frame-db!`, EP-0001 rf2-tfepxu).
+;;;; `app-db-reset!` MUST delegate to the canonical Tool-Pair write
+;;;; surface `rf/replace-app-db!` (Tool-Pair §Pair-tool writes), so the
+;;;; reset mutates app-db AND appends the synthetic epoch that
+;;;; `restore-epoch` depends on. Reaching into `(rf/handler-meta :frame
+;;;; frame-id)` for an `:app-db` key instead could return `{:ok? true}`
+;;;; without mutating state or recording the epoch — this test forbids
+;;;; that shape.
 ;;;;
 ;;;; Why a structural test rather than a runtime test:
 ;;;;
@@ -42,7 +42,7 @@
 ;;;; Tool-Pair write surface — guarantees app-db mutation +
 ;;;; synthetic-epoch append per).
 ;;;; 2. The body does NOT reach into `rf/handler-meta` to grab
-;;;; an `:app-db` key (the bug we just fixed).
+;;;; an `:app-db` key (the forbidden no-mutation shape).
 ;;;; 3. The success branch returns `{:ok? true ...}`, the
 ;;;; soft-failure branch returns `{:ok? false :reason
 ;;;; :reset-rejected ...}`.
@@ -58,8 +58,8 @@
  (:require [clojure.test :refer [deftest is run-tests testing]]
  [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private form-contains? rt/form-contains?)
 
 (def ^:private app-db-reset-form (rt/defn-named 'app-db-reset!))

@@ -1,14 +1,14 @@
 ;;;; tests/runtime/dispatch_consequence_test.clj
 ;;;;
-;;;; Babashka-runnable structural pin (rf2-3bu3d.2 / rf2-3bu3d.3) that the
-;;;; runtime preload defines the wire-boundary consequence + validation
-;;;; surface the MCP `dispatch` tool routes through:
+;;;; Babashka-runnable structural pin that the runtime preload defines the
+;;;; wire-boundary consequence + validation surface the MCP `dispatch` tool
+;;;; routes through:
 ;;;;
 ;;;;   - `dispatch-consequence!`  — the DEFAULT sync dispatch. Returns the
 ;;;;     re-frame2 CONSEQUENCE (`:db-changed?` / `:changed-paths` /
 ;;;;     `:effects-fired` / `:no-op?`) so a no-op is VISIBLE, not a fake
-;;;;     `{:mode :sync}` ack (rf2-3bu3d.2). VALIDATEs the event-id FIRST
-;;;;     and ECHOes the resolved event (rf2-3bu3d.3).
+;;;;     `{:mode :sync}` ack. VALIDATEs the event-id FIRST and ECHOes the
+;;;;     resolved event.
 ;;;;   - `validate-event-id` / `validate-registered` — the call-time id
 ;;;;     check against the LIVE registrar. An unknown id returns
 ;;;;     `:reason :unknown-id` with `:nearest` matches — never a silent
@@ -23,8 +23,8 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private defn-named rt/defn-named)
 (def ^:private form-contains? rt/form-contains?)
 

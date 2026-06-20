@@ -1,22 +1,20 @@
 ;;;; tests/runtime/registrar_describe_test.clj
 ;;;;
-;;;; Babashka-runnable structural pin (rf2-l7vnd) that
-;;;; `registrar-describe` strips the raw `:handler-fn` value from its
-;;;; return before handing it to the MCP wire.
+;;;; Babashka-runnable structural pin that `registrar-describe` strips the
+;;;; raw `:handler-fn` value from its return before handing it to the MCP
+;;;; wire.
 ;;;;
 ;;;; Why this test exists:
 ;;;;
 ;;;; `re-frame.core/handler-meta` carries a `:handler-fn` slot whose
 ;;;; value is a raw Function. `pr-str` of a Function emits
-;;;; `#object[Function "..."]` — unreadable EDN on the MCP wire. Before
-;;;; rf2-l7vnd the MCP server's `read-edn-safe` then fell back to the
-;;;; raw string, and the `handler-meta` tool surfaced
-;;;; `{:ok? false :reason :unexpected-shape :value "{...}"}` — a
-;;;; "failed" envelope with the actual handler data embedded as a
-;;;; string. Every operator hit this on every `handler-meta` call.
+;;;; `#object[Function "..."]` — unreadable EDN on the MCP wire, which the
+;;;; MCP server's `read-edn-safe` would fall back to as a raw string,
+;;;; surfacing `{:ok? false :reason :unexpected-shape :value "{...}"}` — a
+;;;; "failed" envelope with the actual handler data embedded as a string.
 ;;;;
-;;;; The fix is to drop `:handler-fn` server-side so the wire EDN is
-;;;; clean by construction. The hash (`:handler-fn-hash`) is the
+;;;; So `registrar-describe` drops `:handler-fn` server-side, leaving the
+;;;; wire EDN clean by construction. The hash (`:handler-fn-hash`) is the
 ;;;; wire-friendly substitute consumers actually use.
 ;;;;
 ;;;; Run: bb tests/runtime/registrar_describe_test.clj
@@ -28,8 +26,8 @@
  (:require [clojure.test :refer [deftest is run-tests]]
  [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private all-forms rt/all-forms)
 (def ^:private form-contains? rt/form-contains?)
 
