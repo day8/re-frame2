@@ -234,28 +234,39 @@
 
 (defn keyword-only-message?
   "Conformance predicate: true when `message` is a bare stringified
-  `:rf.error/…` keyword — the keyword-only message shape the contract
-  forbids. A conformant framework message LEADS with a human sentence and
-  only carries the keyword inside the trailing `[:rf.error/<id>]` token, so a
-  conformant message is never `(str some-keyword)` on its own.
+  `:rf.<ns>/…` discriminator keyword — the keyword-only message shape the
+  contract forbids. A conformant framework message LEADS with a human
+  sentence and only carries the keyword inside the trailing
+  `[:rf.<ns>/<id>]` token, so a conformant message is never
+  `(str some-keyword)` on its own.
+
+  Matches ANY reserved `:rf.<ns>/` root (`:rf.error/…` is the common case,
+  but a few error-ids live under another reserved namespace — e.g.
+  `:rf.ssr/hydration-mismatch`), so the predicate is uniform across the
+  whole thrown-error corpus, not just `:rf.error/…`.
 
   Used by the thrown-error conformance test to reject any framework throw
   that regresses to a keyword-only human message."
   [message]
   (boolean
     (and (string? message)
-         (re-matches #":rf\.error/[A-Za-z0-9*+!_.?\-]+" message))))
+         (re-matches #":rf\.[a-z][\w.-]*/[A-Za-z0-9*+!_.?\-]+" message))))
 
 (defn message-has-id-token?
   "Conformance predicate: true when `message` contains the
-  trailing `[:rf.error/<id>]` greppability token (Spec 009 §The
+  trailing `[:rf.<ns>/<id>]` greppability token (Spec 009 §The
   thrown-error shape, rule 4). The conformance test asserts every
   framework thrown message carries the token so a log/CI grep still
-  pivots to a stable category from the message alone."
+  pivots to a stable category from the message alone.
+
+  Matches ANY reserved `:rf.<ns>/` root — most thrown-error ids live under
+  `:rf.error/…`, but a few use another reserved namespace
+  (`:rf.ssr/hydration-mismatch`), and the token contract is the same for
+  all of them."
   [message]
   (boolean
     (and (string? message)
-         (re-find #"\[:rf\.error/[A-Za-z0-9*+!_.?\-]+\]" message))))
+         (re-find #"\[:rf\.[a-z][\w.-]*/[A-Za-z0-9*+!_.?\-]+\]" message))))
 
 ;; ---- EP-0015-safe diagnostic value summary -------------------------------
 ;;
