@@ -1188,6 +1188,14 @@
   scoped-key projection, not this value walk."
   [:value :params :query :state])
 
+(def ^:private dead-egress-frame-sentinel
+  "A frame id that can NEVER resolve to a live frame — the conformance
+  mirror's fail-closed stamp for a nil / unreachable egress frame, matching
+  the Xray helper's `dead-frame-sentinel`. Stamped as the `:frame` opt so
+  `rf/elide-wire-value` takes its unresolvable-frame branch (whole value ⇒
+  `:rf/redacted`) instead of resolving the ambient bound frame."
+  ::no-egress-frame)
+
 (defn- egress-project-graph
   "Project a `DerivationGraph` through `frame-id`'s egress policy for the
   off-box wire boundary — the conformance surface's faithful mirror of the
@@ -1197,16 +1205,21 @@
     - value-bearing node fields → `rf/elide-wire-value` under the named
       frame's own policy (passed as the `:frame` opt so it applies THAT
       frame's classification regardless of any ambient scope);
-    - FAIL-CLOSED on an UNREACHABLE frame — a `:frame` opt naming no LIVE
-      frame is treated by `rf/elide-wire-value` exactly like the frameless
-      case (rf2-t55hxg.18: a frame-id alone is not policy-bearing — it must
+    - FAIL-CLOSED on a nil / UNREACHABLE frame — `rf/elide-wire-value`
+      resolves its governing frame as `(or (:frame opts)
+      (frame/resolve-current-frame))`, so a nil `:frame` opt falls through to
+      the AMBIENT dynamically-bound frame and would ship the value RAW under
+      its (here `:rf/default`, empty) policy. A NON-nil but unreachable
+      `:frame` opt instead takes the unresolvable-frame fail-closed branch
+      (rf2-t55hxg.18: a frame-id alone is not policy-bearing — it must
       resolve to a live frame via `frame/frame`, else the walker fails closed
-      to `:rf/redacted`). We pass the named frame id THROUGH even when it is
-      unreachable so the walker takes its own dead-frame fail-closed branch
+      to `:rf/redacted`). So when `frame-id` is nil or names no LIVE frame we
+      stamp a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id that can
+      never resolve — so the walker takes its dead-frame fail-closed branch
       rather than resolving an AMBIENT frame (which, unlike Xray's
       `:ambient-frame nil` harness, this cross-family fixture binds to
-      `:rf/default`) — a nil opts map would let the frameless walk resolve to
-      that ambient frame and ship the value RAW under its empty policy;
+      `:rf/default`). A nil / absent `:frame` would let the frameless walk
+      resolve to that ambient frame and ship the value RAW (rf2-udkj69);
     - identity-embedded scoped keys (node KEY, `:id`, `:output`, `:inputs`,
       `:work-ledger :record :resource/key`, AND every edge endpoint) →
       stable opaque handles, the SAME projection applied consistently so the
@@ -1215,11 +1228,13 @@
   `:mode` / `:frame` unchanged; STRUCTURE preserved (a redacted value/param
   is still an edge; the node is still present + classified)."
   [graph frame-id]
-  ;; Always carry the named frame id as the explicit `:frame` opt. A LIVE
-  ;; frame applies its own policy; an unreachable / nil frame is treated by
-  ;; `rf/elide-wire-value` as the dead-frame fail-closed case (it must resolve
-  ;; to a live frame, else redact whole) — NEVER resolving the ambient frame.
-  (let [walk-opts  {:frame frame-id}
+  ;; Carry a NON-nil `:frame` opt so `rf/elide-wire-value` never falls through
+  ;; to the ambient frame. A LIVE frame applies its own policy; a nil /
+  ;; unreachable frame stamps the dead-frame sentinel so the walker takes its
+  ;; unresolvable-frame fail-closed branch (redact whole) — NEVER resolving
+  ;; the ambient `:rf/default` this fixture binds (rf2-udkj69).
+  (let [reachable? (and (some? frame-id) (contains? (rf/frame-ids) frame-id))
+        walk-opts  {:frame (if reachable? frame-id dead-egress-frame-sentinel)}
         redact-node
         (fn [node]
           (-> (reduce
@@ -1441,6 +1456,23 @@
         (is (not (contains-secret? redacted))
             "no raw secret survives — value-path fail-closed + frame-independent
              identity projection cover both leak channels")))
+    (testing "egress under a NIL frame fails closed EVEN UNDER an AMBIENT bound
+              frame — it must NOT borrow the ambient frame's policy and ship the
+              value raw (rf2-udkj69). The fixture binds ambient :rf/default
+              (empty policy); we bind it explicitly here so the regression is
+              self-contained. A nil frame-id MUST redact the value-bearing field,
+              not resolve :rf/default and pass [:cart :items] through raw."
+      (rf/with-frame :rf/default
+        (is (some? (frame/resolve-current-frame))
+            "PRECONDITION — an ambient frame IS dynamically bound, so a frameless
+             walk WOULD resolve it (the borrow this arm forbids)")
+        (let [redacted (egress-project-graph raw nil)
+              sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
+          (is (= privacy/redacted-sentinel (:value sub))
+              "nil frame ⇒ the whole value-bearing field is redacted, NOT shipped
+               raw under the borrowed ambient :rf/default empty policy")
+          (is (not (contains-secret? redacted))
+              "no raw secret survives a nil-frame egress under an ambient binding"))))
     (testing "egress under the KNOWN frame redacts the frame-declared sensitive
               value path while keeping the structure"
       (let [redacted (egress-project-graph raw egress-frame)

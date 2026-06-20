@@ -191,11 +191,18 @@ call site:
   `reg-frame`), passed as the explicit `:frame` opt so the named frame's
   policy applies, never a borrowed or ambient one;
 - **fail-closed** — when the named frame is **not** a live frame (nil id, a
-  destroyed / never-registered frame), the projection walks frameless so
-  `rf/elide-wire-value` takes its own fail-closed branch and redacts the
-  whole value to the `:rf/redacted` sentinel rather than ship it raw under
-  no policy. A sensitive-declared value → `:rf/redacted`; a large-declared
-  value → the `:rf.size/large-elided` marker.
+  destroyed / never-registered frame), the projection stamps a **dead-frame
+  sentinel** as the `:frame` opt — a non-nil id that can never resolve — so
+  `rf/elide-wire-value` takes its unresolvable-frame fail-closed branch and
+  redacts the whole value to the `:rf/redacted` sentinel rather than ship it
+  raw under no policy. It must **not** leave the `:frame` opt nil/absent:
+  `rf/elide-wire-value` resolves its frame as `(or (:frame opts)
+  (frame/resolve-current-frame))`, so a nil/absent `:frame` would fall
+  through to the **ambient** dynamically-bound frame and ship value-bearing
+  fields **raw** under that borrowed frame's (possibly empty) policy — the
+  ambient-borrow leak this contract abolishes (rf2-udkj69). A
+  sensitive-declared value → `:rf/redacted`; a large-declared value → the
+  `:rf.size/large-elided` marker.
 
 **Redaction MUST NOT lose graph structure** (the headline guarantee — a
 redacted param/value is still an edge): the node is still present and still
@@ -280,7 +287,10 @@ the enclosing `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`.
   + edge structure survives (the "redact value, keep edge" arm the EP-0014
   testing-coverage audit flagged as missing); large elision → marker keeping
   structure; per-frame policy (a non-classifying frame ships the same value
-  raw); frameless fail-closed. Plus the **adversarial** live resource
+  raw); frameless fail-closed — including the **nil-frame-under-an-ambient-
+  binding** arm (rf2-udkj69): a nil frame-id while an ambient frame is bound
+  must still redact, never borrow that ambient frame and ship raw. Plus the
+  **adversarial** live resource
   identity arm (rf2-k0meap.1): a live resource scoped key carrying a session
   token in BOTH its cache scope and its canonical params, with an in-flight
   work-ledger record and a route-owned `:param` edge naming it — asserting
