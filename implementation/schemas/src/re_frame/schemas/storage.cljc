@@ -140,6 +140,36 @@
        :extra    {:received opts-or-frame-id
                   :expected "keyword frame-id, frame value, or opts map"}})))
 
+(defn frame-target->opts
+  "Lift a `reg-app-schema` metadata `:frame` value — a frame TARGET — into the
+  `{:frame <target>}` opts shape `resolve-frame` consumes, so the singular
+  registration path resolves a target IDENTICALLY to the read surface.
+
+  rf2-5429ec — the bug this closes: the singular `reg-app-schema` previously
+  passed the bare `(:frame metadata)` value straight through `coerce-opts` as
+  if it were the WHOLE opts arg. For a frame-id keyword / frame value that
+  happens to work (coerce-opts lifts both to `{:frame target}`), but for a
+  NON-frame MAP target (e.g. `{:not :a-frame}`, or a raw frame-record-shaped
+  map) `coerce-opts` classifies it as an OPTS map and returns it verbatim —
+  with no `:frame` key — so `resolve-frame` saw no override and silently
+  borrowed the AMBIENT frame, registering the schema against the wrong frame
+  with no error. That contradicts spec/010-Schemas.md §Per-frame schemas and
+  spec/API.md §Schemas, which require an explicit `:frame` resolving to a
+  non-keyword target (a string, a vector, a non-frame map) to FAIL LOUD with
+  `:rf.error/bad-app-schemas-arg` (the no-silent-swallow principle).
+
+  The metadata `:frame` value is a frame TARGET (not an opts map), so we wrap
+  it back into `{:frame target}` and let `resolve-frame` apply the SAME
+  `frame/frame-target->id` + keyword-frame-id assertion the read surface uses.
+  A non-frame map target then resolves to itself (frame-target->id leaves a
+  non-frame map unchanged) and trips the keyword-frame-id guard → loud throw.
+  A `nil` target (no `:frame` in the metadata) yields `{}` — resolve from the
+  carried-invariant scope. Pure."
+  [frame-target]
+  (if (some? frame-target)
+    {:frame frame-target}
+    {}))
+
 (defn- best-effort-frame
   "Resolve the registration frame for an error payload WITHOUT throwing —
   the explicit `:frame` opt if present, else the carried-invariant scope
@@ -147,10 +177,16 @@
   `:rf.error/app-schema-runtime-path` payload (rf2-k0ew8n): the path-gate
   runs before the registration's own (throwing) frame resolution, so we
   must not let a missing scope (or a malformed opts shape) mask the
-  runtime-path rejection."
-  [opts-or-frame-id]
+  runtime-path rejection.
+
+  The argument is an OPTS map / opts-sugar (the bulk path's `opts-or-frame-id`,
+  or the singular path's `(frame-target->opts (:frame metadata))` lift) — i.e.
+  the same shape `resolve-frame` consumes — so this is the non-throwing twin of
+  the registration's own resolution and they never disagree on which frame the
+  error payload names (rf2-5429ec)."
+  [opts]
   (try
-    (resolve-frame (coerce-opts opts-or-frame-id))
+    (resolve-frame (coerce-opts opts))
     (catch #?(:clj Exception :cljs :default) _ nil)))
 
 (defn- extract-app-schema-from-metadata
@@ -731,10 +767,16 @@
   poisoning every subsequent commit's validation for the frame."
   [path metadata]
   (let [schema (extract-app-schema-from-metadata path metadata)
-        ;; The frame TARGET (if any) rides under `:frame` in the metadata
-        ;; map; `coerce-opts` normalises a keyword / frame-value target the
-        ;; SAME way the read surface does. The doc / source-coords ride along.
-        opts-or-frame-id (:frame metadata)]
+        ;; The frame TARGET (if any) rides under `:frame` in the metadata map.
+        ;; rf2-5429ec — it is a frame TARGET, NOT the whole opts arg, so lift it
+        ;; back into the `{:frame target}` opts shape `resolve-frame` consumes
+        ;; (via `frame-target->opts`). This makes the singular registration path
+        ;; resolve a target IDENTICALLY to the read surface: a keyword / frame
+        ;; value resolves to its frame id; a non-keyword target (a string, a
+        ;; vector, or a NON-frame MAP like `{:not :a-frame}`) FAILS LOUD with
+        ;; `:rf.error/bad-app-schemas-arg` rather than (the old bug) being read
+        ;; as a key-less opts map and silently borrowing the ambient frame.
+        frame-opts (frame-target->opts (:frame metadata))]
    ;; Per rf2-sk0ql — reject a malformed `path` shape BEFORE the store
    ;; mutation. A non-sequential scalar (bare keyword / string / number /
    ;; nil) would register fine but make `validate-app-schema!`'s
@@ -745,9 +787,8 @@
    ;; (`:rf.runtime/*` / legacy `:rf/runtime` first segment) with the
    ;; distinct `:rf.error/app-schema-runtime-path`. The frame is resolved
    ;; best-effort for the payload so a missing scope cannot mask it.
-   (assert-app-schema-path! path (best-effort-frame opts-or-frame-id))
-   (let [opts         (coerce-opts opts-or-frame-id)
-         frame-id     (resolve-frame opts)
+   (assert-app-schema-path! path (best-effort-frame frame-opts))
+   (let [frame-id     (resolve-frame frame-opts)
          ;; EP-0012 §Path shape (rf2-94o54l.2 + rf2-ujmc3u): a
          ;; `reg-app-schema` path is accepted as any sequential collection
          ;; but NORMALIZED to its canonical vector form before it becomes
@@ -770,14 +811,25 @@
          ;; (`frame-schema-entries`, `app-schema-meta-at`, the
          ;; `validate-app-schema!` destructure) and to avoid shadowing
          ;; `clojure.core/meta`.
-         ;; rf2-wvh95f F2 — `:doc` rides from the metadata map onto the stored
-         ;; schema-meta (the registration is now metadata-shaped); other
-         ;; standard reflection keys (`:tags`, …) ride along too. `:schema`
-         ;; here is the extracted schema; `:frame` is the resolved frame-id.
+         ;; rf2-wvh95f F2 — the registration is metadata-shaped, so the stored
+         ;; schema-meta IS the author's RegistrationMetadata map (`:doc`,
+         ;; `:tags`, `:platforms`, … and any open `:my/*` extension keys) with
+         ;; the runtime-stamped `:schema` / `:path` / `:frame` overlaid.
+         ;; rf2-5429ec (Evidence 2) — previously only `:doc` + `:tags` were
+         ;; copied through, silently DROPPING every other RegistrationMetadata
+         ;; key (`:platforms`, …) AND any additive / open metadata key, which
+         ;; contradicts Spec-Schemas §`AppSchemaMeta` (`[:merge
+         ;; RegistrationMetadata [:map :path :schema :frame]]`) and spec/API.md
+         ;; §`app-schema-meta-at` ("returns :path, :schema, :frame, source
+         ;; coords, and the rest of :rf/registration-metadata"). Start from the
+         ;; author map minus the two slots whose stored value is the RESOLVED
+         ;; form (`:schema` = the extracted schema; `:frame` = the resolved
+         ;; frame-id, not the original frame TARGET), then overlay the resolved
+         ;; `:schema` / `:path` / `:frame`. Open-map / future-additive keys ride
+         ;; through. Source-coords merge per the production-elision contract.
          schema-meta  (source-coords/merge-coords
-                        (cond-> {:schema schema :path path :frame frame-id}
-                          (some? (:doc metadata))  (assoc :doc  (:doc metadata))
-                          (some? (:tags metadata)) (assoc :tags (:tags metadata))))
+                        (assoc (dissoc metadata :schema :frame)
+                               :schema schema :path path :frame frame-id))
          ;; Capture the path's prior schema BEFORE the swap so the
          ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
          ;; compare pre- vs post-reload shapes. nil on first registration.

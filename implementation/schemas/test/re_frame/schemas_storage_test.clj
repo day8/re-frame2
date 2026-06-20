@@ -328,17 +328,19 @@
           "an ordinary opts map is untouched"))))
 
 (deftest resolve-frame-rejects-non-keyword-frame-target-loud
-  (testing "rf2-7pllal — tightening: an explicit `:frame` that resolves to a
-            NON-keyword target (a string, a vector, a number) fails
-            loud with :rf.error/bad-app-schemas-arg rather than silently
-            becoming a registry key no keyword-id read can reach (no
-            silent swallow). Per rf2-wvh95f F2 the `:frame` target now rides
-            FLAT in the metadata map (`{:schema … :frame <target>}`); a
-            non-frame MAP `:frame` value is no longer a distinguishable
-            bad-target case (coerce-opts reads a map as an opts map, the
-            documented passthrough), so the bad-target set here is the
-            non-map scalars/vectors that still fail loud."
-    (doseq [bad-frame ["stringframe" [:a :b] 42]]
+  (testing "rf2-7pllal / rf2-5429ec — an explicit `:frame` that resolves to a
+            NON-keyword target (a string, a vector, a number, OR a non-frame
+            MAP) fails loud with :rf.error/bad-app-schemas-arg rather than
+            silently becoming a registry key no keyword-id read can reach (no
+            silent swallow). Per rf2-wvh95f F2 the `:frame` target rides FLAT in
+            the metadata map (`{:schema … :frame <target>}`); per rf2-5429ec the
+            singular registration path lifts that TARGET back into the
+            `{:frame target}` opts shape (`frame-target->opts`) so it resolves
+            IDENTICALLY to the read surface. A non-frame MAP target (`{:not
+            :a-frame}`) is therefore NOT a documented opts-map passthrough — it
+            is a bad frame target and MUST throw (Spec 010 §Per-frame schemas /
+            API §Schemas), closing the old silent-ambient-fallback bug."
+    (doseq [bad-frame ["stringframe" [:a :b] 42 {:not :a-frame}]]
       (let [before (schemas/snapshot-schemas-by-frame)
             thrown (try (rf/reg-app-schema [:user] {:schema [:map] :frame bad-frame})
                         (catch clojure.lang.ExceptionInfo e e))]
@@ -353,6 +355,71 @@
                 ":received carries the offending :frame value verbatim")))
         (is (= before (schemas/snapshot-schemas-by-frame))
             (str "store unchanged after rejecting :frame " (pr-str bad-frame)))))))
+
+(deftest explicit-frame-honoured-not-silently-replaced-by-ambient
+  (testing "rf2-5429ec — LOAD-BEARING: an explicit non-ambient :frame target in
+            reg-app-schema metadata is HONOURED (registers against the declared
+            frame), NEVER silently borrowed from the ambient/carried frame. The
+            singular path lifts the :frame TARGET into the {:frame target} opts
+            shape (frame-target->opts) and resolves it the SAME way the read
+            surface does — so a valid keyword target lands on its OWN frame and
+            the ambient frame is untouched. Before rf2-5429ec the bare target
+            was passed through coerce-opts as the whole opts arg; that worked for
+            a keyword but the same flawed plumbing silently dropped a non-frame
+            map target (covered by the bad-target test above). This pins the
+            POSITIVE half of the contract: the declared frame wins."
+    (binding [frame/*current-frame* :review/ambient]
+      (rf/reg-app-schema [:user] {:schema [:map [:id :int]] :frame :review/explicit})
+      (is (= [:map [:id :int]] (schemas/app-schema-at [:user] :review/explicit))
+          "schema landed on the explicitly-declared frame")
+      (is (nil? (schemas/app-schema-at [:user] :review/ambient))
+          "the AMBIENT frame was NOT silently used — no schema leaked onto it")
+      (is (= [:review/explicit] (keys (schemas/snapshot-schemas-by-frame)))
+          "exactly one frame entry, keyed by the declared target"))))
+
+(deftest meta-at-preserves-standard-and-open-registration-metadata
+  (testing "rf2-5429ec (Evidence 2) — app-schema-meta-at returns the FULL
+            registration-metadata surface: every standard RegistrationMetadata
+            key (:doc, :tags, :platforms, …) AND any open/additive :my/* key
+            rides onto the stored schema-meta alongside the runtime-stamped
+            :schema / :path / :frame. Per Spec-Schemas §AppSchemaMeta ([:merge
+            RegistrationMetadata [:map :path :schema :frame]]) and API §app-
+            schema-meta-at. Before the fix only :doc + :tags were copied, so
+            :platforms and open keys were silently dropped — pair-tools/agents
+            could not rely on the read surface as the full metadata anchor."
+    (rf/reg-app-schema [:user] {:schema    [:map]
+                                :doc       "User schema"
+                                :tags      #{:auth}
+                                :platforms #{:client}
+                                :my/tool   true})
+    (let [m (schemas/app-schema-meta-at [:user])]
+      (is (= [:map] (:schema m))         ":schema overlaid with the extracted form")
+      (is (= [:user] (:path m))          ":path runtime-stamped")
+      (is (some? (:frame m))             ":frame runtime-stamped")
+      (is (= "User schema" (:doc m))     ":doc preserved")
+      (is (= #{:auth} (:tags m))         ":tags preserved")
+      (is (= #{:client} (:platforms m))  ":platforms preserved (was dropped pre-fix)")
+      (is (= true (:my/tool m))          "open :my/* extension key preserved (was dropped pre-fix)"))))
+
+(deftest reg-app-schema-rejects-bare-schema-and-schemaless-metadata
+  (testing "rf2-5429ec coverage-gap — extract-app-schema-from-metadata fails
+            LOUD with :rf.error/bad-app-schema-metadata for the two authoring
+            slips the F2 (:schema-in-metadata) grammar must reject: a bare
+            old-style schema as the 2nd arg, and a metadata map with no :schema."
+    ;; (a) bare schema where the metadata map now goes (the common F2 slip)
+    (let [thrown (try (rf/reg-app-schema [:user] [:map [:id :int]])
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "a bare schema 2nd arg throws")
+      (is (= :rf.error/bad-app-schema-metadata (:rf.error/id (ex-data thrown)))
+          "names the bad-metadata category"))
+    ;; (b) metadata map present but no :schema key
+    (let [thrown (try (rf/reg-app-schema [:user] {:doc "no schema here"})
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "a :schema-less metadata map throws")
+      (is (= :rf.error/bad-app-schema-metadata (:rf.error/id (ex-data thrown)))
+          ":schema is REQUIRED — its absence is never an implicit pass"))))
 
 (deftest frame-value-without-explicit-id-uses-runnable-id
   (testing "rf2-7pllal — a no-id (direct) frame value routes to its
