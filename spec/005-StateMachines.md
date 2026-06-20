@@ -880,7 +880,7 @@ Before the event-`:schema` arity this shape could not be expressed through `reg-
 
 The bare `(reg-event id meta (make-machine-handler spec))` composition does not stamp the meta — so a `:data-schema` declared on a hand-stamped machine is **inert** (validates nothing). `make-machine-handler` therefore **fails loud** when handed a `:data-schema`-bearing spec outside the home: it raises `:rf.error/machine-schema-requires-reg-machine`, directing the author to `reg-machine` / `reg-machine*` (and, when the machine also validates its event vector, the event-`:schema` arity). A schema-LESS spec is unaffected — it has nothing inert, so the bare `reg-event` + `make-machine-handler` composition stays legal for it (the lazy spawned-actor materialisation seam relies on it).
 
-Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
+Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)). The `reg-machine` / `defmachine` **macros** are re-exported on the `re-frame.core` façade (they capture call-site source-coords); the plain-fn `reg-machine*` is **not** re-exported — reach it through `re-frame.machines/reg-machine*` (per [API.md §Front-porch boundary](API.md), the non-registration / plain-fn machine surface stays in its owning namespace). See [API.md §Machines](API.md#machines) for the canonical API table.
 
 Both forms return `machine-id` per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
@@ -905,7 +905,7 @@ The `reg-machine` convenience surface splits along Clojure's `let` / `let*`, `fn
 | `(rf/reg-machine* machine-id machine-spec opts)` | plain fn | None | Programmatic registration of the machine + event-vector-schema shape (the plain-fn counterpart of the opts macro arity). |
 | `(rf/defmachine name [doc] spec)` | **macro** (`def`-shape) | Yes — walks the inline literal `spec` at the **definition site** and co-locates per-element source + the reference-site `:source-coords` on each `:states`-tree map node onto the def'd value (per [§Value-registered machines](#value-registered-machines--defmachine)). Does not register — pair with `(reg-machine id name)`. | The `def`-then-register shape: `(defmachine m {…})` then `(reg-machine :id m)` so a value-registered machine carries per-element source. |
 
-The `reg-machine` / `defmachine` macros live at the `re-frame.core` boundary; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is exposed publicly under `re-frame.core/reg-machine*` for both JVM and CLJS programmatic callers. The inline `reg-machine` macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.
+The `reg-machine` / `defmachine` macros are re-exported on the `re-frame.core` façade; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is reached through that namespace directly (it is **not** a `re-frame.core` façade export — front-porch shrink, rf2-wad2fl) for both JVM and CLJS programmatic callers. The inline `reg-machine` macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.
 
 ### Source-coord stamping
 
