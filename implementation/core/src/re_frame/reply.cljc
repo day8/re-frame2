@@ -603,23 +603,29 @@
   shared `elide-wire-value` walker so `:sensitive?` / `:large?` compose
   exactly as elsewhere — no family-private elision.
 
-  `opts` is forwarded UNCHANGED to `elide-wire-value` (e.g. `:frame`,
-  size-threshold overrides). The egress frame therefore resolves from the
-  explicit `(:frame opts)` or the in-effect carried-invariant scope
-  (`frame/resolve-current-frame`) — `trace-summary` does NOT seed `:frame`
-  from the reply map's own `:rf.frame/id` stamp, so a caller summarizing a
-  carried reply OUTSIDE frame scope must pass `{:frame (:rf.frame/id reply)}`
-  or the wire slots fail closed (the carried stamp rides as an identity fact,
-  not as egress policy). Returns a map safe to place under a trace event's
-  `:tags`."
+  The egress frame resolves from the explicit `(:frame opts)` when given,
+  otherwise from the reply map's own carried `:rf.frame/id` stamp. A reply
+  carrying its frame identity SELF-SUMMARIZES by default: a caller need not
+  thread the identity back through `opts` just to apply the right egress
+  policy (rf2-wjo28z). Explicit `:frame` still wins (an inspector may target
+  a different policy frame), and resolution still fails closed — if neither
+  an explicit `:frame` nor a carried `:rf.frame/id` names a LIVE frame, the
+  wire slots redact to the `:rf/redacted` sentinel rather than ship under no
+  policy (`elide-wire-value` enforces the live-frame gate; the carried stamp
+  is policy-bearing only when it resolves). All other `opts` (size-threshold
+  overrides, `:rf.size/include-sensitive?`) forward unchanged. Returns a map
+  safe to place under a trace event's `:tags`."
   ([reply] (trace-summary reply nil))
   ([reply opts]
-   (reduce (fn [m slot]
-             (if (contains? m slot)
-               (update m slot #(elision/elide-wire-value % opts))
-               m))
-           reply
-           wire-slots)))
+   (let [opts (cond-> opts
+                (and (nil? (:frame opts)) (contains? reply :rf.frame/id))
+                (assoc :frame (:rf.frame/id reply)))]
+     (reduce (fn [m slot]
+               (if (contains? m slot)
+                 (update m slot #(elision/elide-wire-value % opts))
+                 m))
+             reply
+             wire-slots))))
 
 ;; ---------------------------------------------------------------------------
 ;; Stale suppression — THE correctness boundary (Managed-Effects §Stale
