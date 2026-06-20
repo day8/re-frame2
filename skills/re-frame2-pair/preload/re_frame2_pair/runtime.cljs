@@ -1041,7 +1041,7 @@
 (defn sub-cache-info
   "List the LIVE reactive subscriptions materialised in a frame's
    per-frame sub-cache — the answer to \"what subscriptions are
-   currently active?\" (rf2-qicji).
+   currently active?\".
 
    Reads the SAME source `snapshot`'s `:sub-cache` slice reads
    (`subs-tooling/sub-cache-snapshot`, via the `sub-cache` fn above), so
@@ -1067,7 +1067,7 @@
    read); when true each entry also carries `:value` (the current
    deref), `:ref-count`, `:input-kind`, and `:realized-inputs`.
 
-   `:input-kind` + `:realized-inputs` (rf2-e3acps) surface the
+   `:input-kind` + `:realized-inputs` surface the
    subscription's input topology PER LIVE CACHE ENTRY — the realized
    counterpart to the static `sub-topology`. `:input-kind` is `:db` /
    `:static` / `:parametric`; `:realized-inputs` is the REALIZED input
@@ -1135,7 +1135,7 @@
          {:ok? false :reason :sub-error :message (.-message e) :frame frame-id})))))
 
 (defn read-sub!
-  "Validated one-shot subscription read (rf2-3bu3d.7) — the read-side
+  "Validated one-shot subscription read — the read-side
    no-silent-swallow counterpart to `dispatch-consequence!`.
 
    The #1 read on any re-frame2 app is a subscription value, and dropping
@@ -1217,11 +1217,10 @@
       {:ok? false :reason :not-a-machine :id machine-id}))
 
 (defn machine-state
-  "Snapshot of one machine in the operating frame. Per Spec 005 + rf2-eguy4,
+  "Snapshot of one machine in the operating frame. Per Spec 005,
    machine snapshots live at `[:rf.runtime/machines :snapshots machine-id]`
-   in the RUNTIME-DB partition (EP-0001 rf2-vzld77 moved machine snapshots
-   out of app-db `:rf/runtime` into the durable runtime-db partition — read
-   via `rf/runtime-db-value`, NOT `rf/snapshot-of`, which reads app-db)."
+   in the durable RUNTIME-DB partition — read via `rf/runtime-db-value`,
+   NOT `rf/snapshot-of`, which reads app-db."
   ([machine-id] (machine-state machine-id (current-frame)))
   ([machine-id frame-id]
    (get-in (rf/runtime-db-value frame-id)
@@ -1236,18 +1235,15 @@
 ;; ours under id :re-frame2-pair-epoch — multi-tool coexistence per
 ;; Spec 009 §Listener ordering.
 ;;
-;; rf2-ertqw — runtime-direct reads, no parallel epoch capture buffer.
+;; Runtime-direct reads, no parallel epoch capture buffer.
 ;; The pair session is a THIN, runtime-direct reader: every epoch read
 ;; (`epoch-history`, `epochs-since`, `last-epoch`, `find-where`, and the
 ;; MCP `trace-window` / `watch-epochs` tools that eval them) hits
 ;; `(rf/epoch-history frame-id)` — the framework's AUTHORITATIVE ring,
 ;; the SAME source `eval-cljs` reaches directly. There is deliberately
 ;; NO session-side capture buffer that mirrors the ring: such a buffer
-;; only fills while a listener is attached, so it returned EMPTY while
-;; the ring HELD epochs — the silent-WRONG-read this bead exists to
-;; kill. (A legacy `observed-epochs` stash used to shadow the ring "to
-;; save a re-walk"; it was never read by any read path and was the
-;; vestige of the stateful-proxy posture, so it was removed.) The epoch
+;; only fills while a listener is attached, so it would return EMPTY while
+;; the ring HELD epochs — a silent-WRONG-read. The epoch
 ;; listener below drives ONLY the per-frame app-db-hash cache (a derived
 ;; scalar, not a record copy) and the streaming-subs fan-out.
 
@@ -1321,7 +1317,7 @@
 ;; the same `register-epoch-listener!` slot — combined into
 ;; `on-epoch-streaming` below to keep listener ordering deterministic.
 ;; The listener derives a scalar hash and fans events to subscribers; it
-;; does NOT retain a copy of the ring (rf2-ertqw — reads go straight to
+;; does NOT retain a copy of the ring (reads go straight to
 ;; `(rf/epoch-history frame-id)`).
 
 (declare on-epoch-streaming)
@@ -1435,7 +1431,7 @@
 
 (defn epoch-diff
   "Pre-computed diff between an epoch's `:db-before` and `:db-after`,
-   shaped to match the v1 vocabulary the skill uses:
+   shaped to the vocabulary the skill uses:
        {:only-before <map> :only-after <map> :common <map>}"
   [{:keys [db-before db-after]}]
   (let [[ob oa c] (data/diff db-before db-after)]
@@ -1464,10 +1460,9 @@
 
 (defonce ^:private last-trace-id (atom 0))
 
-;; The legacy `last-trace-id` cursor and the streaming dispatch both
-;; ride the same `register-listener!` slot — combined into
-;; `on-trace-streaming` below. The legacy `on-trace` was
-;; inlined into the streaming listener.
+;; The `last-trace-id` cursor and the streaming dispatch both ride the
+;; same `register-listener!` slot — combined into `on-trace-streaming`
+;; below.
 
 (declare on-trace-streaming)
 
@@ -1539,8 +1534,8 @@
 ;; Topic semantics:
 ;;   :trace     — every event in the raw trace stream matching `:filter`
 ;;                (filter map mirrors `(re-frame.trace.tooling/trace-buffer)` filter vocab —
-;;                see the trace-buffer surface). Cascade-bundle delivery
-;;                (rf2-mscih): per drain, matched events are grouped by
+;;                see the trace-buffer surface). Cascade-bundle delivery:
+;;                per drain, matched events are grouped by
 ;;                `:rf.trace/dispatch-id` and projected into one cascade
 ;;                bundle per cascade (`group-cascades` shape with a
 ;;                `:trace-events` slot carrying the raw events). Events
@@ -1567,7 +1562,7 @@
 ;; vocabulary verbatim — they just default `:op-type` to `:rf.fx` /
 ;; `:error` and let callers override the rest.
 ;;
-;; Cascade-bundle wire format (rf2-mscih) — emitted on `:trace`/`:fx`/
+;; Cascade-bundle wire format — emitted on `:trace`/`:fx`/
 ;; `:error` drain ticks:
 ;;
 ;;   {:dispatch-id        <id>                  ;; cascade id
@@ -1588,7 +1583,7 @@
 ;; trace-ring sees the same shape on the wire (per Spec 009 §Cascade
 ;; projection + Tool-Pair §Reading the per-frame trace ring).
 ;;
-;; Cross-frame cascade reconstruction (rf2-mscih) — a cascade can fan
+;; Cross-frame cascade reconstruction — a cascade can fan
 ;; out across frames; every emit on every frame shares the same
 ;; `:rf.trace/dispatch-id`. Consumers merge by `:dispatch-id` across
 ;; per-frame bundles to reconstruct the cross-frame view (per Tool-Pair
@@ -1683,7 +1678,7 @@
     {}))
 
 ;; ---------------------------------------------------------------------------
-;; Cascade-bundle projection (rf2-mscih)
+;; Cascade-bundle projection
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Per Spec 009 §Cascade projection and Tool-Pair §Reading the per-frame
@@ -1724,12 +1719,10 @@
    This is load-bearing: dispatch ids are unique only WITHIN a frame
    (the portable trace contract), so two cascades sharing a dispatch id
    across frames are distinct bundles, each carrying only its own frame's
-   raw `:trace-events`. Re-deriving the grouping here keyed by
-   `:rf.trace/dispatch-id` alone (the prior `by-id` group-by) merged
-   foreign-frame events into both bundles — latent today (the runtime's
-   global dispatch counter never collides cross-frame) but live the
-   moment per-frame id allocation lands. Reuse the framework
-   key; never re-derive a weaker one.
+   raw `:trace-events`. Grouping by `:rf.trace/dispatch-id` alone would
+   merge foreign-frame events into both bundles the moment per-frame id
+   allocation lets two frames collide on a dispatch id — so reuse the
+   framework key, never re-derive a weaker one.
 
    Events whose `:rf.trace/dispatch-id` tag is missing are NOT included
    — the caller is expected to have filtered them upstream (cascade-
@@ -1904,13 +1897,13 @@
              m m))))
 
 (defn- on-trace-streaming
-  "Replacement raw-trace listener that drives both the last-trace-id
-   cursor (legacy) and the streaming subs dispatch.
+  "Raw-trace listener that drives both the last-trace-id cursor and the
+   streaming subs dispatch.
 
    Privacy filter: trace events stamped `:sensitive? true`
    at the top level are dropped from the streaming dispatch by default,
    per Spec 009 §Privacy. The `last-trace-id` cursor still advances so
-   the legacy `since`-based ring-buffer reads remain monotonic — only
+   the `since`-based ring-buffer reads remain monotonic — only
    the LLM-facing streaming surface is gated. Opt in via
    `(configure-privacy! {:include-sensitive? true})`."
   [ev]
@@ -1924,7 +1917,7 @@
    app-db-hash cache (a scalar, for the precheck cache-hit decision) —
    and the streaming-subs fan-out. It does NOT retain a copy of the
    epoch ring: every epoch read hits `(rf/epoch-history frame-id)`
-   directly, so there is no session-side buffer to drift (rf2-ertqw)."
+   directly, so there is no session-side buffer to drift."
   [record]
   (when-let [frame-id (:frame record)]
     (update-frame-db-hash! frame-id (:db-after record)))
@@ -1955,7 +1948,7 @@
    Idempotency: each call returns a fresh sub-id — repeated `subscribe!`
    calls do not share state. Use `unsubscribe!` to release.
 
-   Topic delivery shape (rf2-mscih):
+   Topic delivery shape:
      :trace / :fx / :error — drain returns `:cascades [<bundle> ...]`
                              with each bundle in the `(rf/trace-buffer
                              frame-id)` shape (per Spec 009 §Cascade
@@ -2011,7 +2004,7 @@
 
 (defn drain-subscription!
   "Pop every queued event for `sub-id` and return them in order.
-   Returns one of two envelopes per the sub's topic (rf2-mscih):
+   Returns one of two envelopes per the sub's topic:
 
    - Cascade-bundle topics (`:trace`/`:fx`/`:error`):
      `{:ok? true :sub-id ... :cascades [<bundle> ...] :dropped-events <n>
@@ -2065,7 +2058,7 @@
                   :overflow-reason overflow-reason
                   :gone?           false}]
         (cond
-          ;; Cascade-bundle delivery (rf2-mscih) — group raw queued
+          ;; Cascade-bundle delivery — group raw queued
           ;; trace events by `:rf.trace/dispatch-id` into bundles. The
           ;; cascade-bundle topics never enqueue frameless events
           ;; (`dispatch-trace-to-subs!` filters them out at the gate),
@@ -2093,7 +2086,7 @@
    currently materialised in a frame?\" use `sub-cache-info`, which
    reads the per-frame reactive cache `snapshot`'s `:sub-cache` slice
    reads. The MCP `list-streams` tool wraps THIS fn; the MCP
-   `list-subscriptions` tool wraps `sub-cache-info` (rf2-qicji).
+   `list-subscriptions` tool wraps `sub-cache-info`.
 
    Returns
    `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes
@@ -2122,9 +2115,8 @@
    the per-frame trace-ring cascade bundles for matching parent links.
    Returns a tree of `{:dispatch-id <id> :event <ev> :children [...]}`.
 
-   Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame and
-   cascade-keyed; per rf2-mscih the read unit is the cascade bundle
-   (`group-cascades` shape) rather than the legacy flat-event stream.
+   The trace ring is per-frame and cascade-keyed; the read unit is the
+   cascade bundle (`group-cascades` shape).
    A single cascade can fan out across frames (per Spec 002
    §Cross-frame dispatch) — every emit on every frame shares the same
    `:rf.trace/dispatch-id`, so cross-frame reconstruction iterates
