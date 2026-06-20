@@ -1527,8 +1527,10 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; app-db, so this is a CATEGORY error hard-rejected at the pre-mutation
   ;; gate — distinct from the SHAPE error `:rf.error/bad-app-schema-path`.
   ;; `:received` carries the offending path; `:frame` the resolved
-  ;; registration frame (nil when no scope is established); `:reason` names
-  ;; `reg-runtime-schema` as the correct surface. Per Spec 009 §Error
+  ;; registration frame (nil when no scope is established); `:reason` states
+  ;; the honest remedy — runtime-db is framework-owned, so drop the runtime
+  ;; path — and deliberately does NOT direct the user at a non-public,
+  ;; framework-owned API (rf2-sklyam). Per Spec 009 §Error
   ;; catalogue (`:rf.error/app-schema-runtime-path`) + Spec 010 §App
   ;; schemas validate the app-db partition only.
   [:map
@@ -2479,9 +2481,12 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:rf.runtime/elision  {:optional true} Elision]
    [:rf.runtime/ssr      {:optional true} Ssr]])
 
-;; registered by the runtime at boot as a RUNTIME-DB validator (NOT an app-db
-;; schema — per [010 §App schemas validate the app-db partition only]):
-(rf/reg-runtime-schema RuntimeDb)
+;; `RuntimeDb` is pinned at boot by the framework as the RUNTIME-DB validator
+;; (NOT an app-db schema — per [010 §App schemas validate the app-db partition
+;; only]). This is FRAMEWORK-INTERNAL: there is no public `rf/reg-runtime-schema`
+;; export — runtime-db is framework-owned, and user code never registers a
+;; schema against it (an app schema whose path reaches into runtime-db is hard-
+;; rejected with `:rf.error/app-schema-runtime-path`).
 ```
 
 `:rf/runtime-db` is the schema id for `RuntimeDb`; `:rf/frame-state` is the id for `FrameState` above.
