@@ -7,11 +7,22 @@ over stock Reagent). The user-visible behaviour is identical to the
 canonical counter; the difference is the substrate beneath.
 
 Every user-facing Reagent import points at `reagent2.*` instead of
-stock `reagent.*`, and `(rf/init!)` is called with
-`re-frame.adapter.reagent-slim/adapter`. The same six-domino
-dataflow flows through a different reactive substrate. The slim adapter
-is a drop-in for the bridge at the behavioural level: same clicks,
-same counts.
+stock `reagent.*`, and `(rf/init!)` is called with the slim adapter Var.
+The same six-domino dataflow flows through a different reactive
+substrate. The slim adapter is a drop-in for the bridge at the
+behavioural level: same clicks, same counts.
+
+**In-tree namespace vs published ABI.** This checked-in fixture requires
+the **in-tree** namespace `re-frame.adapter.reagent-slim` only because the
+unrenamed monorepo build shares a classpath with the stock adapter. That
+is *not* the adopter spelling: the published `day8/reagent-slim` jar ships
+the adapter Var at the canonical, stock-identical `re-frame.adapter.reagent`
+(renamed at publication). Adopter code wires
+`(rf/init! re-frame.adapter.reagent/adapter)` — you pick slim by deps
+coordinate, not by import line. See
+[`docs/guide/how-to/use-uix-helix-or-slim.md`](../../../docs/guide/how-to/use-uix-helix-or-slim.md)
+and [`DESIGN-RATIONALE.md`](../../../implementation/adapters/reagent-slim/DESIGN-RATIONALE.md) §7.
+Don't cargo-cult the in-tree `-slim` namespace into published-app code.
 
 The teaching surface — events, subs, views, and the lazy client mount —
 lives in [`core.cljs`](core.cljs) and reads as idiomatic re-frame2.
