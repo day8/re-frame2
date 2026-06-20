@@ -3263,20 +3263,15 @@
 ;; ---------------------------------------------------------------------------
 ;; Shared DOM-read core — used by BOTH `dom-read` (raw DOM plane) and
 ;; `ui-read` (re-frame2 view plane), so the per-node projection cannot rot
-;; on one op alone (rf2-q0r7e).
+;; on one op alone.
 ;;
-;; Before this share, `dom-read` lived INLINED as a raw eval string in the
-;; MCP tool (`read_dom.cljs`) while `ui-read` called this runtime ns. The
-;; two carried INDEPENDENT copies of "querySelector → {:tag :text :attrs}",
-;; and they rotted apart: rf2-w2mjm — the inlined read-dom form lowered the
-;; tag with `(str/lower-case …)`, but the BARE browser cljs-eval context the
-;; inlined string ran in aliases NOTHING (no `:require`), so `str` was
-;; unresolved, the whole form nilled out, and EVERY read-dom call came back
-;; `:read-dom-blank-result` — while read-ui, calling THIS ns (which DOES
-;; `:require [clojure.string :as str]`), stayed green. Folding read-dom onto
-;; this runtime fn removes that alias trap entirely: both ops now run in a
-;; namespace with real requires, and the projection below is the single
-;; place a fix or a break lands.
+;; Both ops run through THIS runtime ns (which `:require`s
+;; `[clojure.string :as str]`), so the projection's `(str/lower-case …)` and
+;; any other aliased call resolve. A copy inlined as a raw eval string in an
+;; MCP tool would run in a BARE browser cljs-eval context that aliases
+;; NOTHING — `str` would be unresolved, the form would nil out, and the read
+;; would come back blank. Keeping the projection here, in a namespace with
+;; real requires, is the single place a fix or a break lands.
 ;;
 ;; The SEMANTICS stay distinct — `dom-read` is the raw DOM plane (a CSS
 ;; selector → matched nodes, multi-node, no re-frame2 awareness) and
@@ -3336,7 +3331,7 @@
   "Read `el`'s `textContent`, capped at `max-text` characters. Over-cap
    text collapses to the framework size-elision marker shape
    `{:rf.size/large-elided {:type :dom-text :chars N :preview \"…\"}}` —
-   the SAME shape `get-path` / `snapshot` emit (rf2-urjnc), so an agent
+   the SAME shape `get-path` / `snapshot` emit, so an agent
    recognises an elision uniformly. Under-cap text rides as the raw
    string. Pure read."
   [el max-text]
@@ -3352,7 +3347,7 @@
    both DOM-read planes return. `max-text` caps the text (see `cap-text`);
    `attr-opts` selects the attribute strategy (see `collect-attrs`). The
    single place the per-node projection lives — a fix or a break here
-   lands on BOTH `dom-read` and `ui-read`, never one alone (rf2-q0r7e)."
+   lands on BOTH `dom-read` and `ui-read`, never one alone."
   [el max-text attr-opts]
   {:tag   (str/lower-case (or (.-tagName el) ""))
    :text  (cap-text el max-text)
@@ -3360,7 +3355,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; dom-read — raw DOM plane: CSS selector → matched nodes {:tag :text :attrs}
-;; (rf2-nfjil; folded onto this runtime ns by rf2-q0r7e).
 ;;
 ;; The complement to `ui-read`: NO re-frame2 awareness. A plain
 ;; `querySelectorAll`, optional sub-selector run relative to each match, a
@@ -3369,8 +3363,8 @@
 ;; never leaves the tab.
 
 (defn dom-read
-  "Read rendered DOM content by CSS selector — the RAW DOM plane
-   (rf2-nfjil). Returns the matched-node count + per-node
+  "Read rendered DOM content by CSS selector — the RAW DOM plane.
+   Returns the matched-node count + per-node
    `{:tag :text :attrs}`, capped at the source. The view-plane
    counterpart is `ui-read` (which rides the `data-rf-view` map and also
    returns the producing re-frame2 entity).
@@ -3394,7 +3388,7 @@
                     whose declared-`:sensitive?` app-db values the rendered
                     text / attrs are value-redacted against (see below).
 
-   PRIVACY (rf2-p9scds). Rendered DOM text / attribute values can carry a
+   PRIVACY. Rendered DOM text / attribute values can carry a
    secret copied out of a declared-sensitive app-db slot — a NON-app-db
    position the path-based `elide-wire-value` walker can never reach. Under
    the off-box egress posture (raw-state gate OFF — the published-build
@@ -3431,7 +3425,7 @@
          attr-opts (if attrs
                      {:names attrs :prefix-sweep? false}
                      {:names nil   :prefix-sweep? true})
-         ;; rf2-p9scds — resolve the frame whose declared-sensitive app-db
+         ;; Resolve the frame whose declared-sensitive app-db
          ;; values the rendered nodes are value-redacted against. Only
          ;; load-bearing under the off-box gate (gate ON passes raw, frame
          ;; irrelevant).
@@ -3495,7 +3489,7 @@
           ;; The canonical `data-rf-view` reader (the inverse of
           ;; `format-view-id`): leading-colon → keyword, else raw string
           ;; (Spec 006 §View tagging contract). Same parse the fallback
-          ;; view-walker uses — both now alias core's `parse-view-id`.
+          ;; view-walker uses — both alias core's `parse-view-id`.
           view-id  (parse-view-id attr)
           ;; Source-coord: the attribute carries <ns>:<sym>:<line>:<col>;
           ;; handler-meta augments with :file (the four-segment attr can't
@@ -3527,8 +3521,8 @@
 
 (defn ui-read
   "Read the RENDERED content of a view (or the view at a point / selector)
-   as structured, ELIDED data, PLUS the re-frame2 entity that produced it
-   (rf2-3bu3d.1). The re-frame2 VIEW plane — answers \"what does the thing
+   as structured, ELIDED data, PLUS the re-frame2 entity that produced it.
+   The re-frame2 VIEW plane — answers \"what does the thing
    I'm looking at SHOW, and what produced it?\" in ONE round-trip, on ANY
    re-frame2 app with zero testids.
 
@@ -3555,11 +3549,11 @@
      :frame     operating-frame override for the `:subs-read` slice +
                 the value-redaction source-db.
 
-   PRIVACY (rf2-p9scds). The rendered `:content` (text AND attrs) can carry
+   PRIVACY. The rendered `:content` (text AND attrs) can carry
    a secret copied out of a declared-sensitive app-db slot — a NON-app-db
-   position the path-based `elide-wire-value` walker can never reach (so a
-   bare `(elide-wire-value text {:frame …})` over the anonymous string was
-   a no-op for this leak class, and attrs were never touched at all). Under
+   position the path-based `elide-wire-value` walker can never reach (a
+   bare `(elide-wire-value text {:frame …})` over the anonymous string is
+   a no-op for this leak class, and never touches attrs). Under
    the off-box egress posture (raw-state gate OFF — the published-build
    default) the whole `:content` is value-redacted via `maybe-redact-derived`
    (`re-frame.core/redact-derived-slots`) against the frame's secrets, so a
@@ -3625,7 +3619,7 @@
                    view-root (if (= via :view-id)
                                hit-el
                                (nearest-view-root hit-el))
-                   ;; Shared per-node projection (rf2-q0r7e) — the SAME
+                   ;; Shared per-node projection — the SAME
                    ;; tag + capped-text + attr core dom-read uses. The
                    ;; view plane reads the curated structural set PLUS the
                    ;; data-*/aria- sweep, and DROPS the framework-internal
@@ -3636,15 +3630,13 @@
                    base      (node->content hit-el max-text
                                             {:names nil :prefix-sweep? true
                                              :drop-internal? true})
-                   ;; rf2-p9scds — value-redact the WHOLE rendered content
+                   ;; Value-redact the WHOLE rendered content
                    ;; (text AND attrs) against the frame's declared-sensitive
-                   ;; app-db secrets. The old code ran the path-based
-                   ;; `elide-wire-value` over just the anonymous `:text`
-                   ;; string — but that walker redacts by app-db PATH, and
-                   ;; rendered text has none, so it never caught a secret
-                   ;; copied INTO the DOM, and attrs were untouched entirely.
-                   ;; `redact-derived-slots` is the value-based dual: it
-                   ;; substitutes any leaf `=` to a frame secret. Off-box
+                   ;; app-db secrets. The path-based `elide-wire-value`
+                   ;; redacts by app-db PATH, and rendered text has none, so
+                   ;; it can't catch a secret copied INTO the DOM, nor touch
+                   ;; attrs. `redact-derived-slots` is the value-based dual:
+                   ;; it substitutes any leaf `=` to a frame secret. Off-box
                    ;; default redacts; gate ON passes verbatim (trusted-local).
                    content   (maybe-redact-derived base frame-id)]
                {:ok?     true
@@ -3657,16 +3649,16 @@
             :message (.-message e)}))))))
 
 ;; ---------------------------------------------------------------------------
-;; Signal recorder (rf2-zo4b9)
+;; Signal recorder
 ;; ---------------------------------------------------------------------------
 ;;
-;; Intermittent / human-in-the-loop bugs (the rf2-yng0y render-timing
-;; race, only reproducible under real mouse input) need a recorder:
+;; Intermittent / human-in-the-loop bugs (a render-timing race only
+;; reproducible under real mouse input) need a recorder:
 ;; install an observer, let the human interact, read back a change-log.
-;; That move used to be hand-built each session — a `requestAnimationFrame`
-;; loop pushing focus-slot + DOM snapshots into `window.__zoombug`. It was
-;; decisive, but bespoke and footgun-prone: rAF timing, change-dedup,
-;; teardown. This first-classes it.
+;; Hand-rolling that each session — a `requestAnimationFrame` loop pushing
+;; focus-slot + DOM snapshots into a window global — is decisive but
+;; footgun-prone: rAF timing, change-dedup, teardown. This first-classes
+;; the whole gesture.
 ;;
 ;; A SIGNAL is a read-only sample of one observable: an app-db path, a
 ;; subscription value, a DOM text/attribute read, or the currently-focused
