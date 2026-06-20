@@ -521,7 +521,7 @@ Per [012 §Tooling and AI-amenability](../../spec/012-Routing.md#tooling-and-ai-
 
 **What to look for:** projects adopting [012-Routing.md](../../spec/012-Routing.md)'s `reg-route` surface that do not register `:rf.route/not-found`.
 
-**What to do:** if the user adopts Spec 012's routing surface, add `(rf/reg-route :rf.route/not-found {:path "/*rest" :params [:map [:rest :string]]})` plus a `:rf.route/not-found` view. If the user keeps a third-party router, this rule does not apply.
+**What to do:** if the user adopts Spec 012's routing surface, add `(rf/reg-route :rf.route/not-found {:params [:map [:rest :string]]} "/*rest")` plus a `:rf.route/not-found` view. If the user keeps a third-party router, this rule does not apply.
 
 **Why:** unknown-URL handling is a pattern-required fallback; tooling and SSR rely on a registered `:rf.route/not-found`.
 

@@ -58,7 +58,7 @@ Each query / cache slice maps to one `reg-resource`. The agent presents the sour
 | **Polling / `refetch-interval`** | *(deferred)* | Polling/interval revalidation is a deferred slice. Flag polling queries; the interim path is an app-level `:dispatch-later` re-ensure or keeping the lib for those queries until the slice lands. |
 | **Conditional fetching** (`:enabled?` / skip) | **route `:when`** predicate, or an event-side guard | A route resource declares `:when (fn [route ctx] …)`; an event-side ensure simply isn't dispatched when the condition is false. Conditional resources use `:when` rather than sentinel `nil` params. |
 | **Dependent queries** (query B depends on query A's data) | route `:id` + **`:after #{local-id}`** plan, or sequenced events | Dependent route resources are modelled as a route plan: a resource declares a local `:id`, a dependent declares `:after #{that-id}`. Xray shows the dependency and any waterfall. Outside routes, sequence the ensures via the event cascade. |
-| **Mutations** (`defmutation` + `invalidateQueries` on success) | **`reg-mutation`** + **`[:rf.mutation/execute …]`** (causal write, instance-keyed) | The direct analogue — **landed** ([Spec 016 §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate)). A mutation lowers to `(reg-mutation :article/save {:params-schema … :request (fn [params ctx] {:request {…} :decode …}) :invalidates (fn [params result] #{[:article slug]}) :scope …})` — the `:request` follows the resource rule (no `:request-id` / `:on-success` / `:on-failure`; runtime owns reply addressing). `invalidateQueries`-on-success becomes the success-time `:invalidates` tag set (composing with `:rf.resource/invalidate-tags`); `:patches` / `:populates` transform / seed cached entries *before* invalidation; `:invalidate-timing` is explicit (`:before-request` / `:after-success` (default) / `:after-failure` / `:after-settle`). **Invalidation is scoped, and a mutation's invalidate/patch/populate run against the mutation's *resolved* scope** — which, unlike a resource read, is **not** fail-closed and **defaults to `:rf.scope/global`** when omitted. So the rewrite MUST classify each migrated mutation's invalidation scope the same way it classifies the resources it invalidates: a write against user/tenant/locale-scoped resource entries MUST set `:scope` in `reg-mutation` (or pass `:scope` on `[:rf.mutation/execute …]`) to that same scope, or its `:invalidates` tags resolve under `[:rf.scope/global]` and **silently miss** the scoped entries the write just changed (stale reads, no error). A mutation left at the default global scope is only correct when the resources it touches are themselves `:rf.scope/global`. Run it with `[:rf.mutation/execute {:mutation :params :instance :scope :cause}]` and watch it through the passive instance-keyed `:rf.mutation/*` subs (`:rf.mutation/state` / `status` / `pending?` / `result` / `error`); `[:rf.mutation/clear {:instance …}]` is the causal instance reset (distinct from `clear-mutation`, the registration-lifecycle removal). State is keyed by **mutation instance** id, so concurrent submissions never clobber. **Write retries are OPT-IN** — `:retry` rides the Spec 014 managed-HTTP args the `:request` returns, never a `reg-mutation` spec key. Still **deferred**: **optimistic rollback** (forward-only `:patches`/`:populates` for now; the success trace reserves the snapshot/rollback shape). |
+| **Mutations** (`defmutation` + `invalidateQueries` on success) | **`reg-mutation`** + **`[:rf.mutation/execute …]`** (causal write, instance-keyed) | The direct analogue — **landed** ([Spec 016 §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate)). A mutation lowers to `(reg-mutation :article/save {:params-schema … :invalidates (fn [params result] #{[:article slug]}) :scope …} (fn [params ctx] {:request {…} :decode …}))` — the request fn is the third positional arg and follows the resource rule (no `:request-id` / `:on-success` / `:on-failure`; runtime owns reply addressing). `invalidateQueries`-on-success becomes the success-time `:invalidates` tag set (composing with `:rf.resource/invalidate-tags`); `:patches` / `:populates` transform / seed cached entries *before* invalidation; `:invalidate-timing` is explicit (`:before-request` / `:after-success` (default) / `:after-failure` / `:after-settle`). **Invalidation is scoped, and a mutation's invalidate/patch/populate run against the mutation's *resolved* scope** — which, unlike a resource read, is **not** fail-closed and **defaults to `:rf.scope/global`** when omitted. So the rewrite MUST classify each migrated mutation's invalidation scope the same way it classifies the resources it invalidates: a write against user/tenant/locale-scoped resource entries MUST set `:scope` in `reg-mutation` (or pass `:scope` on `[:rf.mutation/execute …]`) to that same scope, or its `:invalidates` tags resolve under `[:rf.scope/global]` and **silently miss** the scoped entries the write just changed (stale reads, no error). A mutation left at the default global scope is only correct when the resources it touches are themselves `:rf.scope/global`. Run it with `[:rf.mutation/execute {:mutation :params :instance :scope :cause}]` and watch it through the passive instance-keyed `:rf.mutation/*` subs (`:rf.mutation/state` / `status` / `pending?` / `result` / `error`); `[:rf.mutation/clear {:instance …}]` is the causal instance reset (distinct from `clear-mutation`, the registration-lifecycle removal). State is keyed by **mutation instance** id, so concurrent submissions never clobber. **Write retries are OPT-IN** — `:retry` rides the Spec 014 managed-HTTP args the `:request` returns, never a `reg-mutation` spec key. Still **deferred**: **optimistic rollback** (forward-only `:patches`/`:populates` for now; the success trace reserves the snapshot/rollback shape). |
 | **Infinite / paginated queries** | ordinary resources + `:keep-previous?` | Infinite queries are deferred; paginated/filtered lists are ordinary resources in v1 — put every filter/sort/page/cursor in params, tag both the list and item identities, and set `:keep-previous?` on the route/resource declaration to keep old data visible while the next page first-loads (projected via `:rf.resource/previous-data`, never inserted into the new entry's cache). |
 | **Optimistic updates / rollback** | *(deferred)* | Optimistic rollback is a later slice — the mutation success trace reserves the snapshot/rollback shape but rollback itself is unimplemented. A landed mutation's `:patches` / `:populates` are **forward-only** (a saved entry appears in the cache before the refetch, but a failure does NOT auto-revert it). Flag optimistic-rollback sites; the interim path keeps the rollback app-level (or in the lib) until the slice ships. |
 | **Process-global cache** | **per-frame runtime cache** | `re-frame-query`'s cache is process-global; re-frame2's lives per frame in runtime-db. This matters for SSR (request-local frames — a process-global cache would leak between users) and for multi-frame apps. The rewrite gets request-local SSR isolation for free. |
@@ -111,23 +111,23 @@ A typical `re-frame-query`-style article fetch: a query keyed by slug, ensured o
 (rf/reg-resource :article/by-slug
   {:params-schema  [:map [:slug :string]]
    :scope          :rf.scope/global
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (str "/api/articles/" slug)}
-                      :decode  :json})
    :stale-after-ms 60000
    :gc-after-ms    300000
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})})
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
 
 ;; Route entry CAUSES the fetch declaratively — the route owns the resource
 ;; for the duration of the page (released on route-leave by the nav-token).
 ;; No mark-active/mark-inactive: liveness is the route owner.
 (rf/reg-route :route/article
-  {:path "/articles/:slug"
-   :params [:map [:slug :string]]
+  {:params [:map [:slug :string]]
    :resources
    [{:resource :article/by-slug
      :params   (fn [route] {:slug (get-in route [:params :slug])})
-     :blocking? true}]})
+     :blocking? true}]}
+  "/articles/:slug")
 
 ;; The view reads it passively — no fetching, no observer registration.
 (rf/reg-view article-page []
@@ -152,11 +152,11 @@ A typical `re-frame-query`-style article fetch: a query keyed by slug, ensured o
 ;; the entries it changed. The rewrite MUST classify this per mutation.
 (rf/reg-mutation :article/save
   {:params-schema [:map [:slug :string]]
-   :request       (fn [{:keys [slug] :as article} _ctx]
-                    {:request {:method :put :url (str "/api/articles/" slug) :body article}
-                     :decode  :json})
    :scope         :rf.scope/global
-   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug]})})
+   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug]})}
+  (fn [{:keys [slug] :as article} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug) :body article}
+     :decode  :json}))
 
 ;; A SCOPED mutation, by contrast. If the note were tenant-scoped, the write
 ;; MUST carry that same scope or its invalidation lands in the wrong (global)
@@ -170,11 +170,11 @@ A typical `re-frame-query`-style article fetch: a query keyed by slug, ensured o
 ;; prevent.
 (rf/reg-mutation :note/save
   {:params-schema [:map [:tenant-id :string] [:id :string]]
-   :request       (fn [{:keys [tenant-id id] :as note} _ctx]
-                    {:request {:method :put :url (str "/api/" tenant-id "/notes/" id) :body note}
-                     :decode  :json})
    ;; No static :scope — the tenant principal is supplied at execute time.
-   :invalidates   (fn [{:keys [id]} _result] #{[:note id]})})
+   :invalidates   (fn [{:keys [id]} _result] #{[:note id]})}
+  (fn [{:keys [tenant-id id] :as note} _ctx]
+    {:request {:method :put :url (str "/api/" tenant-id "/notes/" id) :body note}
+     :decode  :json}))
 ;; …executed with the SAME scope the resource was ensured under:
 ;;   [:rf.mutation/execute {:mutation :note/save :params note
 ;;                          :instance :form/note-save
