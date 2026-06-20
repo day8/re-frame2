@@ -86,7 +86,8 @@ From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/
 :routing/*        Q2 yes
 :ssr/*            Q3 yes
 :schemas/*        Q4 yes (regardless of mechanism)
-:derivation/*     derivation/process graph-inspection (EP 014, D3 Q6 / Tool-Pair) —
+:derivation/*     derivation/process graph-inspection (EP-0014, D3 Q6 / Tool-Pair;
+                  normative home: spec/Derivations.md) —
                   the SPLIT pair :derivation/algebra-graph (broad) +
                   :derivation/algebra-graph-subs-machines (subs+machines subset);
                   a graph host spanning only subs+machines claims the subset and
