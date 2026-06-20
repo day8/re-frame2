@@ -5,12 +5,11 @@
   trace emission — every call decides the evaluation order of one
   frame's flows from the static `:inputs` / `:output-path` declarations alone.
 
-  Per rf2-mnu8z this is the first leg of the flows split — pulled out
-  of the original monolith so the algorithm is unit-testable in
-  isolation. The registry calls `topo-sort` up-front on a prospective
-  flow map to spot cycles before mutating state (rf2-7csri); the
-  outermost-`:after` walker (`re-frame.flows/run-flows-on-db`) calls it
-  on every drain to fix evaluation order.
+  The algorithm lives here in isolation so it is unit-testable on its
+  own. The registry calls `topo-sort` up-front on a prospective flow map
+  to spot cycles before mutating state; the outermost-`:after` walker
+  (`re-frame.flows/run-flows-on-db`) calls it on every drain to fix
+  evaluation order.
 
   Per Spec 013 §Topological sort the rule is: flow B depends on flow
   A iff A's `:output-path` and any of B's `:inputs` share a path prefix in
@@ -28,13 +27,11 @@
   order is undefined and they would race for the shared slot under
   last-write-wins. That is an authoring footgun, not a valid topology,
   so it is rejected at registration with `:rf.error/flow-path-overlap`."
-  ;; rf2-t3cfil (EP-0012 tier-2 flows consumer sweep): the prefix / overlap
-  ;; relations are the SHARED `:rf/path` algebra (`re-frame.path`,
-  ;; Conventions §The :rf/path algebra), not a flows-private dialect. Per the
-  ;; EP-0012 disposition-1 graduation note, "subsystems MUST NOT keep private
-  ;; ad hoc overlap / prefix logic once they cite these helpers — there is no
-  ;; tool-only path semantics." Flows is exactly such a consumer (the
-  ;; algebra's ns-doc names "flows" as a use site), so topo depends on
+  ;; The prefix / overlap relations are the SHARED `:rf/path` algebra
+  ;; (`re-frame.path`, Conventions §The :rf/path algebra), not a flows-private
+  ;; dialect: subsystems MUST NOT keep private ad hoc overlap / prefix logic —
+  ;; there is no tool-only path semantics. Flows is exactly such a consumer
+  ;; (the algebra's ns-doc names "flows" as a use site), so topo depends on
   ;; `re-frame.path` rather than re-deriving `prefix?` / a bespoke overlap
   ;; test. `re-frame.path` lives in core, which this artefact already depends
   ;; on, so this drags no new dependency onto the classpath and the module
@@ -45,7 +42,7 @@
 (defn depends-on?
   "Per Spec 013 §Topological sort: B depends on A iff A's :output-path and any
   of B's :inputs share a path prefix in either direction. The prefix
-  relation is the shared `re-frame.path/prefix?` (rf2-t3cfil)."
+  relation is the shared `re-frame.path/prefix?`."
   [b-flow a-flow]
   (let [a-path (:output-path a-flow)]
     (boolean
@@ -63,11 +60,10 @@
   `[:x :y]` lands inside `[:x]`'s value), but `[:x :y]` and `[:x :z]` are
   disjoint (siblings — neither is a prefix of the other).
 
-  This is the shared `re-frame.path/overlap?` relation (rf2-t3cfil) — the
-  SAME prefix-in-either-direction test every path-shaped subsystem inherits,
-  no longer a flows-private predicate. `re-frame.path/overlap?` normalizes
-  its inputs; flow paths are already validated vectors, so the behaviour is
-  identical."
+  This is the shared `re-frame.path/overlap?` relation — the SAME
+  prefix-in-either-direction test every path-shaped subsystem inherits.
+  `re-frame.path/overlap?` normalizes its inputs; flow paths are already
+  validated vectors, so the behaviour is identical."
   [a-path b-path]
   (path/overlap? a-path b-path))
 
@@ -82,7 +78,7 @@
   flow count — a handful of nodes at v1, same order as the graph build),
   short-circuited by `(some ...)`. The reported pair is canonically
   ordered by `(juxt hash str)` so the report is GENUINELY stable across
-  runs (rf2-tx1ub): `hash` alone leaves the order undefined on a hash
+  runs: `hash` alone leaves the order undefined on a hash
   collision (distinct ids, equal hash) — `sort-by` is stable and would
   fall back to map-iteration order there, a non-contract across JVM runs.
   The `str` tie-break makes the lo/hi assignment depend only on the ids'
@@ -217,11 +213,10 @@
   Tools (e.g. Xray) render this directly as the offending chain.
 
   Note: callers re-run this on every drain via
-  `re-frame.flows/run-flows-on-db`. A memo was trialled and removed (rf2-cd00):
-  the per-frame flow map is tiny (Kahn over a handful of nodes) and a
-  memo keyed on the flow map needs explicit invalidation on every
-  reg-flow / clear-flow anyway. The unmemoised call is the cheapest
-  correct option."
+  `re-frame.flows/run-flows-on-db`, unmemoised. The per-frame flow map is
+  tiny (Kahn over a handful of nodes) and a memo keyed on the flow map
+  would need explicit invalidation on every reg-flow / clear-flow anyway.
+  The unmemoised call is the cheapest correct option."
   [flow-map]
   (let [ids (vec (keys flow-map))]
     ;; 0/1 flows have no edges — order is trivial; skip the O(n²) graph
@@ -267,11 +262,11 @@
               ;; so the shape is inlined rather than reaching for
               ;; `registry.cljc`'s `flow-error` helper.
               ;;
-              ;; `:recovery :fix-registration` (rf2-ee38b.9) — a cycle is
-              ;; the same class of error as the sibling `validate-flow`
-              ;; rejections: detected at `reg-flow` time on a PROSPECTIVE
-              ;; map BEFORE any state mutates (rf2-7csri), so the prior
-              ;; registration survives and the caller fixes their
+              ;; `:recovery :fix-registration` — a cycle is the same class
+              ;; of error as the sibling `validate-flow` rejections:
+              ;; detected at `reg-flow` time on a PROSPECTIVE map BEFORE any
+              ;; state mutates, so the prior registration survives and the
+              ;; caller fixes their
               ;; `:inputs` / `:output-path` and retries. Stamping `:no-recovery`
               ;; would make an `:on-error` policy or tool that branches on
               ;; `:recovery` to decide "is this user-fixable?" treat a

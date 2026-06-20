@@ -8,7 +8,7 @@
   LAST (after the handler and the rest of the `:after` chain, which
   reshapes the `:db` effect) — transforming the handler's pending `:db`
   effect, in topological order over their static dependency graph
-  (per Spec 013 §Drain integration; rf2-u0zz5).
+  (per Spec 013 §Drain integration).
 
   Flows are deliberately a NICHE convenience — not a sub replacement,
   not a new dataflow paradigm. Use a sub if the value is consumed by
@@ -31,32 +31,30 @@
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]
-            ;; EP-0014 slice-3 (rf2-s8w3nw): the JVM-only require of the
-            ;; flows tooling sibling that backs the `flow-algebra-view`
-            ;; alias at the foot of this ns. CLJS deliberately OMITS this
-            ;; require so a CLJS app that loads the flows artefact but never
-            ;; attaches a tool DCEs the tooling body wholesale — the facade
-            ;; never reaches it. JVM has no bundle to protect; the alias
-            ;; gives JVM tools / conformance fixtures the ergonomic
-            ;; `re-frame.flows/flow-algebra-view` shape. Mirrors the
-            ;; `re-frame.subs` → `re-frame.subs.tooling` JVM-only require
-            ;; (rf2-bmzq0 / rf2-gge6mf slice-2).
+            ;; JVM-only require of the flows tooling sibling that backs the
+            ;; `flow-algebra-view` alias at the foot of this ns. CLJS
+            ;; deliberately OMITS this require so a CLJS app that loads the
+            ;; flows artefact but never attaches a tool DCEs the tooling body
+            ;; wholesale — the facade never reaches it. JVM has no bundle to
+            ;; protect; the alias gives JVM tools / conformance fixtures the
+            ;; ergonomic `re-frame.flows/flow-algebra-view` shape. Mirrors the
+            ;; `re-frame.subs` → `re-frame.subs.tooling` JVM-only require.
             #?@(:clj [[re-frame.flows.tooling :as flows-tooling]])))
 
 ;; ---- public-surface re-exports -------------------------------------------
 ;;
-;; Per rf2-4gvb4 — the registry atoms are private. External consumers
-;; (test fixtures, conformance harnesses, cross-artefact integration tests)
-;; reach the registry shape through the read accessors
-;; (`flows-snapshot` / `last-inputs-snapshot`) and the existing reset fns
+;; The registry atoms are private. External consumers (test fixtures,
+;; conformance harnesses, cross-artefact integration tests) reach the
+;; registry shape through the read accessors
+;; (`flows-snapshot` / `last-inputs-snapshot`) and the reset fns
 ;; (`reset-flows!` / `reset-last-inputs!`). The facade re-exports both
 ;; pairs.
 ;;
-;; EP-0015: `last-inputs-snapshot` returns the RAW cached input values
-;; (owner-local app-db / runtime-db slices, possibly sensitive / large). It
-;; is an internal / test / rollback seam — `^:no-doc`, NOT an egress
-;; boundary. The raw dirty-check cache is never shipped off-box; tools and
-;; direct reads that cross a trust boundary read the ELIDED trace path
+;; `last-inputs-snapshot` returns the RAW cached input values (owner-local
+;; app-db / runtime-db slices, possibly sensitive / large). It is an
+;; internal / test / rollback seam — `^:no-doc`, NOT an egress boundary. The
+;; raw dirty-check cache is never shipped off-box; tools and direct reads
+;; that cross a trust boundary read the ELIDED trace path
 ;; (`:rf.flow/computed` / `:rf.flow/failed`, which ride `elide-inputs`).
 
 (def flows-snapshot       registry/flows-snapshot)
@@ -67,17 +65,17 @@
 (def reset-flows!       registry/reset-flows!)
 (def reset-last-inputs! registry/reset-last-inputs!)
 
-;; EP-0014 slice-3 (rf2-s8w3nw): the derivation/process algebra view of
-;; registered flows. JVM-runnable (the flow registry is partition-agnostic
-;; registration metadata), so a JVM convenience alias lets tools /
-;; conformance fixtures reach it as `re-frame.flows/flow-algebra-view`
-;; without naming the sibling. The body lives in `re-frame.flows.tooling`
-;; so a CLJS app that loads the flows artefact but attaches no tool DCEs it
-;; (the CLJS facade never `:require`s the tooling sibling — the require
-;; above is `#?@(:clj ...)`-gated). CLJS consumers (Xray + conformance)
-;; call `re-frame.flows.tooling/flow-algebra-view` directly. No
-;; `re-frame.core` facade export (EP-0014 issue-1 disposition). Mirrors the
-;; `re-frame.subs/sub-algebra-view` JVM alias (slice-2).
+;; The derivation/process algebra view of registered flows. JVM-runnable
+;; (the flow registry is partition-agnostic registration metadata), so a JVM
+;; convenience alias lets tools / conformance fixtures reach it as
+;; `re-frame.flows/flow-algebra-view` without naming the sibling. The body
+;; lives in `re-frame.flows.tooling` so a CLJS app that loads the flows
+;; artefact but attaches no tool DCEs it (the CLJS facade never `:require`s
+;; the tooling sibling — the require above is `#?@(:clj ...)`-gated). CLJS
+;; consumers (Xray + conformance) call
+;; `re-frame.flows.tooling/flow-algebra-view` directly. There is no
+;; `re-frame.core` facade export. Mirrors the
+;; `re-frame.subs/sub-algebra-view` JVM alias.
 #?(:clj
    (def flow-algebra-view flows-tooling/flow-algebra-view))
 
@@ -88,24 +86,23 @@
 ;; the pending `:db` effect before install and before :fx (per Spec 013
 ;; §Drain integration).
 
-;; ---- partition-qualified input resolution (EP-0001 §535-551, rf2-4eisfr) --
+;; ---- partition-qualified input resolution (EP-0001 §535-551) ------------
 ;;
-;; Mike RULED (b) 2026-06-09: flows read runtime-db via EXPLICIT partition-
-;; qualified inputs — this IS EP-0001 normative text (§535-551), not a fresh
-;; design call. The binary syntax (mayor refinement (i) — NO redundant
+;; Flows read runtime-db via EXPLICIT partition-qualified inputs (EP-0001
+;; normative text, §535-551). The binary syntax (no redundant
 ;; `[:rf.db/app …]` explicit-app form):
 ;;
 ;;   bare path            → app-db    e.g. [:user :first]
 ;;   [:rf.db/runtime …]   → runtime-db e.g. [:rf.db/runtime :rf.runtime/routing :current :route-id]
 ;;
-;; ANY flow may read runtime-db this way (mayor refinement (ii) — user flows
-;; AND framework flows); only the WRITE side is reserved (flow outputs land
-;; in app-db only — see `evaluate-flow!`'s `assoc-in db (:output-path flow)`). The
-;; resolver reads the SETTLED post-transition / post-macrostep PENDING frame-
-;; state the flow transform was handed (app-db = the pending `:db` effect /
-;; current app-db; runtime-db = the pending `:rf.db/runtime` effect / current
-;; runtime-db) — so a runtime-only event (e.g. a pure `:rf.route/transitioned`
-;; with no app-db change) still presents the changed route value here.
+;; ANY flow — user or framework — may read runtime-db this way; only the
+;; WRITE side is reserved (flow outputs land in app-db only — see
+;; `evaluate-flow!`'s `assoc-in db (:output-path flow)`). The resolver reads
+;; the SETTLED post-transition / post-macrostep PENDING frame-state the flow
+;; transform was handed (app-db = the pending `:db` effect / current app-db;
+;; runtime-db = the pending `:rf.db/runtime` effect / current runtime-db) —
+;; so a runtime-only event (e.g. a pure `:rf.route/transitioned` with no
+;; app-db change) still presents the changed route value here.
 ;;
 ;; A qualified runtime input never creates a spurious topo dependency edge:
 ;; `topo/depends-on?` compares a flow's `:inputs` against another flow's
@@ -118,10 +115,10 @@
 ;; app-db partition was value-identical.
 
 ;; The partition-syntax primitives (`runtime-partition-key` / `runtime-input?`
-;; / the strip via `input-resolve-path`) live ONCE in `re-frame.flows.registry`
-;; (rf2-4vreu8): `registry` is required by both this facade and
-;; `re-frame.flows.tooling` and requires neither back (no cycle), so it is the
-;; natural shared home for the rule all three consumers key on.
+;; / the strip via `input-resolve-path`) live ONCE in `re-frame.flows.registry`:
+;; `registry` is required by both this facade and `re-frame.flows.tooling`
+;; and requires neither back (no cycle), so it is the natural shared home for
+;; the rule all three consumers key on.
 
 (defn- resolve-input
   "Resolve one flow `:inputs` path against the pending frame-state's two
@@ -137,7 +134,7 @@
   "Read a flow's `:inputs` against the pending frame-state — `db` is the
   pending app-db partition, `runtime-db` the pending runtime-db partition.
   Bare paths read app-db; `[:rf.db/runtime …]` paths read runtime-db
-  (EP-0001 §535-551, rf2-4eisfr)."
+  (EP-0001 §535-551)."
   [db runtime-db flow]
   (mapv (fn [path] (resolve-input db runtime-db path)) (:inputs flow)))
 

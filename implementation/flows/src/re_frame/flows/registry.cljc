@@ -9,31 +9,24 @@
   undo / time-travel semantics belong to one frame's history. The
   registry shape is `{frame-id {flow-id flow-map}}`.
 
-  Dirty-check storage is PER-FRAME by construction (rf2-94ol5). Each
-  frame owns its own `last-inputs` container (`atom {flow-id inputs}`),
-  held in the `frame-last-inputs` registry keyed by frame-id. A frame's
-  drain reads and writes ONLY its own atom; the failed-flow rollback
-  snapshots and restores ONLY the draining frame's atom. Cross-frame
-  interference during a concurrent drain is therefore impossible by
-  construction — a frame can no more touch a sibling's dirty-check rows
-  than it can touch a sibling's app-db. (The prior single global atom
-  keyed `{flow-id {frame-id inputs}}` made the wholesale-snapshot
-  rollback over-broad: on a throw it reverted EVERY frame's rows, which
-  on the JVM could clobber a concurrently-draining sibling's just-
-  advanced rows. Mike ruled the structural per-frame-atom fix B over the
-  minimal per-frame-slice scoping A — 2026-06-01.)
+  Dirty-check storage is PER-FRAME by construction. Each frame owns its
+  own `last-inputs` container (`atom {flow-id inputs}`), held in the
+  `frame-last-inputs` registry keyed by frame-id. A frame's drain reads
+  and writes ONLY its own atom; the failed-flow rollback snapshots and
+  restores ONLY the draining frame's atom. Cross-frame interference during
+  a concurrent drain is therefore impossible by construction — a frame can
+  no more touch a sibling's dirty-check rows than it can touch a sibling's
+  app-db.
 
-  Per rf2-mnu8z this is the second leg of the flows split. The façade
-  (`re-frame.flows`) re-exports the public surface — `reg-flow`,
-  `clear-flow`, `reset-flows!`, `reset-last-inputs!`, plus the
-  rf2-4gvb4 read accessors `flows-snapshot` / `last-inputs-snapshot`.
-  The underlying atoms themselves are PRIVATE to this artefact: external
-  consumers (production code, the late-bind directory, test fixtures
-  across artefacts) reach the registry state through the accessor seam
-  rather than dereferencing the atom Vars directly. `last-inputs-snapshot`
-  re-aggregates the per-frame atoms back into the canonical
-  `{flow-id {frame-id inputs}}` observation shape so its public contract
-  is unchanged across the storage restructure."
+  The façade (`re-frame.flows`) re-exports the public surface — `reg-flow`,
+  `clear-flow`, `reset-flows!`, `reset-last-inputs!`, plus the read
+  accessors `flows-snapshot` / `last-inputs-snapshot`. The underlying atoms
+  themselves are PRIVATE to this artefact: external consumers (production
+  code, the late-bind directory, test fixtures across artefacts) reach the
+  registry state through the accessor seam rather than dereferencing the
+  atom Vars directly. `last-inputs-snapshot` re-aggregates the per-frame
+  atoms back into the canonical `{flow-id {frame-id inputs}}` observation
+  shape."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
             [re-frame.flows.topo :as topo]
@@ -47,15 +40,14 @@
 
 ;; ---- state ---------------------------------------------------------------
 ;;
-;; Per rf2-4gvb4 — the atoms below are PRIVATE to this artefact. External
-;; consumers reach the registry state through the public read accessors
-;; (`flows-snapshot` / `last-inputs-snapshot`) and the reset fns
-;; (`reset-flows!` / `reset-last-inputs!`) — the facade re-exports them at
-;; `re-frame.flows`. The atoms themselves are NOT a public surface; treating
-;; them as one couples consumers to the internal shape (the per-frame
-;; container restructure below would otherwise force every test fixture to
-;; follow). The accessor seam keeps the flexibility on the framework side
-;; while giving tests the read-and-reset affordances they actually need.
+;; The atoms below are PRIVATE to this artefact. External consumers reach the
+;; registry state through the public read accessors (`flows-snapshot` /
+;; `last-inputs-snapshot`) and the reset fns (`reset-flows!` /
+;; `reset-last-inputs!`) — the facade re-exports them at `re-frame.flows`. The
+;; atoms themselves are NOT a public surface; treating them as one couples
+;; consumers to the internal shape. The accessor seam keeps the flexibility on
+;; the framework side while giving tests the read-and-reset affordances they
+;; actually need.
 
 (defonce
   ^{:doc     "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
@@ -64,24 +56,17 @@
   flows
   (atom {}))
 
-;; Per rf2-94ol5 — PER-FRAME dirty-check storage. `frame-last-inputs` is a
-;; registry mapping `frame-id → (atom {flow-id last-seen-input-vec})`: each
-;; frame owns its OWN inner atom of dirty-check rows, mirroring how every
-;; other per-frame runtime cell (app-db container, router queue, sub-cache,
-;; drain-lock — see `re-frame.frame/new-frame-record`) is held independently
-;; per frame.
+;; PER-FRAME dirty-check storage. `frame-last-inputs` is a registry mapping
+;; `frame-id → (atom {flow-id last-seen-input-vec})`: each frame owns its OWN
+;; inner atom of dirty-check rows, mirroring how every other per-frame runtime
+;; cell (app-db container, router queue, sub-cache, drain-lock — see
+;; `re-frame.frame/new-frame-record`) is held independently per frame.
 ;;
-;; This is the structural fix (Mike ruled B 2026-06-01): a frame's drain
-;; reads / writes ONLY `(get @frame-last-inputs frame-id)`, and the failed-
-;; flow rollback in `re-frame.flows/run-flows-on-db` snapshots / restores
-;; ONLY that one atom. A frame can no more clobber a sibling's dirty-check
-;; rows than it can clobber a sibling's app-db — cross-frame interference is
-;; impossible BY CONSTRUCTION, not merely avoided. The prior single global
-;; atom keyed `{flow-id {frame-id inputs}}` made the wholesale-snapshot
-;; rollback over-broad: on a throw it `reset!`-reverted EVERY frame's rows,
-;; so on the JVM a concurrently-draining sibling's just-advanced rows were
-;; clobbered (spurious recompute + sub-invalidation storm; violated the
-;; documented per-frame-independence invariant).
+;; A frame's drain reads / writes ONLY `(get @frame-last-inputs frame-id)`, and
+;; the failed-flow rollback in `re-frame.flows/run-flows-on-db` snapshots /
+;; restores ONLY that one atom. A frame can no more clobber a sibling's
+;; dirty-check rows than it can clobber a sibling's app-db — cross-frame
+;; interference is impossible BY CONSTRUCTION, not merely avoided.
 ;;
 ;; The outer `frame-last-inputs` atom is mutated only on frame-slot
 ;; lifecycle (first touch creates the inner atom; teardown / reset removes
@@ -90,9 +75,9 @@
 ;; reader / writer never contend on the outer registry.
 (defonce
   ^{:doc     "frame-id → (atom {flow-id last-seen-input-vec}). Per-frame
-              dirty-check containers (rf2-94ol5). Each frame's inner atom is
-              read / written only by that frame's drain; the failed-flow
-              rollback restores only the draining frame's own atom."
+              dirty-check containers. Each frame's inner atom is read /
+              written only by that frame's drain; the failed-flow rollback
+              restores only the draining frame's own atom."
     :private true}
   frame-last-inputs
   (atom {}))
@@ -114,7 +99,7 @@
                       (assoc m frame-id (atom {})))))
            frame-id)))
 
-;; ---- public read accessors (rf2-4gvb4) -----------------------------------
+;; ---- public read accessors -----------------------------------------------
 ;;
 ;; `flows-snapshot` and `last-inputs-snapshot` are the public seam external
 ;; consumers (test fixtures, conformance harnesses, the cross-artefact
@@ -131,14 +116,13 @@
 
 (defn ^:no-doc last-inputs-snapshot
   "Return the dirty-check value re-aggregated to the canonical observation
-  shape `{flow-id {frame-id inputs}}`. Reads every per-frame container
-  (rf2-94ol5 storage) and inverts the `{frame-id {flow-id inputs}}` layout
-  back to `flow-id`-outer so the public contract is unchanged across the
-  per-frame restructure. Empty per-frame containers contribute nothing, so
-  a frame whose dirty-check rows all cleared leaves no key behind.
-  Snapshot — observers MUST NOT mutate (the underlying atoms are private).
+  shape `{flow-id {frame-id inputs}}`. Reads every per-frame container and
+  inverts the `{frame-id {flow-id inputs}}` layout back to `flow-id`-outer.
+  Empty per-frame containers contribute nothing, so a frame whose dirty-check
+  rows all cleared leaves no key behind. Snapshot — observers MUST NOT mutate
+  (the underlying atoms are private).
 
-  RAW — NOT an egress boundary (EP-0015). The cached input vectors are the
+  RAW — NOT an egress boundary (Spec 015). The cached input vectors are the
   OWNER-LOCAL app-db / runtime-db values just read for the dirty check, so
   they can be sensitive or large. This accessor returns them verbatim and is
   for INTERNAL / TEST / ROLLBACK use only (the failed-flow rollback snapshot,
@@ -158,7 +142,7 @@
     {}
     @frame-last-inputs))
 
-;; ---- intra-artefact-only mutation helpers (rf2-4gvb4 / rf2-94ol5) --------
+;; ---- intra-artefact-only mutation helpers --------------------------------
 ;;
 ;; `re-frame.flows` (the facade evaluation path) reads / advances the
 ;; draining frame's `last-inputs` on every successful flow recompute and
@@ -198,11 +182,11 @@
   `re-frame.flows/run-flows-on-db`'s catch arm to roll back the draining
   frame's — and ONLY the draining frame's — dirty-check bookkeeping when a
   flow throws mid-cascade. A concurrently-draining sibling's container is a
-  different atom and is untouched (rf2-94ol5)."
+  different atom and is untouched."
   [frame-id prior]
   (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
 
-;; ---- pending abandoned output paths (rf2-z980k8) -------------------------
+;; ---- pending abandoned output paths --------------------------------------
 ;;
 ;; A same-frame `reg-flow` REPLACEMENT that MOVES the output to a new
 ;; `:output-path` must vacate the OLD path from the frame's app-db (Spec 013
@@ -211,27 +195,26 @@
 ;; (below) does that with a DIRECT app-db write, which is correct for an
 ;; OUT-of-drain call.
 ;;
-;; But when `reg-flow` runs IN-drain — reentrantly from inside an event
-;; handler or a `:rf.fx/reg-flow` effect — the direct write is CLOBBERED. The
-;; drain runs flows over the PENDING `:db` (the handler's returned value,
-;; which still carries the old path) and the router's single deferred commit
-;; PUBLISHES that pending value AFTER the reentrant `reg-flow` returned —
-;; overwriting the direct vacate and RESURRECTING the old output (rf2-z980k8).
-;;
-;; The fix: when in-drain, record the abandoned path here instead of writing
-;; app-db directly. `re-frame.flows/run-flows-on-db` drains this set at the
-;; START of the pending-`:db` transform (before the flow walk) and dissocs
-;; each path from the PENDING db — so the vacate participates in the SAME
-;; value the deferred commit publishes and the handler's returned `:db`
-;; cannot resurrect the old path. Per-frame (rf2-94ol5 idiom): each frame
-;; owns its own inner atom; a sibling frame draining concurrently on another
-;; thread holds a different atom and is structurally untouched.
+;; When `reg-flow` runs IN-drain — reentrantly from inside an event handler or
+;; a `:rf.fx/reg-flow` effect — a direct write would be CLOBBERED: the drain
+;; runs flows over the PENDING `:db` (the handler's returned value, which still
+;; carries the old path) and the router's single deferred commit PUBLISHES that
+;; pending value AFTER the reentrant `reg-flow` returns, overwriting the direct
+;; vacate and RESURRECTING the old output. So in-drain, record the abandoned
+;; path here instead of writing app-db directly.
+;; `re-frame.flows/run-flows-on-db` drains this set at the START of the
+;; pending-`:db` transform (before the flow walk) and dissocs each path from
+;; the PENDING db — so the vacate participates in the SAME value the deferred
+;; commit publishes and the handler's returned `:db` cannot resurrect the old
+;; path. Per-frame: each frame owns its own inner atom; a sibling frame
+;; draining concurrently on another thread holds a different atom and is
+;; structurally untouched.
 
 (defonce
   ^{:doc     "frame-id → (atom #{abandoned-output-path ...}). Per-frame set
               of OLD output paths recorded by an IN-DRAIN same-frame
-              `reg-flow` `:output-path` move, pending vacate by the current drain's
-              `run-flows-on-db` pending-`:db` transform (rf2-z980k8)."
+              `reg-flow` `:output-path` move, pending vacate by the current
+              drain's `run-flows-on-db` pending-`:db` transform."
     :private true}
   frame-abandoned-output-paths
   (atom {}))
@@ -252,9 +235,9 @@
 
 (defn ^:no-doc record-abandoned-output-path!
   "Record `path` as a pending abandoned output path for `frame-id` — to be
-  vacated from the pending `:db` by the current drain's `run-flows-on-db`
-  (rf2-z980k8). Called by `reg-flow`'s in-drain `:output-path`-move branch
-  instead of the direct app-db write the OUT-of-drain branch uses. Frame-local."
+  vacated from the pending `:db` by the current drain's `run-flows-on-db`.
+  Called by `reg-flow`'s in-drain `:output-path`-move branch instead of the
+  direct app-db write the OUT-of-drain branch uses. Frame-local."
   [frame-id path]
   (swap! (ensure-frame-abandoned-paths-atom! frame-id) conj path))
 
@@ -269,8 +252,8 @@
 
 (defn ^:no-doc drain-abandoned-output-paths!
   "Atomically read-and-clear `frame-id`'s pending abandoned output paths,
-  returning the set that was pending (rf2-z980k8). The current drain's
-  `run-flows-on-db` consumes these once — dissocing each from the pending
+  returning the set that was pending. The current drain's `run-flows-on-db`
+  consumes these once — dissocing each from the pending
   `:db` BEFORE the flow walk — and a throw / post-commit rollback re-records
   them via `restore-abandoned-output-paths!` so the move re-attempts cleanly
   next drain. Frame-local: returns an empty set when the frame has no
@@ -287,26 +270,25 @@
   (`run-flows-on-db`'s catch arm) or a POST-commit schema / machine-data
   validation rolls the event back — the pending `:db` (carrying the vacated
   state) was discarded, so the abandoned paths must re-attempt next drain.
-  Frame-local (rf2-94ol5): a concurrently-draining sibling's container is a
+  Frame-local: a concurrently-draining sibling's container is a
   different atom and is untouched."
   [frame-id prior]
   (reset! (ensure-frame-abandoned-paths-atom! frame-id) (set prior)))
 
-;; ---- last-inputs row maintenance (rf2-94ol5) -----------------------------
+;; ---- last-inputs row maintenance -----------------------------------------
 ;;
 ;; With per-frame `last-inputs` containers, dropping one flow's dirty-check
 ;; row for a frame is a plain `dissoc` on that frame's own inner atom — no
 ;; two-level-map walk, and structurally incapable of touching a sibling
 ;; frame's container. The clear-flow / frame-destroy / hot-reload-invalidate
 ;; paths share this one helper so the "drop this flow's row for this frame"
-;; invariant lives in exactly one place. (The prior `prune-frame-row`
-;; maintained the global `{flow-id {frame-id v}}` map's inner-map emptiness;
-;; per-frame storage makes the dissoc unconditional and frame-local.)
+;; invariant lives in exactly one place. Per-frame storage makes the dissoc
+;; unconditional and frame-local.
 
 (defn- drop-frame-flow-row!
   "Drop `flow-id`'s dirty-check row from `frame-id`'s `last-inputs`
   container. No-op when the frame has no container. Frame-local by
-  construction (rf2-94ol5)."
+  construction."
   [frame-id flow-id]
   (when-let [a (get @frame-last-inputs frame-id)]
     (swap! a dissoc flow-id)))
@@ -331,49 +313,49 @@
 ;;
 ;; Per Spec 013 §Flow shape: `:inputs` is a vector of app-db paths,
 ;; `:output-path` is an app-db path. A path is a non-empty vector of scalar
-;; map keys. The prior validator only enforced `vector?` on each, so three
-;; classes of malformed input slipped through (per audit rf2-o3hok findings
-;; Q5 / TE4):
+;; map keys. The validator enforces this fully up front rather than letting a
+;; malformed shape boom later in the topo / evaluator stack. Three
+;; representative malformations it catches:
 ;;
-;;   - `:inputs [:foo :bar]` (vector of bare keywords) — passed; then
-;;     topo's `prefix?` threw on `(count :foo)`.
-;;   - `:inputs [[:foo] :bar]` (mixed) — same path, same delayed boom.
-;;   - `:output-path []` — passed; `(prefix? [] anything)` is true, so the
-;;     empty-path flow silently became a depends-on prerequisite of EVERY
-;;     other flow in the frame (per Spec 013 §Dependency rule).
+;;   - `:inputs [:foo :bar]` (vector of bare keywords) — topo's `prefix?`
+;;     would otherwise throw on `(count :foo)`.
+;;   - `:inputs [[:foo] :bar]` (mixed) — same problem one entry along.
+;;   - `:output-path []` — `(prefix? [] anything)` is true, so an empty-path
+;;     flow would silently become a depends-on prerequisite of EVERY other
+;;     flow in the frame (per Spec 013 §Dependency rule).
 ;;
-;; The tightened validator rejects each malformation up front with a stable
-;; error id and ex-data that names the offending entries / elements so
-;; callers don't have to chase the failure into the topo / evaluator stack.
+;; Each malformation is rejected with a stable error id and ex-data that names
+;; the offending entries / elements so callers don't have to chase the failure
+;; into the topo / evaluator stack.
 ;;
 ;; The OPTIONAL output data-classification keys (`:sensitive` / `:large` /
 ;; `:rf.egress/output-sensitivity` / `:large?`, Spec 015 §Derived sensitivity)
-;; are validated in the same table (rf2-cgk0wb): previously they were
-;; FAIL-OPEN — a malformed declaration (`:sensitive [:token]`, `:large "blob"`,
-;; a typo'd enum value) registered cleanly but installed no redaction, the
-;; worst failure for a safety feature. The boolean `:sensitive?` declassify
-;; spelling is now REJECTED (EP-0015 issue 9; Spec 015:425).
+;; are validated in the same table. They are validated FAIL-CLOSED: a malformed
+;; declaration (`:sensitive [:token]`, `:large "blob"`, a typo'd enum value) is
+;; rejected rather than silently installing no redaction — the worst failure
+;; for a safety feature. The boolean `:sensitive?` declassify spelling is
+;; REJECTED; derived-output sensitivity is declared with
+;; `:rf.egress/output-sensitivity` (Spec 015:425).
 
 (defn- valid-path-element?
-  "True iff `x` is admissible as a flow path segment — the SHARED EP-0012
+  "True iff `x` is admissible as a flow path segment — the SHARED
   concrete-segment domain (`re-frame.path/segment?`, Conventions §Segment
-  domain), no longer a flows-private enumeration (rf2-t3cfil). The shared
-  domain is a keyword / string / symbol / boolean / integer / UUID / instant
-  / nil; composites (vectors / maps / sets / seqs) and host handles are
-  rejected. Collections are never the right value for a `get-in` path step
-  and almost always indicate a caller bug (e.g. passing a bare keyword where
-  a vector-of-paths was expected, then wrapping it one level too many).
+  domain). The shared domain is a keyword / string / symbol / boolean /
+  integer / UUID / instant / nil; composites (vectors / maps / sets / seqs)
+  and host handles are rejected. Collections are never the right value for a
+  `get-in` path step and almost always indicate a caller bug (e.g. passing a
+  bare keyword where a vector-of-paths was expected, then wrapping it one
+  level too many).
 
-  Flows DELEGATE the membership question to the shared policy rather than
-  re-deriving it: per the EP-0012 disposition-1 graduation note, a subsystem
-  narrows from the shared upper bound but never re-enumerates it. This widens
-  the prior flows enumeration (keyword / string / integer / symbol / boolean)
-  to also admit UUID, instant, and nil segments — all valid associative keys
-  the shared `:rf/path` algebra already focuses through. The flows-SPECIFIC
-  restriction (a `:output-path` / `:inputs` path must be NON-EMPTY — an empty path is
-  a root-output footgun that makes the flow a depends-on prerequisite of every
-  other flow, Spec 013 §Dependency rule) is layered ON TOP in `valid-path?`
-  below, NOT folded into the shared segment domain."
+  Flows DELEGATE the membership question to the shared `:rf/path` policy
+  rather than re-deriving it: a subsystem narrows from the shared upper bound
+  but never re-enumerates it. The shared domain admits UUID, instant, and nil
+  segments alongside keyword / string / integer / symbol / boolean — all valid
+  associative keys the algebra already focuses through. The flows-SPECIFIC
+  restriction (a `:output-path` / `:inputs` path must be NON-EMPTY — an empty
+  path is a root-output footgun that makes the flow a depends-on prerequisite
+  of every other flow, Spec 013 §Dependency rule) is layered ON TOP in
+  `valid-path?` below, NOT folded into the shared segment domain."
   [x]
   (path/segment? x))
 
@@ -381,8 +363,8 @@
   "A flow `:inputs` path or the flow `:output-path` is a NON-EMPTY vector of
   valid path segments. The non-emptiness is the flows-specific root-output
   policy (Spec 013 §Dependency rule — an empty path overlaps every path); the
-  per-element domain is the shared EP-0012 segment policy (`valid-path-element?`
-  → `re-frame.path/segment?`, rf2-t3cfil)."
+  per-element domain is the shared segment policy (`valid-path-element?`
+  → `re-frame.path/segment?`)."
   [x]
   (and (vector? x) (seq x) (every? valid-path-element? x)))
 
@@ -433,8 +415,8 @@
 ;; discriminator, a `:reason` diagnostic, and optional `:extras` that
 ;; build per-clause ex-data slots (`:bad-entries` / `:bad-elements`).
 ;; `validate-flow` walks this vector and throws on the first failing
-;; predicate — matching the original `cond` evaluation order so existing
-;; tests pinning rejection ids see no shift.
+;; predicate, so the rules are ordered most-fundamental-first (a flow with a
+;; broken required shape reports that before any classification-key clause).
 ;;
 ;; Data-driven so the rules are introspectable (a test or the spec can
 ;; read the table) and adding a clause is a single conj.
@@ -443,19 +425,17 @@
     :error-kw :rf.error/flow-missing-id
     :reason   ":id is required (flow registration must name an id)"}
 
-   ;; rf2-ihfz9o issue 2: a PRESENT `:id` must be a keyword. Spec-Schemas
-   ;; §FlowMeta requires `[:id :keyword]` and Spec 013 §The registration
-   ;; shape describes flow ids as namespaced feature identifiers; the
-   ;; public examples are all keywords, and the `:flow-id` slot is emitted
-   ;; unchanged into `:rf.flow/*` trace + error payloads (re-frame.flows
-   ;; :274/:315), so a string / number / map id violates the public
-   ;; schema contract and leaks an arbitrary id shape downstream. Rejecting
-   ;; at the API boundary (pre-alpha — resolve here, not by normalising in
-   ;; every consumer) is the masterpiece choice. Distinct from the
-   ;; absent-id case above (`flow-missing-id` fires first on nil); this
-   ;; rule fires only when an id is present but the wrong type — a fifth
-   ;; member of the `:rf.error/flow-bad-*` family alongside bad-inputs /
-   ;; bad-output / bad-path.
+   ;; A PRESENT `:id` must be a keyword. Spec-Schemas §FlowMeta requires
+   ;; `[:id :keyword]` and Spec 013 §The registration shape describes flow ids
+   ;; as namespaced feature identifiers; the public examples are all keywords,
+   ;; and the `:flow-id` slot is emitted unchanged into `:rf.flow/*` trace +
+   ;; error payloads, so a string / number / map id violates the public schema
+   ;; contract and would leak an arbitrary id shape downstream. Rejecting at
+   ;; the API boundary — resolving here, not by normalising in every consumer —
+   ;; is the masterpiece choice. Distinct from the absent-id case above
+   ;; (`flow-missing-id` fires first on nil); this rule fires only when an id
+   ;; is present but the wrong type — a member of the `:rf.error/flow-bad-*`
+   ;; family alongside bad-inputs / bad-output / bad-path.
    {:pred     (fn [flow] (keyword? (:id flow)))
     :error-kw :rf.error/flow-bad-id
     :reason   ":id must be a keyword (flow ids are namespaced feature identifiers; the public FlowMeta schema requires :keyword and the :flow-id trace/error slot carries it unchanged)"}
@@ -465,12 +445,10 @@
     :reason   ":inputs must be a vector of paths"}
 
    ;; One clause for both "entry isn't a vector" and "entry isn't a valid
-   ;; path" — `valid-path?` already requires `vector?`, so the older
-   ;; two-arm split (the prior code carried a separate `(every? vector?
-   ;; ...)` check) was strictly subsumed by this one. The single rejection
-   ;; message names what the entry must be; the `:bad-entries` slot points
-   ;; at the offending values so callers can fix them without a stack-trace
-   ;; dig.
+   ;; path" — `valid-path?` already requires `vector?`, so this single check
+   ;; subsumes both. The rejection message names what the entry must be; the
+   ;; `:bad-entries` slot points at the offending values so callers can fix
+   ;; them without a stack-trace dig.
    {:pred     (fn [flow] (every? valid-path? (:inputs flow)))
     :error-kw :rf.error/flow-bad-inputs
     :reason   ":inputs entries must each be a non-empty vector of path segments (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
@@ -493,23 +471,19 @@
     :reason   ":output-path elements must each be a path segment (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
     :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:output-path flow)))})}
 
-   ;; rf2-cgk0wb issue 2: the OPTIONAL output data-classification keys
-   ;; (`:sensitive` / `:large` per-path vectors; `:sensitive?` / `:large?`
-   ;; whole-output booleans) were FAIL-OPEN. `explicit-flow-output-mark-paths`
-   ;; silently `(filter vector?)`-dropped malformed `:sensitive` / `:large`
-   ;; entries and only honoured a LITERAL `true` for `:sensitive?` / `:large?`,
-   ;; so a typo (`:sensitive [:token]`, `:large "blob"`, `:sensitive? :yes`,
-   ;; `:large? 1`) registered with a normal return value and NO diagnostic
-   ;; while the intended redaction / large-elision silently never happened.
-   ;; That is the worst failure mode for a SAFETY feature: the author believes
-   ;; a slot is protected and it is not. Reject at the API boundary instead —
-   ;; same fail-FAST posture the core flow-path validation already takes, and
-   ;; the same `:rf.error/flow-bad-*` family. These rules fire AFTER the core
-   ;; `:id` / `:inputs` / `:derive` / `:output-path` rules (a flow with a broken
-   ;; required shape reports that first), but BEFORE any registry / app-db /
-   ;; elision-declaration state mutates (validate-flow is the first call in
-   ;; `reg-flow`, before `frame-id` / the `swap!`), so a rejected registration
-   ;; installs NO flow row and NO elision declaration.
+   ;; The OPTIONAL output data-classification keys (`:sensitive` / `:large`
+   ;; per-path vectors; `:large?` whole-output boolean) are validated FAIL-FAST.
+   ;; A typo (`:sensitive [:token]`, `:large "blob"`, `:large? 1`) is rejected
+   ;; at the API boundary rather than silently installing no redaction /
+   ;; large-elision — the worst failure mode for a SAFETY feature is the author
+   ;; believing a slot is protected when it is not. Same fail-FAST posture as
+   ;; the core flow-path validation, and the same `:rf.error/flow-bad-*`
+   ;; family. These rules fire AFTER the core `:id` / `:inputs` / `:derive` /
+   ;; `:output-path` rules (a flow with a broken required shape reports that
+   ;; first), but BEFORE any registry / app-db / elision-declaration state
+   ;; mutates (validate-flow is the first call in `reg-flow`, before `frame-id`
+   ;; / the `swap!`), so a rejected registration installs NO flow row and NO
+   ;; elision declaration.
    ;;
    ;; Vector-of-subpaths rules: `:sensitive` / `:large`, when PRESENT, must be
    ;; a vector whose every entry is a valid output subpath — a vector of
@@ -544,13 +518,13 @@
     :extras   (fn [flow] {:bad-key     :large
                           :bad-entries (vec (remove valid-output-subpath? (:large flow)))})}
 
-   ;; Derived-output sensitivity (EP-0015 issue 9): a flow declares its
-   ;; output's sensitivity with the closed `:rf.egress/output-sensitivity`
-   ;; enum (`:rf.egress/inherit` default | `:rf.egress/sensitive` force |
-   ;; `:rf.egress/public` declassify) — NOT the rejected boolean `:sensitive?`
-   ;; overload (Spec 015:425). REJECT a `:sensitive?` key with a recovery
-   ;; hint naming the enum; an unknown enum value is fail-closed (a typo is a
-   ;; loud error, never a silent permissive inherit).
+   ;; Derived-output sensitivity (Spec 015): a flow declares its output's
+   ;; sensitivity with the closed `:rf.egress/output-sensitivity` enum
+   ;; (`:rf.egress/inherit` default | `:rf.egress/sensitive` force |
+   ;; `:rf.egress/public` declassify). A boolean `:sensitive?` key is REJECTED
+   ;; with a recovery hint naming the enum (Spec 015:425); an unknown enum
+   ;; value is fail-closed (a typo is a loud error, never a silent permissive
+   ;; inherit).
    {:pred     (fn [flow] (not (contains? flow :sensitive?)))
     :error-kw :rf.error/flow-bad-marks
     :reason   (str "the boolean :sensitive? declassify/force spelling is rejected on a "
@@ -587,25 +561,23 @@
             (throw (flow-error error-kw reason flow (when extras (extras flow))))))
         validation-rules))
 
-;; ---- Spec 015 §7 flow-output data classification (rf2-ouemt / rf2-ihfz9o) --
+;; ---- Spec 015 §7 flow-output data classification -------------------------
 ;;
 ;; A `reg-flow` registration may carry data-classification keys describing
 ;; the SENSITIVITY / SIZE of the flow's OWN OUTPUT value:
 ;;
 ;;   :rf.egress/output-sensitivity — the closed derived-output declassification
-;;        enum (EP-0015 issue 9): :rf.egress/inherit (default) | :rf.egress/sensitive
+;;        enum: :rf.egress/inherit (default) | :rf.egress/sensitive
 ;;        (force the whole output sensitive) | :rf.egress/public (declassify)
 ;;   :large?     true   — the whole output is large
 ;;   :sensitive  [paths]— per-output-path sensitive sub-slots ([[]] = whole)
 ;;   :large      [paths]— per-output-path large sub-slots ([[]] = whole)
 ;;
-;; PLUS — per Spec 015:313 and the rf2-ihfz9o ruling (Mike (a) PROPAGATE,
-;; 2026-06-09) — a flow OUTPUT inherits the data-classification of its
-;; INPUT paths. A flow reading a sensitive app-db (or runtime-db-qualified,
-;; rf2-4eisfr) input emits a sensitive output unless the author explicitly
-;; declassifies with `:rf.egress/output-sensitivity :rf.egress/public` (the
-;; rejected `:sensitive? false` spelling is gone — Spec 015:425). This is the
-;; same propagation/override grammar subscriptions already implement
+;; PLUS — per Spec 015:313 — a flow OUTPUT inherits the data-classification of
+;; its INPUT paths. A flow reading a sensitive app-db (or runtime-db-qualified)
+;; input emits a sensitive output unless the author explicitly declassifies
+;; with `:rf.egress/output-sensitivity :rf.egress/public` (Spec 015:425). This
+;; is the same propagation/override grammar subscriptions implement
 ;; (`marks/resolve-sub-output-marks`) — flows just need their OWN trigger
 ;; because a flow does not recompute on a mark-only change (subs re-resolve on
 ;; every compute pass). Propagation is FAIL-CLOSED: an over-redacted derived
@@ -615,13 +587,12 @@
 ;; mask / aggregate) declassify with `:rf.egress/output-sensitivity
 ;; :rf.egress/public` (015's :computed/hashed-token).
 ;;
-;; :large is ASYMMETRIC and is NOT auto-propagated (Mike's lean, rf2-ihfz9o
-;; OPEN PRECISION, settled here in impl): :sensitive is TRANSITIVE (derived-
-;; from-sensitive is sensitive), but a flow usually SHRINKS a large input
-;; (count / summary / first-N), so :large-by-default would over-elide the
-;; common case and force `:large? false` everywhere. The consequence
-;; asymmetry confirms it — under-redact-sensitive is a LEAK; mis-:large is
-;; mild either way. So :large marks come ONLY from explicit flow declarations
+;; :large is ASYMMETRIC and is NOT auto-propagated: :sensitive is TRANSITIVE
+;; (derived-from-sensitive is sensitive), but a flow usually SHRINKS a large
+;; input (count / summary / first-N), so :large-by-default would over-elide the
+;; common case and force `:large? false` everywhere. The consequence asymmetry
+;; confirms it — under-redact-sensitive is a LEAK; mis-:large is mild either
+;; way. So :large marks come ONLY from explicit flow declarations
 ;; (`:large? true` / `:large [paths]`); :sensitive marks come from explicit
 ;; declarations UNION propagated input marks.
 ;;
@@ -652,11 +623,11 @@
 ;;     elide the app-db destination slot through the SAME registry, so the
 ;;     db-diff / pending-db / view egress paths redact it too.
 ;;
-;; THE PROPAGATION TRIGGER (rf2-ihfz9o IMPLEMENTATION SHAPE): the input-path
-;; marks a flow inherits arrive on the frame's elision registry AFTER the
-;; flow registers (`add-marks` / `set-marks` / schema population / an upstream
-;; flow's propagated mark). A flow does NOT recompute on a mark-only change,
-;; so it needs a MARK-MUTATION-aware refresh. We resolve at TWO points,
+;; THE PROPAGATION TRIGGER: the input-path marks a flow inherits arrive on the
+;; frame's elision registry AFTER the flow registers (`add-marks` /
+;; `set-marks` / schema population / an upstream flow's propagated mark). A
+;; flow does NOT recompute on a mark-only change, so it needs a
+;; MARK-MUTATION-aware refresh. We resolve at TWO points,
 ;; FRAME-SCOPED and TOPO-ORDERED:
 ;;   1. at `reg-flow` time (initial install — covers add-marks-then-reg-flow),
 ;;   2. at the START of every `run-flows-on-db` drain, walking the frame's
@@ -706,13 +677,13 @@
     [(vec (concat whole-sens per-sens))
      (vec (concat whole-lg   per-large))]))
 
-;; ---- partition-qualified input primitives (EP-0001 §535-551, rf2-4eisfr) --
+;; ---- partition-qualified input primitives (EP-0001 §535-551) -------------
 ;;
 ;; The ONE home for the binary `:inputs`-path partition syntax shared across
-;; the flows artefact (rf2-4vreu8 dedupe): a bare leading path element resolves
-;; against app-db; a leading `:rf.db/runtime` opts the input into the runtime-db
-;; partition and is stripped before the path is used. Three consumers ride
-;; these primitives so the rule lives once:
+;; the flows artefact: a bare leading path element resolves against app-db; a
+;; leading `:rf.db/runtime` opts the input into the runtime-db partition and is
+;; stripped before the path is used. Three consumers ride these primitives so
+;; the rule lives once:
 ;;   - `re-frame.flows/resolve-input` — reads the input VALUE against the
 ;;     pending app-db / runtime-db partitions (strips for the runtime read);
 ;;   - `re-frame.flows/elide-inputs` + `input-overlaps-declaration?` below —
@@ -727,14 +698,14 @@
   flow input into the runtime-db partition (`:rf.db/runtime`). Bare paths (any
   other leading element) resolve against app-db. The single const all three
   flow-artefact consumers (resolver / elision / algebra projection) key on so
-  the rule, the resolver, and the doc stay in lockstep (rf2-4vreu8)."
+  the rule, the resolver, and the doc stay in lockstep."
   :rf.db/runtime)
 
 (defn ^:no-doc runtime-input?
   "True iff `path` is a partition-qualified runtime-db input — a vector whose
   FIRST element is `runtime-partition-key` (`:rf.db/runtime`). Everything else
-  is a bare app-db path (binary syntax — rf2-4eisfr refinement (i): there is no
-  third `[:rf.db/app …]` explicit-app form)."
+  is a bare app-db path (binary syntax — there is no third `[:rf.db/app …]`
+  explicit-app form)."
   [path]
   (= runtime-partition-key (first path)))
 
@@ -743,27 +714,24 @@
   path the elision registry is keyed by (plain path vectors, partition-
   blind — `add-marks` / schema / a flow's own propagated mark all store
   bare path vectors). A bare input is an app-db path verbatim; a runtime-
-  db-qualified input `[:rf.db/runtime …rest]` (rf2-4eisfr) drops the
-  partition key so its `…rest` matches a declaration on that runtime-db
-  slot (e.g. a sensitive route param / machine-data slot declared via
-  `add-marks`). Partition-aware by construction — the SAME machinery, one
-  pass, per the rf2-ihfz9o COMPOSE-WITH-rf2-4eisfr note.
+  db-qualified input `[:rf.db/runtime …rest]` drops the partition key so its
+  `…rest` matches a declaration on that runtime-db slot (e.g. a sensitive
+  route param / machine-data slot declared via `add-marks`). Partition-aware
+  by construction — the SAME machinery, one pass.
 
-  This is the SHARED strip-partition primitive (rf2-4vreu8): a runtime input
-  drops its leading `runtime-partition-key`; a bare input is returned verbatim
-  (as a vector). `re-frame.flows/resolve-input` uses it for the runtime-db
-  value read and `re-frame.flows.tooling/declared-input` for the algebra
+  This is the SHARED strip-partition primitive: a runtime input drops its
+  leading `runtime-partition-key`; a bare input is returned verbatim (as a
+  vector). `re-frame.flows/resolve-input` uses it for the runtime-db value
+  read and `re-frame.flows.tooling/declared-input` for the algebra
   `[:runtime …rest]` / `[:db …]` lowering, so all partition stripping routes
   through this one fn.
 
-  NOT private (rf2-p44r3u): `re-frame.flows/elide-inputs` reuses this SAME
-  normalization when seeding `elision/elide-wire-value`'s `:path` opt for a
-  flow's per-input trace value, so the `:rf.flow/computed` `:input-values`
-  and `:rf.flow/failed` `:inputs` slots elide a runtime-qualified input
-  against the STRIPPED declaration path — closing the input-value leak
-  where the registry keyed the sensitive declaration at the stripped path
-  but the trace seed carried the raw `[:rf.db/runtime …]` path and never
-  matched it."
+  Public so `re-frame.flows/elide-inputs` can reuse this SAME normalization
+  when seeding `elision/elide-wire-value`'s `:path` opt for a flow's per-input
+  trace value, so the `:rf.flow/computed` `:input-values` and
+  `:rf.flow/failed` `:inputs` slots elide a runtime-qualified input against
+  the STRIPPED declaration path — matching how the registry keys the sensitive
+  declaration at the stripped path."
   [input-path]
   (if (runtime-input? input-path)
     (subvec (vec input-path) 1)
