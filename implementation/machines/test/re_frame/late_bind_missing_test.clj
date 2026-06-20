@@ -1,13 +1,12 @@
 (ns re-frame.late-bind-missing-test
-  "Per rf2-5b6x — assert the documented missing-artefact error contract for
-  the machines artefact's `re-frame.core` re-exports.
+  "Assert the documented missing-artefact error contract for the machines
+  artefact's `re-frame.core` re-exports.
 
   Each per-feature split (schemas / machines / routing / flows / http /
   ssr) raises a documented `:rf.error/<artefact>-artefact-missing`
   ex-info when a consumer calls a re-exported surface but the artefact
-  is absent from the classpath. The contract was previously only
-  documented in prose; this test pins the runtime behaviour against
-  regression.
+  is absent from the classpath. This test pins that runtime behaviour
+  against regression.
 
   Strategy: the machines artefact IS on the classpath here (the test ns
   requires `re-frame.machines`, which fires the late-bind hook
@@ -16,19 +15,18 @@
   assertion, then restore it in `finally`. Identical mechanism as the
   test would use on CLJS.
 
-  Per Spec 002 §The late-bind seam, rf2-xbtj (machines split), and the
-  prose at the call sites in `re-frame.core`.
+  Per Spec 002 §The late-bind seam and the prose at the call sites in
+  `re-frame.core`.
 
-  Note (rf2-wad2fl — front-porch shrink): the ONLY machine surface that
-  remains on the `re-frame.core` façade is the `reg-machine` /
-  `defmachine` registration MACRO (source-coord capture; no owned-ns
-  macro form), so the façade missing-artefact contract is tested here for
-  `reg-machine` only. The fn surfaces (`reg-machine*`, `make-machine-
-  handler`, `machine-transition`) and the read-only query surfaces
-  (`machines`, `machine-meta`, `machine-by-system-id`) were demoted off
-  the façade — they are reached through `re-frame.machines` (the owned
-  namespace; requiring it means the artefact is present, so the façade
-  artefact-missing contract no longer applies to them)."
+  The ONLY machine surface on the `re-frame.core` façade is the
+  `reg-machine` / `defmachine` registration MACRO (source-coord capture;
+  no owned-ns macro form), so the façade missing-artefact contract is
+  tested here for `reg-machine` only. The fn surfaces (`reg-machine*`,
+  `make-machine-handler`, `machine-transition`) and the read-only query
+  surfaces (`machines`, `machine-meta`, `machine-by-system-id`) live on
+  `re-frame.machines` (the owned namespace; requiring it means the
+  artefact is present, so the façade artefact-missing contract does not
+  apply to them)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
@@ -61,7 +59,7 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-machine throws when the machines artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; The message is the human :reason + trailing
           ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
           ;; not exact keyword-equality.
           (is (re-find #"\[:rf\.error/machines-artefact-missing\]" (.getMessage thrown))
@@ -69,11 +67,11 @@
           (is (= :rf.error/machines-artefact-missing (:rf.error/id (ex-data thrown)))
               "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
-            ;; Per rf2-hoiu the throw lives in
+            ;; The throw lives in
             ;; `re-frame.core-machines/reg-machine` — the sibling-namespace
-            ;; fn-form delegate the macro routes through. Per rf2-j8icl
-            ;; the `:where` symbol is namespace-qualified to the user-
-            ;; facing surface (`rf/reg-machine`).
+            ;; fn-form delegate the macro routes through. The `:where` symbol
+            ;; is namespace-qualified to the user-facing surface
+            ;; (`rf/reg-machine`).
             (is (= 'rf/reg-machine (:where data))
                 "ex-data carries :where = 'rf/reg-machine")
             (is (= :probe/macro-machine (:machine-id data))

@@ -1,12 +1,11 @@
 (ns re-frame.machine-cascade-instrumentation-test
-  "Per rf2-n9f4z — the `:rf.machine/transition` trace carries a structured
-  `:cascade` field: the ordered exit / transition-action / entry steps (+
-  initial-descent + `:always` microsteps + per-region structure) that
-  explain HOW a transition reached its after-state, so tooling (Xray's
-  epoch panel — rf2-52u5n) can render the cascade rather than only
-  `{from}->{to} + {n} microstep(s)`.
+  "The `:rf.machine/transition` trace carries a structured `:cascade` field:
+  the ordered exit / transition-action / entry steps (+ initial-descent +
+  `:always` microsteps + per-region structure) that explain HOW a transition
+  reached its after-state, so tooling (Xray's epoch panel) can render the
+  cascade rather than only `{from}->{to} + {n} microstep(s)`.
 
-  The cascade step shape (the contract rf2-52u5n renders) is a vector of
+  The cascade step shape (the contract tooling renders) is a vector of
   self-describing step maps in execution order:
 
     {:kind   :exit | :action | :entry | :microstep
@@ -18,15 +17,10 @@
   `:microstep` steps add `:microstep-index` / `:from` / `:to` / `:steps`
   (the microstep's own nested exit/action/entry cascade).
 
-  RED before this bead: the only fields on `:rf.machine/transition` were
-  `{:machine-id :event :before :after :microsteps}` — `:cascade` was
-  absent, so tooling could not explain the entry/exit cascade.
-
   The HVAC fixture mirrors the live machine-epochs testbed
   (`:hvac/controller`) whose own `:data :trail` records the cascade order
   — that trail is the ORACLE these tests cross-check the emitted cascade
-  against (the trail exists only because the framework did not expose this;
-  this bead removes the need for it)."
+  against."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]
@@ -35,7 +29,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
+;; Routed through the shared `mtest/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces! [body-fn]
   (mtest/with-trace-capture seen

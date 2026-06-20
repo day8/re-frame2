@@ -1,24 +1,17 @@
 (ns re-frame.machine-depth-abort-failure-test
-  "Per rf2-y3jv8q — a bounded-depth abort (`:always` / `:raise` depth limit
-  tripped on a runaway cycle) surfaces as a FAILED macrostep, NOT a silent
-  benign no-op.
+  "A bounded-depth abort (`:always` / `:raise` depth limit tripped on a
+  runaway cycle) surfaces as a FAILED macrostep, NOT a silent benign no-op.
+  A runaway `a →:always b →:always a` cycle must be DISTINGUISHABLE from a
+  guard-blocked no-op (XState v5 THROWS on such a cycle).
 
-  Before this bead the depth-abort returned `(result/ok rollback-snapshot
-  [])` from the drain. `commit-or-finalize` then saw `next == snapshot` and
-  classified the macrostep a no-op: no `:rf.machine/transition` trace, NO
-  error routed through the handler return — only an out-of-band
-  `emit-error!`. A runaway `a →:always b →:always a` cycle was thus
-  INDISTINGUISHABLE from a guard-blocked no-op, and the triggering user
-  event was silently swallowed. XState v5 THROWS on such a cycle.
-
-  The fix returns a `result/fail` carrying the `::result/depth-abort?`
+  The depth-abort returns a `result/fail` carrying the `::result/depth-abort?`
   sentinel; it routes through the SAME failure path a thrown action takes
   (the handler short-circuits to `{}` — no snapshot write reaches
   runtime-db, so the atomic rollback Spec 005 §Bounded depth requires is
   preserved). The precise `:rf.error/machine-{always,raise}-depth-exceeded`
   category is emitted once at the abort site (the single trace for the
   trip); the engine does NOT additionally emit the benign
-  `:rf.machine.event/unhandled-no-op` — so the runaway is now DISTINGUISHABLE
+  `:rf.machine.event/unhandled-no-op` — so the runaway is DISTINGUISHABLE
   from a guard-blocked no-op.
 
   JVM-only — the dynamic-var listener path is platform-agnostic."
@@ -74,10 +67,10 @@
             "the depth-exceeded trace is error-grade (a failed macrostep)")
         (is (= :no-recovery (:recovery tr))
             "the trip is :no-recovery"))
-      ;; The CORE of the bug: a runaway cycle must NOT masquerade as the
-      ;; benign no-op a guard-blocked / unhandled event emits. Before the fix
-      ;; the abort returned an OK rollback snapshot and the runaway was
-      ;; indistinguishable from a guard-blocked no-op.
+      ;; The CORE contract: a runaway cycle must NOT masquerade as the
+      ;; benign no-op a guard-blocked / unhandled event emits — the abort
+      ;; surfaces as a failed macrostep, distinguishable from a
+      ;; guard-blocked no-op.
       (is (= 0 (count no-ops))
           "a runaway cycle is NOT a benign no-op — no unhandled-no-op fires")
       ;; Atomic rollback (Spec 005 §Bounded depth): the macrostep failed, so

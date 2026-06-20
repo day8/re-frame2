@@ -1,5 +1,5 @@
 (ns re-frame.machine-history-smoke-test
-  "Minimal smoke for the first-class history ENGINE (rf2-mle6e.3). Drives the
+  "Minimal smoke for the first-class history ENGINE. Drives the
   pure `machine-transition` primitive directly (no frame / app-db) to prove
   record-on-exit + restore-on-re-entry work for the shapes the spec pins:
 
@@ -8,25 +8,25 @@
     - DEEP record/restore — records and restores the full leaf path.
     - DEFAULT-TARGET on first entry — nothing recorded yet → `:default-target`
       (or the compound's `:initial` when absent).
-    - DANGLING recorded path after hot reload (rf2-wgfv0 engine half) — a
-      recorded config the (reloaded) definition removed falls back to the
-      default, never entering the dead path; benign (no `:rf.error/*`).
+    - DANGLING recorded path after hot reload — a recorded config the
+      (reloaded) definition no longer declares falls back to the default,
+      never entering the dead path; benign (no `:rf.error/*`).
     - PER-REGION parallel history — recorded keys are region-qualified;
       restoring one region leaves siblings untouched.
     - SNAPSHOT REVERTIBILITY — `:rf/history` rides `pr-str` / `read-string`
       (it lives inside the snapshot value, like `:rf/machine-type`).
 
   The COMPREHENSIVE history suite (unit matrix + conformance restore
-  fixtures + the W3C-adapted corpus) is rf2-mle6e.4's job — this is only the
+  fixtures + the W3C-adapted corpus) lives elsewhere — this is only the
   engine-author's proof that record/restore is wired end-to-end.
 
   TRACE SHAPE — the `:rf.machine.history/restored` + `:rf.machine.history/
-  recorded` emits MUST match spec/009 §History trace events EXACTLY (the
-  tag-key catalogue owned by rf2-mle6e.2). The `*-trace-shape` tests below
-  capture the emitted events via a `re-frame.trace` listener and assert the
-  precise tag bags (`:compound-path` / `:kind` / `:source` / `:fallback` /
-  `:restored-config` / `:recorded-config` / `:prev-config` / `:resolved-leaf`)
-  + the cascade-step `:source` stamping (spec/009 line 291)."
+  recorded` emits MUST match spec/009 §History trace events EXACTLY. The
+  `*-trace-shape` tests below capture the emitted events via a `re-frame.trace`
+  listener and assert the precise tag bags (`:compound-path` / `:kind` /
+  `:source` / `:fallback` / `:restored-config` / `:recorded-config` /
+  `:prev-config` / `:resolved-leaf`) + the cascade-step `:source` stamping
+  (spec/009 line 291)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.machines :as machines]
             [re-frame.machines.result :as result]
@@ -34,7 +34,7 @@
 
 ;; ---- trace capture (spec/009 shape proof) --------------------------------
 ;;
-;; Trace capture via the shared machines test-support (rf2-3l8lqe finding #4):
+;; Trace capture via the shared machines test-support:
 ;; the `:each` `trace-capture-fixture` feeds `mtest/*captured*` with guaranteed
 ;; unregister in a `finally`; `events-of` / `reset-captured!` read + clear it.
 
@@ -57,7 +57,7 @@
     (result/snap r)))
 
 ;; A media-player chart whose `:playing` COMPOUND owns a DEEP history
-;; pseudo-state. Per the XState v5 / SCXML exit-set rule (rf2-9eidiv), only
+;; pseudo-state. Per the XState v5 / SCXML exit-set rule, only
 ;; a compound that is GENUINELY EXITED records history — so the history
 ;; owner must be a compound the transition leaves. Here `:stop` exits the
 ;; whole `:playing` subtree to its sibling `:stopped`, recording `:playing`'s
@@ -229,8 +229,8 @@
 
 ;; ---- spec/009 trace-shape proofs -----------------------------------------
 ;;
-;; These pin the EXACT tag bags spec/009 §History trace events declares — the
-;; reconcile target (rf2-mle6e.2 contract). They assert presence AND absence
+;; These pin the EXACT tag bags spec/009 §History trace events declares.
+;; They assert presence AND absence
 ;; (e.g. `:restored-config` absent on `:source :default`, `:fallback` absent
 ;; on `:source :recorded`, `:prev-config` absent on the first-ever recording).
 
@@ -374,13 +374,13 @@
       (is (empty? (history-events :rf.machine.history/restored))
           "no restored event for a non-history transition"))))
 
-;; ---- exit-set boundary regression (rf2-9eidiv) ---------------------------
+;; ---- exit-set boundary regression ----------------------------------------
 ;;
 ;; The XState v5 / SCXML exit-set rule: a history-owning compound records
 ;; ONLY when it is itself EXITED. A pure WITHIN-compound sibling move — where
-;; the history owner SURVIVES as the LCCA — records NOTHING. This was the OLD
-;; `<=` trigger (active-child-subtree teardown); the strict `<` gate retires
-;; it. This regression locks the boundary so it never silently slips back.
+;; the history owner SURVIVES as the LCCA — records NOTHING. The strict `<`
+;; gate enforces this boundary. This regression locks it so it never silently
+;; slips.
 
 ;; `:player` itself owns deep history; `:swap` moves between its two children
 ;; (:playing ↔ :stopped). `:player` is the LCA of that move — it SURVIVES (is

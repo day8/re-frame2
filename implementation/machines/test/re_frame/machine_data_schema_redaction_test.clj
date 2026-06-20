@@ -1,22 +1,23 @@
 (ns re-frame.machine-data-schema-redaction-test
-  "EP-0025 (rf2-398kql) — machine `:data` trace-egress redaction via FRAME-
-  DECLARED classification (the frame-owned sole app-db mechanism).
+  "Machine `:data` trace-egress redaction via FRAME-DECLARED classification
+  (the frame-owned sole app-db mechanism).
 
-  Machine `:data` validation ships separately (rf2-jbbp7): a `:data-schema`
-  Malli form validates the machine's `:data` slot, and the validation-failure
-  trace routes its value slots through the schema-aware redactor — UNCHANGED by
-  EP-0025. What this file pins is *snapshot* egress: a machine `:data` slot is
-  redacted in the `:before` / `:after` / `:snapshot` / `:data` / `:input` /
-  `:cascade` slots of `:rf.machine/*` traces when the FRAME declares its
-  runtime-db snapshot path sensitive / large.
+  Machine `:data` validation ships separately: a `:data-schema` Malli form
+  validates the machine's `:data` slot, and the validation-failure trace
+  routes its value slots through the schema-aware redactor. What this file
+  pins is *snapshot* egress: a machine `:data` slot is redacted in the
+  `:before` / `:after` / `:snapshot` / `:data` / `:input` / `:cascade` slots
+  of `:rf.machine/*` traces when the FRAME declares its runtime-db snapshot
+  path sensitive / large.
 
-  EP-0025 REVERSES the EP-0005 schema→marks bridge: a `:sensitive?` / `:large?`
-  Malli prop on a `:data-schema` slot NO LONGER classifies durable `:data` for
-  egress. Instead the frame declares the machine snapshot's `:data` path via
-  `reg-frame` `:sensitive` / `:large {:app-db …}` (the absolute runtime-db path
+  Classification of durable `:data` for egress is frame-owned: the frame
+  declares the machine snapshot's `:data` path via `reg-frame`
+  `:sensitive` / `:large {:app-db …}` (the absolute runtime-db path
   `[:rf.runtime/machines :snapshots <actor-id> :data …]`); the trace egress
-  chokepoint re-roots that snapshot-relative (`marks/frame-snapshot-marks`) and
-  redacts the matching slot.
+  chokepoint re-roots that snapshot-relative (`marks/frame-snapshot-marks`)
+  and redacts the matching slot. A `:sensitive?` / `:large?` Malli prop on a
+  `:data-schema` slot is VALIDATION ONLY and does not classify durable
+  `:data` for egress.
 
   The contract under test:
 
@@ -27,12 +28,12 @@
    2. **Precision.** An undeclared sibling slot rides egress verbatim; a
       machine whose frame declares nothing rides every `:data` slot raw.
 
-   3. **Schema props do NOT classify (EP-0025 reversal).** A `:data-schema`
-      `:sensitive?` slot does NOT, by itself, redact durable `:data` at
-      snapshot egress — only the frame-declared path does.
+   3. **Schema props do NOT classify.** A `:data-schema` `:sensitive?` slot
+      does NOT, by itself, redact durable `:data` at snapshot egress — only
+      the frame-declared path does.
 
    4. **No top-level machine classification key.** A top-level `:sensitive` /
-      `:large` key on a `reg-machine` spec is ignored (rf2-0k5ubx)."
+      `:large` key on a `reg-machine` spec is ignored."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
@@ -41,7 +42,7 @@
             [re-frame.marks :as marks]
             [re-frame.machines.test-support :as mtest]
             ;; The schemas artefact + Malli adapter — `:data-schema` VALIDATION
-            ;; still runs; the props just no longer classify durable :data.
+            ;; runs; the props do not classify durable :data.
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -54,9 +55,10 @@
 (def ^:private auth-id :rf.machine-redaction/auth)
 
 (def ^:private auth-schema
-  "A `:data-schema` — VALIDATION ONLY (EP-0025: per-slot props no longer
-  classify). It still carries `:sensitive?` / `:large?` props to PROVE they
-  do not classify durable `:data` at snapshot egress (test (3))."
+  "A `:data-schema` is VALIDATION ONLY: per-slot props do not classify durable
+  `:data` for snapshot egress; frame-declared paths are the sole egress
+  mechanism. It carries `:sensitive?` / `:large?` props to PROVE they do not
+  classify durable `:data` at snapshot egress (test (3))."
   [:map
    [:retries :int]
    [:token   {:sensitive? true} [:maybe :string]]
@@ -169,7 +171,7 @@
       (is (= :rf/redacted (get-in out [:tags :snapshot :data :token])))
       (is (not (.contains (pr-str out) "secret-jwt-snap"))))))
 
-;; ---- (2b) FULL machine :data slot coverage (rf2-20d6k2) -------------------
+;; ---- (2b) FULL machine :data slot coverage -------------------------------
 
 (deftest started-data-slot-redacted-in-egress
   (testing ":rf.machine/started carries the booted snapshot's :data MAP
@@ -285,7 +287,7 @@
       (is (= "not-secret" (get-in out [:tags :data :token]))
           "no frame declaration → :data slot verbatim"))))
 
-;; ---- (2c) :actor-id PREFERRED-branch coverage (rf2-sxmeqs) ----------------
+;; ---- (2c) :actor-id PREFERRED-branch coverage ----------------------------
 
 (deftest sensitive-slot-redacted-in-egress-actor-id
   (testing "an :actor-id-keyed transition (the PREFERRED lookup branch
@@ -318,8 +320,8 @@
           "redacted via the PREFERRED :actor-id (declared), not the :machine-id sibling")
       (is (not (.contains (pr-str out) "secret-jwt"))))))
 
-;; ---- (3) EP-0025 reversal: a :data-schema :sensitive? prop does NOT --------
-;;          classify durable :data at snapshot egress.
+;; ---- (3) a :data-schema :sensitive? prop does NOT classify durable :data --
+;;          at snapshot egress.
 
 (deftest schema-sensitive-prop-does-not-classify-durable-data
   (testing "EP-0025 reversal — a :data-schema :sensitive? / :large? slot prop
@@ -337,14 +339,13 @@
           "a :large? :data-schema slot does NOT elide without a frame declaration"))))
 
 ;; ---- (4) NEGATIVE: a top-level machine :sensitive / :large key is NOT a ----
-;;          classification route (rf2-0k5ubx 2026-06-09; EP-0025).
+;;          classification route.
 ;;
-;; A considered proposal to add TOP-LEVEL machine `:sensitive` / `:large` keys
-;; (the spelling frames DO take) was REJECTED — `reg-machine` carries no such
-;; key. Per EP-0025 machine :data classification belongs on the FRAME. The
-;; validator walks only the grammar keys, so a top-level key is IGNORED (not
-;; rejected), and it feeds NO classification — a token under such a spec rides
-;; RAW at snapshot egress unless the FRAME declares it.
+;; `reg-machine` carries no TOP-LEVEL `:sensitive` / `:large` key (the
+;; spelling frames DO take). Machine :data classification belongs on the
+;; FRAME. The validator walks only the grammar keys, so a top-level key is
+;; IGNORED (not rejected), and it feeds NO classification — a token under such
+;; a spec rides RAW at snapshot egress unless the FRAME declares it.
 
 (deftest top-level-machine-sensitive-key-is-not-honoured
   (testing "a TOP-LEVEL :sensitive / :large key on a reg-machine spec is NOT a

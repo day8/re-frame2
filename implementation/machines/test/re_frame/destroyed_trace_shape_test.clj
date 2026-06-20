@@ -1,7 +1,5 @@
 (ns re-frame.destroyed-trace-shape-test
-  "Per rf2-vgkdt and the rf2-2ukxv round-2 audit §TE-r2-3.
-
-  `:rf.machine/destroyed` is emitted at three distinct sites — each
+  "`:rf.machine/destroyed` is emitted at three distinct sites — each
   for a different destroy class:
 
     1. `destroy-spawn-all-children!` (lifecycle_fx/destroy.cljc):
@@ -48,13 +46,13 @@
 ;; `:tags` per Spec 009 §Cascade-id stamping; those keys are not part
 ;; of the per-site contract.
 ;;
-;; rf2-sfunt8 — an `:explicit` destroy closes the actor work attempt the
-;; reply-envelope way (a `:status :cancelled` reply — cancellation as DATA,
-;; Managed-Effects §Cancellation / EP-0011 §Cancellation). The cancelled
-;; reply facts ride ADDITIVELY on the destroyed trace, so they are part of
-;; the contract for the `:explicit` (cancellation) sites; a
-;; `:rf.machine/finished` destroy carries none of them (the actor already
-;; closed through `finalize-machine`'s `:rf.machine/done` reply).
+;; An `:explicit` destroy closes the actor work attempt the reply-envelope
+;; way (a `:status :cancelled` reply — cancellation as DATA, Managed-Effects
+;; §Cancellation / EP-0011 §Cancellation). The cancelled reply facts ride
+;; ADDITIVELY on the destroyed trace, so they are part of the contract for
+;; the `:explicit` (cancellation) sites; a `:rf.machine/finished` destroy
+;; carries none of them (the actor already closed through
+;; `finalize-machine`'s `:rf.machine/done` reply).
 (def ^:private reply-envelope-keys
   #{:work/id :work/kind :rf.reply/status :rf.reply/work-id
     :rf.reply/work-status :rf.reply/cancelled? :rf.reply/cancel-reason
@@ -78,7 +76,7 @@
 ;; is the destroyed-trace SHAPE probe — it returns a [capture-atom
 ;; unregister-fn] pair so a test can inspect the raw envelope key-set and
 ;; control exactly when it stops capturing (the scope-macro form cannot
-;; express the manual-stop). Per rf2-kjmtbq this site is left as raw by design.
+;; express the manual-stop). This site is left as raw by design.
 (defn- record!
   []
   (let [a  (atom [])
@@ -109,7 +107,7 @@
           (str label ": :reason discriminator is always emitted"))
       (is (#{:explicit :rf.machine/finished} (:reason tags))
           (str label ": :reason is one of :explicit / :rf.machine/finished"))
-      ;; rf2-sfunt8 — an :explicit destroy is a cancellation; it carries the
+      ;; An :explicit destroy is a cancellation; it carries the
       ;; reply-envelope cancellation facts. A :rf.machine/finished destroy is
       ;; NOT a cancellation (the actor closed through :rf.machine/done) — no
       ;; cancelled reply facts.

@@ -1,6 +1,6 @@
 (ns re-frame.machine-decl-path-default-test
-  "Per rf2-h16qii — `compute-cascade-paths`' default `:decl-path` is ROOT
-  (`[]`), not a depth-1 guess.
+  "`compute-cascade-paths`' default `:decl-path` is ROOT (`[]`), not a
+  depth-1 guess.
 
   `compute-cascade-paths` (reached via the public `apply-transition-once`)
   reads `(:decl-path transition <default>)` — the absolute path of the state
@@ -10,15 +10,15 @@
   re-entered\") is GATED on a NON-EMPTY decl-path (`(pos? (count decl-path))`),
   which deliberately excludes the synthetic ROOT.
 
-  The pre-fix default was `(vec (take 1 src-path))` — the FIRST element of the
-  active leaf's path, i.e. it assumed the transition was declared at DEPTH 1.
   Every in-tree caller stamps `:decl-path` (via `pick-transition` then
   `machine-transition-single`'s `(assoc :decl-path …)`), so the default is
   reached only by a pure-fn / hand-built / future caller of the public
-  `apply-transition-once`. For such a caller a ROOT-declared transition
-  (decl-path `[]`) on a deep machine was mis-located at `[<top>]` — a NON-empty
-  path that WRONGLY tripped `target-descendant-of-decl?`, diverging the LCA
-  geometry (the wrong exit / entry set).
+  `apply-transition-once`. For such a caller the ROOT default keeps a
+  ROOT-declared transition (decl-path `[]`) on a deep machine correctly
+  located at root: a depth-1 default (`(vec (take 1 src-path))`, the first
+  element of the active leaf's path) would mis-locate it at `[<top>]` — a
+  NON-empty path that WRONGLY trips `target-descendant-of-decl?`, diverging
+  the LCA geometry (the wrong exit / entry set).
 
   This is a pure-engine geometry test — it calls `apply-transition-once`
   directly with a transition map carrying NO `:decl-path`, so it exercises the
@@ -60,10 +60,10 @@
     ;; false (empty decl-path), so lca-len = common-prefix = 1 → exit :q,
     ;; enter :r, :s. CORRECT.
     ;;
-    ;; With the pre-fix depth-1 default (decl-path [:p]):
+    ;; With a depth-1 default (decl-path [:p]):
     ;; `target-descendant-of-decl?` would be TRUE ([:p] is a prefix of both
     ;; src and target), forcing lca-len = (dec (count [:p :r :s])) = 2 →
-    ;; exit set EMPTY (:q not exited) and only :s entered. BROKEN: :q would
+    ;; exit set EMPTY (:q not exited) and only :s entered. WRONG: :q would
     ;; stay on the active path while the machine dives to :s.
     (let [snapshot {:state [:p :q] :data {:log []}}
           ;; NB: no :decl-path key — exercises the default.

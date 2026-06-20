@@ -1,24 +1,20 @@
 (ns re-frame.transition-frame-tag-test
-  "Per rf2-hwuki: `:rf.machine/transition` MUST carry the `:frame` tag so
+  "`:rf.machine/transition` MUST carry the `:frame` tag so
   `re-frame.epoch.capture/capture-event!` admits it into the cascade's
   trace buffer.
 
-  Discovered by the Xray matrix P1 gaps worker (rf2-bz72m chart-render
-  scenario) while building a chart-render assertion: the framework
-  emitted `:rf.machine/transition` WITHOUT `:frame`, so the epoch
-  capture gate (`(when (and frame-id ...) (state/buffer-event! ...))`)
-  silently dropped the event. The trace fanned out to direct trace
-  listeners (so unit tests that registered a `register-listener!`
-  observed it) but never reached the epoch-history `:trace-events`
-  slot the Xray Machine Inspector reads from. The chart 'never
-  rendered' for real cascades; Xray's own unit tests sidestepped it
-  via a `:rf.xray/set-epoch-history-for-test` injection seam.
+  The epoch capture gate (`(when (and frame-id ...) (state/buffer-event!
+  ...))`) admits a trace event only when its tags carry `:frame`; an event
+  whose tags lack `:frame` is dropped from the epoch-history
+  `:trace-events` slot the Xray Machine Inspector reads from (though it
+  still fans out to direct trace listeners). So a `:rf.machine/transition`
+  must tag `:frame` for the Machine Inspector to see real cascades.
 
   This test lives in the machines artefact (which does not depend on
   epoch) so the site contract is exercised even when the epoch artefact
   isn't on the test classpath. The end-to-end harvested-record
   assertion lives upstack in the epoch / Xray gates — they read the
-  same `:tags :frame` slot we lock here, so a future regression that
+  same `:tags :frame` slot we lock here, so a regression that
   drops the tag fails at this site test first (clear cause)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

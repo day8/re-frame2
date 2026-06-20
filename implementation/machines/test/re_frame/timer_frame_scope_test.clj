@@ -1,25 +1,14 @@
 (ns re-frame.timer-frame-scope-test
-  "Per rf2-ysa94: regression test for the frame-scoping of
-  `re-frame.machines.timer/after-timers` — the last process-global atom
-  in the machines artefact prior to this refactor.
+  "Frame-scoping of `re-frame.machines.timer/after-timers`.
 
-  Pre-rf2-ysa94 the table was a single flat map keyed by
-  `[frame-id parent-id invoke-id delay-key]`. Two consequences (the
-  rf2-ra1he audit §TM4 motivation):
-
-    1. Frame isolation broken under concurrent fixture runs. A
-       `reset-timers!` call from one test fixture cleared sibling test
-       fixtures' entries via `(reset! after-timers {})`.
-
-    2. `after-cancel-fx` did a linear scan over the entire atom on every
-       state-exit-with-:after — O(timers-all-frames) instead of
-       O(timers-this-frame).
-
-  Post-rf2-ysa94 the table is `{<frame-id> {<inner-key> <entry>}}` and
-  the public API gains a 1-arity `reset-timers!` / `cancel-all-timers!`
-  for per-frame teardown. The destroy-frame! hook
-  `:machines/on-frame-destroyed!` releases a destroyed frame's timers
-  without disturbing siblings.
+  The table is `{<frame-id> {<inner-key> <entry>}}` — entries partition by
+  frame-id, so frame isolation holds under concurrent fixture runs (a
+  `reset-timers!` on one frame leaves siblings untouched) and
+  `after-cancel-fx` scans only the active frame's entries
+  (O(timers-this-frame), not O(timers-all-frames)). The public API offers a
+  1-arity `reset-timers!` / `cancel-all-timers!` for per-frame teardown, and
+  the destroy-frame! hook `:machines/on-frame-destroyed!` releases a
+  destroyed frame's timers without disturbing siblings.
 
   The assertions below exercise both the structural invariant (entries
   partition by frame-id) and the behaviour: two frames scheduling timers
@@ -75,12 +64,10 @@
           "the timer table partitions entries under the left frame")
       (is (contains? tt :iso/right)
           "the timer table partitions entries under the right frame")
-      ;; Inner keys (per rf2-gwznv): {:parent <parent-id> :spawn
-      ;; <invoke-id-vec> :delay <delay-key>}. Because the machine spec
-      ;; is identical the inner keys collide across frames —
-      ;; pre-rf2-ysa94 the keying included the frame-id; post-rf2-ysa94
-      ;; the frame-id is the OUTER key and the inner keys legitimately
-      ;; coincide.
+      ;; Inner keys are {:parent <parent-id> :spawn <invoke-id-vec>
+      ;; :delay <delay-key>}. Because the machine spec is identical the
+      ;; inner keys collide across frames — the frame-id is the OUTER
+      ;; key and the inner keys legitimately coincide.
       (let [left-inner-keys  (set (keys (get tt :iso/left)))
             right-inner-keys (set (keys (get tt :iso/right)))]
         (is (= left-inner-keys right-inner-keys)
@@ -134,7 +121,7 @@
     (is (= {} @timer/after-timers)
         "0-arity clears the whole table — the fixture-teardown shape")))
 
-;; ---- regression: after-cancel-fx no longer scans across frames -----------
+;; ---- regression: after-cancel-fx is scoped to the active frame -----------
 
 (deftest after-cancel-fx-scoped-to-active-frame
   (testing "exiting an :after-bearing state in one frame must not cancel sibling frames' timers"

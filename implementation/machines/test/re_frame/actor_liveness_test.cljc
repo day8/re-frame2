@@ -1,21 +1,16 @@
 (ns re-frame.actor-liveness-test
-  "Per rf2-a2sn1 — a dynamically-spawned machine actor's LIVENESS is
-  derived from its (revertible) runtime-db snapshot, NOT from a per-instance
-  registrar entry.
+  "A dynamically-spawned machine actor's LIVENESS is derived from its
+  (revertible) runtime-db snapshot, NOT from a per-instance registrar entry.
 
-  The design defect this pins the fix for: machine STATE lived in the frame
-  value (revertible) but a spawned actor's LIVENESS — its per-instance
-  event-handler registration — lived OUTSIDE the frame value, in the
-  registrar. `restore-epoch!` reverts the frame value, not the registrar, so
-  it could never revert the registration: rewinding past a spawn orphaned
-  the handler; rewinding past a destroy left the snapshot inspectable but the
-  handler gone → `:rf.error/no-such-handler`. The fix (Mike-ruled
-  LAZY-RESOLVER): spawn/destroy become PURE frame-value writes (install/remove
-  the snapshot + the spawn-registry slot in runtime-db, stamping the
-  revertible `:rf/machine-type`), and a dispatch to an unregistered actor-id
-  lazily resolves the actor's TYPE handler from its snapshot. Liveness ==
-  snapshot presence. Post-EP-0001 (rf2-vzld77) the snapshot is durable
-  runtime-db state, so liveness lives in the runtime-db partition.
+  Liveness == snapshot presence. Machine STATE lives in the frame value
+  (revertible), and a spawned actor's liveness lives in the same revertible
+  runtime-db partition rather than the registrar — so a `restore-epoch!`
+  that reverts the frame value reverts the actor's liveness with it.
+  Spawn/destroy are PURE frame-value writes (install/remove the snapshot +
+  the spawn-registry slot in runtime-db, stamping the revertible
+  `:rf/machine-type`), and a dispatch to an unregistered actor-id lazily
+  resolves the actor's TYPE handler from its snapshot. The snapshot is
+  durable runtime-db state, so liveness lives in the runtime-db partition.
 
   These JVM+CLJS unit tests pin the machines-side invariants WITHOUT the
   epoch artefact: spawn/destroy mutate ZERO registrar state, dispatch
@@ -43,8 +38,8 @@
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- registrar-event-snapshot
@@ -59,11 +54,11 @@
   Used here so the machines unit test exercises the revertibility property
   without test-dep'ing the epoch artefact.
 
-  EP-0001 (rf2-vzld77): a spawned actor's LIVENESS is its snapshot's presence
-  in the **runtime-db** partition (machine snapshots are durable runtime-db
-  state), so reverting liveness means reverting runtime-db — written via
-  `frame/swap-runtime-db!`. (The full frame-state restore PROJECTIONS are
-  bead 7 — rf2-3aizt1; this helper installs just the runtime-db partition.)"
+  A spawned actor's LIVENESS is its snapshot's presence in the **runtime-db**
+  partition (machine snapshots are durable runtime-db state), so reverting
+  liveness means reverting runtime-db — written via `frame/swap-runtime-db!`.
+  This helper installs just the runtime-db partition (the full frame-state
+  restore PROJECTIONS live elsewhere)."
   [frame-id runtime-db]
   (frame/swap-runtime-db! frame-id (constantly runtime-db)))
 

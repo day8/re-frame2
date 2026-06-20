@@ -1,6 +1,5 @@
 (ns re-frame.machine-world-inputs-ctx-test
-  "Per EP-0010 §The World-Input Rule + Spec 005 §Guards / §Actions
-  (rf2-g0m4p5).
+  "Per EP-0010 §The World-Input Rule + Spec 005 §Guards / §Actions.
 
   EP-0010 requires that durable machine decisions and snapshot writes
   depending on time / random / UUID-style host facts fold the CAUSAL
@@ -10,17 +9,12 @@
   the token is what makes the decision deterministic under restore /
   replay / SSR hydration: the SAME token replays the SAME decision.
 
-  Before this fix the machine transition path built the guard / action /
-  entry / exit callback ctx as `{:data :event :state :meta}` (+ the
-  parallel-region `:tags` / `:all-state`) — the causal token was injected
-  into event coeffects by the router but NOT exposed to machine callbacks,
-  so a durable machine guard / action had no causal way to read host facts
-  and fell back to ambient reads.
-
-  The fix threads the handler's `:rf.cofx` coeffect onto the
-  machine def (`prepare-machine-ctx`, alongside `:rf/frame` /
+  The machine transition path threads the handler's `:rf.cofx` coeffect
+  onto the machine def (`prepare-machine-ctx`, alongside `:rf/frame` /
   `:rf/platform` / `:rf/parent-id`, propagated to region specs) and
-  surfaces it on the callback ctx under the SAME `:rf.cofx` key.
+  surfaces it on the guard / action / entry / exit callback ctx under the
+  `:rf.cofx` key — so a durable machine guard / action reads host facts
+  causally rather than from an ambient clock.
 
   Coverage:
     (a) a flat-machine GUARD reads exactly the scripted `:time-ms` from

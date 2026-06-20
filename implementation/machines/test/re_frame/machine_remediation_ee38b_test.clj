@@ -1,20 +1,17 @@
 (ns re-frame.machine-remediation-ee38b-test
-  "Remediation coverage for rf2-ee38b.5 (review sweep of implementation/
-  machines). Pins the behaviours the three-lens review found missing or
-  wrong:
+  "Pins these machines behaviours:
 
     - P1 root (top-level) `:on` fallback is consulted at runtime
       (Spec 005 §Transition resolution steps 6-7) — keyword + vector
       targets, `:*` wildcard, deepest-wins override, guard gating.
     - P2 the benign `:rf.machine.event/unhandled-no-op` is emitted when no
-      level matches an unknown USER event (rf2-ugdas — xstate-v5 parity;
-      op-type :rf.machine, NOT an error). The former
-      `:rf.error/machine-unhandled-event` advisory is retired. Per
-      rf2-t4582 reserved-`:rf/*` framework lifecycle traffic (bootstrap,
+      level matches an unknown USER event (xstate-v5 parity; op-type
+      :rf.machine, NOT an error). An unknown USER event is NOT an error: no
+      `:rf.error/machine-unhandled-event` advisory is emitted. Reserved-
+      `:rf/*` framework lifecycle traffic (bootstrap,
       `:rf.machine.spawn/spawned`, stories pings) does NOT emit the no-op —
-      it is framework init, not an unknown user event; the
-      reserved-namespace carve-out is restored (severity stays benign).
-      The case pinned below uses a DOMAIN event (`[:nope]`), so it still
+      it is framework init, not an unknown user event (severity stays
+      benign). The case pinned below uses a DOMAIN event (`[:nope]`), so it
       emits the no-op.
     - P2 `:always` microstep traces — per-microstep
       `:rf.machine.microstep/transition` + the outer
@@ -25,7 +22,7 @@
     - P3 history grammar placement validated at registration — a
       `:type :history` node MUST have an owning compound
       (`:rf.error/machine-history-misplaced`); a well-placed node validates
-      (history is first-class per rf2-mle6e, Spec 005 §History states).
+      (history is first-class — Spec 005 §History states).
     - P3 `:after` + root-`:on` guard/action ref validation at
       registration (Spec 005:1334)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -38,8 +35,8 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
-;; — guaranteed unregister in a `finally`.
+;; Routed through the shared `mtest/with-trace-capture` — guaranteed
+;; unregister in a `finally`.
 (defn- record-traces! [body-fn]
   (mtest/with-trace-capture seen
     (body-fn)
@@ -114,7 +111,7 @@
     (rf/dispatch-sync [:rem/root-guard [:go]])
     (is (= :a (snap-of :rem/root-guard)) "guard false → unhandled, no transition")))
 
-;; ---- P2: :rf.machine.event/unhandled-no-op (rf2-ugdas — xstate-v5) ----------
+;; ---- P2: :rf.machine.event/unhandled-no-op (xstate-v5 parity) ----------
 
 (deftest unhandled-event-emits-benign-no-op
   (testing "no level matches → benign :rf.machine.event/unhandled-no-op with
@@ -196,10 +193,10 @@
           ws  (ops evs :rf.error/machine-action-wrote-db)]
       (is (= 1 (count ws)) "exactly one wrote-db error")
       (is (= :bad (-> ws first :tags :action-id)))
-      ;; rf2-x9haxl — `:offending-value` (the whole app-db the action wrongly
-      ;; returned) is summarized to `:rf/redacted` at the trace egress
-      ;; chokepoint (`marks/project-machine-wrote-db-tags`) so it never leaks
-      ;; raw to listeners / epoch / MCP / logs. The `:action-id` locates the
+      ;; `:offending-value` (the whole app-db the action wrongly returned)
+      ;; is summarized to `:rf/redacted` at the trace egress chokepoint
+      ;; (`marks/project-machine-wrote-db-tags`) so it never leaks raw to
+      ;; listeners / epoch / MCP / logs. The `:action-id` locates the
       ;; offending action; the operator does not need the app-db contents.
       (is (= :rf/redacted (-> ws first :tags :offending-value))
           "the offending app-db value is redacted at egress (rf2-x9haxl)")
@@ -234,9 +231,8 @@
           ":db in the patch surfaces the hard-disallow error"))))
 
 ;; ---- P3: history grammar placement validated at registration ----------------
-;; History is first-class (rf2-mle6e); the registration validator now enforces
-;; the PLACEMENT constraint — a `:type :history` node MUST have an owning
-;; compound — rather than rejecting history wholesale.
+;; History is first-class; the registration validator enforces the PLACEMENT
+;; constraint — a `:type :history` node MUST have an owning compound.
 
 (deftest history-misplaced-rejected-at-registration
   (testing "a `:type :history` node with NO owning compound (machine root,

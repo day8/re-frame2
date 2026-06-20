@@ -1,7 +1,7 @@
 (ns re-frame.machines.cofx-attach
   "Machine consumer-attachment for recordable coeffects. Per Spec 005
   §Consumer attachment — declaring requirements on named entries + EP-0017
-  slice-B.9 (rf2-mjmxgb).
+  slice-B.9.
 
   ## What this namespace does
 
@@ -387,11 +387,11 @@
   COMPOUND machine's snapshot state resolves within. This is a plain
   `(:states machine)` read; it does NOT handle the parallel-region case.
 
-  rf2-ny0yrz CL2: the per-region union for a PARALLEL machine lives in
-  `ensure-set-for` (it iterates each region's body via `region-machine`
-  and unions each region's own scope, plus the parallel root's own
-  transition surfaces) — NOT here. `scope-for` is called only on the
-  flat/compound path (and the root-level surfaces inside `ensure-set-for`)."
+  The per-region union for a PARALLEL machine lives in `ensure-set-for` (it
+  iterates each region's body via `region-machine` and unions each region's
+  own scope, plus the parallel root's own transition surfaces) — NOT here.
+  `scope-for` is called only on the flat/compound path (and the root-level
+  surfaces inside `ensure-set-for`)."
   [machine]
   (:states machine))
 
@@ -427,14 +427,14 @@
 ;; `[:rf.machine/done <completed-node-path>]`; the completed node's `:on-done`
 ;; transition (a SEPARATE slot from `:on`) is the candidate the runtime selects
 ;; (`transition/pick-done-transition`), so the ensure-set for a raised done
-;; event MUST add that `:on-done` guard/action diet (rf2-xsdn5h — the enclosing
+;; event MUST add that `:on-done` guard/action diet (the enclosing
 ;; `:on {:rf.machine/done …}` escape hatch IS already covered by the `:on` walk
 ;; since the event-id matches an `:on` key, but the `:on-done` slot is not).
 (def ^:private done-event-id :rf.machine/done)
 
 (defn- on-done-diet-for-event
   "Add (into `add!`) the `:on-done` guard/action diets of the completed node a
-  raised done event targets (rf2-xsdn5h). `event` is `[:rf.machine/done
+  raised done event targets. `event` is `[:rf.machine/done
   <node-path>]`; `<node-path>` (the 2nd element) is the absolute path of the
   compound (or parallel-region) node whose `:final?` child completed. The node's
   `:on-done` value is one-or-more candidate maps (mirroring
@@ -469,9 +469,9 @@
 
   When `event` is a raised compound/parallel done signal
   (`[:rf.machine/done <node-path>]`), the completed node's `:on-done` guard/
-  action diets join the set too (rf2-xsdn5h) — the `:on` walk covers the
-  enclosing `:on {:rf.machine/done …}` escape hatch, but the `:on-done` slot is
-  a separate candidate the runtime selects.
+  action diets join the set too — the `:on` walk covers the enclosing
+  `:on {:rf.machine/done …}` escape hatch, but the `:on-done` slot is a
+  separate candidate the runtime selects.
 
   `by-entry` is the registration index's `:by-entry` map. Returns a vector of
   parsed-requires entries (deduped by id, declaration-order-insensitive — the
@@ -486,8 +486,8 @@
                        (vswap! seen-ids conj id)
                        (vswap! acc conj e))))
         add-always! (fn [tgt] (add! (always-diet-for-state by-entry states tgt)))
-        ;; rf2-knxbok — accumulate a lifecycle (`:entry`/`:exit`) slot's named-
-        ;; action diet along a path into a transient, then add! it deduped.
+        ;; Accumulate a lifecycle (`:entry`/`:exit`) slot's named-action diet
+        ;; along a path into a transient, then add! it deduped.
         add-lifecycle! (fn [scope p slot]
                          (let [diet (transient [])]
                            (lifecycle-diet-along-path by-entry scope p slot diet)
@@ -510,9 +510,9 @@
                 cand  (candidate-maps (get on k))]
           (add! (entry-diet by-entry :guards  (:guard cand)))
           (add! (entry-diet by-entry :actions (:action cand)))
-          ;; rf2-knxbok — (c) the exit→action→entry cascade a fired candidate
-          ;; runs also executes the active-state `:exit` actions and the
-          ;; target-state `:entry` actions (a named `:actions` ref carrying
+          ;; (c) the exit→action→entry cascade a fired candidate runs also
+          ;; executes the active-state `:exit` actions and the target-state
+          ;; `:entry` actions (a named `:actions` ref carrying
           ;; `:rf.cofx/requires` is the only legal lifecycle consumer). Add the
           ;; TARGET state's `:entry` diet — and the `:entry` diet of every node
           ;; entered descending the target's `:initial` chain, since entering a
@@ -522,8 +522,8 @@
             (add-lifecycle! states (initial-descent-path states tgt) :entry)
             ;; (b) :always closure reachable from this candidate's target.
             (add! (always-diet-for-state by-entry states tgt))))))
-    ;; rf2-knxbok — (c, exit) any fired candidate exits some suffix of the
-    ;; active state path; over-approximate soundly by ensuring the `:exit` diet
+    ;; (c, exit) any fired candidate exits some suffix of the active state
+    ;; path; over-approximate soundly by ensuring the `:exit` diet
     ;; of every active node leaf→root (an un-fired exit is a harmless no-op —
     ;; generated facts are written back idempotently). Candidate-independent, so
     ;; added once.
@@ -533,7 +533,7 @@
     ;; microstep, or after a guard-blocked / unhandled event) reachable
     ;; without any :on transition firing.
     (add! (always-diet-for-state by-entry states path))
-    ;; rf2-xsdn5h — (d) a raised compound/parallel done signal
+    ;; (d) a raised compound/parallel done signal
     ;; (`[:rf.machine/done <node-path>]`) selects the completed node's `:on-done`
     ;; transition (a separate slot from `:on`); add its guard/action diet + the
     ;; `:always` closure reachable from its target so an `:on-done` callback's
@@ -582,9 +582,9 @@
   unions each region's scope; this adds the root's OWN transition surfaces,
   which the runtime evaluates separately (`transition/root-on-match` /
   `transition/root-after-match`) as the ancestor fallback (Spec 005 §Root
-  parallel `:on` / §Root-level `:after`). Without this a coeffect declared by
-  a root `:on` / root `:after` guard/action — live transition surfaces — is
-  never ensured before selection (rf2-bu106a).
+  parallel `:on` / §Root-level `:after`). A coeffect declared by a root
+  `:on` / root `:after` guard/action — live transition surfaces — is thereby
+  ensured before selection.
 
   Two surfaces, mirroring the two runtime root resolvers:
 
@@ -643,7 +643,7 @@
   path resolves within its own `:states` body), since the broadcast routes
   the event to every region, PLUS the parallel ROOT's own `:on` / `:after`
   candidates (the ancestor fallback the runtime evaluates separately via
-  `transition/root-on-match` / `root-after-match` — rf2-bu106a). The set is
+  `transition/root-on-match` / `root-after-match`). The set is
   deduped by id across regions and the root."
   [machine snapshot event]
   (let [{:keys [by-entry]} (get machine ensure-index-key)
@@ -654,8 +654,7 @@
         (if (and (map? state) (map? (:regions machine)) (seq (:regions machine)))
           ;; parallel — union each region's scope PLUS the parallel ROOT's own
           ;; `:on` / `:after` (the ancestor fallback the runtime evaluates
-          ;; separately — `root-on-match` / `root-after-match`), deduped by id
-          ;; (rf2-bu106a).
+          ;; separately — `root-on-match` / `root-after-match`), deduped by id.
           (let [acc      (volatile! [])
                 seen-ids (volatile! #{})
                 add!     (fn [diet]
@@ -697,13 +696,13 @@
 
 (defn bootstrap-ensure-set-for
   "Compute the consumer-attachment ENSURE-SET for `machine`'s BIRTH (initial-
-  entry) macrostep (rf2-knxbok). The bootstrap cascade
+  entry) macrostep. The bootstrap cascade
   (`parallel/apply-initial-entry-cascade`, run inside `maybe-boot` BEFORE the
   dispatch-time `ensure-ctx-cofx`) fires the initial-state descent's `:entry`
   actions, then the birth-time `:always` settle. A named `:actions` ref on an
   `:entry` slot (or reached by a birth `:always`) carrying `:rf.cofx/requires`
   must therefore have its facts ensured BEFORE `maybe-boot` runs — otherwise it
-  reads an unensured token (the bootstrap hole this closes).
+  reads an unensured token.
 
   Returns the deduped union of: the `:entry` diet of every node entered on the
   initial-descent path, PLUS the `:always` closure reachable from the initial
@@ -748,8 +747,8 @@
   the dispatch-time (`ensure-cofx`) and birth-time (`bootstrap-ensure-cofx`)
   ensure steps.
 
-  `mint-policy` (EP-0017 §6, rf2-n0myjq) gates the declared-absent generator-
-  backed branch — `:strict` (replay / the `:test` preset) refuses to mint and
+  `mint-policy` (EP-0017 §6) gates the declared-absent generator-backed
+  branch — `:strict` (replay / the `:test` preset) refuses to mint and
   surfaces `:rf.error/missing-required-cofx`, `:live` / `:explicit-live`
   generate. The 6-arity of `deliver-declared-cofx` is the policy-aware surface
   the EVENT path uses; threading the resolved policy here gives the machine
@@ -777,8 +776,8 @@
   spread (machine callbacks read the WHOLE record off `:rf.cofx`, never a flat
   delivery): we keep only the augmented record.
 
-  `mint-policy` (EP-0017 §6, rf2-n0myjq) is the EFFECTIVE policy the caller
-  resolved (per-call dispatch opt ▸ frame config ▸ `:live`), threaded into
+  `mint-policy` (EP-0017 §6) is the EFFECTIVE policy the caller resolved
+  (per-call dispatch opt ▸ frame config ▸ `:live`), threaded into
   `deliver-declared-cofx`'s 6-arity so the machine ensure path mints under the
   SAME semantics as the event path: replay / `:test` (`:strict`) refuse to mint
   a declared-absent generator-backed fact (surfacing missing-required), `:live`
@@ -797,11 +796,11 @@
 
 (defn bootstrap-ensure-cofx
   "Ensure the BIRTH (initial-entry) ensure-set onto the in-flight `:rf.cofx`
-  record `recorded` BEFORE `maybe-boot` runs the bootstrap cascade (rf2-knxbok).
+  record `recorded` BEFORE `maybe-boot` runs the bootstrap cascade.
   Same satisfaction surface / write-back / error semantics as `ensure-cofx`,
   but the ensure-set is `bootstrap-ensure-set-for` (the initial-descent `:entry`
-  diet + the birth `:always` closure). `mint-policy` (rf2-n0myjq) is the
-  effective resolved policy, threaded identically to `ensure-cofx`. A no-op
+  diet + the birth `:always` closure). `mint-policy` is the effective
+  resolved policy, threaded identically to `ensure-cofx`. A no-op
   (returns `recorded`) when the bootstrap ensure-set is empty."
   ([machine recorded frame-id failing-id]
    (bootstrap-ensure-cofx machine recorded frame-id failing-id

@@ -1,6 +1,6 @@
 (ns re-frame.machines-system-id-cljs-test
-  "CLJS-side coverage for `:system-id` named-machine addressing (rf2-suue /
-  rf2-ecv4) under the Reagent reactive substrate.
+  "CLJS-side coverage for `:system-id` named-machine addressing under the
+  Reagent reactive substrate.
 
   Per Spec 005 §Named addressing via :system-id: a spawn whose args carry a
   `:system-id` keyword binds that name in the per-frame `[:rf.runtime/machines :system-ids]`
@@ -8,15 +8,13 @@
   destroy clears it; collisions emit `:rf.error/system-id-collision` and
   rebind (last-write-wins).
 
-  These tests exercise the bundled live-handler wiring (rf2-suue
-  precondition): the spawn registers the child as a real event handler,
-  so dispatch-by-system-id reaches a running actor.
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  These tests exercise the bundled live-handler wiring: the spawn registers
+  the child as a real event handler, so dispatch-by-system-id reaches a
+  running actor."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.machines.test-support :as mtest]))
@@ -102,10 +100,9 @@
                                  [:rf.runtime/machines :snapshots spawned :data :msgs]))
             "dispatch via system-id lookup reached the live actor")
         ;; And the implementation-tier sugar fn no-ops when the system-id is
-        ;; unbound. rf2-gkt25a / rf2-80mmlf: `dispatch-to-system` is demoted
-        ;; off the `re-frame.core` facade and lives in `re-frame.machines`;
-        ;; the canonical action-side surface is the `:rf.machine/dispatch-to-system`
-        ;; fx tuple.
+        ;; unbound. `dispatch-to-system` lives in `re-frame.machines` (not the
+        ;; `re-frame.core` facade); the canonical action-side surface is the
+        ;; `:rf.machine/dispatch-to-system` fx tuple.
         (is (nil? (machines/dispatch-to-system :no-such-system [:notify "x"]))
             "dispatch-to-system on an unbound system-id returns nil"))))
 

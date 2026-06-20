@@ -1,5 +1,5 @@
 (ns re-frame.after-value-forms-test
-  "Per rf2-vvbdl — exhaustive coverage of `:after` value-form resolution.
+  "Exhaustive coverage of `:after` value-form resolution.
 
   The `:after` table value at a delay-key admits the SAME value-form
   grammar as an `:on` clause (Spec 005 §Delayed `:after` transitions
@@ -18,14 +18,11 @@
     (h) hierarchical guarded `:after` (leaf vs parent epoch / staleness)
     (i) parallel-region-scoped guarded `:after` (region decl-path routing)
 
-  Pre-rf2-vvbdl `pick-after-transition` normalised the resolved `:after`
-  value with only `(if (keyword? t) {:target t} t)` — so a guarded
-  candidate-vector was passed WHOLE into the single-guard resolver. There
-  `(:guard <vector>)` is nil → the guard passed vacuously, `:transition`
-  became the entire vector, and downstream `(:target …)` / `(:action …)`
-  read nil: the timer fired with outcome :ok but applied NO transition and
-  NO effects (the machine was silently stranded). Cases (e), (f), (g) — the
-  candidate-vector forms — are the regressions that case fixes.
+  A guarded candidate-vector `:after` value resolves through the shared
+  candidate-walk: each candidate's guard is evaluated in order, the first
+  passing candidate's `:target` / `:action` drives the transition, and an
+  unguarded candidate acts as the fallback. Cases (e), (f), (g) — the
+  candidate-vector forms — pin this resolution against regression.
 
   These tests drive the PURE `machines/machine-transition` surface with the
   synthetic `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`
@@ -146,7 +143,7 @@
 
 ;; ---- (e) guarded vector, first guard passes -> first target ---------------
 ;;
-;; THE REGRESSION. Pre-fix this returned :loading unchanged (silent no-op).
+;; The candidate-vector form: the first passing guard's target fires.
 
 (deftest after-guarded-vector-first-guard-passes
   (testing "guarded candidate-vector :after: first guard passes → first target"

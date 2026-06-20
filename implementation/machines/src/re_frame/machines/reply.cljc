@@ -58,7 +58,7 @@
   (which calls `re-frame.elision/elide-wire-value`) — never a
   family-private elider (Managed-Effects §Tracing).
 
-  ## Why there is no `target-obsolete?` gate here (rf2-wwfn7q)
+  ## Why there is no `target-obsolete?` gate here
 
   HTTP carries an `actor-destroy-target-obsolete?` predicate
   (`re-frame.http.reply`) that lowers a destroyed-actor reply to `:stale`/
@@ -122,8 +122,8 @@
                          :cljs (.lastIndexOf nm "#")))]
       (if (and i (nat-int? i) (pos? i))
         (let [suffix (subs nm (inc i))
-              ;; (rf2-ny0yrz C4) The CLJS branch must REJECT a non-fully-
-              ;; numeric suffix BEFORE `js/parseInt`: `js/parseInt "3abc" 10`
+              ;; The CLJS branch must REJECT a non-fully-numeric suffix
+              ;; BEFORE `js/parseInt`: `js/parseInt "3abc" 10`
               ;; leniently returns 3, whereas CLJ `Long/parseLong "3abc"`
               ;; THROWS → falls through to generation 1. A `:fixed-actor-id`
               ;; carrying a `#` followed by a malformed suffix would otherwise
@@ -163,9 +163,8 @@
   `:actor-id` is the finishing actor's live INSTANCE address; the
   `:invoke-id` is the declarative spawn invocation-path (the absolute
   prefix-path of the `:spawn`-bearing parent state) — the two are
-  distinct identity facts (rf2-0ggtr5 / rf2-ws5thu). Optional facts are
-  omitted when absent rather than nil-filled (Managed-Effects §The
-  reply map)."
+  distinct identity facts. Optional facts are omitted when absent rather
+  than nil-filled (Managed-Effects §The reply map)."
   [{:keys [actor-id parent-id work-bearing-path frame completed-at]}]
   (cond-> {:work/id   (spawn-work-id actor-id work-bearing-path)
            :work/kind :machine}
@@ -265,17 +264,17 @@
 ;; `:spawn-all` join-child completion (Managed-Effects §The reply map /
 ;; §Status taxonomy / §Stale suppression; EP-0011 §Machine Completion).
 ;;
-;; rf2-d63qtp — single `:spawn` finality lowers through `success-reply` /
+;; Single `:spawn` finality lowers through `success-reply` /
 ;; `error-reply` / `stale-spawn-reply`; the `:spawn-all` join-child
 ;; completion (a child dispatching `[parent [:on-child-done child-id …]]` /
-;; `:on-child-error` into the parent's join) previously folded into join
-;; state + emitted join traces with NO canonical reply map, `:work/id`, or
-;; `:rf.reply/*` facts. These helpers give the join-child path the SAME
-;; uniform reply vocabulary the single-`:spawn` path already carries — the
-;; PUBLIC join protocol (the parent dispatch, the resolution events, the
-;; cancel-on-decision cascade) is unchanged; this is INTERNAL trace-stream
-;; lowering only, so a join child's done / failed / late completion
-;; classifies the same way HTTP / resources / single-`:spawn` do.
+;; `:on-child-error` into the parent's join) folds into join state and
+;; carries the SAME uniform reply vocabulary the single-`:spawn` path
+;; carries — a canonical reply map, `:work/id`, and `:rf.reply/*` facts.
+;; The PUBLIC join protocol (the parent dispatch, the resolution events,
+;; the cancel-on-decision cascade) is independent of these helpers; this is
+;; INTERNAL trace-stream lowering only, so a join child's done / failed /
+;; late completion classifies the same way HTTP / resources /
+;; single-`:spawn` do.
 ;;
 ;; A join child's work-id reuses the machine head keyed on the child's
 ;; SPAWNED instance id (the `<type>#<n>` actor address in the join-state
@@ -380,9 +379,8 @@
   EDN-serializable. `decl-path` nil (the node was exited — no live
   counterpart) yields `[:rf.work/timer nil epoch]`, a valid distinct id.
 
-  rf2-niarhz — without this the machine `:after` timer completions
-  (`:rf.machine.timer/fired` / `:rf.machine.timer/stale-after`) carried the
-  reply STATUS / work-status but NO `:work/id`, so they could not join into
+  The machine `:after` timer completions (`:rf.machine.timer/fired` /
+  `:rf.machine.timer/stale-after`) carry this `:work/id` so they join into
   the uniform work/reply rows that every other managed async family
   correlates by (Managed-Effects §Tracing — \"one `:work/id`\")."
   [actor-id decl-path epoch]
@@ -419,22 +417,22 @@
   `:work/status :suppressed`, and the carried/current epoch facts under
   `:correlation`.
 
-  rf2-niarhz — the reply now carries the canonical `:work/id`
+  The reply carries the canonical `:work/id`
   `[:rf.work/timer <decl-path> <scheduled-epoch>]` (the timer's attempt
   identity — see `timer-work-id`), so a stale `:after` completion joins into
   the uniform work/reply rows by the same key HTTP / resources / routing use.
 
-  rf2-hawtjr — the reply now also threads the CAUSAL completion timestamp
-  (`:completed-at`) when the timer-firing dispatch supplied one. The
-  synthetic `:after`-elapsed dispatch is a causal token carrying the
-  router-stamped `:rf/time-ms` (EP-0010 / the fresh fire-time read); a
-  stale `:after` completion can mutate machine snapshot data is not the
-  case here (the transition is suppressed), but Managed-Effects §Causal
-  completion metadata / §Tracing want completion time to ride the reply
-  wherever the firing token has it, so the suppressed-timer trace can be
-  correlated in real time with the firing dispatch. Omitted (not
-  nil-filled) when absent — an unscripted / no-cofx fire path carries no
-  `:completed-at` (Managed-Effects §The reply map).
+  The reply also threads the CAUSAL completion timestamp (`:completed-at`)
+  when the timer-firing dispatch supplied one. The synthetic
+  `:after`-elapsed dispatch is a causal token carrying the router-stamped
+  `:rf/time-ms` (EP-0010 / the fresh fire-time read); a stale `:after`
+  completion does not mutate machine snapshot data (the transition is
+  suppressed), but Managed-Effects §Causal completion metadata / §Tracing
+  want completion time to ride the reply wherever the firing token has it,
+  so the suppressed-timer trace can be correlated in real time with the
+  firing dispatch. Omitted (not nil-filled) when absent — an unscripted /
+  no-cofx fire path carries no `:completed-at` (Managed-Effects §The reply
+  map).
 
   `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
   `:state`, `:delay`, `:decl-path`, `:scheduled-epoch`, `:current-epoch`,
@@ -458,7 +456,7 @@
 (defn after-fired-reply
   "Build the canonical reply for a machine `:after` timer that FIRED (live —
   its declaring path is still active and its carried epoch equals the node's
-  current per-path epoch). rf2-niarhz — a fired `:after` timer is a CLOSED
+  current per-path epoch). A fired `:after` timer is a CLOSED
   `:after` completion: `:status :ok` / `:work/status :completed`, carrying the
   canonical `:work/id` `[:rf.work/timer <decl-path> <epoch>]` and
   `:work/kind :timer` so its `:rf.machine.timer/fired` trace joins the uniform
@@ -476,10 +474,10 @@
   `:work/status` inside the closed `work-statuses` vocabulary. Pass
   `:guard-suppressed? true` for that case.
 
-  rf2-hawtjr — the reply now also threads the CAUSAL completion timestamp
-  (`:completed-at`) when the timer-firing dispatch supplied one. The
-  synthetic `:after`-elapsed dispatch is a causal token carrying the
-  router-stamped `:rf/time-ms` (EP-0010 / the fresh fire-time read), and a
+  The reply also threads the CAUSAL completion timestamp (`:completed-at`)
+  when the timer-firing dispatch supplied one. The synthetic
+  `:after`-elapsed dispatch is a causal token carrying the router-stamped
+  `:rf/time-ms` (EP-0010 / the fresh fire-time read), and a
   fired `:after` timer's transition can mutate machine snapshot `:data`
   (its `:action`), so per Managed-Effects §Causal completion metadata the
   completion time MUST ride the reply when it affects durable state. The
@@ -517,21 +515,20 @@
 ;; §Cancellation: "Cancellation is represented as data, not as the absence
 ;; of a reply").
 ;;
-;; rf2-sfunt8 — machine cancellation terminal paths (timer cancel on state
-;; exit / destroy / supersede / frame-destroy; actor destroy;
-;; `:spawn-all` join-survivor cancel) previously completed by ABSENCE of a
-;; reply — their traces carried reason / state / epoch but no canonical
-;; `:work/id`, `:rf.reply/status :cancelled`, `:rf.reply/work-status`, or
-;; `:cancel/reason`. A cancelled timer / actor could therefore have a
-;; scheduled / spawned START but no terminal EP-0011 reply row. These
-;; helpers close the work attempt the reply-envelope way: cancellation as
-;; DATA. The validated `:status :cancelled` shape requires BOTH
+;; Machine cancellation terminal paths (timer cancel on state exit /
+;; destroy / supersede / frame-destroy; actor destroy; `:spawn-all`
+;; join-survivor cancel) complete the work attempt the reply-envelope way:
+;; cancellation as DATA. Each carries the canonical `:work/id`,
+;; `:rf.reply/status :cancelled`, `:rf.reply/work-status`, and
+;; `:cancel/reason`, so a cancelled timer / actor's terminal EP-0011 reply
+;; row joins the same uniform work/reply row its scheduled / spawned START
+;; opened. The validated `:status :cancelled` shape requires BOTH
 ;; `:cancel/reason` AND `:cancelled? true` (cancellation is a positive
 ;; fact), and `:work/status :cancelled` (the closed work-status vocab).
 ;; ---------------------------------------------------------------------------
 
 (def timer-cancel-reasons
-  "The closed `:rf.machine.timer/cancelled` `:reason` set (rf2-82a0u) —
+  "The closed `:rf.machine.timer/cancelled` `:reason` set —
   the cancel-reason taxonomy a cancelled-timer reply's `:cancel/reason`
   carries: `:on-exit` (state exit), `:on-destroy` (actor destroy),
   `:on-resolution` (subscription-delay re-resolution), `:on-supersede`

@@ -1,5 +1,5 @@
 (ns re-frame.machine-transition-trigger-handler-test
-  "Per rf2-lf84g — `:rf.trace/trigger-handler` rides `:rf.machine/transition`.
+  "`:rf.trace/trigger-handler` rides `:rf.machine/transition`.
 
   Spec 009 §Trace correlation: every trace event emitted inside a
   handler's execution scope carries the in-scope handler's registration
@@ -11,12 +11,11 @@
   `*current-trigger-handler*`.
 
   Xray's machine-inspector wants 'jump to the action that just ran'
-  from a transition trace. With this widening, the registration coord
-  rides on every `:rf.machine/transition` event — tools render the
-  click-to-jump link from the same slot they already read on error
-  events.
+  from a transition trace. The registration coord rides on every
+  `:rf.machine/transition` event — tools render the click-to-jump link
+  from the same slot they read on error events.
 
-  Locked shape (per rf2-3nn8 / rf2-lf84g):
+  Locked shape:
 
     {:kind         :event           ;; machines register under :event kind
      :id           <machine-id>
@@ -31,8 +30,8 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
-;; — guaranteed unregister in a `finally`.
+;; Routed through the shared `mtest/with-trace-capture` — guaranteed
+;; unregister in a `finally`.
 (defn- record-traces
   [body-fn]
   (mtest/with-trace-capture seen

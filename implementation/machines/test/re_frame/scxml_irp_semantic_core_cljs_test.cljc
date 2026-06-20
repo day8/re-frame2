@@ -1,37 +1,35 @@
 (ns re-frame.scxml-irp-semantic-core-cljs-test
-  "W3C SCXML IRP semantic-core conformance COMPLETION corpus (rf2-7wy0ke).
+  "W3C SCXML IRP semantic-core conformance corpus.
 
   ## What this namespace is
 
-  `scxml_conformance_cljs_test.cljc` (rf2-rkkag) established the
-  SCXML-anchored corpus and proved a SUBSET of the W3C SCXML IRP
+  The sibling `scxml_conformance_cljs_test.cljc` establishes the
+  SCXML-anchored corpus and proves a SUBSET of the W3C SCXML IRP
   (Implementation Report Plan, https://www.w3.org/Voice/2013/scxml-irp/)
   semantic-core families: the microstep/internal-queue (144), transition
   selection + cond ordering (153/155), entry/exit LCCA ordering (504/505),
   parallel broadcast (403/404), parallel done (570/580), eventless settle
   (372/388 family), history (387/388/579/580), and the default-initial
-  cascade (355/372). rf2-7wy0ke COMPLETES the semantic core: it AUDITS the
-  W3C IRP MANDATORY semantic-core test set against existing re-frame2
+  cascade (355/372). This namespace COMPLETES the semantic core: it AUDITS
+  the W3C IRP MANDATORY semantic-core test set against the re-frame2
   coverage (the `## W3C SCXML IRP SEMANTIC-CORE COVERAGE MATRIX` below) and
-  PORTS the NOT-COVERED ids as additive conformance cases here, each citing
-  its W3C test id + Spec 005 anchor + xstate@5.x verification, matching the
-  sibling file's citation discipline.
+  carries the NOT-COVERED ids as additive conformance cases here, each
+  citing its W3C test id + Spec 005 anchor + xstate@5.x verification,
+  matching the sibling file's citation discipline.
 
-  This is an ADDITIVE COMPLETION, not a rewrite. New cases live in their
-  OWN namespace (this file) so the sequenced sibling rf2-dp1fi0
-  (property/model-based machines-test layer) slots cleanly after on the same
-  surface. The cases drive the SAME pure engine surface
-  (`re-frame.machines/machine-transition` + the pure predicates + the
-  registration validator) so they are JVM- and CLJS-runnable from arguments
-  alone, dual-runtime via the `*-cljs-test` / `*_cljs_test.cljc` convention
-  (discovered by both `npm run test:cljs` and `clojure -M:test`).
+  These cases live in their OWN namespace (this file). They drive the SAME
+  pure engine surface (`re-frame.machines/machine-transition` + the pure
+  predicates + the registration validator) so they are JVM- and
+  CLJS-runnable from arguments alone, dual-runtime via the `*-cljs-test` /
+  `*_cljs_test.cljc` convention (discovered by both `npm run test:cljs` and
+  `clojure -M:test`).
 
-  XState v5 (xstate@5.32.0, the recorded gold standard — rf2-tsq6g) is the
-  reference for every behaviour; the W3C SCXML IRP semantic-core is the
-  canonical corpus. Where re-frame2 deliberately diverges from the raw SCXML
-  shape (substrate-constrained, or behavioural parity via different
-  expression), the case asserts the RE-FRAME2 behaviour and CITES the
-  documented divergence rather than the SCXML default.
+  XState v5 (xstate@5.32.0, the recorded gold standard) is the reference for
+  every behaviour; the W3C SCXML IRP semantic-core is the canonical corpus.
+  Where re-frame2 deliberately diverges from the raw SCXML shape
+  (substrate-constrained, or behavioural parity via different expression),
+  the case asserts the RE-FRAME2 behaviour and CITES the documented
+  divergence rather than the SCXML default.
 
   =========================================================================
   ## W3C SCXML IRP SEMANTIC-CORE COVERAGE MATRIX
@@ -42,7 +40,7 @@
   evaluation, no `<send>`/`<invoke>`/I-O-processor mechanics — both excluded
   by design, the same line xstate draws; see the sibling file's
   `## SCXML EXCLUSIONS`). Each row is COVERED (by an existing fixture or
-  deftest), NEW (ported here by rf2-7wy0ke), or OUT-OF-SCOPE-with-reason.
+  deftest), NEW (ported here), or OUT-OF-SCOPE-with-reason.
 
   Initial / default-entry:
     355  initial absent ⇒ first child in document order   COVERED
@@ -86,8 +84,8 @@
                                   scxml-irp-test396-exact-event-name-match.
     399  descriptor matching = exact OR token-prefix       NEW — re-frame2 spells the
                                   SCXML §3.12.1 dot-prefix token descriptor as the
-                                  keyword NAMESPACE-wildcard `:ns/*` (rf2-z4t2v); a
-                                  bare (non-namespaced) event has no token tier.
+                                  keyword NAMESPACE-wildcard `:ns/*`; a bare
+                                  (non-namespaced) event has no token tier.
                                   scxml-irp-test399-*.
 
   done / final / parallel-done:
@@ -110,10 +108,10 @@
     504  external transition exit set = LCCA descendants   COVERED (scxml-lca-cascade-*)
     505  internal transition (compound source): target's
          descendants in the exit set                       NEW — re-frame2 / xstate v5
-                                  FLIP the SCXML internal/external DEFAULT
-                                  (rf2-eicq0): an explicit on-path target is
-                                  INTERNAL by default (re-resolves descendants);
-                                  external restart is opt-in `:reenter? true`.
+                                  FLIP the SCXML internal/external DEFAULT:
+                                  an explicit on-path target is INTERNAL by
+                                  default (re-resolves descendants); external
+                                  restart is opt-in `:reenter? true`.
                                   scxml-irp-test505-internal-default-re-resolves-descendants.
     506  internal treated as external when not applicable  NEW — disjoint-subtree target
                                   is always external (exit/enter both leaves).
@@ -196,7 +194,7 @@
 ;; by exact name (396) OR by a token-prefix descriptor — `error` matches
 ;; `error.send.failed` (399). re-frame2 events are NAMESPACED KEYWORDS, so
 ;; the keyword namespace is the natural token-prefix tier: `:error/*` is
-;; re-frame2's spelling of SCXML's `error.*` partial descriptor (rf2-z4t2v).
+;; re-frame2's spelling of SCXML's `error.*` partial descriptor.
 ;; The three tiers resolve most-specific-first at each level: exact >
 ;; namespace-wildcard `:ns/*` > total `:*`. Spec 005 §Wildcard transitions
 ;; §Namespaced (partial) event descriptors. xstate v5 partial descriptor
@@ -287,19 +285,19 @@
 
 ;; ===========================================================================
 ;; §C. Internal vs external transition exit set — W3C IRP test505/506/533
-;;      (SCXML §3.13; re-frame2 / xstate v5 FLIP the default — rf2-eicq0)
+;;      (SCXML §3.13; re-frame2 / xstate v5 FLIP the default)
 ;;
 ;; SCXML §3.13 distinguishes `type="internal"` (target's descendants in the
 ;; exit set, source compound NOT exited) from `type="external"` (the source
 ;; compound is in the exit set). SCXML's DEFAULT is EXTERNAL. xstate v5
-;; FLIPPED the default — an explicit on-path target is INTERNAL by default
+;; FLIPS the default — an explicit on-path target is INTERNAL by default
 ;; (re-resolve descendants, do NOT re-enter the compound), and the external
-;; restart is the opt-in `reenter: true`. re-frame2 follows xstate v5
-;; (rf2-eicq0). These cases assert the v5 behaviour and CITE the divergence
-;; from SCXML's external-default; the SCXML external semantics are still
-;; EXERCISED via `:reenter? true` in the sibling §10/§10b/§10c. Verified
-;; against xstate@5.32.0 (rf2-gt1pu). Spec 005 §Self-transitions §The three
-;; explicit-target geometries.
+;; restart is the opt-in `reenter: true`. re-frame2 follows xstate v5.
+;; These cases assert the v5 behaviour and CITE the divergence from SCXML's
+;; external-default; the SCXML external semantics are still EXERCISED via
+;; `:reenter? true` in the sibling §10/§10b/§10c. Verified against
+;; xstate@5.32.0. Spec 005 §Self-transitions §The three explicit-target
+;; geometries.
 ;; ===========================================================================
 
 (deftest scxml-irp-test505-internal-default-re-resolves-descendants
@@ -453,7 +451,7 @@
 ;; leaf final?" and is true for BOTH — so it cannot prove the root-vs-embedded
 ;; rule on its own. test415 therefore asserts `top-level-final?`; the embedded
 ;; counter-case below pins the predicates apart. Spec 005 §Final states
-;; §Top-level vs embedded (rf2-bnjb3 / rf2-zlmz7).
+;; §Top-level vs embedded.
 ;; ===========================================================================
 
 (deftest scxml-irp-test415-top-level-final-is-machine-final

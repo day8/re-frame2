@@ -1,6 +1,5 @@
 (ns re-frame.machine-after-timer-restore-quiesce-test
-  "rf2-u5kmf8 — epoch-restore host-transient quiesce for machine `:after`
-  timers.
+  "Epoch-restore host-transient quiesce for machine `:after` timers.
 
   Epoch restore installs the captured durable frame-state (the machine
   snapshots in runtime-db) WHOLESALE, so timer LIVENESS reverts atomically —
@@ -14,7 +13,7 @@
   `:machines/on-frame-restored!` late-bind hook the epoch restore boundary
   consults) is the restore counterpart of the `:on-frame-destroy` cleanup —
   it releases the restored frame's orphaned `:after` host handles eagerly and
-  emits one `:rf.machine.timer/cancelled` trace per entry with the new
+  emits one `:rf.machine.timer/cancelled` trace per entry with
   `:reason :on-restore` (Managed-Effects §restore: \"epoch restore MUST NOT
   revive host work\")."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

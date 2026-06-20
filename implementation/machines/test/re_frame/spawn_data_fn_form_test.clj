@@ -1,14 +1,12 @@
 (ns re-frame.spawn-data-fn-form-test
-  "Per rf2-h131 and Spec 005 §Declarative `:spawn`
+  "Per Spec 005 §Declarative `:spawn`
   §Spec-spec keys: `:data` admits a function form `(fn [snap ev] data)`
   so the spawned child's initial data can be derived from the parent's
   post-action snapshot + the triggering event.
 
   The four invariants under test:
 
-   1. **Literal-map `:data` (regression).** A literal map is passed
-      through verbatim — the back-compat path that pre-rf2-h131
-      already worked.
+   1. **Literal-map `:data`.** A literal map is passed through verbatim.
 
    2. **fn-form `:data` is materialised.** When `:data` is a fn, the
       runtime invokes `(data snap event)` and passes the resulting
@@ -33,11 +31,11 @@
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support
-;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+;; — no hardcoded `[:rf.runtime/machines …]` path.
 (def ^:private snapshot mtest/snapshot)
 (def ^:private frame-db mtest/runtime-db)
 
-;; ---- (1) literal-map :data — back-compat regression -----------------------
+;; ---- (1) literal-map :data — passes through verbatim ----------------------
 
 (deftest literal-map-data-passes-through
   (testing "literal-map `:data` arrives at the spawned child verbatim"
@@ -79,7 +77,7 @@
             "the fn-form derived :url from the parent's :data.:endpoint")
         (is (= :post (:method child-data))
             "the fn-form-derived :method survived the spawn")
-        ;; Runtime stamps :rf/self-id etc. into :data per rf2-ijm7 — the
+        ;; Runtime stamps :rf/self-id etc. into :data — the
         ;; materialised map is the BASE the runtime then augments.
         (is (= :worker/proc#1 (:rf/self-id child-data))
             "the runtime stamped :rf/self-id over the materialised map")))))
@@ -141,8 +139,8 @@
                                                     (throw (ex-info "boom" {:why :test})))}}}}]
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/throwing parent)
-      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-      ;; unregister in a `finally`, no hand-rolled register/try/finally.
+      ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`,
+      ;; no hand-rolled register/try/finally.
       (mtest/with-trace-capture traces
         (rf/dispatch-sync [:sup/throwing [:start]])
         ;; The cascade halted: no actor was spawned. Per Spec 005 §Errors,

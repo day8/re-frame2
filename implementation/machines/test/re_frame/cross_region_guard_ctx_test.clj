@@ -1,6 +1,5 @@
 (ns re-frame.cross-region-guard-ctx-test
-  "Per Spec 005 §Cross-region coordination — tags as `stateIn`
-  (rf2-46ly6 / rf2-69d1n).
+  "Per Spec 005 §Cross-region coordination — tags as `stateIn`.
 
   XState v5 / SCXML gold standard: a parallel region's guard can
   predicate on a SIBLING region's active state via `stateIn(stateValue)`
@@ -8,29 +7,27 @@
   B.1) — the canonical orthogonal-region coordination primitive.
 
   re-frame2 expresses this WITHOUT a separate `stateIn` primitive
-  (rf2-69d1n — behavioural parity, not API mimicry). `reduce-regions`
-  threads the machine-wide active-configuration `:tags` union and the
-  full `:all-state` region map into every region's guard/action ctx
-  (rf2-46ly6). A region guard then reads a sibling region's state via
-  either:
+  (behavioural parity, not API mimicry). `reduce-regions` threads the
+  machine-wide active-configuration `:tags` union and the full `:all-state`
+  region map into every region's guard/action ctx. A region guard then reads
+  a sibling region's state via either:
     - `(contains? (:tags ctx) :some/state-tag)` — the coarse tag query
       (the documented `stateIn` substitute);
     - `(= :valid (:form (:all-state ctx)))` — the precise sibling-state
       read.
 
-  Coverage (the bead's comprehensive test list):
+  Coverage:
     (a) a region guard reading `(:tags ctx)` sees a SIBLING region's
         state-tag and fires / blocks accordingly — the core cross-region
-        coordination case, impossible before rf2-46ly6.
+        coordination case.
     (b) the §State-tags-as-stateIn worked example from spec/005 actually
         works from a region guard.
-    (c) FROZEN selection (rf2-42mml) — a sibling's SAME-EVENT transition is
-        NOT visible to a later region's guard during selection; the guard
-        reads the frozen pre-event sibling config. (Read-TIMING flips from
-        rf2-46ly6's evolving; the read CAPABILITY is preserved. The
+    (c) FROZEN selection — a sibling's SAME-EVENT transition is NOT visible
+        to a later region's guard during selection; the guard reads the
+        frozen pre-event sibling config (aligns to XState v5 / SCXML). The
         dedicated frozen-selection / declaration-order-independence /
         next-microstep convergence fixtures live in
-        `frozen_region_select_test.clj`.)
+        `frozen_region_select_test.clj`.
     (d) region guards still see their OWN state correctly (regression).
     (e) non-parallel (flat / compound) guard ctx is UNAFFECTED — neither
         `:tags` nor `:all-state` appears (regression).
@@ -46,8 +43,8 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 ;; ---- (a) region guard reads a sibling region's tag ------------------------

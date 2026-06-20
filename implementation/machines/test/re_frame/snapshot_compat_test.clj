@@ -1,5 +1,5 @@
 (ns re-frame.snapshot-compat-test
-  "Per rf2-fasdp / Spec 005 §Snapshot shape stability invariants 3 & 4.
+  "Per Spec 005 §Snapshot shape stability invariants 3 & 4.
 
   Verifies the handler-entry reconciler fires the right named
   `:rf.error/*` event AND resets the snapshot to a fresh initial-state
@@ -25,10 +25,10 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe
-;; finding #4). The bespoke `capture-error-traces` below stays local —
-;; it is an intentional manual-stop idiom (returns a `:stop!` thunk the
-;; call sites invoke explicitly) rather than a `finally`-scoped block.
+;; snapshot lookup via the shared machines test-support. The bespoke
+;; `capture-error-traces` below stays local — it is an intentional
+;; manual-stop idiom (returns a `:stop!` thunk the call sites invoke
+;; explicitly) rather than a `finally`-scoped block.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- capture-error-traces []
@@ -86,16 +86,16 @@
           (is (= :next (:state snap))))
         (finally (stop!))))))
 
-;; ---- (3b) parallel region-key parity (bz0ox.2 / x4s9t.2) -----------------
+;; ---- (3b) parallel region-key parity -------------------------------------
 ;;
 ;; A parallel configuration is EVERY declared region active simultaneously.
 ;; A snapshot MISSING a declared region (corrupted/old restore, or a hot
 ;; reload that ADDED a region) or carrying an EXTRA/stale region (a hot
-;; reload that DROPPED a region) is malformed: validating only the regions
-;; PRESENT let a partial map like `{:left :done}` for a 2-region machine
-;; pass, then silently run a partial configuration that could vacuously fire
-;; root :on-done / auto-destroy. The reconciler must require EXACT declared-
-;; region key parity and reset through :rf.error/machine-state-not-in-definition.
+;; reload that DROPPED a region) is malformed. The reconciler requires EXACT
+;; declared-region key parity: a partial map like `{:left :done}` for a
+;; 2-region machine is rejected rather than silently running a partial
+;; configuration that could vacuously fire root :on-done / auto-destroy. A
+;; key-parity violation resets through :rf.error/machine-state-not-in-definition.
 
 (deftest parallel-missing-region-resets-to-initial
   (testing "a parallel snapshot MISSING a declared region resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2 / x4s9t.2)"
@@ -111,7 +111,7 @@
       (try
         (rf/reg-machine :compat/par-missing spec)
         ;; Seed a partial snapshot missing :right — :left already final.
-        ;; Pre-fix this validated and (with :right absent) could vacuously
+        ;; Without strict key parity a snapshot missing :right could vacuously
         ;; read all-final and auto-destroy the machine with a region missing.
         (frame/swap-runtime-db! :rf/default
                               assoc-in
@@ -156,11 +156,11 @@
               "reset rebuilt exactly the declared regions at their initial leaves"))
         (finally (stop!))))))
 
-;; ---- (3c) occupied :history pseudo-state (bz0ox.2) -----------------------
+;; ---- (3c) occupied :history pseudo-state ---------------------------------
 ;;
 ;; A :type :history node is TARGETABLE but NEVER an occupied active state. A
 ;; snapshot whose active leaf IS a history node is malformed — node existence
-;; alone is not occupiability. The reconciler must reject it and reset.
+;; alone is not occupiability. The reconciler rejects it and resets.
 
 (deftest occupied-history-pseudo-state-resets-to-initial
   (testing "a flat/compound snapshot whose active leaf is a :type :history pseudo-state resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2)"
@@ -175,7 +175,7 @@
       (try
         (rf/reg-machine :compat/hist spec)
         ;; Seed a snapshot occupying the history pseudo-state — node-at
-        ;; resolves it (pre-fix => validated), but it is never occupiable.
+        ;; resolves it, but it is never occupiable.
         (frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/hist]

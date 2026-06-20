@@ -1,12 +1,12 @@
 (ns re-frame.guard-action-traces-test
-  "Per rf2-2nwfd: the machines substrate emits two cascade-discoverable
-  traces around every transition:
+  "The machines substrate emits two cascade-discoverable traces around every
+  transition:
 
     :rf.machine/guard-evaluated
       {:guard-id <kw-or-fn>
        :input    {:data <data> :event <event-vec>}
-       :state    <active-state>   ;; rf2-tjm3u2 — the active state the
-                                  ;; guard ran against (source disambiguation)
+       :state    <active-state>   ;; the active state the guard ran against
+                                  ;; (source disambiguation)
        :outcome  :pass | :fail}
 
     :rf.machine/action-ran
@@ -42,8 +42,7 @@
 (defn- record-traces!
   "Register a trace listener for the duration of `body-fn`, returning
   the captured trace vec. Routed through the shared
-  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-  unregister in a `finally`."
+  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
   [body-fn]
   (mtest/with-trace-capture seen
     (body-fn)
@@ -75,7 +74,7 @@
             "input :data carries the snapshot's :data slot")
         (is (= [:go] (-> g :tags :input :event))
             "input :event carries the originating event vec")
-        ;; rf2-tjm3u2 — the active state the guard ran against is stamped
+        ;; the active state the guard ran against is stamped
         ;; so a consumer can disambiguate which state's edge a block
         ;; belongs to (two states reusing the same event + guard id).
         (is (= :idle (-> g :tags :state))
@@ -227,22 +226,15 @@
       (is (= cascade-id (-> a :tags :rf.trace/dispatch-id))
           "action-ran picks up the same cascade dispatch-id"))))
 
-;; ---- rf2-4yrr6 / rf2-gl588 — the throw-on-boot machine (machine-epochs
-;; :fuse/box) ------------------------------------------------------------------
+;; ---- the throw-on-boot machine (machine-epochs :fuse/box) ------------------
 ;;
 ;; The machine-epochs testbed's `:fuse/box` exercises a machine-action
-;; exception ON BOOT. Pre-F‴ it relied on the double-duty wart: an eager
-;; `[:rf.machine/bootstrap]` kick was re-processed as a normal trigger against
-;; the just-born `:armed`, which had no `:on` entry → fell to a `:*` wildcard
-;; whose `:blow-fuse` action threw. F‴ (rf2-gl588) makes the start marker a
-;; PURE init-kick that STOPS after initial-entry — it is NEVER re-fed into the
-;; transition step, so that `:*`-via-marker path no longer exists.
+;; exception ON BOOT. The start marker is a PURE init-kick that STOPS after
+;; initial-entry — it is NEVER re-fed into the transition step.
 ;;
-;; The throw is therefore RE-VEHICLED to a real initial-`:entry` action on
-;; `:armed`: now the throw fires inside the initial-entry cascade itself, on
-;; ANY boot (eager `:rf.machine/start` kick OR lazy first-real-event). This
-;; preserves the "exception on boot" coverage on the F‴ creation model. Three
-;; facts pin it:
+;; The throw is carried by a real initial-`:entry` action on `:armed`: it
+;; fires inside the initial-entry cascade itself, on ANY boot (eager
+;; `:rf.machine/start` kick OR lazy first-real-event). Three facts pin it:
 ;;
 ;;   1. An eager `[:fuse/box [:rf.machine/start]]` kick runs the initial-entry
 ;;      cascade, whose `:armed` `:entry` action `:blow-fuse` THROWS on boot.
@@ -254,8 +246,7 @@
 ;;      so only the throwing-entry shape trips the exception.
 
 (defn- fuse-machine-spec
-  "An `:armed`-at-birth machine whose initial `:entry` action throws — the
-  F‴ re-vehicle of the old `:*`-wildcard-on-boot throw."
+  "An `:armed`-at-birth machine whose initial `:entry` action throws on boot."
   []
   {:initial :armed
    :data    {}

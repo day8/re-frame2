@@ -1,21 +1,19 @@
 (ns re-frame.machine-spawn-trace-egress-test
-  "EP-0015 spawn-trace egress projection (rf2-0gdic7 / rf2-lft14p / rf2-mxboxi).
+  "Spawn-trace egress projection.
 
-  Three review findings against `implementation/machines`, all about RAW
-  child-owned payloads leaving through the parent / spawn trace surfaces even
-  though every other machine `:data` slot is projected at the egress chokepoint
-  (`re-frame.marks/project-trace-event`):
+  Three RAW child-owned payloads that could leave through the parent / spawn
+  trace surfaces are projected at the egress chokepoint
+  (`re-frame.marks/project-trace-event`), like every other machine `:data`
+  slot:
 
-   1. **`:start` payload (rf2-mxboxi).** The accepted spawn path emits
+   1. **`:start` payload.** The accepted spawn path emits
       `:rf.machine.spawn/spawned` carrying `:start (:start args)`. A child's
-      `:start` event can hold credentials / large payloads, yet
-      `project-machine-tags` projected only `:before`/`:after`/`:snapshot`/
-      `:data`/`:input`/`:cascade` — never `:start`. So the start payload
-      egressed raw (contrast `reject-unregistered-spawn!`, which deliberately
-      omits all spawn args for exactly this reason).
+      `:start` event can hold credentials / large payloads, so
+      `project-machine-tags` summarizes `:start` at egress (the same posture
+      `reject-unregistered-spawn!` takes by omitting all spawn args).
 
-   2/3. **synthetic `:on-error` payload (rf2-0gdic7 / rf2-lft14p).** When a
-      spawned child FAILS, the runtime dispatches the reserved event
+   2/3. **synthetic `:on-error` payload.** When a spawned child FAILS, the
+      runtime dispatches the reserved event
       `[:rf.machine.spawn/error <invoke-id> <error>]` into the parent. `<error>`
       is CHILD-owned: the child's raw `:output-key` result (error-leaf trigger)
       or an exception envelope including `:exception-data` (action-exception
@@ -23,15 +21,15 @@
       transition` carry that event vector under `:event`, and the parent's
       `:rf.machine/guard-evaluated` / `:rf.machine/action-ran` carry it under
       `:input :event`. The event-vector projection keys off the PARENT
-      event-id's marks (and `:rf.machine.spawn/error` is a reserved id with no
-      marks), and the payload sits at the THIRD vector position which the
-      arg-map redactor never touches — so the raw child error egressed raw.
+      event-id's marks (`:rf.machine.spawn/error` is a reserved id with no
+      marks), and the payload sits at the THIRD vector position, so the
+      projection summarizes the child error at egress.
 
-  The fix keeps RAW LOCAL parent control flow (the transition still reads the
-  raw error off `:event` via `(nth ev 2)`) but PROJECTS the synthetic on-error
-  payload + the `:start` payload at trace egress only. The posture is the same
+  Parent control flow stays RAW LOCAL (the transition reads the raw error off
+  `:event` via `(nth ev 2)`); the synthetic on-error payload + the `:start`
+  payload are PROJECTED at trace egress only. The posture is the same
   conservative fail-closed seam `project-machine-error-tags` uses: a
-  child-owned payload we cannot classify against the parent's marks is
+  child-owned payload that cannot be classified against the parent's marks is
   summarized to the `:rf/redacted` sentinel before it crosses the bus /
   epoch-capture / AI-MCP egress boundary."
   (:require [clojure.test :refer [deftest is testing]]
@@ -60,7 +58,7 @@
   []
   {:account "acct-99" :secret "secret-output-leaf"})
 
-;; ---- (mxboxi) :start payload on :rf.machine.spawn/spawned -----------------
+;; ---- :start payload on :rf.machine.spawn/spawned -------------------------
 
 (deftest spawned-start-payload-redacted-in-egress
   (testing "rf2-mxboxi — the :rf.machine.spawn/spawned trace's :start payload is
@@ -84,7 +82,7 @@
       (is (not (.contains (pr-str out) "hunter2"))
           "no raw :start password leaked"))))
 
-;; ---- (0gdic7 / lft14p) synthetic on-error payload at the parent -----------
+;; ---- synthetic on-error payload at the parent -----------------------------
 
 (defn- spawn-error-event [error]
   ;; the inner event the parent handler sees after the router strips parent-id

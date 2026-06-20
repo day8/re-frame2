@@ -11,11 +11,11 @@
     - Compound state: sibling-leaf transition fires only the leaf
       exit/entry (LCA cascade).
     - Deepest-wins: leaf overrides parent for the same event id.
-    - Wildcard precedence (rf2-fhb9): leaf `:*` shadows parent's explicit
+    - Wildcard precedence: leaf `:*` shadows parent's explicit
       handler at the same event; parent fallthrough still works when the
       leaf declares neither explicit nor `:*`.
 
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  Counterpart to the non-hierarchical coverage in `machines_cljs_test.cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -25,7 +25,7 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
@@ -36,7 +36,7 @@
   exercise a different leaf without rebuilding the whole machine)."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; Machine snapshots are durable runtime-db state.
     (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots machine-id] snap)}))
@@ -70,13 +70,12 @@
                           :on    {:close :dashboard}}}}}}]
       (rf/reg-machine :auth/flow machine)
       ;; The runtime cascades the declared :initial through compound
-      ;; :initial chains on first-snapshot synthesis (rf2-m1tv), so the
-      ;; first event dispatches against the deepest leaf without us
-      ;; having to seed the snapshot manually. Per rf2-0z73, the
-      ;; initial-state cascade ALSO fires every state's :entry action
-      ;; on first-event bootstrap (shallowest-first along the initial
-      ;; chain) — so the log accumulates :enter-auth + :enter-dash
-      ;; BEFORE the sibling-leaf transition kicks in.
+      ;; :initial chains on first-snapshot synthesis, so the first event
+      ;; dispatches against the deepest leaf without us having to seed the
+      ;; snapshot manually. The initial-state cascade ALSO fires every
+      ;; state's :entry action on first-event bootstrap (shallowest-first
+      ;; along the initial chain) — so the log accumulates :enter-auth +
+      ;; :enter-dash BEFORE the sibling-leaf transition kicks in.
       (reset! log [])
       ;; Sibling-leaf transition. LCA is :authenticated; only the leaf
       ;; exit/entry hooks fire for the transition itself — the parent's
@@ -120,13 +119,12 @@
           "internal transition — snapshot unchanged")
       (is (= [:leaf] @log) "leaf's :help action fired; parent shadowed"))))
 
-;; ---- wildcard precedence in hierarchical machines (rf2-fhb9) -------------
+;; ---- wildcard precedence in hierarchical machines ------------------------
 ;; Per Spec 005 §Wildcard transitions and §Transition resolution: at each
 ;; level, explicit-event match beats `:*`; only if neither matches does the
 ;; runtime walk up to the parent. So a leaf's `:*` SHADOWS a parent's
 ;; explicit handler for the same event — wildcard wins at the deeper level
-;; before parent fallthrough kicks in. This is the divergence point that
-;; the §Wildcard transitions list at L213-218 used to muddle (rf2-fhb9).
+;; before parent fallthrough kicks in.
 (deftest machine-hierarchical-wildcard-precedence-cljs
   (testing "leaf :* shadows parent's explicit handler for the same event"
     (let [log (atom [])
@@ -181,13 +179,11 @@
           "no explicit anywhere — parent's :* fires"))))
 
 ;; ---- external (:reenter? true) vs internal self-transitions ---------------
-;; (rf2-46ban introduced external self-transitions; rf2-eicq0 FLIPPED the
-;; default to XState-v5 internal-default.)
 ;; Per Spec 005 §Self-transitions: a self/ancestor `:target` is INTERNAL BY
 ;; DEFAULT — the action fires, `:exit`/`:entry` do NOT, the configuration is
 ;; unchanged (XState-v5 semantics). The EXTERNAL self-transition — `:exit`
 ;; then the transition's `:action` then `:entry`, re-descending a compound's
-;; `:initial` chain — is now the opt-in `:reenter? true`. This ns exercises
+;; `:initial` chain — is the opt-in `:reenter? true`. This ns exercises
 ;; the live runtime; the pure-engine ordering is pinned in the SCXML
 ;; conformance corpus (`scxml-external-self-transition-*` /
 ;; `scxml-reenter-*`).
@@ -208,9 +204,9 @@
                    :on    {:refresh {:target :same-state :reenter? true :action :poke}}}}}]
       (rf/reg-machine :self/flat-same-state machine)
       ;; Prime: the first dispatch fires the bootstrap initial-cascade
-      ;; entry (per rf2-0z73). A benign unhandled event drives that
-      ;; bootstrap without touching :idle, so the reset below leaves only
-      ;; the self-transition's own exit/action/entry in the log.
+      ;; entry. A benign unhandled event drives that bootstrap without
+      ;; touching :idle, so the reset below leaves only the
+      ;; self-transition's own exit/action/entry in the log.
       (rf/dispatch-sync [:self/flat-same-state [:rf2-46ban/prime]])
       (reset! log [])
       (rf/dispatch-sync [:self/flat-same-state [:refresh]])
@@ -265,11 +261,10 @@
       (is (= [:poke] @log)
           "ONLY the action fired — no exit, no entry (internal semantics preserved)")))
 
-  ;; ---- rf2-eicq0: the v5 DEFAULT FLIP --------------------------------------
-  ;; A self/own-keyword `:target` WITHOUT `:reenter?` is now INTERNAL — the
-  ;; OLD external-default (rf2-46ban) is gone. This is the breaking regression
-  ;; guard: a `:target :same-state` with no `:reenter?` must NOT fire
-  ;; exit/entry.
+  ;; ---- the v5 internal-default --------------------------------------------
+  ;; A self/own-keyword `:target` WITHOUT `:reenter?` is INTERNAL. This is the
+  ;; regression guard: a `:target :same-state` with no `:reenter?` must NOT
+  ;; fire exit/entry.
   (testing "DEFAULT-INTERNAL self-transition (:target :same-state, NO
             :reenter?) — action ONLY, no exit/entry (XState-v5 flip, rf2-eicq0)"
     (let [log (atom [])
@@ -368,22 +363,19 @@
           "exit the active child :idle → action at the LCCA (:session) → re-enter :initial (:active); :session itself NOT exited/entered (no :reenter?)"))))
 
 ;; ---- external (:reenter? true) transition to a PROPER ANCESTOR -----------
-;; (LCCA ancestor-restart geometry — rf2-emz8l; default flipped by rf2-eicq0)
+;; (LCCA ancestor-restart geometry)
 ;;
 ;; Per Spec 005 §Entry/exit cascading along the LCCA + XState v5 / SCXML
 ;; §3.13: a `:reenter? true` transition from a descendant leaf to one of its
 ;; PROPER ANCESTORS A restarts A — A's active subtree (including A) exits, the
 ;; transition action fires at the LCCA (A's parent), then A re-enters and
-;; re-descends its `:initial` chain. Under the rf2-eicq0 v5 flip RE-ENTERING
-;; THE ANCESTOR ITSELF is OPT-IN; an ancestor target WITHOUT `:reenter?` does
-;; NOT exit/re-enter the ancestor BUT (rf2-gt1pu) still RE-RESOLVES its active
+;; re-descends its `:initial` chain. RE-ENTERING THE ANCESTOR ITSELF is
+;; OPT-IN (`:reenter? true`); an ancestor target WITHOUT `:reenter?` does
+;; NOT exit/re-enter the ancestor BUT still RE-RESOLVES its active
 ;; descendants (children reset to :initial) — it is not a no-op.
-;; Before rf2-emz8l the engine bounded the exit set by the longest common
-;; PREFIX of the source path and the initial-cascaded target leaf, so an
-;; ancestor target was a SILENT NO-OP. This ns exercises the LIVE runtime
-;; (`reg-machine` / `dispatch-sync`); the pure-engine geometry + ordering is
-;; pinned in the SCXML conformance corpus
-;; (`scxml-external-transition-to-proper-ancestor-*`).
+;; This ns exercises the LIVE runtime (`reg-machine` / `dispatch-sync`);
+;; the pure-engine geometry + ordering is pinned in the SCXML conformance
+;; corpus (`scxml-external-transition-to-proper-ancestor-*`).
 (deftest machine-ancestor-restart-cljs
   (testing ":reenter? true transition to a proper ANCESTOR restarts that
             ancestor — exit subtree (incl. ancestor) → action → re-enter
@@ -456,7 +448,7 @@
       (is (= [:exit-2 :exit-a :enter-a :enter-1] @log)
           "exit :two then :a → re-enter :a → re-init :one")))
 
-  ;; ---- rf2-gt1pu: ancestor target WITHOUT :reenter? RE-RESOLVES descendants -
+  ;; ---- ancestor target WITHOUT :reenter? RE-RESOLVES descendants -----------
   (testing "DEFAULT ancestor target (NO :reenter?) does NOT re-enter the
             ancestor itself, but RE-RESOLVES its active descendants — children
             reset to the ancestor's :initial. XState v5: 'an explicit target

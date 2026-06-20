@@ -1,5 +1,5 @@
 (ns re-frame.machines.lifecycle-fx.resolver
-  "Spawned-actor SPEC resolution from runtime-db (rf2-a2sn1) — the leaf helper
+  "Spawned-actor SPEC resolution from runtime-db — the leaf helper
   beneath the lazy actor-handler resolver.
 
   Per Spec 005 §Spawning §Liveness is derived from runtime-db: a spawned
@@ -7,13 +7,13 @@
   runtime-db write (install the snapshot + the spawn-registry slot); destroy
   is a pure runtime-db remove. An actor's liveness IS exactly the presence
   of its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]` in
-  the frame's value — so `restore-epoch!` (which since EP-0001 reverts the
-  WHOLE frame-state, both the app-db AND runtime-db partitions, via
+  the frame's value — so `restore-epoch!` (which reverts the WHOLE
+  frame-state, both the app-db AND runtime-db partitions, via
   `replace-frame-state!` against the epoch's `:frame-state-after`) reverts
-  liveness perfectly, with ZERO registrar drift. This closes the
-  Goal-2 revertibility leak: rewinding past a spawn no longer leaves an
-  orphaned handler, and rewinding past a destroy re-materialises a
-  working handler from the restored snapshot.
+  liveness perfectly, with ZERO registrar drift. Revertibility holds
+  exactly: rewinding past a spawn leaves no orphaned handler, and rewinding
+  past a destroy re-materialises a working handler from the restored
+  snapshot.
 
   The actor's TYPE rides the snapshot under the reserved root key
   `:rf/machine-type` (per Spec 005 §Reserved snapshot-internal keys):
@@ -81,8 +81,8 @@
 
     (or (spec-from-registry id) (spec-from-snapshot snapshot)).
 
-  Per rf2-a2sn1 the two legs are mutually exclusive for any one id — a
-  registered singleton has a registrar entry but no `:rf/machine-type` on
+  The two legs are mutually exclusive for any one id — a registered
+  singleton has a registrar entry but no `:rf/machine-type` on
   its snapshot, while a spawned actor carries no per-instance registrar
   entry but stamps `:rf/machine-type` on its snapshot — so the `or` order
   is behaviourally irrelevant and either leg resolves at most one spec.

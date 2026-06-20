@@ -1,6 +1,5 @@
 (ns re-frame.lifecycle-composed-corners-test
-  "Per rf2-6txsp — compose rare machine timer / join / final / system-id
-  interleavings.
+  "Compose rare machine timer / join / final / system-id interleavings.
 
   Existing per-edge regression coverage (`timer_frame_scope_test`,
   `after_test`, `spawn_all_test`, `final_state_cljs_test`,
@@ -377,9 +376,9 @@
           "precondition: spawned actor snapshot is live"))
     (is (pos? (count (spawn-order/frame-order :corner.leak/scoped)))
         "precondition: spawn-order channel has entries")
-    ;; Per rf2-a2sn1 — a spawned actor carries NO per-instance registrar
-    ;; entry; its liveness is its snapshot's presence in app-db (asserted
-    ;; live above). The registrar precondition is therefore inverted.
+    ;; A spawned actor carries NO per-instance registrar entry; its
+    ;; liveness is its snapshot's presence in app-db (asserted live above).
+    ;; The registrar precondition is therefore inverted.
     (is (nil? (registrar/lookup :event :corner.leak/child#1))
         "precondition: spawned actor has no per-instance registrar entry (liveness lives in its app-db snapshot)")
 

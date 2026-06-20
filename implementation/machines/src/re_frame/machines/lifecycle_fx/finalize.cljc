@@ -27,7 +27,7 @@
   unregistered.
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
-  hook into the http-managed artefact (rf2-wvkn) — the single home for
+  hook into the http-managed artefact — the single home for
   the abort contract every destroy trigger shares: the finalize cascade,
   the spawn-destroy teardowns (`lifecycle-fx.destroy`), and the
   frame-destroy singleton-straggler pass (`lifecycle-fx.frame-destroy`).
@@ -52,7 +52,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- in-flight HTTP abort cascade (rf2-wvkn) ------------------------------
+;; ---- in-flight HTTP abort cascade -----------------------------------------
 ;;
 ;; Per Spec 005 §Cancellation cascade — in-flight `:rf.http/managed`
 ;; aborts: when a spawned state-machine actor is destroyed, every
@@ -73,28 +73,26 @@
            (catch #?(:clj Throwable :cljs :default) _ nil))))
   nil)
 
-;; ---- per-instance :data-schema marks cleanup: REMOVED (EP-0025, rf2-398kql)
+;; ---- per-instance :data-schema marks cleanup -------------------------------
 ;;
-;; `clear-actor-schema-marks!` (rf2-egvm4t) is GONE. It fired
-;; `:marks/clear-machine-schema-marks!` to drop a destroyed spawned actor's
-;; per-instance `:data-schema`→marks entry (recorded at spawn time by the
-;; rf2-fm1cpl bridge). With schema-field classification killed in favour of
-;; frame-declared paths as the sole app-db mechanism, the spawn-time bridge and
-;; its schema-sourced marks table are both removed, so there is nothing to
-;; clear here — a destroyed actor leaves no schema-marks residue by construction.
+;; A machine's `:data-schema` is validation-only; it does not produce a
+;; per-instance marks table. There is therefore no schema-marks entry to
+;; clear at destroy — a destroyed actor leaves no schema-marks residue by
+;; construction. A spawned actor's `:data` redaction (if any) rides the
+;; frame's declared paths, the sole app-db redaction mechanism.
 
 ;; ---- final-state resolution -----------------------------------------------
 
-;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): the
-;; `all-regions-final?` predicate now lives in `re-frame.machines.parallel`
+;; Per Spec 005 §Final states §The done-state signal: the
+;; `all-regions-final?` predicate lives in `re-frame.machines.parallel`
 ;; (shared by the parallel macrostep's done-signal / `:on-done` firing and
-;; this whole-machine finalize path). Re-exported here so existing callers
-;; (and the conformance corpus) keep the `finalize/all-regions-final?`
+;; this whole-machine finalize path). Re-exported here so callers
+;; (and the conformance corpus) reach it at the `finalize/all-regions-final?`
 ;; address. `finalize` requires `parallel`, never the reverse — no cycle.
 (def all-regions-final? parallel/all-regions-final?)
 
 (defn- region-final-leaf-nodes
-  "Per Spec 005 §Final states + §Parallel regions (rf2-g13nm2 C2): resolve
+  "Per Spec 005 §Final states + §Parallel regions: resolve
   every region's active final leaf-node from the post-transition `state`
   map (a `{region-name region-state}` map). Returns an ordered seq of
   `[region-name leaf-node]` in the state-map's iteration order — the basis
@@ -107,16 +105,14 @@
        state))
 
 (defn- parallel-output-key
-  "Per Spec 005 §Final states (rf2-g13nm2 C2): resolve a finishing PARALLEL
+  "Per Spec 005 §Final states: resolve a finishing PARALLEL
   machine's `:output-key` by scanning EVERY region's final leaf — not just
   the first region's. Returns the first (state-map order) region leaf that
   declares an `:output-key`, or nil when no region designates output.
 
-  The pre-fix code read `:output-key` from `(first state)` only, so a
-  machine declaring `:output-key` on a NON-FIRST region silently reported
-  `result = nil`. Scanning all region leaves makes `:output-key` work on
-  ANY region (the spec never restricted it to the first), and a genuine
-  CONFLICT — two regions declaring DIFFERENT `:output-key`s — emits
+  `:output-key` works on ANY region (the spec never restricted it to the
+  first). A genuine CONFLICT — two regions declaring DIFFERENT
+  `:output-key`s — emits
   `:rf.error/machine-parallel-output-key-conflict` and deterministically
   keeps the first-region declaration (last-region-loses would be just as
   arbitrary; first-in-state-order is the stable, documented tiebreak)."
@@ -141,19 +137,11 @@
     (some (fn [[_ node]] (:output-key node)) declared)))
 
 (defn- parallel-error-leaf-node
-  "Per Spec 005 §Final states §`:on-error` + §Parallel regions (rf2-encnvn):
+  "Per Spec 005 §Final states §`:on-error` + §Parallel regions:
   classify a finishing PARALLEL machine's terminal as ERROR by scanning
   EVERY region's final leaf — not just the first region's. Returns the
   first (state-map order) region final leaf that declares `:error? true`,
   or nil when no region's terminal is an error final.
-
-  The pre-fix code read `:error?` from `(first state)` only — the SAME
-  first-region blind spot the `:output-key` scan (`parallel-output-key`)
-  already fixed for output. So a parallel child whose FIRST region reached
-  a plain final but a NON-FIRST region reached `{:final? true :error? true}`
-  was all-regions-final and torn down, yet classified as a SUCCESS finish:
-  the spawning parent's `:spawn :on-error` was skipped, `:on-done` could run
-  instead, and `:rf.machine/done` carried `:error? false` / `:status :ok`.
 
   Spec 005 §3061 says a parallel machine finishes when EVERY region's active
   leaf is `:final?` and never restricts the error terminal to the first
@@ -170,7 +158,7 @@
   "Walk `parent-spec`'s state tree to the node at `invoke-id` (the
   absolute prefix-path stamped at spawn time) and return that node's
   `:spawn` map. For a parallel-region parent, the first element of
-  `invoke-id` is the region name (per rf2-l67o); strip and descend
+  `invoke-id` is the region name; strip and descend
   into that region's body. Returns nil if the path doesn't resolve
   or the node doesn't declare `:spawn`."
   [parent-spec invoke-id]
@@ -186,9 +174,9 @@
 ;; ---- the orchestrator ------------------------------------------------------
 
 (defn finalize-machine
-  "Per Spec 005 §Final states (rf2-gn80): orchestrate the `:on-done` +
+  "Per Spec 005 §Final states: orchestrate the `:on-done` +
   auto-destroy cascade. Returns `{:rf.db/runtime new-runtime-db :fx fx}` —
-  the snapshot teardown is a durable runtime-db write (EP-0001 rf2-vzld77),
+  the snapshot teardown is a durable runtime-db write (EP-0001),
   returned under the framework-authority `:rf.db/runtime` partition, NOT
   `:db` (see the return at `finalize-machine!`'s tail). It is the handler's
   return value when the post-transition snapshot has finished (its active
@@ -205,13 +193,13 @@
     frame-id       — the frame the actor runs in
     runtime-db     — the runtime-db partition value AT the time the handler
                      was invoked (machine snapshots are durable runtime-db
-                     state — EP-0001 rf2-vzld77); returned under `:rf.db/runtime`
+                     state — EP-0001); returned under `:rf.db/runtime`
     next-snapshot  — the post-transition snapshot (the caller already
                      determined it is final by recomputing from `:state`)
     _inner-event   — the event that caused the finish (for diagnostics)
     extra-fx       — the fx vector from the transition (passed through)"
   [machine machine-id frame-id runtime-db next-snapshot _inner-event extra-fx]
-  ;; (rf2-nahfm) Run the actor's active configuration `:exit` cascade
+  ;; Run the actor's active configuration `:exit` cascade
   ;; FIRST so the final state's `:exit` actions fire from the auto-
   ;; destroy teardown (Spec 005 §Final states §Composition with
   ;; `:entry` / `:exit`). The cascade is pure — it returns a new
@@ -229,16 +217,14 @@
         next-snapshot (if exit-ok? (result/snap exit-result) next-snapshot)
         exit-fx       (if exit-ok? (vec (result/fx exit-result)) [])
         runtime-db    (if exit-ok?
-                        ;; rf2-ny0yrz CL4 — narrowed: project the post-`:exit`
-                        ;; CHILD snapshot back into runtime-db so any reader of
-                        ;; the runtime-db between here and the teardown dissoc
-                        ;; observes the final state's `:exit`-time `:data`
-                        ;; writes on the FINISHING child. (The child's
-                        ;; `result` is computed directly from `next-snapshot`
-                        ;; below, NOT re-read from runtime-db, and `:on-done`
-                        ;; reads the PARENT's `:data` — the earlier comment's
-                        ;; "`:on-done` reading the child" example was
-                        ;; inaccurate; the projection's purpose is runtime-db
+                        ;; Project the post-`:exit` CHILD snapshot back into
+                        ;; runtime-db so any reader of the runtime-db between
+                        ;; here and the teardown dissoc observes the final
+                        ;; state's `:exit`-time `:data` writes on the FINISHING
+                        ;; child. (The child's `result` is computed directly
+                        ;; from `next-snapshot` below, NOT re-read from
+                        ;; runtime-db, and `:on-done` reads the PARENT's
+                        ;; `:data`; the projection's purpose is runtime-db
                         ;; consistency for the finalize cascade's own reads.)
                         (assoc-in runtime-db (paths/snapshot-path machine-id) next-snapshot)
                         runtime-db)
@@ -250,38 +236,36 @@
                           machine-id frame-id (result/info exit-result)))]
   (let [child-data (:data next-snapshot)
         parallel?  (parallel/parallel? machine)
-        ;; (rf2-encnvn) Resolve the ERROR-classifying leaf. For a PARALLEL
+        ;; Resolve the ERROR-classifying leaf. For a PARALLEL
         ;; machine, scan EVERY region's final leaf — a parallel finish is an
         ;; ERROR when ANY region's reached final declares `:error? true`, not
         ;; only the first region's (Spec 005 §3060-§3061; XState v5 parallel
-        ;; error-final semantics). The pre-fix code read `:error?` from
-        ;; `(first state)` only — the same first-region blind spot the
-        ;; `:output-key` scan (C2) already fixed for output. For a flat
-        ;; machine the single leaf IS the error-classifying leaf.
+        ;; error-final semantics). For a flat machine the single leaf IS the
+        ;; error-classifying leaf.
         error-node  (if parallel?
                       (parallel-error-leaf-node machine (:state next-snapshot))
                       (transition/node-at machine
                                           (transition/state-path (:state next-snapshot))))
         error-leaf? (true? (:error? error-node))
-        ;; Per rf2-g13nm2 C2: a PARALLEL machine's `:output-key` may live on
-        ;; ANY region's terminal leaf, not just the first. Scan all regions
-        ;; (error on conflict); a flat machine reads its single leaf. When the
-        ;; finish is an ERROR, the error payload's `:output-key` is sourced
-        ;; from the ERROR region's leaf so the right error `:data` slot routes
-        ;; to `:on-error` (rf2-encnvn).
+        ;; A PARALLEL machine's `:output-key` may live on ANY region's
+        ;; terminal leaf, not just the first. Scan all regions (error on
+        ;; conflict); a flat machine reads its single leaf. When the finish is
+        ;; an ERROR, the error payload's `:output-key` is sourced from the
+        ;; ERROR region's leaf so the right error `:data` slot routes to
+        ;; `:on-error`.
         output-key  (cond
                       (and parallel? error-leaf?) (:output-key error-node)
                       parallel?                   (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
                       :else                       (:output-key error-node))
         result      (when output-key (get child-data output-key))
-        ;; Per Spec 005 §Final states §`:on-error` (rf2-5hlsh; XState v5 invoke
+        ;; Per Spec 005 §Final states §`:on-error` (XState v5 invoke
         ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
         ;; designated ERROR terminal. When a `:spawn`-spawned child finishes
         ;; via an error leaf AND its spawning parent declares `:spawn :on-error`,
         ;; the runtime routes the failure to a PARENT TRANSITION (control flow,
         ;; not just observability) instead of the `:data`-only `:on-done`
         ;; callback. A plain `:final?` leaf keeps firing `:on-done`. `error-leaf?`
-        ;; is computed above (cross-region scan for parallel — rf2-encnvn).
+        ;; is computed above (cross-region scan for parallel).
         parent-id   (:rf/parent-id child-data)
         invoke-id   (:rf/invoke-id child-data)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
@@ -296,7 +280,7 @@
         ;; routes the raw failure payload to the parent transition. This is
         ;; internal lowering only — the reply map is what the trace stream,
         ;; ledger, and future work-correlation read uniformly (m-reply).
-        ;; (rf2-6mfkp3) Thread the CAUSAL completion timestamp into the
+        ;; Thread the CAUSAL completion timestamp into the
         ;; reply so `:completed-at` carries the one host-clock read the
         ;; router captured for the finishing event — NOT an ambient
         ;; `(.now)`. Per spec/Managed-Effects.md §155/§231 a machine
@@ -317,10 +301,10 @@
                       (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
         ;; spawned actor. The parent's spec carries the `:spawn` map at
-        ;; `invoke-id`. Per rf2-a2sn1 — resolve the parent's spec from the
-        ;; registrar (a singleton parent) OR, for a NESTED spawn whose
-        ;; parent is itself a spawned actor (no per-instance registration),
-        ;; from the parent's own snapshot `:rf/machine-type`.
+        ;; `invoke-id`. Resolve the parent's spec from the registrar (a
+        ;; singleton parent) OR, for a NESTED spawn whose parent is itself a
+        ;; spawned actor (no per-instance registration), from the parent's own
+        ;; snapshot `:rf/machine-type`.
         parent-path (paths/snapshot-path parent-id)
         parent-snap (when parent-id (get-in runtime-db parent-path))
         parent-reg  (when parent-id (registrar/lookup :event parent-id))
@@ -341,15 +325,14 @@
                          parent-id
                          (some? (:on-error spawn-spec)))
         ;; Per EP-0011 §Machine Completion / Managed-Effects §Stale
-        ;; suppression (rf2-lohbfg): the one reachable machine-supersession
+        ;; suppression: the one reachable machine-supersession
         ;; case is a `:spawn`-spawned child reaching `:final?` AFTER its
         ;; spawning parent was already DESTROYED. The completion is then
         ;; STALE — its `:on-done` / `:on-error` routing has no live parent to
         ;; drive, so per §Stale suppression the app target MUST NOT run and
         ;; the completion is recorded `:status :stale` / `:work/status
-        ;; :suppressed` via the shared substrate (rather than silently
-        ;; reducing `:on-done` to identity, which emitted only an `:ok`
-        ;; reply + no stale vocabulary).
+        ;; :suppressed` via the shared substrate, carrying the full stale
+        ;; vocabulary rather than a bare `:ok` reply.
         ;;
         ;; LIVENESS is the gate (not `on-done-fn` resolvability): when the
         ;; parent was destroyed BOTH its snapshot AND — for a singleton
@@ -397,7 +380,7 @@
         ;; `:correlation`) route through the shared elision walker via
         ;; `m-reply/trace-reply`.
         ;;
-        ;; (rf2-lohbfg) A STALE late completion (parent destroyed before the
+        ;; A STALE late completion (parent destroyed before the
         ;; child finished) additionally rides `:rf.reply/stale-reason`
         ;; (`:rf.machine/actor-not-live`) and `:rf.reply/correlation` (the
         ;; carried/current generation gate) — the parity counterpart of the
@@ -409,7 +392,7 @@
                        (m-reply/stale-spawn-trace reply {:frame frame-id})
                        (m-reply/trace-reply reply {:frame frame-id}))
         _ (trace/emit! :rf.machine :rf.machine/done
-                       ;; rf2-ws5thu — `:actor-id` is the finishing actor's
+                       ;; `:actor-id` is the finishing actor's
                        ;; live INSTANCE address (singleton: its registration
                        ;; id; spawned: the `<type>#<n>` / fixed instance id).
                        ;; `:machine-id` is reserved for the registered TYPE.
@@ -419,19 +402,19 @@
                                 :error?     error-leaf?
                                 :frame      frame-id
                                 ;; reply-envelope vocabulary (Managed-Effects §9)
-                                ;; rf2-niarhz — the CANONICAL `:work/id` joins
+                                ;; The CANONICAL `:work/id` joins
                                 ;; this spawned-actor completion into Xray's
                                 ;; uniform work/reply rows + stale-race
                                 ;; grouping, which key on bare `:work/id`. The
-                                ;; `:rf.reply/work-id` spelling is retained for
-                                ;; back-compat readers, but the canonical key
-                                ;; is what tooling groups by.
+                                ;; `:rf.reply/work-id` spelling is carried
+                                ;; alongside for readers that key on it; the
+                                ;; canonical key is what tooling groups by.
                                 :work/id              (:work/id done-summary)
                                 :work/kind            (:work/kind done-summary)
                                 :rf.reply/status      (:status done-summary)
                                 :rf.reply/work-id     (:work/id done-summary)
                                 :rf.reply/work-status (:work/status done-summary)}
-                         ;; (rf2-6mfkp3) the causal completion timestamp — the
+                         ;; the causal completion timestamp — the
                          ;; router's `:rf.cofx` `:rf/time-ms` threaded
                          ;; into the reply (Managed-Effects §155/§231: a
                          ;; completion affecting durable state carries causal
@@ -440,7 +423,7 @@
                          (some? (:completed-at done-summary))
                          (assoc :rf.reply/completed-at (:completed-at done-summary)
                                 :completed-at          (:completed-at done-summary))
-                         ;; stale-suppression vocabulary (rf2-lohbfg) — carried
+                         ;; stale-suppression vocabulary — carried
                          ;; ADDITIVELY only for a stale late completion, joined
                          ;; to `:work/id` via the shared `:rf.reply/*` facts.
                          stale-spawn? (assoc :rf.reply/stale-reason (:stale/reason done-summary)
@@ -449,13 +432,13 @@
         ;; snapshot lives at [:rf.runtime/machines :snapshots <parent-id>]; we read it,
         ;; pass the unified context-map (`{:data :result}`) to
         ;; `:on-done`, and write the new `:data` back. Per Spec 005
-        ;; §Final states / rf2-grw4i / rf2-v0rrr the callback receives
+        ;; §Final states the callback receives
         ;; one context-map arg and returns the new `:data` map. An ERROR
         ;; leaf routing to `:on-error` SKIPS `:on-done` — the two spawn hooks
         ;; are mutually exclusive per finish (error-leaf → transition,
         ;; success-leaf → `:data` callback).
         ;;
-        ;; (rf2-lohbfg) When the parent was destroyed before the child
+        ;; When the parent was destroyed before the child
         ;; finished (`stale-spawn?` — no live `parent-snap`), the completion
         ;; is STALE: per Managed-Effects §Stale suppression the app target
         ;; (the `:on-done` callback) MUST NOT run, and there is nothing to
@@ -493,7 +476,7 @@
               (assoc-in runtime-db (conj parent-path :data) new-parent-data)
               runtime-db))
           runtime-db)
-        ;; (4) Apply the unified teardown projection (per rf2-lha2t):
+        ;; (4) Apply the unified teardown projection:
         ;; dissoc the child's snapshot, release any `:system-id`
         ;; reverse-index entry (D8 — after on-done ran), and clear the
         ;; parent's `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot with
@@ -516,16 +499,16 @@
                                    :invoke-id invoke-id
                                    :reason    :rf.machine/finished})]
     ;; (6) Synchronous side effects: abort in-flight HTTP, cancel
-    ;; armed `:after` timers (rf2-82a0u — `:reason :on-destroy`), emit
+    ;; armed `:after` timers (`:reason :on-destroy`), emit
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
     (timer/cancel-actor-timers! frame-id machine-id)
-    ;; EP-0025 (rf2-398kql): the per-instance `:data-schema`-marks clear
-    ;; (rf2-egvm4t) is REMOVED — the spawn-time schema→marks bridge it matched
-    ;; is gone (schema-field classification killed). No marks residue to drop.
+    ;; A machine's `:data-schema` is validation-only and produces no
+    ;; per-instance marks table, so there is no schema-marks residue to drop
+    ;; at this seam.
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
-    ;; (7) Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): when the child
+    ;; (7) Per Spec 005 §Final states §`:on-error`: when the child
     ;; finished via an ERROR leaf AND the spawning parent declares
     ;; `:spawn :on-error`, dispatch the synthetic reserved failure event into
     ;; the parent. It resolves natively through the parent's macrostep
@@ -548,15 +531,15 @@
     ;; internal vocabulary, not what the parent transition sees.
     (when on-error?
       (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
-    ;; Machine snapshots are durable runtime-db state (EP-0001 rf2-vzld77):
+    ;; Machine snapshots are durable runtime-db state (EP-0001):
     ;; the finalize teardown is a runtime-db write, returned under
     ;; `:rf.db/runtime` (the framework-authority partition effect), NOT `:db`.
     {:rf.db/runtime db-after-destroy
-     ;; rf2-nahfm — append the destroy-time `:exit` cascade's fx to
+     ;; Append the destroy-time `:exit` cascade's fx to
      ;; the transition's fx vector so any `:exit`-emitted dispatches /
      ;; HTTP / etc. fire as part of the same epoch.
      ;;
-     ;; rf2-xw5t0y — also append the resource-lease release for this actor's
+     ;; Also append the resource-lease release for this actor's
      ;; `[:machine machine-id]` owner so the `:final?`-state auto-destroy
      ;; releases its leases too (the explicit-destroy / spawn-cascade /
      ;; frame-destroy paths release via `teardown-live-actor!`; finalize is the

@@ -1,7 +1,7 @@
 (ns re-frame.machine-reply-lowering-test
   "Conformance: the two machine async completions share the uniform
   reply-envelope status/trace vocabulary (EP-0011 §Machine Completion /
-  §Timer Reply; Managed-Effects §The uniform reply envelope, rf2-zqefg3.4).
+  §Timer Reply; Managed-Effects §The uniform reply envelope).
   INTERNAL LOWERING ONLY — the public statechart API (`:on-done` /
   `:on-error` / `:after` / actor-destroy) is preserved exactly.
 
@@ -89,12 +89,11 @@
               (is (= :stale (:rf.reply/status tags)))
               (is (= :suppressed (:rf.reply/work-status tags)))
               (is (= :rf.machine.timer/after-epoch-mismatch (:rf.reply/stale-reason tags)))
-              ;; rf2-niarhz — the canonical :work/id joins the uniform
-              ;; work/reply rows (the timer work-id keyed on the SCHEDULED
-              ;; epoch — the timer's attempt identity). Per rf2-yyvtk5 the
-              ;; pick-transition stale `match` now carries the owning actor
-              ;; INSTANCE under `:actor-id`, so the logical-id is
-              ;; `[<actor-id> & <decl-path>]` — the timer's full
+              ;; the canonical :work/id joins the uniform work/reply rows (the
+              ;; timer work-id keyed on the SCHEDULED epoch — the timer's
+              ;; attempt identity). The pick-transition stale `match` carries
+              ;; the owning actor INSTANCE under `:actor-id`, so the logical-id
+              ;; is `[<actor-id> & <decl-path>]` — the timer's full
               ;; actor-scoped identity, not the bare declaring path.
               (is (= [:rf.work/timer [:rl/after :loading] scheduled-epoch]
                      (:work/id tags))
@@ -171,9 +170,9 @@
             (is (= [:rf.work/machine :rl/child#1 [:working] 1]
                    (:rf.reply/work-id tags))
                 "canonical machine work-id (additive spelling)")
-            ;; rf2-niarhz — the CANONICAL :work/id is now stamped so Xray's
-            ;; uniform work/reply grouping (keys on bare :work/id) joins this
-            ;; spawned-actor completion.
+            ;; the CANONICAL :work/id is stamped so Xray's uniform work/reply
+            ;; grouping (keys on bare :work/id) joins this spawned-actor
+            ;; completion.
             (is (= [:rf.work/machine :rl/child#1 [:working] 1]
                    (:work/id tags))
                 "canonical :work/id join key on the done trace")
@@ -228,8 +227,8 @@
         (finally (trace/unregister-listener! ::done-err))))))
 
 ;; ===========================================================================
-;; (3) spawn-stale — parent destroyed BEFORE the child finishes (rf2-lohbfg /
-;;     rf2-tkisxm). The PRODUCTION path (not the pure builder): a child reaches
+;; (3) spawn-stale — parent destroyed BEFORE the child finishes.
+;;     The PRODUCTION path (not the pure builder): a child reaches
 ;;     its :final? leaf AFTER its spawning parent was already destroyed. The
 ;;     :on-done callback MUST NOT run (no live parent to mutate), the ledger /
 ;;     trace MUST classify the late completion :status :stale / :work/status
@@ -346,7 +345,7 @@
         "live parent: :on-done ran with the canonical reply's :value (not suppressed)")))
 
 ;; ===========================================================================
-;; (4) causal :completed-at threading (rf2-6mfkp3). A spawned machine
+;; (4) causal :completed-at threading. A spawned machine
 ;;     completion can mutate durable parent-machine data (:on-done writes
 ;;     the parent's :data). Per spec/Managed-Effects.md §155/§231 a
 ;;     completion that affects durable state MUST carry causal completion

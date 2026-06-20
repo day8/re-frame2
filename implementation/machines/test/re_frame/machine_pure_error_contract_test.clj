@@ -1,25 +1,23 @@
 (ns re-frame.machine-pure-error-contract-test
-  "Coverage & rigour pass (rf2-ynjts.10). Direct pure-engine (JVM)
-  coverage for the runtime error / resolution contracts that the
-  REGISTRATION-TIME validator (`validate-machine!`) does NOT cover —
-  because the pure-call surface (`re-frame.machines/machine-transition`,
-  the conformance corpus, JVM fixtures) reaches the engine WITHOUT
-  running `validate-machine!`. A grep of the machines test tree before
-  this file returned ZERO direct matches for these contracts:
+  "Direct pure-engine (JVM) coverage for the runtime error / resolution
+  contracts that the REGISTRATION-TIME validator (`validate-machine!`) does
+  NOT cover — because the pure-call surface
+  (`re-frame.machines/machine-transition`, the conformance corpus, JVM
+  fixtures) reaches the engine WITHOUT running `validate-machine!`:
 
-    - the BENIGN unhandled-event no-op (rf2-ugdas — xstate-v5 parity). An
-      unknown USER event is no longer an error: it emits the benign
+    - the BENIGN unhandled-event no-op (xstate-v5 parity). An unknown USER
+      event is NOT an error: it emits the benign
       `:rf.machine.event/unhandled-no-op` trace (op-type `:rf.machine`,
-      NOT `:error` / `:warning`) and leaves the snapshot unchanged.
-      rf2-t4582 refines this: reserved-`:rf/*` framework lifecycle traffic
-      (the synthetic creation marker `[:rf.machine/start]`, the spawn
-      kick-off `[:rf.machine.spawn/spawned]`, the stories-runtime
-      lifecycle pings) is NOT classified as an unknown-user-event no-op —
+      NOT `:error` / `:warning`) and leaves the snapshot unchanged; no
+      `:rf.error/machine-unhandled-event` advisory is emitted.
+      Reserved-`:rf/*` framework lifecycle traffic (the synthetic creation
+      marker `[:rf.machine/start]`, the spawn kick-off
+      `[:rf.machine.spawn/spawned]`, the stories-runtime lifecycle pings)
+      is NOT classified as an unknown-user-event no-op —
       `transition/unhandled-event-no-op?` gates the emit. Severity is
-      unchanged (benign, nothing throws); only the SEMANTIC carve-out is
-      restored, so the machine's BIRTH renders its `:initial-entry`
-      cascade rather than a no-op. Domain (non-`:rf/*`) events still emit
-      the benign no-op (the rf2-ugdas behaviour, preserved).
+      benign (nothing throws); the SEMANTIC carve-out means the machine's
+      BIRTH renders its `:initial-entry` cascade rather than a no-op.
+      Domain (non-`:rf/*`) events emit the benign no-op.
 
     - `:rf.error/machine-bad-state-form` — `state-path` throws on a
       `:state` that is neither keyword nor vector (transition.cljc:232).
@@ -57,24 +55,23 @@
             [re-frame.machines.transition :as transition]))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ugdas + rf2-t4582 — the BENIGN unhandled-event no-op (xstate-v5
-;; parity) WITH the reserved-:rf/* lifecycle carve-out. Through the pure
-;; macrostep, an unknown USER event emits the benign
-;; `:rf.machine.event/unhandled-no-op` trace (op-type :rf.machine, NOT
-;; :error / :warning) and leaves the snapshot unchanged; NO
-;; :rf.error/machine-unhandled-event is ever emitted (the advisory is
-;; retired). A reserved-:rf/* framework lifecycle event (bootstrap, spawn
-;; kick-off, stories pings) does NOT emit the no-op — it is framework init,
-;; not an unknown user event. Pins the engine's actual emission decision
-;; (transition.cljc `unhandled-event-no-op?` + the emit-site gate).
+;; The BENIGN unhandled-event no-op (xstate-v5 parity) WITH the
+;; reserved-:rf/* lifecycle carve-out. Through the pure macrostep, an
+;; unknown USER event emits the benign `:rf.machine.event/unhandled-no-op`
+;; trace (op-type :rf.machine, NOT :error / :warning) and leaves the
+;; snapshot unchanged; an unknown USER event is NOT an error, so no
+;; :rf.error/machine-unhandled-event advisory is emitted. A reserved-:rf/*
+;; framework lifecycle event (bootstrap, spawn kick-off, stories pings) does
+;; NOT emit the no-op — it is framework init, not an unknown user event.
+;; Pins the engine's actual emission decision (transition.cljc
+;; `unhandled-event-no-op?` + the emit-site gate).
 ;; ---------------------------------------------------------------------------
 
 (defn- capture-events!
   "Drive a pure `machine-transition` while a tooling listener records every
   emitted trace event (full envelope). Returns the vector of events
   (deterministic — no wall-clock / random). Routed through the shared
-  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed unregister
-  in a `finally`."
+  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
   [definition snapshot event]
   (mtest/with-trace-capture seen
     (machines/machine-transition definition snapshot event)
@@ -156,13 +153,12 @@
         "the bare reserved root is exempt")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-t4582 — the machine's BIRTH renders as :initial-entry, not a no-op.
-;; The start threads the synthetic `[:rf.machine/start]` event into the
-;; initial-entry cascade (Spec 005 §Synthetic creation marker). Because
-;; `:rf.machine/start` is reserved-:rf/*, the start NEVER trips the
-;; unhandled-no-op even when the initial state declares no `:on`; instead it
-;; runs the entry cascade and the entry action emits `:rf.machine/action-ran`
-;; with `:phase :initial-entry`.
+;; The machine's BIRTH renders as :initial-entry, not a no-op. The start
+;; threads the synthetic `[:rf.machine/start]` event into the initial-entry
+;; cascade (Spec 005 §Synthetic creation marker). Because `:rf.machine/start`
+;; is reserved-:rf/*, the start NEVER trips the unhandled-no-op even when the
+;; initial state declares no `:on`; instead it runs the entry cascade and the
+;; entry action emits `:rf.machine/action-ran` with `:phase :initial-entry`.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private boot-entry-spec
@@ -180,8 +176,7 @@
   (testing "the initial-entry cascade emits the :initial-entry-phase action-ran
    and installs the initial state — NOT an unhandled-no-op for
    [:rf.machine/start]"
-    ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-    ;; unregister in a `finally`.
+    ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`.
     (mtest/with-trace-capture seen
       (let [r    (parallel/apply-initial-entry-cascade
                    boot-entry-spec {:state :a :data {}})
@@ -322,11 +317,11 @@
           "ex-data carries the machine-id"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-yl39ub — runtime transition throws carry the canonical Spec 009
-;; thrown-error shape: a human :reason sentence, a :where, a :recovery, and a
-;; message that LEADS with the sentence + TRAILS with the [:rf.error/<id>]
-;; token (never a bare keyword). Covers a malformed transition VALUE form (the
-;; `:other` arm of normalise-candidates) and the canonical-shape invariants.
+;; Runtime transition throws carry the canonical Spec 009 thrown-error
+;; shape: a human :reason sentence, a :where, a :recovery, and a message that
+;; LEADS with the sentence + TRAILS with the [:rf.error/<id>] token (never a
+;; bare keyword). Covers a malformed transition VALUE form (the `:other` arm
+;; of normalise-candidates) and the canonical-shape invariants.
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-transition-value-throws-bad-on-clause

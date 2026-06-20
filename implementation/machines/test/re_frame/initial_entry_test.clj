@@ -1,16 +1,14 @@
 (ns re-frame.initial-entry-test
-  "Per rf2-0z73. Verifies whether a machine's **initial-state `:entry`
-  actions** fire when the machine first comes into existence — both for
-  top-level singleton machines (registered via `reg-machine`) and for
-  spawned actors (via declarative `:spawn` or imperative
-  `[:rf.machine/spawn ...]`).
+  "Verifies that a machine's **initial-state `:entry` actions** fire when
+  the machine first comes into existence — both for top-level singleton
+  machines (registered via `reg-machine`) and for spawned actors (via
+  declarative `:spawn` or imperative `[:rf.machine/spawn ...]`).
 
-  Surfaced from rf2-yf97 (the websocket example) and the
-  `:rf.http/managed` machine-shape wrapper: both work around an apparent
-  gap by declaring `:on :rf.machine.spawn/spawned :action ...` on the initial
-  state instead of relying on the natural `:entry` slot. If `:entry`
-  doesn't fire on initial state, every Pattern doc and worked example
-  that assumes the canonical `:entry` shape is misleading.
+  The canonical `:entry` slot is the right place to run initial-state
+  actions; relying on `:on :rf.machine.spawn/spawned :action ...` on the
+  initial state is a workaround, not the natural shape. If `:entry` did not
+  fire on the initial state, every Pattern doc and worked example that
+  assumes the canonical `:entry` shape would be misleading.
 
   Three scenarios under test, mirroring the three ways a machine first
   comes into existence:
@@ -37,7 +35,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
@@ -129,7 +127,7 @@
                                   ;; :leaf's parent :mid), so the absolute
                                   ;; vector target [:outer :elsewhere] resolves
                                   ;; it; a bare keyword would resolve as a
-                                  ;; sibling of :leaf under :mid (rf2-w84jv).
+                                  ;; sibling of :leaf under :mid.
                                   {:leaf {:entry :enter-leaf
                                           :on    {:go [:outer :elsewhere]}}}}
                            :elsewhere {}}}}}]
@@ -138,7 +136,7 @@
       (is (= [:outer :mid :leaf] @calls)
           "every state in the initial cascade fired :entry shallowest-first, exactly once"))))
 
-;; ---- (4) initial :entry cascade error path (rf2-dd3b / PR #330 gap) -------
+;; ---- (4) initial :entry cascade error path -------------------------------
 ;;
 ;; Per Spec 005 §Errors and machines.cljc:2161/2174 — if an action in
 ;; the bootstrap cascade throws, the runtime:
@@ -147,9 +145,9 @@
 ;;   - DOES NOT commit the snapshot (no `:db` effect)
 ;;   - DOES NOT flow any fx the cascade accumulated
 ;;
-;; PR #330 added the cascade itself; the happy paths above cover it.
-;; rf2-dd3b adds the throw-path coverage so a regression that silently
-;; committed a partial cascade or swallowed the trace would be caught.
+;; The happy paths above cover the cascade; this section pins the throw-path
+;; coverage so a regression that silently committed a partial cascade or
+;; swallowed the trace would be caught.
 
 (deftest initial-entry-throw-halts-bootstrap-atomically
   (testing "a throw in initial :entry leaves the snapshot uncommitted and

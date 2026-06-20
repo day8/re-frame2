@@ -1,18 +1,12 @@
 (ns re-frame.machines.result
-  "One result type for the machine-transition engine. Per rf2-aa2rw / rf2-ra1he §P0 #2.
+  "One result type for the machine-transition engine.
 
   The engine's pure surface (`apply-transition-once`, `machine-transition-
   single`, `parallel-machine-transition`, `apply-initial-entry-cascade`,
   and the public `machine-transition`) returns a Result map — either an
   `:ok` with the post-transition snapshot + emitted fx, or a `:fail`
-  carrying diagnostic info about the action / `:data`-fn that threw.
-
-  Pre-refactor this concept was spelled three different ways across the
-  engine — `[::action-failed info]` vector sentinel, a
-  `{:rf.machine/action-failure ...}` map shape inside `run-action`, and a
-  `[:ok | :fail]` mini-ADT inside `materialise-data`. Six call-sites
-  spelled the same `(if (and (vector? r) (= ::action-failed (first r))) ...)`
-  disambiguation guard. This namespace replaces all three with one shape.
+  carrying diagnostic info about the action / `:data`-fn that threw. One
+  shape is the engine's single success/failure result type.
 
   ## Shape
 
@@ -85,7 +79,7 @@
   the transition-level context (`:decl-path`, `:transition`,
   `:state-path`) before re-raising.
 
-  rf2-ny0yrz CL3: guarded with `(if (fail? r) … r)`, symmetric with the
+  Guarded with `(if (fail? r) … r)`, symmetric with the
   `with-handled` / `with-microsteps` / `with-cascade` siblings (which
   pass a non-`:ok` Result through unchanged). A non-`:fail` Result returns
   unchanged — `fail-with` only enriches an actual failure's `::info`, never
@@ -98,23 +92,16 @@
 
 (defn depth-abort
   "Build a `:fail` Result for a bounded-depth abort (`:always-depth-limit`
-  / `:raise-depth-limit` tripped mid-macrostep) — per rf2-y3jv8q.
+  / `:raise-depth-limit` tripped mid-macrostep).
 
   A runaway eventless / raise cycle (e.g. `a →:always b →:always a`) is NOT
-  a benign no-op: XState v5 THROWS on such a cycle. The pre-fix engine
-  returned `(ok rollback-snapshot [])` from the abort, which the lifecycle
-  boundary (`commit-or-finalize`) saw as `next == snapshot` ⇒ a no-op,
-  emitting NO `:rf.machine/transition` trace and routing NO error to the
-  handler return — the runaway was indistinguishable from a guard-blocked
-  no-op and the triggering user event was silently swallowed (only an
-  out-of-band `emit-error!` recorded it).
-
-  Returning a `:fail` instead routes the abort through the SAME failure
-  path an action exception takes (`trace-action-failure!` short-circuits the
-  handler to `{}`), so the macrostep surfaces as a FAILED macrostep — no
-  snapshot write reaches runtime-db, preserving the atomic rollback Spec
-  005 §Bounded depth requires (the pre-event snapshot stays committed),
-  while the event is no longer silently consumed.
+  a benign no-op: XState v5 THROWS on such a cycle. A depth abort returns a
+  `:fail` Result, which routes through the SAME failure path an action
+  exception takes (`trace-action-failure!` short-circuits the handler to
+  `{}`), so the macrostep surfaces as a FAILED macrostep — no snapshot
+  write reaches runtime-db, preserving the atomic rollback Spec 005
+  §Bounded depth requires (the pre-event snapshot stays committed), and the
+  triggering user event is not silently consumed.
 
   The `::info` map carries `::depth-abort? true` so the handler routing
   recognises this is a depth-abort — NOT a thrown action — and SKIPS the
@@ -130,7 +117,7 @@
   "True iff `r` is a `:fail` Result produced by a bounded-depth abort
   (`depth-abort`) — distinguishes a `:always` / `:raise` depth-limit trip
   from a thrown-action `:fail`, so the handler routing skips the generic
-  action-exception trace for the depth case (rf2-y3jv8q). A non-`:fail`
+  action-exception trace for the depth case. A non-`:fail`
   Result (or a thrown-action `:fail`) returns false."
   [r]
   (and (fail? r) (true? (get-in r [::info ::depth-abort?]))))
@@ -161,7 +148,7 @@
   a parallel-region machine reports whether its inbound event resolved to
   a transition so the parent can emit the benign
   `:rf.machine.event/unhandled-no-op` trace exactly once when EVERY region
-  declines (rf2-ugdas — xstate-v5 parity; not an error). The flag is internal to the
+  declines (xstate-v5 parity; not an error). The flag is internal to the
   machines engine — `:fail` Results and non-region callers ignore it; the
   key is namespaced so it never collides with snapshot / fx slots."
   [r handled?]
@@ -192,12 +179,12 @@
 
 (defn with-cascade
   "Stamp the optional `::cascade` step-vector onto an `:ok` Result. Per
-  Spec 005 §Transition cascade instrumentation (rf2-n9f4z): the ordered
+  Spec 005 §Transition cascade instrumentation: the ordered
   exit → action → entry (+ initial-descent) + `:always`-microstep step
   sequence the macrostep ran, so the lifecycle handler can carry it as
   the `:cascade` field on the outer `:rf.machine/transition` trace. This
   is the structured explanation of HOW the transition reached its
-  after-state — the contract Xray's epoch panel renders (rf2-52u5n).
+  after-state — the contract Xray's epoch panel renders.
 
   Internal to the machines engine; the key is namespaced so it never
   collides with snapshot / fx slots. `:fail` Results pass through
@@ -215,7 +202,7 @@
 
 (defn with-parallel-done
   "Stamp the `::parallel-done-handled?` flag onto an `:ok` Result. Per Spec
-  005 §Final states §The done-state signal (rf2-bnjb3): when a parallel
+  005 §Final states §The done-state signal: when a parallel
   machine reaches all-regions-final AND its root declared `:on-done`, the
   parallel layer fires that `:on-done` (run action + emit fx) and marks the
   Result so the lifecycle boundary (`commit-or-finalize`) does NOT auto-

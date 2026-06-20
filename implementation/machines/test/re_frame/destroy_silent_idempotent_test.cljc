@@ -1,10 +1,9 @@
 (ns re-frame.destroy-silent-idempotent-test
-  "Per rf2-lbjnz (Mike decision a, aligned with XState convention).
+  "Destroy idempotence is a deliberate contract, aligned with the XState
+  convention.
 
-  Pins the destroy idempotence contract as **deliberate, not
-  accidental**. The actor lifecycle has exactly one observable
-  transition (Active → Stopped); subsequent destroy attempts are
-  silent no-ops:
+  The actor lifecycle has exactly one observable transition (Active →
+  Stopped); subsequent destroy attempts are silent no-ops:
 
     - NO second `:rf.machine/destroyed` trace fires,
     - NO error is raised,
@@ -12,18 +11,17 @@
       registrar is already cleared, the spawn-slot is already
       cleared).
 
-  The two regression scenarios pinned here:
+  The two scenarios pinned here:
 
     1. **Explicit destroy after auto-destroy** — an actor reaches
-       `:final?` and auto-destroys (rf2-gn80 D4); a subsequent
+       `:final?` and auto-destroys (D4); a subsequent
        `[:rf.machine/destroy <id>]` fx is a silent no-op.
 
     2. **Double-explicit destroy** — two destroy fxs in the same
        cascade (or two cascaded destroys in the same drain) collapse
        to one observable destroy + one trace.
 
-  The spec contract lives at [Spec 005 §Destroy is silent-idempotent
-  (rf2-lbjnz)](spec/005-StateMachines.md#destroy-is-silent-idempotent-rf2-lbjnz)
+  The spec contract lives at Spec 005 §Destroy is silent-idempotent,
   with a cross-link from §Final states D6.
 
   The file is named `*-test.cljc` so it's discovered by both
@@ -34,7 +32,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.machines.test-support :as mtest]
-   ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`
+   ;; listener surface lives in `re-frame.trace.tooling`
    ;; (production-DCE split).
    [re-frame.trace.tooling :as trace-tooling]
    [re-frame.registrar :as registrar]
@@ -46,7 +44,7 @@
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
@@ -170,9 +168,9 @@
 
 ;; ---- Test 3: spawn-all join-cancelled survivor destroyed exactly once ------
 ;;
-;; rf2-ndfjo — the destroy-single-actor! / spawn-all exit-cascade path was
-;; unpinned. When a `:spawn-all` join resolves with `:cancel-on-decision?`
-;; true (the default), surviving children are torn down TWICE:
+;; When a `:spawn-all` join resolves with `:cancel-on-decision?` true (the
+;; default), each surviving child is torn down exactly once even though two
+;; destroy paths target it:
 ;;
 ;;   1. `build-resolution-fx` (join.cljc) emits `[:rf.machine/destroy
 ;;      <survivor>]` (keyword form → guarded `destroy-single!`) — one
@@ -180,14 +178,12 @@
 ;;   2. the parent then transitions OUT of the `:spawn-all` state; the
 ;;      exit cascade emits `[:rf.machine/destroy {:rf/spawn-all true ...}]`
 ;;      → `destroy-spawn-all-children!` re-reads the still-uncleared
-;;      join-state and (pre-fix) fired `destroy-single-actor!` +
-;;      `emit-destroyed!` UNCONDITIONALLY per child — a SECOND
-;;      `:rf.machine/destroyed` for the already-cancelled survivors.
+;;      join-state. Its per-child teardown carries the same liveness guard
+;;      `destroy-single!` does, so an already-cancelled survivor is a silent
+;;      no-op — no SECOND `:rf.machine/destroyed`.
 ;;
-;; This violated the silent-idempotent destroy contract (rf2-lbjnz): one
-;; observable Active→Stopped transition ⇒ exactly one `:rf.machine/destroyed`
-;; per actor. The fix gives `destroy-single-actor!` the same liveness guard
-;; `destroy-single!` carries and gates the cascade's emit on it.
+;; This upholds the silent-idempotent destroy contract: one observable
+;; Active→Stopped transition ⇒ exactly one `:rf.machine/destroyed` per actor.
 
 (defn- mk-cancel-child
   "Child that, on `:go`, transitions to `:done` and dispatches

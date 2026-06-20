@@ -1,6 +1,6 @@
 (ns re-frame.machines.timer
   "Wall-clock `:after` timer scheduling. Per Spec 005 §Delayed `:after`
-  transitions and rf2-3y3y.
+  transitions.
 
   On entry to an `:after`-bearing state node, the pure transition engine
   (`re-frame.machines.transition`) emits one `:rf.machine/after-schedule`
@@ -24,10 +24,10 @@
   through the standard cascade.
 
   A frame-scoped timer table tracks live handles so cancellation (state
-  exit) and subscription-driven re-resolution can clear them. Per
-  rf2-ysa94 the table is partitioned per frame (`{<frame-id> {<inner-key>
-  <entry>}}`), so concurrent frames in the same process — the common
-  test-fixture and SSR-load shape — observe disjoint timer state. The
+  exit) and subscription-driven re-resolution can clear them. The table is
+  partitioned per frame (`{<frame-id> {<inner-key> <entry>}}`), so
+  concurrent frames in the same process — the common test-fixture and
+  SSR-load shape — observe disjoint timer state. The
   epoch mechanism backstops correctness; explicit cancellation via
   `:rf.machine/after-cancel` is an optimisation that promptly releases
   the host-clock handle.
@@ -47,17 +47,16 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defonce after-timers
-  ;; Per Spec 005 §Delayed `:after` transitions and rf2-3y3y and the rf2-ysa94
-  ;; frame-scoping refactor: runtime-owned timer-handle table for in-flight
-  ;; :after timers, partitioned per frame.
+  ;; Per Spec 005 §Delayed `:after` transitions: runtime-owned timer-handle
+  ;; table for in-flight :after timers, partitioned per frame.
   ;;
   ;; Outer shape: {<frame-id> {<inner-key> <entry>}}.
   ;; Inner key:   {:parent <parent-id> :spawn <invoke-id-vec>
   ;;               :delay <delay-key>} — multiple delays per :after map
   ;;              have their own slot, and parallel-region machines
   ;;              partition further on the region-prefixed invoke-id.
-  ;;              Per rf2-gwznv the key is a map rather than a positional
-  ;;              tuple — readers no longer have to remember slot order.
+  ;;              The key is a map rather than a positional tuple — the map
+  ;;              form lets readers ignore slot order.
   ;; Entry value:
   ;;   {:handle <opaque host-clock handle>
   ;;    :reaction <subscription reaction or nil>
@@ -67,9 +66,8 @@
   ;;    :state <state-keyword>
   ;;    :delay-source <:literal | :sub | :fn>}
   ;;
-  ;; Frame-scoping the outer key (rf2-ysa94) was the last process-global
-  ;; piece of state in the machines artefact (per the rf2-ra1he audit, §TM4).
-  ;; Two consequences:
+  ;; Frame-scoping the outer key keeps the timer table out of process-global
+  ;; state. Two consequences:
   ;;   (1) Two frames running concurrently see strictly disjoint inner
   ;;       tables — no cross-frame contamination of timer handles, no
   ;;       chance that one frame's `reset-timers!` clobbers another's
@@ -88,13 +86,11 @@
   "Inner-table key — frame-id is the OUTER key into `after-timers` and
   is intentionally absent from this map.
 
-  Per rf2-gwznv the key is a `{:parent ... :spawn ... :delay ...}`
-  map rather than a positional tuple — readers no longer have to
-  remember slot order, and the scan in `after-cancel-fx` reads
-  `(:parent k)` / `(:spawn k)` rather than `(nth k 0)` / `(nth k 1)`.
-  The key is opaque to callers (used only as a `get-in` index into
-  `after-timers`'s inner map); the change is invisible outside this
-  file."
+  The key is a `{:parent ... :spawn ... :delay ...}` map rather than a
+  positional tuple — the map form lets readers ignore slot order, and the
+  scan in `after-cancel-fx` reads `(:parent k)` / `(:spawn k)` rather than
+  `(nth k 0)` / `(nth k 1)`. The key is opaque to callers (used only as a
+  `get-in` index into `after-timers`'s inner map)."
   [parent-id invoke-id delay-key]
   {:parent parent-id
    :spawn (vec invoke-id)
@@ -121,16 +117,13 @@
     [delay-key nil]
 
     (fn? delay-key)
-    ;; Per rf2-c1tnr the fn-form `:after` resolution used to silently
-    ;; swallow throws — a fn that NPE'd surfaced as
-    ;; `:rf.warning/no-clock-configured` downstream with no signal that
-    ;; the fn itself blew up. Now we emit `:rf.error/machine-after-fn-
-    ;; threw` on the exception path; the fn still falls through to no-
-    ;; clock-configured for recovery, but the exception is observable.
+    ;; A throwing fn-form `:after` emits `:rf.error/machine-after-fn-threw`
+    ;; on the exception path; the fn falls through to no-clock-configured
+    ;; for recovery, but the exception is observable rather than silently
+    ;; swallowed.
     ;;
-    ;; Per rf2-grw4i / rf2-v0rrr: the `:after` delay-fn receives the
-    ;; unified context-map `{:snapshot ...}` and returns a positive-int
-    ;; ms delay.
+    ;; The `:after` delay-fn receives the unified context-map
+    ;; `{:snapshot ...}` and returns a positive-int ms delay.
     (let [v (try (delay-key {:snapshot snapshot})
                  (catch #?(:clj Throwable :cljs :default) e
                    (trace/emit-error! :rf.error/machine-after-fn-threw
@@ -147,9 +140,8 @@
           v        (when reaction
                      (try @reaction
                           (catch #?(:clj Throwable :cljs :default) e
-                            ;; rf2-1b6uh5 — canonical subscription identity:
-                            ;; `:rf.sub/id` (+ `:rf.sub/query-v` for the full
-                            ;; vector), not the bare `:sub-id`.
+                            ;; Canonical subscription identity: `:rf.sub/id`
+                            ;; (+ `:rf.sub/query-v` for the full vector).
                             (trace/emit-error! :rf.error/machine-after-sub-threw
                                                {:exception      e
                                                 :rf.sub/id      (first delay-key)
@@ -171,9 +163,9 @@
   outer atom. Tolerates partial-state entries (the watcher / reaction
   slots are nil for literal- and fn-form delays)."
   [frame-id entry delay-key]
-  ;; Shared best-effort host-clock cancel (rf2-7x2lky) — swallows throws and
-  ;; no-ops a nil handle, tolerating the partial-state entries (literal- /
-  ;; fn-form delays whose watcher / reaction slots are nil).
+  ;; Shared best-effort host-clock cancel — swallows throws and no-ops a nil
+  ;; handle, tolerating the partial-state entries (literal- / fn-form delays
+  ;; whose watcher / reaction slots are nil).
   (managed-timer/cancel! (:handle entry))
   (when (and (:reaction entry) (:sub-watcher-key entry))
     (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
@@ -184,38 +176,36 @@
 
 (defn- emit-cancelled!
   "Emit the unified `:rf.machine.timer/cancelled` trace for one
-  cancellation site. Per rf2-82a0u: every cancellation path — state
-  exit, machine destroy, subscription re-resolution, in-place
-  supersede, frame destroy — flows through this single emit so
-  consumers can pair scheduled→fired→cancelled by
-  `(actor-id, state, epoch)` and branch on `:reason` from the
-  closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede
-  / :on-frame-destroy`.
+  cancellation site. Every cancellation path — state exit, machine
+  destroy, subscription re-resolution, in-place supersede, frame
+  destroy — flows through this single emit so consumers can pair
+  scheduled→fired→cancelled by `(actor-id, state, epoch)` and branch on
+  `:reason` from the closed set `:on-exit / :on-destroy / :on-resolution
+  / :on-supersede / :on-frame-destroy`.
 
   Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
   cancel pairing — same `:actor-id` / `:state` / `:delay` / `:epoch`
-  / `:frame` slots — plus the `:reason` discriminator. Per rf2-1b6uh5
-  the dynamic-delay subscription identity rides under the canonical
-  `:rf.sub/id` (the sub-id) plus `:rf.sub/query-v` (the full
-  subscription vector) when the cancelled timer was a sub-vec delay
-  (`:delay-source :sub`) — the same spelling the rest of the framework
-  uses for a subscription trace identity, not the bare `:sub-id`.
-  `:delay` reads the entry's `:resolved-ms` so the cancelled trace
+  / `:frame` slots — plus the `:reason` discriminator. The dynamic-delay
+  subscription identity rides under the canonical `:rf.sub/id` (the
+  sub-id) plus `:rf.sub/query-v` (the full subscription vector) when the
+  cancelled timer was a sub-vec delay (`:delay-source :sub`) — the same
+  spelling the rest of the framework uses for a subscription trace
+  identity. `:delay` reads the entry's `:resolved-ms` so the cancelled trace
   reports the wall-clock window the timer actually held, not the
   unresolved delay-key."
   [frame-id k entry reason]
   (let [delay-key    (:delay k)
         delay-source (:delay-source entry)
         sub-vec      (when (vector? delay-key) delay-key)
-        ;; rf2-sfunt8 — close the timer work attempt the reply-envelope way:
-        ;; a cancelled `:after` timer is `:status :cancelled` DATA, not the
-        ;; absence of a reply (Managed-Effects §Cancellation). The canonical
-        ;; `:work/id` matches the fired / stale reply's so the cancelled
-        ;; completion joins the same uniform work/reply row the timer's
-        ;; scheduling started; `:cancel/reason` carries the closed
-        ;; `timer-cancel-reasons` discriminator. The reply facts ride
-        ;; ADDITIVELY — the public trace shape (`:actor-id` / `:state` /
-        ;; `:delay` / `:epoch` / `:reason` / sub identity) is preserved.
+        ;; Close the timer work attempt the reply-envelope way: a cancelled
+        ;; `:after` timer is `:status :cancelled` DATA, not the absence of a
+        ;; reply (Managed-Effects §Cancellation). The canonical `:work/id`
+        ;; matches the fired / stale reply's so the cancelled completion
+        ;; joins the same uniform work/reply row the timer's scheduling
+        ;; started; `:cancel/reason` carries the closed `timer-cancel-reasons`
+        ;; discriminator. The reply facts ride ADDITIVELY — the public trace
+        ;; shape (`:actor-id` / `:state` / `:delay` / `:epoch` / `:reason` /
+        ;; sub identity) is preserved.
         cancel-reply (m-reply/cancelled-timer-reply
                        {:actor-id  (:parent k)
                         :state     (:state entry)
@@ -226,7 +216,7 @@
                         :reason    reason})
         summary      (m-reply/trace-reply cancel-reply {:frame frame-id})]
     (trace/emit! :rf.machine :rf.machine.timer/cancelled
-                 (cond-> {;; rf2-ws5thu — the timer's owning actor INSTANCE;
+                 (cond-> {;; the timer's owning actor INSTANCE;
                           ;; `:machine-id` is reserved for the registered TYPE.
                           :actor-id   (:parent k)
                           :state      (:state entry)
@@ -250,8 +240,8 @@
 (defn- cancel-after-timer-entry!
   "Cancel and clear a single :after timer-table entry under `frame-id`,
   emitting one `:rf.machine.timer/cancelled` trace stamped with
-  `reason` (closed set per rf2-82a0u: `:on-exit / :on-destroy /
-  :on-resolution / :on-supersede / :on-frame-destroy`). Idempotent —
+  `reason` (closed set: `:on-exit / :on-destroy / :on-resolution /
+  :on-supersede / :on-frame-destroy`). Idempotent —
   a second call against the same `[frame-id k]` is a no-op (the entry
   is gone so no trace fires)."
   [frame-id k reason]
@@ -271,9 +261,9 @@
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
   changes. Per Spec 005 §Dynamic delay re-resolution: cancel the prior
-  in-flight timer, emit `:rf.machine.timer/cancelled` (per rf2-82a0u
-  the unified cancellation event with `:reason :on-resolution`), and
-  reschedule a fresh timer at the new resolution time. Epoch is
+  in-flight timer, emit `:rf.machine.timer/cancelled` (the unified
+  cancellation event with `:reason :on-resolution`), and reschedule a
+  fresh timer at the new resolution time. Epoch is
   unchanged (the snapshot's :state hasn't moved); we read it back from
   the live snapshot at reschedule-time so a concurrent state change is
   caught by the epoch invariant when the new timer fires."
@@ -281,11 +271,11 @@
   (when-not (= old-v new-v)
     (let [k (after-timer-key parent-id invoke-id delay-key)]
       (cancel-after-timer-entry! frame-id k :on-resolution)
-      ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+      ;; Machine snapshots are durable runtime-db state.
       (when-let [rt (frame/frame-runtime-db-value frame-id)]
         (let [snap (get-in rt (paths/snapshot-path parent-id))
-              ;; Per Spec 005 §Per-region :after scoping (rf2-l67o): for
-              ;; parallel-region machines the snapshot's :state is a map
+              ;; Per Spec 005 §Per-region :after scoping: for parallel-region
+              ;; machines the snapshot's :state is a map
               ;; of region-name → that region's state, and the invoke-id
               ;; is `[<region-name> <state...>]` (prefix-region-invoke-id).
               ;; Resolve the active path inside the bearing region; the
@@ -323,11 +313,11 @@
   subscription-change watcher.
 
   Idempotent against the timer-table key — cancels any prior entry
-  before installing the new one. Per rf2-82a0u the leading cancel
-  emits a `:rf.machine.timer/cancelled` trace with `:reason
-  :on-supersede` — the only path that hits this branch with a live
-  prior entry is `cancel-and-reschedule` (initial schedule against an
-  empty slot is a no-op cancel)."
+  before installing the new one. The leading cancel emits a
+  `:rf.machine.timer/cancelled` trace with `:reason :on-supersede` —
+  the only path that hits this branch with a live prior entry is
+  `cancel-and-reschedule` (initial schedule against an empty slot is a
+  no-op cancel)."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
    {:keys [emit-scheduled-trace?]}]
   (let [delay-source (transition/classify-delay-source delay-key)
@@ -345,23 +335,22 @@
               (not (pos? resolved-ms)))
           ;; Bad delay resolution — emit advisory and skip.
           ;;
-          ;; Per rf2-fva6c.1: `resolve-delay-ms` for a subscription-vector
-          ;; delay calls `subs/subscribe` (bumping the sub-cache ref-count)
-          ;; BEFORE we know whether the resolved value is usable. The bad-
-          ;; delay branch short-circuits and stores nothing in
-          ;; `after-timers`, so no future `cancel-after-timer-entry!` will
-          ;; ever run `release-entry-resources!` to drop the ref. Pair the
-          ;; subscribe with an `unsubscribe` here so every exit path
-          ;; balances the ref-count. Per Spec 006 §Reference counting and
-          ;; disposal.
+          ;; `resolve-delay-ms` for a subscription-vector delay calls
+          ;; `subs/subscribe` (bumping the sub-cache ref-count) BEFORE we
+          ;; know whether the resolved value is usable. The bad-delay branch
+          ;; short-circuits and stores nothing in `after-timers`, so no
+          ;; future `cancel-after-timer-entry!` will ever run
+          ;; `release-entry-resources!` to drop the ref. Pair the subscribe
+          ;; with an `unsubscribe` here so every exit path balances the
+          ;; ref-count. Per Spec 006 §Reference counting and disposal.
           (do
             (when (and reaction (vector? delay-key))
               (try (subs/unsubscribe frame-id delay-key)
                    (catch #?(:clj Throwable :cljs :default) _ nil)))
             (trace/emit! :warning :rf.warning/no-clock-configured
-                         ;; rf2-yyvtk5 — the timer's owning actor is a LIVE
-                         ;; INSTANCE; address it by `:actor-id`, not
-                         ;; `:machine-id` (reserved for the registered TYPE).
+                         ;; the timer's owning actor is a LIVE INSTANCE;
+                         ;; address it by `:actor-id`, not `:machine-id`
+                         ;; (reserved for the registered TYPE).
                          {:actor-id     parent-id
                           :state        state
                           :delay-key    delay-key
@@ -372,24 +361,23 @@
           :else
           (let [_ (when emit-scheduled-trace?
                     (trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                 (cond-> {;; rf2-ws5thu — the timer's owning
-                                          ;; actor INSTANCE; `:machine-id` is
-                                          ;; reserved for the registered TYPE.
+                                 (cond-> {;; the timer's owning actor INSTANCE;
+                                          ;; `:machine-id` is reserved for the
+                                          ;; registered TYPE.
                                           :actor-id     parent-id
                                           :state        state
                                           :delay        resolved-ms
                                           :delay-source delay-source
                                           :epoch        epoch
                                           :frame        frame-id}
-                                   ;; rf2-1b6uh5 — canonical subscription
-                                   ;; identity: `:rf.sub/id` + `:rf.sub/query-v`,
-                                   ;; not the bare `:sub-id`.
+                                   ;; canonical subscription identity:
+                                   ;; `:rf.sub/id` + `:rf.sub/query-v`.
                                    (= :sub delay-source)
                                    (assoc :rf.sub/id      (first delay-key)
                                           :rf.sub/query-v (vec delay-key)))))
                 handle
-                ;; Shared positive-delay-guarded arm (rf2-7x2lky) — the
-                ;; host-clock arm step both timer artefacts share. `resolved-ms`
+                ;; Shared positive-delay-guarded arm — the host-clock arm
+                ;; step both timer artefacts share. `resolved-ms`
                 ;; is already known-positive here (the non-positive case was
                 ;; handled by the prior `cond` branch with the
                 ;; `:no-clock-configured` advisory), so the guard is a no-op
@@ -398,18 +386,12 @@
                 (managed-timer/arm!
                   (fn []
                     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-                      ;; Per rf2-ejtpd + rf2-1ve9h: stamp `:source
-                      ;; :after-timer` on the timer-fired dispatch so
-                      ;; the Epoch panel's DISPATCH step labels it
-                      ;; "from :after timer" rather than the
-                      ;; `:unknown` residual default (rf2-hxj0d), and
-                      ;; Xray's L2 timeline can prefix the row + per-
-                      ;; source filter pills can discriminate timer-
-                      ;; fired cascades. Per rf2-1ve9h (Mike-approved
-                      ;; Option A, 2026-05-28) the prior parallel
-                      ;; `:rf/dispatch-origin :timer` axis was
-                      ;; collapsed into `:source` — `:after-timer` is
-                      ;; now the single functional-origin discriminator
+                      ;; Stamp `:source :after-timer` on the timer-fired
+                      ;; dispatch so the Epoch panel's DISPATCH step labels
+                      ;; it "from :after timer", and Xray's L2 timeline can
+                      ;; prefix the row + per-source filter pills can
+                      ;; discriminate timer-fired cascades. `:after-timer`
+                      ;; is the single functional-origin discriminator
                       ;; (closed-enum per Spec-Schemas
                       ;; §`:rf/dispatch-envelope`).
                       ;; Per Spec 005 §Hierarchy interaction: carry the
@@ -426,20 +408,19 @@
                 watch-key (when (= :sub delay-source)
                             [::after-watch frame-id parent-id invoke-id delay-key])]
             (when (and reaction watch-key)
-              ;; Per rf2-c1tnr — surface `add-watch` exceptions rather
-              ;; than silently dropping them; the sub-changed re-resolution
-              ;; watcher won't fire if `add-watch` failed, so the author
-              ;; needs a signal that the dynamic-delay subscription is
-              ;; not actually wired up.
+              ;; Surface `add-watch` exceptions rather than silently
+              ;; dropping them; the sub-changed re-resolution watcher won't
+              ;; fire if `add-watch` failed, so the author needs a signal
+              ;; that the dynamic-delay subscription is not actually wired
+              ;; up.
               (try
                 (add-watch reaction watch-key
                            (fn [_ _ old-v new-v]
                              (on-sub-changed! frame-id parent-id invoke-id
                                               delay-key state old-v new-v)))
                 (catch #?(:clj Throwable :cljs :default) e
-                  ;; rf2-yyvtk5 — owning actor INSTANCE under `:actor-id`.
-                  ;; rf2-1b6uh5 — canonical subscription identity
-                  ;; (`:rf.sub/id` + `:rf.sub/query-v`), not the bare `:sub-id`.
+                  ;; Owning actor INSTANCE under `:actor-id`; canonical
+                  ;; subscription identity (`:rf.sub/id` + `:rf.sub/query-v`).
                   (trace/emit-error! :rf.error/machine-after-watch-failed
                                      {:exception      e
                                       :actor-id       parent-id
@@ -459,8 +440,8 @@
 
 (defn after-schedule-fx
   "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
-  `:after` transitions and rf2-3y3y, on entry to an :after-bearing state
-  node the runtime emits one of these per :after entry. The handler
+  `:after` transitions, on entry to an :after-bearing state node the
+  runtime emits one of these per :after entry. The handler
   resolves the delay (literal pos-int? / subscription vector / fn),
   schedules a real wall-clock timer via `interop/schedule-after!` (Spec
   005 §Clock abstraction), and (for
@@ -478,9 +459,9 @@
 
   No-op under `:platform :server` (per Spec 005 §SSR mode)."
   [{frame-id :frame} args]
-  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
-        ;; fx-context `:frame`; a nil stamp is an invariant failure
-        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+  (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
+        ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
+        ;; never a synthesised `:rf/default`.
         frame-id   (frame/require-frame-stamp!
                      frame-id :rf.machine/after-schedule
                      {:where 'rf.machine/after-schedule
@@ -491,7 +472,7 @@
         delay-key  (:delay-key args)
         epoch      (:epoch args)
         server?    (boolean (:server? args))
-        ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+        ;; Machine snapshots are durable runtime-db state.
         snapshot   (get-in (frame/frame-runtime-db-value frame-id)
                            (paths/snapshot-path parent-id))]
     ;; Initial state-entry scheduling — the :scheduled trace was already
@@ -508,29 +489,27 @@
     nil))
 
 (defn after-cancel-fx
-  "fx handler for `:rf.machine/after-cancel`. Per rf2-3y3y, emitted on
-  exit from an :after-bearing state node to release the host-clock timer
-  handles and any subscription watchers attached to the prior visit's
-  timers. The epoch-mismatch invariant backstops correctness if a timer
-  fires before this fx runs; this handler is the fast-path that prevents
-  zombie watchers and releases timer slots promptly.
+  "fx handler for `:rf.machine/after-cancel`. Emitted on exit from an
+  :after-bearing state node to release the host-clock timer handles and
+  any subscription watchers attached to the prior visit's timers. The
+  epoch-mismatch invariant backstops correctness if a timer fires before
+  this fx runs; this handler is the fast-path that prevents zombie
+  watchers and releases timer slots promptly.
 
-  Per rf2-82a0u each cancellation emits one
-  `:rf.machine.timer/cancelled` trace with `:reason :on-exit` so the
-  scheduled→fired→cancelled pairing in the Xray Handler section's
-  AFTER TIMERS sub-section can attribute the cancel to the state-exit
-  cause.
+  Each cancellation emits one `:rf.machine.timer/cancelled` trace with
+  `:reason :on-exit` so the scheduled→fired→cancelled pairing in the Xray
+  Handler section's AFTER TIMERS sub-section can attribute the cancel to
+  the state-exit cause.
 
-  Per rf2-ysa94 the scan is now bounded by the active frame's inner
-  table — siblings' timers in other frames are no longer walked. Per
-  rf2-gwznv the inner key is `{:parent ... :spawn ... :delay ...}`,
-  so the only cross-key axis we still iterate is `:delay` (one entry
-  per :after map entry on the bearing state node — typically 1-3
-  entries)."
+  The scan is bounded by the active frame's inner table — siblings'
+  timers in other frames are not walked. The inner key is
+  `{:parent ... :spawn ... :delay ...}`, so the only cross-key axis we
+  iterate is `:delay` (one entry per :after map entry on the bearing
+  state node — typically 1-3 entries)."
   [{frame-id :frame} args]
-  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
-        ;; fx-context `:frame`; a nil stamp is an invariant failure
-        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+  (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
+        ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
+        ;; never a synthesised `:rf/default`.
         frame-id  (frame/require-frame-stamp!
                     frame-id :rf.machine/after-cancel
                     {:where 'rf.machine/after-cancel
@@ -545,10 +524,10 @@
 
 (defn cancel-actor-timers!
   "Cancel every in-flight `:after` timer owned by `parent-id` under
-  `frame-id`. Per rf2-82a0u: emits one `:rf.machine.timer/cancelled`
-  trace per entry with `:reason :on-destroy`. Called from the machine-
-  destroy paths so trace consumers see the cancellation cause distinct
-  from state-exit / frame-destroy cancellations.
+  `frame-id`. Emits one `:rf.machine.timer/cancelled` trace per entry
+  with `:reason :on-destroy`. Called from the machine-destroy paths so
+  trace consumers see the cancellation cause distinct from state-exit /
+  frame-destroy cancellations.
 
   Pure side-effect — no return value. No-op when the actor has no
   in-flight timers. The transition engine's epoch invariant backstops
@@ -572,14 +551,13 @@
   stream observed by the next test.
 
   1-arity: just the given frame's timers (`frame/destroy-frame!` hook).
-  Per rf2-82a0u each cancelled timer emits one
-  `:rf.machine.timer/cancelled` trace with `:reason :on-frame-destroy`
-  so the Handler section's AFTER TIMERS sub-section can pair scheduled
-  → cancelled on frame teardown.
+  Each cancelled timer emits one `:rf.machine.timer/cancelled` trace with
+  `:reason :on-frame-destroy` so the Handler section's AFTER TIMERS
+  sub-section can pair scheduled → cancelled on frame teardown.
 
-  Per rf2-ysa94 the timer table is partitioned per frame; the 1-arity
-  variant releases the destroyed frame's host-clock handles and
-  subscription watchers without touching sibling frames' state."
+  The timer table is partitioned per frame; the 1-arity variant releases
+  the destroyed frame's host-clock handles and subscription watchers
+  without touching sibling frames' state."
   ([]
    (doseq [[frame-id inner] @after-timers
            [k entry] inner]
@@ -597,7 +575,7 @@
 (defn cancel-frame-timers-on-restore!
   "Cancel every in-flight `:after` timer the given `frame-id` currently holds,
   emitting one `:rf.machine.timer/cancelled` trace per entry with
-  `:reason :on-restore` (rf2-u5kmf8).
+  `:reason :on-restore`.
 
   Epoch restore installs the captured durable frame-state (the machine
   snapshots in runtime-db) WHOLESALE, so timer LIVENESS reverts atomically —

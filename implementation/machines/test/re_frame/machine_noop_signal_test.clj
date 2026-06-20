@@ -1,22 +1,16 @@
 (ns re-frame.machine-noop-signal-test
-  "Per rf2-coozg — a genuine machine no-op is signalled ONCE, consistently.
+  "A genuine machine no-op is signalled ONCE, consistently.
 
-  Before this bead the engine double-signalled an unhandled / guard-blocked
-  no-op: the `:else` branch of `machine-transition-single` (and the
-  parallel aggregate in `parallel-machine-transition`) emitted the benign
-  `:rf.machine.event/unhandled-no-op`, AND `commit-or-finalize`
-  UNCONDITIONALLY emitted a no-change `:rf.machine/transition` (before =
-  after, `:microsteps 0`, `:cascade []`). A redundant `[:rf.machine/start]`
-  on an already-booted machine emitted ONLY the bare no-change transition
-  (no `unhandled-no-op` — reserved-`:rf/*` lifecycle is carved out per
-  rf2-t4582). So a no-op was signalled two ways for unhandled/blocked
-  events, one way for redundant bootstrap — inconsistent + redundant.
+  `commit-or-finalize` suppresses the `:rf.machine/transition` emit when the
+  macrostep is a genuine no-op — `:before` == `:after` AND the combined
+  (boot + step) `:cascade` is empty AND zero `:microsteps`. So:
 
-  The fix: `commit-or-finalize` suppresses the `:rf.machine/transition`
-  emit when the macrostep is a genuine no-op — `:before` == `:after` AND
-  the combined (boot + step) `:cascade` is empty AND zero `:microsteps`.
-  The `unhandled-no-op` becomes the SOLE signal for an unhandled / blocked
-  event; a redundant bootstrap on an already-booted machine emits NOTHING.
+    - An unhandled / guard-blocked event emits exactly one benign
+      `:rf.machine.event/unhandled-no-op` and NO no-change
+      `:rf.machine/transition`.
+    - A redundant `[:rf.machine/start]` on an already-booted machine emits
+      NOTHING — reserved-`:rf/*` lifecycle is carved out of `unhandled-no-op`,
+      and the no-change transition is suppressed.
 
   The legitimate first bootstrap (`:initial-entry`) carries a non-empty
   initial-descent `:cascade`, so it is NEVER a no-op and its transition
@@ -38,7 +32,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
+;; Routed through the shared `mtest/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces! [body-fn]
   (mtest/with-trace-capture seen
@@ -109,9 +103,9 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Redundant bootstrap on an already-booted machine — emits NEITHER
-;;    signal (reserved-`:rf/*` lifecycle is exempt from unhandled-no-op per
-;;    rf2-t4582, and the no-change transition is now suppressed too). The
-;;    no-op is consistent: nothing fires for genuine non-events.
+;;    signal (reserved-`:rf/*` lifecycle is exempt from unhandled-no-op,
+;;    and the no-change transition is suppressed too). The no-op is
+;;    consistent: nothing fires for genuine non-events.
 ;; ---------------------------------------------------------------------------
 
 (deftest redundant-start-emits-no-no-op-signal
@@ -135,11 +129,11 @@
           "no second `:rf.machine/started` — the machine is already alive"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. The LEGITIMATE first start runs its `:initial-entry` cascade and, per
-;;    F‴ (rf2-gl588), signals the BIRTH with a `:rf.machine/started` trace —
-;;    NOT a `:rf.machine/transition`. The start marker is a PURE init-kick:
-;;    it STOPS after initial-entry, so no transition row is emitted (the old
-;;    `before == after` self-transition is gone). It is not an unhandled-no-op.
+;; 4. The LEGITIMATE first start runs its `:initial-entry` cascade and
+;;    signals the BIRTH with a `:rf.machine/started` trace — NOT a
+;;    `:rf.machine/transition`. The start marker is a PURE init-kick:
+;;    it STOPS after initial-entry, so no transition row is emitted (no
+;;    `before == after` self-transition). It is not an unhandled-no-op.
 ;; ---------------------------------------------------------------------------
 
 (deftest first-start-signals-birth-via-started-trace

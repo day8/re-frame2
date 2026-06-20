@@ -1,27 +1,15 @@
 (ns re-frame.nested-validation-test
-  "Per rf2-oz9t — verify-the-gap-first probe for the machine
-  registration-time validator's coverage of :guard / :action keyword
-  references in NESTED states and in non-`:on` slots
-  (`:always`, `:entry`, `:exit`).
+  "Coverage for the machine registration-time validator's handling of
+  :guard / :action keyword references in NESTED states and in non-`:on`
+  slots (`:always`, `:entry`, `:exit`).
 
-  Background: in `re-frame.machines`, `make-machine-handler`
-  validates keyword `:guard` / `:action` references via a manual
-  top-level `doseq` over `(:states machine)`, walking only `:on`
-  transitions. The sibling helper `walk-state-nodes` (used just above
-  for other registration-time validation) walks recursively but is NOT
-  reused for guard/action validation. Spec 005 implies the
-  registration-time validator should cover the full state tree and
-  every transition-bearing slot, not just top-level `:on`.
+  Per Spec 005, the registration-time validator covers the full state tree
+  and every transition-bearing slot, not just top-level `:on`. A keyword
+  `:guard` / `:action` reference that names no registered entry must fail
+  registration clearly rather than slipping through to manifest at runtime.
 
-  These tests pin the observable behaviour. If a misuse passes
-  registration silently and only manifests at runtime, the gap is real
-  and the validator needs to drive off the recursive walker. If the
-  registration throws clearly, the narrow pass is structurally
-  sufficient and a code comment should explain why.
-
-  Each test registers a machine that points at an unregistered
-  keyword from a single misuse site, isolated so the failure mode is
-  unambiguous."
+  Each test registers a machine that points at an unregistered keyword
+  from a single misuse site, isolated so the failure mode is unambiguous."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]
@@ -150,15 +138,12 @@
       (is (some? thrown)
           "nested :always :action misuse SHOULD throw at registration"))))
 
-;; ---- regression (rf2-zg579): single-map :always must be normalised ------
+;; ---- single-map :always must be normalised -------------------------------
 ;; The grammar admits `:always` as a single entry map OR a vector of entry
-;; maps. The guard/action ref-validation loop used to iterate `(:always
-;; state-node)` directly; for a single-map `:always` that yields the map's
-;; MapEntries, so `(:guard t)`/`(:action t)` no-op'd and a dangling ref
-;; slipped past fail-fast registration (surfacing only late, at runtime).
-;; The fix routes the loop through the in-file `always-entries` normaliser.
-;; The vector form (above) was already covered; these pin the single-map
-;; form so both shapes are guarded.
+;; maps. The guard/action ref-validation loop routes through the in-file
+;; `always-entries` normaliser, so a dangling ref in EITHER shape is caught
+;; at fail-fast registration. These pin the single-map form; the vector
+;; form is covered above — both shapes are guarded.
 
 (deftest top-level-always-single-map-guard-keyword-unresolved
   (testing "Top-level single-map :always with unregistered :guard keyword fails registration"
@@ -270,14 +255,13 @@
       (is (some? thrown)
           "nested-state :exit action misuse SHOULD throw at registration"))))
 
-;; ---- gap probe: parallel-region keyword refs (rf2-rp0y / PR #307 gap) ----
+;; ---- parallel-region keyword refs ----------------------------------------
 ;;
 ;; Per Spec 005 §Parallel regions and machines.cljc:1903-1990:
 ;; `walk-state-nodes` iterates parallel regions via the `(parallel?
 ;; machine)` branch, so the registration-time validator at lines
-;; 1977-1990 SHOULD catch keyword-ref typos inside any region.
-;; nested_validation_test covers flat + compound only; rf2-rp0y adds
-;; the parallel-region coverage.
+;; 1977-1990 catches keyword-ref typos inside any region. These cover the
+;; parallel-region cases alongside the flat + compound cases above.
 
 (deftest parallel-region-on-guard-keyword-unresolved
   (testing "Parallel region :on with unregistered :guard keyword fails registration"
@@ -386,12 +370,11 @@
       (is (some? thrown)
           ":always misuse inside a region SHOULD throw at registration"))))
 
-;; ---- :always self-loop forbidden at registration (rf2-hh1pi) -------------
+;; ---- :always self-loop forbidden at registration -------------------------
 ;;
 ;; Per Spec 005 §Self-loop forbidden at registration (005:1290-1301): a
 ;; state whose `:always` targets itself is rejected at construction time
-;; via `:rf.error/machine-always-self-loop`. Before rf2-hh1pi this was
-;; only caught LATE at runtime via the depth-exceeded backstop.
+;; via `:rf.error/machine-always-self-loop`.
 
 (deftest always-self-loop-keyword-target-rejected
   (testing "an :always entry whose keyword :target names its own state is rejected"
@@ -435,10 +418,10 @@
     ;; `scxml-eventless-settles-to-fixed-point` (the :more?/:bump counter
     ;; that settles :n 0→3). That corpus drives the PURE engine via `step`;
     ;; this case proves the same shape is also registration-legal via the
-    ;; full `reg-machine` validator (per the acdlp acceptance: the demo must
-    ;; register, not only step). A self-:target form of this counter would
-    ;; throw :rf.error/machine-always-self-loop — see the rejection tests
-    ;; above — so the targetless form is the only registration-legal one.
+    ;; full `reg-machine` validator. A self-:target form of this counter
+    ;; would throw :rf.error/machine-always-self-loop — see the rejection
+    ;; tests above — so the targetless form is the only registration-legal
+    ;; one.
     (let [m {:initial :a
              :data    {:n 0}
              :guards  {:more? (fn [{d :data}] (< (:n d) 3))}
@@ -494,7 +477,7 @@
       (is (some? thrown) "region :always self-loop SHOULD throw at registration")
       (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))))))
 
-;; ---- compound state missing :initial rejected (rf2-boryv) ----------------
+;; ---- compound state missing :initial rejected ----------------------------
 ;;
 ;; Per Spec 005 §Initial-state cascading (005:930): every compound
 ;; state-node MUST declare `:initial`. Without it the cascade has no
@@ -565,13 +548,13 @@
       (is (nil? thrown)
           "a well-shaped parallel machine should register without throwing"))))
 
-;; ---- multi-hop keyword-indirection in :guards / :actions (rf2-ylpnn) ------
+;; ---- multi-hop keyword-indirection in :guards / :actions -----------------
 ;; The runtime resolver `transition/chase-ref` tolerates keyword INDIRECTION:
 ;; a :guards / :actions entry value may itself be a keyword pointing at
-;; another entry. The registration validator must follow that SAME chain to
-;; its terminal fn — testing membership of only the FIRST key let a multi-hop
-;; chain whose terminal hop is missing pass registration and blow up only at
-;; runtime, defeating the fail-fast contract (Spec 005 §Registration).
+;; another entry. The registration validator follows that SAME chain to its
+;; terminal fn, so a multi-hop chain whose terminal hop is missing fails at
+;; registration rather than blowing up at runtime (Spec 005 §Registration,
+;; the fail-fast contract).
 
 (deftest multi-hop-guard-indirection-resolves-registers
   (testing "a :guard ref through TWO hops of keyword indirection to a fn
@@ -636,16 +619,15 @@
       (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data thrown)))
           "error category names the unresolved-guard contract"))))
 
-;; ---- transition :target shape + resolution (rf2-w84jv) -------------------
+;; ---- transition :target shape + resolution -------------------------------
 ;;
 ;; Per Spec 005 (005:441 "a transition targeting an unknown state fails
 ;; registration") + Spec-Schemas §TransitionTarget ([:or :keyword [:vector
 ;; :keyword]]): every transition slot's `:target` must be a well-formed,
-;; resolvable target. Before rf2-w84jv only `:guard` / `:action` refs were
-;; validated, so a malformed `{:target 42}` registered and threw
-;; `:rf.error/machine-bad-state-form` later at the triggering dispatch, and a
-;; missing `{:target [:missing]}` registered and committed an invalid snapshot.
-;; XState v5 rejects unresolvable targets at machine creation; we align.
+;; resolvable target. A malformed `{:target 42}` and a missing
+;; `{:target [:missing]}` both fail registration rather than blowing up at
+;; the triggering dispatch or committing an invalid snapshot. XState v5
+;; rejects unresolvable targets at machine creation; we align.
 
 (deftest on-scalar-target-rejected-at-registration
   (testing "an :on transition whose :target is a non-keyword/non-vector scalar is rejected at registration (rf2-w84jv)"

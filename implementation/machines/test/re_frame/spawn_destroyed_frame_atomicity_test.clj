@@ -1,20 +1,18 @@
 (ns re-frame.spawn-destroyed-frame-atomicity-test
-  "Per rf2-g13nm2 C3 — destroyed-/unknown-frame spawn atomicity.
+  "Destroyed-/unknown-frame spawn atomicity.
 
   `spawn-fx*` (the accepted-spawn body of `:rf.machine/spawn`) reads the
   frame's runtime-db once as `old-rt`; for a DESTROYED or never-created
   frame that read is nil, and the fallback id-allocator yields a nil
-  `spawned-id` (the `:else` branch). The install of the snapshot /
-  system-id / spawn-slot is correctly gated on `(when old-rt …)` and so
-  skips for a dead frame — BUT pre-fix the `:rf.machine.spawn/spawned`
-  trace AND the `:start` (or synthetic) dispatch sat outside that gate
-  (under `(when-not rejected?)` only). A destroyed-frame spawn therefore
-  fired a phantom `spawned` trace and dispatched `[nil <start>]` into the
-  void for an actor that was NEVER installed — an atomicity violation.
+  `spawned-id` (the `:else` branch).
 
-  The fix gates the WHOLE accepted-spawn cascade (trace + install +
-  dispatch) on `(and (not rejected?) old-rt)`, so a dead-frame spawn is a
-  clean no-op: no trace, no install, no dispatch, nil returned."
+  The WHOLE accepted-spawn cascade — the `:rf.machine.spawn/spawned`
+  trace, the snapshot / system-id / spawn-slot install, and the `:start`
+  (or synthetic) dispatch — is gated on `(and (not rejected?) old-rt)`, so
+  a dead-frame spawn is a clean no-op: no trace, no install, no dispatch,
+  nil returned. This keeps the spawn atomic — there is never a phantom
+  `spawned` trace or a `[nil <start>]` dispatch for an actor that was not
+  installed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]

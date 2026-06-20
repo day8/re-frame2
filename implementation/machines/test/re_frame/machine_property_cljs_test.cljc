@@ -1,5 +1,5 @@
 (ns re-frame.machine-property-cljs-test
-  "Property / model-based test layer for the machines engine (rf2-dp1fi0).
+  "Property / model-based test layer for the machines engine.
 
   The machines suite is otherwise ENTIRELY example-based — pin-and-assert
   (one input → one expected snapshot), the 186-fixture SCXML conformance
@@ -424,7 +424,7 @@
 ;; `transition/compute-tags` — that is the SAME fn the engine's commit-tags
 ;; calls (`transition.cljc` `commit-tags` → `compute-tags`), so reusing it
 ;; only cross-checks the elision rule + state/tag consistency, never the
-;; union math itself (rf2-ln2ctp). Instead, walk the active-state ancestor
+;; union math itself. Instead, walk the active-state ancestor
 ;; chain HERE — descending the machine spec's `:states` map directly along
 ;; the state path and reading each node's declared `:tags` slot by hand — so
 ;; the expected union is derived by a genuinely independent method. The
@@ -474,7 +474,7 @@
   union for `machine` + `state` (the projection the engine must stamp), via
   a HAND-WRITTEN ancestor-chain walk over the machine spec — NOT via
   `transition/compute-tags` (which the engine itself uses, so reusing it
-  would be circular; rf2-ln2ctp). For parallel, union the independent walk
+  would be circular). For parallel, union the independent walk
   across every region; for flat/compound, walk the single path."
   [machine state]
   (if (map? state)
@@ -565,11 +565,10 @@
                         :actions shared-actions
                         :states  {:loop {:on {:e0 {:action :a/raise}}}}}
           ;; Both calls MUST return (not hang / SOE). The harness running to
-          ;; completion is the settle proof. Per rf2-y3jv8q an unbounded
-          ;; :always / :raise cycle now surfaces as a FAILED macrostep at the
-          ;; depth bound (XState v5 throws on such a runaway) — a `result/fail`
-          ;; carrying the `::depth-abort?` sentinel, NOT an :ok rollback no-op
-          ;; that masqueraded as a guard-blocked decline.
+          ;; completion is the settle proof. An unbounded :always / :raise
+          ;; cycle surfaces as a FAILED macrostep at the depth bound (XState
+          ;; v5 throws on such a runaway) — a `result/fail` carrying the
+          ;; `::depth-abort?` sentinel, NOT an :ok rollback no-op.
           r-always (machines/machine-transition
                      always-cycle (initial-snapshot always-cycle) [:noop])
           r-raise  (machines/machine-transition

@@ -1,7 +1,7 @@
 (ns re-frame.parallel-raise-broadcast-test
-  "Per rf2-yi7ts — a `:raise` emitted inside a parallel REGION re-enters the
-  PARENT parallel macrostep and re-broadcasts to ALL regions against the
-  full evolving snapshot. It is NOT region-local.
+  "A `:raise` emitted inside a parallel REGION re-enters the PARENT parallel
+  macrostep and re-broadcasts to ALL regions against the full evolving
+  snapshot. It is NOT region-local.
 
   XState v5 / SCXML gold standard: `raise` enqueues on the machine's ONE
   internal event queue; the macrostep pops the front and broadcasts the
@@ -10,12 +10,10 @@
   reaches its SIBLINGS, a sibling's guard sees the raise's `:data` writes
   (evolving snapshot), and the originating region re-sees it too.
 
-  Before the fix the per-region drain (`machine-transition-single`'s local
-  `drain-raises` against the region-spec) delivered a region's raise to the
-  RAISING REGION ONLY — never broadcast. The fix: regions DEFER their raises
-  (`transition/drain-or-defer-raises`); `parallel/parallel-machine-transition`
-  owns the macrostep's internal-event queue and re-broadcasts each surfaced
-  raise across every region.
+  Regions DEFER their raises (`transition/drain-or-defer-raises`);
+  `parallel/parallel-machine-transition` owns the macrostep's
+  internal-event queue and re-broadcasts each surfaced raise across every
+  region.
 
   Pure-engine tests — call `machine-transition` directly and read the merged
   post-macrostep snapshot. Order is recorded in `:data :log` (shared `:data`
@@ -200,13 +198,13 @@
                    :states  {:z {:on {:go {:action :start}}}}}}}
           original {:state {:loop :run :idle :z} :data {:token :keep}}
           r        (machines/machine-transition spec original [:go])]
-      ;; rf2-y3jv8q — a parallel re-broadcast depth-bound abort is a FAILED
-      ;; macrostep, not an :ok rollback no-op (parity with the flat drain;
-      ;; XState v5 throws on the runaway). The `:fail` threads NO snapshot /
-      ;; fx, so the whole macrostep — both regions' states, the looping
-      ;; region's :data writes, and every accumulated fx — is discarded. The
-      ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
-      ;; snapshot committed in runtime-db.
+      ;; A parallel re-broadcast depth-bound abort is a FAILED macrostep,
+      ;; not an :ok rollback no-op (parity with the flat drain; XState v5
+      ;; throws on the runaway). The `:fail` threads NO snapshot / fx, so the
+      ;; whole macrostep — both regions' states, the looping region's :data
+      ;; writes, and every accumulated fx — is discarded. The lifecycle
+      ;; handler short-circuits to `{}`, leaving the pre-event snapshot
+      ;; committed in runtime-db.
       (is (result/fail? r)
           "depth-exceeded yields a :fail (failed macrostep), not an :ok no-op")
       (is (result/depth-abort? r)

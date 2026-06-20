@@ -1,24 +1,21 @@
 (ns re-frame.machine-finality-purity-test
-  "Per rf2-vf5cf §G1. Direct pure-engine (JVM) coverage for the three
-  finality predicates the lifecycle handler recomputes at the macrostep
-  boundary to decide whether to fire `:on-done` + auto-destroy:
+  "Direct pure-engine (JVM) coverage for the three finality predicates the
+  lifecycle handler recomputes at the macrostep boundary to decide whether
+  to fire `:on-done` + auto-destroy:
 
     - `transition/final-state-node?` — the per-node `:final? true` flag.
     - `transition/final-on-leaf?`    — the active LEAF of a snapshot is final.
     - `finalize/all-regions-final?`  — a parallel machine is final iff
       EVERY region's active leaf is final.
 
-  Pre-rf2-vf5cf a grep of the machines test tree returned ZERO direct
-  matches for these symbols — they were exercised only TRANSITIVELY via
-  integration dispatch in `final_state_cljs_test.cljc`. The riskiest of
-  the three is the parallel union (`all-regions-final?`,
+  The riskiest of the three is the parallel union (`all-regions-final?`,
   finalize.cljc:69): a partial-final parallel snapshot (some regions
   final, some not) finalising prematurely would surface only as a
   downstream dispatch symptom, not a clean predicate failure. These
   tests pin the predicates at the cheapest-and-most-precise layer — pure
   fns of their arguments, no frame, no dispatch loop, no app-db.
 
-  Per Spec 005 §Final states (rf2-gn80):
+  Per Spec 005 §Final states:
     - `:final?` is a first-class state-node key (D1), NOT stashed under
       `:meta`.
     - A parallel-region machine is `:final?` only when EVERY region's
@@ -44,7 +41,7 @@
         ":final? false is explicitly not final")
     (is (false? (transition/final-state-node? {:on {:go :other}}))
         "an ordinary transition-bearing node is not final")
-    ;; Per Spec 005 rf2-gn80 D1 the flag is a FIRST-CLASS key. A truthy-
+    ;; Per Spec 005 D1 the flag is a FIRST-CLASS key. A truthy-
     ;; but-not-true value (e.g. stashed under :meta, or a non-boolean) is
     ;; NOT final — the predicate is `(true? ...)`, not `(boolean ...)`.
     (is (false? (transition/final-state-node? {:meta {:final? true}}))
@@ -106,7 +103,7 @@
 ;; ---------------------------------------------------------------------------
 ;; all-regions-final? — parallel union (finalize.cljc:69)
 ;;
-;; THE riskiest predicate (rf2-vf5cf §G1): a partial-final parallel
+;; THE riskiest predicate: a partial-final parallel
 ;; snapshot must NOT finalise. The fn returns true ONLY when the machine
 ;; is :type :parallel, the snapshot :state is a region→leaf map, AND every
 ;; region's active leaf is :final?.
@@ -183,14 +180,14 @@
           "a nested NON-final region leaf prevents finalisation"))))
 
 ;; ---------------------------------------------------------------------------
-;; all-regions-final? — declared-region KEY PARITY (bz0ox.2 / x4s9t.2)
+;; all-regions-final? — declared-region KEY PARITY
 ;;
-;; A partial parallel snapshot must NEVER vacuously read as all-final. Before
-;; the fix, `all-regions-final?` iterated only the regions PRESENT in the
-;; state-map, so a map missing a declared region (e.g. `{:left :done}` for a
-;; 2-region machine) passed `every?` over the one present-and-final region —
-;; reading true and (downstream) firing root :on-done / auto-destroy with a
-;; whole region absent.
+;; A partial parallel snapshot must NEVER vacuously read as all-final.
+;; `all-regions-final?` requires EXACT declared-region key parity, so a map
+;; missing a declared region (e.g. `{:left :done}` for a 2-region machine)
+;; reads false rather than passing `every?` over the one present-and-final
+;; region — which would otherwise read true and (downstream) fire root
+;; :on-done / auto-destroy with a whole region absent.
 ;; ---------------------------------------------------------------------------
 
 (deftest all-regions-final?-missing-region-is-not-final

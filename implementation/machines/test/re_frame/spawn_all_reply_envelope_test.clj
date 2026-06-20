@@ -1,12 +1,12 @@
 (ns re-frame.spawn-all-reply-envelope-test
-  "rf2-d63qtp — `:spawn-all` join-child completions lower through the
-  uniform reply envelope (EP-0011 §Machine Completion / Managed-Effects
-  §Status taxonomy / §Stale suppression / §Tracing).
+  "`:spawn-all` join-child completions lower through the uniform reply
+  envelope (EP-0011 §Machine Completion / Managed-Effects §Status taxonomy /
+  §Stale suppression / §Tracing).
 
-  Single `:spawn` finality already lowers through `re-frame.machines.reply`
-  and stamps `:work/id` + `:rf.reply/status` on `:rf.machine/done`. The
-  `:spawn-all` child completion previously folded into join state + emitted
-  resolution traces with NO canonical reply map. These tests pin that:
+  Single `:spawn` finality lowers through `re-frame.machines.reply` and stamps
+  `:work/id` + `:rf.reply/status` on `:rf.machine/done`. The `:spawn-all`
+  child completion folds into join state AND carries a canonical reply map.
+  These tests pin that:
 
    1. the DECISIVE child completion that drives a join resolution rides
       reply-envelope facts (`:work/id`, `:rf.reply/status :ok` / `:error`,

@@ -1,18 +1,15 @@
 (ns re-frame.machines-conformance-test
-  "Per rf2-d0wem (and rf2-ra1he §TE5). Drives every conformance-corpus
-  fixture whose `:fixture/calls` exercise `:machine-transition`
-  through `re-frame.machines/machine-transition` and `=`-checks the
-  result against the recorded `:expect-next-snapshot` /
+  "Drives every conformance-corpus fixture whose `:fixture/calls` exercise
+  `:machine-transition` through `re-frame.machines/machine-transition` and
+  `=`-checks the result against the recorded `:expect-next-snapshot` /
   `:expect-effects`.
 
   The conformance corpus at `spec/conformance/fixtures/*.edn` is the
-  normative behaviour description for `machine-transition`. Pre-rf2-d0wem
-  only the core artefact's `re-frame.conformance-test` ran the corpus.
-  This namespace wires the machine-related Mode B fixtures into the
-  machines artefact's own CI gate, so the spec-defined invariants run
-  on every machines-touching PR (and any machines refactor that breaks a
-  fixture surfaces at the machines artefact's gate rather than only
-  downstream at core's).
+  normative behaviour description for `machine-transition`. This namespace
+  wires the machine-related Mode B fixtures into the machines artefact's own
+  CI gate, so the spec-defined invariants run on every machines-touching PR
+  (and any machines refactor that breaks a fixture surfaces at the machines
+  artefact's gate rather than only downstream at core's).
 
   Scope:
     - Mode B fixtures only — `:fixture/calls` containing
@@ -107,10 +104,10 @@
 ;; out-of-scope for this runner and the fixture is reported as skipped.
 
 (def claimed-capabilities
-  "Capabilities the pure machine-transition primitive covers.
-  Per rf2-d0wem this is the FSM/actor capability surface; any fixture
-  declaring capabilities outside this set is reported as skipped (it
-  belongs to core's downstream runner, not this Mode B gate)."
+  "Capabilities the pure machine-transition primitive covers — the
+  FSM/actor capability surface. Any fixture declaring capabilities outside
+  this set is reported as skipped (it belongs to core's downstream runner,
+  not this Mode B gate)."
   #{:fsm/flat
     :fsm/hierarchical
     :fsm/parallel-regions
@@ -118,14 +115,13 @@
     :fsm/delayed-after
     :fsm/tags
     :fsm/final-states
-    ;; rf2-mle6e: first-class history pseudo-states (`:type :history` —
-    ;; shallow / deep / default-target). The pure `machine-transition`
-    ;; primitive records on exit + restores on re-entry against the
-    ;; in-snapshot `:rf/history` slot, so history fixtures run in this Mode B
-    ;; gate. The comprehensive record/restore corpus lands under mle6e.4.
+    ;; First-class history pseudo-states (`:type :history` — shallow / deep
+    ;; / default-target). The pure `machine-transition` primitive records on
+    ;; exit + restores on re-entry against the in-snapshot `:rf/history`
+    ;; slot, so history fixtures run in this Mode B gate.
     :fsm/history
-    ;; rf2-vf5cf: the registration-error taxonomy (Spec 009 thrown-error
-    ;; shape) — pinned by the `:reg-machine` Mode-B op against the pure
+    ;; The registration-error taxonomy (Spec 009 thrown-error shape) —
+    ;; pinned by the `:reg-machine` Mode-B op against the pure
     ;; `validate-machine!` validator.
     :fsm/registration-validation
     :actor/spawn-destroy
@@ -147,7 +143,7 @@
 
 (def claimed-spec-versions
   "Fixture spec versions this runner conforms against. Matches the core
-  runner's set (rf2-d0wem time)."
+  runner's set."
   #{"1.0"})
 
 (defn- runnable-capability-set?
@@ -177,8 +173,7 @@
 (defn- realise-machine-action
   "Build a `(fn [{:keys [data event]}])` from a DSL body. The fn returns
   `{:data <maybe-new-data> :fx <vec-of-fx>}` matching the action's
-  canonical return shape per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr —
-  single context-map arg)."
+  canonical return shape per Spec 005 §Actions (single context-map arg)."
   [steps]
   (fn [{:keys [data event]}]
     (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
@@ -203,8 +198,7 @@
 
 (defn- realise-machine-guard
   "Build a `(fn [{:keys [data event]}])` from a DSL body — returns a
-  boolean. Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr — single context-
-  map arg)."
+  boolean. Per Spec 005 §Guards (single context-map arg)."
   [steps]
   (fn [{:keys [data event]}]
     (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
@@ -255,18 +249,17 @@
                         (catch Throwable e
                           {::result/snap nil
                            ::result/fx   [:error (.getMessage e)]}))
-        ;; rf2-y3jv8q — a bounded-depth abort (`:always` / `:raise` depth
-        ;; limit tripped on a runaway cycle) now returns a `result/fail`
-        ;; carrying the `::depth-abort?` sentinel, NOT an `:ok` rollback no-op
-        ;; (XState v5 throws on such a cycle; the silent-no-op masking it as a
-        ;; guard-blocked decline was the bug). The fixture's
-        ;; `:expect-next-snapshot` / `:expect-effects` capture the
-        ;; ATOMIC-ROLLBACK contract: the macrostep does not commit, so the
-        ;; externally-observable next-snapshot is the INPUT snapshot and the
-        ;; effects are empty (the lifecycle handler short-circuits to `{}`,
-        ;; leaving the pre-event snapshot committed). Project a depth-abort
-        ;; `:fail` onto that observable shape so the fixture asserts the same
-        ;; rollback fact under the corrected failure surface.
+        ;; A bounded-depth abort (`:always` / `:raise` depth limit tripped on
+        ;; a runaway cycle) returns a `result/fail` carrying the
+        ;; `::depth-abort?` sentinel, not an `:ok` rollback no-op (XState v5
+        ;; throws on such a cycle). The fixture's `:expect-next-snapshot` /
+        ;; `:expect-effects` capture the ATOMIC-ROLLBACK contract: the
+        ;; macrostep does not commit, so the externally-observable
+        ;; next-snapshot is the INPUT snapshot and the effects are empty (the
+        ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
+        ;; snapshot committed). Project a depth-abort `:fail` onto that
+        ;; observable shape so the fixture asserts the rollback fact under the
+        ;; failure surface.
         depth-abort? (result/depth-abort? r)
         snap-out   (if depth-abort? (:snapshot call) (::result/snap r))
         fx-out     (if depth-abort? [] (::result/fx r))
@@ -374,7 +367,7 @@
           passed  (filter :passed? run)
           failed  (remove :passed? run)
           skipped (filter :skipped? all)]
-      ;; Silent-on-success (rf2-try1x): summary prints only on failure.
+      ;; Silent-on-success: summary prints only on failure.
       (when (seq failed)
         (println)
         (println "Machines conformance corpus (Mode B :machine-transition):")

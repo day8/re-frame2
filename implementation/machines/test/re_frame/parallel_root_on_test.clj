@@ -1,11 +1,11 @@
 (ns re-frame.parallel-root-on-test
-  "Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g —
-  XState v5 / SCXML gold standard). The parallel ROOT's own `:on` is the
-  ANCESTOR FALLBACK for its regions: deepest-wins with parent fallthrough,
-  the parallel analog of the flat / compound machine-root `:on` fallback.
+  "Per Spec 005 §Transition broadcast §Root parallel `:on` (XState v5 / SCXML
+  gold standard). The parallel ROOT's own `:on` is the ANCESTOR FALLBACK for
+  its regions: deepest-wins with parent fallthrough, the parallel analog of
+  the flat / compound machine-root `:on` fallback.
 
-  Verified against xstate@5.32.0 (recorded in rf2-tsq6g). The selection
-  semantic is the load-bearing thing — atomic ancestor-fallback suppression:
+  Verified against xstate@5.32.0. The selection semantic is the load-bearing
+  thing — atomic ancestor-fallback suppression:
 
     - root `:on`, NO region handles the event  → the root transition fires,
       moving the targeted region(s).            GO  -> {a:two, b:two}
@@ -19,12 +19,12 @@
       whole root transition is suppressed and the untargeted sibling stays
       UNCHANGED.                                 RESET -> {a:special, b:unchanged}
 
-  Plus: the original BUG regression (root `:on` was accepted-and-ignored —
-  silently dropped), the multi-region target grammar, the root `:action`
-  running once, guard/action ref validation reaching the root-parallel
-  transition, the region-qualified target-shape validation, and (rf2-wox0vd)
-  the ROOT-LEVEL `:after` — root-owned, region-qualified targets, action/fx-
-  only timeouts, guard suppression, and cancel-on-exit via the root epoch.
+  Plus: the root `:on` fires (it is registered AND executed), the
+  multi-region target grammar, the root `:action` running once, guard/action
+  ref validation reaching the root-parallel transition, the region-qualified
+  target-shape validation, and the ROOT-LEVEL `:after` — root-owned,
+  region-qualified targets, action/fx-only timeouts, guard suppression, and
+  cancel-on-exit via the root epoch.
 
   These JVM tests pair with the conformance fixtures
   spec/conformance/fixtures/parallel-root-on-*.edn."
@@ -38,7 +38,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
@@ -54,10 +54,10 @@
                  :states  {:one {:on {:go :two}}
                            :two {}}}}})
 
-;; ---- 1. THE BUG: root :on was accepted-and-ignored (silent drop) ----------
+;; ---- 1. root :on fires on a :type :parallel machine -----------------------
 ;;
-;; This is the first-action proof in the bead: a root-level :on on a
-;; :type :parallel machine was NEITHER validated NOR executed. Now it FIRES.
+;; A root-level :on on a :type :parallel machine is both validated AND
+;; executed — it FIRES.
 
 (deftest root-on-no-longer-silently-dropped
   (testing "a root :on on :type :parallel is registered AND executed (was silently dropped)"
@@ -311,15 +311,14 @@
                            :b {:initial :one :states {:one {} :two {}}}}}))
         "region-qualified targets + resolvable refs pass")))
 
-;; ---- 13. ROOT-LEVEL :after on a parallel root (rf2-wox0vd — ALIGN) ---------
+;; ---- 13. ROOT-LEVEL :after on a parallel root -----------------------------
 ;;
 ;; XState v5 gold standard: `after` may be declared at any level, including a
 ;; <parallel> node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled at
 ;; machine birth, alive for the whole machine, stale-gated by the root's OWN
 ;; per-path epoch (NOT bound to any region's lifecycle). It is the timer-driven
 ;; analog of the root `:on` ancestor fallback, reusing the exact region-
-;; qualified target grammar. (Replaces the pre-wox0vd loud rejection
-;; `:rf.error/machine-parallel-root-after-not-supported`.)
+;; qualified target grammar.
 
 (deftest root-after-registers-and-validates
   (testing "a :type :parallel root declaring :after now REGISTERS (was rejected loudly)"
@@ -429,12 +428,12 @@
       (is (= {:a :one :b :one} (:state snap))
           "guard false -> the root :after timer fires-and-discards; no region moved"))))
 
-;; ---- 15. ADVERSARIAL: root :after cancels-on-exit via epoch (rf2-wox0vd) ---
+;; ---- 15. ADVERSARIAL: root :after cancels-on-exit via epoch ----------------
 ;;
-;; The bead's required adversarial coverage: the root :after is ROOT-OWNED and
-;; stale-gated by the root's OWN per-path epoch. A timer carrying a STALE epoch
-;; (the root was torn down / its epoch advanced) DROPS — exactly the cancel-
-;; on-exit-via-epoch the per-state :after machinery uses, but at the root.
+;; Adversarial coverage: the root :after is ROOT-OWNED and stale-gated by the
+;; root's OWN per-path epoch. A timer carrying a STALE epoch (the root was torn
+;; down / its epoch advanced) DROPS — exactly the cancel-on-exit-via-epoch the
+;; per-state :after machinery uses, but at the root.
 
 (deftest root-after-stale-epoch-drops
   (testing "a root :after firing with a STALE epoch does NOT transition (cancel-on-exit)"
@@ -453,7 +452,7 @@
       (is (= {:a :one :b :one} (:state snap))
           "stale-epoch root :after dropped; no region moved (cancel-on-exit via epoch)"))))
 
-;; ---- 16. root :after end-to-end through registration + birth (rf2-wox0vd) --
+;; ---- 16. root :after end-to-end through registration + birth ---------------
 ;;
 ;; The live runtime path: registration runs the BIRTH cascade, which schedules
 ;; the root :after (seeds the root epoch at the flat `[]` slot AND emits the

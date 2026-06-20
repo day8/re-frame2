@@ -1,6 +1,5 @@
 (ns re-frame.scxml-conformance-cljs-test
-  "SCXML semantic-core conformance corpus for the re-frame2 machine engine
-  (rf2-rkkag).
+  "SCXML semantic-core conformance corpus for the re-frame2 machine engine.
 
   NOTE — the namespace is named `*-cljs-test` (file `*_cljs_test.cljc`) so
   it is discovered by BOTH the shadow-cljs `:node-test` build
@@ -14,14 +13,13 @@
 
   Spec 005 asserts xstate-v5 parity for the machine engine and Spec 005
   L1300 (and the worked examples throughout) ANCHOR that parity to the
-  xstate / SCXML / Harel state-chart semantics. Before this corpus the
-  re-frame2 machine test surface was strong per-feature (compound,
-  parallel, entry/exit ordering, `:always`, `:after`, guards, final/done,
-  wildcard, unhandled-no-op, transition resolution) but carried ZERO
-  references to the W3C SCXML conformance suite or to Harel's original
-  state-chart semantics. Parity was *asserted*, not *externally proven*.
+  xstate / SCXML / Harel state-chart semantics. This corpus proves that
+  parity externally against the W3C SCXML conformance suite and Harel's
+  original state-chart semantics — complementing the strong per-feature
+  surface (compound, parallel, entry/exit ordering, `:always`, `:after`,
+  guards, final/done, wildcard, unhandled-no-op, transition resolution).
 
-  This namespace closes that gap. Every test below maps a re-frame2
+  Every test below maps a re-frame2
   machine-engine behaviour onto the SCXML / Harel semantic rule it derives
   from, citing:
 
@@ -92,27 +90,24 @@
 
    3. **HISTORY pseudo-states** — SCXML `<history type=\"shallow|deep\">`
       (W3C SCXML §3.10, e.g. test 387, 388, 579, 580 history family).
-      re-frame2 ships FIRST-CLASS history (rf2-mle6e — the post-v1 deferral
-      is withdrawn): `{:type :history :deep? <bool> :default-target <t>}` is
-      a targetable pseudo-state under a compound's `:states`. NO LONGER an
-      exclusion — the §History section below now carries BOTH the
+      re-frame2 ships FIRST-CLASS history:
+      `{:type :history :deep? <bool> :default-target <t>}` is
+      a targetable pseudo-state under a compound's `:states`. History is
+      COVERED, not excluded — the §History section below carries BOTH the
       registration-time GRAMMAR-CONSTRAINT rejections (a `:type :history` node
       MUST have an owning compound — `:rf.error/machine-history-misplaced`)
       AND the RECORD/RESTORE behavioural corpus (the W3C 387/388/579/580
       family adapted to the re-frame2 grammar shape). The Mode-B
       `:machine-transition` fixture counterparts live at
       `spec/conformance/fixtures/scxml-history-test{387,388,579,580}-*.edn`
-      and `history-{shallow,deep,default-target,per-region,dangling}-*.edn`
-      (rf2-mle6e.4). This entry is retained in the EXCLUSIONS list only as a
-      historical marker — history is now COVERED, not excluded.
+      and `history-{shallow,deep,default-target,per-region,dangling}-*.edn`.
+      This entry is listed for completeness alongside the genuine exclusions
+      so the scope boundary stays auditable.
 
-  ## Divergences found
+  ## Divergences from the SCXML core
 
-  This corpus originally PINNED one semantic divergence from the SCXML
-  core: **external self-transition semantics were not implemented**
-  (resolved by rf2-46ban, which gave the engine SCXML external-default
-  self-transitions). rf2-eicq0 then ALIGNED THE DEFAULT to XState v5 (the
-  gold standard), which FLIPPED SCXML's default: a targeted self/ancestor
+  re-frame2 follows XState v5 (the gold standard) for self-transition
+  defaults, which FLIPS SCXML's default: a targeted self/ancestor
   transition is INTERNAL by default; the external restart is the opt-in
   `:reenter? true`. SCXML's `type=\"external\"` default is therefore a
   DELIBERATE DIVERGENCE re-frame2 does NOT follow — it follows v5. The
@@ -121,7 +116,7 @@
   exit/entry); the EXTERNAL cases carry `:reenter? true` and fire
   exit → action → entry, re-descending a compound's :initial chain. The
   SCXML default-external semantics are still EXERCISED (via `:reenter? true`)
-  but are no longer the re-frame2 default."
+  but are not the re-frame2 default."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -497,8 +492,8 @@
 ;; the node, or an ancestor `<transition event='done.state.id'>`) can TAKE it,
 ;; advancing the outer flow WHILE the machine keeps running. The signal is a
 ;; transitionable completion event, NOT (necessarily) a teardown. XState v5
-;; `onDone`. Spec 005 §Final states §The done-state signal (rf2-bnjb3 /
-;; rf2-zlmz7). These exercise the PURE engine: the done-raise fires through
+;; `onDone`. Spec 005 §Final states §The done-state signal. These exercise the
+;; PURE engine: the done-raise fires through
 ;; the FIFO `:raise` queue and the enclosing `:on-done` resolves in the SAME
 ;; macrostep — observable on the post-macrostep snapshot.
 ;; ===========================================================================
@@ -707,10 +702,10 @@
                                               :inner-done {:final? true}}}
                               :work-done {}}}
               ;; :other carries an UNGUARDED escape hatch on the SAME reserved
-              ;; event-id AND shares the leading state-name `:flow`. Before
-              ;; rf2-12ekv the re-broadcast of :work's region-relative done
-              ;; [:flow] would be CAUGHT here (shape match), leaking :other →
-              ;; :hijacked. It must stay put: :work's done is not :other's done.
+              ;; event-id AND shares the leading state-name `:flow`. A naive
+              ;; shape-match on the re-broadcast of :work's region-relative done
+              ;; [:flow] would be CAUGHT here, leaking :other → :hijacked.
+              ;; Region-name scoping keeps it put: :work's done is not :other's.
               :other {:initial :flow
                       :on {:rf.machine/done :hijacked}
                       :states {:flow {:initial :wait
@@ -756,8 +751,8 @@
               ;; :other ALSO has a compound named :flow on its active path —
               ;; SHARING the leading state-name — and an UNGUARDED escape hatch.
               ;; The bare region-relative done-path [:flow] is a prefix of
-              ;; :other's active path [:flow :wait], so the rf2-m3arq shape-match
-              ;; gate falsely passes and :other's hatch fires → :hijacked. It
+              ;; :other's active path [:flow :wait], so a naive shape-match gate
+              ;; would falsely pass and fire :other's hatch → :hijacked. It
               ;; must stay put: :work's done is not :other's done.
               :other {:initial :flow
                       :on {:rf.machine/done :hijacked}
@@ -1022,11 +1017,9 @@
           "no effects emitted for an unhandled event"))))
 
 ;; ===========================================================================
-;; §10. Self-transitions (internal default vs external opt-in — rf2-eicq0,
-;;      refined for descendant re-resolution by rf2-gt1pu)
+;; §10. Self-transitions (internal default vs external opt-in)
 ;;
-;; XState v5 is the gold standard. THREE cases the engine must distinguish
-;; (rf2-gt1pu — earlier rf2-eicq0 collapsed the middle case into the first):
+;; XState v5 is the gold standard. THREE cases the engine must distinguish:
 ;;
 ;;   (1) TARGETLESS — the action fires; NO onexit/onentry; the active
 ;;       configuration (including active descendants) is PRESERVED unchanged.
@@ -1046,20 +1039,13 @@
 ;; the inverted `reenter`). A targetless transition is internal in both
 ;; models.
 ;;
-;; HISTORY: rf2-46ban first gave the engine EXTERNAL self-transition
-;; semantics (`:target :same-state` → exit/entry); that was the v4/SCXML
-;; external-DEFAULT shape. rf2-eicq0 flipped the DEFAULT to v5 internal and
-;; introduced `:reenter? true` as the external handle. rf2-gt1pu then split
-;; the no-`:reenter?` case into (1) and (2): an EXPLICIT active-path target is
-;; not a configuration no-op — it re-resolves descendants.
-;;
 ;; The engine: `re-frame.machines.transition/target-path` resolves the
 ;; `:same-state` sentinel (and a `:target` naming the declaring state's own
 ;; keyword) to the declaring state's own path; `compute-cascade-paths` keeps
 ;; the LCCA at the TARGET's depth (case 2 — only descendants below the target
 ;; cross the cascade boundary) and pulls it UP to the target's parent (case 3)
 ;; ONLY when the transition carries `:reenter? true`. The effective
-;; `internal?` (true config no-op) flag is now reserved for TARGETLESS
+;; `internal?` (true config no-op) flag is reserved for TARGETLESS
 ;; transitions alone.
 ;; ===========================================================================
 
@@ -1138,7 +1124,7 @@
 
 ;; ===========================================================================
 ;; §10b. External (:reenter? true) transition to a PROPER ANCESTOR
-;;       (LCCA-restart geometry — rf2-emz8l; default flipped by rf2-eicq0)
+;;       (LCCA-restart geometry)
 ;;
 ;; A `:reenter? true` transition from a descendant leaf to one of its PROPER
 ;; ANCESTORS A restarts A: the LCCA of {source, A} is A's PARENT (A is a
@@ -1149,20 +1135,18 @@
 ;; external SELF-transition (§10) — a self-target is the degenerate case
 ;; where A is the source leaf itself.
 ;;
-;; Under the rf2-eicq0 v5 flip RE-ENTERING THE ANCESTOR ITSELF is OPT-IN: an
+;; Under the XState v5 model RE-ENTERING THE ANCESTOR ITSELF is OPT-IN: an
 ;; ancestor target WITHOUT `:reenter?` does NOT exit/re-enter the ancestor.
-;; BUT (rf2-gt1pu) it is NOT a no-op: the ancestor's ACTIVE DESCENDANTS are
+;; BUT it is NOT a no-op: the ancestor's ACTIVE DESCENDANTS are
 ;; re-resolved (children reset to the ancestor's :initial). See
 ;; `scxml-default-ancestor-target-re-resolves-descendants` below. XState v5
 ;; flipped the SCXML default; re-frame2 follows it.
 ;;
-;; BEFORE rf2-emz8l the engine bounded the exit set by the longest common
-;; PREFIX of the source path and the (initial-cascaded) target leaf. For an
-;; ancestor target whose `:initial` chain re-descends to the source, that
-;; LCP equals the full path → the exit AND entry sets were BOTH empty → a
-;; SILENT NO-OP. The fix computes the true LCCA against the target BASE
+;; The engine computes the true LCCA against the target BASE
 ;; (pre-initial-cascade): when the (`:reenter?`) target is a prefix of the
-;; active path, the LCCA is pulled up to the target's parent. Spec 005
+;; active path, the LCCA is pulled up to the target's parent — so an ancestor
+;; target whose `:initial` chain re-descends to the source still produces the
+;; full exit/re-enter cascade rather than collapsing to a no-op. Spec 005
 ;; §Entry/exit cascading along the LCCA.
 ;; ===========================================================================
 
@@ -1316,7 +1300,7 @@
 
 ;; ===========================================================================
 ;; §10c. Explicit targets on the active path RE-RESOLVE DESCENDANTS
-;;       (rf2-gt1pu — the middle case; rf2-127ff — parent-declared reenter
+;;       (the middle case; and parent-declared reenter
 ;;       to a specific descendant). XState v5 gold standard.
 ;;
 ;; The defining XState v5 rule (stately.ai/docs/transitions):
@@ -1327,8 +1311,7 @@
 ;; and "[reenter:true] will cause the state to re-enter when transitioning to
 ;; itself or descendent states."
 ;;
-;; Each case below is grounded in a xstate@5.32.0 runtime check recorded in
-;; rf2-gt1pu / rf2-127ff:
+;; Each case below is grounded in a xstate@5.32.0 runtime check:
 ;;   • process.step3 + parent-declared target "process" (no reenter)
 ;;        -> step3 exit, step1 entry; NO process exit/entry.
 ;;   • parent.child.a + parent-declared target [:parent :child] (no reenter)
@@ -1589,14 +1572,14 @@
 ;;
 ;; SCXML §3.10 `<history type="shallow|deep">` records and restores the
 ;; most recent active descendant of a compound/parallel state. re-frame2
-;; ships FIRST-CLASS history (rf2-mle6e — the post-v1 deferral is withdrawn):
+;; ships FIRST-CLASS history:
 ;; `{:type :history :deep? <bool> :default-target <t>}` under a compound's
 ;; `:states`. This section covers BOTH halves:
 ;;   §13a — the registration-time PLACEMENT / GRAMMAR-CONSTRAINT rejections the
 ;;          engine enforces (a `:type :history` node MUST have an owning
 ;;          compound; the closed key-set; one-per-compound).
 ;;   §13b — the RECORD/RESTORE behavioural corpus, the W3C 387/388/579/580
-;;          history family ADAPTED to the re-frame2 grammar shape (rf2-mle6e.4).
+;;          history family ADAPTED to the re-frame2 grammar shape.
 ;;          The Mode-B `:machine-transition` fixture counterparts live at
 ;;          `spec/conformance/fixtures/scxml-history-test*-*.edn` +
 ;;          `history-*-*.edn`; these in-corpus tests give the same coverage

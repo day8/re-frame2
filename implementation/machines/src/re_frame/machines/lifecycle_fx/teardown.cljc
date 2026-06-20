@@ -61,8 +61,7 @@
                   spawn-slot prune)
     :parent-id  — the spawning actor's id (declarative form only)
     :invoke-id  — the absolute invocation prefix-path the runtime stamped
-                  on the child at spawn time (rf2-0ggtr5 — was `:spawn-id`;
-                  declarative form only)
+                  on the child at spawn time (declarative form only)
 
   When `:parent-id` and `:invoke-id` are both supplied, the
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot is

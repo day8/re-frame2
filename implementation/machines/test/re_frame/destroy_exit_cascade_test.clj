@@ -1,10 +1,8 @@
 (ns re-frame.destroy-exit-cascade-test
-  "Per rf2-nahfm — every destroy path runs the child's active configuration
-  `:exit` cascade BEFORE teardown. Pre-rf2-nahfm the four destroy entry-
-  points each cleared the actor's snapshot WITHOUT firing the `:exit`
-  actions Spec 005 §Declarative `:spawn` §Composition with explicit
-  `:entry` / `:exit` and §Final states §Composition with `:entry` /
-  `:exit` promise.
+  "Every destroy path runs the child's active configuration `:exit` cascade
+  BEFORE teardown, per Spec 005 §Declarative `:spawn` §Composition with
+  explicit `:entry` / `:exit` and §Final states §Composition with `:entry` /
+  `:exit`.
 
   The four destroy paths exercised here:
     1. Explicit `[:rf.machine/destroy actor-id]` fx (keyword form)
@@ -53,7 +51,7 @@
                :states
                {:armed {:on {:fire {:action (fn [_] {:fx [[:rf.machine/destroy :ne/standalone]]})}}}}})]
       ;; Bring the standalone machine to life by dispatching ANY event
-      ;; (the first dispatch fires the bootstrap cascade per rf2-pexjc).
+      ;; (the first dispatch fires the bootstrap cascade).
       (rf/dispatch-sync [:ne/standalone [:rf.machine/noop]])
       (is (zero? @exit-fired) "no :exit yet — actor still alive")
       (rf/dispatch-sync [:ne/destroyer [:fire]])

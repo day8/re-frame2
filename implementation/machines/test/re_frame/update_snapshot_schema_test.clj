@@ -1,11 +1,10 @@
 (ns re-frame.update-snapshot-schema-test
-  "rf2-wrrvs7 — the `:rf.machine/update-snapshot` escape hatch must NOT
-  bypass the `:where :machine-data` boundary. Spec 005 §Snapshot-level
-  escape hatch: user error/status state lives under `:data` *where
-  `:data-schema` validation covers it*. The fx validates the would-be-
-  merged snapshot's `:data` against the actor's `:data-schema` BEFORE
-  writing, and a violating patch is rejected — the invalid `:data` never
-  installs.
+  "The `:rf.machine/update-snapshot` escape hatch must NOT bypass the
+  `:where :machine-data` boundary. Spec 005 §Snapshot-level escape hatch:
+  user error/status state lives under `:data` *where `:data-schema`
+  validation covers it*. The fx validates the would-be-merged snapshot's
+  `:data` against the actor's `:data-schema` BEFORE writing, and a violating
+  patch is rejected — the invalid `:data` never installs.
 
   Contract under test:
 
@@ -22,9 +21,8 @@
       per-instance handler) is validated and rejected on violation.
    5. **Missing / destroyed actor.** A patch addressed to an actor with
       no snapshot is a no-op — no write, no trace.
-   6. **`:db` hard-disallow preserved.** A `:db` key still surfaces
-      `:rf.error/machine-action-wrote-db` and is dropped (regression
-      guard against the validation rewrite).
+   6. **`:db` hard-disallow.** A `:db` key surfaces
+      `:rf.error/machine-action-wrote-db` and is dropped.
 
   Uses Malli (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

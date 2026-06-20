@@ -14,19 +14,14 @@
     2. **the runtime engine** (`transition` / `parallel`) resolves the
        same targets against the same tree at dispatch time.
 
-  Before this namespace existed those two layers each owned a private
-  copy of the `:states`-tree descent and the transition-value form
-  grammar. The validation `candidate-targets` docstring even said it
-  *mirrors* `transition/normalise-candidates` — the semantic contract
-  was duplicated by convention rather than by construction, so every
-  grammar addition or XState-parity refinement had to update multiple
-  private implementations in lockstep, with the standing risk that
-  registration accepts a shape the runtime drives differently (or
-  rejects one the runtime would handle).
-
-  Naming the descent + form grammar once, here, makes both layers
-  consume ONE source of truth. This is the sibling of
-  `re-frame.machines.path-walk` (the deepest-wins leaf→root walk): both
+  Naming the descent + form grammar once, here, makes both layers consume
+  ONE source of truth rather than each owning a private copy of the
+  `:states`-tree descent and the transition-value form grammar. A single
+  home means a grammar addition or XState-parity refinement updates one
+  implementation, with no risk that registration accepts a shape the
+  runtime drives differently (or rejects one the runtime would handle).
+  This is the sibling of `re-frame.machines.path-walk` (the deepest-wins
+  leaf→root walk): both
   are leaf namespaces (no require on `transition` / `validation` /
   `parallel`) so either layer can require them without a load cycle.
 
@@ -116,8 +111,8 @@
 
   Note `:vec-target` matches any vector that is NOT the non-empty
   all-maps candidate form — including the empty vector, which both
-  callers historically treat as a (non-resolving) absolute-path target
-  rather than a distinct malformed form."
+  callers treat as a (non-resolving) absolute-path target rather than a
+  distinct malformed form."
   [v]
   (cond
     (nil? v)        :nil

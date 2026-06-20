@@ -1,22 +1,21 @@
 (ns re-frame.destroyed-exit-order-test
-  "Per rf2-iilco — the `:rf.machine/destroyed` trace fires AFTER the
-  child's active-configuration `:exit` cascade on EVERY destroy path.
+  "The `:rf.machine/destroyed` trace fires AFTER the child's
+  active-configuration `:exit` cascade on EVERY destroy path.
 
-  Before rf2-iilco the explicit / declarative-`:spawn` destroy
-  (`destroy-single!`) and the `:spawn-all` per-child teardown
-  (`destroy-spawn-all-children!`) emitted `:rf.machine/destroyed`
-  BEFORE running `run-child-exit!`, while the final-state auto-destroy
-  (`finalize-machine`) emitted it AFTER the cascade. A consumer keying
-  on `:rf.machine/destroyed` therefore saw the destroy signal at a
-  different point relative to the `:exit` side-effects depending on
-  which entry-point fired — a latent inconsistency for tools (Xray,
-  re-frame-10x, story-mcp) that key on the trace.
+  All three destroy entry-points emit `:rf.machine/destroyed` AFTER the
+  `:exit` cascade: the explicit / declarative-`:spawn` destroy
+  (`destroy-single!`), the `:spawn-all` per-child teardown
+  (`destroy-spawn-all-children!`), and the final-state auto-destroy
+  (`finalize-machine`). A consumer keying on `:rf.machine/destroyed`
+  therefore sees the destroy signal at a consistent point relative to the
+  `:exit` side-effects regardless of which entry-point fired — important
+  for tools (Xray, re-frame-10x, story-mcp) that key on the trace.
 
   Spec 005 §Declarative `:spawn` §Composition with explicit `:entry` /
   `:exit` (005:2138) pins the order: the `:exit` action reads the
   actor's final snapshot *before* the auto-destroy clears it, so a
   consumer observing the db between `:exit` and `:rf.machine/destroyed`
-  must see the live snapshot. That makes exit-then-destroyed the
+  sees the live snapshot. That makes exit-then-destroyed the
   spec-correct convention; this file pins it on all three paths.
 
   Mechanism: a shared ordered log captures both the `:exit` action's

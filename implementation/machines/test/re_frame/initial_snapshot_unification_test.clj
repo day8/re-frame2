@@ -1,24 +1,20 @@
 (ns re-frame.initial-snapshot-unification-test
-  "Per rf2-fgqs4 — pinning tests for the unified `build-initial-snapshot`
-  helper in `re-frame.machines.parallel`. Pre-rf2-fgqs4 the spawn path
-  had its own `compute-initial-snapshot` that silently OMITTED two slots
-  the singleton-registration path stamped:
+  "Pinning tests for the unified `build-initial-snapshot` helper in
+  `re-frame.machines.parallel`. Both the singleton-registration path and
+  the spawn path build their initial snapshot through this one helper, so
+  both always stamp two slots:
 
-    - `:rf/spawn-counter {}` — the in-snapshot id allocator (rf2-gr8q).
-      A spawned actor whose `:entry` declares a `:spawn` would fall
-      onto `allocate-spawned-id`'s defensive `(fnil inc 0)` backstop
-      instead of the contract path of reading from a present slot.
+    - `:rf/spawn-counter {}` — the in-snapshot id allocator. A spawned
+      actor whose `:entry` declares a `:spawn` reads the next id from this
+      present slot via the contract path of `allocate-spawned-id` (the
+      defensive `(fnil inc 0)` backstop is never reached).
 
     - `:meta` — per Spec 005 §Snapshot shape, a spec's optional `:meta`
       propagates onto the snapshot so 3-arity ctx and downstream
-      version checks see the same `:meta` the spec declares. The spawn
-      path dropped it on the floor.
+      version checks see the same `:meta` the spec declares.
 
   These tests pin the unified behaviour at both ends: the helper itself
-  (unit-level) and the end-to-end spawn path (integration-level).
-
-  Pre-fix the integration tests below FAIL on the spawn path; post-fix
-  they PASS on both paths."
+  (unit-level) and the end-to-end spawn path (integration-level)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -36,9 +32,9 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; machine fxs require a carried frame stamp. Register `:rf/default`
-  ;; explicitly and pin it as the established scope for the body.
+  ;; `init!` does not synthesise `:rf/default`, and machine fxs require a
+  ;; carried frame stamp. Register `:rf/default` explicitly and pin it as
+  ;; the established scope for the body.
   (frame/ensure-default-frame!)
   (require 're-frame.machines :reload)
   (machines/reset-timers!)
@@ -47,8 +43,8 @@
 
 (use-fixtures :each reset-runtime)
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 ;; ---- (1) `parallel/build-initial-snapshot` unit contract -------------------
@@ -94,9 +90,8 @@
 ;; ---- (2) End-to-end spawn integration: :meta propagates --------------------
 ;;
 ;; A spawned actor whose spec declares `:meta` MUST carry that `:meta`
-;; on its initial snapshot at `[:rf.runtime/machines :snapshots <spawned-id>]`. Pre-rf2-fgqs4
-;; the spawn-path helper silently dropped `:meta`, so any
-;; `^:rf.machine/wants-ctx` action introspecting `:meta` saw nil.
+;; on its initial snapshot at `[:rf.runtime/machines :snapshots <spawned-id>]`,
+;; so any `^:rf.machine/wants-ctx` action introspecting `:meta` sees it.
 
 (deftest spawned-actor-snapshot-carries-meta
   (testing "a spawned actor whose spec declares :meta has it on its snapshot"
@@ -125,7 +120,6 @@
 ;; an `:entry`-declared `:spawn` on the actor's initial state goes
 ;; through the contract path of `allocate-spawned-id` (reading from a
 ;; present slot) rather than the defensive `(fnil inc 0)` backstop.
-;; Pre-rf2-fgqs4 the spawn-path snapshot lacked the slot entirely.
 
 (deftest spawned-actor-snapshot-carries-spawn-counter
   (testing "a spawned actor's snapshot carries :rf/spawn-counter (rf2-gr8q contract)"

@@ -1,12 +1,11 @@
 (ns re-frame.transition-slot-spec-path-test
-  "rf2-lai1qv — the substrate stamps the selected transition's EXACT
-  spec-path DISCRIMINATOR (`:transition-slot`) on the
-  `:rf.machine/action-ran` trace so Xray's cascade rows can address the
-  precise inline-source slot (candidate index, `:after` delay-key,
-  root-vs-state) rather than reconstructing the path from
-  `source-state` / `event` / `phase` (which hardcoded candidate 0,
-  could not name the delay-key, and assumed a `:states` prefix for a
-  root `:on`).
+  "The substrate stamps the selected transition's EXACT spec-path
+  DISCRIMINATOR (`:transition-slot`) on the `:rf.machine/action-ran` trace
+  so Xray's cascade rows can address the precise inline-source slot
+  (candidate index, `:after` delay-key, root-vs-state) directly, rather
+  than reconstructing the path from `source-state` / `event` / `phase` —
+  a reconstruction that cannot pin the candidate index, name the delay-key,
+  or distinguish a root `:on` from a `:states`-prefixed one.
 
   These tests drive the four enumerated cases through the live runtime
   and pin the discriminator the trace carries. The Xray-side
@@ -23,7 +22,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
+;; Routed through the shared `mtest/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces! [body-fn]
   (mtest/with-trace-capture seen

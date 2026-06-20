@@ -8,19 +8,18 @@
   macro, the registrar, Xray) inspect the `ex-data`. The validators
   in this namespace are:
 
-    - `validate-history!` — `:type :history` pseudo-state shape
-      (rf2-mle6e.3): placement, closed key-set, one-per-compound,
+    - `validate-history!` — `:type :history` pseudo-state shape:
+      placement, closed key-set, one-per-compound,
       `:default-target` resolution.
-    - `validate-parallel!` — `:type :parallel` shape (rf2-l67o).
+    - `validate-parallel!` — `:type :parallel` shape.
     - `validate-spawn!` — single `:spawn` `:machine-id` xor
-      `:definition` (rf2-vyjq3m).
-    - `validate-spawn-all!` — `:spawn-all` shape (rf2-6vmw).
-    - `validate-no-spawn-timeout-ms!` — rejects the dropped
-      `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all`
-      (rf2-3y3y).
-    - `validate-final-state!` — `:final?` shape (rf2-gn80).
+      `:definition`.
+    - `validate-spawn-all!` — `:spawn-all` shape.
+    - `validate-no-spawn-timeout-ms!` — rejects the unsupported
+      `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all`.
+    - `validate-final-state!` — `:final?` shape.
     - `validate-machine!` — top-level dispatch + guard/action ref
-      resolution (rf2-oz9t).
+      resolution.
 
   `walk-state-nodes` yields `[state-key state-node]` pairs for every
   node under `:states`, recursing through `:states` maps; used by the
@@ -59,7 +58,7 @@
                          {:recovery :fix-registration :extra extras})))
 
 (defn- ref-resolves?
-  "Mirror of the runtime resolver `transition/chase-ref` (rf2-ylpnn): a
+  "Mirror of the runtime resolver `transition/chase-ref`: a
   `:guards` / `:actions` keyword reference resolves iff chasing the
   keyword-indirection chain through `registry` terminates at a fn (a bare
   fn registry value, or the co-located `{:fn <fn> ...}` entry map). A
@@ -76,8 +75,7 @@
    - hits a keyword with no `registry` entry → unresolved (false);
    - re-visits a keyword (a CYCLE) → unresolved (false) — the runtime
      `chase-ref` returns nil on a cycle, treating it as unresolved, so a
-     cyclic indirection is now rejected at registration rather than
-     throwing the same unresolved error at runtime."
+     cyclic indirection is rejected at registration rather than at runtime."
   [registry ref]
   (loop [r ref seen #{}]
     (cond
@@ -90,9 +88,10 @@
       :else                  false)))
 
 (defn- validate-no-spawn-timeout-ms!
-  "Per rf2-3y3y / Spec 005 §Wall-clock timeouts on :spawn — use parent
-  state's `:after`, the pre-release `:timeout-ms` / `:on-timeout` slots
-  on `:spawn` and `:spawn-all` are DROPPED."
+  "Per Spec 005 §Wall-clock timeouts on :spawn — `:timeout-ms` /
+  `:on-timeout` on `:spawn` / `:spawn-all` are rejected: registration throws
+  `:rf.error/spawn-timeout-ms-removed`. Express a wall-clock spawn timeout
+  via the parent state's `:after` slot instead."
   [state-key state-node]
   (doseq [[slot-key spec]
           [[:spawn     (:spawn state-node)]
@@ -115,17 +114,16 @@
                     :migration  "migration/from-re-frame-v1/README.md §M-44"})))))))
 
 (defn- spawn-id-xor-definition-error
-  "The XOR check shared by single `:spawn` and each `:spawn-all` child
-  (rf2-vyjq3m): a spawn-spec must declare EXACTLY ONE of `:machine-id` /
+  "The XOR check shared by single `:spawn` and each `:spawn-all` child:
+  a spawn-spec must declare EXACTLY ONE of `:machine-id` /
   `:definition`. Returns a `:reason` string when the spec violates the XOR
   (neither key, or both keys), or nil when exactly one is present. Per Spec
   005 §`:spawn` (the spec-table key cell \"exactly one of these\") +
-  Spec-Schemas §`:rf/state-node` — making \"exactly one of `:machine-id` or
-  `:definition`\" a registration-time constraint (previously only the
-  neither-`:spawn-all`-child case was rejected; single `:spawn` and the
-  both-set case both slipped through, so a both-set spec could initialise a
-  child from the inline `:definition` while stamping `:rf/machine-type` from
-  the registered `:machine-id` — a lazy-resolution / restore type mismatch)."
+  Spec-Schemas §`:rf/state-node` — \"exactly one of `:machine-id` or
+  `:definition`\" is a registration-time constraint. (A both-set spec would
+  otherwise initialise a child from the inline `:definition` while stamping
+  `:rf/machine-type` from the registered `:machine-id` — a lazy-resolution /
+  restore type mismatch.)"
   [spec]
   (let [has-id?  (contains? spec :machine-id)
         has-def? (contains? spec :definition)]
@@ -137,7 +135,7 @@
       :else nil)))
 
 (defn- validate-spawn-all!
-  "Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): walk the
+  "Per Spec 005 §Spawn-and-join via `:spawn-all`: walk the
   state tree at registration time and reject malformed `:spawn-all`
   declarations.
 
@@ -176,11 +174,10 @@
                      "each child spawn-spec must declare an :id keyword"
                      {:state state-key
                       :child c})))
-          ;; rf2-vyjq3m: a child spawn-spec must declare EXACTLY ONE of
-          ;; `:machine-id` / `:definition` (XOR) — previously only the
-          ;; NEITHER case was rejected; a child carrying BOTH keys slipped
-          ;; through `(or :machine-id :definition)` and could materialise a
-          ;; different machine type on restore than the one that spawned it.
+          ;; A child spawn-spec must declare EXACTLY ONE of
+          ;; `:machine-id` / `:definition` (XOR). A child carrying BOTH keys
+          ;; would otherwise materialise a different machine type on restore
+          ;; than the one that spawned it.
           (when-let [reason (spawn-id-xor-definition-error c)]
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
@@ -228,7 +225,7 @@
                     :join join})))))))
 
 (defn- validate-parallel!
-  "Per Spec 005 §Parallel regions (rf2-l67o / Stage 2) and Spec-Schemas
+  "Per Spec 005 §Parallel regions and Spec-Schemas
   §`:rf/transition-table` §`:type :parallel` constraint: when a root
   state-node declares `:type :parallel`, validate the shape at
   registration time.
@@ -242,23 +239,23 @@
       state-tree declares `:type :parallel`; nested parallel regions
       aren't supported in v1.
     - `:rf.error/machine-parallel-on-done-target` — the parallel root's
-      `:on-done` declares an in-machine `:target` in ANY value form
-      (rf2-bnjb3 / rf2-6srk5): a bare-keyword target, a vector-path target,
+      `:on-done` declares an in-machine `:target` in ANY value form:
+      a bare-keyword target, a vector-path target,
       a map with `:target`, or a candidate vector containing a target map.
       A root-only `:type :parallel` machine has no sibling flat state to
       land a target on; the parallel `:on-done` runs its `:action` + emits
       `:fx` (the \"then continue\" is a dispatch/raise in that fx), never an
-      in-machine transition target. (Before rf2-6srk5 only the map / vector-
-      of-maps forms were rejected, so bare-keyword and vector-path targets
-      slipped through to a silent runtime stall.)
+      in-machine transition target. Every target-bearing value form is
+      rejected (an accepted target would silently stall the all-final
+      configuration).
     - `:rf.error/machine-parallel-root-on-bad-target` — a root parallel `:on`
-      transition's `:target` is NOT region-qualified (rf2-tsq6g). The root
+      transition's `:target` is NOT region-qualified. The root
       `:on` is the ancestor fallback; a `:target` must name one or more
       regions — `[<region> & <in-region-path>]` (single) or
       `[[<region> …] [<region> …]]` (multiple). A bare keyword / a head that
       is not a declared region is rejected (the root has no flat sibling state
       to land a non-region-qualified target on).
-    Per rf2-wox0vd a `:type :parallel` ROOT MAY now declare `:after` — it is
+    A `:type :parallel` ROOT MAY declare `:after` — it is
     ROOT-OWNED (scheduled at machine birth, alive for the whole machine,
     stale-gated by the root's own per-path epoch). Its `:target` reuses the
     EXACT region-qualified grammar root `:on` targets use, so a non-region-
@@ -273,22 +270,23 @@
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
                ":type :parallel requires a non-empty :regions map")))
-    ;; Per rf2-bnjb3 / rf2-6srk5: the parallel root's `:on-done` must not carry
-    ;; an in-machine `:target` in ANY form (root-only parallel has no flat
-    ;; sibling to land on). Normalise EVERY value-form `:on-done` admits —
-    ;; mirroring `transition/normalise-candidates` (the runtime grammar the
+    ;; The parallel root's `:on-done` must not carry an in-machine `:target`
+    ;; in ANY form (root-only parallel has no flat sibling to land on).
+    ;; Normalise EVERY value-form `:on-done` admits — mirroring
+    ;; `transition/normalise-candidates` (the runtime grammar the
     ;; parallel-root `apply-on-done-action` resolves through) — to its
     ;; candidate map(s), then reject if any candidate declares `:target`.
     ;;
-    ;; The pre-rf2-6srk5 check only normalised the MAP and vector-of-maps forms,
-    ;; so a bare-keyword target (`:on-done :next`) and a vector-path target
-    ;; (`:on-done [:next]`) slipped past validation, then normalised at runtime
-    ;; to a `:target`-only / action-less candidate that `apply-on-done-action`
-    ;; selected, ran no action for, marked the done signal handled (suppressing
-    ;; auto-destroy), and moved nowhere — a SILENT STALL in the all-final
-    ;; configuration. Per the loud-failure posture, every target-bearing form
-    ;; must be rejected loudly at registration. Action / fx-only `:on-done`
-    ;; (no `:target`) stays accepted.
+    ;; This covers every target-bearing form: a bare-keyword target
+    ;; (`:on-done :next`), a vector-path target (`:on-done [:next]`), a map
+    ;; with `:target`, and a candidate vector containing a target map. An
+    ;; accepted target would normalise at runtime to a `:target`-only /
+    ;; action-less candidate that `apply-on-done-action` selects, runs no
+    ;; action for, marks the done signal handled (suppressing auto-destroy),
+    ;; and moves nowhere — a SILENT STALL in the all-final configuration. Per
+    ;; the loud-failure posture, every target-bearing form is rejected loudly
+    ;; at registration. Action / fx-only `:on-done` (no `:target`) stays
+    ;; accepted.
     (when (contains? machine :on-done)
       (let [on-done (:on-done machine)
             ;; Mirror transition/normalise-candidates: keyword → {:target kw};
@@ -315,22 +313,22 @@
                         "dispatch to a coordinator). Per Spec 005 §Final states "
                         "§The done-state signal.")
                    {:on-done on-done})))))
-    ;; Per rf2-tsq6g: every root parallel `:on` transition's `:target` (if
-    ;; present) MUST be region-qualified — the root ancestor fallback has no
-    ;; flat sibling state to land a bare-keyword / non-region target on. A
-    ;; target is either a single region-qualified path `[<region> &
-    ;; <in-region-path>]` (a vector whose head is a declared region) OR
-    ;; multiple such paths `[[<region> …] [<region> …]]` (a vector of
-    ;; vectors). A targetless / action-only transition is fine (no target to
-    ;; check). The check normalises each `:on` entry to its candidate map(s)
-    ;; and validates each candidate's `:target`.
+    ;; Every root parallel `:on` transition's `:target` (if present) MUST be
+    ;; region-qualified — the root ancestor fallback has no flat sibling state
+    ;; to land a bare-keyword / non-region target on. A target is either a
+    ;; single region-qualified path `[<region> & <in-region-path>]` (a vector
+    ;; whose head is a declared region) OR multiple such paths
+    ;; `[[<region> …] [<region> …]]` (a vector of vectors). A targetless /
+    ;; action-only transition is fine (no target to check). The check
+    ;; normalises each `:on` entry to its candidate map(s) and validates each
+    ;; candidate's `:target`.
     ;;
-    ;; Per rf2-wox0vd the SAME region-qualified target grammar governs a
-    ;; root-owned `:after` transition (the timer-driven analog of the root
-    ;; `:on` ancestor fallback), so a non-region-qualified root `:after`
-    ;; target is rejected with the SAME `:rf.error/machine-parallel-root-on-
-    ;; bad-target` keyword. `candidates-of` is the shared `:on` / `:after`
-    ;; value-form normaliser (mirroring `transition/normalise-candidates`).
+    ;; The SAME region-qualified target grammar governs a root-owned `:after`
+    ;; transition (the timer-driven analog of the root `:on` ancestor
+    ;; fallback), so a non-region-qualified root `:after` target is rejected
+    ;; with the SAME `:rf.error/machine-parallel-root-on-bad-target` keyword.
+    ;; `candidates-of` is the shared `:on` / `:after` value-form normaliser
+    ;; (mirroring `transition/normalise-candidates`).
     (let [region-names (set (keys (:regions machine)))
           declared?    (fn [t] (contains? region-names t))
           bad-target!  (fn [slot target]
@@ -418,7 +416,7 @@
   recursing through `:states` maps. Used by the registration-time
   validators.
 
-  Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): for parallel-region
+  Per Spec 005 §Parallel regions: for parallel-region
   machines, walks the state nodes under every region's `:states`. Region-
   name keywords are NOT yielded as state keys (they're region identifiers,
   not states)."
@@ -439,11 +437,10 @@
       (walk [] (:states machine)))))
 
 ;; Per Spec 005 §History states (`:type :history` — shallow / deep /
-;; default-target) §Pseudo-state constraints (rf2-mle6e.1, PR #2863): the
-;; v1 CLJS reference claims `:fsm/history`, so a `:type :history` node is
-;; FIRST-CLASS grammar — no longer rejected. `make-machine-handler`
-;; validates the pseudo-state's shape at registration (the same layer that
-;; rejects malformed compound states):
+;; default-target) §Pseudo-state constraints: the v1 CLJS reference claims
+;; `:fsm/history`, so a `:type :history` node is FIRST-CLASS grammar.
+;; `make-machine-handler` validates the pseudo-state's shape at registration
+;; (the same layer that rejects malformed compound states):
 ;;
 ;;   - a `:type :history` node MUST be declared inside a compound state's
 ;;     `:states` (it has an owning compound whose configuration it
@@ -459,14 +456,14 @@
 ;;     direct child of the owning compound (keyword form) or an absolute
 ;;     path the definition declares (vector form).
 ;;
-;; The legacy `:history` state-node KEY form (`{:a {:history {...}}}`) and
+;; The `:history` state-node KEY form (`{:a {:history {...}}}`) and
 ;; a root / region `:type :history` are NOT part of the grammar — they are
 ;; misplaced-history registration errors (`:rf.error/machine-history-
 ;; misplaced`), the named error every other malformed-placement case uses.
 ;; Per Spec 009 §Error contract the recovery is `:no-recovery` (registration
 ;; is rejected). The precise error-id catalogue for history-grammar
-;; violations is owned by Spec 009 (mle6e.2); these ids conform to that
-;; family's `:rf.error/machine-history-*` naming.
+;; violations is owned by Spec 009; these ids conform to that family's
+;; `:rf.error/machine-history-*` naming.
 
 (def ^:private history-pseudo-keys
   "The closed key-set a `:type :history` pseudo-state may carry. Anything
@@ -622,8 +619,7 @@
   compound), the closed key-set, at-most-one-per-compound, and
   `:default-target` resolution.
 
-  Replaces the withdrawn `:rf.error/machine-grammar-not-in-v1` deferral
-  (rf2-mle6e.1, PR #2863): history is now claimed (`:fsm/history`). A
+  History is first-class grammar (`:fsm/history`). A
   `:type :history` node at the machine root, or directly on a region body
   with no enclosing compound, is `:rf.error/machine-history-misplaced`."
   [machine]
@@ -651,7 +647,7 @@
     (validate-history-scope! :rf/root (:states machine))))
 
 (defn- validate-final-state!
-  "Per Spec 005 §Final states (rf2-gn80) §`:final?` constraints:
+  "Per Spec 005 §Final states §`:final?` constraints:
 
    - A `:final?` state MUST NOT be compound (no `:states`, no `:initial`).
    - A `:final?` state MUST NOT declare `:on`, `:always`, `:after`,
@@ -659,7 +655,7 @@
      transitions out. `:entry` and `:exit` ARE permitted.
    - A non-final state declaring `:output-key` is a registration error
      (`:rf.error/machine-output-key-without-final`).
-   - Per Spec 005 §`:on-error` (rf2-5hlsh): a `:final?` leaf MAY declare
+   - Per Spec 005 §`:on-error`: a `:final?` leaf MAY declare
      `:error? true` — a designated ERROR terminal (re-frame2's spelling of
      XState v5's error final). A child finishing via an error leaf routes to
      the spawning parent's `:spawn :on-error` transition instead of
@@ -695,8 +691,8 @@
              {:state      state-key
               :output-key (:output-key state-node)}))
 
-    ;; Non-final state declaring :error? — error per rf2-5hlsh (symmetric
-    ;; with :output-key). `:error?` designates an error TERMINAL; it is
+    ;; Non-final state declaring :error? — error (symmetric with
+    ;; :output-key). `:error?` designates an error TERMINAL; it is
     ;; meaningless on a non-final state.
     (contains? state-node :error?)
     (throw (validation-error
@@ -707,14 +703,13 @@
               :error? (:error? state-node)}))))
 
 (defn- validate-spawn!
-  "Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node` (rf2-vyjq3m): a
+  "Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node`: a
   single `:spawn`-bearing state node's spawn-spec must declare EXACTLY ONE of
   `:machine-id` / `:definition`. Rejects both-set and neither-set at
-  registration with `:rf.error/machine-spawn-bad-shape` (fail-closed) — the
-  contract promised registration-time rejection but `validate-machine!`
-  previously had NO single-`:spawn` XOR check, so a malformed spec deferred to
-  a late actor-id allocation failure (neither) or a silent type mismatch on
-  restore (both). `:spawn-all` children are checked by `validate-spawn-all!`
+  registration with `:rf.error/machine-spawn-bad-shape` (fail-closed) —
+  without this gate a malformed spec would defer to a late actor-id
+  allocation failure (neither) or a silent type mismatch on restore (both).
+  `:spawn-all` children are checked by `validate-spawn-all!`
   (the `:spawn` / `:spawn-all` mutual exclusion means at most one runs here).
   Absent `:spawn` is fine."
   [state-key state-node]
@@ -728,7 +723,7 @@
                   :spawn spawn}))))))
 
 (defn- validate-spawn-on-error!
-  "Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): a `:spawn`-bearing
+  "Per Spec 005 §Final states §`:on-error`: a `:spawn`-bearing
   state's `:spawn :on-error` is an `:on`-shaped transition spec — a keyword
   target, a vector-path target, a single transition map `{:target :guard
   :actions}`, or a guarded candidate vector. Reject a malformed `:on-error`
@@ -793,7 +788,7 @@
   "True iff an `:always` entry's `:target` resolves to its own declaring
   state at `path` (a self-loop). The `:same-state` sentinel is an explicit
   external self-target (it re-enters the declaring state — see Spec 005
-  §Self-transitions, rf2-46ban), so it is always a self-loop. A keyword
+  §Self-transitions), so it is always a self-loop. A keyword
   target names a sibling at the declaring level — it self-targets when it
   equals the declaring state's own key (the last element of `path`). A
   vector target is an absolute path — it self-targets when it equals `path`.
@@ -893,7 +888,7 @@
       (let [scope (:states machine)]
         (walk scope [] scope)))))
 
-;; ---- transition target shape + resolution (rf2-w84jv) ---------------------
+;; ---- transition target shape + resolution ---------------------------------
 ;;
 ;; Per Spec 005 (005:441 "the snapshot's :state slot is already validated at
 ;; registration time — a transition targeting an unknown state fails
@@ -903,24 +898,22 @@
 ;; declaring state's parent compound), a non-empty vector path (absolute from
 ;; the region/machine root), or the `:same-state` self-target sentinel.
 ;; Anything else is malformed; a keyword / vector that does not resolve to a
-;; real node is an unresolved target. Before rf2-w84jv the validator checked
-;; only `:guard` / `:action` refs, so `{:target 42}` registered and threw
-;; `:rf.error/machine-bad-state-form` later at dispatch, and `{:target
-;; [:missing]}` registered and committed an invalid snapshot — false-green
-;; registration + brittle runtime failures. This block closes the gap loudly,
-;; aligned with XState v5 (which rejects unresolvable targets at machine
-;; creation). The parallel ROOT's own region-qualified `:on` / `:on-done`
-;; targets have DIFFERENT (region-qualified) semantics and are validated by
-;; `validate-parallel!`; this block walks only per-region / flat state nodes.
+;; real node is an unresolved target. Both are rejected loudly at
+;; registration: `{:target 42}` is a malformed shape, `{:target [:missing]}`
+;; is unresolved. This is aligned with XState v5 (which rejects unresolvable
+;; targets at machine creation). The parallel ROOT's own region-qualified
+;; `:on` / `:on-done` targets have DIFFERENT (region-qualified) semantics and
+;; are validated by `validate-parallel!`; this block walks only per-region /
+;; flat state nodes.
 
 (def ^:private candidate-targets
   "Normalise a transition slot's value (an `:on` entry, an `:after` entry,
   an `:on-done`, a `:spawn :on-error`) to the seq of `:target`s it declares,
   each tagged with `:present?`. The shared `grammar/candidate-targets`,
   built on the SAME `grammar/transition-value-form` recogniser the runtime
-  normaliser (`transition/normalise-candidates`) uses — so this is no
-  longer a hand-kept mirror but the one grammar layer by construction. The
-  `:present?` marker distinguishes \"`:target` key absent\" (internal
+  normaliser (`transition/normalise-candidates`) uses — so registration and
+  the runtime share one grammar layer by construction. The `:present?` marker
+  distinguishes \"`:target` key absent\" (internal
   transition — always fine) from \"`:target` present but malformed\" (e.g.
   `{:target nil}`)."
   grammar/candidate-targets)
@@ -995,7 +988,7 @@
               :target target}))))
 
 (defn- valid-after-delay-key?
-  "Per rf2-apfait + Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
+  "Per Spec-Schemas §`:rf/state-node` `:after` (1699-1705):
   an `:after` map KEY (the delay) is well-formed iff it is one of the
   three closed forms:
 
@@ -1019,7 +1012,7 @@
         (fn? delay-key))))
 
 (defn- validate-after-delays!
-  "Per rf2-apfait — reject any `:after` map KEY that is not a positive
+  "Reject any `:after` map KEY that is not a positive
   integer, a non-empty subscription vector, or a function, at
   registration. Walks every transition-bearing node: each state node
   (`walk-state-nodes`), every region root + the parallel root, and the
@@ -1062,7 +1055,7 @@
       (check-key! :rf/root delay-key))))
 
 (defn- validate-transition-targets!
-  "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget (rf2-w84jv):
+  "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget:
   reject malformed-shape and unresolved transition `:target`s at registration
   for every transition-bearing slot of every per-region / flat state node —
   `:on`, `:after`, `:always`, a compound's `:on-done`, and a `:spawn`-bearing
@@ -1072,9 +1065,9 @@
 
   Catches `{:target 42}` (malformed → `:rf.error/machine-bad-target`) and
   `{:target [:missing]}` (unresolved → `:rf.error/machine-unresolved-target`)
-  at registration rather than at the triggering dispatch (where the former
-  threw `:rf.error/machine-bad-state-form` and the latter committed an invalid
-  snapshot)."
+  at registration rather than at the triggering dispatch (where a malformed
+  target would otherwise throw `:rf.error/machine-bad-state-form` and an
+  unresolved one would commit an invalid snapshot)."
   [machine]
   (doseq [[scope path node] (walk-state-nodes-with-scope machine)]
     (let [state-key (peek path)
@@ -1094,35 +1087,35 @@
         (check! :spawn/on-error oe)))))
 
 (defn validate-machine!
-  "Run every registration-time check the machine grammar requires (rf2-f9tu).
+  "Run every registration-time check the machine grammar requires.
   Composed at the top of `make-machine-handler` so the registered handler
   fn's body is exclusively about request processing.
 
-  Per Spec 005 §History states §Pseudo-state constraints (rf2-mle6e.3):
+  Per Spec 005 §History states §Pseudo-state constraints:
   every `:type :history` pseudo-state — placement (must have an owning
   compound), the closed `:type` / `:deep?` / `:default-target` key-set,
   at-most-one-per-compound, and `:default-target` resolution. Throws
   `:rf.error/machine-history-misplaced` / `-extra-keys` / `-duplicate` /
   `-bad-default-target`.
 
-  Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): `:type :parallel`
+  Per Spec 005 §Parallel regions: `:type :parallel`
   shape — `:regions` non-empty, mutually exclusive with `:initial` /
   `:states`, no nested parallel.
 
-  Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): every
+  Per Spec 005 §Spawn-and-join via `:spawn-all`: every
   `:spawn-all`-bearing state node — shape, no duplicate `:id`s, required
   join-event keys per `:join` form, mutually exclusive with `:spawn`.
 
-  Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node` (rf2-vyjq3m):
+  Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node`:
   every single `:spawn`-bearing state node — and every `:spawn-all` child —
   must declare EXACTLY ONE of `:machine-id` / `:definition` (XOR). Throws
   `:rf.error/machine-spawn-bad-shape` (single `:spawn`) /
   `:rf.error/machine-spawn-all-bad-shape` (child) on both-set or neither-set.
 
-  Per rf2-3y3y: every `:spawn` / `:spawn-all` rejects the dropped
+  Every `:spawn` / `:spawn-all` rejects the unsupported
   `:timeout-ms` / `:on-timeout` slot (use parent `:after`).
 
-  Per rf2-oz9t: every `:on` / `:always` / `:entry` / `:exit` slot's guard
+  Every `:on` / `:always` / `:entry` / `:exit` slot's guard
   and action keyword refs must resolve against the machine's `:guards` /
   `:actions` maps. Throws `:rf.error/machine-unresolved-guard` /
   `:rf.error/machine-unresolved-action` on dangling refs.
@@ -1135,14 +1128,14 @@
   that targets its own declaring state is rejected. Throws
   `:rf.error/machine-always-self-loop`.
 
-  Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget (rf2-w84jv):
+  Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget:
   every transition slot's `:target` (`:on` / `:after` / `:always` /
   compound `:on-done` / `:spawn :on-error`) must be a well-formed,
   resolvable target. Throws `:rf.error/machine-bad-target` (malformed
   shape) / `:rf.error/machine-unresolved-target` (keyword / vector that
   names no declared state).
 
-  Per rf2-apfait + Spec-Schemas §`:rf/state-node` `:after`: every `:after`
+  Per Spec-Schemas §`:rf/state-node` `:after`: every `:after`
   map KEY (the delay) must be a positive integer, a non-empty subscription
   vector, or a function. Throws `:rf.error/machine-bad-after-delay` for a
   static key that is none of those (`-1`, `0`, `\"soon\"`, `nil`, `[]`) —
@@ -1162,9 +1155,9 @@
   ;; resolve vector `:target`s, so it drives off the path-aware walker.
   (doseq [[path n] (walk-state-nodes-with-path machine)]
     (validate-always-self-loop! path (peek path) n))
-  ;; rf2-w84jv: every transition slot's `:target` shape + resolution.
+  ;; Every transition slot's `:target` shape + resolution.
   (validate-transition-targets! machine)
-  ;; rf2-apfait: every `:after` delay KEY must be a positive integer, a
+  ;; Every `:after` delay KEY must be a positive integer, a
   ;; non-empty subscription vector, or a function — gated at registration
   ;; rather than degrading to an fx-time :rf.warning/no-clock-configured.
   (validate-after-delays! machine)
@@ -1173,7 +1166,7 @@
   ;; a placeholder; real misuse traces at handler-call time fill it in.
   (let [guards-map  (:guards machine)
         actions-map (:actions machine)
-        ;; Follow the FULL chase-ref chain (rf2-ylpnn), not just the first
+        ;; Follow the FULL chase-ref chain, not just the first
         ;; key — a multi-hop keyword indirection (`{:a :b}` → `:b`) whose
         ;; terminal hop is missing, or a cyclic indirection, is rejected
         ;; here at registration rather than throwing the same unresolved
@@ -1209,8 +1202,8 @@
       ;; Per Spec 005 §Delayed `:after` (005:1334 "exactly as for `:on`"):
       ;; `:after` entries may carry `:guard` / `:action` refs (e.g.
       ;; `{1000 {:target :timeout :guard :no-progress?}}`). A dangling
-      ;; `:after` ref previously slipped past registration and only threw
-      ;; at runtime when the timer fired — fail fast here instead.
+      ;; `:after` ref is failed fast here at registration rather than at
+      ;; runtime when the timer fires.
       (doseq [[_ t] (:after state-node)]
         (check-transition! t s))
       ;; `:always` admits a single entry map OR a vector of entry maps;
@@ -1221,12 +1214,12 @@
       (doseq [t (always-entries state-node)]
         (check-guard!  (:guard t)  s)
         (check-action! (:action t) s))
-      ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3 /
-      ;; rf2-zlmz7): an `:on-done` on a compound node is an `:on`-shaped
-      ;; transition (fired when the compound reaches a `:final?` child); its
-      ;; guard / action refs must resolve at registration like any other slot.
+      ;; Per Spec 005 §Final states §The done-state signal: an `:on-done` on
+      ;; a compound node is an `:on`-shaped transition (fired when the
+      ;; compound reaches a `:final?` child); its guard / action refs must
+      ;; resolve at registration like any other slot.
       (check-transition! (:on-done state-node) s)
-      ;; Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): a `:spawn`-bearing
+      ;; Per Spec 005 §Final states §`:on-error`: a `:spawn`-bearing
       ;; state's `:spawn :on-error` is an `:on`-shaped transition fired when a
       ;; spawned child fails; its guard / action refs resolve at registration
       ;; like `:on-done`. (Shape is checked separately by `validate-spawn-on-error!`.)
@@ -1234,24 +1227,20 @@
       (check-action! (:entry state-node) s)
       (check-action! (:exit  state-node) s))
     ;; Per Spec 005 §Transition resolution: the machine root's own `:on`
-    ;; fallback (now consulted at runtime per the root-`:on` fix) carries
-    ;; `:guard` / `:action` refs that must resolve at registration too —
-    ;; previously `walk-state-nodes` only descended `:states`, so a
-    ;; dangling root-`:on` / root-`:after` ref escaped validation
-    ;; entirely. `walk-state-nodes` yields the nodes INSIDE each region's
-    ;; `:states` but not the region body itself, so a parallel machine's
-    ;; per-region root `:on` / `:after` (which IS consulted at runtime via
-    ;; the region's own `machine-transition-single` root fallback) is
-    ;; validated here too.
+    ;; fallback (consulted at runtime) carries `:guard` / `:action` refs that
+    ;; must resolve at registration too. `walk-state-nodes` yields the nodes
+    ;; INSIDE each region's `:states` but not the region body itself, so a
+    ;; parallel machine's per-region root `:on` / `:after` (which IS consulted
+    ;; at runtime via the region's own `machine-transition-single` root
+    ;; fallback) is validated here too.
     ;;
-    ;; Per rf2-tsq6g: the PARALLEL ROOT's OWN `:on` (the ancestor fallback,
-    ;; now consulted at runtime when no region handles the event) carries
-    ;; `:guard` / `:action` refs that must resolve here too — previously the
-    ;; root-parallel transition path was skipped, so a bad ref there did not
-    ;; surface. The parent parallel root is therefore added to `roots`. (The
-    ;; root-parallel transition target SHAPE — region-qualified — is validated
-    ;; by `validate-parallel!`; this block validates only the guard/action
-    ;; refs, like every other transition slot.)
+    ;; The PARALLEL ROOT's OWN `:on` (the ancestor fallback, consulted at
+    ;; runtime when no region handles the event) carries `:guard` / `:action`
+    ;; refs that must resolve here too, so the parent parallel root is added
+    ;; to `roots`. (The root-parallel transition target SHAPE —
+    ;; region-qualified — is validated by `validate-parallel!`; this block
+    ;; validates only the guard/action refs, like every other transition
+    ;; slot.)
     (let [roots (if (parallel/parallel? machine)
                   (cons machine (vals (:regions machine)))
                   [machine])]
@@ -1261,7 +1250,7 @@
       (doseq [root roots
               [_ t] (:after root)]
         (check-transition! t :rf/root)))
-    ;; Per rf2-bnjb3: the PARALLEL ROOT's own `:on-done` (fired when all
+    ;; The PARALLEL ROOT's own `:on-done` (fired when all
     ;; regions reach final) carries `:guard` / `:action` refs that must
     ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,
     ;; not the parallel root itself, so this is validated explicitly.)

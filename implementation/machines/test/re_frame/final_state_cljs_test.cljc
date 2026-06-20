@@ -1,7 +1,7 @@
 (ns re-frame.final-state-cljs-test
-  "Per rf2-gn80. Verifies the `:final?` / `:on-done` / `:output-key`
-  contract for state-machine final states. Ten locked decisions (D1-D10)
-  are exercised here under both JVM and CLJS runtimes.
+  "Verifies the `:final?` / `:on-done` / `:output-key` contract for
+  state-machine final states. Ten locked decisions (D1-D10) are exercised
+  here under both JVM and CLJS runtimes.
 
    D1 — `:final?` is a first-class key on the state node (NOT under
         `:meta`).
@@ -28,7 +28,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`
+   ;; The listener surface lives in `re-frame.trace.tooling`
    ;; (production-DCE split). On JVM the convenience aliases in
    ;; re-frame.core preserve the `rf/<name>` shape, but on CLJS the
    ;; tooling sibling must be referenced directly.
@@ -44,8 +44,8 @@
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- traces-for
@@ -332,12 +332,11 @@
     (is (some? (registrar/lookup :event :rf2-gn80/par-partial))
         "machine handler is still live — :right hasn't reached :final? yet")))
 
-;; ---- (rf2-g13nm2 C2) :output-key on a NON-FIRST region's terminal leaf ----
+;; ---- (C2) :output-key on a NON-FIRST region's terminal leaf ----
 ;; A spawned parallel child whose :output-key lives on a region OTHER than the
-;; first (state-map order) must still report that slot back through the
-;; parent's :spawn :on-done. The pre-fix finalize read :output-key from
-;; `(first state)` only, so a non-first region's :output-key silently yielded
-;; result=nil.
+;; first (state-map order) still reports that slot back through the parent's
+;; :spawn :on-done — finalize scans every region's terminal leaf for the
+;; :output-key, not just the first.
 
 (deftest parallel-output-key-on-non-first-region-reported
   (testing "C2: a spawned parallel child reports :output-key from a NON-FIRST region"
@@ -345,8 +344,8 @@
       (rf/reg-machine :rf2-gn80/par-child
         {:type    :parallel
          ;; :alpha is the FIRST region and carries NO :output-key; :beta (a
-         ;; later region) is the one declaring :output-key. Pre-fix this read
-         ;; nil because finalize only inspected the first region's leaf.
+         ;; later region) is the one declaring :output-key — finalize must
+         ;; scan past the first region's leaf to find it.
          :regions {:alpha {:initial :run
                            :states  {:run  {:on {:fin :done}}
                                      :done {:final? true}}}
@@ -411,14 +410,14 @@
         (is (seq (traces-for traces :rf.error/machine-parallel-output-key-conflict))
             "a :rf.error/machine-parallel-output-key-conflict trace was emitted")))))
 
-;; ---- (rf2-encnvn) :error? final on a NON-FIRST region routes as ERROR ------
+;; ---- :error? final on a NON-FIRST region routes as ERROR ------
 ;; A spawned PARALLEL child whose FIRST region (state-map order) reaches a
 ;; plain final but a NON-FIRST region reaches `{:final? true :error? true}`
-;; must route to the spawning parent's `:spawn :on-error` (control flow) — NOT
-;; `:on-done` — and the `:rf.machine/done` trace must carry `:error? true`.
-;; The pre-fix finalize read `:error?` from `(first state)` only (the same
-;; first-region blind spot the C2 `:output-key` scan above already fixed), so
-;; a non-first-region error final was MIS-REPORTED as a successful finish.
+;; routes to the spawning parent's `:spawn :on-error` (control flow) — NOT
+;; `:on-done` — and the `:rf.machine/done` trace carries `:error? true`.
+;; Finalize scans every region's terminal leaf for `:error?` (the same
+;; all-regions scan the C2 `:output-key` case above relies on), so an error
+;; final in any region is classified as an error finish.
 
 (deftest parallel-error-final-on-non-first-region-routes-as-error
   (testing "rf2-encnvn: a spawned parallel child whose NON-FIRST region reaches an :error? final routes to :on-error, not :on-done"
@@ -427,8 +426,9 @@
       (rf/reg-machine :rf2-encnvn/par-err-child
         {:type    :parallel
          ;; :alpha is the FIRST region and reaches a PLAIN final (no :error?).
-         ;; :beta (a later region) is the one reaching the ERROR terminal.
-         ;; Pre-fix, finalize classified the finish off :alpha only → success.
+         ;; :beta (a later region) is the one reaching the ERROR terminal —
+         ;; finalize classifies the finish off every region, so :beta's
+         ;; error final wins.
          :regions {:alpha {:initial :run
                            :states  {:run  {:on {:fin :done}}
                                      :done {:final? true}}}

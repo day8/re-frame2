@@ -1,12 +1,12 @@
 (ns re-frame.reduce-regions-test
   "Pure-fn unit test for `re-frame.machines.parallel/reduce-regions` —
-  the broadcast invariant for parallel-region machines (rf2-vqubp).
+  the broadcast invariant for parallel-region machines.
 
   Asserts the four threading properties the helper encodes:
    1. Regions iterate in declaration order (the order `:regions` was
       authored).
    2. A later region's step sees earlier regions' `:data` writes.
-   3. The shared `:rf/spawn-counter` (rf2-gr8q) threads in/out across
+   3. The shared `:rf/spawn-counter` threads in/out across
       regions — bumps in one region are visible to the next.
    4. Per-region fx is prefixed via `prefix-region-invoke-id` so the
       `[:rf.runtime/machines :spawned ...]` slot key stays unique per region.
@@ -24,8 +24,8 @@
             [re-frame.machines.result :as result]))
 
 (def ^:private reduce-regions
-  ;; Reach in to the private helper. Per rf2-vqubp this test isolates
-  ;; the broadcast invariant from the two production step-fns.
+  ;; Reach in to the private helper. This test isolates the broadcast
+  ;; invariant from the two production step-fns.
   #'parallel/reduce-regions)
 
 (defn- two-region-spec

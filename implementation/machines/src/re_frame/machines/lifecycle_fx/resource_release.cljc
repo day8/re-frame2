@@ -1,5 +1,5 @@
 (ns re-frame.machines.lifecycle-fx.resource-release
-  "Machine→resource lease release on actor destroy (rf2-xw5t0y).
+  "Machine→resource lease release on actor destroy.
 
   Per Spec 016 §Release authority is per owner kind (016:290):
 
@@ -15,13 +15,12 @@
   actor — the SAME id the actor's `ensure` carries as `:owner [:machine
   actor-id]`, so releasing it drops exactly the destroyed actor's leases.
 
-  THE LEAK this closes (rf2-xw5t0y, from the rf2-na0j8r conceptual audit): the
-  machine teardown NEVER released the actor's resource leases. A machine that
-  `ensure`d a resource under its `[:machine actor-id]` owner and was then
-  destroyed LEAKED the lease — the entry stayed owner-pinned and kept
-  refetching / polling forever. The spec leaned on \"machine liveness is a pure
-  function of frame-state\" as if release were automatic, but resource liveness
-  is a SEPARATE durable owner-set, not derived from machine state.
+  Machine teardown releases the actor's resource leases. A machine that
+  `ensure`d a resource under its `[:machine actor-id]` owner releases that
+  lease on destroy, so the entry is not left owner-pinned refetching /
+  polling forever. Resource liveness is a SEPARATE durable owner-set, not
+  derived from machine state, so the release must be fired explicitly rather
+  than relying on \"machine liveness is a pure function of frame-state\".
 
   ## Decoupling + the no-resources guard
 

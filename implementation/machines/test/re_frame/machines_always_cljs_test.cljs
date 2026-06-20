@@ -5,12 +5,10 @@
   Mirrors the conformance fixtures
   ../spec/conformance/fixtures/always-single-microstep.edn (single guarded
   fire, atomic commit) and always-depth-exceeded.edn (cycle hits the bounded
-  depth limit).
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  depth limit)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.machines.test-support :as mtest]))
@@ -19,7 +17,7 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. Inline trace
 ;; captures below keep their raw trace.tooling register/unregister.
 (def ^:private snapshot mtest/snapshot)
@@ -75,7 +73,7 @@
   (testing ":always cycle hits depth limit — macrostep fails atomically (rf2-y3jv8q)"
     ;; Two states ping-pong via :always with always-true guards. The microstep
     ;; loop trips the depth limit; per Spec 005 §Bounded depth the macrostep
-    ;; FAILS atomically — XState v5 throws on such a runaway (rf2-y3jv8q). The
+    ;; FAILS atomically — XState v5 throws on such a runaway. The
     ;; abort routes through the failure path (the handler short-circuits to
     ;; `{}`), so no snapshot write reaches runtime-db and the already-committed
     ;; pre-event :start snapshot stays put. (Boot the machine FIRST so :start is

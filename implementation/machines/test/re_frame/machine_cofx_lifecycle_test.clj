@@ -1,6 +1,6 @@
 (ns re-frame.machine-cofx-lifecycle-test
-  "EP-0017 slice-B.9 — cofx ensure-set coverage for ENTRY / EXIT lifecycle
-  actions + the bootstrap/birth path (rf2-knxbok).
+  "Cofx ensure-set coverage for ENTRY / EXIT lifecycle actions + the
+  bootstrap/birth path.
 
   Spec 005's EP-0017 section says a `:guard` / `:action` / `:entry` / `:exit`
   callback that depends on host facts must read DECLARED recordable coeffects,
@@ -9,16 +9,14 @@
   referenced by keyword from an `:entry` / `:exit` slot, the ONLY legal way for
   a lifecycle boundary action to consume a recordable fact.
 
-  The dispatch-time ensure-set previously unioned only candidate transition
-  `:guard` / `:action` diets and the `:always` guard/action closure diets — it
-  NEVER added the `:actions` diet for the active-state `:exit` refs or the
-  target-state `:entry` refs the exit→action→entry cascade runs. And the
-  bootstrap initial-entry / birth `:entry` actions ran inside `maybe-boot`
-  BEFORE the ensure step was reached at all. So a named `:entry` / `:exit`
-  action declaring a generator-backed or provided recordable fact read nil / an
-  unensured token instead of getting the EP-0017 behaviour (generate-and-write-
-  back in live mode; missing-required in strict/replay) — a replay/determinism
-  hole.
+  The dispatch-time ensure-set unions the candidate transition `:guard` /
+  `:action` diets, the `:always` guard/action closure diets, AND the
+  `:actions` diet for the active-state `:exit` refs and the target-state
+  `:entry` refs the exit→action→entry cascade runs. The bootstrap
+  initial-entry / birth `:entry` actions are ensured before `maybe-boot`
+  runs the cascade. So a named `:entry` / `:exit` action declaring a
+  generator-backed or provided recordable fact gets the EP-0017 behaviour
+  (generate-and-write-back in live mode; missing-required in strict/replay).
 
   These tests pin BOTH the white-box ensure-set derivation (`ensure-set-for`)
   and the end-to-end live behaviour (the generated value lands in the action's

@@ -1,7 +1,6 @@
 (ns re-frame.machines-forbidden-transition-cljs-test
   "Per Spec 005 §Transition resolution §Forbidden transitions + §Wildcard
-  transitions, and rf2-16gxd (Mike ruled 2026-06-04: DOCUMENT + nil-BLOCKS;
-  NO new sentinel).
+  transitions.
 
   The forbidden-transition idiom — re-frame2's spelling of XState v5's
   `on: {LOGOUT: undefined}` / an SCXML targetless internal
@@ -14,13 +13,12 @@
   Two unified spellings of the matching internal no-op:
     - `{:on {:logout {}}}`   — explicit empty transition map (always blocked);
     - `{:on {:logout nil}}`  — a PRESENT key with a nil value; nil is the
-      Clojure analogue of XState `undefined`, so rf2-16gxd makes it ALSO
-      block (it previously fell through to the parent — the nil-vs-{} trap).
+      Clojure analogue of XState `undefined`, so it ALSO blocks.
 
   The whole idiom turns on PRESENCE: a child with NO `:logout` key still
   INHERITS the parent's (absence ≠ block). And a forbidden block is an
   ENABLED internal candidate, so — unlike a GUARD-BLOCKED candidate, which
-  falls through to `:ns/*` / `:*` / the parent (rf2-icj9t) — it shadows
+  falls through to `:ns/*` / `:*` / the parent — it shadows
   every coarser descriptor AND every ancestor for that event.
 
   Exercised through `reg-machine` / `dispatch-sync` — the same runtime
@@ -34,8 +32,8 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- seed-snapshot!
@@ -46,7 +44,7 @@
   snapshot is synthesised lazily on first dispatch)."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; Machine snapshots are durable runtime-db state.
     (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots machine-id] snap)}))
@@ -80,7 +78,8 @@
           "the empty-map child entry matched + halted the walk — parent :logout NOT inherited; state unchanged"))))
 
 ;; ---------------------------------------------------------------------------
-;; (b) `{:on {:logout nil}}` ALSO blocks — THE FIX (was falling through)
+;; (b) `{:on {:logout nil}}` ALSO blocks (a present nil is the XState
+;;     `undefined` analogue)
 ;; ---------------------------------------------------------------------------
 
 (deftest nil-child-entry-also-blocks-parent-inherited-transition
@@ -94,8 +93,8 @@
              :on      {:logout [:unauthenticated]}
              :states
              ;; :modal opts OUT with a PRESENT nil value — the XState
-             ;; `LOGOUT: undefined` analogue. Pre-fix this fell through to
-             ;; the parent's :logout (the nil-vs-{} trap); post-fix it blocks.
+             ;; `LOGOUT: undefined` analogue. A present nil blocks the
+             ;; parent's :logout (it does not fall through).
              {:dashboard {:on {:open-modal :modal}}
               :modal     {:on {:logout nil             ;; FORBIDDEN — present nil
                                :close  :dashboard}}}}
@@ -207,7 +206,7 @@
 ;;     A forbidden block (enabled internal candidate) does NOT fall to a
 ;;     same-level wildcard, NOR to a parent wildcard — it is a deliberate
 ;;     consume-here. This is the OPPOSITE of a GUARD-BLOCKED exact, which
-;;     DOES fall through (rf2-icj9t). Test both halves so the distinction is
+;;     DOES fall through. Test both halves so the distinction is
 ;;     pinned.
 ;; ---------------------------------------------------------------------------
 

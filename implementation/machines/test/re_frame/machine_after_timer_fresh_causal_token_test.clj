@@ -1,7 +1,5 @@
 (ns re-frame.machine-after-timer-fresh-causal-token-test
-  "Per EP-0010 §Dispatch Envelope Stamping + Spec 002 §The World-Input Rule
-  (rf2-hg39nf — the one previously-uncovered EP-0010 gap flagged by the
-  rf2-we6i51 coverage review).
+  "Per EP-0010 §Dispatch Envelope Stamping + Spec 002 §The World-Input Rule.
 
   THE CONTRACT. A machine `:after` timer fires a synthetic
   `[<parent-id> [:rf.machine.timer/after-elapsed ...]]` dispatch back into
@@ -31,7 +29,7 @@
   the `after-elapsed` dispatch opts) would pass every existing test. This
   test fails on exactly that regression.
 
-  THE RECIPE (rf2-hg39nf notes — adversarial clock separation).
+  THE RECIPE (adversarial clock separation).
     1. Stub `interop/schedule-after!` to CAPTURE the timer-callback thunk
        (rather than scheduling it on the host clock) so the test owns the
        fire boundary deterministically.

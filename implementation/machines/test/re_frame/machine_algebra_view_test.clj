@@ -1,8 +1,7 @@
 (ns re-frame.machine-algebra-view-test
-  "Tests for the derivation/process algebra view of machines (EP-0014
-  slice-6, rf2-2axssk). Per [spec/Derivations.md] §Machines expose algebra
-  views (graduated from EP-0014) and the `:rf/derivation-node` shape in
-  [spec/Spec-Schemas.md].
+  "Tests for the derivation/process algebra view of machines. Per
+  [spec/Derivations.md] §Machines expose algebra views and the
+  `:rf/derivation-node` shape in [spec/Spec-Schemas.md].
 
   `re-frame.machines.tooling/machine-algebra-view` lowers every registered
   machine into the normalized algebra node every declared fact/process
@@ -15,7 +14,7 @@
   actor). `…/machine-selector?` recognizes a sub that reads a machine snapshot;
   `…/machine-selector-targets` extracts the SET of machine ids that selector
   reads (so a graph tool draws the `:selector` edge to the SPECIFIC machine,
-  never the cross product — rf2-4qmiij).
+  never the cross product).
 
   These tests pin the registrar-derived projection: the fixed classifications
   (`:kind` / `:storage` / `:lifecycle` / `:materialized?`), the declared
@@ -24,11 +23,11 @@
   output snapshot path, the `:owner` / `:spawns?`, the source-form metadata,
   and the live spawned-actor projection.
 
-  Slice-6 ships NO public accessor (EP-0014 issue-1 disposition): the views
-  live in the bundle-isolated `re-frame.machines.tooling` sibling, reached on
-  JVM through the `re-frame.machines/machine-*` convenience aliases, and
-  consumed by Xray + the conformance fixtures. There is no
-  `re-frame.core/machine-algebra-view` public facade export."
+  There is NO public accessor: the views live in the bundle-isolated
+  `re-frame.machines.tooling` sibling, reached on JVM through the
+  `re-frame.machines/machine-*` convenience aliases, and consumed by Xray +
+  the conformance fixtures. There is no `re-frame.core/machine-algebra-view`
+  public facade export."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
@@ -306,7 +305,7 @@
     (is (false? (mtooling/machine-selector? :plain/sub)))
     (is (false? (mtooling/machine-selector? :nope/missing)))))
 
-;; ---- machine-selector-targets extractor (rf2-4qmiij) ---------------------
+;; ---- machine-selector-targets extractor ----------------------------------
 
 (deftest machine-selector-targets-extractor
   (testing "extracts the target machine id from a [:rf/machine machine-id] selector"

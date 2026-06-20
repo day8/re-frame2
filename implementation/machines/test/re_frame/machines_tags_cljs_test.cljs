@@ -1,6 +1,6 @@
 (ns re-frame.machines-tags-cljs-test
-  "CLJS-side coverage for `:fsm/tags` — state tags (rf2-ee0d Nine States
-  Stage 1) under the Reagent reactive substrate.
+  "CLJS-side coverage for `:fsm/tags` — state tags (Nine States Stage 1)
+  under the Reagent reactive substrate.
 
   Per Spec 005 §State tags: a state-node body may declare `:tags
   <set-of-keywords>`. The runtime maintains the union of every active
@@ -13,9 +13,7 @@
     - No-declaration machine: empty union elided from snapshot.
     - `:rf/machine-has-tag?` sub + `rf/machine-has-tag?` sugar; false for unknown
       machine.
-    - `:tags` reflects the post-`:always`-microstep state.
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+    - `:tags` reflects the post-`:always`-microstep state."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -25,7 +23,7 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 

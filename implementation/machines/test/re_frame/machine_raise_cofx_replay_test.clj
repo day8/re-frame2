@@ -1,45 +1,38 @@
 (ns re-frame.machine-raise-cofx-replay-test
-  "Per rf2-08br0v / rf2-cheez6.1 — replay-determinism of a generator-backed
-  cofx fact MINTED by a same-macrostep RAISED event's guard/action.
+  "Replay-determinism of a generator-backed cofx fact MINTED by a
+  same-macrostep RAISED event's guard/action.
 
-  ## The investigation (rf2-08br0v — confirmed REAL)
+  ## The mechanism
 
-  `drain-to-fixed-point` re-runs `ensure-raised-cofx` per dequeued raise
-  (rf2-xsdn5h). Under `:live` it MINTS a fresh generator-backed recordable
-  fact mid-macrostep when a raise-selected guard's `:rf.cofx/requires` was NOT
-  in the external event's ensure-set. The minted value is written onto the
+  `drain-to-fixed-point` re-runs `ensure-raised-cofx` per dequeued raise.
+  Under `:live` it MINTS a fresh generator-backed recordable fact
+  mid-macrostep when a raise-selected guard's `:rf.cofx/requires` is NOT in
+  the external event's ensure-set. The minted value is written onto the
   engine-local machine def's `:rf/cofx` and threads forward IN the drain (so a
   later raise / `:always` re-presents it — in-drain consistency).
 
-  But pre-fix it did NOT flow back to the token the EPOCH captures. The epoch's
-  `:rf.cofx` replay token is captured at `:rf.event/run-start`
+  The epoch's `:rf.cofx` replay token is captured at `:rf.event/run-start`
   (`re-frame.epoch.capture/find-trigger-event` reads the run-start trace's
   `:rf.event/cofx`), which the router emits from `assemble-initial-ctx`'s
   coeffects BEFORE the handler runs. A state machine's outer event handler
   declares no `:rf.cofx/requires` (they live on guards/actions), so
   `assemble-initial-ctx` mints NOTHING for it — and the machine's own ensure
   steps (`ensure-ctx-cofx` pre-drain, `ensure-raised-cofx` in-drain) run INSIDE
-  the handler, AFTER run-start. So the run-start TRACE carried only the
+  the handler, AFTER run-start. So the run-start TRACE carries only the
   externally-supplied facts (e.g. `:rf/time-ms`), never the machine-minted ones.
 
-  Consequence (the divergence): a `:live` original run mints a fresh value and
-  a raise-selected guard decides on it; on `:strict` replay the token lacked
-  that fact, so `ensure-raised-cofx` (mint-policy-aware, rf2-n0myjq) REFUSED to
-  mint and surfaced `:rf.error/missing-required-cofx` — the replayed macrostep
-  failed where the original advanced. Replay was non-deterministic.
+  ## How replay stays deterministic
 
-  ## The structural fix (rf2-cheez6.1)
-
-  The fix lives in `re-frame.epoch.capture/find-trigger-event`: it merges the
-  cascade's `:rf.cofx/generated` mint traces (every actual recordable mint
-  emits one, carrying the marks-projected produced value) onto the run-start
-  replay token at epoch-ASSEMBLY time. The run-start TRACE itself is unchanged
-  — it remains the PRE-handler token — so this namespace's run-start-trace
-  assertion below still observes only `:rf/time-ms` (that is the trace's
-  contract; the augmentation is an epoch-read concern). The end-to-end
-  determinism proof against the assembled epoch record lives in the epoch
-  artefact (`re-frame.machine-minted-cofx-replay-token-test`), whose test
-  classpath carries epoch.
+  `re-frame.epoch.capture/find-trigger-event` merges the cascade's
+  `:rf.cofx/generated` mint traces (every actual recordable mint emits one,
+  carrying the marks-projected produced value) onto the run-start replay token
+  at epoch-ASSEMBLY time. The run-start TRACE itself remains the PRE-handler
+  token — so this namespace's run-start-trace assertion below observes only
+  `:rf/time-ms` (that is the trace's contract; the augmentation is an
+  epoch-read concern). The end-to-end determinism proof against the assembled
+  epoch record lives in the epoch artefact
+  (`re-frame.machine-minted-cofx-replay-token-test`), whose test classpath
+  carries epoch.
 
   ## What this namespace proves (machines surface, no epoch dep)
 
@@ -110,8 +103,8 @@
       ;; (2) The run-start TRACE is the PRE-handler token — only :rf/time-ms.
       ;; This is the trace's contract (the augmentation is an epoch-read
       ;; concern, see the epoch artefact's companion test), and it documents
-      ;; WHY the fix reconstructs the minted facts from the cascade's mint
-      ;; traces rather than from the run-start emit.
+      ;; WHY epoch assembly reconstructs the minted facts from the cascade's
+      ;; mint traces rather than from the run-start emit.
       (let [captured-cofx (:rf.event/cofx (:tags @run-start))]
         (is (some? @run-start) "a run-start trace was captured")
         (is (= {:rf/time-ms 111} captured-cofx)

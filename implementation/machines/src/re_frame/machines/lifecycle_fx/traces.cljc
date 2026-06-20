@@ -5,16 +5,14 @@
   `:rf.machine/system-id-released` ARE the contract surface that tools
   (Xray, story-mcp, re-frame-10x) key on for the actor-destroy signal.
   Independent emission sites = independent chances to drift in the
-  argument-map keys; rf2-ur63f / round-2 audit Trace-r2-3 consolidates
-  the three `:rf.machine/destroyed` sites and the two
-  `:rf.machine/system-id-released` sites into a single home so a key
-  rename is one-edit-touches-all.
+  argument-map keys; the three `:rf.machine/destroyed` sites and the two
+  `:rf.machine/system-id-released` sites emit through this single home so a
+  key rename is one-edit-touches-all.
 
   This namespace is the natural home (rather than `teardown.cljc`)
-  because `teardown.cljc` is the unified pure app-db projection
-  (rf2-lha2t) — it deliberately emits NO traces so the projection stays
-  a value→value function. These helpers ARE side effects, so they live
-  separately."
+  because `teardown.cljc` is the unified pure app-db projection — it
+  deliberately emits NO traces so the projection stays a value→value
+  function. These helpers ARE side effects, so they live separately."
   (:require [re-frame.machines.reply :as m-reply]
             [re-frame.trace :as trace]))
 
@@ -23,13 +21,13 @@
 (defn emit-destroyed!
   "Fire `:rf.machine/destroyed` against the canonical argument map.
 
-  Per the rf2-vgkdt destroyed-trace-shape contract (assertion test in
+  Per the destroyed-trace-shape contract (assertion test in
   `re-frame.destroyed-trace-shape-test`), the permitted site-provided
   keys are `#{:frame :actor-id :system-id :parent-id :invoke-id
   :child-id :reason}`. `:actor-id` is the destroyed actor's live INSTANCE
-  address (rf2-ws5thu — reserving `:machine-id` for the registered TYPE);
-  `:invoke-id` (rf2-0ggtr5 — was `:spawn-id`) is the declarative
-  invocation path. Callers pass only the slots their site populates —
+  address (`:machine-id` is reserved for the registered TYPE);
+  `:invoke-id` is the declarative invocation path. Callers pass only the
+  slots their site populates —
   `nil` values are stamped through, matching pre-consolidation behaviour
   (e.g. `destroy-single!` always stamps `:system-id`, even when nil;
   `destroy-spawn-all-children!` per-child fires omit `:system-id` by NOT
@@ -38,9 +36,9 @@
   `reason` is the discriminator — `:explicit` for direct-destroy
   cascades, `:rf.machine/finished` for final-state auto-destroy.
 
-  rf2-sfunt8 — an `:explicit` destroy is a CANCELLATION of an in-progress
-  actor work attempt (the actor was torn down before reaching a `:final?`
-  leaf), so it closes the work attempt the reply-envelope way: a
+  An `:explicit` destroy is a CANCELLATION of an in-progress actor work
+  attempt (the actor was torn down before reaching a `:final?` leaf), so
+  it closes the work attempt the reply-envelope way: a
   `:status :cancelled` reply (cancellation as DATA, not the absence of a
   reply — Managed-Effects §Cancellation; EP-0011 §Cancellation). The
   reply-envelope facts (`:work/id` keyed on the destroyed actor instance,
@@ -90,7 +88,7 @@
     (trace/emit! :rf.machine :rf.machine/system-id-released
                  {:frame      frame-id
                   :system-id  sid
-                  ;; rf2-ws5thu — the released actor's live INSTANCE address;
+                  ;; the released actor's live INSTANCE address;
                   ;; `:machine-id` is reserved for the registered TYPE.
                   :actor-id   actor-id})))
 

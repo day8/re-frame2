@@ -1,6 +1,6 @@
 (ns re-frame.actor-resource-lease-release-test
-  "Per rf2-xw5t0y — machine-SIDE contract for releasing an actor's resource
-  leases on destroy (Spec 016 §Release authority is per owner kind, 016:290).
+  "Machine-SIDE contract for releasing an actor's resource leases on destroy
+  (Spec 016 §Release authority is per owner kind, 016:290).
 
   The cross-artefact integration (a real resource entry → released → no
   continued polling) is pinned in the resources artefact

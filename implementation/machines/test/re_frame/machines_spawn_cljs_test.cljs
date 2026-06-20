@@ -12,24 +12,22 @@
     - `:spawn` spawns child on entry and destroys it on exit; the
       deterministic actor id is tracked in the runtime spawn-registry slot
       (the on-spawn callback is advisory — its return is dropped).
-    - `:spawn :data` fn-form materialised at spawn (rf2-h131): the spawned
+    - `:spawn :data` fn-form materialised at spawn: the spawned
       child receives the result map, not the fn; fn sees the post-action
       snapshot.
-    - State-level `:after` on a `:spawn`-bearing state (rf2-3y3y):
+    - State-level `:after` on a `:spawn`-bearing state:
       synthetic timer-elapsed cancels the child via the standard exit
       cascade and transitions the parent.
     - `:timeout-ms` on `:spawn` / `:spawn-all` is rejected at registration
-      with `:rf.error/spawn-timeout-ms-removed` (rf2-3y3y).
+      with `:rf.error/spawn-timeout-ms-removed`.
 
   The on-spawn callback fires inline during `apply-transition-once` (advisory
   — its return is dropped); the deterministic child id is read back from the
   runtime spawn-registry slot at
-  `[:rf.runtime/machines :spawned <parent> <invoke-id>]`.
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.machines.test-support :as mtest]))
@@ -38,8 +36,8 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. The per-section
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path. The per-section
 ;; trace captures below keep their raw trace.tooling register/unregister: they
 ;; reset and re-scope the capture mid-test (interleaved with assertions), which
 ;; the scope-macro / :each-fixture forms cannot express.
@@ -51,12 +49,12 @@
           {:initial :idle
            :data    {:credentials {:user "alice" :pass "secret"}}
            :on-spawn-actions
-           ;; Per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr):
-           ;; on-spawn callback takes a single context-map. The callback is
-           ;; advisory — its return is DROPPED and the runtime tracks the
-           ;; spawned id at [:rf.runtime/machines :spawned <parent> <invoke-id>]
-           ;; regardless. Returns nil (observational; rf2-dtth6 warns on a
-           ;; non-nil dropped return).
+           ;; Per Spec 005 §Declarative :spawn: on-spawn callback takes a
+           ;; single context-map. The callback is advisory — its return is
+           ;; DROPPED and the runtime tracks the spawned id at
+           ;; [:rf.runtime/machines :spawned <parent> <invoke-id>]
+           ;; regardless. Returns nil (observational; a non-nil dropped
+           ;; return warns).
            {:auth/record-actor (fn [{:keys [id]}]
                                  (js/console.debug "spawned" id) nil)}
            :states
@@ -73,10 +71,9 @@
                      :auth/failed    :idle}}
 
             :authenticated {}}}
-          ;; rf2-ywv74m — the spawned child TYPE must be REGISTERED before it
-          ;; is spawned (the implicit "spec-less spawn" path is removed; an
-          ;; unregistered `:machine-id` now rejects fail-closed with
-          ;; `:rf.error/machine-spawn-unregistered-type`). Register a minimal
+          ;; The spawned child TYPE must be REGISTERED before it is spawned:
+          ;; an unregistered `:machine-id` rejects fail-closed with
+          ;; `:rf.error/machine-spawn-unregistered-type`. Register a minimal
           ;; `:http/post` child so the spawn is accepted — matching the JVM
           ;; `spawn_registry_test`'s `(reg-machine :http/post …)`.
           child  {:initial :running :data {} :states {:running {}}}
@@ -92,10 +89,9 @@
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
-        ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is purely advisory —
-        ;; the runtime tracks the spawned id at [:rf.runtime/machines :spawned <parent>
-        ;; <invoke-id>] instead of relying on the user-supplied callback
-        ;; to write into `:data`.
+        ;; `:on-spawn` is purely advisory — the runtime tracks the spawned
+        ;; id at [:rf.runtime/machines :spawned <parent> <invoke-id>] instead
+        ;; of relying on the user-supplied callback to write into `:data`.
         (is (= :http/post#1
                (get-in (rf/runtime-db-value :rf/default)
                        [:rf.runtime/machines :spawned :auth3/flow [:authenticating]]))
@@ -117,7 +113,7 @@
                 @traces)
           "expected :rf.machine/destroyed trace targeting :http/post#1"))))
 
-;; ---- two-axis spawn observation (rf2-qpuk4) -----------------------------
+;; ---- two-axis spawn observation -----------------------------------------
 ;; A spawn emits TWO traces: the fx-substrate observation
 ;; `:rf.machine.spawn/spawned` (the spawn fx ran) AND the registrar-substrate
 ;; observation `:rf.machine.lifecycle/spawned` (the actor's snapshot landed in
@@ -155,7 +151,7 @@
                 @traces)
           "registrar-substrate axis: expected :rf.machine.lifecycle/spawned carrying :spawned-id + initial :state"))))
 
-;; ---- :spawn :data fn-form materialised at spawn (rf2-h131) --------------
+;; ---- :spawn :data fn-form materialised at spawn -------------------------
 ;; Per Spec 005 §Spec-spec keys (line 1503/1511): `:data` admits a function
 ;; form `(fn [snap ev] data)` so the spawned child's initial data can be
 ;; derived from the parent's post-action snapshot + the triggering event.
@@ -202,11 +198,11 @@
              (:url (:data (snapshot :h131b/worker#1))))
           "fn-form saw the :data writes the transition's :action made"))))
 
-;; ---- state-level :after on :spawn-bearing state (rf2-3y3y) --------------
+;; ---- state-level :after on :spawn-bearing state -------------------------
 ;; Per Spec 005 §Wall-clock timeouts on :spawn — use parent state's :after.
-;; The pre-rf2-3y3y :timeout-ms slot on :spawn / :spawn-all is dropped;
-;; wall-clock guards are expressed via :after on the :spawn-bearing state
-;; itself. When :after fires, the standard exit cascade tears down the
+;; Wall-clock guards on a spawn are expressed via :after on the
+;; :spawn-bearing state itself (:spawn / :spawn-all carry no :timeout-ms
+;; slot). When :after fires, the standard exit cascade tears down the
 ;; spawned child via :rf.machine/destroy.
 
 (deftest machine-after-on-invoke-cljs
@@ -217,7 +213,7 @@
           parent {:initial :idle
                   :data    {}
                   :on-spawn-actions
-                  ;; Advisory observation hook — returns nil (rf2-dtth6).
+                  ;; Advisory observation hook — returns nil.
                   {:record (fn [{:keys [id]}] (js/console.debug "spawned" id) nil)}
                   :states
                   {:idle {:on {:go :authenticating}}
@@ -256,7 +252,7 @@
             "child machine snapshot torn down by the standard exit cascade"))
       (trace-tooling/unregister-listener! ::ato))))
 
-;; ---- :timeout-ms on :spawn / :spawn-all is rejected (rf2-3y3y) ---------
+;; ---- :timeout-ms on :spawn / :spawn-all is rejected -------------------
 
 (deftest machine-spawn-timeout-ms-removed-cljs
   (testing ":timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
