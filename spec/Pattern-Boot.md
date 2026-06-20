@@ -84,43 +84,43 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
 
      :guards
      {:has-session-token?
-      (fn [_ _] (some? (.getItem js/localStorage "auth/token")))
+      (fn [_ctx] (some? (.getItem js/localStorage "auth/token")))
 
       :under-retry-limit?
-      (fn [data _] (< (:phase-attempt data) 3))}
+      (fn [{:keys [data]}] (< (:phase-attempt data) 3))}
 
      :actions
      {:set-phase
       ;; Update visible-progress slice in :data so the boot UI can render.
-      (fn [data [_ phase]]
+      (fn [{:keys [data] [_ phase] :event}]
         {:data (assoc data :phase phase :phase-attempt 0)})
 
       :record-config
-      (fn [data [_ config]]
+      (fn [{:keys [data] [_ config] :event}]
         {:data (assoc data :config config)})
 
       :record-user
-      (fn [data [_ user]]
+      (fn [{:keys [data] [_ user] :event}]
         {:data (assoc data :user user)})
 
       :bump-attempt
-      (fn [data _]
+      (fn [{:keys [data]}]
         {:data (update data :phase-attempt inc)})
 
       :record-error
-      (fn [data [_ err]]
+      (fn [{:keys [data] [_ err] :event}]
         {:data (assoc data :error err)})
 
       :resolve-initial-route
       ;; Reads :route from URL and seeds the :route slice (per Spec 012).
-      (fn [_ _]
+      (fn [_ctx]
         {:fx [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})
 
       :enter-routing
       ;; Compound entry action for :routing — :set-phase + :resolve-initial-route
       ;; in one fn. (Per [005 §State nodes] :entry takes one fn or one
       ;; registered id, never a vector.)
-      (fn [data _]
+      (fn [{:keys [data]}]
         {:data (assoc data :phase :routing :phase-attempt 0)
          :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})}
 
@@ -134,7 +134,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
       {:entry  :set-phase
        :spawn {:machine-id :http/get
                 :data       {:url "/config"}
-                :on-spawn   (fn [d id] (assoc d :pending id))}
+                :on-spawn   (fn [{:keys [data id]}] (assoc data :pending id))}
        :on     {:succeeded {:target :authenticating
                             :action :record-config}
                 :failed    {:target :fatal-error
@@ -147,9 +147,11 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
        :spawn {:machine-id :auth/restore-session
                 ;; Spawn-spec :data fn — read the auth URL out of the boot
                 ;; machine's :data :config (per Pattern-AsyncEffect mechanism 2).
-                :data       (fn [{:keys [data]} _]
-                              {:auth-url (-> data :config :auth-url)})
-                :on-spawn   (fn [d id] (assoc d :pending id))}
+                ;; The :data fn receives the parent's context map; read its
+                ;; :data from the :snapshot slot (per 005 §Declarative :spawn).
+                :data       (fn [{:keys [snapshot]}]
+                              {:auth-url (-> snapshot :data :config :auth-url)})
+                :on-spawn   (fn [{:keys [data id]}] (assoc data :pending id))}
        :on     {:succeeded {:target :loading-profile}
                 :failed    [{:target :retrying-auth
                              :guard  :under-retry-limit?
@@ -166,9 +168,9 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
                 ;; Read the profile URL from the loaded config rather than
                 ;; hardcoding it — the boot machine threads host config in
                 ;; via the spawn-spec :data fn.
-                :data       (fn [{:keys [data]} _]
-                              {:url (-> data :config :profile-url)})
-                :on-spawn   (fn [d id] (assoc d :pending id))}
+                :data       (fn [{:keys [snapshot]}]
+                              {:url (-> snapshot :data :config :profile-url)})
+                :on-spawn   (fn [{:keys [data id]}] (assoc data :pending id))}
        :on     {:succeeded {:target :hydrating
                             :action :record-user}
                 :failed    {:target :profile-failed
@@ -310,21 +312,21 @@ The pattern, distilled to a worked sketch:
      :data    {:token nil :user nil :error nil}
 
      :guards
-     {:got-401? (fn [_ [_ {:keys [failure]}]]
+     {:got-401? (fn [{[_ {:keys [failure]}] :event}]
                   (and (= :rf.http/http-4xx (:kind failure))
                        (= 401 (:status failure))))
-      :token-stale? (fn [{:keys [data]} _]
+      :token-stale? (fn [{:keys [data]}]
                       (some? (:token data)))}                  ;; refresh viable
 
      :actions
-     {:record-token (fn [d [_ {:keys [token]}]] {:data (assoc d :token token)})
-      :record-user  (fn [d [_ {:keys [value]}]] {:data (assoc d :user value)})
-      :record-error (fn [d [_ {:keys [failure]}]] {:data (assoc d :error failure)})}
+     {:record-token (fn [{:keys [data] [_ {:keys [token]}] :event}] {:data (assoc data :token token)})
+      :record-user  (fn [{:keys [data] [_ {:keys [value]}] :event}] {:data (assoc data :user value)})
+      :record-error (fn [{:keys [data] [_ {:keys [failure]}] :event}] {:data (assoc data :error failure)})}
 
      :states
      {:loading-me
       {:spawn {:src ::fetch-me
-                :data (fn [{:keys [data]} _] {:token (:token data)})}
+                :data (fn [{:keys [snapshot]}] {:token (-> snapshot :data :token)})}
        :on    {:succeeded {:target :authenticated :action :record-user}
                :failed    [{:guard  :got-401?
                             :target :refreshing

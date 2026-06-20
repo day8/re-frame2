@@ -101,7 +101,7 @@ This is the canonical async-flow shape from the lib's own README, adapted for a 
   {:initial :starting
    :states
    {:starting
-    {:entry  (fn [_data _ev] {:fx [[:dispatch [:db/connect]]]})
+    {:entry  (fn [_ctx] {:fx [[:dispatch [:db/connect]]]})
      :on     {:db/connect-success :loading-user-and-prefs
               :db/connect-failure :failed}}
 
@@ -116,10 +116,10 @@ This is the canonical async-flow shape from the lib's own README, adapted for a 
           :user-or-prefs-failed   :failed}}
 
     :ready  {:final? true
-             :entry  (fn [_data _ev] {:fx [[:dispatch [:app/ready]]]})}
+             :entry  (fn [_ctx] {:fx [[:dispatch [:app/ready]]]})}
 
     :failed {:final? true
-             :entry  (fn [_data _ev] {:fx [[:dispatch [:app/boot-failed]]]})}}})
+             :entry  (fn [_ctx] {:fx [[:dispatch [:app/boot-failed]]]})}}})
 
 ;; Kick the machine off from the app's entry point:
 (rf/dispatch [:app/boot [:start]])
@@ -136,7 +136,7 @@ What changed:
 
 ### `:first-dispatch`
 
-- **Default path.** Move the dispatched event into the initial state's `:entry` action: `{:entry (fn [_data _ev] {:fx [[:dispatch <event-vec>]]})}`. The machine bootstraps on its first received event; the parent dispatches that event (often the kickoff itself, e.g. `(rf/dispatch [:app/boot [:start]])`).
+- **Default path.** Move the dispatched event into the initial state's `:entry` action: `{:entry (fn [_ctx] {:fx [[:dispatch <event-vec>]]})}`. The machine bootstraps on its first received event; the parent dispatches that event (often the kickoff itself, e.g. `(rf/dispatch [:app/boot [:start]])`).
 - **If the flow's `:first-dispatch` is conditional on cofx or app-db at boot time** (uncommon but possible — e.g. "if user is authenticated, dispatch X; otherwise Y"): hoist the condition into the parent event that calls `rf/dispatch` to spawn / start the machine. The machine's `:entry` should be deterministic given the spec.
 - **If `:first-dispatch` is omitted** in the v1 flow (the flow starts when an external event arrives that matches one of its rules): the machine's initial state's `:entry` is a no-op (`{:entry nil}` or omitted); the first transition fires when the awaited event arrives.
 

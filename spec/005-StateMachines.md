@@ -1042,7 +1042,7 @@ Applied to machines: the transition table is a data DSL because it describes nam
 
 ## Inspectability bias
 
-> **Inspectability bias.** Machine tables should prefer **named guards and actions declared in the machine's `:guards` / `:actions` maps** over inline fns. The id (`:under-quota?`) carries semantic meaning that visualisers, AIs, and humans all read; an inline `(fn [data ev] ...)` is opaque to inspection. Inline fns are escape hatches for trivial logic (one-liners with no branching), not the default form.
+> **Inspectability bias.** Machine tables should prefer **named guards and actions declared in the machine's `:guards` / `:actions` maps** over inline fns. The id (`:under-quota?`) carries semantic meaning that visualisers, AIs, and humans all read; an inline `(fn [{:keys [data event]}] ...)` is opaque to inspection. Inline fns are escape hatches for trivial logic (one-liners with no branching), not the default form.
 
 The id is the meaning at the call site; the inline fn is opaque to readers. The machine-scoped resolution mechanics — how keyword references in transition slots resolve against the machine's `:guards` / `:actions` maps, and how cross-machine reuse via Clojure vars works — are specified once in [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler).
 
@@ -1568,7 +1568,7 @@ The snapshot's `:state` becomes the **third arm** described in [§Snapshot shape
 
 Nested parallel regions (a region whose own state-tree declares `:type :parallel`) are not supported in v1. The validator rejects them at registration with `:rf.error/machine-parallel-nested-not-supported`. Two-level nesting can be modelled as a flatter cross-product or, more idiomatically, as multiple top-level parallel-region machines.
 
-The `:data` slot is **shared** across every region — there is no `:data` slot on a region body, and there is no per-region `:data` slot inside the snapshot. Region states see and write the same `:data` map; the action-effect contract is unchanged (`(fn [data event] {:data {...}})`).
+The `:data` slot is **shared** across every region — there is no `:data` slot on a region body, and there is no per-region `:data` slot inside the snapshot. Region states see and write the same `:data` map; the action-effect contract is unchanged (`(fn [{:keys [data event]}] {:data {...}})`).
 
 ### Initial state
 
@@ -2485,7 +2485,7 @@ Per the runtime stamps three framework-reserved keys into every spawned actor's 
 Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies), the `:rf/*` namespace inside `:data` is reserved for runtime-managed keys; user code does not write under it. The actor reads these as ordinary `:data` lookups inside its actions:
 
 ```clojure
-:dispatch-done (fn [data _]
+:dispatch-done (fn [{:keys [data]}]
                  (when-let [parent-id (:rf/parent-id data)]
                    {:fx [[:dispatch [parent-id [:done (:result data)]]]]}))
 ```

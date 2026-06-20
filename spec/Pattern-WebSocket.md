@@ -57,7 +57,7 @@ Per [005 §Transition resolution — deepest-wins with parent fallthrough](005-S
 The connection machine composes the locked substrate:
 
 - **Hierarchical states** ([005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)) — `:active` is the parent of three connection-leaves; the parent owns the socket actor.
-- **`:after`** ([005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — exponential backoff timer in `:reconnecting`, expressed as a **fn-form delay** `(fn [snap] ms)` that reads the current `:retries` and `:base-ms` from `:data`. The `:after`-epoch invariant ([005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) guarantees stale timers from prior `:reconnecting` visits are silently dropped on transitions away.
+- **`:after`** ([005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — exponential backoff timer in `:reconnecting`, expressed as a **fn-form delay** `(fn [{:keys [snapshot]}] ms)` that reads the current `:retries` and `:base-ms` from the snapshot's `:data`. The `:after`-epoch invariant ([005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) guarantees stale timers from prior `:reconnecting` visits are silently dropped on transitions away.
 - **`:always`** ([005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)) — max-retries guard fires immediately on entry to `:reconnecting` if `:retries` exceeds the limit, transitioning straight to `:failed`. Also used to flush queued messages on entry to `:connected`.
 - **Machine-scoped `:guards` / `:actions`** ([005 §Registration — the machine IS the event handler](005-StateMachines.md#registration--the-machine-is-the-event-handler)) — for `:max-retries-exceeded?`, `:has-queued-messages?`, `:bump-retry-count`, `:flush-queue`, `:current-socket?`, etc.
 - **`:spawn`** ([005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — `:active` invokes a `:websocket/socket` actor that owns the actual `WebSocket` object; the actor's lifetime is bound to the `:active` parent. Any transition that exits `:active` (to `:reconnecting`, to `:failed`, or to `:disconnected`) destroys the actor; re-entering `:active` after `:after` backoff spawns a fresh socket.
@@ -85,11 +85,11 @@ The connection machine composes the locked substrate:
 
      :guards
      {:max-retries-exceeded?
-      (fn [data _]
+      (fn [{:keys [data]}]
         (>= (:retries data) (:max-retries data)))
 
       :has-queued-messages?
-      (fn [data _]
+      (fn [{:keys [data]}]
         (seq (:queue data)))
 
       :current-socket?
@@ -97,36 +97,36 @@ The connection machine composes the locked substrate:
       ;; this machine currently owns. Connection-epoch staleness check
       ;; (Pattern-StaleDetection): replies from a prior socket-id are
       ;; suppressed without disturbing the live snapshot.
-      (fn [data [_ {:keys [source-socket-id]}]]
+      (fn [{:keys [data] [_ {:keys [source-socket-id]}] :event}]
         (= source-socket-id (:socket-id data)))}
 
      :actions
      {:record-connection-opts
       ;; Caller passes URL + token on :ws/connect; opts land in :data and
       ;; every subsequent reconnect re-reads them via :spawn's :data fn.
-      (fn [data [_ {:keys [url auth-token]}]]
+      (fn [{:keys [data] [_ {:keys [url auth-token]}] :event}]
         {:data (assoc data :url url :auth-token auth-token)})
 
       :refresh-token
       ;; The auth machine calls this after an out-of-band refresh; the
       ;; next :active entry's :spawn :data fn picks up the fresh token.
-      (fn [data [_ token]]
+      (fn [{:keys [data] [_ token] :event}]
         {:data (assoc data :auth-token token)})
 
-      :bump-retry (fn [data _] {:data (update data :retries inc)})
+      :bump-retry (fn [{:keys [data]}] {:data (update data :retries inc)})
 
       :ws/socket-ready
       ;; The child socket actor carries its own id back on entry
       ;; (carry-the-id-back-to-the-parent idiom); the parent records it so
       ;; :current-socket? and every (:socket-id data) dispatch have a value.
-      (fn [data [_ socket-id]] {:data (assoc data :socket-id socket-id)})
+      (fn [{:keys [data] [_ socket-id] :event}] {:data (assoc data :socket-id socket-id)})
 
       :clear-socket-id
-      (fn [data _] {:data (assoc data :socket-id nil)})
+      (fn [{:keys [data]}] {:data (assoc data :socket-id nil)})
 
       :send-auth
       ;; Route an :auth message into the live socket actor.
-      (fn [data _]
+      (fn [{:keys [data]}]
         {:fx [[:dispatch [(:socket-id data) [:send {:type  :auth
                                                     :token (:auth-token data)}]]]]})
 
@@ -134,7 +134,7 @@ The connection machine composes the locked substrate:
       ;; Compound entry action for :connected — :reset-retry + :resubscribe
       ;; in one fn. (Per [005 §State nodes] :entry takes one fn or one
       ;; registered id, never a vector.)
-      (fn [data _]
+      (fn [{:keys [data]}]
         {:data (assoc data :retries 0)
          :fx   (mapv (fn [topic]
                        [:dispatch [(:socket-id data)
@@ -143,21 +143,21 @@ The connection machine composes the locked substrate:
 
       :flush-queue
       ;; Send everything buffered while disconnected; clear the queue.
-      (fn [data _]
+      (fn [{:keys [data]}]
         {:data (assoc data :queue [])
          :fx   (mapv (fn [msg] [:dispatch [(:socket-id data) [:send msg]]])
                      (:queue data))})
 
       :enqueue-message
       ;; Buffer a send while the connection is not yet :connected.
-      (fn [data [_ msg]]
+      (fn [{:keys [data] [_ msg] :event}]
         {:data (update data :queue conj msg)})
 
       :register-request
       ;; Caller: [:ws/request {:request-id ..., :body ..., :reply ...}].
       ;; Record the in-flight entry, forward to the socket, schedule a timeout.
-      (fn [data [_ {:keys [request-id body reply timeout-ms]
-                    :or   {timeout-ms 30000}}]]
+      (fn [{:keys [data] [_ {:keys [request-id body reply timeout-ms]
+                             :or   {timeout-ms 30000}}] :event}]
         {:data (assoc-in data [:in-flight request-id]
                          {:reply-event reply :timeout-ms timeout-ms})
          :fx   [[:dispatch [(:socket-id data)
@@ -170,20 +170,20 @@ The connection machine composes the locked substrate:
                             :source-socket-id (:socket-id data)}]]}]]})
 
       :clear-request
-      (fn [data [_ {:keys [request-id]}]]
+      (fn [{:keys [data] [_ {:keys [request-id]}] :event}]
         {:data (update data :in-flight dissoc request-id)})
 
       :record-and-reset
       ;; Compound action — record fresh opts AND reset the retry counter.
       ;; Used on manual :ws/connect from :reconnecting / :failed (the
       ;; running app has refreshed the token; reconnect immediately).
-      (fn [data [_ {:keys [url auth-token]}]]
+      (fn [{:keys [data] [_ {:keys [url auth-token]}] :event}]
         {:data (-> data
                    (assoc :url url :auth-token auth-token)
                    (assoc :retries 0))})
 
       :record-error
-      (fn [data [_ err]] {:data (assoc data :error err)})}
+      (fn [{:keys [data] [_ err] :event}] {:data (assoc data :error err)})}
 
      :states
      {:disconnected
@@ -262,7 +262,7 @@ The connection machine composes the locked substrate:
                   ;; in-flight from a prior socket whose destroy hadn't
                   ;; flushed by the time the dispatch landed.
                   :ws/received {:guard  :current-socket?
-                                :action (fn [data [_ {:keys [body] :as ev}]]
+                                :action (fn [{:keys [data] [_ {:keys [body] :as ev}] :event}]
                                           (if-let [rid (:request-id body)]
                                             ;; Correlated reply — look up
                                             ;; the in-flight entry and
@@ -279,7 +279,7 @@ The connection machine composes the locked substrate:
 
                   ;; Override the parent's :ws/send: while :connected the
                   ;; message goes straight to the wire instead of queueing.
-                  :ws/send    {:action (fn [data [_ msg]]
+                  :ws/send    {:action (fn [{:keys [data] [_ msg] :event}]
                                          {:fx [[:dispatch [(:socket-id data)
                                                            [:send msg]]]]})}
 
@@ -299,8 +299,8 @@ The connection machine composes the locked substrate:
        ;; carries through the synthetic timer event so a transition out
        ;; of :reconnecting (e.g., a manual :ws/connect) makes the in-flight
        ;; backoff timer stale. Add a jitter term in production.
-       :after  {(fn [snap]
-                  (let [{:keys [retries base-ms max-backoff-ms]} (:data snap)]
+       :after  {(fn [{:keys [snapshot]}]
+                  (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
                     (min (* base-ms (Math/pow 2 retries))
                          max-backoff-ms)))
                 {:target [:active]}}
@@ -343,7 +343,7 @@ To subscribe / unsubscribe at runtime, the running app dispatches sub/unsub even
 ```clojure
 ;; Subscribe to a topic — pure :data update + send.
 :ws/subscribe
-{:action (fn [data [_ topic]]
+{:action (fn [{:keys [data] [_ topic] :event}]
            {:data (update data :subscriptions conj topic)
             :fx   [[:dispatch [(:socket-id data) [:send {:type :subscribe :topic topic}]]]]})}
 ```

@@ -39,13 +39,14 @@ Acceptable inline cases (single non-branching expression):
 
 ```clojure
 ;; Trivial guard — single non-branching expression.
-:guard (fn [data _] (some? (:circle-id data)))
+:guard (fn [{:keys [data]}] (some? (:circle-id data)))
 
 ;; Trivial action — pure data update, single non-branching expression.
-:action (fn [_ [_ new-r]] {:data {:preview-radius new-r}})
+;; Event values are destructured from the :event vector inside the body.
+:action (fn [{[_ new-r] :event}] {:data {:preview-radius new-r}})
 
 ;; Trivial action — single :fx entry, no branching.
-:action (fn [data _]
+:action (fn [{:keys [data]}]
           {:fx [[:dispatch [:drawer/apply-radius
                             (:circle-id data)
                             (:preview-radius data)]]]})
@@ -55,23 +56,23 @@ Cases that should be named in `:guards` / `:actions` instead (branching, composi
 
 ```clojure
 ;; Branching → name it.
-:action (fn [data ev]
+:action (fn [{:keys [data event]}]
           (if (over-quota? data)
             {:data {:error :quota}}
             {:data {:attempts (inc (:attempts data))}
-             :fx   [[:dispatch [:audit/recorded ev]]]}))
+             :fx   [[:dispatch [:audit/recorded event]]]}))
 
 ;; Composed → name the composition.
-:action (fn [data ev]
-          (let [a (record-attempt data ev) b (clear-error data ev)]
+:action (fn [{:keys [data event]}]
+          (let [a (record-attempt data event) b (clear-error data event)]
             {:data (merge (:data a) (:data b))
              :fx   (into (:fx a []) (:fx b []))}))
 
 ;; Multi-fx + branching → name it.
-:guard (fn [data ev]
-         (and (under-quota? data ev)
-              (not (locked-out? data ev))
-              (some? (:credentials (second ev)))))
+:guard (fn [{:keys [data event]}]
+         (and (under-quota? data event)
+              (not (locked-out? data event))
+              (some? (:credentials (second event)))))
 ```
 
 For the third case (compound predicate), prefer naming the compound — `:eligible-to-submit?` in the machine's `:guards` map is what visualisers and AIs read on the transition arrow.

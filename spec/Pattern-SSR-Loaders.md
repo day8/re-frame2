@@ -49,18 +49,18 @@ A product-detail page needs three independent fetches before render: the product
      {:children
       [{:id         :product
         :machine-id :http/get-one
-        :data       (fn [snap _]
-                      {:url (str "/api/products/" (-> snap :data :product-id))
+        :data       (fn [{:keys [snapshot]}]
+                      {:url (str "/api/products/" (-> snapshot :data :product-id))
                        :decode ProductSchema})}
        {:id         :related
         :machine-id :http/get-one
-        :data       (fn [snap _]
-                      {:url (str "/api/products/" (-> snap :data :product-id) "/related")
+        :data       (fn [{:keys [snapshot]}]
+                      {:url (str "/api/products/" (-> snapshot :data :product-id) "/related")
                        :decode RelatedListSchema})}
        {:id         :reviews
         :machine-id :http/get-one
-        :data       (fn [snap _]
-                      {:url    (str "/api/products/" (-> snap :data :product-id) "/reviews")
+        :data       (fn [{:keys [snapshot]}]
+                      {:url    (str "/api/products/" (-> snapshot :data :product-id) "/reviews")
                        :params {:limit 10}
                        :decode ReviewListSchema})}]
       :join             :all
@@ -81,7 +81,7 @@ A product-detail page needs three independent fetches before render: the product
                                  [:assoc-in [:pdp :reviews] reviews]]}))}
 
     :error {:final? true
-            :entry  (fn [_ [_ _ reason]]
+            :entry  (fn [{[_ _ reason] :event}]
                       {:fx [[:rf.server/set-status 502]
                             [:assoc-in [:pdp :error] reason]]})}}})
 ```
@@ -97,16 +97,16 @@ A thin wrapper around `:rf.http/managed` — one state spawns the request; succe
    :states
    {:requesting
     {:spawn {:machine-id :rf.http/managed
-              :data       (fn [snap _] (assoc (:data snap) :method :get))}
+              :data       (fn [{:keys [snapshot]}] (assoc (:data snapshot) :method :get))}
      :on     {:succeeded  :done
               :failed     :failed-state}}
 
     :done   {:final? true
-             :entry (fn [data [_ _ result]]
+             :entry (fn [{:keys [data] [_ _ result] :event}]
                       {:fx [[:dispatch [(:rf/parent-id (-> data :env))
                                         [:loaded (:rf/invoke-id data) result]]]]})}
     :failed-state {:final? true
-                   :entry (fn [data [_ _ reason]]
+                   :entry (fn [{:keys [data] [_ _ reason] :event}]
                             {:fx [[:dispatch [(:rf/parent-id (-> data :env))
                                               [:failed (:rf/invoke-id data) reason]]]]})}}})
 ```

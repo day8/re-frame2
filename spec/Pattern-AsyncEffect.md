@@ -96,7 +96,7 @@ The most flexible option, and the right default for **per-call overrides**. The 
 
 ;; Receiver — :start-job action reads opts; falls back to a default when omitted.
 :start-job
-(fn [_ [_ input opts]]
+(fn [{[_ input opts] :event}]
   {:data {:total      (count input)
           :input      input
           :chunk-size (:chunk-size opts 100)
@@ -115,14 +115,14 @@ When a machine is **spawned by a parent** (per [005 §Declarative `:spawn`](005-
 ```clojure
 ;; Parent boot machine spawns the WebSocket connection child.
 :spawn {:machine-id :ws/socket
-         :data       (fn [{:keys [data]} _]
-                       {:url        (-> data :config :ws-url)
-                        :auth-token (-> data :session :token)
+         :data       (fn [{:keys [snapshot]}]
+                       {:url        (-> snapshot :data :config :ws-url)
+                        :auth-token (-> snapshot :data :session :token)
                         :retries    0
                         :backoff-ms 1000})}
 ```
 
-The fn signature is `(fn [parent-snapshot event] child-data)`. It runs at spawn time, in the parent's drain, with the parent's current snapshot — so values flow from parent to child without a dispatch hop and without the child needing to know about the parent's structure beyond what its `:data` fn extracts.
+The fn receives the unified context map — `(fn [{:keys [snapshot event]}] child-data)` — where `:snapshot` is the parent's current snapshot (read its working memory via `(-> snapshot :data ...)`). It runs at spawn time, in the parent's drain — so values flow from parent to child without a dispatch hop and without the child needing to know about the parent's structure beyond what its `:data` fn extracts.
 
 This is the right answer when the parameter is **derived from parent state at spawn time**. It is more direct than mechanism 1 because the parent does not need to construct an event payload and the child does not need to declare a `:start` action — `:data` arrives pre-populated.
 
@@ -136,7 +136,7 @@ For **boot-time-fixed values** that originate from the host environment — a bu
 :hydrate
 {:on {:succeeded
       {:target :ready
-       :action (fn [data _]
+       :action (fn [{:keys [data]}]
                  {:fx [[:dispatch [:ws/socket
                                    [:connect {:url        (-> data :config :ws-url)
                                               :auth-token (-> data :session :token)}]]]]})}}}
