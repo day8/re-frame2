@@ -334,7 +334,7 @@ Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md
 | `render-tree-hash` | Fn | `(render-tree-hash render-tree)` → 32-bit FNV-1a structural hash (lowercase hex). Identical output on JVM and CLJS for the same canonical-EDN representation. Per [011 §Hydration-mismatch detection](011-SSR.md). | v1 | advanced | 011 |
 | `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by the frame's `:ssr {:public-error-id ...}` metadata) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | advanced | 011 |
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | advanced | 011 |
-| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | advanced | 011 |
+| `active-head` | Fn | `(active-head frame-id)` → `:rf/head-model`. Head rendering is a frame-scoped read, so the frame is **carried, not ambient**: the no-arg form was removed (EP-0002) and a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. | v1 | advanced | 011 |
 | `head-model->html` | Fn | `(head-model->html head-model)` / `(head-model->html head-model {:wrap? bool})` → inner-head HTML string | v1 | advanced | 011 |
 | `head-snapshot` | Fn | `(head-snapshot frame-id)` → `{head-id → :rf/head-model}`. Read the per-frame snapshot of last-produced head-models. Returns `{}` for a frame that has never seen a `render-head` call (or whose snapshot has been cleared via per-request frame teardown). Useful for tests, introspection, and tools. Re-exported as `rf/head-snapshot`. Per [011 §Head/meta contract](011-SSR.md). | v1 | advanced | 011 |
 | `streaming-render-shell` | Fn | `(streaming-render-shell root-hiccup)` → `{:shell-html "…" :continuations [{:id <id> :subtree <hiccup>} …]}`. Walks the tree once; at each `:rf/suspense-boundary` emits a `<template …suspense-fallback>` placeholder + records a continuation. Per [011 §Streaming SSR](011-SSR.md#streaming-ssr) — (a). | v1 | advanced | 011 |
@@ -357,14 +357,15 @@ Standard SSR-related fx (server-only; `:platforms #{:server}`):
 | `:rf.server/append-header` | `{:name :value}` (per `:rf.fx.server/append-header-args`) | 011 |
 | `:rf.server/set-cookie` | `:rf.server/cookie` map | 011 |
 | `:rf.server/delete-cookie` | `{:name ?:path ?:domain}` | 011 |
-| `:rf.server/redirect` | `{:location ?:status}` (default `:status 302`); truncates HTML | 011 |
+| `:rf.server/redirect` | `{:location ?:status}` (default `:status 302`); truncates HTML. **Caller-trusted** `:location` | 011 |
+| `:rf.server/safe-redirect` | `{:location ?:relative-only? ?:allow ?:status}` — the **caller-untrusted** variant; parses `:location`, rejects `javascript:` / `data:` / `vbscript:` schemes, and enforces `:relative-only?` / `:allow` allowlist before setting `:redirect`. Open-redirect mitigation for attacker-controlled `?next=` strings | 011 |
 
 Standard SSR-related subs:
 
 | Sub | Returns | Spec |
 |---|---|---|
 | `:rf/response` | The current request's response accumulator (status / headers / cookies / redirect) | 011 |
-| `:rf/head` | The head model for the active route (resolved via `(active-head)`) | 011 |
+| `:rf/head` | The head model for the active route (resolved via `(active-head frame-id)`) | 011 |
 | `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise | 011 |
 
 Standard cofx (server-only):
