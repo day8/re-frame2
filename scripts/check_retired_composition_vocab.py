@@ -238,11 +238,11 @@ _ALLOWLIST: tuple[tuple[str, str], ...] = (
      "Xray tooling skill — reads the internal substrate for the legacy "
      "module/realm inspection lens (inventory §Observed use 6, a tooling "
      "migration target)."),
-    # The shared tool-pair-surfaces contract documents the realm pair as the
-    # internal multi-container addressing mechanism used by the tooling skills.
-    ("skills/shared/tool-pair-surfaces.md",
-     "shared tool contract — documents the internal realm-pair addressing the "
-     "tooling skills consume (labelled internal, not facade)."),
+    # (skills/shared/tool-pair-surfaces.md was de-allowlisted under rf2-y2jevy:
+    #  the leaf no longer documents any live realm addressing — the
+    #  re-frame.realm substrate was removed atomically, rf2-udl74a — and its
+    #  only realm mentions are now retired-history prose, which the gate never
+    #  scans. It is held to the clean public-surface bar like any other skill.)
 )
 
 # EP docs also appear under spec/ as `EP-*.md` (e.g. spec/EP-0007.md); allow
