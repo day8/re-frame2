@@ -313,14 +313,22 @@ rather than forking it:
    boundary), so an inline plan and a registered variant describing the
    same behaviour produce equivalent app-db + assertion records after
    `canonicalize` (the metamorphic relation);
-6. the anonymous frame is torn down when the run resolves; nothing is
-   registered.
+6. the anonymous frame is torn down when the run resolves — on BOTH the
+   success path AND the failure path. A run that fails AFTER the frame is
+   allocated (a `:db-seed` schema violation, a throw in loaders / setup /
+   the script) runs the SAME teardown a successful run does: the plan's
+   `[:world :loaders-teardown]` events then the `[:world :decorators]`
+   frame-setup `:teardown` events (§Loader teardown contract, 002-Runtime),
+   using the decorator stack that was set up at the point of failure. The
+   success and failure paths converge on identical cleanup — so a resource
+   an inline loader or frame-setup decorator opened is never leaked on the
+   failure path. Nothing is registered.
 
 A plan-construction failure for a map target (an unknown composed
 fragment, a missing `[:arg …]`, a misplaced `[:assert …]` in setup, …)
 surfaces as the SAME structured `:rf.error/story-*` error result a
 registered variant's malformed plan produces — the frame is never
-allocated.
+allocated, so there is nothing to tear down.
 
 ### Run artifact
 
