@@ -253,13 +253,13 @@
 
   Per EP-0015 §15 + open-issue 6 (RULED, hardened): the ring buffer and
   every `register-epoch-listener!` listener receive the RAW record.
-  Storage-side redaction was REMOVED — post-EP-0010 epoch records are
-  causal replay material, and mutating them at rest corrupts the replay
-  contract (not merely restore fidelity). The app-supplied `:redact-fn`
-  is now a PROJECTION-SIDE-ONLY advanced override, applied at the off-box
-  egress boundary inside `projected-record` (never at storage time). The
-  `:rf.epoch/sensitive?` rollup inside `build-record` still reflects raw
-  signals so off-box consumers can branch on it before projecting.
+  Epoch records are causal replay material (per EP-0010), and mutating
+  them at rest would corrupt the replay contract (not merely restore
+  fidelity), so storage is always raw. The app-supplied `:redact-fn` is a
+  PROJECTION-SIDE-ONLY advanced override, applied at the off-box egress
+  boundary inside `projected-record` (never at storage time). The
+  `:rf.epoch/sensitive?` rollup inside `build-record` reflects raw signals
+  so off-box consumers can branch on it before projecting.
 
   `committed-at` is the record's durable causal time — per EP-0010 §Time
   and Spec 002 §The World-Input Rule (rf2-bh56rc) the committing causal
@@ -525,11 +525,10 @@
 ;; repros. The runtime-db partition is never touched (Mike ruling #10 — a
 ;; db-shaped name never silently replaces runtime-db).
 ;;
-;; EP-0001 (rf2-tfepxu, bead 9): the surface formerly named `reset-frame-db!`
-;; is renamed to `replace-app-db!` (Mike ruling #10 + spec/API.md), with a
-;; new app-db-only sibling `reset-app-db!` that resets the app-db partition
-;; to `{}` while preserving live runtime-db — the app-db sibling of the
-;; whole-frame `reset-frame!`.
+;; `replace-app-db!` (per spec/API.md, Mike ruling #10) installs an
+;; arbitrary `app-db`; its app-db-only sibling `reset-app-db!` resets the
+;; app-db partition to `{}` while preserving live runtime-db — the app-db
+;; sibling of the whole-frame `reset-frame!`.
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
 ;; gate as `restore-epoch!` / `register-epoch-listener!` / the rest of the
@@ -563,9 +562,9 @@
   PRIOR epoch rewinds past the injection.
 
   Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record is stored
-  RAW — storage-side redaction was removed (the ring is causal replay
-  material); the `:redact-fn` advanced override runs projection-side only,
-  inside `projected-record`. Per rf2-qs6dl: stamps the synthetic epoch as
+  RAW (the ring is causal replay material); the `:redact-fn` advanced
+  override runs projection-side only, inside `projected-record`. Per
+  rf2-qs6dl: stamps the synthetic epoch as
   the frame's last-settled so post-settle re-renders attribute back to it
   rather than the next real cascade.
 
@@ -691,9 +690,9 @@
 
 (defn replace-app-db!
   "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
-  dispatch loop. Per Tool-Pair §Pair-tool writes. Renamed from
-  `reset-frame-db!` (EP-0001 rf2-tfepxu, Mike ruling #10 — a db-shaped name
-  never silently replaces runtime-db).
+  dispatch loop. Per Tool-Pair §Pair-tool writes (Mike ruling #10 — a
+  db-shaped name never silently replaces runtime-db, so the runtime-db
+  partition is preserved unchanged).
 
   Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind
   the previous state; emits `:rf.epoch/db-replaced` on success. The
@@ -904,7 +903,7 @@
       should pass this. An unknown profile is rejected against the closed
       enum.
 
-  The legacy unqualified `:include-*` keys are ADVANCED per-call overrides
+  The unqualified `:include-*` keys are ADVANCED per-call overrides
   composed OVER the selected profile (NOT the primary boundary selector) —
   `{:include-sensitive? :include-large? :include-runtime-db?
   :include-fx-args? :include-event-args?}`, all defaulting `false`.
@@ -982,10 +981,9 @@
    :epoch/record-sub-run!     listeners/record-sub-run!
    ;; rf2-59hx3: post-settle view-unmount back-fill — the teardown sibling
    ;; of the two above. A `:rf.view/unmounted` fires at React teardown time,
-   ;; after the cascade that removed the view settled; pre-fix it was
-   ;; silently dropped at the capture seam so the teardown left no signal.
-   ;; Back-fills it into the causing (most-recently-settled) epoch's
-   ;; `:trace-events`, where Xray's VIEWS step surfaces it.
+   ;; after the cascade that removed the view settled — too late for the
+   ;; capture seam. Back-fills it into the causing (most-recently-settled)
+   ;; epoch's `:trace-events`, where Xray's VIEWS step surfaces it.
    :epoch/record-unmount!     listeners/record-unmount!
    :epoch/on-frame-destroyed  listeners/on-frame-destroyed!
 
@@ -1003,9 +1001,9 @@
    :epoch/configure!                 configure!
    ;; rf2-yw1w1u: test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to
-   ;; the shipped default between tests, so test namespaces no longer
-   ;; reset the private `state/config` var directly. rf2-c0rv4v: points
-   ;; straight at the `state/reset-config!` seam (no facade wrapper).
+   ;; the shipped default between tests, keeping the private `state/config`
+   ;; var out of test namespaces. rf2-c0rv4v: points straight at the
+   ;; `state/reset-config!` seam (no facade wrapper).
    :epoch/reset-config!              state/reset-config!
    :epoch/clear-history!             clear-history!
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
