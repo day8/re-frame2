@@ -1830,7 +1830,19 @@
 
 (late-bind/set-fn! :marks/project-trace-event project-trace-event)
 (late-bind/set-fn! :marks/redact-event-by-registration redact-event-by-registration)
-(late-bind/set-fn! :marks/validate-marks!     validate-marks!)
+;; NOTE: the `:marks/validate-marks!` hook is GONE (rf2-58bq1r). It was the ONE
+;; ALWAYS-ON non-dev-gated marks late-bind key — unlike the dev-gated projection
+;; hooks below it was NOT a production-DCE seam: `re-frame.marks` is core-owned,
+;; lives in the SAME artefact as its only callers (events / fx / cofx / subs),
+;; and is already pinned into every production bundle (side-effect-required by
+;; `re-frame.core`), so the late-bind hop bought no decoupling and no elision win
+;; for this key (a before/after `:advanced` + goog.DEBUG=false bundle diff showed
+;; marks present and the dev-only sentinels still elided either way). The require
+;; from events/fx/subs → marks is cycle-free (marks' transitive closure touches
+;; none of events/fx/cofx/subs), so reg-event / reg-fx / reg-cofx / reg-sub now
+;; call `re-frame.marks/validate-marks!` by DIRECT REQUIRE. The dev-gated
+;; PROJECTION hooks below stay late-bound (the eq7m0x DCE-seam ruling — their
+;; emit-time surface is gated at the trace/emit! call sites).
 (late-bind/set-fn! :marks/marks-for           marks-for)
 ;; NOTE: the `:marks/declare-machine-schema-marks!` / `:marks/clear-machine-schema-marks!`
 ;; hooks are GONE (EP-0025, rf2-398kql). They published the writers of the

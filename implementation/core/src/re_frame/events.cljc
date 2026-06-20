@@ -30,10 +30,16 @@
   into the dispatched event vector's arg-map (the second element).
   The marks are DERIVED from the registrar meta at `re-frame.marks/marks-for`
   read time (rf2-ehexnw); reg-event only VALIDATES them fail-loud via
-  `re-frame.marks/validate-marks!` (an ALWAYS-ON validator — `re-frame.marks`
-  is core-owned and boot side-effect-required, so it is never absent; the
-  late-bind hop is the production-DCE/elision seam, not optional-artefact
-  decoupling — rf2-eq7m0x), no imperative stash."
+  `re-frame.marks/validate-marks!` — an ALWAYS-ON registration-time validator
+  reached by DIRECT REQUIRE (rf2-58bq1r). `re-frame.marks` is core-owned, lives
+  in the SAME artefact as events/fx/subs, and is already pinned into every
+  production bundle (it is side-effect-required by `re-frame.core`); the
+  validator fail-louds in prod as well as dev. The former `:marks/validate-marks!`
+  late-bind hop bought nothing for THIS key — it was not a DCE seam (marks is in
+  the bundle regardless), not optional-artefact decoupling (marks is never
+  absent), and the require is cycle-free (marks' transitive closure touches none
+  of events/fx/cofx/subs). The dev-gated marks PROJECTION hooks stay late-bound
+  (eq7m0x). No imperative stash."
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
@@ -41,6 +47,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.cofx :as cofx]
             [re-frame.error :as error]
+            [re-frame.marks :as marks]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -911,18 +918,16 @@
     ;; Per Spec 015 §1. Event handlers: VALIDATE any declared `:sensitive` /
     ;; `:large` marks fail-loud BEFORE the registrar write (rf2-ehexnw); the
     ;; marks themselves are DERIVED from the registrar meta at `marks-for` read
-    ;; time, no imperative stash. Late-bound NOT to decouple from an absent
-    ;; artefact — `re-frame.marks` is core-owned and boot side-effect-required
-    ;; (core.cljc), so this hook is bound in every canonical build; the hop is
-    ;; the production-DCE/elision seam the rest of the marks surface uses, and
-    ;; `validate-marks!` itself is an ALWAYS-ON validator that fail-louds in prod
-    ;; too (rf2-eq7m0x). Runs for MACHINE registrations too: a machine's author
+    ;; time, no imperative stash. DIRECT REQUIRE (rf2-58bq1r): `marks` is
+    ;; core-owned, same-artefact, already pinned into the prod bundle, and
+    ;; always-on, so the former `:marks/validate-marks!` late-bind hop bought
+    ;; nothing here (no DCE seam, no optional-artefact decoupling) and the require
+    ;; is cycle-free. Runs for MACHINE registrations too: a machine's author
     ;; marks ride its `:event` reg meta (via `reg-machine` opts); `marks-for
     ;; :event <id>` returns those registrar-derived author marks (EP-0025
     ;; rf2-398kql removed the machine `:data-schema`→marks union — frame-declared
     ;; paths are now the sole app-db classification mechanism).
-    (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-      (validate! :event meta))
+    (marks/validate-marks! :event meta)
     (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
       (registrar/register! :event id
         (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)
