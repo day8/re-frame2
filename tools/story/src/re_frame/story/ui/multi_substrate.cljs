@@ -1,7 +1,6 @@
 (ns re-frame.story.ui.multi-substrate
   "Multi-substrate side-by-side rendering. Per `002-Runtime.md` §Substrate hooks
-  + `005-SOTA-Features.md` §Multi-substrate side-by-side rendering
-  + Stage 6 (rf2-zhwd). Phase-2 §5.1 #5.
+  + `005-SOTA-Features.md` §Multi-substrate side-by-side rendering.
 
   When a variant declares `:substrates #{:reagent :uix :helix}` the
   canvas renders the variant against each substrate side-by-side. Per
@@ -148,7 +147,7 @@
 (defn render-view
   "Render `view-id` under `substrate` with `eff-args`, via the registered
   substrate render fn — the clean reusable seam the `render-variant`
-  host-render hook (rf2-5x1wt.24) consumes. Returns the substrate's render
+  host-render hook consumes. Returns the substrate's render
   result (a hiccup vector for `:reagent`); a missing substrate yields an
   inline diagnostic hiccup rather than throwing, so the render verb's
   caller always sees *something*. `(fn [variant-id view-id args] …)` is the
@@ -159,18 +158,15 @@
     [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"}}
      (str "substrate :" (name substrate) " is not registered")]))
 
-;; ---- shared decorate-and-render seam (rf2-hzhmv / rf2-ba86n.8) -----------
+;; ---- shared decorate-and-render seam -----------------------------------
 ;;
 ;; The canvas single-pane path AND the `render-variant` host hook
 ;; (`re-frame.story.canonical/render-host-scope`) paint the SAME variant
 ;; through the SAME decorate-and-render seam, so a decorated variant looks
-;; identical on the live canvas and through `render-variant`. Before this
-;; consolidation only the canvas applied the variant's `:hiccup` decorators
-;; — the host hook rendered the BARE view (rf2-hzhmv), diverging from the
-;; canvas for any decorated variant. The decorator REFS both consume are the
-;; compiled plan's already-merged `[:world :decorators]` (the single merge
-;; authority, rf2-g74i9 / spec/017 §305-306), so the registered + inline
-;; paths agree too.
+;; identical on the live canvas and through `render-variant`. The decorator
+;; REFS both consume are the compiled plan's already-merged
+;; `[:world :decorators]` (the single merge authority, spec/017 §305-306),
+;; so the registered + inline paths agree too.
 
 (def ^:private decorator-error-styles
   {:wrap   {:background (:danger-bg colors/tokens)
@@ -195,8 +191,7 @@
   map every `:wrap` fn receives as `[body effective-args]`.
 
   The ONE decorate primitive both the canvas single-pane path and the
-  `render-variant` host hook call, so the two agree on the decorated tree
-  (rf2-hzhmv / rf2-ba86n.8)."
+  `render-variant` host hook call, so the two agree on the decorated tree."
   [view-hiccup hiccup-decorators effective-args]
   (try
     (decorators/apply-hiccup-decorators hiccup-decorators view-hiccup effective-args)
@@ -215,9 +210,9 @@
   "Render `view-id` under `substrate` with `eff-args` (via `render-view`),
   then wrap the result with the variant's `:hiccup` decorators resolved from
   `decorator-refs` (the compiled plan's `[:world :decorators]`). This is the
-  single decorate-and-render seam (rf2-hzhmv / rf2-ba86n.8): the
-  `render-variant` host hook calls it so a render-variant render of a
-  decorated variant paints the SAME tree the live canvas paints.
+  single decorate-and-render seam: the `render-variant` host hook calls it so
+  a render-variant render of a decorated variant paints the SAME tree the
+  live canvas paints.
 
   `decorator-refs` is a vector of `[decorator-id & args]` refs (raw refs, as
   the plan carries them); only the `:hiccup`-kind decorators wrap the view —
@@ -306,7 +301,7 @@
   Each cell renders inside a Reagent error boundary so a throw in one
   substrate's render doesn't take down its neighbours (`002-Runtime.md` §Substrate hooks).
 
-  Note (rf2-77nuq): per-substrate decorator stacks (`002-Runtime.md` §Decorator composition order)
+  Note: per-substrate decorator stacks (`002-Runtime.md` §Decorator composition order)
   are not yet threaded through here — `safe-render-cell` renders the
   raw view-id under each substrate. When that work lands, resolve the
   decorator pack here and thread it into each cell's render."
@@ -322,14 +317,12 @@
                        variant-id
                        {:active-modes   (:active-modes shell)
                         :cell-overrides (get-in shell [:cell-overrides variant-id])})]
-    ;; rf2-lbutp — the multi-substrate grid is the canvas's labelled
-    ;; landmark when a variant declares ≥2 substrates. `role="group"`
-    ;; + `aria-label` exposes the substrate-comparison surface as a
-    ;; group of cells; each cell is a `role="region"` with the
-    ;; substrate name as its accessible label (set in
-    ;; `safe-render-cell` below). The audit (#16) flagged the
-    ;; surface as zero-ARIA — the cells now read as labelled regions
-    ;; in landmark navigation.
+    ;; The multi-substrate grid is the canvas's labelled landmark when a
+    ;; variant declares ≥2 substrates. `role="group"` + `aria-label`
+    ;; exposes the substrate-comparison surface as a group of cells; each
+    ;; cell is a `role="region"` with the substrate name as its accessible
+    ;; label (set in `safe-render-cell` below), so the cells read as
+    ;; labelled regions in landmark navigation.
     [:div {:style       (:grid styles)
            :role        "group"
            :aria-label  (str "Multi-substrate render — "

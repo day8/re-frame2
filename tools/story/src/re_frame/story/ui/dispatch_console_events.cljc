@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.dispatch-console-events
-  "Event-id query surface for the Dispatch Console panel's autocomplete
-  (rf2-q9kv5).
+  "Event-id query surface for the Dispatch Console panel's autocomplete.
 
   Story does not own the registered events — the framework registrar
   (`re-frame.registrar`) does — so this namespace is a thin query
@@ -42,7 +41,7 @@
                                             data → data; the autocomplete /
                                             requirement-hint reads it.
 
-  ## Why expose the metadata, not just ids (rf2-wpy6eu)
+  ## Why expose the metadata, not just ids
 
   EP-0017 makes a handler's `:rf.cofx/requires` declaration part of its
   dispatch contract: a provided recordable fact must be supplied under

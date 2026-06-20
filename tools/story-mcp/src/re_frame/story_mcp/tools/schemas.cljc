@@ -13,10 +13,10 @@
 
 (def max-tokens-schema
   "Recurring fragment — every tool accepts a per-call `:max-tokens`
-  override of the wire-boundary cap (rf2-rvyzy / rf2-zavp5). `0`
+  override of the wire-boundary cap. `0`
   disables the cap; default is
   `re-frame.mcp-base.overflow/default-max-tokens` (5000). A NEGATIVE
-  value is rejected (rf2-5rdit): `:minimum 0` constrains it at
+  value is rejected: `:minimum 0` constrains it at
   schema-validating hosts, and the wire-egress backstop surfaces a
   `{:rf.mcp/invalid-arg {...}}` `isError` result for hosts that don't
   validate."
@@ -25,8 +25,8 @@
 
 (def dedup-schema
   "Recurring fragment — every tool accepts a per-call `:dedup` opt-out
-  of the wire-boundary structural-dedup transform (rf2-90eft, mirroring
-  re-frame2-pair-mcp's rf2-obpa9). Default `true`.
+  of the wire-boundary structural-dedup transform (mirroring
+  re-frame2-pair-mcp's `:dedup`). Default `true`.
 
   When deduped, the response's `:structuredContent` slot is wrapped as
   `{:rf.mcp/dedup-table <cache-map>}` and the agent host reconstructs
@@ -37,8 +37,7 @@
   Cross-MCP convention with re-frame2-pair-mcp's `:dedup` arg (same
   default, same wire shape, same opt-out semantics). The key is
   `:dedup` (no `?`) per the Anthropic
-  `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex
-  (rf2-pmwgn)."
+  `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex."
   {:type "boolean"
    :description (str "Apply structural dedup (day8/de-dupe) to the "
                      "response payload before the wire-cap check. "
@@ -53,14 +52,14 @@
 (def include-sensitive-schema
   "Recurring fragment — every tool that surfaces a live `:app-db`
   slice or assertion accumulator accepts the cross-MCP
-  `:include-sensitive` opt-in (rf2-73wuj). Default false:
+  `:include-sensitive` opt-in. Default false:
   declared-sensitive paths land `:rf/redacted` via `elide-wire-value`,
   and assertion records stamped `:sensitive? true` are dropped via
   `strip-sensitive`. Pass true to forward the raw values; per the
   cross-MCP convention from `re-frame.mcp-base.sensitive`.
 
   Honoured only when the server was started with
-  `--allow-sensitive-reads` (rf2-g9fje). When that operator-only gate
+  `--allow-sensitive-reads`. When that operator-only gate
   is closed, the slot is omitted from `tools/list` advertisements (so
   agents don't even see it) and any caller-supplied value is silently
   ignored at egress.
@@ -73,15 +72,14 @@
   Clojure idiom belongs on the predicate, not on the data key whose
   wire form disallows it).
 
-  This is the canonical rule for the **input-schema property side**
-  (rf2-pmwgn): every boolean tool input property MUST omit the
+  This is the canonical rule for the **input-schema property side**:
+  every boolean tool input property MUST omit the
   trailing `?` (today: `:include-sensitive` and `:write-back`).
   Response-payload keys (in `structuredContent`) are NOT bound by the
   Anthropic regex and retain the Clojure-idiomatic `?` — that's why
   `:registered?`, `:unregistered?`, `:written-back?`, `:has-wrap?`
-  survive on the response side. (The run/read tools' `:passing?` boolean
-  was retired in the unified-run-result clean break — rf2-ba86n.17; the
-  verdict is now the `?`-free `:status`.)"
+  carry the `?` on the response side. (The run/read tools' verdict is the
+  `?`-free `:status`, not a `:passing?` boolean.)"
   {:type "boolean"
    :description (str "Opt in to forwarding sensitive `:app-db` slots and "
                      "assertion records. Default false (declared-sensitive paths "
@@ -100,9 +98,9 @@
   "Inject the `:dedup` slot into a tool's `:properties` map. Applied
   only to tools whose descriptor carries `:dedup-eligible? true` —
   the surfaces where repeated subtrees dominate the wire cost
-  (`preview-variant`, `run-variant`, `record-as-variant`). Per
-  rf2-90eft and mirroring pair-mcp's selective `dedup-property`
-  assignment in `descriptors_data.cljs`.
+  (`preview-variant`, `run-variant`, `record-as-variant`). Mirrors
+  pair-mcp's selective `dedup-property` assignment in
+  `descriptors_data.cljs`.
 
   Tools that don't carry the slot ignore any caller-supplied
   `:dedup` value at the dispatch boundary
@@ -112,7 +110,7 @@
   (assoc props :dedup dedup-schema))
 
 ;; ---------------------------------------------------------------------------
-;; Pagination schema fragments (rf2-76sf6)
+;; Pagination schema fragments
 ;;
 ;; spec/Principles.md §'Tight token budget' MUST: every read tool whose
 ;; return size is a function of registry size MUST accept `:limit` and
@@ -147,7 +145,7 @@
                      ":rf.mcp/cursor-stale; drop the cursor and restart.")})
 
 ;; ---------------------------------------------------------------------------
-;; Lifecycle timeout schema fragment (rf2-ovmc5e)
+;; Lifecycle timeout schema fragment
 ;;
 ;; `run-variant` and `preview-variant` both block on the SAME
 ;; `story/run-variant` lifecycle. They MUST advertise the same `:timeout-ms`
@@ -161,8 +159,8 @@
 
 (def timeout-ms-schema
   "Recurring fragment — the lifecycle tools (`run-variant`,
-  `preview-variant`) accept a per-call `:timeout-ms` blocking ceiling
-  (rf2-g9fje / rf2-ovmc5e). The MCP server's request loop is
+  `preview-variant`) accept a per-call `:timeout-ms` blocking ceiling.
+  The MCP server's request loop is
   single-threaded, so an unbounded blocking deref on one call parks every
   unrelated call. Caller values above the hard ceiling clamp DOWN rather
   than reject. Bounds + default mirror `tools.args/max-timeout-ms` /
@@ -179,7 +177,7 @@
   "Inject the `:timeout-ms` slot into a lifecycle tool's `:properties`
   map. Applied to the two tools that block on the `story/run-variant`
   lifecycle (`run-variant`, `preview-variant`) so both advertise the same
-  tunable, capped blocking ceiling (rf2-ovmc5e). The runtime resolver
+  tunable, capped blocking ceiling. The runtime resolver
   `targs/resolve-timeout-ms` reads the same shared constants, so the
   advertised schema and the runtime policy stay in lockstep."
   [props]
@@ -188,7 +186,7 @@
 (defn with-pagination
   "Inject `:limit` and `:cursor` slots into a tool's `:properties`
   map. Used by every Docs `list-*` tool per spec/Principles.md
-  §'Tight token budget' (rf2-76sf6).
+  §'Tight token budget'.
 
   The `get-*` tools (`get-story`, `get-variant`, `get-docs-markdown`,
   `variant->edn`) are NOT paginated — their return is a single record
@@ -211,7 +209,7 @@
 
   The slot is baked into the static descriptor at load time and
   stripped at `tools/list` time by `registry/tool-descriptors` when the
-  server's `--allow-sensitive-reads` gate is closed (rf2-g9fje) — so a
+  server's `--allow-sensitive-reads` gate is closed — so a
   closed gate hides the opt-in from agents entirely, and an open gate
   surfaces it verbatim.
 
@@ -222,10 +220,10 @@
   (assoc props :include-sensitive include-sensitive-schema))
 
 ;; ---------------------------------------------------------------------------
-;; outputSchema fragments (rf2-3l3be)
+;; outputSchema fragments
 ;;
 ;; Story-mcp tools route through `result/text-result` / `error-result`,
-;; both of which emit a dual-slot envelope (rf2-vw4sq) — `:content` plus
+;; both of which emit a dual-slot envelope — `:content` plus
 ;; `:structuredContent`. The structuredContent slot carries the EDN
 ;; payload as a JS-coerced object; this fragment describes its shape so
 ;; agent hosts can validate the result client-side.
@@ -245,7 +243,7 @@
   Permissive (`additionalProperties: true`) so per-tool payload slots
   ride without us re-enumerating them; the catalogue prose carries
   the per-tool shape definitively. The wire-bounded `:rf.mcp/overflow`
-  marker (rf2-rvyzy) lands as an extra top-level key when the cap
+  marker lands as an extra top-level key when the cap
   fires; it satisfies `additionalProperties` and is documented in
   prose rather than encoded as a `oneOf` alternative (the MCP
   outputSchema contract pins `type` to the literal \"object\" and
@@ -264,7 +262,7 @@
                      "the cap step fires. See spec/002-Tool-Registry.md for the per-tool payload shape.")})
 
 ;; ---------------------------------------------------------------------------
-;; Tool annotations (rf2-94p8q)
+;; Tool annotations
 ;;
 ;; MCP `tools/list` advertises per-tool annotation hints so agent hosts
 ;; (Claude Code, Continue, …) can auto-approve reads and gate writes
@@ -272,17 +270,17 @@
 ;; `destructiveHint`, `idempotentHint`, `openWorldHint` — per
 ;; mcp_best_practices.md.
 ;;
-;; Story-mcp matrix (per the bead rf2-94p8q, refined per rf2-8h778):
+;; Story-mcp matrix:
 ;;
 ;;   - READ-ONLY tools: get-story-instructions, list-substrates,
 ;;     list-stories, get-story, get-variant, list-tags, list-modes,
 ;;     list-decorators, list-assertions, get-docs-markdown, variant->edn,
-;;     explain-variant (rf2-ba86n.17), snapshot-identity, read-a11y-violations,
+;;     explain-variant, snapshot-identity, read-a11y-violations,
 ;;     read-failures.
 ;;
 ;;   - DESTRUCTIVE tools: preview-variant (dispatches events into a
 ;;     variant's frame via the same `story/run-variant` lifecycle as
-;;     run-variant — rf2-8h778), run-variant, register-variant,
+;;     run-variant), run-variant, register-variant,
 ;;     unregister-variant, record-as-variant.
 ;; ---------------------------------------------------------------------------
 
@@ -310,7 +308,7 @@
   spec/Tool-Pair.md §Direct-read privacy posture the run is a write
   to the runtime, so `:destructiveHint true`.
 
-  ## Open-world (rf2-e6knrq finding 2)
+  ## Open-world
 
   `:openWorldHint true`. The events / fx these tools fire are the
   variant author's — `:setup` / `:script` event sequences run through
@@ -338,10 +336,9 @@
   writes the captured snippet to the on-box registry; the tool call
   itself does not run the variant lifecycle.
 
-  rf2-8h778: `preview-variant` originally shipped with
-  `read-only-annotations`; the audit (rf2-3pn6c Finding #2) caught
-  the asymmetry — both tools call `(story/run-variant vk opts)` and
-  derive their result from the lifecycle outcome. The annotations
+  `preview-variant` carries these destructive annotations, not
+  `read-only-annotations` — both tools call `(story/run-variant vk opts)`
+  and derive their result from the lifecycle outcome. The annotations
   must match the side-effect surface, not the verb gloss
   (`preview-variant`'s rendered URL output) at the wire."
   {:destructiveHint true

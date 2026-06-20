@@ -15,7 +15,7 @@
   4. Client sends `tools/list`, `tools/call`, etc.; we dispatch.
   5. Shutdown: client closes stdin → readLine returns nil → we exit.
 
-  ## Pre-initialize state enforcement (rf2-e6knrq, finding 1)
+  ## Pre-initialize state enforcement
 
   The lifecycle prose above is a CONTRACT, not just documentation. The
   dispatcher is stateful: each session carries a `lifecycle-state` atom
@@ -36,8 +36,7 @@
   Any OTHER request before initialization (`tools/list`, `tools/call`,
   `shutdown`, an unknown method) returns `-32600 invalid-request` with a
   message naming the violation — a malformed or hostile client cannot
-  enumerate or invoke tools before completing the handshake, closing the
-  protocol-compliance + state-leak gap the senior review flagged.
+  enumerate or invoke tools before completing the handshake.
 
   ## `notifications/initialized` relaxation (deliberate, tested)
 
@@ -102,10 +101,10 @@
 
 ;; ---- lifecycle state ------------------------------------------------------
 ;;
-;; rf2-e6knrq finding 1: the dispatcher is now stateful. Each session
-;; (one `run-loop!` invocation) owns a lifecycle-state atom; the
-;; `:initialized?` flag gates the method surface so a client cannot
-;; enumerate/call tools before completing the `initialize` handshake.
+;; The dispatcher is stateful: each session (one `run-loop!` invocation)
+;; owns a lifecycle-state atom; the `:initialized?` flag gates the method
+;; surface so a client cannot enumerate/call tools before completing the
+;; `initialize` handshake.
 
 (defn new-lifecycle-state
   "Fresh per-session lifecycle state for the stateful dispatcher. The
@@ -135,7 +134,7 @@
   whether to disconnect on a mismatch (we never inspect or echo the
   client's version).
 
-  rf2-e6knrq: flips `state`'s `:initialized?` to true as a side effect —
+  Flips `state`'s `:initialized?` to true as a side effect —
   the session is ready the moment the `initialize` response is built (the
   reference-SDK relaxation; we do NOT wait for
   `notifications/initialized`). A repeated `initialize` is idempotent on
@@ -165,14 +164,14 @@
 (defn- handle-tools-call
   "Invoke a tool. `params` shape: `{:name <string> :arguments <map>}`.
 
-  rf2-2zym5e — `arguments` is the JSON-RPC params container; per MCP it
+  `arguments` is the JSON-RPC params container; per MCP it
   MUST be a structured object (absent ⇒ no args). A scalar / array /
   string `arguments` is a params-SHAPE failure and surfaces as
   `-32602 invalid-params` here, at the wire boundary — NOT as a
-  `-32603 internal-error`. Without this guard a non-map `arguments`
-  survived `normalize-frame` (which only normalises a map) and reached
-  `invoke-tool`'s per-tool arg-key check (`(keys args)`), which threw on
-  the non-map and was caught into a misleading `-32603` server fault.
+  `-32603 internal-error`. This guard keeps a non-map `arguments` from
+  reaching `normalize-frame` (which only normalises a map) and
+  `invoke-tool`'s per-tool arg-key check (`(keys args)`), which would
+  throw on the non-map and surface as a misleading `-32603` server fault.
   Per-ARGUMENT validation (a wrong-typed / missing field WITHIN a
   well-formed arguments map) stays tool-level (`isError: true`); this
   guard is only about the container's shape."
@@ -224,7 +223,7 @@
     `run-loop!` drives. `state` is a `new-lifecycle-state` atom; before
     a successful `initialize` only `initialize` / `ping` requests (and
     any notification) are accepted, everything else returns
-    `-32600 invalid-request` (rf2-e6knrq finding 1).
+    `-32600 invalid-request`.
 
   - `(dispatch message)` — backward-compatible convenience that runs
     the message against a FRESH, ALREADY-INITIALIZED session. Method-
@@ -245,13 +244,13 @@
      ;; completion notification (`notifications/initialized`) and any
      ;; other notification silently — the absence of `:id` is the
      ;; complete dispatch rule (`proto/notification?` is its single
-     ;; home; rf2-ee38b.17). No defensive arm needed in the method
+     ;; home). No defensive arm needed in the method
      ;; `case` below. Notifications are accepted in EVERY lifecycle
      ;; posture (the gate below runs only on requests).
      (proto/notification? message)
      nil
 
-     ;; Pre-initialize gate (rf2-e6knrq finding 1). Before the handshake
+     ;; Pre-initialize gate. Before the handshake
      ;; completes, only `initialize` + `ping` requests are legal; any
      ;; other request (tools/list, tools/call, shutdown, unknown) is a
      ;; protocol violation — a hostile/malformed client must not be able
@@ -308,9 +307,9 @@
     3. Dispatch. Method-level errors are responses; tool-level errors
        are wrapped in the `tools/call` result with `isError: true`."
   [^java.io.BufferedReader reader ^java.io.Writer writer]
-  ;; rf2-e6knrq finding 1: one lifecycle-state atom per session. The
-  ;; pre-initialize gate in `dispatch` reads it; `handle-initialize`
-  ;; flips it. A new loop = a fresh handshake.
+  ;; One lifecycle-state atom per session. The pre-initialize gate in
+  ;; `dispatch` reads it; `handle-initialize` flips it. A new loop =
+  ;; a fresh handshake.
   (let [state (new-lifecycle-state)]
     (loop []
       (let [frame (try
@@ -341,14 +340,13 @@
   7. Supported flags:
 
   - `--allow-writes` — presence opens the write surface. There is no
-    `=true` / `=false` variant; a flag is either present or absent.
-    The earlier `--allow-writes=false` form was a footgun (an agent
-    host scripting it would expect the gate to close, but the parser
-    accepted-and-recorded `false` which then propagated through
-    `apply-config!` only when the absent default was already
-    `false`).
-  - `--allow-sensitive-reads` — presence opens the sensitive-read gate
-    (rf2-g9fje). Symmetric with `--allow-writes`: operator-only opt-in,
+    `=true` / `=false` variant; a flag is either present or absent. A
+    presence-only flag avoids the footgun of a `=false` form, where an
+    agent host scripting it would expect the gate to close but the
+    parser would record `false` and propagate it through
+    `apply-config!`.
+  - `--allow-sensitive-reads` — presence opens the sensitive-read gate.
+    Symmetric with `--allow-writes`: operator-only opt-in,
     no `=value` variant. Default off; when off, the wire-egress
     scrubbers silently ignore any `:include-sensitive true` per-call
     arg and `tools/list` omits the slot from advertised input schemas.
@@ -380,7 +378,7 @@
      (log! "booted; allow-writes?=" (config/writes-allowed?)
            " protocol=" config/protocol-version
            " server=" config/server-name)
-     ;; rf2-g9fje — one-line boot signal mirroring re-frame2-pair-mcp's
+     ;; One-line boot signal mirroring re-frame2-pair-mcp's
      ;; `eval-cljs:` line. Operators inspecting the launch stderr can
      ;; confirm the posture at a glance.
      (log! "Sensitive reads:"

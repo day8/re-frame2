@@ -1,8 +1,8 @@
 (ns re-frame.story.requirements
   "The runner capability / requirement registry — the keystone that decides
   WHICH concrete runner a Story plan needs, and REFUSES (`:cannot-run`)
-  rather than faking proof a runner cannot supply (NewTestStory
-  rf2-5x1wt.16, `tools/story/spec/017-Testing-Story.md` §Runner model +
+  rather than faking proof a runner cannot supply
+  (`tools/story/spec/017-Testing-Story.md` §Runner model +
   §Runner requirements).
 
   ## Capabilities are SETS, not a tier scalar
@@ -224,8 +224,7 @@
 ;;
 ;; Each STEP and ASSERTION declares the capability TOKENS it requires. These
 ;; are the single source of truth the plan compiler (`re-frame.story.plan`)
-;; reads to compute `:required-runner`; the inline maps that used to live in
-;; plan.cljc are lifted here so the registry has ONE home.
+;; reads to compute `:required-runner`. The registry has ONE home here.
 
 (def step-capabilities
   "Capability tokens each SCRIPT/SETUP step tag requires (spec/017 §Script
@@ -582,7 +581,7 @@
   - `:pixels` / `:a11y-engine` — browser-only oracle streams; empty = no
     screenshot / no axe scan = no proof.
 
-  ## Tokens DELIBERATELY absent (empty-is-HEALTHY — rf2-qoxw7)
+  ## Tokens DELIBERATELY absent (empty-is-HEALTHY)
 
   Tokens whose slot is empty in the NORMAL passing case must NOT be listed —
   keying a fail-closed presence check on them emits a FALSE `:cannot-run`

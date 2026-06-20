@@ -1,8 +1,7 @@
 (ns re-frame.story.play.browser
   "Browser-tier assertion oracles — visual snapshot, axe-style a11y, and
-  structural a11y (NewTestStory rf2-5x1wt.28,
-  `tools/story/spec/017-Testing-Story.md` §Visual, a11y, and browser
-  checks + §Canonical P1 assertions).
+  structural a11y (`tools/story/spec/017-Testing-Story.md` §Visual, a11y,
+  and browser checks + §Canonical P1 assertions).
 
   ## Not a separate visual-testing system
 
@@ -212,13 +211,12 @@
 
 (defn- violation-targets
   "The CSS selector(s) axe-core attached to a violation's `:nodes`, in
-  document order (rf2-ffu8t — the SOURCE LINK a11y findings MUST carry,
+  document order (the SOURCE LINK a11y findings MUST carry,
   tools/story/spec/021 §4 + §5). Each axe node carries `:target` — a vector
   of CSS selectors pointing at the offending element(s); `re-frame.story.ui.
   a11y/record-violation-overlay!` already queries against exactly these to
-  decorate the DOM. `select-keys [:id :impact :help]` DISCARDED `:nodes`,
-  so the finding could only surface the rule id as its locus; this recovers
-  the selectors so the result UI can link to the source element.
+  decorate the DOM. The finding recovers these selectors so the result UI
+  can link to the source element.
 
   Returns a flat vector of selector strings (deduped, order-preserving); an
   empty vector when the violation carries no `:nodes` / `:target`. Pure data
@@ -232,8 +230,8 @@
         (:nodes violation)))
 
 (defn- axe-finding
-  "Project ONE axe violation into the finding map the result UI renders
-  (rf2-ffu8t). Carries the axe surface (`:id` / `:impact` / `:help`) plus the
+  "Project ONE axe violation into the finding map the result UI renders.
+  Carries the axe surface (`:id` / `:impact` / `:help`) plus the
   recovered source-link selectors:
 
   - `:selector` — the FIRST target selector (the primary source link, nil

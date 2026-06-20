@@ -1,13 +1,12 @@
 (ns re-frame.story.ui.recorder-export-dialog
-  "Recorder → :script export dialog UI (rf2-x9zsr).
+  "Recorder → :script export dialog UI.
 
-  The recorder's existing save-as-variant dialog
+  The recorder's save-as-variant dialog
   (`re-frame.story.ui.recorder/save-dialog`) emits the simple play body
   — each captured event vector wrapped as a `[:dispatch-sync
-  <event-vec>]` step (rf2-0wrud). The rich play DSL landed in rf2-8i2a9;
-  this dialog is its twin — same recording, different output shape. Per
-  rf2-7mj4z both emit the PUBLIC `:script` authoring slot (spec/017
-  §Public vocabulary), not the transitional `:play-script` spelling:
+  <event-vec>]` step. This dialog is its twin — same recording, using
+  the rich play DSL for a different output shape. Both emit the PUBLIC
+  `:script` authoring slot (spec/017 §Public vocabulary):
 
       (story/reg-variant :story.your/recorded
         {:extends :story.your/source
@@ -62,7 +61,7 @@
 ;; Dialog state — a single Reagent ratom carrying the dialog's
 ;; configuration. The dialog opens off the existing recorder save-
 ;; dialog, so it snapshots the *recorded* events + variant-id when
-;; opened (mirrors the rf2-8x9nb guard on the parent dialog — a
+;; opened (mirrors the snapshot guard on the parent dialog — a
 ;; subsequent start-recording! cannot mutate the in-flight export).
 ;; ---------------------------------------------------------------------------
 
@@ -72,7 +71,7 @@
   {:open?               false
    :source-id           nil   ; the recorded variant-id (rides into :extends)
    :events              []    ; captured events snapshot (legacy)
-   :entries             []    ; rich :entries snapshot (rf2-d5u89)
+   :entries             []    ; rich :entries snapshot
    :variant-id          nil   ; the new variant id (user-editable)
    :name                ""    ; optional :name field on the play-script
    :auto-assert?        true
@@ -91,7 +90,7 @@
 
     :source-id        — the recorded variant-id (rides into `:extends`).
     :events           — captured events snapshot (legacy bare-vectors).
-    :entries          — rich :entries snapshot (rf2-d5u89). When
+    :entries          — rich :entries snapshot. When
                         non-empty, the translator consumes this in
                         preference to `:events` so DOM-events + per-
                         event timestamps flow through to the script.
@@ -135,7 +134,7 @@
 (defn- build-export-from-dialog
   [{:keys [events entries source-id variant-id name auto-assert? final-db]}]
   ;; Prefer the rich :entries snapshot when it carries anything —
-  ;; that's where DOM-events + per-event timestamps live (rf2-d5u89).
+  ;; that's where DOM-events + per-event timestamps live.
   ;; Fall back to the legacy :events vector for back-compat.
   (let [src (if (seq entries) entries events)]
     (export-events/build-export
@@ -301,7 +300,7 @@
       (let [{:keys [spec rendered]} (build-export-from-dialog state)
             {:keys [name source-id variant-id auto-assert?
                     replay-status replay-failure-msg]} state]
-        ;; rf2-p1ai7: focus-trap wrapper — Escape closes, Tab cycles,
+        ;; Focus-trap wrapper — Escape closes, Tab cycles,
         ;; focus moves into the dialog on mount, focus returns to the
         ;; trigger on close. The dialog hiccup is passed eagerly so
         ;; tests can string-traverse the full tree without invoking
@@ -404,7 +403,7 @@
 (defn open-from-recorder-dialog!
   "Open the export dialog using the recorder save-dialog's captured
   snapshot. Reads the live frame db at click time so the auto-assert
-  option can derive assertions from real data. Per rf2-d5u89 the
+  option can derive assertions from real data. The
   caller threads the recorder's `:entries` (rich DOM-event + timing
   record) alongside `:events` so the translator emits `:click` /
   `:type` / `:wait` steps when DOM-events were captured."

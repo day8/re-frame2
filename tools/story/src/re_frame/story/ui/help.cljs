@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.help
-  "First-time-user help overlay for the Story playground (rf2-381i).
+  "First-time-user help overlay for the Story playground.
 
   Renders a modal-style overlay that explains the playground UI:
 
@@ -25,9 +25,9 @@
   ## Voice + colour
 
   Matches the rest of the Story shell chrome: `#252526` panel ground,
-  `#cccccc` body text, `#b0b0b0` muted labels (post rf2-2uwv contrast
-  fixes — all foreground colours meet WCAG AA against the panel
-  ground). Tight bulleted copy — no paragraphs.
+  `#cccccc` body text, `#b0b0b0` muted labels — all foreground colours
+  meet WCAG AA against the panel ground. Tight bulleted copy — no
+  paragraphs.
 
   ## Bundle isolation
 
@@ -325,11 +325,11 @@
        ;; the shell mid-session (e.g. via hot-reload) doesn't pop the
        ;; modal again — only fires when no flag is persisted.
        ;;
-       ;; Per rf2-8wgpm (static-build): suppress the auto-open in
-       ;; static-export mode. A visitor landing on a published docs
-       ;; site already arrived with intent; the dev-time onboarding
-       ;; overlay just gets in their way. The manual ? chip is still
-       ;; rendered so on-demand help remains reachable.
+       ;; Static-build: suppress the auto-open in static-export mode.
+       ;; A visitor landing on a published docs site already arrived
+       ;; with intent; the dev-time onboarding overlay just gets in their
+       ;; way. The manual ? chip is still rendered so on-demand help
+       ;; remains reachable.
        (when (and (not config/static-mode?)
                   (not (seen?)))
          (reset! open? true)))

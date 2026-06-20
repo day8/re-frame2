@@ -1,15 +1,14 @@
 (ns re-frame.story.ui.open-in-editor
   "The 'Open in editor' affordance — a small chip / button that opens
-  the editor at a source-coord's file:line. Per rf2-evgf5 + Spec 005-
-  SOTA-Features.md §'Open in editor' per variant.
+  the editor at a source-coord's file:line. Per Spec 005-SOTA-Features.md
+  §'Open in editor' per variant.
 
   Mirrors `day8.re-frame2-xray.open-in-editor` — same shape, same
-  click-time gate, same launcher seam. Per rf2-r2un8: the two surfaces
-  were drifting; Xray's structure (resolve-uri helper + dispatch-based
-  path + install! registration) is the canonical shape both tools
-  consume now. Story keeps its existing public chip API
+  click-time gate, same launcher seam. Xray's structure (resolve-uri
+  helper + dispatch-based path + install! registration) is the canonical
+  shape both tools consume. Story exposes the public chip API
   (`open-chip` / `open-chip-for-variant` / `open-source-coord!`) but
-  delegates URI resolution to `resolve-uri` and adds a parallel
+  delegates URI resolution to `resolve-uri` and carries a parallel
   dispatch path (`:rf.story/open-in-editor` reg-event) so a panel
   that doesn't render the chip directly can still hand off a
   source-coord through re-frame.
@@ -27,18 +26,17 @@
   the user has to close manually. `Location.assign(...)` triggers the
   same OS dispatch without leaving an orphaned window.
 
-  ## Why `.assign` rather than `(set! .-location)` (rf2-muvs8)
+  ## Why `.assign` rather than `(set! .-location)`
 
   The two should be semantically equivalent — the property setter on
   `window.location` calls `Location.assign` internally per the HTML
-  spec. In practice some Chromium builds on Windows have been observed
-  to silently no-op the property assignment for non-http(s) schemes
-  while honouring the explicit `.assign` call from the same click
-  handler. `.assign` is the more reliable seam; `(set! ...)` was the
-  original implementation and the bug it caused (silent click on
-  Windows + VSCode) is what rf2-muvs8 fixed.
+  spec. In practice some Chromium builds on Windows silently no-op the
+  property assignment for non-http(s) schemes while honouring the
+  explicit `.assign` call from the same click handler. `.assign` is the
+  reliable seam (the `(set! ...)` form produces a silent click on
+  Windows + VSCode).
 
-  ## Diagnostic logging (rf2-muvs8)
+  ## Diagnostic logging
 
   `open!` emits a single-line `console.log` of the URI before each
   navigation. The log is the lowest-friction observability seam for
@@ -57,23 +55,23 @@
   The chip render-fn returns nil when `source-coord` lacks `:file` —
   the macro layer didn't capture a usable file path (the
   `\"NO_SOURCE_PATH\"` sentinel under CLJS without a form-meta
-  fallback, per rf2-mdjp). The UI hides the chip entirely so the user
-  doesn't click a no-op.
+  fallback). The UI hides the chip entirely so the user doesn't click a
+  no-op.
 
-  ## Scheme-rejection denylist (rf2-vwcsq, rf2-ox357n)
+  ## Scheme-rejection denylist
 
   `editor-uri/editor-uri` rejects `javascript:` / `data:` / `vbscript:`
-  for `{:custom ...}` templates at build time (per rf2-vwcsq) — the
-  spec-mandated scheme-rejection list (Security.md / Tool-Pair.md
-  §Editor URI scheme allowlist): everything other than the three
-  known-bad schemes passes through. The click-time `open!` seam below
-  re-applies the same cheap denylist (`editor-uri/forbidden-scheme?`)
-  because the `:rf.editor/open` reg-fx accepts a pre-resolved
-  `{:uri ...}` arg that bypasses `editor-uri`'s build-time gating —
-  the denylist must fire at every handoff. Per rf2-ox357n the prior
-  positive allowlist was removed: it failed CLOSED on any uncatalogued
-  editor scheme (a silent dead button), the exact friction the spec
-  forbids. Unknown custom non-dangerous schemes now pass through.
+  for `{:custom ...}` templates at build time — the spec-mandated
+  scheme-rejection list (Security.md / Tool-Pair.md §Editor URI scheme
+  allowlist): everything other than the three known-bad schemes passes
+  through. The click-time `open!` seam below re-applies the same cheap
+  denylist (`editor-uri/forbidden-scheme?`) because the
+  `:rf.editor/open` reg-fx accepts a pre-resolved `{:uri ...}` arg that
+  bypasses `editor-uri`'s build-time gating — the denylist must fire at
+  every handoff. There is no positive allowlist (it would fail CLOSED on
+  any uncatalogued editor scheme — a silent dead button — the exact
+  friction the spec forbids): unknown custom non-dangerous schemes pass
+  through.
 
   ## Bundle isolation
 

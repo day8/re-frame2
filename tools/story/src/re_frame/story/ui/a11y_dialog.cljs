@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.a11y-dialog
-  "Shared a11y helpers for Story's modal dialogs (rf2-p1ai7).
+  "Shared a11y helpers for Story's modal dialogs.
 
   Modal dialogs need a coherent a11y posture:
 
@@ -14,9 +14,9 @@
 
   Story's command palette and help overlay already do the role + aria
   bits inline; this ns centralises the focus-trap + return-focus + key
-  handling so the three dialogs covered by rf2-p1ai7 (recorder
+  handling so the dialogs it covers (recorder
   assertion picker, recorder save dialog, recorder export dialog,
-  save-variant dialog — all four since the save flows share
+  save-variant dialog — the save flows share
   `review-dialog`) get the same posture without per-dialog drift.
 
   Per the pre-alpha posture: each affordance is complete or not at all

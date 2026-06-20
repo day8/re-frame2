@@ -1,8 +1,8 @@
 (ns re-frame.story.ui.controls
-  "Controls panel — args editor, decorator toggles. Per Stage 4
-  (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle + `001-Authoring.md`
-  §Controls — schema-derived, zero-`:argtypes`. Per rf2-xi9zk the per-variant mode
-  picker moved to the chrome-level toolbar
+  "Controls panel — args editor, decorator toggles. Per
+  `003-Render-Shell.md` §Shell lifecycle + `001-Authoring.md`
+  §Controls — schema-derived, zero-`:argtypes`. The per-variant mode
+  picker lives on the chrome-level toolbar
   (`re-frame.story.ui.toolbar`); the controls panel keeps args /
   decorator sections only.
 
@@ -17,7 +17,7 @@
 
   - **Scalar forms** — `:string` / `:int` / `:double` / `:boolean` /
     `:keyword` / `[:enum ...]`. Each becomes a single widget.
-  - **Collection forms (rf2-agshe)** — `[:map ...]` / `[:vector X]` /
+  - **Collection forms** — `[:map ...]` / `[:vector X]` /
     `[:tuple X Y ...]` / `[:set X]`. Each renders as an expandable group
     whose child rows are recursively derived from the entry schemas.
     Editing a nested control writes through to the cell-override map at
@@ -36,7 +36,7 @@
   refinement when the decorator stack grows more complex; today the
   toggle is informational.
 
-  ## Inline validation, diff-from-saved, summarise-before-expand (rf2-ba86n.5)
+  ## Inline validation, diff-from-saved, summarise-before-expand
 
   Per spec/019-Story-UI-Controls-And-View-States §1/§2/§4/§6 the args
   editor distinguishes a committed value that *violates the component's
@@ -158,7 +158,7 @@
   - `:keyword`            → `{:widget :text}` (keyword-coercion at edit)
   - `[:enum a b c]`       → `{:widget :select :options [a b c]}`
 
-  Collection shapes (rf2-agshe):
+  Collection shapes:
 
   - `[:map [k1 s1] [k2 s2] ...]`
         → `{:widget :group :kind :map
@@ -254,11 +254,11 @@
   slot per /spec/007-Stories.md §argtypes; `normalize-argtypes` translates
   them to the internal `:widget` shape before merge.
 
-  Per rf2-agshe the inference recurses into nested `:map` / `:vector` /
+  The inference recurses into nested `:map` / `:vector` /
   `:set` / `:tuple` shapes, producing widget descriptors the renderer
   expands into nested rows.
 
-  HOT PATH (rf2-wb4y3): `args-editor` is keystroke-sensitive — every
+  HOT PATH: `args-editor` is keystroke-sensitive — every
   controls-panel edit re-renders, which re-runs this fn. The optional
   `eff-args` arg threads the caller's already-resolved args through so
   we don't re-run `args/resolve-args` (which itself deep-merges five
@@ -266,15 +266,13 @@
   overload preserves the canonical surface for tests + non-render
   callers; the render path threads its own resolution.
 
-  SCHEMA SOURCE (rf2-vnedo / rf2-din8u): the auto-derivation schema is
+  SCHEMA SOURCE: the auto-derivation schema is
   the COMPILED variant-plan's `[:world :view-args-schema]`, read through
   the ONE shared resolver `view-args/compiled-view-args-schema` (memoized
   per variant + registrar tick). This is the SAME slot the schema-
-  validation panel validates against, so a `:rf/props`-declared view now
-  gets BOTH derived controls AND validation from one source — the
-  divergence where this fn read `:schema`-only off the bare body (missing
-  `:rf/props`, and any `:extends`-inherited / `:compose`-d `:component`)
-  is gone."
+  validation panel validates against, so a `:rf/props`-declared view
+  gets BOTH derived controls AND validation from one source — including
+  any `:extends`-inherited / `:compose`-d `:component`."
   ([variant-id]
    (resolve-argtypes variant-id (args/resolve-args variant-id)))
   ([variant-id eff-args]
@@ -286,7 +284,7 @@
          ;; The view-args (props) schema off the COMPILED plan — the
          ;; single source of truth (`[:world :view-args-schema]`), resolved
          ;; first-match `[:rf/props :schema]` through the shared resolver.
-         ;; Per spec/001 §Schema-derivation pipeline + the rf2-din8u
+         ;; Per spec/001 §Schema-derivation pipeline + the
          ;; compiled-plan invariant.
          derive-schema (view-args/compiled-view-args-schema variant-id)
          schema-entries (when (and (vector? derive-schema)
@@ -388,7 +386,7 @@
   "Derive an accessible name for an input from its `path`. The path tail
   is the user-visible label sibling (rendered in the `:label` span at
   row level); we mirror it as `aria-label` so screen readers announce
-  the input by name. Per rf2-u01y5: the visible span is purely visual
+  the input by name. The visible span is purely visual
   — without this association screen readers announce 'edit, blank'.
 
   Nested paths produce a slash-joined breadcrumb (`outer/inner`) so a
@@ -438,7 +436,7 @@
      [:option {:value (str opt)} (str opt)])])
 
 (defn- render-radio [variant-id path value {:keys [options]}]
-  ;; rf2-u01y5: the radio-set wraps each input in a parent <label>, so
+  ;; The radio-set wraps each input in a parent <label>, so
   ;; the inner <input type="radio"> already inherits an accessible name
   ;; from the wrapping label's text (the option's value). We add
   ;; role="radiogroup" + aria-label on the container so screen readers
@@ -507,7 +505,7 @@
     [:span {:style (:empty styles)}
      (str "unsupported widget " widget)]))
 
-;; ---- flat-panel row cap (rf2-ba86n.18 / C2) -----------------------------
+;; ---- flat-panel row cap --------------------------------------------------
 ;;
 ;; A controls panel whose top-level arg count exceeds
 ;; `budgets/controls-flat-row-cap` (60) renders the first `cap` rows and a
@@ -533,7 +531,7 @@
   [entries expanded?]
   (budgets/bound-cells entries budgets/controls-flat-row-cap (boolean expanded?)))
 
-;; ---- summarise-before-expand (rf2-ba86n.5) ------------------------------
+;; ---- summarise-before-expand --------------------------------------------
 ;;
 ;; Nested controls render a one-line summary with a disclosure toggle and
 ;; lazily render their child rows only when expanded (spec/019 §4 deep-

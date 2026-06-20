@@ -1,6 +1,6 @@
 (ns re-frame.story-mcp.tools.dedup
-  "Structural dedup at the wire boundary (rf2-90eft) — JVM-side mirror
-  of `re-frame2-pair-mcp.tools.dedup` (rf2-obpa9).
+  "Structural dedup at the wire boundary — JVM-side mirror
+  of `re-frame2-pair-mcp.tools.dedup`.
 
   ## Why dedup at the wire boundary
 
@@ -26,7 +26,7 @@
   slot, BEFORE the wire-cap check (`re-frame.mcp-base.cap/apply-cap`).
   Ordering matters: dedup shrinks the payload first, so the cap-honest
   size is post-dedup. Same ordering invariant as pair-mcp's
-  `wire-pipeline` (rf2-rvyzy → rf2-obpa9 → cap).
+  `wire-pipeline` (dedup → cap).
 
   ## Why `de-dupe-eq` (equality), not `de-dupe` (identity)
 
@@ -51,7 +51,7 @@
 
   `:dedup` MCP arg (boolean). Default `true`. `false` skips dedup
   entirely. The arg is parsed by the shared `parse-boolean` table-
-  driven parser (rf2-c4fmh) so string-form booleans work alongside
+  driven parser so string-form booleans work alongside
   the JSON `true` / `false`.
 
   ## Idempotence on no-dedup-opportunity
@@ -61,11 +61,11 @@
   encoder skips wrapping in that case via an `empty-payload?` short-
   circuit — matching pair-mcp's behaviour byte-for-byte.
 
-  ## Where the dedup encode step lives (rf2-ttspi7)
+  ## Where the dedup encode step lives
 
-  `empty-payload?` and `dedup-value` were byte-identical to pair-mcp's,
-  so they are lifted to `re-frame.mcp-base.dedup` and delegated here.
-  Only the INVERSE (`dedup-expand`) stays local — see its docstring for
+  `empty-payload?` and `dedup-value` are byte-identical to pair-mcp's,
+  so they live in `re-frame.mcp-base.dedup` and are delegated here.
+  Only the INVERSE (`dedup-expand`) is local — see its docstring for
   why story-mcp keeps its inverse in production while pair-mcp keeps
   its inverse in test-utils."
   (:require [de-dupe.core :as dd]
@@ -73,12 +73,12 @@
             [re-frame.mcp-base.vocab :as base-vocab]))
 
 (defn empty-payload?
-  "Delegates to `re-frame.mcp-base.dedup/empty-payload?` (rf2-ttspi7)."
+  "Delegates to `re-frame.mcp-base.dedup/empty-payload?`."
   [v]
   (base-dedup/empty-payload? v))
 
 (defn dedup-value
-  "Delegates to `re-frame.mcp-base.dedup/dedup-value` (rf2-ttspi7). Uses
+  "Delegates to `re-frame.mcp-base.dedup/dedup-value`. Uses
   `de-dupe.core/de-dupe-eq` (equality-based) — see the namespace
   docstring for the identity-vs-equality rationale."
   [v enabled?]

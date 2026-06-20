@@ -3,8 +3,7 @@
   variant lifecycle (loaders → events → render → play), the snapshot-
   identity helper, and the frame teardown / enumeration helpers.
 
-  Per the rf2-l8eso Phase-2 facade thinning: these symbols are
-  re-exported from `re-frame.story` so users continue calling
+  These symbols are re-exported from `re-frame.story`, so users call
   `re-frame.story/run-variant` etc. The implementation weight — the
   delegators into `re-frame.story.runtime`, `re-frame.story.frames`,
   and `re-frame.story.loaders` — lives here.
@@ -79,7 +78,7 @@
   ([variant-id opts]  (runtime/reset-variant variant-id opts)))
 
 (defn run-inline-plan
-  "Per spec/017 §Inline plan (rf2-5x1wt.20) — run an inline plan MAP and
+  "Per spec/017 §Inline plan — run an inline plan MAP and
   return a promise/future of the unified run-result (the SAME shape a
   registered-variant run returns). The plan is compiled, run against a
   fresh anonymous frame, and the frame is torn down on resolve; it is

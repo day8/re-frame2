@@ -1,33 +1,29 @@
 (ns login-form.stories-cljs-test
-  "Regression guard for the login-form testbed's machine-snapshot reads
-  (rf2-ib5acl).
+  "Regression guard for the login-form testbed's machine-snapshot reads.
 
-  EP-0001 (rf2-vzld77) moved machine snapshots out of the retired app-db
-  `:rf/runtime` root and into the frame's runtime-db partition at
-  `[:rf.runtime/machines :snapshots <machine-id>]`. The login-form
-  testbed's four projection subs (`:login/state` `:login/error`
-  `:login/attempts` `:login/email`) and three `:script` checkpoints used
-  to reach into the dead app-db path — they compiled fine but resolved
-  empty at runtime, and NO CLJS gate caught it (the testbed had no unit
-  test; its variants run only via the browser story runner).
+  Machine snapshots live in the frame's runtime-db partition at
+  `[:rf.runtime/machines :snapshots <machine-id>]` (EP-0001). The
+  login-form testbed's four projection subs (`:login/state` `:login/error`
+  `:login/attempts` `:login/email`) and three `:script` checkpoints read
+  the snapshot through that partition.
 
   This test runs each variant through `story/run-variant` under the
   top-level `node-test` build (`npm run test:cljs`) and then, against the
   variant frame's live `frame-state-value` (which carries the runtime-db
-  partition), computes each migrated projection sub via `rf/compute-sub`
-  and asserts it resolves the live snapshot value — NOT nil from the dead
-  app-db path. `compute-sub` resolves a `:rf/machine`-derived sub against
-  the frame-state value's `:rf.db/runtime` partition (EP-0001), so this is
-  the faithful runtime-db read the views perform reactively. If a future
-  change reverts the subs to the dead app-db path, these assertions go red
-  and the CLJS gate fails loudly.
+  partition), computes each projection sub via `rf/compute-sub` and asserts
+  it resolves the live snapshot value. `compute-sub` resolves a
+  `:rf/machine`-derived sub against the frame-state value's
+  `:rf.db/runtime` partition (EP-0001), so this is the faithful runtime-db
+  read the views perform reactively. If a projection sub stops reading the
+  runtime-db partition, these assertions go red and the CLJS gate fails
+  loudly.
 
   Why compute-sub here rather than a `:rf.assert/sub-equals` `:script`
   checkpoint: the play-runner's `:sub-equals` evaluator computes subs
   against app-db ONLY, so a runtime-db machine projection reads nil through
-  it (tracked separately as a play-runner gap). The variant `:script`s pin
-  state with `:rf.assert/state-is` (runtime-db-aware); this CLJS test owns
-  the `:data`-slice (`:error` / `:attempts` / `:email`) verification.
+  it. The variant `:script`s pin state with `:rf.assert/state-is`
+  (runtime-db-aware); this CLJS test owns the `:data`-slice
+  (`:error` / `:attempts` / `:email`) verification.
 
   The variant stories ns is required at the top — loading it fires the
   `reg-*` macros — so the side-table + the four projection subs are

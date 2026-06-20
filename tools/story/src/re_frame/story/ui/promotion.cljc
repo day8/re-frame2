@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.promotion
   "Generated-failure promotion UX — turn a captured run ARTIFACT into a
-  curated, named Story variant (rf2-ba86n.13, spec/021 §3).
+  curated, named Story variant (spec/021 §3).
 
   ## What this surface is — and is NOT
 
@@ -40,7 +40,7 @@
   carries none of that until the author promotes it). The sidebar surfaces
   the store as a BOUNDED, collapsed 'Captured artifacts' affordance
   (`re-frame.story.ui.sidebar`) — opening an artifact drives the promotion
-  dialog WITHOUT adding a permanent nav row (respects ba86n.4's sidebar
+  dialog WITHOUT adding a permanent nav row (respects the sidebar
   bounding; spec/018 §10).
 
   ## Pure / CLJS split
@@ -293,8 +293,7 @@
      flow. `:promoted-id` holds the registered id after a successful promote
      (it gates the green confirmation) — it lives on the dialog state, NOT a
      component-local ratom, so `open!`/`close!` reset it as part of the
-     lifecycle and a freshly-opened artifact always reads as un-promoted
-     (rf2-lc0cp)."
+     lifecycle and a freshly-opened artifact always reads as un-promoted."
      {:open?       false
       :artifact-id nil
       :draft       nil
@@ -337,7 +336,7 @@
              now   (.now js/Date)]
          ;; Full reset (incl. `:promoted-id nil`) — a freshly-opened artifact
          ;; ALWAYS reads as un-promoted; no stale confirmation from a prior
-         ;; artifact's promote leaks across (rf2-lc0cp).
+         ;; artifact's promote leaks across.
          (reset! dialog-atom
                  {:open?       true
                   :artifact-id artifact-id
@@ -355,7 +354,7 @@
      "Record `promoted-id` as the registered variant id after a successful
      promote — gates the green confirmation. Stored on the dialog state (not
      a component-local ratom) so the next `open!`/`close!` clears it as part
-     of the lifecycle (rf2-lc0cp)."
+     of the lifecycle."
      [promoted-id]
      (swap! dialog-atom assoc :promoted-id promoted-id)
      nil))
@@ -592,7 +591,7 @@
      ;; promote-confirmation gate reads `:promoted-id` from `dialog-atom` — NOT
      ;; a component-local ratom — so `open!`/`close!` reset it as part of the
      ;; lifecycle and a freshly-opened artifact never inherits a prior promote's
-     ;; stale confirmation (rf2-lc0cp).
+     ;; stale confirmation.
      (fn []
        (let [dialog @dialog-atom]
          (when (:open? dialog)
@@ -622,7 +621,7 @@
                     :placeholder-input ":story.your-story/regression-042"
                     :on-edit-id        set-draft-id!
                     :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
-                    ;; rf2-ba86n.13 — the PRIMARY action drives the
+                    ;; The PRIMARY action drives the
                     ;; substrate's `promote-run-artifact!` register path
                     ;; (review-dialog renders it as the accent button left
                     ;; of 'copy'). Disabled until the draft carries a

@@ -8,8 +8,8 @@
   - `unregister-variant` — symmetric removal.
 
   The third write-surface tool, `record-as-variant` (the recorder
-  bridge, rf2-luhdu), lives in `re-frame.story-mcp.tools.recorder` —
-  it has enough body to warrant its own ns under the rf2-zkca8
+  bridge), lives in `re-frame.story-mcp.tools.recorder` —
+  it has enough body to warrant its own ns under the
   leaf-size ceiling. That ns exposes its own `descriptors` vec which
   `tools.registry/tool-registry` concatenates after `write/descriptors`
   so IMPL-SPEC §7.3 order survives the file split."
@@ -40,7 +40,7 @@
            "should leave it off.")
       {:gated true :tool tool-name})))
 
-;; ---- EDN reader hardening (rf2-g9fje, fix 2/3) ----------------------------
+;; ---- EDN reader hardening --------------------------------------------------
 ;;
 ;; `:body` arrives as either a JSON object (preferred — round-trippable map)
 ;; or an EDN string (legacy; needed because JSON has no native keyword type
@@ -50,8 +50,7 @@
 ;; variant via the EDN-string path — JSON's keyword-blind surface would
 ;; otherwise force a coercion pass the registrar isn't shaped for.
 ;;
-;; The hardening matches the rf2-uaymx audit's "if EDN strings must stay"
-;; remediation:
+;; The hardening posture for the retained EDN-string path:
 ;;
 ;;   1. Reject any tagged literal (`#<reader-tag> ...`) by setting both
 ;;      `:readers {}` (no custom tags admitted) AND `:default` to a
@@ -84,8 +83,8 @@
 
 (def ^:const ^:private max-body-string-keys
   "Hard ceiling on the TOTAL number of STRING keys across an object-form
-  `:body` tree, checked BEFORE `keywordize-body-keys` interns any of them
-  (rf2-tag30h). The depth cap alone bounds NESTING but not WIDTH: a single
+  `:body` tree, checked BEFORE `keywordize-body-keys` interns any of them.
+  The depth cap alone bounds NESTING but not WIDTH: a single
   shallow object with thousands of distinct unknown string keys would
   intern a fresh JVM keyword per key before the registrar's schema
   rejects the body. A legitimate variant body has a handful of top-level
@@ -116,7 +115,7 @@
 
 (defn- count-string-keys
   "Total count of STRING keys across the whole `v` tree — the keys
-  `keywordize-body-keys` would intern (rf2-tag30h). Walks maps (counting
+  `keywordize-body-keys` would intern. Walks maps (counting
   string keys and recursing into both keys and vals), vectors / lists /
   sets / seqs (recursing into elements). Already-keyword keys are not
   counted — they do not intern. Used to width-cap an object-form body
@@ -138,7 +137,7 @@
 
 (defn- read-edn-body
   "Parse an agent-supplied EDN string into a Clojure value with the
-  rf2-g9fje hardening posture. Returns the parsed value on success, or
+  EDN hardening posture. Returns the parsed value on success, or
   the `::edn-error` sentinel on failure (`coerce-body` maps it to an
   `error-result`):
 
@@ -177,8 +176,8 @@
 (defn- keywordize-body-keys
   "Recursively convert the STRING keys of an object-form `:body` (and
   its nested maps) into keywords, INTERNING as it goes. This is the
-  operator-gated write-path counterpart to the rf2-3luf3 no-intern
-  ingress: `protocol/parse-json` now parses the whole frame with string
+  operator-gated write-path counterpart to the no-intern
+  ingress: `protocol/parse-json` parses the whole frame with string
   keys, so the JSON object-form body arrives string-keyed. The
   registrar's variant schema demands keyword slots (`:doc` / `:args` /
   `:tags` / …), so this path re-keywordises the body — but the intern is
@@ -218,10 +217,10 @@
 
     `::edn-error` — `:body` was a string but `read-edn-body` threw or
                     the parsed value violated the size / depth /
-                    tagged-literal hardening (rf2-g9fje).
+                    tagged-literal hardening.
     `::not-a-map` — `:body` parsed (or was passed) but is not a map.
     `::too-wide`  — an object-form body carries more than
-                    `max-body-string-keys` total STRING keys (rf2-tag30h);
+                    `max-body-string-keys` total STRING keys;
                     rejected BEFORE `keywordize-body-keys` interns any of
                     them so a wide unknown-key body cannot grow the JVM
                     keyword table.
@@ -229,7 +228,7 @@
   Two input arms:
 
     - **Object-form body** (a JSON object) arrives STRING-keyed from
-      `protocol/parse-json` (rf2-3luf3 no-intern ingress). Its depth is
+      `protocol/parse-json` (no-intern ingress). Its depth is
       checked against `max-edn-depth`, then its keys are recursively
       keywordised via `keywordize-body-keys` — a bounded intern gated by
       `--allow-writes` (the handler reached this fn only past the
@@ -244,7 +243,7 @@
     (map? body)    (cond
                      (> (value-depth body) max-edn-depth)
                      ::edn-error
-                     ;; rf2-tag30h: width cap BEFORE interning. The depth
+                     ;; Width cap BEFORE interning. The depth
                      ;; cap bounds nesting but not the number of distinct
                      ;; string keys a shallow object can carry; a wide body
                      ;; would intern a fresh keyword per key here.
@@ -308,22 +307,19 @@
                        "abusive wide objects before keywordising.")
                   {:rf.error :rf.story-mcp/body-too-wide})
 
-                ;; rf2-lqjbk write-side exception: `register-variant`
+                ;; Write-side keyword exception: `register-variant`
                 ;; by definition extends the registry with a fresh
                 ;; keyword id, so `safe-keyword` against an existing
                 ;; bounded set would always reject. The intern here is
                 ;; gate-bounded by `--allow-writes` (operator-only opt-in).
                 ;;
-                ;; rf2-tag30h: validate the `:story.<path>/<name>` grammar
+                ;; Validate the `:story.<path>/<name>` grammar
                 ;; on the STRING shape via `fresh-keyword-checked` BEFORE
-                ;; interning. `fresh-keyword` interned first and let the
-                ;; registrar's downstream `assert-id!` reject on grammar —
-                ;; but that reject happened AFTER the intern, so an invalid
-                ;; id (which correctly returns an error) still permanently
-                ;; grew the JVM keyword table. The pre-intern shape check
-                ;; (`story/valid-variant-id?`, single-sourced with the
-                ;; registrar's keyword-level `variant-id?`) fails closed with
-                ;; no intern.
+                ;; interning, so an invalid id (which correctly returns an
+                ;; error) never permanently grows the JVM keyword table. The
+                ;; pre-intern shape check (`story/valid-variant-id?`, single-
+                ;; sourced with the registrar's keyword-level `variant-id?`)
+                ;; fails closed with no intern.
                 (if-let [vk (args/fresh-keyword-checked vid story/valid-variant-id?)]
                   (register-or-error vk body-v)
                   (result/error-result
@@ -338,7 +334,7 @@
 
   `:unregistered?` is always `true` on the success path: `with-variant-id`
   resolves `:variant-id` via `safe-keyword` against the LIVE
-  registered-variant set (rf2-lqjbk), so an unregistered id never reaches
+  registered-variant set, so an unregistered id never reaches
   this body — it short-circuits to a `Variant not found` error result
   upstream. The id therefore always names a currently-registered variant,
   and the subsequent `unregister!` always removes it. This matches the

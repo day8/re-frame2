@@ -1,5 +1,5 @@
 (ns re-frame.story.xray-preset
-  "Per-story Xray preset (rf2-q9kv5).
+  "Per-story Xray preset.
 
   A story (or variant) body may carry a `:xray` slot that
   pre-configures the Xray shell when it mounts inside the rendered
@@ -9,21 +9,18 @@
   ## Schema (see `re-frame.story.schemas/XrayPreset`)
 
       {:xray {:open?    true                 ; auto-open the shell
-               :panel    :trace               ; pre-select panel (rf2-gbz39
-                                              ; removed :issues with the
-                                              ; Xray Issues tab, Option (c))
+               :panel    :trace               ; pre-select panel
                :filters  {:out [:my/noise]    ; filter pre-population
                           :in  []}
                :focus    {:event-pos 5}}}     ; pre-focus a cascade pos
 
   Every slot is optional. A missing `:xray` slot is the v0 behaviour
   (no auto-mount, no tab focus). Xray's mount surface is resolved at
-  compile time via a direct `:require` (rf2-ibpwr, mirroring rf2-senbl
-  for `mount-fn-for`); the optional filters API (rf2-ak4ms in flight)
-  is still runtime feature-detected via the `resolve-fn` lookup. When
-  Xray's mount ns is somehow not bound, the preset no-ops silently;
-  when filters is not present, only the filters step is skipped (with
-  a console.warn breadcrumb so authors notice).
+  compile time via a direct `:require` (mirroring `mount-fn-for`); the
+  optional filters API is runtime feature-detected via the `resolve-fn`
+  lookup. When Xray's mount ns is somehow not bound, the preset no-ops
+  silently; when filters is not present, only the filters step is
+  skipped (with a console.warn breadcrumb so authors notice).
 
   ## Where it runs
 
@@ -48,21 +45,20 @@
             [re-frame.story.registrar  :as registrar]
             #?(:cljs [re-frame.core           :as rf])
             #?(:cljs [re-frame.story.config   :as config])
-            ;; rf2-ibpwr: direct :require for compile-time symbol
-            ;; resolution of `day8.re-frame2-xray.mount/open!`. The
-            ;; pre-rf2-ibpwr `xray-available?` used a `find-ns-obj` +
-            ;; `aget` walk to feature-detect Xray, which returned a
+            ;; Direct :require for compile-time symbol resolution
+            ;; of `day8.re-frame2-xray.mount/open!`. `xray-available?`
+            ;; checks the bound symbol rather than a runtime
+            ;; `find-ns-obj` + `aget` walk, which returns a
             ;; false-negative in node-test (shadow-cljs's namespace
             ;; organisation does not guarantee top-level def'd fns are
             ;; surfaced as parent-namespace JS properties — the same
-            ;; bug class as the pre-rf2-senbl `mount-fn-for` walk).
+            ;; bug class the `mount-fn-for` walk would hit).
             ;; Xray is on the same shadow-cljs :source-paths as Story
             ;; (see `implementation/shadow-cljs.edn`), so the require
             ;; is a compile-time resolution; bundle-isolation still
             ;; holds because the gate only forbids `implementation/`
             ;; → `tools/` requires, not `tools/story` → `tools/xray`
-            ;; (the inverse is explicitly fine — see rf2-senbl PR
-            ;; comment for the dep-arrow analysis).
+            ;; (the inverse is explicitly fine).
             #?(:cljs [day8.re-frame2-xray.mount :as xray-mount])))
 
 ;; ---- pure: preset resolution ---------------------------------------------
@@ -127,13 +123,12 @@
      compile-time-resolved `xray-mount/open!` symbol is bound to a
      value at runtime.
 
-     rf2-ibpwr: this previously used a runtime `find-ns-obj` + `aget`
-     walk to feature-detect Xray, which returned a false-negative under
-     node-test (same bug class as the pre-rf2-senbl `mount-fn-for`
-     walk). The fix mirrors rf2-senbl's `mount-fn-for`: a direct
-     `:require` of `day8.re-frame2-xray.mount` at the top of this ns
-     means the symbol is resolved at compile time; the runtime call
-     just dereferences the bound value. Xray is on Story's shadow-cljs
+     The symbol is resolved at compile time via a direct `:require`
+     of `day8.re-frame2-xray.mount` at the top of this ns (mirroring
+     `mount-fn-for`); the runtime call just dereferences the bound
+     value. A runtime `find-ns-obj` + `aget` feature-detect walk
+     returns a false-negative under node-test (same bug class the
+     `mount-fn-for` walk would hit). Xray is on Story's shadow-cljs
      `:source-paths` so the require always resolves; the `some?` guard
      is belt-and-braces against a degenerate build that somehow shipped
      without Xray's mount ns. When false the preset no-ops silently."
@@ -150,9 +145,9 @@
 
 #?(:cljs
    (defn filters-available?
-     "True iff the Xray filters API (rf2-ak4ms, in flight) exposes a
-     `configure!` fn. Feature-detect — when false the `:filters` step
-     of the preset is skipped with a `console.warn`."
+     "True iff the Xray filters API exposes a `configure!` fn.
+     Feature-detect — when false the `:filters` step of the preset is
+     skipped with a `console.warn`."
      []
      (some? (resolve-fn 'day8.re-frame2-xray.filters.config/configure!))))
 
@@ -177,19 +172,18 @@
    (defn apply-open!
      "Drive the Xray shell open via `xray-mount/open!`. The symbol
      resolves at compile time via the direct `:require` at the top of
-     this ns (rf2-ibpwr — replaces the pre-fix `find-ns-obj` walk that
-     false-negatived under node-test).
+     this ns (a `find-ns-obj` walk would false-negative under
+     node-test).
 
-     Public composition seam: callers that need the legacy whole-shell
-     open compose `(do (wire-cross-host!) (apply-open!))` directly (see
-     the no-shim note below)."
+     Public composition seam: callers that need a whole-shell open
+     compose `(do (wire-cross-host!) (apply-open!))` directly."
      []
      (when xray-mount/open!
        (safe-call! "open!" xray-mount/open!))))
 
-;; ---- :project-root bridge (rf2-r1uod) ------------------------------------
+;; ---- :project-root bridge -----------------------------------------------
 ;;
-;; Symmetric to shop's rf2-6jyf6 (#1493): the source-coord chips in
+;; The source-coord chips in
 ;; Xray-as-RHS need `xray-config/project-root` set, but Story testbeds
 ;; configure only the Story side via
 ;; `story/configure! {:rf.story/project-root ...}`. Instead of asking
@@ -199,8 +193,8 @@
 ;;
 ;; Single source of truth: the host sets `:rf.story/project-root` once
 ;; via `story/configure!`; the bridge propagates the value into Xray's
-;; slot so both Story's own 'Open' chips (rf2-zfy1e) and Xray-as-RHS's
-;; chips (rf2-5m5n2) resolve coords against the same on-disk root.
+;; slot so both Story's own 'Open' chips and Xray-as-RHS's chips
+;; resolve coords against the same on-disk root.
 ;;
 ;; Fires from two seams:
 ;;   1. `story/configure!` after `set-project-root!` lands — the common
@@ -232,12 +226,12 @@
      (when (and config/enabled? (xray-config-available?))
        (when-let [root (config/get-project-root)]
          (when-let [configure! (resolve-fn 'day8.re-frame2-xray.config/configure!)]
-           ;; rf2-xea9u — Xray's configure! keys live under :rf.xray/*
-           ;; per the :rf.<tool>/* convention.
+           ;; Xray's configure! keys live under :rf.xray/* per the
+           ;; :rf.<tool>/* convention.
            (safe-call! "config/configure!" configure! {:rf.xray/project-root root})
            root)))))
 
-;; ---- :rf.xray/keybinding-enabled? bridge (rf2-q7who.1) -----------------
+;; ---- :rf.xray/keybinding-enabled? bridge --------------------------------
 ;;
 ;; Xray standalone attaches a window-level capture-phase `keydown`
 ;; listener that handles `Ctrl+Shift+C` (shell toggle), `Cmd/Ctrl+K`
@@ -247,8 +241,8 @@
 ;; binding would never fire because Xray's handler calls
 ;; `stopPropagation()` on every key it consumes.
 ;;
-;; The fix: when Story drives Xray as RHS (the always-on RHS panel,
-;; rf2-sgdd3), set `:rf.xray/keybinding-enabled? false` on Xray's
+;; When Story drives Xray as RHS (the always-on RHS panel), set
+;; `:rf.xray/keybinding-enabled? false` on Xray's
 ;; config slot so Xray's `keybinding/attach!` short-circuits. Story's
 ;; Cmd/Ctrl+K reaches its own command palette; Xray is still
 ;; mountable / dispatchable / inspectable via every other surface
@@ -260,9 +254,8 @@
 ;; Xray (no Story) is unaffected — only Story-driven mounts disable
 ;; the listener.
 ;;
-;; Per rf2-4eyik (the sibling bead that shipped the config slot) +
-;; rf2-xea9u (the :rf.xray/* configure! rename): "Hosts MUST set
-;; this BEFORE the Xray preload runs". Setting it from
+;; Hosts MUST set this slot (`:rf.xray/*` per the configure!
+;; convention) BEFORE the Xray preload runs. Setting it from
 ;; `wire-cross-host!` means the slot lands at variant-selection time,
 ;; after the preload's `keybinding/attach!` has already fired with the
 ;; default `true`. The Xray-side bead is the slot owner; preload-time
@@ -282,23 +275,20 @@
 
      Called by `wire-cross-host!` so Story-driven Xray-as-RHS mounts
      never have Xray swallow the host's global keybindings (typically
-     `Cmd/Ctrl+K` for Story's command palette). Per rf2-q7who.1
-     (rf2-4eyik sibling on the Xray side) + rf2-xea9u (:rf.xray/*
-     configure! rename). Idempotent — writing `false` over an existing
-     `false` is a plain reset!.
+     `Cmd/Ctrl+K` for Story's command palette). Idempotent — writing
+     `false` over an existing `false` is a plain reset!.
 
      Sequencing: `disable-keybinding!` flips the slot (intent
-     declaration); rf2-ycrt2's `detach-keybinding!` removes the
-     listener Xray's preload already installed under the default-true
-     posture (runtime mechanism). Both fire from `wire-cross-host!`
-     in that order."
+     declaration); `detach-keybinding!` removes the listener Xray's
+     preload already installed under the default-true posture (runtime
+     mechanism). Both fire from `wire-cross-host!` in that order."
      []
      (when (and config/enabled? (xray-config-available?))
        (when-let [configure! (resolve-fn 'day8.re-frame2-xray.config/configure!)]
          (safe-call! "config/configure!" configure! {:rf.xray/keybinding-enabled? false})
          true))))
 
-;; ---- keybinding/detach! bridge (rf2-ycrt2 — rf2-q7who.1 follow-on) -------
+;; ---- keybinding/detach! bridge ------------------------------------------
 ;;
 ;; `disable-keybinding!` above flips Xray's `:rf.xray/keybinding-enabled?`
 ;; slot to `false`, but that slot is only read at attach time (by
@@ -309,7 +299,7 @@
 ;; continues swallowing Story's `Cmd/Ctrl+K` despite the intent
 ;; declaration.
 ;;
-;; The fix (option (b) per rf2-ycrt2 operator decision): Xray exposes
+;; Xray exposes
 ;; a public `detach!` fn (idempotent, safe to call without prior
 ;; `attach!`). Story drives it after `disable-keybinding!` so the
 ;; intent-declaration is matched by a runtime removal. Slot remains the
@@ -331,8 +321,6 @@
      Called by `wire-cross-host!` AFTER `disable-keybinding!` flipped
      the slot — the slot declares intent, `detach!` removes the
      listener Xray's preload installed under the default-true posture.
-     The runtime gap rf2-q7who.1 declared but did not close — rf2-ycrt2
-     closes it.
 
      Idempotent — `keybinding/detach!` is a no-op when nothing is
      attached, so this bridge is safe on the rare edge where Xray's
@@ -348,7 +336,7 @@
 
 #?(:cljs
    (defn wire-cross-host!
-     "rf2-v1ach: bridge Story's configuration into Xray's config
+     "Bridge Story's configuration into Xray's config
      slots without mounting the full shell. Fires the three
      cross-host bridges (project-root + keybinding disable + listener
      detach) so the popout escape hatch + Xray's source-coord chips
@@ -364,15 +352,13 @@
        (disable-keybinding!)
        (detach-keybinding!))))
 
-;; rf2-ee38b.3: the DEPRECATED `ensure-xray-mounted!` whole-shell-open
-;; shim was REMOVED (no production caller; the per-panel embed
-;; `re-frame.story.ui.xray-embed` owns its mount via the
-;; `panels/mount-<panel>!` contract). Cross-host configuration bridges
-;; (project-root + keybinding disable + listener detach) are driven by
-;; `wire-cross-host!` above; a caller that genuinely needs the legacy
+;; The per-panel embed `re-frame.story.ui.xray-embed` owns its mount
+;; via the `panels/mount-<panel>!` contract. Cross-host configuration
+;; bridges (project-root + keybinding disable + listener detach) are
+;; driven by `wire-cross-host!` above; a caller that genuinely needs a
 ;; whole-shell open composes `(do (wire-cross-host!) (apply-open!))`
 ;; directly — there is no shim. Matches the project's no-back-compat
-;; posture (the spec carve-out in 003-Render-Shell.md was removed too).
+;; posture.
 
 #?(:cljs
    (defn- apply-panel!
@@ -387,8 +373,7 @@
 #?(:cljs
    (defn- apply-filters!
      "Configure Xray filters via the optional filters API. Skipped with
-     a warn breadcrumb when filters is not yet on the classpath
-     (rf2-ak4ms in flight)."
+     a warn breadcrumb when filters is not on the classpath."
      [filters]
      (cond
        (not (map? filters))
@@ -455,8 +440,8 @@
      who edits `:xray` and hot-reloads sees the change without
      remount.
 
-     rf2-v1ach: the RHS chip-row's user-override is shell-wide and
-     sticky across variant changes — `xray-embed/effective-panel`
+     The RHS chip-row's user-override is shell-wide and sticky across
+     variant changes — `xray-embed/effective-panel`
      prefers the user click when set, falling back to
      `resolve-panel` otherwise. Authors who want a different
      default per story declare it on the variant body

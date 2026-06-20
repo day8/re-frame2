@@ -1,15 +1,14 @@
 (ns re-frame.story.recorder
   "Test Codegen — record canvas-dispatched events as a `:script` body.
 
-  Per bead rf2-5fc15: Storybook 9's killer feature is the record-and-save
-  workflow — the user interacts with the canvas, the tool watches the
-  event bus, and on 'stop' it emits a code snippet the user appends to
-  a new variant. The emitted snippet uses the PUBLIC `:script` authoring
-  slot (rf2-7mj4z — the recorder emits the public spelling, not the
-  transitional `:play-script`); the `:script` body wraps each captured
-  event vector as a `[:dispatch-sync <event-vec>]` step (rf2-0wrud), so
-  the captured trace is the codegen output verbatim — no Testing Library /
-  page-object translation layer is needed.
+  Storybook 9's killer feature is the record-and-save workflow — the user
+  interacts with the canvas, the tool watches the event bus, and on 'stop'
+  it emits a code snippet the user appends to a new variant. The emitted
+  snippet uses the PUBLIC `:script` authoring slot (the recorder emits the
+  public spelling); the `:script` body wraps each captured event vector as
+  a `[:dispatch-sync <event-vec>]` step, so the captured trace is the
+  codegen output verbatim — no Testing Library / page-object translation
+  layer is needed.
 
   ## What this namespace does
 
@@ -37,13 +36,12 @@
   - The listener consults `recording?` per emit — toggling off STOPS
     recording without tearing down anything else.
 
-  ## `:sensitive?` events — record-but-redact (rf2-hdadz)
+  ## `:sensitive?` events — record-but-redact
 
-  Per rf2-hdadz (pragmatic stance, 2026-05-14): events flagged
-  `:sensitive? true` are STILL captured into the `:play-script` body, but the
-  event payload is replaced with the framework's `:rf/redacted`
-  sentinel so the credential / PII / auth-token doesn't ride into the
-  snippet text. Mirrors rf2-vnjfg's enforcement on the always-on
+  Events flagged `:sensitive? true` are STILL captured into the
+  `:play-script` body, but the event payload is replaced with the
+  framework's `:rf/redacted` sentinel so the credential / PII / auth-token
+  doesn't ride into the snippet text. This mirrors the always-on
   error-emit path — record-but-redact, don't refuse-to-record. Two
   reasons:
 
@@ -66,19 +64,18 @@
   opt into the trusted-local boundary via
   `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})`;
   with that profile active the listener captures the verbatim event
-  vector (existing behaviour, unchanged).
+  vector.
 
-  ## EP-0015 fold (rf2-3t26eh)
+  ## EP-0015 egress profile
 
-  The whole-event `:sensitive?` redact/pass decision above is now driven
-  by Story's local-render EGRESS PROFILE — `:rf.egress/local-redacted`
+  The whole-event `:sensitive?` redact/pass decision above is driven by
+  Story's local-render EGRESS PROFILE — `:rf.egress/local-redacted`
   (the fail-closed default) redacts; `:rf.egress/local-raw` (the
   trusted-local opt-in) passes — resolved through the framework's
   centralized projection table (`config/suppress-sensitive?` →
   `project-egress`'s `:rf.size/include-sensitive?` floor), NOT a
-  process-global boolean. EP-0015 retired the cross-tool
-  `:rf.privacy/show-sensitive?` toggle (rf2-bclgj) in favour of this
-  named-boundary, frame-owned model.
+  process-global boolean. EP-0015 defines this named-boundary,
+  frame-owned model.
 
   ## Pure / impure split
 
@@ -88,7 +85,7 @@
   Reagent / toolbar UI surface live in `re-frame.story.ui.recorder`
   (CLJS-only).
 
-  ## Mid-recording assertion insertion (rf2-39u9e)
+  ## Mid-recording assertion insertion
 
   Recording captures user dispatches. Assertions are the dual — the
   user wants to say 'after I click this button, the counter shows 3'.
@@ -127,8 +124,8 @@
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]
-            ;; rf2-qwm0a — listener surface lives in
-            ;; `re-frame.trace.tooling` (production-DCE split).
+            ;; The listener surface lives in `re-frame.trace.tooling`
+            ;; (production-DCE split).
             [re-frame.trace.tooling :as trace-tooling]))
 
 ;; ---------------------------------------------------------------------------
@@ -165,8 +162,8 @@
 (def ^:const redacted-event
   "The placeholder event vector the recorder appends in place of a
   `:sensitive? true` event when the local-render profile redacts (the
-  `:rf.egress/local-redacted` default, EP-0015 rf2-3t26eh). Per rf2-hdadz:
-  record-but-redact preserves the row's temporal position in the captured
+  `:rf.egress/local-redacted` default, EP-0015). Record-but-redact
+  preserves the row's temporal position in the captured
   `:play-script` body without leaking the
   credential / PII / auth-token. The single-element vector keeps the
   captured-events shape (vector-of-event-vectors) intact so the snippet
@@ -180,49 +177,46 @@
 ;; A recording targets a FRAME (EP-0023)
 ;;
 ;; A recording's address is the variant FRAME it was captured against
-;; (`:variant-id`). EP-0023 collapses the old EP-0013 public `(realm, frame)`
-;; address to that single frame target: a recording carries no separate realm
-;; key, and replay dispatches frame-scoped (`{:frame variant-id}`), so it lands
-;; in the frame's own running environment by construction. Realm survives only
-;; as the framework's INTERNAL installation substrate (EP-0023 §Public surface)
-;; — Story neither stamps it on a recording nor carries it on the replay
-;; address. The captured state map is therefore the bare
+;; (`:variant-id`). Per EP-0023 that single frame target IS the address: a
+;; recording carries no separate realm key, and replay dispatches
+;; frame-scoped (`{:frame variant-id}`), so it lands in the frame's own
+;; running environment by construction. Realm is purely the framework's
+;; INTERNAL installation substrate (EP-0023 §Public surface) — Story
+;; neither stamps it on a recording nor carries it on the replay address.
+;; The captured state map is therefore the bare
 ;; `{:recording? :variant-id :events :cofx :entries :started-ms}` shape.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: dispatch-only code-gen — `(reg-variant ... :script {...})` snippet
 ;;
-;; NOTE (rf2-nkjkj): this is the LEGACY dispatch-only codegen. It reads
-;; the bare `:events` stream, so it sees dispatched events + inserted
-;; assertions ONLY — it is BLIND to DOM interactions (which live in
-;; `:entries`). The interactive recorder's PRIMARY save dialog no longer
-;; uses this path; it renders the rich `:play-script` translation off
-;; `:entries` (`recorder.play-export/recording->script-body` +
-;; `render-variant-form`) so canvas clicks/types/submits are never
-;; dropped. `gen-play-snippet` survives ONLY as the codegen for the MCP
+;; This is the dispatch-only codegen. It reads the bare `:events` stream,
+;; so it sees dispatched events + inserted assertions ONLY — it is BLIND
+;; to DOM interactions (which live in `:entries`). The interactive
+;; recorder's PRIMARY save dialog renders the rich `:play-script`
+;; translation off `:entries` (`recorder.play-export/recording->script-body`
+;; + `render-variant-form`) so canvas clicks/types/submits are never
+;; dropped. `gen-play-snippet` is the codegen for the MCP
 ;; `record-as-variant` record-and-sleep flow, whose capture path produces
-;; no DOM entries (so the dispatch-only view is complete there) and for
+;; no DOM entries (so the dispatch-only view is complete there), and for
 ;; the `story/gen-play-snippet` public re-export.
 ;;
-;; rf2-7mj4z: `gen-play-snippet` emits the PUBLIC `:script` authoring slot
-;; (spec/017 §Public vocabulary), NOT the transitional `:play-script`
-;; spelling. It wraps each captured event vector as a `[:dispatch-sync
-;; <event-vec>]` step under the `:script` body's inner `:script` vector
-;; (rf2-0wrud — the one phase-4 step grammar). Assertion events
+;; `gen-play-snippet` emits the PUBLIC `:script` authoring slot
+;; (spec/017 §Public vocabulary). It wraps each captured event vector as a
+;; `[:dispatch-sync <event-vec>]` step under the `:script` body's inner
+;; `:script` vector (the one phase-4 step grammar). Assertion events
 ;; (`:rf.assert/*`) ride the same dispatch-sync rail — the assertion
 ;; handler is registered, so dispatch-sync runs it and the result lands
-;; in `:rf.story/assertions` exactly as it did under the legacy `:play` slot.
+;; in `:rf.story/assertions` like any other assertion checkpoint.
 ;; ---------------------------------------------------------------------------
 
 (defn- event->step
-  "Wrap a captured event vector as a `:play-script` step. Per
-  rf2-0wrud the canonical wrapping is `:dispatch-sync` — preserves the
-  legacy `:play`'s drain-to-completion ordering and lets `:rf.assert/*`
-  events record on the very next step.
+  "Wrap a captured event vector as a `:play-script` step. The canonical
+  wrapping is `:dispatch-sync` — it drains to completion in declared
+  order and lets `:rf.assert/*` events record on the very next step.
 
   The 2-arity `(event->step event-vec cofx)` carries a captured flat
-  `:rf.cofx` map (rf2-l2cn5d, EP-0017) onto the step as a trailing opts
+  `:rf.cofx` map (EP-0017) onto the step as a trailing opts
   map — `[:dispatch-sync evec {:rf.cofx <map>}]` — so a pasted /
   written-back snippet replays the recorded recordable coeffects
   (provided facts + the framework `:rf/time-ms`) rather than restamping.
@@ -241,7 +235,7 @@
   the PUBLIC phase-4 authoring slot (spec/017 §Public vocabulary); the
   recorder emits the public spelling so pasted code reads the way the
   docs teach. Each captured event vector is wrapped as
-  `[:dispatch-sync <event-vec>]` inside the script body (rf2-0wrud — the
+  `[:dispatch-sync <event-vec>]` inside the script body (the
   one phase-4 step grammar).
 
   Opts:
@@ -254,7 +248,7 @@
       :alias       optional — short alias to use in the form
                               (default `\"story\"`)
       :cofx        optional — a parallel vector of captured flat
-                              `:rf.cofx` maps (rf2-l2cn5d, EP-0017),
+                              `:rf.cofx` maps (EP-0017),
                               index-aligned with `events`. Non-empty
                               entries render as `[:dispatch-sync evec
                               {:rf.cofx …}]` so a pasted snippet replays
@@ -286,8 +280,8 @@
                                        (map pr-str steps))
                              "]")
                         "[]")
-        ;; The public `:script` slot accepts the same `{:script …
-        ;; :auto-run?}` PlaySpec map the transitional `:play-script` took.
+        ;; The public `:script` slot accepts a `{:script …
+        ;; :auto-run?}` PlaySpec map.
         script-map-str (str "{:auto-run? true\n"
                             "                     :script    " script-str "}")
         body-keys   (cond-> []
@@ -433,7 +427,7 @@
           (map (fn [{:keys [key]}] (get payload key)) fields))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-d5u89 — timestamp + entry helpers (used by both append /
+;; Timestamp + entry helpers (used by both append /
 ;; append-assertion / append-dom). Defined here so the forward
 ;; references resolve cleanly.
 ;; ---------------------------------------------------------------------------
@@ -462,7 +456,7 @@
   event if no recording is in flight) and against malformed inputs
   (must be a vector with an `:rf.assert/*` keyword head).
 
-  Per rf2-d5u89 the assertion also lands in the parallel `:entries`
+  The assertion also lands in the parallel `:entries`
   stream as an `:event/dispatch` entry tagged with the current
   timestamp, so the `:play-script` translator (which consumes
   `:entries`) sees the inserted assertion alongside the captured
@@ -477,7 +471,7 @@
           (vector? event)
           (pred/assertion-event? event))
      (-> (update :events (fnil conj []) (vec event))
-         ;; rf2-l2cn5d: keep the parallel :cofx slot index-aligned with
+         ;; Keep the parallel :cofx slot index-aligned with
          ;; :events — an inserted assertion carries no captured cofx.
          (update :cofx (fnil conj []) nil)
          (conj-entry {:kind  :event/dispatch
@@ -488,7 +482,7 @@
   "The recorder's idle state shape. `:recording?` flips true while a
   capture is in flight; `:events` accumulates the captured event
   vectors in declared order (oldest first, ready for `gen-play-snippet`
-  to wrap as `:play-script` `:dispatch-sync` steps); `:entries` (rf2-d5u89) accumulates the richer
+  to wrap as `:play-script` `:dispatch-sync` steps); `:entries` accumulates the richer
   per-entry maps (`:event/dispatch` + `:dom/click` / `:dom/type` /
   `:dom/submit`) with per-event timestamps — consumed by the
   `:play-script` translator; `:variant-id` records which frame the
@@ -501,7 +495,7 @@
   {:recording? false
    :variant-id nil
    :events     []
-   ;; rf2-l2cn5d (EP-0017): the captured flat `:rf.cofx` map per event,
+   ;; EP-0017: the captured flat `:rf.cofx` map per event,
    ;; index-aligned with `:events` (nil where the event carried no
    ;; recordable coeffects). The bare-`:events` MCP path zips this in.
    :cofx       []
@@ -557,24 +551,23 @@
   {:recording? true
    :variant-id variant-id
    :events     []
-   ;; rf2-l2cn5d (EP-0017): parallel captured-cofx slot, index-aligned
+   ;; EP-0017: parallel captured-cofx slot, index-aligned
    ;; with :events.
    :cofx       []
    :entries    []
    :started-ms now-ms})
 
 ;; ---------------------------------------------------------------------------
-;; rf2-d5u89 — per-event timestamps + DOM-event entries
+;; Per-event timestamps + DOM-event entries
 ;;
-;; The original recorder model carried `:events` (a vector of event
-;; vectors) — sufficient for a dispatch-only codegen which wraps each
-;; as a `:dispatch-sync` step, but blind to TIMING and DOM INTERACTION
-;; which the rich `:play-script` DSL needs to emit `:click` / `:type` /
-;; `:wait` steps.
+;; The recorder carries `:events` (a vector of event vectors) for the
+;; dispatch-only codegen which wraps each as a `:dispatch-sync` step, and
+;; `:entries` for TIMING and DOM INTERACTION which the rich `:play-script`
+;; DSL needs to emit `:click` / `:type` / `:wait` steps.
 ;;
-;; `:entries` is the recorder's SINGLE SOURCE OF TRUTH for codegen
-;; (rf2-nkjkj): the primary save dialog renders the `:play-script`
-;; translation off this stream. Each entry is one of:
+;; `:entries` is the recorder's SINGLE SOURCE OF TRUTH for codegen:
+;; the primary save dialog renders the `:play-script` translation off
+;; this stream. Each entry is one of:
 ;;
 ;;   {:kind :event/dispatch :event <vec> :t <ms>}
 ;;   {:kind :dom/click      :selector <str> :t <ms>}
@@ -586,10 +579,10 @@
 ;; assertion`), but DOM interactions (via `append-dom`) land in
 ;; `:entries` ONLY — `:events` never sees them. The two streams are
 ;; therefore NOT index-aligned the moment any DOM event is captured;
-;; `:entries` carries strictly >= the rows `:events` does. `:events`
-;; survives as the bare-dispatch view consumed by the legacy MCP
-;; record-and-sleep codegen (`gen-play-snippet`), whose capture path
-;; never produces DOM entries, so the asymmetry is invisible there.
+;; `:entries` carries strictly >= the rows `:events` does. `:events` is
+;; the bare-dispatch view consumed by the MCP record-and-sleep codegen
+;; (`gen-play-snippet`), whose capture path never produces DOM entries, so
+;; the asymmetry is invisible there.
 ;;
 ;; `:t` is ms since `:started-ms`; pure helpers accept a `now-ms`
 ;; argument for deterministic testing. (Helper fns `now-ms*`,
@@ -602,13 +595,13 @@
   state is recording and the event is recordable. Returns the new
   state. Idempotent against bad inputs.
 
-  Per rf2-d5u89 the call ALSO appends a parallel `:entries` entry
+  The call ALSO appends a parallel `:entries` entry
   `{:kind :event/dispatch :event <vec> :t <ms>}` so the
   `:play-script` translator sees the timing alongside the event.
   `:events` (bare event vectors) stays as-is for the simple
   `gen-play-snippet` codegen.
 
-  Per rf2-l2cn5d (EP-0017): the optional `cofx` arg is the captured flat
+  EP-0017: the optional `cofx` arg is the captured flat
   recordable-coeffect map from the same `:rf.event/dispatched` trace
   event (`:rf.cofx` tag — framework `:rf/time-ms` plus any provided
   facts). When non-empty it is stored in TWO index-aligned places: the
@@ -638,7 +631,7 @@
                          cofx* (assoc :rf.cofx cofx*))))))))
 
 ;; ---------------------------------------------------------------------------
-;; DOM-event capture (rf2-d5u89)
+;; DOM-event capture
 ;;
 ;; The DOM-capture layer (`re-frame.story.recorder.dom-capture`,
 ;; CLJS-only) emits one of three entry kinds per observed interaction:
@@ -702,7 +695,7 @@
 
 (defn append-dom-buffered
   "Pure: append an ALREADY-CAPTURED DOM-event `entry` onto the recorder
-  state's `:entries` slot REGARDLESS of `:recording?` (rf2-eztym.3).
+  state's `:entries` slot REGARDLESS of `:recording?`.
 
   Unlike `append-dom`, this does NOT re-check `:recording?`. It exists for
   the type-debounce drain: a keystroke buffered WHILE recording carries its
@@ -731,7 +724,7 @@
   initial-state)
 
 ;; ---------------------------------------------------------------------------
-;; Pure: save-as-variant dialog open/close transitions (rf2-8x9nb)
+;; Pure: save-as-variant dialog open/close transitions
 ;;
 ;; The dialog snapshots `{:variant-id :events}` from the recorder atom
 ;; AT OPEN TIME so a subsequent `start-recording!` (which resets the
@@ -766,9 +759,9 @@
 
   The snapshot is stored on the dialog state itself — NOT read live
   off the recorder atom — so a fresh `start-recording!` after the
-  dialog opens does not mutate the dialog's snippet (rf2-8x9nb).
+  dialog opens does not mutate the dialog's snippet.
 
-  Per rf2-d5u89 the dialog also snapshots `entries` (the rich
+  The dialog also snapshots `entries` (the rich
   `:entries` slot) so the export dialog can drive the `:play-script`
   translator with the full DOM+timing record; pass `nil` when no rich
   entries are available."
@@ -848,11 +841,11 @@
   internal helpers) — the predicate filter is in `append`.
 
   The 2-arity `(record-event! event cofx)` carries the captured flat
-  `:rf.cofx` map (rf2-l2cn5d, EP-0017) — read off the same
+  `:rf.cofx` map (EP-0017) — read off the same
   `:rf.event/dispatched` trace event's `:rf.cofx` tag — so the recorded
   step can re-present the recordable coeffects (provided facts + the
   framework `:rf/time-ms`) on replay rather than restamping. A nil /
-  empty cofx records the byte-identical pre-EP-0017 trace."
+  empty cofx records a cofx-less trace."
   ([event] (record-event! event nil))
   ([event cofx]
    (when config/enabled?
@@ -861,7 +854,7 @@
 
 (defn record-dom-event!
   "Append a DOM-event entry to the recorder's `:entries` slot iff a
-  recording is in flight (rf2-d5u89). Called by the DOM-capture
+  recording is in flight. Called by the DOM-capture
   layer (`re-frame.story.recorder.dom-capture`) for every observed
   click / typed-input / form-submit on the canvas root.
 
@@ -878,8 +871,8 @@
   nil)
 
 (defn record-dom-event-buffered!
-  "Append an ALREADY-CAPTURED DOM-event `entry` REGARDLESS of `:recording?`
-  (rf2-eztym.3). The type-debounce drain path uses this so a keystroke
+  "Append an ALREADY-CAPTURED DOM-event `entry` REGARDLESS of `:recording?`.
+  The type-debounce drain path uses this so a keystroke
   buffered WHILE recording (and carrying its own capture-time `:t`) survives
   the flush even when the flush fires after `stop-recording!` has cleared
   `:recording?`. Idempotent against malformed inputs; no-op under elision."
@@ -891,7 +884,7 @@
 (defn insert-assertion!
   "Insert an `:rf.assert/*` assertion into the captured `:events` of
   the active recording. Drives the mid-recording 'add assertion'
-  picker (rf2-39u9e). Two arities:
+  picker. Two arities:
 
   - `(insert-assertion! event-vec)` — caller has already built the
     event vector (e.g. `[:rf.assert/path-equals [:n] 3]`).
@@ -932,21 +925,19 @@
        traffic — interactions in another canvas shouldn't show up).
     3. Must carry an event vector on `:tags :rf.event/v`.
 
-  Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED per
-  rf2-hdadz: the placeholder `redacted-event` vector replaces the
-  event payload so the credential / PII / auth-token doesn't ride into
-  the captured `:play-script` body, while the row's temporal position is
-  preserved for correlation. The suppressed-events counter is still
-  bumped (Spec 009 §Privacy + rf2-bclgj — Story is a framework-
-  published trace consumer that default-suppresses sensitive events)
-  so the UI's redaction-indicator hint stays accurate.
+  Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED: the
+  placeholder `redacted-event` vector replaces the event payload so the
+  credential / PII / auth-token doesn't ride into the captured
+  `:play-script` body, while the row's temporal position is preserved for
+  correlation. The suppressed-events counter is bumped (Spec 009 §Privacy
+  — Story is a framework-published trace consumer that default-suppresses
+  sensitive events) so the UI's redaction-indicator hint stays accurate.
 
   Hosts that opted into the trusted-local boundary via
   `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})`
-  get the verbatim event vector — existing in-box debug behaviour,
-  unchanged. The redact/pass decision is the profile's, resolved through
-  the centralized projection table (EP-0015, rf2-3t26eh) — NOT a
-  process-global boolean.
+  get the verbatim event vector — in-box debug behaviour. The redact/pass
+  decision is the profile's, resolved through the centralized projection
+  table (EP-0015) — NOT a process-global boolean.
 
   `record-event!` applies the `recordable-event?` filter (assertion
   events, internal helpers) before appending; the redact path also
@@ -954,9 +945,8 @@
   `:rf.assert/*` event still gets dropped, not redacted-and-recorded,
   because assertions are an authored not observed surface).
 
-  Per rf2-hdadz cross-reference: this mirrors the always-on error
-  path's enforcement in rf2-vnjfg — sensitive events are not warning-
-  only at this consumer."
+  This mirrors the always-on error path's enforcement — sensitive events
+  are not warning-only at this consumer."
   [ev]
   (when (recording?)
     (let [{:keys [op-type operation tags]} ev]
@@ -966,7 +956,7 @@
                  (vector? (:rf.event/v tags)))
         (if (config/suppress-sensitive? ev (:frame tags))
           (do
-            ;; Record-but-redact (rf2-hdadz): append the redacted
+            ;; Record-but-redact: append the redacted
             ;; placeholder so the row's position survives, and bump the
             ;; suppressed-events counter so the UI's REDACTED hint
             ;; reflects the count of placeholder rows. The placeholder
@@ -976,7 +966,7 @@
             ;; thing being suppressed.
             (config/note-suppressed! (:frame tags))
             (record-event! redacted-event))
-          ;; rf2-l2cn5d (EP-0017): carry the same trace event's flat
+          ;; EP-0017: carry the same trace event's flat
           ;; `:rf.cofx` map (the framework-stamped `:rf/time-ms` plus any
           ;; provided recordable facts — see router.cljc §:rf.event/dispatched
           ;; emit, dev-gated) onto the recording so replay re-presents the

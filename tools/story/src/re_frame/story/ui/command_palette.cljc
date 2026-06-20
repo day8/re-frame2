@@ -16,7 +16,7 @@
 
 (def commands
   "Synthetic palette entries that run a UI action rather than navigate
-  the registry (rf2-ba86n.9). Each carries an `:action` keyword the
+  the registry. Each carries an `:action` keyword the
   impure `select-entry!` dispatches. Kept tiny + data-only so the JVM
   search corpus can rank them alongside registry entries; the action →
   side-effect mapping lives in the CLJS view.
@@ -24,13 +24,13 @@
   - `:explain` — open the Explain panel (provenance + lowering over
     `story/explain`) and scroll it into view. Reachable here AND from
     the RHS inspector rail per spec/020 §4.
-  - `:save-current-as-variant` (rf2-ba86n.6) — capture the focused
+  - `:save-current-as-variant` — capture the focused
     variant's live canvas state as a new variant. The SAME flow as the
     Controls-panel 'save as new variant…' button (spec/019 §3 — the flow
     is available from Controls AND the palette). A no-op when no variant
     is focused; the action handler guards on the live selection.
 
-  - `:author-expectations` (rf2-ba86n.12) — author EXPECTATIONS onto the
+  - `:author-expectations` — author EXPECTATIONS onto the
     focused story so a useful story becomes a regression test (spec/021
     §S5). Distinct from `:save-current-as-variant` (state authoring) and
     failure promotion (a captured artifact). A no-op when no variant is
@@ -77,7 +77,7 @@
   [:story :variant :workspace :mode :decorator])
 
 (defn command-entries
-  "Build the synthetic command entries (rf2-ba86n.9) in palette-entry
+  "Build the synthetic command entries in palette-entry
   shape. Pure data → data so the search corpus can include them."
   []
   (mapv (fn [{:keys [kind id action doc]}]

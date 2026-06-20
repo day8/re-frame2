@@ -1,13 +1,11 @@
 (ns re-frame.story.ui.test-mode.stepper-view
-  "Play step-debugger UI for the `:test` mode pane (rf2-ulw5m + spec/009
+  "Play step-debugger UI for the `:test` mode pane (spec/009
   §Play step-debugger).
 
   Storybook's Interactions panel ships a step / pause / rewind /
   breakpoint UI over the variant's `play()` sequence; this is Story's
-  parity surface. The runtime substrate (`re-frame.story.play`) was
-  already in place — only the UI was missing. Closing this gap is the
-  highest-leverage Storybook-parity win in the Phase-2 SOTA refinement
-  (see `ai/findings/2026-05-17-story-vs-storybook-deep-dive.md` §8 R1).
+  parity surface. The runtime substrate lives in `re-frame.story.play`;
+  this namespace is the UI over it.
 
   ## Surface
 

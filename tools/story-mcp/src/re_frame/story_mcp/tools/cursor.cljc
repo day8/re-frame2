@@ -1,5 +1,5 @@
 (ns re-frame.story-mcp.tools.cursor
-  "Cursor pagination for the Docs `list-*` tools (rf2-76sf6).
+  "Cursor pagination for the Docs `list-*` tools.
 
   Implements the spec/Principles.md §'Tight token budget' pagination
   MUST: every read tool whose return size is a function of registry
@@ -7,15 +7,14 @@
   continuation. The default `:limit` MUST keep the response under the
   cap (5,000 tokens).
 
-  ## Shared codec, story-specific shape (rf2-ee38b.17)
+  ## Shared codec, story-specific shape
 
   The base64 codec, the tagged-literal-rejecting EDN reader, the 1 KB
   size cap, the `::malformed` recovery posture, the `:limit` clamp, and
   the `cursor-stale-result` envelope all live in
   `re-frame.mcp-base.cursor` — one cross-MCP implementation shared with
-  re-frame2-pair-mcp (the clarity review's `mcp-base` deferral premise
-  went stale once story-mcp shipped its own copy). This ns now owns
-  only what is genuinely story-specific:
+  re-frame2-pair-mcp. This ns owns only what is genuinely
+  story-specific:
 
     - the cursor PAYLOAD shape (`{:v :offset :total :sig}`) + its
       `valid?` predicate,
@@ -73,7 +72,7 @@
   25)
 
 (def ^:const max-limit
-  "Hard ceiling on `:limit` (rf2-76sf6). The wire-boundary cap will
+  "Hard ceiling on `:limit`. The wire-boundary cap will
   catch oversize responses regardless, but we clamp the arg at the
   tool surface so the agent gets a deterministic per-page count rather
   than a `:rf.mcp/overflow` fallback. 200 is well past what any
@@ -105,7 +104,7 @@
   the shared `base-cursor/decode-cursor` so the codec is shared while
   the shape check stays story-specific.
 
-  rf2-to3q7 — wire-boundary range gate. `:offset` and `:total` MUST be
+  Wire-boundary range gate. `:offset` and `:total` MUST be
   NATURAL integers (a negative offset would feed `subvec` a negative
   start and throw a generic handler exception instead of the documented
   cursor-stale envelope), and `:offset` MUST NOT exceed `:total` (an
@@ -201,8 +200,8 @@
 
   Most callers don't touch this directly — they reach for the
   `paged-result` wrapper below, which folds the `[:ok …]` / `[:err …]`
-  branch + the `result/text-result` build into one call. `page` stays
-  public for the rare caller that wants the raw slice (none today)."
+  branch + the `result/text-result` build into one call. `page` is
+  public for the rare caller that wants the raw slice."
   [entries ids arguments tool-name]
   (let [limit         (parse-limit-arg (:limit arguments))
         cursor        (decode-cursor (:cursor arguments))
@@ -239,7 +238,7 @@
 
 (defn paged-result
   "Page `entries` and build the tool's `tools/call` result in one step —
-  the shape every Docs `list-*` handler shares (rf2-jkake.20). Pages via
+  the shape every Docs `list-*` handler shares. Pages via
   `page`; on a malformed/stale cursor returns the `cursor-stale-result`
   envelope directly; otherwise calls `(page->payload page-vec)` to build
   the tool-specific base payload, merges in the pagination metadata
@@ -251,9 +250,8 @@
   map (e.g. `(fn [p] {:stories p})` for `list-stories`, or the
   bifurcated `{:canonical … :registered p}` for `list-assertions`).
   This folds the four-line `(let [[res page meta] (page …)] (if (= res
-  :err) …))` boilerplate that previously sat inline in five handlers
-  into a single call, so each handler reads as 'compute entries, then
-  page them under this shape'."
+  :err) …))` boilerplate into a single call, so each handler reads as
+  'compute entries, then page them under this shape'."
   [entries ids arguments tool-name page->payload]
   (let [[res page-vec meta] (page entries ids arguments tool-name)]
     (if (= res :err)

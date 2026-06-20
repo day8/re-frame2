@@ -23,7 +23,7 @@
   - `reg-story-panel` — `:Panel.counter-with-stories/notes` (a small
                         project-custom panel in the right pane), and
                         `:Panel.counter-with-stories/broken-render`
-                        (rf2-76wo5 testbed — :render points at an
+                        (a testbed panel whose :render points at an
                         unregistered view to exercise the panel-host's
                         broken-render fallback branch).
   - `reg-story`       — four parent stories. The exemplary
@@ -35,8 +35,8 @@
                         `:story.counter-play-script`).
   - `reg-variant`     — an exemplary core of five `:story.counter`
                         variants exercising every authoring shape (four
-                        canonical + the events-only loader-body shape
-                        folded in per rf2-9jfo1.2), PLUS the deliberate
+                        canonical + the events-only loader-body shape),
+                        PLUS the deliberate
                         diagnostics / matrix / CI-runner fixtures under
                         the sibling parents below.
   - `reg-workspace`   — five workspaces (`:grid`, `:variants-grid`,
@@ -83,8 +83,8 @@
 ;;
 ;; The seven canonical Story tags (:dev :docs :test :screenshot
 ;; :experimental :internal :agent) auto-install on the first `reg-*`
-;; call below per rf2-p1ydc — no explicit boot step needed (rf2-y8gag
-;; — audit D-2). `reg-tag` / `reg-mode` / `reg-decorator` etc. all
+;; call below — no explicit boot step needed. `reg-tag` /
+;; `reg-mode` / `reg-decorator` etc. all
 ;; trigger the same idempotent installer chain via the registrar's
 ;; `maybe-auto-install!` hook.
 ;; ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@
   Idempotent. The trailing top-level call fires this at namespace
   load; the test fixture calls it again after a clear-all! per test.
   The canonical vocabulary auto-installs on the first `reg-*` call —
-  no explicit boot step required (rf2-p1ydc + rf2-y8gag)."
+  no explicit boot step required."
   []
   ;; -------------------------------------------------------------------------
   ;; reg-tag — register the project's custom tag
@@ -109,7 +109,7 @@
     {:doc "Tag applied to the variant that ships as the example's
           canonical screenshot — the one the README points at."})
 
-  ;; rf2-7ncf9 — faceted tag taxonomy (SB9 parity). Tags carrying an
+  ;; Faceted tag taxonomy (SB9 parity). Tags carrying an
   ;; `:axis` slot group into per-axis chip rows in the sidebar filter.
   ;; The filter applies AND across axes + OR within an axis. The
   ;; preferred shape is the namespaced keyword (`:status/stable`,
@@ -216,7 +216,7 @@
      :for       #{:story.counter}})
 
   ;; -------------------------------------------------------------------------
-  ;; rf2-76wo5 — broken-render testbed panel
+  ;; Broken-render testbed panel
   ;;
   ;; A panel pointing at an :render view id that is NEVER registered.
   ;; Exercises the panel-host's broken-render fallback branch in
@@ -291,7 +291,7 @@
   ;;
   ;; reg-variant — the five `:story.counter` variants. Four exercise
   ;; distinct authoring shapes; the fifth is the events-only loader-body
-  ;; shape (rf2-9jfo1.2). This block plus the all-states / auto-grid
+  ;; shape. This block plus the all-states / auto-grid
   ;; workspaces is what a consumer reads to learn the authoring surface.
   ;; Everything below the GATE-FIXTURE banner is diagnostics machinery.
   ;; ===========================================================================
@@ -318,7 +318,7 @@
      :script [[:assert-db [:count] 7]
               [:assert [:rf.assert/sub-equals [:count-doubled] 14]]
               [:assert [:rf.assert/sub-equals [:count-parity]  :odd]]]
-     ;; rf2-7ncf9 — faceted tags alongside the existing canonical seven.
+     ;; Faceted tags alongside the existing canonical seven.
      ;; The sidebar groups these into per-axis chip rows.
      :tags   #{:dev :docs :test :counter-with-stories/canonical
                :status/stable :role/dev :team/counter :feature/counter}
@@ -332,8 +332,8 @@
     {:doc    "Counter after three increments from zero, driven from
              the :script so :rf.assert/dispatched? observes them."
      :setup [[:counter/initialise 0]]
-     ;; rf2-yn825: the play-runner's :rf.assert/* bridge now surfaces
-     ;; assertion failures that the buggy runner used to swallow. The
+     ;; The play-runner's :rf.assert/* bridge surfaces assertion
+     ;; failures up through the runner. The
      ;; path-equals [:count] 3 check passes under plain-atom (CLJS unit
      ;; test) but Playwright shows a different count (Reagent + StrictMode
      ;; — see reg_variant_e2e_cljs_test.cljs:18). The canonical count-3
@@ -348,16 +348,13 @@
      :substrates #{:reagent}
      :decorators [[:counter-with-stories/log-decorator "variant-level"]]})
 
-  ;; Variant 3b — canonical events-only loader-body shape (rf2-9jfo1.2 —
-  ;; folded in from the retired `tools/story/testbeds/xray_rhs_smoke/`
-  ;; testbed). Per rf2-043cm a variant is *events-only* when its body
-  ;; declares no `:loaders` AND no `:loaders-complete-when` AND its
-  ;; resolved decorator stack carries no `:frame-setup` decorators.
-  ;; Such variants take the lifecycle fast-path `:pre-mount → :ready`
-  ;; on mount (skipping `:mounting`/`:loading`) so the canvas's loading
-  ;; skeleton (rf2-0s4p1) never engages for variants that have nothing
-  ;; to wait for. PR #1574 surfaced the regression where the skeleton
-  ;; stalled indefinitely against this body shape.
+  ;; Variant 3b — canonical events-only loader-body shape. A variant is
+  ;; *events-only* when its body declares no `:loaders` AND no
+  ;; `:loaders-complete-when` AND its resolved decorator stack carries no
+  ;; `:frame-setup` decorators. Such variants take the lifecycle fast-path
+  ;; `:pre-mount → :ready` on mount (skipping `:mounting`/`:loading`) so
+  ;; the canvas's loading skeleton never engages for variants that have
+  ;; nothing to wait for.
   ;;
   ;; Pinned by `tools/story/test/re_frame/story_runtime_cljs_test.cljs`
   ;; (`cljs-events-only-fast-path-to-ready` + `cljs-events-only-
@@ -603,8 +600,8 @@
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  ;; rf2-0uo4e — failing-fx-stub-miss testbed variant. Source-side follow-on
-  ;; from rf2-6hauy. The :script declares :rf.assert/effect-emitted against
+  ;; Failing-fx-stub-miss testbed variant. The :script declares
+  ;; :rf.assert/effect-emitted against
   ;; :never-stubbed WITHOUT a corresponding force-fx-stub decorator
   ;; covering the id — the play-runner never observes the fx, so the
   ;; assertion fails with the canonical reason:
@@ -630,7 +627,7 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; :script CI fixtures (rf2-3qcxk — CI-as-test)
+  ;; :script CI fixtures (CI-as-test)
   ;;
   ;; The CI runner at `examples/scripts/serve-and-run-story-play-scripts.cjs`
   ;; discovers every registered variant whose body carries a non-empty
@@ -686,7 +683,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  ;; rf2-inbad fn-direct :pred fixture — verifies the advanced-CLJS-safe
+  ;; fn-direct :pred fixture — verifies the advanced-CLJS-safe
   ;; authoring path for `:assert-db :pred` (a fn reference handed in
   ;; directly instead of a symbol). The fixture pairs an in-line
   ;; anonymous predicate with a top-level clojure.core predicate so both
@@ -706,7 +703,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  ;; rf2-e0kof DOM-step fixtures — live-browser coverage of the rich-DSL
+  ;; DOM-step fixtures — live-browser coverage of the rich-DSL
   ;; `:click` / `:type` / `:assert-dom` steps. The pure-step + JVM
   ;; coverage in tools/story/test/re_frame/story/play/ exercises the
   ;; parser + the JVM no-DOM branches; this fixture closes the gap by
@@ -773,7 +770,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  ;; rf2-tl7zk multi-play fixture — three named plays on one variant.
+  ;; Multi-play fixture — three named plays on one variant.
   ;; The first play (happy-path) auto-runs on mount per the per-position
   ;; default; the other two run on demand (manual trigger via the
   ;; toolbar dropdown OR the CI runner's `runPlay` hook). One play

@@ -14,35 +14,33 @@
   `snapshot-identity`), and the shell mount/unmount surface
   (`mount-shell!` / `unmount-shell!` / `active-shell`, CLJS-only).
 
-  Per the rf2-l8eso Phase-2 facade thinning, the implementation weight
-  for three cohesive surfaces lives in dedicated internal namespaces:
+  The implementation weight for three cohesive surfaces lives in
+  dedicated internal namespaces:
 
   - `re-frame.story.query` — the registry query API
   - `re-frame.story.canonical` — canonical-vocabulary boot
   - `re-frame.story.lifecycle` — Stage-3 variant lifecycle
 
-  Every public symbol on the facade still resolves under its existing
-  name; the bodies are thin re-exports / delegators.
+  Every public symbol on the facade resolves under its name; the bodies
+  are thin re-exports / delegators.
 
-  ## Why this file is ~1100 LoC (rf2-5hp3r — facade-size investigation)
+  ## Why this file is ~1100 LoC
 
-  The implementation weight has already been moved off the facade. Of
-  the LoC that remain: ~18% is code-only (thin defmacro wrappers and
-  delegator defns), ~56% is docstring, ~10% is inline structure
-  comments, ~15% is blank-line separation. The size is documentation,
-  not waste — and the docstrings belong on the macros (where authors'
-  IDEs surface them on hover) rather than on the `*`-suffix runtime
-  helpers (which authors don't call directly). Comparable author-
-  facing facades — `re-frame.core` (1.5 KLoC), `day8.re-frame2-xray.
-  config` (1.5 KLoC) — sit in the same range for the same reason.
-  Investigation outcome: structure justifies size; no further split
-  warranted at this stage.
+  The implementation weight lives off the facade. Of the LoC here: ~18%
+  is code-only (thin defmacro wrappers and delegator defns), ~56% is
+  docstring, ~10% is inline structure comments, ~15% is blank-line
+  separation. The size is documentation, not waste — and the docstrings
+  belong on the macros (where authors' IDEs surface them on hover)
+  rather than on the `*`-suffix runtime helpers (which authors don't
+  call directly). Comparable author-facing facades — `re-frame.core`
+  (1.5 KLoC), `day8.re-frame2-xray.config` (1.5 KLoC) — sit in the same
+  range for the same reason. The structure justifies the size.
 
   ## Boot
 
   The canonical Story vocabulary auto-installs on the first `reg-*`
-  call (per rf2-p1ydc + tools/story/spec/001-Authoring.md §Boot —
-  auto-install of the canonical vocabulary). Authors don't have to
+  call (per tools/story/spec/001-Authoring.md §Boot — auto-install of
+  the canonical vocabulary). Authors don't have to
   remember an explicit boot step; the first `(reg-story ...)` /
   `(reg-variant ...)` / etc. lands the seven canonical tags + the
   `:rf.assert/*` event handlers + the built-in
@@ -79,51 +77,49 @@
   Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
   the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
-  ;; rf2-bsk1d9 (EP-0015): Story does NOT re-export `add-marks` /
-  ;; `set-marks`. Durable app-db classification is a frame-creation
-  ;; concern — a variant declares `:sensitive` / `:large` on its body and
-  ;; the runtime threads them onto its `reg-frame` config
-  ;; (`re-frame.story.frames`). The `re-frame.marks` require is gone, and
-  ;; with the re-exports dropped the `re-frame.core` require has no live
-  ;; call site either, so it is removed (the docstring above still names
-  ;; `rf/dispatch-sync` etc. illustratively).
+  ;; EP-0015: Story does NOT re-export `add-marks` / `set-marks`. Durable
+  ;; app-db classification is a frame-creation concern — a variant
+  ;; declares `:sensitive` / `:large` on its body and the runtime threads
+  ;; them onto its `reg-frame` config (`re-frame.story.frames`). Story
+  ;; requires neither `re-frame.marks` nor `re-frame.core` (the docstring
+  ;; above names `rf/dispatch-sync` etc. illustratively).
   (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
             ;; weight for query / canonical-boot / lifecycle surfaces.
             [re-frame.story.canonical   :as canonical]
-            ;; rf2-5x1wt.3 — the single canonical projection + fingerprint
+            ;; The single canonical projection + fingerprint
             ;; primitive. Re-exported as `canonicalize` / `content-hash` /
             ;; `plan-hash` / `run-hash` below so every downstream call site
             ;; routes through one path (NOT `re-frame.story.canonical`,
             ;; which installs the canonical *vocabulary*).
             [re-frame.story.fingerprint :as fingerprint]
-            ;; rf2-5x1wt.4 — the run-evidence projection from the epoch tape.
+            ;; The run-evidence projection from the epoch tape.
             ;; Re-exported as `project-evidence` below so every downstream
             ;; run-result slot derives from ONE tape (NewTestStory §A0c).
             [re-frame.story.play.evidence :as evidence]
-            ;; rf2-5x1wt.7 — the `:rf.test/run-artifact` schema + replay.
+            ;; The `:rf.test/run-artifact` schema + replay.
             ;; Re-exported as `make-run-artifact` / `run-artifact?` /
             ;; `replay-run-artifact` below (spec/017 §Run artifact and replay).
             [re-frame.story.artifact    :as artifact]
-            ;; rf2-5x1wt.8 — the determinism gate. Re-exported as
+            ;; The determinism gate. Re-exported as
             ;; `assert-deterministic` below (spec/017 §Determinism gate).
             [re-frame.story.determinism :as determinism]
-            ;; rf2-5x1wt.9 — the semantic diff over canonical run artifacts.
+            ;; The semantic diff over canonical run artifacts.
             ;; Re-exported as `diff-run-artifacts` below (spec/017 §Semantic
             ;; diff). Builds read-only on `.7` replay + `.3`/`.8` canonicalize.
             [re-frame.story.diff        :as diff]
-            ;; rf2-5x1wt.32 — golden slices (the deferred P1.5 surface).
+            ;; Golden slices.
             ;; Re-exported as `capture-golden` / `golden-match?` /
             ;; `compare-golden` below (spec/017 §Golden slices). Builds
             ;; read-only on `.3`/`.8` canonicalize + `.7` replay + `.9` diff.
             [re-frame.story.golden      :as golden]
-            ;; rf2-5x1wt.25 — the run-artifact → variant promotion bridge.
+            ;; The run-artifact → variant promotion bridge.
             ;; Re-exported as `materialize-variant-plan` (pure) +
             ;; `promote-run-artifact!` (the explicit-only registration path)
             ;; below (spec/017 §Promotion — Promotion bridge).
             [re-frame.story.promotion   :as promotion]
-            ;; rf2-5x1wt.31 — generated / property-style runs that emit
+            ;; Generated / property-style runs that emit
             ;; seed-bearing run artifacts (+ shrink) and a fault-lattice
             ;; sweep. Re-exported as `check-property!` / `sweep-faults!`
             ;; below (spec/017 §Generated runs and artifacts). Builds
@@ -131,29 +127,29 @@
             ;; artifact slots; a generated failure feeds the promotion
             ;; bridge unchanged (artifacts first, curated promotion only).
             [re-frame.story.generate    :as generate]
-            ;; rf2-5x1wt.19 — the ONE unified run-result + the assertion /
+            ;; The ONE unified run-result + the assertion /
             ;; check record shapes + the clojure.test report projection.
             ;; Re-exported as `run-result` / `result-status` /
             ;; `result-passed?` and backs the `story/is` bridge below
             ;; (spec/017 §Run result + §Unified run result).
             [re-frame.story.result      :as result]
-            ;; rf2-jy92cr — the ONE verdict-aggregation rule
+            ;; The ONE verdict-aggregation rule
             ;; (`:error` > `:fail` > `:cannot-run` > `:pass`). Re-exported
             ;; as `aggregate-verdict` below so tooling (story-mcp) reads the
             ;; runner's verdict rule rather than re-implementing it.
             [re-frame.story.requirements :as requirements]
-            ;; rf2-5x1wt.19 — `story/is` blocks on the JVM run promise +
+            ;; `story/is` blocks on the JVM run promise +
             ;; chains the CLJS one (the headless-test bridge).
             [re-frame.story.async       :as async]
             [re-frame.story.lifecycle   :as lifecycle]
             [re-frame.story.query       :as query]
-            ;; rf2-5x1wt.24 — the variant-plan compiler (re-exported as
+            ;; The variant-plan compiler (re-exported as
             ;; `variant-plan` / `explain`) + the `render-variant` workshop
             ;; render verb that drives the SAME plan the runner consumes
             ;; (spec/017 §Args, controls, and `render-variant`).
             [re-frame.story.plan        :as plan]
             [re-frame.story.render      :as render]
-            ;; rf2-5x1wt.19 — `story/is` bridges per-assertion run-result
+            ;; `story/is` bridges per-assertion run-result
             ;; reports to clojure.test / cljs.test (spec/017 §Public
             ;; execution API — the three verbs). `do-report` is the one
             ;; seam both flavours expose for programmatic test reporting.
@@ -161,7 +157,7 @@
                :cljs [cljs.test    :as test])
             ;; Runtime modules — args resolution, decorators.
             [re-frame.story.args        :as args]
-            ;; rf2-jy92cr — the variant-id STRING-shape grammar. Re-exported
+            ;; The variant-id STRING-shape grammar. Re-exported
             ;; as `valid-variant-id?` below so the story-mcp write path
             ;; validates a caller id before interning via the facade.
             [re-frame.story.schemas     :as schemas]
@@ -172,7 +168,7 @@
             [re-frame.story.play        :as play]
             ;; Test Codegen recorder (pure-data state + snippet generator).
             [re-frame.story.recorder    :as recorder]
-            ;; Recording → live `:script` body translator (rf2-x9zsr).
+            ;; Recording → live `:script` body translator.
             ;; Re-exported as `recording->script-body` so the MCP write-back
             ;; path (story-mcp) can emit the canonical replayable slot.
             [re-frame.story.recorder.play-export :as play-export]
@@ -185,7 +181,7 @@
             ;; Reagent / reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
             #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
-            ;; rf2-r1uod — Story → Xray project-root bridge. `configure!`
+            ;; Story → Xray project-root bridge. `configure!`
             ;; calls `xray-preset/propagate-project-root!` so Xray-as-RHS
             ;; source-coord chips resolve coords against the same on-disk
             ;; root Story uses. CLJS-only require because the propagator
@@ -283,7 +279,7 @@
 
      `:extends` is stored RAW (intact, parents UNmerged) and resolved by
      the plan compiler — the single merge authority — when the variant is
-     compiled; see `re-frame.story.plan/compile-body` (rf2-f6z88)."
+     compiled; see `re-frame.story.plan/compile-body`."
      [id metadata]
      (macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
@@ -294,7 +290,7 @@
    (defmacro reg-fragment
      "Register a fragment — a reusable setup / script / world mixin a
      variant pulls in through `:compose`. Per spec/017 §Fragments +
-     §Strict composition (rf2-5x1wt.15).
+     §Strict composition.
 
      Fragment body shape — every key is data, no fn-valued slots:
 
@@ -330,7 +326,7 @@
 #?(:clj
    (defmacro reg-check
      "Register a check — a named, reusable assertion pack. Per spec/017
-     §Checks + §Strict composition (rf2-5x1wt.15).
+     §Checks + §Strict composition.
 
      Check body shape:
 
@@ -366,11 +362,11 @@
      Optional slots (per spec/001 §reg-workspace):
 
      - `:doc`       — string description.
-     - `:modes`     — future-reserved (rf2-q5e36); workspaces inherit
+     - `:modes`     — future-reserved; workspaces inherit
                       the chrome toolbar's `:active-modes` in v1 (see
                       spec/001 §Workspace `:modes` slot for the
                       authoritative wording + spec/010 §State location).
-     - `:isolation` — `:variants-grid` mount strategy (rf2-gqid4):
+     - `:isolation` — `:variants-grid` mount strategy:
                       `:isolated` (default — parallel cells with
                       per-variant frames) or `:shared` (serialised
                       mount, one cell at a time with prev/next nav,
@@ -475,7 +471,7 @@
 
      **`:axis`** — optional keyword classifier. The sidebar tag-filter UI
      groups registered tags by `:axis` into collapsible facet rows
-     (rf2-v05qb SB9 parity). Tags registered without `:axis` render in a
+     (SB9 parity). Tags registered without `:axis` render in a
      trailing un-grouped facet row. Query the axis grouping via
      `tags-by-axis` / `tags-without-axis`.
 
@@ -497,8 +493,7 @@
 ;; ---- query API (public) -------------------------------------------------
 ;;
 ;; Bodies live in `re-frame.story.query`. The facade re-exports each
-;; public symbol so callers see them under `re-frame.story/...` per the
-;; rf2-l8eso acceptance contract.
+;; public symbol so callers see them under `re-frame.story/...`.
 
 (defn registrations
   "Return the `{id → body}` map for `kind`, or `{}`. Stable shape across
@@ -507,8 +502,8 @@
 
   Mirror of the spec/001 §Public registrar query API for Story's
   side-table. The Story registry is logically a peer of the framework
-  registrar — see `001-Authoring.md` §Registration macros + bd rf2-7ho2
-  for the design rationale."
+  registrar — see `001-Authoring.md` §Registration macros for the
+  design rationale."
   [kind]
   (query/registrations kind))
 
@@ -543,8 +538,8 @@
   with zero registered variants land in the result with an empty set.
 
   HOT PATH: agents tend to spam `list-stories` (story-mcp's most-called
-  introspection tool); the single-pass index replaces the O(S × V)
-  walk of calling `variants-of` per story (rf2-d3iso)."
+  introspection tool); the single-pass index avoids the O(S × V)
+  walk of calling `variants-of` per story."
   []
   (query/variants-by-story))
 
@@ -570,7 +565,7 @@
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
   body's `:axis` equals `axis-kw` (e.g. `:status` / `:role` / `:team` /
   `:feature`). The sidebar tag-filter UI uses this to group registered
-  tags into collapsible facet rows (rf2-v05qb SB9 parity). Returns the
+  tags into collapsible facet rows (SB9 parity). Returns the
   empty set if no tag carries that axis."
   [axis-kw]
   (query/tags-by-axis axis-kw))
@@ -597,8 +592,8 @@
 
 (def canonical-axes
   "Re-export of the canonical facet axes documented in spec/001
-  §reg-tag — `:status`, `:role`, `:team`, `:feature` (rf2-7ncf9 SB9
-  facet taxonomy) + `:state` (rf2-k1k87 operator-facing magnitude).
+  §reg-tag — `:status`, `:role`, `:team`, `:feature` (SB9 facet
+  taxonomy) + `:state` (operator-facing magnitude).
   Stable across hosts."
   query/canonical-axes)
 
@@ -611,20 +606,20 @@
   query/canonical-role-values)
 
 (def canonical-state-values
-  "Re-export of the canonical `:state` axis vocabulary (rf2-k1k87) —
+  "Re-export of the canonical `:state` axis vocabulary —
   `#{:empty :small :medium :large :special}`."
   query/canonical-state-values)
 
 (def canonical-state-tags
   "Re-export of the canonical `:state/*` faceted tags registered at
-  Story load (rf2-k1k87)."
+  Story load."
   query/canonical-state-tags)
 
 (defn tag->axis-index
   "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across
   every registered tag, in one O(T) pass. Tags without `:axis` map to
   `:re-frame.story.registrar/no-axis`. The sidebar's facet-grouped
-  filter row + the `:tag-filter` AND-across-axes predicate (rf2-7ncf9)
+  filter row + the `:tag-filter` AND-across-axes predicate
   consume this."
   []
   (query/tag->axis-index))
@@ -639,9 +634,9 @@
 
 (def reg-story*       registrar/reg-story*)
 (def reg-variant*     registrar/reg-variant*)
-;; rf2-5x1wt.15 — fragment + check runtime helpers, grouped with the
-;; other registrar re-exports (strict composition: `:compose` pulls these
-;; into a variant plan).
+;; Fragment + check runtime helpers, grouped with the other registrar
+;; re-exports (strict composition: `:compose` pulls these into a variant
+;; plan).
 (def reg-fragment*    registrar/reg-fragment*)
 (def reg-check*       registrar/reg-check*)
 (def reg-workspace*   registrar/reg-workspace*)
@@ -661,8 +656,8 @@
   decorator, layout-debug decorator trio, toolbar cofx + subs, and the
   v1.0 SOTA panel set (CLJS only).
 
-  Per rf2-p1ydc + tools/story/spec/001-Authoring.md §Boot — auto-install
-  of the canonical vocabulary, this fires automatically on the first
+  Per tools/story/spec/001-Authoring.md §Boot — auto-install of the
+  canonical vocabulary, this fires automatically on the first
   `reg-*` call; authors don't have to call it explicitly. The explicit
   call remains supported for hosts that prefer a literal boot step
   and for test fixtures that want to assert a known starting state.
@@ -681,14 +676,12 @@
 
 ;; ---- frame-owned classification — NO add-marks / set-marks re-export -----
 ;;
-;; rf2-bsk1d9 (EP-0015 issue, spec/015 §Frame-owned durable classification):
-;; Story does NOT publish `add-marks` / `set-marks` as author-facing privacy
-;; primitives. EP-0015 moved durable app-db classification onto the frame
-;; owner and explicitly SUPERSEDED the public post-creation `add-marks` /
-;; `set-marks` mutation surface (spec/015 §Supersession note; framework
-;; spec/API.md — the underlying fns are internal / test helpers only). A
-;; Story re-export would re-open that exact escape hatch and guide authors
-;; back to the pre-EP-0015 imperative mark-mutation model.
+;; Per spec/015 §Frame-owned durable classification: Story does NOT publish
+;; `add-marks` / `set-marks` as author-facing privacy primitives. Durable
+;; app-db classification belongs to the frame owner (spec/015 §Supersession
+;; note; framework spec/API.md — the underlying fns are internal / test
+;; helpers only). A Story re-export would open an imperative post-creation
+;; mark-mutation escape hatch that bypasses the frame owner.
 ;;
 ;; The EP-0015-compliant Story surface is FRAME-CREATION classification: a
 ;; variant declares its sensitive / large app-db paths at registration via
@@ -708,15 +701,13 @@
 ;; trace buffer, the recorder, DOM capture) with NO public post-creation
 ;; mark mutation. Per spec/015 §Frame-owned durable classification.
 
-;; ---- reg-global-decorator (rf2-835ey — preview.ts parity, F-1) ----------
+;; ---- reg-global-decorator (Storybook preview.ts parity) -----------------
 ;;
-;; Per ai/findings/2026-05-20-story-tutorial-set.md Finding F-1: Storybook's
-;; canonical "wrap every story in the design system's theme provider"
-;; recipe lives in `preview.ts` as `decorators: [...]`. Story had only
-;; story-level + variant-level decorators; without a global equivalent the
-;; tutorial chapter on decorators cannot offer the canonical recipe, and
-;; large projects end up listing the decorator id on every `reg-story`
-;; manually.
+;; Storybook's canonical "wrap every story in the design system's theme
+;; provider" recipe lives in `preview.ts` as `decorators: [...]`. The
+;; global-decorator stack is Story's parity surface: it carries that recipe
+;; once, so large projects need not list the decorator id on every
+;; `reg-story` manually (alongside story-level + variant-level decorators).
 ;;
 ;; `reg-global-decorator` registers a decorator body (delegating to
 ;; `reg-decorator*`) AND appends a `[<id> & args]` reference to the
@@ -732,8 +723,7 @@
 (defn reg-global-decorator
   "Register a decorator AND opt it into the global stack — every
   variant's resolved decorator chain is prefixed with this entry.
-  Per rf2-835ey + ai/findings/2026-05-20-story-tutorial-set.md Finding
-  F-1 (Storybook `preview.ts` `decorators: [...]` parity).
+  Storybook `preview.ts` `decorators: [...]` parity.
 
   Two-arity registration form (the common case):
 
@@ -775,8 +765,7 @@
 (defn global-decorators
   "Return the current ordered vector of global-decorator references
   (`[[decorator-id & args] ...]`). Earliest-registered first; this is
-  the prefix applied to every variant's resolved decorator stack per
-  rf2-835ey."
+  the prefix applied to every variant's resolved decorator stack."
   []
   (config/get-global-decorators))
 
@@ -790,12 +779,12 @@
 
   Every key lives under the `:rf.story/*` reserved sub-namespace per
   spec/Conventions.md §Reserved namespaces — the `:rf.<tool>/*`
-  convention introduced by Xray's rename (rf2-xea9u).
+  convention.
 
   `{:rf.story/global-args {...}}` — replace the global args map.
 
   `{:rf.story/global-decorators [[<dec-id> & ref-args] ...]}` — replace
-  the global-decorators ref vector per rf2-9qpk3 (Storybook `preview.ts`
+  the global-decorators ref vector (Storybook `preview.ts`
   `decorators: [...]` parity). Each entry is `[decorator-id & ref-args]`
   — same shape a `:decorators` slot on `reg-story` / `reg-variant`
   takes. The decorator BODIES must already be registered via
@@ -805,11 +794,10 @@
   `(concat globals story variant)`. Passing `nil` or `[]` clears the
   global stack. The args-precedence-chain analog already exists at
   Layer 1; this is the decorators analog — both are project-wide
-  defaults the host application sets once at boot. Per Feature-Parity-
-  Audit C-1 / Finding F-1.
+  defaults the host application sets once at boot.
 
-  `{:rf.story/editor <kw>}` — 'Open in editor' preference per
-  rf2-evgf5. One of `:vscode` (default) / `:cursor` / `:idea` /
+  `{:rf.story/editor <kw>}` — 'Open in editor' preference. One of
+  `:vscode` (default) / `:cursor` / `:idea` /
   `{:custom \"<template>\"}`. Drives the `vscode://` / `cursor://` /
   `idea://` URI scheme the source-coord open-button affordances emit.
   See `re-frame.source-coords.editor-uri/editor-uri` for the per-editor
@@ -817,7 +805,7 @@
 
   `{:rf.story/project-root <string>}` — on-disk root prepended to the
   source-coord's classpath-relative `:file` slot when building the
-  'Open in editor' URI per rf2-zfy1e. The host application sets this
+  'Open in editor' URI. The host application sets this
   once at boot — typically the directory above the build's
   source-paths, e.g. `\"C:/Users/me/code/my-app\"` joined to a
   source-coord file like `\"src/app/views.cljs\"` to produce
@@ -825,25 +813,24 @@
   (no prefix; source-coord file ships verbatim — useful when the
   classpath already resolves to absolute paths, and for tests).
 
-  Per rf2-r1uod the value is also bridged into Xray's
+  The value is also bridged into Xray's
   `:rf.xray/project-root` slot via
   `re-frame.story.xray-preset/propagate-project-root!` so Xray-as-RHS
   source-coord chips (open-in-editor on the Handler / Dispatch /
   Interceptor chips, Trace tab rows, Issues ribbon) resolve against the
   same on-disk root. The bridge is one-way; hosts that want Xray
   pointed at a different root call `xray-config/configure!` directly
-  AFTER `story/configure!`. Symmetric to shop's rf2-6jyf6.
+  AFTER `story/configure!`.
 
   `{:rf.story/egress-profile <kw>}` — Story's on-box dev-UI egress
-  profile per EP-0015 (frame-owned egress policy, rf2-3t26eh). One of
+  profile per EP-0015 (frame-owned egress policy). One of
   the six ruled `:rf.egress/*` profiles; in practice the two on-box
   members: `:rf.egress/local-redacted` (default — suppress sensitive
   display, FAIL-CLOSED) or `:rf.egress/local-raw` (the trusted-local
   opt-in — show path-marked-sensitive values verbatim on your own
-  machine). EP-0015 issue 7 retired the process-global
-  `:rf.privacy/show-sensitive?` boolean in favour of this named-boundary
-  choice: there is no single on/off toggle, the question is *which
-  boundary is this?* Story's value-bearing surfaces (the recorder, the
+  machine). Egress is a named-boundary choice (EP-0015), not a single
+  on/off toggle: the question is *which boundary is this?* Story's
+  value-bearing surfaces (the recorder, the
   per-variant trace-buffer listener consumed by the schema-validation
   panel, the play-assertion listeners) project through the centralized
   `re-frame.core/project-egress` walker under this profile and surface a
@@ -851,8 +838,8 @@
   raises `:rf.error/unknown-egress-profile`. `nil` resets to the
   redacting default.
 
-  Unrecognised keys raise `:rf.error/unknown-story-config-key` per
-  rf2-xwr1d. Pre-alpha posture: a typo (`:rf.story/edtior`) should
+  Unrecognised keys raise `:rf.error/unknown-story-config-key`.
+  Pre-alpha posture: a typo (`:rf.story/edtior`) should
   fail loudly at boot rather than silently no-op and leave the
   author chasing 'why isn't my editor preference taking effect?'
   across a session. The known-keys set is closed and small —
@@ -896,12 +883,12 @@
     (config/set-editor! editor))
   (when (contains? opts :rf.story/project-root)
     (config/set-project-root! project-root)
-    ;; rf2-r1uod — bridge into Xray's `:rf.xray/project-root` slot so
+    ;; Bridge into Xray's `:rf.xray/project-root` slot so
     ;; Xray-as-RHS source-coord chips share the same on-disk root.
     ;; Feature-detect-safe (no-op when Xray is not on the classpath).
     #?(:cljs (xray-preset/propagate-project-root!)))
   (when (contains? opts :rf.story/egress-profile)
-    ;; EP-0015 (rf2-3t26eh): the named-boundary enum is CLOSED. An unknown
+    ;; EP-0015: the named-boundary enum is CLOSED. An unknown
     ;; non-nil profile fails loudly at boot — mirroring `project-egress`'s
     ;; own `:rf.error/unknown-egress-profile` — rather than silently
     ;; coercing to the default. `nil` resets to the redacting default.
@@ -936,21 +923,20 @@
 
   Also:
   - resets every leakable process-global config atom via
-    `re-frame.story.config/reset-all!` (rf2-6ez1u) — `global-args`
+    `re-frame.story.config/reset-all!` — `global-args`
     (Layer 1 of args resolution), `global-decorators`, `editor`,
     `project-root`, `egress-profile`, and `suppressed-counters` — so
     a `configure!` (or any config mutation) in one test cannot leak
     into the next and silently perturb a later variant's effective
-    args. (Subsumes the earlier rf2-835ey global-decorators-only
-    clear; `toggle-off-callbacks` are deliberately left intact — they
+    args. (`toggle-off-callbacks` are deliberately left intact — they
     are load-time module registrations, not per-test state.)
-  - resets the rf2-p1ydc auto-install gate so the next `reg-*` call
+  - resets the auto-install gate so the next `reg-*` call
     after `clear-all!` re-installs the canonical vocabulary on demand
     (the registrar's side-table is now empty — the seven canonical
     tags etc. need to be re-registered before any tagged variant can
     be added).
   - resets the two per-process play atoms (`pending-exceptions` +
-    `stepper-state`) via `play/clear-all-play-state!` (rf2-eztym.2) — the
+    `stepper-state`) via `play/clear-all-play-state!` — the
     remaining un-reset per-process state, so a stepper / pending-exception
     session in one test cannot leak into the next on a reset path that
     bypasses per-frame `frames/destroy!` teardown."
@@ -963,7 +949,7 @@
 ;; ---- canonical test-fixture helper — DIRECT-REQUIRE, not on this facade -
 ;;
 ;; The canonical Story test-fixture helper lives in
-;; `re-frame.story.test-support` (rf2-lh99f) — `with-clean-registry` /
+;; `re-frame.story.test-support` — `with-clean-registry` /
 ;; `use-fixtures`. It is DELIBERATELY NOT re-exported on this facade:
 ;; `re-frame.story.test-support` requires `re-frame.test-support`, which
 ;; requires `cljs.test` / `clojure.test`; re-exporting it here would pull
@@ -1077,7 +1063,7 @@
   ([variant-id]       (lifecycle/snapshot-identity variant-id))
   ([variant-id opts]  (lifecycle/snapshot-identity variant-id opts)))
 
-;; ---- canonicalization / fingerprinting (rf2-5x1wt.3) --------------------
+;; ---- canonicalization / fingerprinting ----------------------------------
 ;;
 ;; The single canonical projection + hashing primitive lives in
 ;; `re-frame.story.fingerprint`. These are the public re-exports per
@@ -1119,7 +1105,7 @@
   [result]
   (fingerprint/run-hash result))
 
-;; ---- run-evidence projection (rf2-5x1wt.4) ------------------------------
+;; ---- run-evidence projection --------------------------------------------
 ;;
 ;; Per spec/017 §Run-result evidence projection — the single boundary from
 ;; the retained epoch tape to the API-stable run-result evidence slots. The
@@ -1146,7 +1132,7 @@
   ([epoch-tape]                     (evidence/tape-shows-failure? epoch-tape))
   ([epoch-tape consumed-selectors]  (evidence/tape-shows-failure? epoch-tape consumed-selectors)))
 
-;; ---- narrative navigation (rf2-5x1wt.23) --------------------------------
+;; ---- narrative navigation -----------------------------------------------
 ;;
 ;; Per spec/017 §Epoch tape and narrative — the pure scrub backbone. The
 ;; two-level `:narrative` is a tree (spans over beats); a Test-mode /
@@ -1183,7 +1169,7 @@
   [narrative]
   (evidence/beat-epoch-ids narrative))
 
-;; ---- run artifact + replay (rf2-5x1wt.7) --------------------------------
+;; ---- run artifact + replay ----------------------------------------------
 ;;
 ;; Per spec/017 §Run artifact and replay — the serializable
 ;; `:rf.test/run-artifact` record + the function that replays it into a
@@ -1213,7 +1199,7 @@
   ([art]      (artifact/replay-run-artifact art))
   ([art opts] (artifact/replay-run-artifact art opts)))
 
-;; ---- determinism gate (rf2-5x1wt.8) -------------------------------------
+;; ---- determinism gate ---------------------------------------------------
 ;;
 ;; Per spec/017 §Determinism gate — replay the plan/artifact into N FRESH
 ;; frames and compare the canonical run-slices. Builds on `.7` replay and
@@ -1233,7 +1219,7 @@
   ([plan-or-artifact]      (determinism/assert-deterministic plan-or-artifact))
   ([plan-or-artifact opts] (determinism/assert-deterministic plan-or-artifact opts)))
 
-;; ---- run-artifact → variant promotion bridge (rf2-5x1wt.25) -------------
+;; ---- run-artifact → variant promotion bridge ----------------------------
 ;;
 ;; Per spec/017 §Promotion — Promotion bridge: a curated run artifact
 ;; becomes a NAMED Story variant. Two surfaces: `materialize-variant-plan`
@@ -1267,7 +1253,7 @@
   [artifact opts]
   (promotion/promote-run-artifact! artifact opts))
 
-;; ---- generated / property-style runs (rf2-5x1wt.31) ---------------------
+;; ---- generated / property-style runs ------------------------------------
 ;;
 ;; Per spec/017 §Generated runs and artifacts — a property over N generated
 ;; event programs that emits a SEED-bearing `:rf.test/run-artifact` for every
@@ -1301,7 +1287,7 @@
   [base-program fault-lattice opts]
   (generate/sweep-faults! base-program fault-lattice opts))
 
-;; ---- semantic diff over run artifacts (rf2-5x1wt.9) ---------------------
+;; ---- semantic diff over run artifacts -----------------------------------
 ;;
 ;; Per spec/017 §Semantic diff — a readable diff between two runs, with the
 ;; per-run noise (frame ids, timestamps, dispatch / epoch / trace ids)
@@ -1325,7 +1311,7 @@
   ([baseline current]      (diff/diff-run-artifacts baseline current))
   ([baseline current opts] (diff/diff-run-artifacts baseline current opts)))
 
-;; ---- golden slices (rf2-5x1wt.32) ---------------------------------------
+;; ---- golden slices ------------------------------------------------------
 ;;
 ;; Per spec/017 §Golden slices — a curated canonicalized run regression
 ;; artifact: freeze a run's behavioural slice via `canonicalize` (the slice
@@ -1443,7 +1429,7 @@
   []
   assertions/known-assertion-ids)
 
-;; ---- unified run-result + the three verbs (rf2-5x1wt.19) ----------------
+;; ---- unified run-result + the three verbs -------------------------------
 ;;
 ;; Per spec/017 §Run result + §Unified run result + §Public execution API:
 ;; ONE run-result shape, and `story/is` bridges it to clojure.test /
@@ -1525,7 +1511,7 @@
   [records unmet]
   (requirements/aggregate-status records unmet))
 
-;; ---- the frozen, schema-backed run-result contract (rf2-3nbl5.6) --------
+;; ---- the frozen, schema-backed run-result contract ----------------------
 ;;
 ;; The unified run-result is a FROZEN public contract — the ONE result
 ;; language spoken IDENTICALLY across `run` / `is` / `render-variant`, the
@@ -1533,24 +1519,23 @@
 ;; re-export the executable Malli schema (`re-frame.story.result/RunResult`)
 ;; + its validators so any surface (CI, MCP, the test corpus) can prove a
 ;; result conforms without a parallel schema. The verdict is `:status`
-;; (`result-status` / `result-passed?`); there is NO `:passing?` boolean
-;; (the clean break, rf2-ba86n.17).
+;; (`result-status` / `result-passed?`); there is NO `:passing?` boolean.
 
 (def run-result-schema
-  "Per spec/017 §Run result (rf2-3nbl5.6) — the frozen Malli schema for the
+  "Per spec/017 §Run result — the frozen Malli schema for the
   unified run-result. The ONE schema-backed contract Story UI, CI,
   `clojure.test`, and story-mcp validate against (see
   `re-frame.story.result/RunResult`)."
   result/RunResult)
 
 (defn valid-run-result?
-  "Per spec/017 §Run result (rf2-3nbl5.6) — true iff `result` conforms to
+  "Per spec/017 §Run result — true iff `result` conforms to
   the frozen `run-result-schema`. Pure data → data."
   [result]
   (result/valid-run-result? result))
 
 (defn explain-run-result
-  "Per spec/017 §Run result (rf2-3nbl5.6) — Malli explanation of why
+  "Per spec/017 §Run result — Malli explanation of why
   `result` does NOT conform to the frozen `run-result-schema`, or nil when
   it conforms. Pure data → data."
   [result]
@@ -1575,7 +1560,7 @@
 
   - a **keyword** is a registered variant id — resolved through the Story
     side-table and run through the variant lifecycle;
-  - a **map** is an INLINE plan (rf2-5x1wt.20, spec/017 §Inline plan) —
+  - a **map** is an INLINE plan (spec/017 §Inline plan) —
     compiled, run against a fresh anonymous frame, and torn down on
     resolve. An inline plan is NOT registered in the side-table and is
     absent from Story navigation; it MAY compose registered fragments +
@@ -1594,7 +1579,7 @@
      (lifecycle/run-inline-plan target opts)
      (lifecycle/run-variant target opts))))
 
-;; ---- variant-plan / explain / render-variant (rf2-5x1wt.24) -------------
+;; ---- variant-plan / explain / render-variant ----------------------------
 ;;
 ;; The variant-plan compiler is the ONE normalization both the runner and
 ;; the workshop render path consume (spec/017 §Variant plan — every
@@ -1645,7 +1630,7 @@
   NOT execute `:script` or terminal `:expect` (rendering is not a test
   run). The `:plan-hash` is computed over the SAME normalized plan as
   `story/run`, so a runner and `render-variant` agree on it whenever the
-  behaviour-relevant inputs match (rf2-5x1wt.24). A control override that
+  behaviour-relevant inputs match. A control override that
   drives an invalid view input STOPS render before the view is called
   (`:invalid-args`); on the bare JVM (no host renderer) the verb returns
   `:cannot-run` rather than a silent empty render."
@@ -1670,7 +1655,7 @@
 
   `target` dispatches the same way `story/run` does: a keyword is a
   registered variant; a map (without a `:status` / `:assertions` pair) is
-  an INLINE plan (rf2-5x1wt.20) — compiled + run against a fresh anonymous
+  an INLINE plan — compiled + run against a fresh anonymous
   frame, then reported per assertion. (A map that ALREADY carries a
   `:status` + `:assertions` is treated as an already-resolved run-result
   and reported directly — the sync path, below.)
@@ -1686,7 +1671,7 @@
   `(async done …)` form) and call `(story/report-result! result)` when it
   resolves. `report-result!` is the pure-report seam both runtimes share.
 
-  ## `:timeout-ms` — the JVM block bound (rf2-zaklu)
+  ## `:timeout-ms` — the JVM block bound
 
   `opts` MAY carry `:timeout-ms` — the JVM blocking-deref bound, in
   milliseconds (default `30000`). A run that does not resolve inside the
@@ -1708,13 +1693,13 @@
          target)
 
      :else
-     ;; rf2-zaklu — `:timeout-ms` bounds the JVM blocking deref (default
+     ;; `:timeout-ms` bounds the JVM blocking deref (default
      ;; 30000), read on the `:clj` branch only (CLJS never blocks). Strip
      ;; it from the opts threaded into `run` so the runner / plan-compiler
      ;; does not see a key it does not own.
      (let [run-opts (not-empty (dissoc opts :timeout-ms))
            p        (run target run-opts)]
-       ;; rf2-ngwdf — both branches pass `(:variant/id result)`, matching
+       ;; Both branches pass `(:variant/id result)`, matching
        ;; the already-resolved sync branch above. `emit-reports!` ignores
        ;; its first arg TODAY, so this is behaviour-preserving; it removes
        ;; the latent trap of three call sites supplying three different
@@ -1798,7 +1783,7 @@
   layout-debug/id-pseudo)
 
 (defn variant-share-url
-  "Per `005-SOTA-Features.md` §Share URL (retired QR popover) — build a sharable URL for a variant against
+  "Per `005-SOTA-Features.md` §Share URL — build a sharable URL for a variant against
   `base-url`. Encodes active modes + cell-overrides + substrate so a
   scan-and-share session reproduces the cell.
 
@@ -1849,7 +1834,7 @@
   ([variant-id]       (decorators/resolve-decorators variant-id))
   ([variant-id opts]  (decorators/resolve-decorators variant-id opts)))
 
-;; ---- rf2-8wgpm: static-mode? probe --------------------------------------
+;; ---- static-mode? probe -------------------------------------------------
 
 (defn static-mode?
   "Per tools/story/spec/013-Static-Build.md — return true iff Story is
@@ -1882,10 +1867,9 @@
      - the main pane (selected variant's canvas or selected workspace)
      - a right panel — Xray embedded as the primary inspector,
        plus controls, dispatch console, and play status / viewport
-       / background chrome chips (rf2-sgdd3 — the Story-side
-       scrubber / trace / actions panels were retired; Xray's L1
-       ribbon + L2 event list + Trace tab + Event-tab cascade view
-       cover what they did)
+       / background chrome chips. Xray's L1 ribbon + L2 event list +
+       Trace tab + Event-tab cascade view cover scrubbing, trace, and
+       action inspection.
 
      Per `003-Render-Shell.md` §Shell lifecycle v1 supports one mounted shell at a time; calling
      `mount-shell!` while a shell is already mounted tears down the
@@ -1911,10 +1895,10 @@
      []
      (ui-shell/active-shell)))
 
-;; ---- rf2-5fc15 — Test Codegen recorder public surface --------------------
+;; ---- Test Codegen recorder public surface -------------------------------
 ;;
-;; Per bead rf2-5fc15 the recorder captures canvas-dispatched events as
-;; a `:play-script` body. Exposing the entry points here lets tests, MCP
+;; The recorder captures canvas-dispatched events as a `:play-script`
+;; body. Exposing the entry points here lets tests, MCP
 ;; tooling, and headless integrations drive recording programmatically
 ;; without going through the toolbar UI.
 
@@ -1959,12 +1943,11 @@
 (defn gen-play-snippet
   "Render an EDN snippet `(reg-variant <id> {... :script {...}})` for
   `events`. Pure data → string; round-trips through `read-string` and
-  re-frame's registrar machinery. Per rf2-7mj4z the emitted snippet uses
-  the PUBLIC `:script` authoring slot (spec/017 §Public vocabulary), not
-  the transitional `:play-script` spelling — each captured event vector
-  is wrapped as a `[:dispatch-sync <event-vec>]` step under the public
-  `:script` body's inner `:script` vector (rf2-0wrud — the one phase-4
-  step grammar).
+  re-frame's registrar machinery. The emitted snippet uses
+  the PUBLIC `:script` authoring slot (spec/017 §Public vocabulary) —
+  each captured event vector is wrapped as a `[:dispatch-sync
+  <event-vec>]` step under the public `:script` body's inner `:script`
+  vector (the one phase-4 step grammar).
 
   `opts` accepts:
     :variant-id  required — keyword id for the new variant.
@@ -1987,10 +1970,10 @@
   `{:script [...] :auto-run? bool}` map a runner executes. The MCP
   write-back path (`record-as-variant`) calls this to re-register the
   variant with a live `:script` slot — the canonical AND ONLY phase-4
-  replay surface per rf2-0wrud.
+  replay surface.
 
-  `events` may be the legacy bare-events vector OR the rich `:entries`
-  vector (rf2-d5u89). `opts` accepts `:auto-run?`, `:name`,
+  `events` may be the bare-events vector OR the rich `:entries`
+  vector. `opts` accepts `:auto-run?`, `:name`,
   `:auto-assert?` + `:final-db`/`:seed-db`/`:max-auto-assertions`, and
   `:wait-threshold-ms` — see `re-frame.story.recorder.play-export/
   recording->script-body` for the full contract.

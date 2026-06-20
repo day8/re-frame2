@@ -1,5 +1,5 @@
 (ns re-frame.story.recorder.dom-capture
-  "DOM-event capture for the recorder (rf2-d5u89).
+  "DOM-event capture for the recorder.
 
   Listens on the story canvas root for `click` / `input` / `change` /
   `submit` events while a recording is in flight, picks a selector
@@ -47,16 +47,16 @@
   only capture interactions the user is making against the
   variant under test.
 
-  ## Sensitive input redaction (rf2-0qoi0 — record-but-redact for DOM)
+  ## Sensitive input redaction (record-but-redact for DOM)
 
   The dispatched-event rail redacts `:sensitive? true` events
   (`recorder/trace-listener` → `config/suppress-sensitive?` →
-  `recorder/redacted-event`) per the rf2-hdadz record-but-redact
-  policy. The DOM-capture rail is the SECOND egress and carries the
-  SAME obligation: a user recording a login flow types a real password,
-  and (post rf2-nkjkj, with `:entries` the primary codegen source) that
-  plaintext would otherwise ride verbatim into the generated
-  `:play-script` `[:type selector \"…\"]` step.
+  `recorder/redacted-event`) per the record-but-redact policy. The
+  DOM-capture rail is the SECOND egress and carries the SAME obligation:
+  a user recording a login flow types a real password, and (with
+  `:entries` the primary codegen source) that plaintext would otherwise
+  ride verbatim into the generated `:play-script` `[:type selector \"…\"]`
+  step.
 
   So `handle-input!` / `handle-change!` detect a SENSITIVE input —
   `<input type=password|email|tel>` or one whose `autocomplete` token
@@ -69,7 +69,7 @@
   UI's REDACTED hint reflects the scrubbed rows, exactly as the dispatch
   rail does. Hosts debugging redaction policy opt into the trusted-local
   boundary via `(story/configure! {:rf.story/egress-profile
-  :rf.egress/local-raw})` for the verbatim path (EP-0015 rf2-3t26eh) —
+  :rf.egress/local-raw})` for the verbatim path (EP-0015) —
   the SAME profile the dispatch rail honours.
 
   `<select>` is NOT treated as sensitive (a choice from visible options
@@ -119,7 +119,7 @@
   ;; `:t` is the recording-relative timestamp stamped at BUFFER time (while
   ;; `:recording?` is true), so the drain can flush the buffered keystroke
   ;; with its capture-time `:t` even when the flush fires AFTER the recording
-  ;; was stopped (rf2-eztym.3).
+  ;; was stopped.
   (atom {}))
 
 (defn- now-ms []
@@ -171,7 +171,7 @@
   Each buffered entry is appended with its capture-time `:t` (stamped at
   BUFFER time, while `:recording?` was true) via
   `recorder/record-dom-event-buffered!` — NOT via `record-dom-type!`'s
-  `recording-now-ms` re-read (rf2-eztym.3). This is what lets the final
+  `recording-now-ms` re-read. This is what lets the final
   keystroke survive a flush that fires AFTER the recording was stopped: the
   debounce timer (or the `remove!`/stop drain) can run once `:recording?` is
   already false without the entry being silently dropped. A defensive
@@ -210,7 +210,7 @@
   The capture-time `:t` is stamped HERE (while `:recording?` is true, since
   this only runs under `should-capture?`), so the flush can append the
   buffered keystroke with its real capture timestamp even when the flush
-  fires after the recording was stopped (rf2-eztym.3)."
+  fires after the recording was stopped."
   [selector value]
   (when (some? selector)
     (let [existing (get @type-buffer selector)]
@@ -241,11 +241,11 @@
   [el]
   (or (.-value el) ""))
 
-;; ---- sensitive-input redaction (rf2-0qoi0) ------------------------------
+;; ---- sensitive-input redaction -----------------------------------------
 
 (def ^:const redacted-type-text
   "The placeholder text the DOM rail substitutes for a SENSITIVE input's
-  typed value (rf2-0qoi0). The STRING mirror of the dispatch rail's
+  typed value. The STRING mirror of the dispatch rail's
   `recorder/redacted-event` `[:rf/redacted]` placeholder — a string
   because the `:dom/type` → `[:type selector text]` play-step requires a
   string `text` slot (the runner's `step-arity-ok?`). Reads the same way
@@ -255,15 +255,15 @@
   "[:rf/redacted]")
 
 (def ^:private sensitive-input-types
-  "`<input type=…>` values whose typed value is presumed sensitive
-  (rf2-0qoi0). `password` is the obvious credential field; `email` and
+  "`<input type=…>` values whose typed value is presumed sensitive.
+  `password` is the obvious credential field; `email` and
   `tel` are PII the record-but-redact policy scrubs by default. Compared
   case-insensitively against the element's `type` attribute."
   #{"password" "email" "tel"})
 
 (def ^:private sensitive-autocomplete-tokens
   "`autocomplete` attribute tokens that mark a field as a credential or
-  payment input (rf2-0qoi0, WHATWG autofill detail tokens). A field
+  payment input (WHATWG autofill detail tokens). A field
   carrying any of these is scrubbed even when its `type` is plain `text`
   (e.g. a one-time-code or a card number rendered as `type=text`)."
   #{"current-password" "new-password" "one-time-code"
@@ -288,7 +288,7 @@
 
 (defn- sensitive-element?
   "True iff typed input into `el` is presumed sensitive and MUST be
-  redacted out of the recording (rf2-0qoi0): a `<input>` whose `type` is
+  redacted out of the recording: a `<input>` whose `type` is
   password / email / tel, OR whose `autocomplete` names a credential /
   payment token. `<select>` / `<textarea>` are NOT sensitive — a choice
   from visible options or free-form prose is not a typed secret."
@@ -301,18 +301,18 @@
                                     (autocomplete-tokens el)))))))
 
 (defn- capture-value
-  "Read the value to RECORD for `el` (rf2-0qoi0). For a non-sensitive
-  field, the verbatim `.value`. For a SENSITIVE field, the redacted
-  placeholder — UNLESS Story's local-render egress profile reveals
-  sensitive values (the trusted-local `:rf.egress/local-raw` opt-in, the
-  same posture the dispatch rail honours per EP-0015 rf2-3t26eh), in
+  "Read the value to RECORD for `el`. For a non-sensitive field, the
+  verbatim `.value`. For a SENSITIVE field, the redacted placeholder —
+  UNLESS Story's local-render egress profile reveals sensitive values
+  (the trusted-local `:rf.egress/local-raw` opt-in, the same posture the
+  dispatch rail honours per EP-0015), in
   which case the verbatim value flows through. Bumps the suppressed
   counter for the recording's variant when it redacts, so the UI's
   REDACTED hint stays accurate."
   [el]
   (let [v       (target-value el)
         variant (recorder/recording-variant)]
-    ;; rf2-6z4znr — resolve the reveal decision against the RECORDING's frame
+    ;; Resolve the reveal decision against the RECORDING's frame
     ;; (per-(tool,frame) visibility). Revealing a sibling frame never reveals
     ;; this capture; a nil recording-variant fails closed (redacts).
     (if (and (sensitive-element? el) (not (config/include-sensitive? variant)))
@@ -345,7 +345,7 @@
 (defn- handle-input!
   "input / change handler — stashes the latest value into the
   per-selector type buffer + (re)arms the debounce timer. A SENSITIVE
-  input's value is redacted at the capture boundary (rf2-0qoi0) via
+  input's value is redacted at the capture boundary via
   `capture-value`, so the secret never reaches the recorder atom."
   [ev]
   (when (should-capture?)
@@ -367,8 +367,8 @@
           ;; Stash the most-recent value FIRST (so a `change` on a
           ;; `<select>` — which never fires `input` — still has a
           ;; value to flush). Sensitive `<input>` values are redacted at
-          ;; the capture boundary (rf2-0qoi0); `<select>` is never
-          ;; sensitive, so its choice flows through verbatim.
+          ;; the capture boundary; `<select>` is never sensitive, so its
+          ;; choice flows through verbatim.
           (when sel
             (buffer-type! sel (capture-value el))
             (flush-type-buffer! sel)))))))

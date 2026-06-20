@@ -1,13 +1,10 @@
 (ns re-frame.story.ui.markdown
-  "Minimal CommonMark-subset markdown → hiccup renderer (rf2-wl7yr,
-  audit C-2).
+  "Minimal CommonMark-subset markdown → hiccup renderer.
 
   Story's `:docs` mode pane (`re-frame.story.ui.docs/prose-section`)
-  and `:prose`-layout workspaces previously rendered prose as
-  `pre-wrap` plain text. Authors write prose in markdown — backticks,
-  bullets, headings — and seeing the raw syntax is a perpetual
-  papercut. This namespace lifts that text into hiccup so the prose
-  pane reads as docs, not source.
+  and `:prose`-layout workspaces render prose written in markdown —
+  backticks, bullets, headings. This namespace lifts that text into
+  hiccup so the prose pane reads as docs, not raw source syntax.
 
   ## What we render
 

@@ -1,5 +1,5 @@
 (ns login-form.events
-  "Login-form testbed events (rf2-0sg12) — five-state login flow.
+  "Login-form testbed events — five-state login flow.
 
   The Story tutorial's index page opens with a five-state login-form
   scenario (`docs/story/index.md:13-26`) and never delivers code for
@@ -19,8 +19,8 @@
   bodies are data; they reference these event-ids in their `:setup`
   slot. Story's per-variant frame isolation (Spec 002) means each variant
   gets its own fresh `[:rf.runtime/machines :snapshots :login/flow]` slot in
-  its runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
-  durable runtime-db state, not app-db).
+  its runtime-db partition (EP-0001 — machine snapshots are durable
+  runtime-db state).
 
   Per Spec 014 §Testing the stub layer: `:rf.http/managed` is the
   fx-id the machine emits; the Story variants override that id via
@@ -35,10 +35,10 @@
             ;; the login flow's request fx would throw
             ;; :rf.error/no-such-fx.
             [re-frame.http.managed]
-            ;; rf2-cdmle — this testbed resolves
+            ;; This testbed resolves
             ;; :rf.http/managed-canned-success/failure via registrar lookup.
-            ;; Per the gate change, the canned-stub fx ids register from
-            ;; re-frame.http.test-support, NOT re-frame.http.managed.
+            ;; The canned-stub fx ids register from
+            ;; re-frame.http.test-support, not re-frame.http.managed.
             [re-frame.http.test-support]
             [re-frame.registrar :as registrar]))
 

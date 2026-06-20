@@ -3,13 +3,12 @@
   information density with stable spacing; strong alignment and
   grouping').
 
-  Before this namespace the chrome's padding / gap / radius values were
-  scattered raw `\"6px\"` / `\"12px\"` / `\"3px\"` strings at call sites,
-  so the spacing rhythm was implicit and drifted between regions — one
-  panel padded `12px`, its sibling `10px`, with no rule. A workshop UI
-  the user leaves open all day lives or dies on stable spacing; this
-  namespace makes the rhythm a constructed 4px scale rather than a
-  per-call-site guess.
+  Every padding / gap / radius value in the chrome resolves through
+  this namespace's constructed 4px scale rather than a per-call-site
+  raw string, so the spacing rhythm is explicit and regions align to
+  a shared grid — no panel padded `12px` while its sibling sits at
+  `10px`. A workshop UI the user leaves open all day lives or dies on
+  stable spacing.
 
   ## The 4px scale
 

@@ -12,7 +12,7 @@
   placeholders, computing the required-runner capability set, and
   producing `explain` data during compilation.
 
-  ## What this layer DOES (rf2-5x1wt.10)
+  ## What this layer DOES
 
   - Read a registered variant body (or accept an inline map).
   - Resolve the `:extends` parent chain root-to-child, bounded with cycle
@@ -27,11 +27,11 @@
   - Preserve platforms / tags / workshop context under `:world`.
   - Compute the `:required-runner` capability set from the script steps
     and the declared assertions, through the capability-token registry in
-    `re-frame.story.requirements` (rf2-5x1wt.16 — the single home for the
+    `re-frame.story.requirements` (the single home for the
     per-step / per-assertion requirement maps).
   - Attach `:source-chain` and an `:explain` map.
 
-  ## View arg schemas (rf2-5x1wt.12)
+  ## View arg schemas
 
   When a variant's `:component` resolves to a registered view that
   carries a props schema on its view metadata, the compiler copies that
@@ -49,7 +49,7 @@
   subscriptions / `:sub-overrides` (§View-state subscription overrides);
   the two MUST NOT be conflated.
 
-  ## View-state subscription overrides (rf2-5x1wt.13)
+  ## View-state subscription overrides
 
   A variant whose goal is rendering / design exploration MAY author
   `:sub-overrides` — a map of exact subscription query vectors to data
@@ -70,7 +70,7 @@
   lower-fidelity rung of the fidelity ladder; the `:fidelity` set labels
   it so a reviewer can tell at a glance which evidence a variant rests on.
 
-  ## Network world slot (rf2-5x1wt.14)
+  ## Network world slot
 
   When a variant authors `:network` (a `{[method url] {:reply …}}` route
   map), the compiler keeps the per-route reply data at `[:world :network]`
@@ -85,7 +85,7 @@
   conflict (`:rf.error/story-network-fx-conflict`) — `:network` is the
   dedicated affordance for that fx. See §Network world slot below.
 
-  ## Strict `:compose` composition (rf2-5x1wt.15) + capability inference (rf2-5x1wt.16)
+  ## Strict `:compose` composition + capability inference
 
   Strict `:compose` fragment/check composition AND its conflict resolution
   land HERE (§`:compose` / §Merge rules / §Conflict resolution): see the
@@ -93,9 +93,9 @@
   variant-owned-wins, the flat-fragment guard
   (`:rf.error/story-compose-nested-fragment`), and the silent-conflict
   failure (`:rf.error/story-compose-conflict`). The capability-token
-  registry is no longer scaffolded inline either: the `:required-runner`
-  slot is filled through `re-frame.story.requirements` (the single home for
-  the per-step / per-assertion requirement maps).
+  registry lives in `re-frame.story.requirements`: the `:required-runner`
+  slot is filled through it (the single home for the per-step /
+  per-assertion requirement maps).
 
   ## What this layer DEFERS
 
@@ -103,10 +103,9 @@
   This layer keeps the per-route `:network` reply map at `[:world :network]`
   and lowers it to the managed-stub fx-override the runner installs. The
   run-artifact wiring that threads `[:world :network]` onto the artifact's
-  `:network` slot so replay RE-INSTALLS the route stubs landed in
-  `re-frame.story.determinism/->artifact` + `re-frame.story.artifact`
-  (rf2-tymyh, on top of the run-artifact ns rf2-5x1wt.7) — without
-  reshaping the plan, exactly as this layer anticipated.
+  `:network` slot so replay RE-INSTALLS the route stubs lives in
+  `re-frame.story.determinism/->artifact` + `re-frame.story.artifact` —
+  without reshaping the plan, exactly as this layer anticipates.
 
   ## Purity / elision
 
@@ -202,10 +201,9 @@
 ;; Field merge (foundation: context-flows-down / verdict-is-local)
 ;; ============================================================================
 ;;
-;; rf2-5x1wt.10 implements the *parent-chain* slice of §Merge rules — the
-;; foundation that .11/.12 build the strict `:compose` conflict machinery
-;; on. The principle from §`:extends`: context flows down, verdict is
-;; local.
+;; The *parent-chain* slice of §Merge rules — the foundation the strict
+;; `:compose` conflict machinery builds on. The principle from §`:extends`:
+;; context flows down, verdict is local.
 ;;
 ;;   - inherited through :extends — world context (setup, args, frame,
 ;;     platforms, tags, workshop slots) AND checks (the inheritable
@@ -271,7 +269,7 @@
 (defn- reject-malformed-steps!
   "FAIL plan construction when any COERCED (but not-yet-folded) script step
   is structurally malformed — an unknown step tag or a tag with the wrong
-  arity/shape (rf2-zha5z, spec/017 §Script step grammar). Reuses the
+  arity/shape (spec/017 §Script step grammar). Reuses the
   runner's `validate-script` (`runner/step-arity-ok?` + `known-step?`) — the
   ONE encoding of the per-tag shape constraints — so the plan compiler and
   the runtime runner agree on what a well-formed step is.
@@ -305,12 +303,12 @@
   runner's canonical coercion. The primary `:script` is the first play.
 
   Each play's coerced script is first SHAPE-VALIDATED
-  (`reject-malformed-steps!`, rf2-zha5z) so a malformed `:assert-db` /
-  `:assert-dom` (or any step) FAILS with a structured `:rf.error/story-bad-
-  step` BEFORE the fold — the fold helpers assume well-formed input.
+  (`reject-malformed-steps!`) so a malformed `:assert-db` / `:assert-dom`
+  (or any step) FAILS with a structured `:rf.error/story-bad-step` BEFORE
+  the fold — the fold helpers assume well-formed input.
 
-  After validation every play's script is FOLDED (`assertions/fold-script`,
-  rf2-5x1wt.18): a shipping `:assert-db` / `:assert-dom` step rewrites to
+  After validation every play's script is FOLDED (`assertions/fold-script`):
+  a shipping `:assert-db` / `:assert-dom` step rewrites to
   the canonical `[:assert assertion-atom]` checkpoint, so EVERY in-script
   assertion — whatever sugar the author typed — resolves to the ONE
   assertion atom shape (spec/017 §Assertions — one atom, two positions).
@@ -333,8 +331,8 @@
      :scripts plays}))
 
 (defn- assert-step?
-  "True iff `step` is an `[:assert assertion-vector]` in-script checkpoint
-  (rf2-5x1wt.17). Per spec/017 §Script step grammar the `[:assert …]`
+  "True iff `step` is an `[:assert assertion-vector]` in-script checkpoint.
+  Per spec/017 §Script step grammar the `[:assert …]`
   step is legal in `:script` but ILLEGAL in `:setup` — setup establishes
   preconditions, it does not judge."
   [step]
@@ -344,8 +342,8 @@
 
 (defn- reject-assert-in-setup!
   "FAIL plan construction when any resolved `:setup` step is an
-  `[:assert …]` checkpoint (rf2-5x1wt.17, spec/017 §Script step grammar +
-  §Setup). `:assert` is the mid-script verdict atom; placing one in
+  `[:assert …]` checkpoint (spec/017 §Script step grammar + §Setup).
+  `:assert` is the mid-script verdict atom; placing one in
   `:setup` confuses precondition with judgement. The variant resolves it
   by moving the assertion to `:script` (as an `[:assert …]` checkpoint)
   or to the terminal `:assertions` slot. The reject runs at plan-compile
@@ -364,12 +362,12 @@
            {:variant/id id :offending-steps (vec offenders)})))
 
 ;; ============================================================================
-;; Assertion-id validation (rf2-5x1wt.18)
+;; Assertion-id validation
 ;; ============================================================================
 
 (defn- script-assertion-atoms
   "Collect the assertion atoms an `[:assert assertion-atom]` checkpoint
-  carries from a folded `script` (rf2-5x1wt.18). The shipping
+  carries from a folded `script`. The shipping
   `:assert-db` / `:assert-dom` steps are already folded to `[:assert …]`
   by `normalize-scripts`, so this single walk covers every in-script
   assertion position uniformly. Pure data → data."
@@ -380,7 +378,7 @@
   "FAIL plan construction when any authored assertion atom — terminal
   `:assertions` OR an in-script `[:assert …]` checkpoint — names an id
   that is not in the recognised P1 vocabulary
-  (`assertions/known-assertion-ids`, rf2-5x1wt.18, spec/017 §Assertions).
+  (`assertions/known-assertion-ids`, spec/017 §Assertions).
   Catching it at compile time surfaces the typo before any run, the same
   way the other `:rf.error/story-*` plan errors do — never letting an
   unknown id record a vacuous `:rf.assert/unknown` pseudo-record at run
@@ -481,7 +479,7 @@
 ;;
 ;; The capability-token registry + cost-ordered concrete runners + the
 ;; per-step / per-assertion requirement maps live in
-;; `re-frame.story.requirements` (rf2-5x1wt.16) — the single home so the
+;; `re-frame.story.requirements` — the single home so the
 ;; runner-selection, `:cannot-run` refusal, and post-run evidence-slot
 ;; validation all read ONE source of truth. The plan compiler computes the
 ;; `:required-runner` slot through that registry. Per §Runner requirements
@@ -498,7 +496,7 @@
   (requirements/plan-required-runner setup script assertions))
 
 ;; ============================================================================
-;; View arg schemas (rf2-5x1wt.12)
+;; View arg schemas
 ;; ============================================================================
 ;;
 ;; Per spec §View arg schemas: a registered view MAY expose a schema for
@@ -512,13 +510,13 @@
 ;; `:rf/args` for macro-captured argument *symbols* (introspection, NOT a
 ;; validation schema — so it is never consumed here). The first-match key
 ;; order — `:rf/props` (canonical, `spec/Spec-Schemas.md`
-;; §`:rf/registration-metadata`) then `:schema` (the post-M-54 `reg-*`
+;; §`:rf/registration-metadata`) then `:schema` (the alternative `reg-*`
 ;; metadata key) — is the canonical resolution shared with every Story
 ;; consumer through `re-frame.story.malli-schema/view-args-schema`. `:rf/props`
 ;; wins over `:schema`; there is NO composition (a view's only schema
-;; surface is its props — the rf2-p5ivc (b) ruling). `:spec` is NOT a slot:
-;; it is dead post-M-54 (the framework reads `:schema` only on `reg-*`
-;; metadata — see migration/from-re-frame-v1/README.md §M-54).
+;; surface is its props). `:spec` is NOT a slot: the framework reads
+;; `:schema` only on `reg-*` metadata (see
+;; migration/from-re-frame-v1/README.md §M-54).
 ;;
 ;; **Boundary.** This validates EXPLICIT view inputs only. Values
 ;; returned from subscriptions are validated by subscription-output
@@ -630,7 +628,7 @@
        {:status :ok :schema schema :missing [] :malformed []}))))
 
 ;; ============================================================================
-;; View-state subscription overrides (rf2-5x1wt.13)
+;; View-state subscription overrides
 ;; ============================================================================
 ;;
 ;; Per spec §View-state subscription overrides. `:sub-overrides` is a map
@@ -724,7 +722,7 @@
          :violations violations}))))
 
 ;; ============================================================================
-;; Fidelity ladder (rf2-5x1wt.13)
+;; Fidelity ladder
 ;; ============================================================================
 ;;
 ;; Per spec §View-state subscription overrides — the fidelity ladder is:
@@ -737,10 +735,9 @@
 ;;   :real-setup    — the variant has setup events (or a script) that
 ;;                    drive real state into the frame;
 ;;   :db-seed       — a schema-checked direct app-db seed (the world
-;;                    `:db-seed` slot; rf2-blw1q — wired end-to-end: the
-;;                    compiler lowers it to `[:world :db-seed]` and the
-;;                    runtime seeds + schema-validates the frame's app-db
-;;                    BEFORE the script);
+;;                    `:db-seed` slot, wired end-to-end: the compiler lowers
+;;                    it to `[:world :db-seed]` and the runtime seeds +
+;;                    schema-validates the frame's app-db BEFORE the script);
 ;;   :sub-overrides — one or more view-state subscription overrides.
 
 (defn compute-fidelity
@@ -752,7 +749,7 @@
                      events drive the frame's state;
   - `:db-seed`       when `db-seed` resolves any entry (a schema-checked
                      direct app-db seed merged into the frame BEFORE the
-                     script — rf2-blw1q);
+                     script);
   - `:sub-overrides` when `sub-overrides` resolves any entry.
 
   A plain events-driven variant yields `#{:real-setup}`; a pure design
@@ -769,7 +766,7 @@
     (seq sub-overrides)           (conj :sub-overrides)))
 
 ;; ============================================================================
-;; Network world slot (rf2-5x1wt.14)
+;; Network world slot
 ;; ============================================================================
 ;;
 ;; Per spec §The network surface + §Network stubs: managed HTTP stubbing is
@@ -782,7 +779,7 @@
 ;; The compiler keeps the per-route reply data at `[:world :network]` (the
 ;; source of truth that feeds `:plan-hash` via `plan-hash-input-keys`'s
 ;; `:world` slot, `explain`, and — threaded onto the artifact's `:network`
-;; slot by `re-frame.story.determinism/->artifact`, rf2-tymyh — the run
+;; slot by `re-frame.story.determinism/->artifact` — the run
 ;; artifact) AND **lowers** it to the existing managed-request stub
 ;; machinery: the variant frame overrides `:rf.http/managed` with the stub
 ;; fx that `re-frame.http.test-support/install-managed-request-stubs!`
@@ -807,7 +804,7 @@
   `stub-fx-id` constant (Spec 014 §Testing); naming it here lets the plan
   declare the lowering without depending on the http artefact at compile
   time (the actual `install-…!` call is a RUNTIME concern, run when the
-  variant frame is created — see the runtime-migration bead)."
+  variant frame is created)."
   :rf.http/managed-test-stub)
 
 (defn lower-network
@@ -854,7 +851,7 @@
             :fx-overrides author-fx-overrides})))
 
 ;; ============================================================================
-;; Strict composition — `:compose` fragments + checks (rf2-5x1wt.15)
+;; Strict composition — `:compose` fragments + checks
 ;; ============================================================================
 ;;
 ;; Per spec/017 §`:compose` / §Total resolution order / §Merge rules /
@@ -1052,14 +1049,14 @@
   "Default subscription-metadata lookup — reads the **framework** `:sub`
   registrar slot (where `reg-sub` stamps a sub's metadata, incl. any
   `:schema` output-schema slot). Resolves the OUTPUT-schema source for
-  `:sub-overrides` value validation (rf2-5x1wt.13). Production bundles
+  `:sub-overrides` value validation. Production bundles
   that elide subs return nil; pure tests thread an explicit `:sub-lookup`."
   [sub-id]
   (framework-registrar/handler-meta :sub sub-id))
 
 (defn- default-fragment-lookup
   "Default fragment-body lookup — reads the Story side-table `:fragment`
-  kind (rf2-5x1wt.15). Production bundles elide the side-table; pure tests
+  kind. Production bundles elide the side-table; pure tests
   thread an explicit `:fragment-lookup`."
   [fragment-id]
   (registrar/handler-meta :fragment fragment-id))
@@ -1071,7 +1068,7 @@
 
 (defn- default-global-decorators
   "Default global-decorators ref vector — reads the project-wide
-  `config/get-global-decorators` (rf2-835ey — Storybook `preview.ts`
+  `config/get-global-decorators` (Storybook `preview.ts`
   `decorators: [...]` parity, the outermost wrap layer). Production
   bundles with Story elided register no globals, so the vector is empty
   there; pure tests thread an explicit `:global-decorators`."
@@ -1091,7 +1088,7 @@
 (defn expand-checks
   "Expand a plan's `:expect :checks` ids into the
   `{check-id [assertion-atom …]}` map the unified run-result groups its
-  check records by (rf2-5x1wt.19, spec/017 §Total resolution order step 8
+  check records by (spec/017 §Total resolution order step 8
   — \"expand checks into grouped assertions\"; §Checks — a failed check
   shows BOTH the check id AND the underlying records). Pure data → data.
 
@@ -1128,21 +1125,20 @@
     schemas). With no validator only required-key presence is checked
     (the host-free floor).
   - `:fragment-lookup` / `:check-lookup` — a 1-arg fn `(id) → body` OR a
-    `{id → body}` map resolving the bodies named in `:compose`
-    (rf2-5x1wt.15). Default to the Story side-table `:fragment` / `:check`
-    kinds.
+    `{id → body}` map resolving the bodies named in `:compose`.
+    Default to the Story side-table `:fragment` / `:check` kinds.
   - `:sub-lookup` — a 1-arg fn `(sub-id) → sub-meta` OR a `{sub-id →
     sub-meta}` map resolving a subscription's registration metadata (for
-    its OUTPUT schema, against which `:sub-overrides` values are validated
-    — rf2-5x1wt.13). Defaults to the framework `:sub` registrar.
+    its OUTPUT schema, against which `:sub-overrides` values are
+    validated). Defaults to the framework `:sub` registrar.
   - `:global-decorators` — the project-wide global-decorators ref vector
     (or a 0-arg fn returning one) prepended to `[:world :decorators]` as
-    the outermost wrap layer (rf2-5fibj / rf2-835ey). Defaults to
+    the outermost wrap layer). Defaults to
     `config/get-global-decorators`; pure tests pass an explicit vector.
   - `:story-decorators` — a 1-arg fn `(story-id) → decorators-vec` OR a
     `{story-id → decorators-vec}` map resolving the parent story's
-    `:decorators` slot (folded between globals and the variant chain —
-    rf2-5fibj). Defaults to the Story side-table `:story` kind."
+    `:decorators` slot (folded between globals and the variant chain).
+    Defaults to the Story side-table `:story` kind."
   ([id body lookup] (compile-body id body lookup nil))
   ([id body lookup {:keys [view-lookup validator-fns sub-lookup
                            fragment-lookup check-lookup
@@ -1154,12 +1150,12 @@
                                          default-fragment-lookup)
         chk-lookup   (coerce-kind-lookup :check-lookup check-lookup
                                          default-check-lookup)
-        ;; ---- ambient decorator layers (rf2-5fibj) ----
+        ;; ---- ambient decorator layers ----
         ;; The full decorator stack folded into `[:world :decorators]` is
         ;; `(concat globals story variant-chain)` — the SAME set
-        ;; `decorators/collect-decorator-refs` used to assemble at resolve
-        ;; time. Folding it HERE makes the compiled plan the single source
-        ;; of truth (rf2-din8u): the canvas (via `resolve-decorators`) and
+        ;; `decorators/collect-decorator-refs` assembles at resolve time.
+        ;; Folding it HERE makes the compiled plan the single source of
+        ;; truth: the canvas (via `resolve-decorators`) and
         ;; `render-variant` (via `render-inputs`' `:decorators`) both read
         ;; `[:world :decorators]`, so they paint the IDENTICAL decorator
         ;; tree. Globals + story decorators are AMBIENT (not part of the
@@ -1176,7 +1172,7 @@
         bodies       (map :body chain)         ; root-first
         inherited    (vec (butlast bodies))    ; root → immediate parent
         child        (:body (last chain))
-        ;; ---- :compose resolution (rf2-5x1wt.15, §Total resolution order
+        ;; ---- :compose resolution (§Total resolution order
         ;; step 3 — applied BETWEEN the parent merge and the variant-owned
         ;; values). `:compose` is a child-only directive (like `:extends`);
         ;; it is not inherited. Each entry resolves to a fragment OR a
@@ -1222,12 +1218,12 @@
         ;; setup APPENDS: inherited (root→parent), THEN composed fragments
         ;; (declared order), THEN the variant's own setup — variant-owned
         ;; values land last (§Merge rules + §Total resolution order). Each
-        ;; layer's setup is coerced through the runner's `coerce-script`
-        ;; (rf2-5x1wt.17): a bare event-vector shorthand normalizes to
-        ;; `[:dispatch event-vector]` during migration, so the stored
-        ;; `[:world :setup]` carries tagged steps uniformly (the same
-        ;; coercion `:script` gets) — bare vectors are the migration
-        ;; shorthand, never the P1 public form.
+        ;; layer's setup is coerced through the runner's `coerce-script`:
+        ;; a bare event-vector shorthand normalizes to
+        ;; `[:dispatch event-vector]`, so the stored `[:world :setup]`
+        ;; carries tagged steps uniformly (the same coercion `:script`
+        ;; gets) — bare vectors are an authoring shorthand, never the P1
+        ;; public form.
         setup-raw    (vec (concat
                             (mapcat (fn [l] (runner/coerce-script (pick-setup l))) inherited)
                             (mapcat (fn [l] (runner/coerce-script (pick-setup l))) frag-layers)
@@ -1253,10 +1249,10 @@
         ;; order variant layer). This is the ONLY arg layer the plan body
         ;; carries; the ambient (global / story) + per-run (active-modes /
         ;; cell-overrides) layers live OUTSIDE the body and arrive via the
-        ;; `:run-args` opt (rf2-2cpoo).
+        ;; `:run-args` opt.
         variant-arg-map (merge-key :args)
-        ;; rf2-2cpoo — fold the ambient + per-run layers AROUND the variant
-        ;; layer so the effective `arg-map` (and therefore every `[:arg key]`
+        ;; Fold the ambient + per-run layers AROUND the variant layer so
+        ;; the effective `arg-map` (and therefore every `[:arg key]`
         ;; substitution below, `[:world :args]` / `[:world :effective-args]`,
         ;; and the plan hash) matches `args/resolve-args` for the SAME
         ;; `:active-modes` / `:cell-overrides`. `:run-args` is the
@@ -1264,7 +1260,7 @@
         ;; `re-frame.story.args/run-arg-layers` produces: `:pre` is lower
         ;; precedence than the variant layer, `:post` higher. Absent (a pure
         ;; plan-compile / explain / render-prep with no run opts) ⇒ the
-        ;; variant layer alone, exactly as before.
+        ;; variant layer alone.
         arg-map      (if run-args
                        (args/deep-merge-all
                          (concat (:pre run-args)
@@ -1275,25 +1271,25 @@
         ;; ---- arg substitution ----
         subs!        (atom [])
         setup        (substitute-args setup-raw arg-map subs!)
-        ;; rf2-5x1wt.17 — an `[:assert …]` checkpoint is ILLEGAL in :setup
+        ;; An `[:assert …]` checkpoint is ILLEGAL in :setup
         ;; (spec/017 §Script step grammar). Reject at plan-compile time,
         ;; on the fully-resolved setup (inherited ⧺ composed ⧺ own), so a
         ;; misplaced verdict surfaces before any run.
         _            (reject-assert-in-setup! id setup)
         script*      (substitute-args script arg-map subs!)
-        ;; rf2-2cpoo — the RUNTIME executes `[:world :scripts]` (the named
-        ;; plays from `normalize-scripts`), NOT the top-level `:script` slot.
+        ;; The RUNTIME executes `[:world :scripts]` (the named plays from
+        ;; `normalize-scripts`), NOT the top-level `:script` slot.
         ;; `normalize-scripts` ran on the RAW body, so each play's `:script`
         ;; still carries unresolved `[:arg key]` placeholders. Substitute them
         ;; against the SAME `arg-map` the top-level `:script` resolved against
-        ;; (which now folds the run-opts layers), so the executed plays use the
-        ;; effective args the result reports — not the raw placeholder. (Before
-        ;; this, `[:world :scripts]` was never `[:arg]`-substituted at all, so a
-        ;; `[:arg …]` in a script reached the dispatched event verbatim.)
+        ;; (which folds the run-opts layers), so the executed plays use the
+        ;; effective args the result reports — not the raw placeholder. Without
+        ;; this, an `[:arg …]` in a play script would reach the dispatched
+        ;; event verbatim.
         scripts*     (mapv (fn [p]
                              (update p :script substitute-args arg-map subs!))
                            scripts)
-        ;; rf2-5x1wt.18 — every authored assertion atom (terminal
+        ;; Every authored assertion atom (terminal
         ;; `:assertions` AND an in-script `[:assert …]` checkpoint, incl.
         ;; the folded `:assert-db` / `:assert-dom` steps) MUST name a
         ;; recognised :rf.assert/* id. An unknown id FAILS plan
@@ -1302,7 +1298,7 @@
         ;; the `[:assert …]` checkpoints covers every in-script position.
         _            (reject-unknown-assertions!
                        id (script-assertion-atoms script*) assertions)
-        ;; ---- view-state subscription overrides (rf2-5x1wt.13) ----
+        ;; ---- view-state subscription overrides ----
         ;; `:sub-overrides` composes like `:network`: composed-fragment
         ;; override maps merge in declared order (a later fragment wins a
         ;; query key), THEN the variant chain (`ctx`, where `:extends`
@@ -1314,14 +1310,14 @@
         frag-sub-ovr (reduce (fn [m l] (merge m (:sub-overrides l))) {} frag-layers)
         ;; The RAW merged overrides BEFORE `[:arg key]` substitution — kept
         ;; on the plan (`[:world :render :sub-overrides-raw]`) so the render
-        ;; path (rf2-5x1wt.24 `render-variant`) can RE-resolve the
+        ;; path (`render-variant`) can RE-resolve the
         ;; placeholders against the POST-control effective args (a control
         ;; that drives an override value, e.g. `{[:login/error] [:arg
         ;; :message]}`, must reflect the live control). The plan-time
         ;; resolved overrides below feed validation + the run path.
         sub-overrides-raw (merge frag-sub-ovr (:sub-overrides ctx))
         sub-overrides (substitute-args sub-overrides-raw arg-map subs!)
-        ;; ---- :db-seed world slot (rf2-blw1q) ----
+        ;; ---- :db-seed world slot ----
         ;; The MIDDLE fidelity rung: a direct app-db state seed
         ;; (`{path → value}`). Composes through the parent chain (ctx,
         ;; deep-merged via `merge-context` through `:extends`) + composed
@@ -1334,7 +1330,7 @@
         ;; `:rf.error/story-db-seed-invalid`.
         frag-db-seed (reduce (fn [m l] (merge m (:db-seed l))) {} frag-layers)
         db-seed      (substitute-args (merge frag-db-seed (:db-seed ctx)) arg-map subs!)
-        ;; ---- strict-conflict composition (rf2-5x1wt.15) ----
+        ;; ---- strict-conflict composition ----
         ;; The strict-conflict override MAPS (`:fx-overrides` /
         ;; `:interceptor-overrides`) compose per-KEY: the variant chain
         ;; OWNS any key it set (variant-owned-wins), composed fragments
@@ -1369,7 +1365,7 @@
         composed-ic  (get-in strict-res [:interceptor-overrides :merged])
         ctx-fx       (merge composed-fx (:fx-overrides ctx))
         ctx-ic       (merge composed-ic (:interceptor-overrides ctx))
-        ;; ---- network world slot (rf2-5x1wt.14) ----
+        ;; ---- network world slot ----
         ;; Per-route replies may carry `[:arg key]` placeholders (e.g. a
         ;; stubbed id driven by a control), so substitute before lowering.
         ;; `:network` composes through the parent chain (ctx) + composed
@@ -1388,7 +1384,7 @@
         fx-overrides (merge (when network-low (:fx-overrides network-low))
                             ctx-fx)
         interceptor-overrides ctx-ic
-        ;; ---- view arg schema + effective-args validation (rf2-5x1wt.12) ----
+        ;; ---- view arg schema + effective-args validation ----
         ;; `:effective-args` at plan time IS the resolved arg-map; the
         ;; render path layers control-panel overrides on top later. We
         ;; copy the view's explicit-input schema into the plan, validate
@@ -1415,7 +1411,7 @@
                                :missing         (:missing validation)
                                :malformed       (:malformed validation)
                                :effective-args  eff-args}))
-        ;; ---- :sub-overrides output-schema validation (rf2-5x1wt.13) ----
+        ;; ---- :sub-overrides output-schema validation ----
         ;; Each resolved override value is validated against its
         ;; subscription's OUTPUT schema (distinct from the view-args
         ;; schema above). A sub with no output schema soft-passes; a value
@@ -1433,7 +1429,7 @@
                                    (pr-str (mapv :query-v (:violations sub-ovr-val))))
                               {:variant/id id
                                :violations (:violations sub-ovr-val)}))
-        ;; ---- fidelity ladder (rf2-5x1wt.13) ----
+        ;; ---- fidelity ladder ----
         ;; Computed from the resolved world inputs so authors never type
         ;; it. `:real-setup` (events/script) > `:db-seed` (reserved world
         ;; slot) > `:sub-overrides` — the rung(s) a reviewer reads to know
@@ -1448,14 +1444,14 @@
         ;; ---- source coords ----
         source       (:source child)
         platforms    (or (:platforms ctx) #{:client})
-        ;; ---- full decorator stack (rf2-5fibj) ----
+        ;; ---- full decorator stack ----
         ;; `(concat globals story variant-chain)` — globals outermost, then
         ;; the parent story's `:decorators`, then the variant-chain slot
         ;; (`(:decorators ctx)` — the `:extends`-merged, child-wins refs).
-        ;; The SAME ordered set `decorators/collect-decorator-refs` used to
-        ;; assemble at resolve time; folding it onto `[:world :decorators]`
+        ;; The SAME ordered set `decorators/collect-decorator-refs`
+        ;; assembles at resolve time; folding it onto `[:world :decorators]`
         ;; here makes the compiled plan the single source of truth, so the
-        ;; canvas + render-variant resolve the identical stack (rf2-din8u).
+        ;; canvas + render-variant resolve the identical stack.
         ;; Each layer falls through to `[]` when absent — the empty-collection
         ;; concat is render-transparent.
         story-decos  (vec (when-let [sid (args/parent-story-id id)]
@@ -1471,19 +1467,19 @@
                               :platforms      platforms}
                        (some? schema)        (assoc :view-args-schema schema)
                        (some? sub-overrides) (assoc-in [:render :sub-overrides] sub-overrides)
-                       ;; rf2-blw1q — the resolved direct app-db seed
+                       ;; The resolved direct app-db seed
                        ;; (`{path → value}`, `[:arg]` placeholders
                        ;; substituted). In `:world` so it participates in
                        ;; `:plan-hash` (the seed IS part of the variant's
-                       ;; identity) and feeds the now-LIVE `:fidelity`
-                       ;; `:db-seed` rung. Present only when non-empty; a
+                       ;; identity) and feeds the `:fidelity` `:db-seed`
+                       ;; rung. Present only when non-empty; a
                        ;; variant with no seed carries no slot. The runtime
                        ;; reads `[:world :db-seed]`, merges it into the
                        ;; frame's app-db BEFORE the script, and
                        ;; schema-validates the seeded app-db (spec/017
                        ;; §Setup).
                        (seq db-seed)         (assoc :db-seed db-seed)
-                       ;; rf2-5x1wt.13 — the fidelity ladder, computed from
+                       ;; The fidelity ladder, computed from
                        ;; the resolved world inputs. In `:world` so it
                        ;; participates in `:plan-hash` (fingerprint's
                        ;; `plan-hash-input-keys` hashes `:world`). Present
@@ -1492,23 +1488,23 @@
                        (seq fidelity)        (assoc :fidelity fidelity)
                        ;; `:network` keeps the per-route reply data (source
                        ;; of truth, feeds :plan-hash via :world); the
-                       ;; lowering (rf2-5x1wt.14) folds its managed-stub fx
+                       ;; lowering folds its managed-stub fx
                        ;; override into the frame's `:fx-overrides` below.
                        (seq network)          (assoc :network network)
                        (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
                        (seq interceptor-overrides) (assoc-in [:frame :interceptor-overrides] interceptor-overrides)
                        (contains? ctx :loaders)     (assoc :loaders (:loaders ctx))
-                       ;; rf2-5x1wt.20 — carry `:loaders-complete-when` onto
+                       ;; Carry `:loaders-complete-when` onto
                        ;; the plan's `:world` (it inherits through `:extends`
                        ;; into `ctx`) so the inline-plan run path (which has
                        ;; no registered body) drives phase-1 loaders + the
                        ;; completion predicate from the plan alone.
                        (contains? ctx :loaders-complete-when) (assoc :loaders-complete-when (:loaders-complete-when ctx))
                        (contains? ctx :loaders-teardown) (assoc :loaders-teardown (:loaders-teardown ctx))
-                       ;; rf2-5fibj — the FULL stack (globals + story +
-                       ;; variant chain), not just `(:decorators ctx)`. Folded
-                       ;; when non-empty so a bare variant carries no slot
-                       ;; (render-transparent), exactly as before.
+                       ;; The FULL stack (globals + story + variant chain),
+                       ;; not just `(:decorators ctx)`. Folded when non-empty
+                       ;; so a bare variant carries no slot
+                       ;; (render-transparent).
                        (seq full-decos)             (assoc :decorators full-decos)
                        (contains? ctx :modes)       (assoc :modes (:modes ctx))
                        (contains? ctx :substrates)  (assoc :substrates (:substrates ctx))
@@ -1519,7 +1515,7 @@
         resolved-conflicts (vec (mapcat :resolved (vals strict-res)))
         explain      {:source-chain (mapv :variant/id chain)
                       :parent-chain (mapv :variant/id (butlast chain))
-                      ;; rf2-5x1wt.15 — the resolved `:compose` entries, in
+                      ;; The resolved `:compose` entries, in
                       ;; declared order, classified fragment vs check (§Explain
                       ;; API — composed fragments/checks).
                       :compose      (mapv (fn [{:keys [kind id]}] {:kind kind :id id})
@@ -1549,13 +1545,13 @@
                                               {:status    (:status validation)
                                                :missing   (:missing validation)
                                                :malformed (:malformed validation)})
-                      ;; rf2-5x1wt.14 — per-route network stubs + the
+                      ;; Per-route network stubs + the
                       ;; managed-stub fx the routes lower to (§Network
                       ;; stubs — ":network participates in explain").
                       :network      (when (seq network)
                                       {:routes       network
                                        :lowered-to   (:fx-overrides network-low)})
-                      ;; rf2-5x1wt.13 — view-state subscription overrides +
+                      ;; View-state subscription overrides +
                       ;; the resolved fidelity ladder. `explain` surfaces
                       ;; the resolved override map (post `[:arg]`
                       ;; substitution) and the validation outcome so a
@@ -1571,7 +1567,7 @@
                                         :validation (when sub-ovr-val
                                                       {:status     (:status sub-ovr-val)
                                                        :violations (:violations sub-ovr-val)})})
-                      ;; rf2-blw1q — the resolved direct app-db seed (post
+                      ;; The resolved direct app-db seed (post
                       ;; `[:arg]` substitution). `explain` surfaces it so a
                       ;; reviewer / doc page sees exactly which app-db
                       ;; slices the variant seeds; `:fidelity` labels it the
@@ -1601,7 +1597,7 @@
                                       #{} bodies)
              :explain         explain}
       source (assoc :source source)
-      ;; rf2-5x1wt.24 — the RAW (pre-`[:arg]`-substitution) sub-overrides.
+      ;; The RAW (pre-`[:arg]`-substitution) sub-overrides.
       ;; A SIBLING of `:world` (NOT inside it) so it stays OUT of
       ;; `plan-hash-input-keys` — it is fully derivable from the resolved
       ;; `[:world :render :sub-overrides]` + `:effective-args`, so hashing
@@ -1634,20 +1630,20 @@
     malformed-value checking of `:effective-args`; with none supplied
     only required-key presence is checked.
   - `:fragment-lookup` / `:check-lookup` — a 1-arg fn `(id) → body` OR a
-    `{id → body}` map resolving the bodies named in `:compose`
-    (rf2-5x1wt.15). Default to the side-table `:fragment` / `:check` kinds.
+    `{id → body}` map resolving the bodies named in `:compose`.
+    Default to the side-table `:fragment` / `:check` kinds.
   - `:sub-lookup` — a 1-arg fn `(sub-id) → sub-meta` OR a `{sub-id →
     sub-meta}` map resolving a subscription's registration metadata for
-    its OUTPUT schema, against which `:sub-overrides` values are validated
-    (rf2-5x1wt.13). Defaults to the framework `:sub` registrar.
+    its OUTPUT schema, against which `:sub-overrides` values are validated.
+    Defaults to the framework `:sub` registrar.
   - `:global-decorators` / `:story-decorators` — the ambient decorator
-    layers folded into the FULL `[:world :decorators]` stack (rf2-5fibj):
+    layers folded into the FULL `[:world :decorators]` stack:
     a global-decorators ref vector (or 0-arg fn) defaulting to
     `config/get-global-decorators`, and a `(story-id) → decorators-vec`
     lookup defaulting to the Story side-table `:story` kind. Pure tests
     thread explicit values; the live runtime uses the defaults.
   - `:run-args` — the ambient + per-run arg layers to fold AROUND the
-    `:extends`-merged variant arg layer (rf2-2cpoo), in the
+    `:extends`-merged variant arg layer, in the
     `{:pre [global story mode] :post [cell-overrides]}` shape
     `re-frame.story.args/run-arg-layers` produces. With it the compiled
     `[:world :args]` / `[:world :effective-args]`, every `[:arg key]`
@@ -1655,8 +1651,8 @@
     plan hash all use the SAME effective args as `args/resolve-args` for
     those `:active-modes` / `:cell-overrides`. Absent (a bare
     compile / `explain` / render-prep) ⇒ the variant arg layer alone, so
-    the controls/render path keeps layering its overrides on top of the
-    plan-time effective args exactly as before.
+    the controls/render path layers its overrides on top of the plan-time
+    effective args.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
   `:world` (incl. `:effective-args` and `:view-args-schema` when a view

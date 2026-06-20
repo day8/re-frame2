@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.test-mode.stepper-pure
-  "Pure data → data helpers for the play step-debugger (rf2-ulw5m + spec/009
+  "Pure data → data helpers for the play step-debugger (spec/009
   §Play step-debugger).
 
   The step-debugger gives the `:test` mode pane Storybook's
@@ -19,9 +19,9 @@
             [re-frame.story.play.runner :as runner]
             [re-frame.story.ui.test-mode.pure :as test-mode-pure]))
 
-;; ---- step-outcome (rf2-ee38b.3 — full-script step list) ------------------
+;; ---- step-outcome (full-script step list) -------------------------------
 ;;
-;; The step-debugger now walks the FULL coerced :play-script (every step
+;; The step-debugger walks the FULL coerced :play-script (every step
 ;; type), driving each through the rich-DSL executor. Each step that has
 ;; run carries a result record (`runner/step-pass` / `step-fail` /
 ;; `step-skip` / `step-exception`); steps not yet reached carry no result.
@@ -55,7 +55,7 @@
 
   A step at `index < (count results)` has run and takes its outcome from
   `(nth results index)`; a step at or beyond the results length has not
-  run yet and renders neutral (`:event`). rf2-ee38b.3."
+  run yet and renders neutral (`:event`)."
   [steps results]
   (let [recs (vec (or results []))]
     (vec

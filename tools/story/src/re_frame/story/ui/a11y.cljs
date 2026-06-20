@@ -1,7 +1,5 @@
 (ns re-frame.story.ui.a11y
-  "Accessibility (axe-core) panel. Per `005-SOTA-Features.md` §a11y
-  (axe-core) panel (v1.0 item 2)
-  + Stage 6 (rf2-zhwd). Phase-2 §5.1 #2.
+  "Accessibility (axe-core) panel. Per `005-SOTA-Features.md` §a11y.
 
   Runs axe-core against the variant's rendered DOM and surfaces
   violations:
@@ -14,15 +12,14 @@
   active variant's frame so a play sequence with
   `[:rf.assert/no-warnings]` records the violation as a failure.
 
-  ## axe-core source: opt-in CDN (rf2-20w5i)
+  ## axe-core source: opt-in CDN
 
-  Per rf2-20w5i (security audit): axe-core is **opt-in only**. Pre-fix
-  the panel injected `axe.min.js` from a public CDN on first panel
-  open, unconditionally. Post-fix the CDN fetch is **default-OFF**;
-  the panel surfaces a clear consent prompt explaining that running
-  the scan loads remote JS with full DOM access to the dev's session,
-  and the dev must click 'enable' to proceed. The opt-in survives
-  reloads (persisted in `localStorage` under `:rf.story.a11y/cdn-opt-in`).
+  Per the security audit, axe-core is **opt-in only**: the CDN fetch is
+  **default-OFF** and the panel surfaces a clear consent prompt
+  explaining that running the scan loads remote JS with full DOM access
+  to the dev's session, and the dev must click 'enable' (via
+  `set-cdn-opt-in!`) to proceed. The opt-in survives reloads (persisted
+  in `localStorage` under `:rf.story.a11y/cdn-opt-in`).
 
   Why not vendor axe-core directly? The audit's preferred fix
   (`:require [\"axe-core\" ...]` static-bundling) trips Closure
@@ -69,8 +66,7 @@
 (defonce
   ^{:doc "Per-frame run state.
          `{frame-id → :idle|:loading|:running|:done|:error|:no-root|:no-consent}`.
-         `:no-consent` means the dev hasn't approved the CDN load yet
-         (per rf2-20w5i)."}
+         `:no-consent` means the dev hasn't approved the CDN load yet."}
   run-state
   (r/atom {}))
 
@@ -83,7 +79,7 @@
   nil)
 
 ;; Register this panel's violations atom into the below-the-UI browser-tier
-;; executor's one-way seam (rf2-5x1wt.28), so `:rf.assert/a11y` can reuse the
+;; executor's one-way seam, so `:rf.assert/a11y` can reuse the
 ;; SAME axe-core findings the panel accumulated WITHOUT the executor needing
 ;; a compile-time dependency on this CLJS-only UI ns. Read-only — the
 ;; executor only reads `frame-id` → violations.
@@ -93,12 +89,11 @@
 ;; (`select-keys` / `:nodes` / `:target` keyword access — see
 ;; `browser/axe-finding`). So the reader NORMALISES each violation to CLJS
 ;; data at this boundary via `js->clj :keywordize-keys`, recovering the
-;; `:nodes` → `:target` selector(s) the source-link projection needs
-;; (rf2-ffu8t — `select-keys [:id :impact :help]` formerly discarded them).
+;; `:nodes` → `:target` selector(s) the source-link projection needs.
 (defn- ->clj-violations
   "Normalise the per-frame violations bag to CLJS data for the executor seam.
   `nil` (no run yet) passes through as nil so the executor falls back to its
-  supplied `:violations` / `:cannot-run`. rf2-ffu8t."
+  supplied `:violations` / `:cannot-run`."
   [vs]
   (when (some? vs)
     (js->clj vs :keywordize-keys true)))
@@ -118,15 +113,14 @@
   (reset! run-state {})
   nil)
 
-;; ---- axe-core CDN load (opt-in per rf2-20w5i) ---------------------------
+;; ---- axe-core CDN load (opt-in) -----------------------------------------
 ;;
 ;; Per the security audit, axe-core is loaded from a public CDN only
 ;; when the dev explicitly opts in. The opt-in is persisted in
 ;; `localStorage` under `cdn-opt-in-key` so a single click per session
 ;; (and not per panel-open) gives consent. The pinned version is
-;; `axe-core@4.10.0`; the URL uses the `integrity` attribute pre-fix
-;; was omitted, post-fix is added so a compromised mirror is detected
-;; client-side.
+;; `axe-core@4.10.0`; the URL carries an `integrity` attribute so a
+;; compromised mirror is detected client-side.
 
 (def ^:const axe-cdn-url
   "URL the panel loads axe-core from when the dev has opted in. Pinned
@@ -262,7 +256,7 @@
 ;; ---- running axe --------------------------------------------------------
 
 (defn emit-warning-for-violation
-  "Per `005-SOTA-Features.md` §a11y (axe-core) panel: axe-core violations integrate with
+  "Per `005-SOTA-Features.md` §a11y: axe-core violations integrate with
   `:rf.assert/no-warnings`. We emit a `:warning` trace event into the
   variant's frame so the play-runner's per-frame trace listener
   captures it and `:rf.assert/no-warnings` records a failure.
@@ -279,8 +273,8 @@
      :help   (.-help violation)}))
 
 (defn variant-root-selector
-  "CSS selector for the variant root element of `frame-id`. Per
-  rf2-qgms1: canvas.cljs / workspace.cljc stamp
+  "CSS selector for the variant root element of `frame-id`.
+  canvas.cljs / workspace.cljc stamp
   `data-rf-story-variant-root` (with the variant id pr-str'd) on the
   immediate wrapper around the user-authored decorated view, so a11y
   can scope axe-core's scan to ONLY the variant's tree — excluding
@@ -303,9 +297,9 @@
 (defn find-variant-root
   "Resolve the DOM element marked as `frame-id`'s variant root, or nil
   if not mounted (e.g. the user is viewing the variant in :docs or
-  :test mode, or has selected a workspace). Per rf2-qgms1 the canvas /
-  workspace stamp `data-rf-story-variant-root` on the wrapper around
-  the user-authored tree.
+  :test mode, or has selected a workspace). The canvas / workspace stamp
+  `data-rf-story-variant-root` on the wrapper around the user-authored
+  tree.
 
   Wrapped in a try/catch so the helper is safe to call in node-runtime
   test contexts where `js/document` is undefined (raw access throws
@@ -323,7 +317,7 @@
   highlights them. Each axe-core node has `:target` (a CSS selector
   list); we attach `data-rf-a11y-violation` to each matching element.
 
-  Per rf2-qgms1 the query is rooted at `scope-el` (the variant root)
+  The query is rooted at `scope-el` (the variant root)
   so we never decorate Story-chrome nodes — even if axe-core somehow
   returned a selector matching outside the scope, the overlay stays
   inside the variant.
@@ -349,7 +343,7 @@
   resolved (e.g. the user is in :docs/:test mode, or the variant is
   not currently mounted).
 
-  Per rf2-qgms1 the default scope is the variant's
+  The default scope is the variant's
   `data-rf-story-variant-root` element, NOT `document.body`. Scanning
   the whole body flagged Story's OWN chrome (sidebar buttons, toolbar
   tabs, side-rail items) as violations — which is wrong: Story chrome
@@ -359,7 +353,7 @@
   tests). Pass an Element, a CSS-selector string, or an axe-core
   context object.
 
-  Per `005-SOTA-Features.md` §a11y (axe-core) panel surfaces violations into `:rf.assert/no-warnings`
+  Per `005-SOTA-Features.md` §a11y, violations surface into `:rf.assert/no-warnings`
   via the trace-warning hook."
   ([frame-id]
    (run-axe! frame-id (find-variant-root frame-id)))
@@ -376,7 +370,7 @@
          "— switch to :dev mode to mount the variant, or pass an explicit context.")
        (js/Promise.resolve nil))
 
-     ;; CDN opt-in gate (rf2-20w5i): surface the consent prompt instead
+     ;; CDN opt-in gate: surface the consent prompt instead
      ;; of silently triggering the load. Callers must call `set-cdn-opt-in!`
      ;; (typically wired to a 'enable axe-core' button in the panel
      ;; that explains the egress) before re-invoking `run-axe!`.
@@ -522,8 +516,8 @@
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
 (defn- consent-prompt
-  "Rendered when the dev hasn't yet opted in to the CDN load (per
-  rf2-20w5i). Clicking 'enable' persists the approval to
+  "Rendered when the dev hasn't yet opted in to the CDN load.
+  Clicking 'enable' persists the approval to
   `localStorage` so subsequent panel opens re-use it. The text is
   load-bearing — it describes the egress in plain words so the dev
   can decide whether their environment permits it."
@@ -559,8 +553,8 @@
     "enable axe-core + scan"]])
 
 (defn panel
-  "The a11y panel. Renders into the right panel of the shell. Stage 6
-  (rf2-zhwd) — registers as `:rf.story.panel/a11y`."
+  "The a11y panel. Renders into the right panel of the shell. Registers
+  as `:rf.story.panel/a11y`."
   [variant-id]
   (ensure-stylesheet!)
   (let [vs    (get @violations-by-frame variant-id [])
@@ -621,7 +615,7 @@
 (defn install-canonical-a11y!
   "Register the a11y panel under `:rf.story.panel/a11y` via
   `reg-story-panel*`. The panel renders in the `:right` placement
-  (the canonical right-panel slot). Stage 6 (rf2-zhwd).
+  (the canonical right-panel slot).
 
   The panel registration is opt-in by the consumer via the shell's
   `:panel-visibility` map. By default the a11y slot is off (don't
@@ -641,7 +635,7 @@
     ;; (which walks up to the nearest `[data-rf2-source-coord]`
     ;; ancestor — without the attribute the panel is skipped). DO NOT
     ;; remove this wrap without first checking that Spec 006 has
-    ;; changed to permit bare-component roots. (rf2-iwny7)
+    ;; changed to permit bare-component roots.
     (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
     ;; Register the story-panel itself.
     (story-registrar/reg-story-panel*

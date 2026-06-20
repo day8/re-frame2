@@ -44,7 +44,7 @@
   registered body changed. Stage 3 surfaces the entry point; the
   trigger lives in Stage 4."
   (:require [re-frame.core             :as rf]
-            ;; rf2-294yq5 — `reset-state!` reaches the raw frame-state
+            ;; `reset-state!` reaches the raw frame-state
             ;; write boundary (`frame/replace-frame-state!`) directly so an
             ;; in-place fresh-run reset preserves frame IDENTITY + sub-cache
             ;; + the app-db/runtime-db projection reactions. The epoch-backed
@@ -62,7 +62,7 @@
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.loaders    :as loaders]
             [re-frame.story.registrar  :as registrar]
-            ;; rf2-dg2uh — trace-listener pattern for the teardown
+            ;; Trace-listener pattern for the teardown
             ;; exception-projection path: re-frame's interceptor chain
             ;; catches handler exceptions internally and emits
             ;; `:rf.error/handler-exception` trace events rather than
@@ -80,9 +80,7 @@
 ;;                                  per-frame `pending-exceptions` slot
 ;;                                  evicts its entry.
 ;;
-;; (rf2-luzky removed the `:tap-stub-event` hook — the stub-call log below
-;; is already the SSOT for stub-redirected fx-ids, so the dev-mirror tap it
-;; drove is gone.)
+;; The stub-call log below is the SSOT for stub-redirected fx-ids.
 ;;
 ;; `re-frame.story/install-canonical-vocabulary!` is the producer side.
 
@@ -127,8 +125,7 @@
   The fx handler runs synchronously inside re-frame's `do-fx` walk
   with signature `(ctx args)` per Spec 002 §Effect handlers; `ctx`
   carries `:frame` and (optionally) `:event`. All bookkeeping lives
-  in process-level atoms rather than the frame's app-db. Stage 5
-  (rf2-h8et)."
+  in process-level atoms rather than the frame's app-db."
   [stub-id fx-id response]
   (rf/reg-fx
     stub-id
@@ -159,25 +156,22 @@
   failure (the play / variant pane renders it inline).
 
   `phase` is the originating phase: `:phase-0-setup` (`:frame-setup`
-  decorator `:init` events — rf2-294yq5.1), `:phase-loaders-teardown`
-  (variant body's `:loaders-teardown` events — rf2-lqs0b), or
-  `:phase-teardown` (`:frame-setup` decorator `:teardown` events —
-  rf2-dg2uh).
+  decorator `:init` events), `:phase-loaders-teardown`
+  (variant body's `:loaders-teardown` events), or
+  `:phase-teardown` (`:frame-setup` decorator `:teardown` events).
 
   Thin wrapper over the shared `re-frame.story.error/exception-record`
-  (rf2-9kpsq) — the Throwable→`{:message :stack :data}` projection + the
+  — the Throwable→`{:message :stack :data}` projection + the
   `:rf.error/exception` shape are the ONE canonical form. `opts`
   (optional) is threaded through so a drained pipeline-exception trace
-  event preserves its originating `:operation` / `:failing-id`
-  (rf2-294yq5.2)."
+  event preserves its originating `:operation` / `:failing-id`."
   ([variant-id phase event err] (phase-exception-record variant-id phase event err nil))
   ([variant-id phase event err opts]
    (story-error/exception-record variant-id phase event err opts)))
 
 (defn- pipeline-event-opts
   "Pull the `:operation` / `:failing-id` attribution off a captured
-  pipeline-exception trace event for `phase-exception-record`
-  (rf2-294yq5.2)."
+  pipeline-exception trace event for `phase-exception-record`."
   [tev]
   {:operation  (:operation tev)
    :failing-id (get-in tev [:tags :failing-id])})
@@ -191,7 +185,7 @@
   0-arg thunk), then remove the listener in a `finally`. Returns
   `body-fn`'s return value. Mirrors `with-teardown-trace-listener`;
   used to bracket the `:frame-setup` `:init` dispatch walk so a
-  setup-phase pipeline exception is captured (rf2-294yq5.1)."
+  setup-phase pipeline exception is captured."
   [listener body-fn]
   (let [cb-id (keyword "re-frame.story.frames"
                        (str "setup-capture-" (swap! setup-capture-counter inc)))]
@@ -209,19 +203,15 @@
   `:app-db-patch` (a `path → value` map) is merged into the frame's
   app-db via a registered helper event.
 
-  Exception handling (rf2-294yq5.1). Previously the `:init` dispatch
-  walk ran INSIDE `allocate!` before the runtime's per-frame trace
-  listener existed, so re-frame's interceptor chain captured a
-  throwing `:init` handler into a trace event that nothing observed —
-  `run-variant` reported `:pass` / `:ready` against a frame whose
-  declared preconditions never installed (a false green). We now
-  bracket the walk in its OWN scoped trace listener (symmetric with
-  `apply-frame-teardown!`): a pipeline exception (handler / coeffect /
-  interceptor — rf2-294yq5.2) targeting the frame is captured and
+  Exception handling. The walk runs inside its OWN scoped trace listener
+  (symmetric with `apply-frame-teardown!`): a pipeline exception (handler
+  / coeffect / interceptor) targeting the frame is captured and
   projected onto `[:rf.story/assertions]` as a `:rf.error/exception`
-  record with `:phase :phase-0-setup`, so the run aggregates as failed.
-  Synchronous throws from outside the interceptor chain are caught
-  directly. The walk continues so every setup failure is recorded."
+  record with `:phase :phase-0-setup`, so the run aggregates as failed —
+  a throwing `:init` handler whose declared preconditions never installed
+  surfaces rather than reporting a false green. Synchronous throws from
+  outside the interceptor chain are caught directly. The walk continues
+  so every setup failure is recorded."
   [frame-id frame-setup-decorators]
   (when (seq frame-setup-decorators)
     (let [pending  (atom [])
@@ -359,10 +349,11 @@
                                              {:frame variant-id})
                            (catch #?(:clj Throwable :cljs :default) _ nil))))))
         listener (fn [ev]
-                   ;; rf2-294yq5.2 — capture every pipeline exception
+                   ;; Capture every pipeline exception
                    ;; (handler / coeffect / interceptor), not just
                    ;; handler-exception: a teardown event whose cofx
-                   ;; injector or user interceptor throws was a false-green.
+                   ;; injector or user interceptor throws is a first-class
+                   ;; failure too.
                    (when (story-error/pipeline-exception-event? variant-id ev)
                      (swap! pending conj ev)))]
     (with-teardown-trace-listener
@@ -405,7 +396,7 @@
 
 ;; ---- variant body :loaders-teardown walk --------------------------------
 ;;
-;; rf2-lqs0b — symmetric counterpart of `:loaders` on the variant body. A
+;; Symmetric counterpart of `:loaders` on the variant body. A
 ;; long-lived fx (websocket subscription, polling interval, geolocation
 ;; watch) opened by a `:loaders` event needs a matching cancel-event at
 ;; variant teardown. `:loaders-teardown` is the lightweight path for
@@ -458,7 +449,7 @@
                                              {:frame variant-id})
                            (catch #?(:clj Throwable :cljs :default) _ nil))))))
         listener (fn [ev]
-                   ;; rf2-294yq5.2 — capture every pipeline exception
+                   ;; Capture every pipeline exception
                    ;; (handler / coeffect / interceptor), not just
                    ;; handler-exception (a loaders-teardown event whose
                    ;; cofx injector / user interceptor throws is a
@@ -501,9 +492,8 @@
 
   Mirrors the `install-canonical-<X>!` shape used by every sibling
   installer in `canonical/canonical-installers` (`install-canonical-tags!`,
-  `install-canonical-assertions!`, `install-canonical-fx-stubs!`, …). Was
-  the vague `install-helpers!` (rf2-152jq inline rename) — the new name
-  states what's installed."
+  `install-canonical-assertions!`, `install-canonical-fx-stubs!`, …); the
+  name states what's installed."
   []
   (when config/enabled?
     (rf/reg-event
@@ -533,9 +523,9 @@
   Per `002-Runtime.md` §Per-variant frame allocation we stamp `:rf/story?` and `:rf/variant` so tools
   can recognise variant frames from their `frame-meta`.
 
-  rf2-bsk1d9 — a variant's EP-0015 frame-owned `:sensitive` / `:large`
-  declarations (the owner model that REPLACES the removed public
-  `add-marks` / `set-marks` surface) are threaded straight onto the
+  A variant's EP-0015 frame-owned `:sensitive` / `:large`
+  declarations (the frame-owner classification model) are threaded
+  straight onto the
   `reg-frame` config so the framework's `re-frame.frame-classification`
   validates + installs them atomically as part of frame creation, BEFORE
   `:on-create`. Story does not fork the classification validation; a
@@ -550,9 +540,9 @@
     (some? large)      (assoc :large large)
     ;; EP-0023 §Stories — report the IMAGE ids this behaviour-variant frame
     ;; resolves behaviour against, on frame-meta, so Test mode / MCP / Xray can
-    ;; surface which behaviour set ran (rf2-fpr0b5 item 4). The actual image
+    ;; surface which behaviour set ran. The actual image
     ;; GENERATION rides the frame's record (the `:generation` slot), written by
-    ;; `rf/make-frame` in `allocate!` (EP-0024, rf2-tu2vr7); this slot carries
+    ;; `rf/make-frame` in `allocate!` (EP-0024); this slot carries
     ;; the authored ids for tooling read-back.
     (seq image-ids)    (assoc :rf/images (vec image-ids))))
 
@@ -571,12 +561,12 @@
   `decorator-stack` is the result of `decorators/resolve-decorators`;
   the runtime computes it upstream.
 
-  Lifecycle dispatch (rf2-043cm):
+  Lifecycle dispatch:
 
   - **Events-only variants** (no `:loaders`, no `:frame-setup`
     decorators, no `:loaders-complete-when`) take the fast-path:
     `:pre-mount → :ready` in one transition via `mount-ready!`. The
-    canvas's loading skeleton (rf2-0s4p1) never engages for these
+    canvas's loading skeleton never engages for these
     variants because the lifecycle never reports a loading phase.
   - **All other variants** take the classical four-phase path:
     `mount!` drives `:pre-mount → :mounting`; the runtime then
@@ -596,25 +586,25 @@
           fx-overrides   (register-fx-overrides! fx-stack)
           ;; Inline the variant-body lookup (`variant-body` is defined
           ;; lower in this ns) — go through the registrar directly so
-          ;; the events-only classification (rf2-043cm) doesn't depend
+          ;; the events-only classification doesn't depend
           ;; on the file's declaration order.
           v-body         (registrar/handler-meta :variant variant-id)
           ;; EP-0023 §Stories — the variant's behaviour-variant IMAGES (the
           ;; `rf/image` registration-set values its frame resolves behaviour
           ;; against). A vector of image VALUES; nil/empty for an ordinary
           ;; state variant (which resolves against the shared default
-          ;; registrar). rf2-fpr0b5.
+          ;; registrar).
           images         (:images v-body)
-          ;; rf2-bsk1d9 — thread the variant's EP-0015 frame-owned
-          ;; `:sensitive` / `:large` classification onto the reg-frame config.
-          ;; rf2-fpr0b5 — plus the image ids (for frame-meta tooling read-back).
+          ;; Thread the variant's EP-0015 frame-owned
+          ;; `:sensitive` / `:large` classification onto the reg-frame config,
+          ;; plus the image ids (for frame-meta tooling read-back).
           config-map     (variant-frame-config
                            variant-id fx-overrides
                            (assoc (select-keys v-body [:sensitive :large])
                                   :image-ids (keep image-id images)))
           events-only?   (loaders/events-only-variant? v-body decorator-stack)]
       ;; EP-0023 §Stories / §Frame-derived live registration resolution
-      ;; (rf2-fpr0b5 item 1) — when the variant declares behaviour-variant
+      ;; — when the variant declares behaviour-variant
       ;; `:images`, the frame carries the resolved, sealed image GENERATION so
       ;; `process-event!`'s `call-with-frame-resolution` routes the whole cascade
       ;; (event-handler lookup, cofx, fx) for any `{:frame variant-id}` dispatch
@@ -626,18 +616,14 @@
       ;; validation — a malformed image or a zero-match `:include-ns` glob FAILS
       ;; LOUDLY here at frame creation.
       ;;
-      ;; EP-0024 (rf2-tu2vr7) — ONE `make-frame` call. The create-twice idiom +
-      ;; ORDER footgun (formerly: `make-frame {:id … :images …}` FIRST to create
-      ;; the backing record empty, then `reg-frame` to surgical-update its config,
-      ;; because the two-registry split meant `make-frame`'s internal
-      ;; `reg-frame …{}` would clobber a config registered first) is GONE: the
-      ;; unified constructor accepts BOTH the image-selection opts AND the full
-      ;; record-config in one call over the one registry. `:images` is supplied
-      ;; only when the variant declares them (absent ⇒ no generation).
+      ;; EP-0024 — ONE `make-frame` call. The unified constructor accepts
+      ;; BOTH the image-selection opts AND the full record-config in one
+      ;; call over the one registry. `:images` is supplied only when the
+      ;; variant declares them (absent ⇒ no generation).
       (rf/make-frame (cond-> {:id variant-id}
                        (seq images) (assoc :images (vec images))
                        :always      (merge config-map)))
-      ;; rf2-043cm — drive the lifecycle by variant shape. Events-only
+      ;; Drive the lifecycle by variant shape. Events-only
       ;; variants jump straight to :ready (no skeleton ever shows);
       ;; everything else takes the classical four-phase route through
       ;; :mounting → :loading → :ready.
@@ -651,7 +637,7 @@
       (apply-frame-setup! variant-id (:frame-setup decorator-stack))
       variant-id)))
 
-;; ---- inline-plan allocation (rf2-5x1wt.20) -------------------------------
+;; ---- inline-plan allocation ----------------------------------------------
 ;;
 ;; An inline plan (spec/017 §Inline plan) is an executable plan map that is
 ;; NOT registered as a Story variant — so `allocate!`'s side-table reads
@@ -678,8 +664,8 @@
     (seq fx-overrides) (assoc :fx-overrides fx-overrides)))
 
 (defn allocate-inline!
-  "Allocate an anonymous frame for an inline plan run (rf2-5x1wt.20,
-  spec/017 §Inline plan). Registry-free twin of `allocate!`:
+  "Allocate an anonymous frame for an inline plan run (spec/017
+  §Inline plan). Registry-free twin of `allocate!`:
 
   - `frame-id` — the anonymous frame id the runtime minted (NOT a
     registered variant id);
@@ -688,7 +674,7 @@
   - `plan-fx-overrides` — the plan's `[:world :frame :fx-overrides]` lowered
     map (e.g. the managed-HTTP stub the compiler folded `:network` into);
   - `events-only?` — whether the plan drives no loaders / frame-setup, so
-    the lifecycle takes the `:pre-mount → :ready` fast-path (rf2-043cm).
+    the lifecycle takes the `:pre-mount → :ready` fast-path.
 
   Registers the `:fx-override`-decorator stubs, drives the lifecycle by the
   supplied shape, applies any `:frame-setup` decorators' `:init` events, and
@@ -711,7 +697,7 @@
       frame-id)))
 
 (defn destroy-inline!
-  "Tear down an inline-plan frame (rf2-5x1wt.20). The registry-free twin of
+  "Tear down an inline-plan frame. The registry-free twin of
   `destroy!`: an inline frame has no registered body, so the side-table
   reads `destroy!` makes (the variant `:loaders-teardown`, the decorator
   re-resolution) have nothing to read. `decorator-stack` is the SAME stack
@@ -728,7 +714,7 @@
     (clear-stub-call-log! frame-id)
     (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
       (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; rf2-booyu — evict the play-runner's per-frame run-state on teardown
+    ;; Evict the play-runner's per-frame run-state on teardown
     ;; (symmetric with `destroy!`); an inline frame that drove a script
     ;; leaves no stale run-state behind once it is torn down.
     (when-let [drop (late-bind/get-fn :drop-run-state)]
@@ -750,16 +736,16 @@
 
   1. Clear lifecycle watchers + per-frame stub-call log; drop the
      per-variant assertion accumulators + the play-runner's per-frame
-     run-state (rf2-booyu) via the late-bind hooks.
+     run-state via the late-bind hooks.
   2. Dispatch-sync the variant body's `:loaders-teardown` events
-     (declared order, rf2-lqs0b) — cleans up loader-installed narrower
+     (declared order) — cleans up loader-installed narrower
      state. BEFORE the decorator teardown.
   3. Dispatch-sync the `:frame-setup` decorator `:teardown` events
      (reverse-declaration order) — cleans up decorator-installed wider
      state.
 
   Shared by `destroy!` (which follows with `rf/destroy-frame!`) and the
-  in-place `reset-state!` (rf2-294yq5, which follows with a frame-state
+  in-place `reset-state!` (which follows with a frame-state
   reset instead) so both paths run the SAME symmetric external-resource
   cleanup. Exceptions in each walk are caught + projected onto the
   variant's `[:rf.story/assertions]`; the walks never abort."
@@ -768,14 +754,14 @@
   (clear-stub-call-log! variant-id)
   (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
     (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-  ;; rf2-booyu — evict the play-runner's per-frame run-state on teardown
+  ;; Evict the play-runner's per-frame run-state on teardown
   ;; (run-state / runs-by-play / active-play / step-boundaries) so a
   ;; torn-down frame leaves no stale terminal play status behind. Routed
   ;; through the `:drop-run-state` late-bind hook (frames cannot :require
   ;; runner-events — cycle).
   (when-let [drop (late-bind/get-fn :drop-run-state)]
     (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
-  ;; Step 3 (rf2-lqs0b) — variant body :loaders-teardown. Runs BEFORE
+  ;; Step 3 — variant body :loaders-teardown. Runs BEFORE
   ;; decorator teardown so loader-installed narrower state is cleaned
   ;; up before decorator-installed wider state.
   (try
@@ -801,7 +787,7 @@
      late-bind shim) + per-frame stub-call log.
   2. Clear lifecycle watchers (`loaders/clear-watchers!`).
   3. Dispatch-sync the variant body's `:loaders-teardown` events in
-     declared order (rf2-lqs0b). Exceptions are caught and projected
+     declared order. Exceptions are caught and projected
      into the variant frame's `:rf.story/assertions` as
      `:rf.error/exception` records with
      `:phase :phase-loaders-teardown`. The walk never aborts.
@@ -828,30 +814,28 @@
     (rf/destroy-frame! variant-id)
     nil))
 
-;; ---- in-place fresh-run reset (rf2-294yq5) --------------------------------
+;; ---- in-place fresh-run reset --------------------------------------------
 
 (defn reset-state!
   "Reset an EXISTING variant frame to fresh state IN PLACE — preserving
   the frame's IDENTITY, sub-cache, and app-db/runtime-db projection
   reactions — instead of `destroy!` + re-`allocate!`.
 
-  Why this exists (rf2-294yq5, the PR #3672 last-red fix). `run-variant`
-  must enforce a fresh-run boundary so a second run on the same id does
-  NOT inherit the first run's app-db and so loader variants re-run their
-  loaders (the lifecycle machine must leave `:ready`). The first cut
-  (`ensure-fresh-frame!` → `destroy!` + `allocate!`) achieved fresh state
-  but DESTROYED the frame: `destroy-frame!` tears down the sub-cache and
+  Why this exists. `run-variant` must enforce a fresh-run boundary so a
+  second run on the same id does NOT inherit the first run's app-db and
+  so loader variants re-run their loaders (the lifecycle machine must
+  leave `:ready`). A `destroy!` + `allocate!` would achieve fresh state
+  but DESTROY the frame: `destroy-frame!` tears down the sub-cache and
   the partition projections. When the canvas has ALREADY mounted the
   variant view under `frame-provider-existing {:frame variant-id}` (its
   `@(subscribe …)` reactions wired to THIS frame's sub-cache) before
-  `:component-did-mount` → `run-variant` runs, that destroy ORPHANS every
-  live reaction: a subsequent `:counter/set 42` updates the freshly
-  re-allocated frame's app-db, but the stale reaction never observes it,
-  so the DOM never re-renders (count-display stuck at \"0\"). Invisible to
-  the JVM (no React reconciliation), which is why a JVM-validated fix
-  missed it.
+  `:component-did-mount` → `run-variant` runs, a destroy would ORPHAN
+  every live reaction: a subsequent `:counter/set 42` would update the
+  freshly re-allocated frame's app-db, but the stale reaction would never
+  observe it, so the DOM would never re-render. This is invisible to the
+  JVM (no React reconciliation).
 
-  The fix: reset in place. We run the SAME teardown walks `destroy!`
+  Instead we reset in place. We run the SAME teardown walks `destroy!`
   runs (so loader/decorator-installed external resources are cleaned up
   symmetrically), then overwrite BOTH frame-state partitions with `{}`
   via the raw `frame/replace-frame-state!` write boundary — the same
@@ -884,12 +868,12 @@
 
 (defn reset-frame!
   "Destroy the variant frame and re-allocate it. Mirrors the framework's
-  `re-frame.core/reset-frame!` naming (rf2-noizc — aligning Story's
+  `re-frame.core/reset-frame!` naming (aligning Story's
   frame helpers with the framework `*-frame!` convention). The caller
   is responsible for re-running the four-phase lifecycle (loaders →
   events → render → play) after.
 
-  NOTE the in-place `reset-state!` (rf2-294yq5) is the path
+  NOTE the in-place `reset-state!` is the path
   `run-variant`'s fresh-run boundary takes when a frame already exists —
   it preserves live view reactions. This destroy + re-allocate helper is
   the explicit full-teardown variant retained for callers that genuinely
@@ -914,7 +898,7 @@
   an in-flight inline frame out of the live-frame enumeration during the
   window between `allocate-inline!` and `destroy-inline!`, closing the
   transient gap that side-table absence alone (no registration) does not
-  cover (rf2-r16iv)."
+  cover."
   [frame-id]
   (let [m (rf/frame-meta frame-id)]
     (and (true? (:rf/story? m))
@@ -930,7 +914,7 @@
 
 (defn variant-image-ids
   "Return the vector of behaviour-variant IMAGE ids a variant frame resolves
-  behaviour against (EP-0023 §Stories, rf2-fpr0b5), or nil for an ordinary
+  behaviour against (EP-0023 §Stories), or nil for an ordinary
   state variant that resolves against the shared default registrar. Reads the
   `:rf/images` slot `allocate!` stamps onto frame-meta. The companion read for
   Test mode / MCP / Xray to surface WHICH behaviour set ran."

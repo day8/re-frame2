@@ -6,10 +6,9 @@
   toolbar cofx + subs, and (CLJS only) the v1.0 SOTA panel set plus
   the multi-substrate Reagent default.
 
-  Per the rf2-l8eso Phase-2 facade thinning: the public entry
-  `install-canonical-vocabulary!` is re-exported from `re-frame.story`;
-  users call `(re-frame.story/install-canonical-vocabulary!)` at boot,
-  OR rely on the rf2-p1ydc auto-install hook — the first `reg-*` call
+  The public entry `install-canonical-vocabulary!` is re-exported from
+  `re-frame.story`; users call `(re-frame.story/install-canonical-vocabulary!)`
+  at boot, OR rely on the auto-install hook — the first `reg-*` call
   installs the canonical vocabulary on demand. See `ensure-installed!`
   below + spec/001 §Boot — auto-install of the canonical vocabulary.
   The implementation weight — the late-bind shim wiring, the ordered
@@ -42,35 +41,34 @@
   assertion + play modules without a circular require. The hub lives in
   `re-frame.story.late-bind` (mirroring the framework's pattern)."
   []
-  ;; rf2-q651r — `:rf.assert/effect-emitted` projects from the epoch tape,
+  ;; `:rf.assert/effect-emitted` projects from the epoch tape,
   ;; but a STUBBED fx lands on the tape under its REWRITTEN stub id, not its
   ;; original id. The authoritative record of which ORIGINAL fx-ids a
   ;; `force-fx-stub` redirected is the stub-call log `fx-stubs` owns; the
   ;; assertions module reads it via this hook (it cannot `:require`
   ;; fx-stubs / frames without a cycle).
   (late-bind/set-fn! :stub-observed-fx-ids fx-stubs/observed-fx-ids)
-  ;; rf2-luzky — the assertions side-table is gone; only the play module's
-  ;; per-frame `pending-exceptions` slot needs frame-teardown eviction.
+  ;; Only the play module's per-frame `pending-exceptions` slot needs
+  ;; frame-teardown eviction.
   ;;
-  ;; rf2-294yq5.4 — per-frame destroy must ALSO unregister the play-runner's
-  ;; per-frame trace listener (`play/install-trace-listener!` registered it
+  ;; Per-frame destroy must ALSO unregister the play-runner's per-frame
+  ;; trace listener (`play/install-trace-listener!` registered it
   ;; in `runtime/run-phase-0!`). Dropping only the `pending-exceptions` entry
-  ;; left the listener registered against a destroyed frame: `clear-all-play-
-  ;; state!` could no longer find it (it keys off `pending-exceptions` /
-  ;; `stepper-state`, both now empty for that frame), so long-running
-  ;; sessions / hot-reload cycles / large corpora accumulated stale listener
-  ;; closures inspecting every future trace event. `remove-trace-listener!`
-  ;; is idempotent, so destroying a frame that never installed a listener
-  ;; (or a double-destroy) is harmless.
+  ;; would leave the listener registered against a destroyed frame:
+  ;; `clear-all-play-state!` keys off `pending-exceptions` / `stepper-state`
+  ;; (both empty for a torn-down frame), so without this eviction long-running
+  ;; sessions / hot-reload cycles / large corpora would accumulate stale
+  ;; listener closures inspecting every future trace event.
+  ;; `remove-trace-listener!` is idempotent, so destroying a frame that never
+  ;; installed a listener (or a double-destroy) is harmless.
   (late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
       (play/drop-pending-exceptions! frame-id)
       (play/remove-trace-listener! frame-id)))
-  ;; rf2-booyu — the play-runner's per-frame run-state (`run-state` /
-  ;; `runs-by-play` / `active-play` / `step-boundaries`) must be evicted on
-  ;; frame teardown too. `clear-state!` documented itself as "called from
-  ;; frame teardown" but was never wired, so a destroyed variant frame leaked
-  ;; its terminal play status + the toolbar's focused-play slot, and a
+  ;; The play-runner's per-frame run-state (`run-state` / `runs-by-play` /
+  ;; `active-play` / `step-boundaries`) is evicted on frame teardown via
+  ;; `clear-state!`: without it a destroyed variant frame would leak its
+  ;; terminal play status + the toolbar's focused-play slot, and a
   ;; re-allocated frame of the same id could observe the prior incarnation's
   ;; run-state. `frames` cannot `:require` `runner-events` (cycle), so the
   ;; eviction routes through this late-bind hook the same way the
@@ -87,16 +85,15 @@
      same carriage the canvas's `sub-overrides-scope` uses); the override
      never touches app-db / `compute-sub`.
 
-     Per rf2-hzhmv / rf2-ba86n.8 the host paints through the SHARED
+     The host paints through the SHARED
      `ui-multi-substrate/render-decorated-view` seam the canvas single-pane
      path uses, threading the compiled plan's `[:world :decorators]` refs
      (`render-inputs`' `:decorators`, the single-merge-authority output —
-     rf2-g74i9 / spec/017 §305-306). Before this consolidation the host
-     rendered the BARE view, so a decorated variant diverged from the canvas
-     (theme/provider/chrome dropped); now `render-variant` and the live shell
-     paint the SAME decorated tree.
+     spec/017 §305-306). `render-variant` and the live shell paint the
+     SAME decorated tree (theme / provider / chrome included), so a
+     decorated variant never diverges from the canvas.
 
-     rf2-7pgiz: the `:sub-overrides` carriage is a React CONTEXT, not a
+     The `:sub-overrides` carriage is a React CONTEXT, not a
      dynamic var — the var does not survive into the view's deferred React
      render (the view's `@(rf/subscribe)` runs in its own reaction). A
      descendant subscribe reads the override at deref time via the
@@ -110,16 +107,16 @@
 
 #?(:cljs
    (defn- install-render-host!
-     "Wire the `render-variant` host-render hook (rf2-5x1wt.24). The
+     "Wire the `render-variant` host-render hook. The
      render-prep core (`re-frame.story.render/prepare-render`) is host-free
      + JVM-testable; the actual painting of the active view is this CLJS
      hook. It renders the active `:view` under the host substrate's render
      fn, wrapped in the variant's `:hiccup` decorators via the SHARED
      `re-frame.story.ui.multi-substrate/render-decorated-view` seam the
-     canvas single-pane path also uses (rf2-hzhmv / rf2-ba86n.8), inside the
+     canvas single-pane path also uses, inside the
      `render-host-scope` component so the resolved `:sub-overrides` surface
-     at React render time via the override-context carriage (rf2-7pgiz;
-     spec/017 §View-state subscription overrides). The
+     at React render time via the override-context carriage
+     (spec/017 §View-state subscription overrides). The
      result is a hiccup tree (the Reagent default) — the SAME decorated
      render the canvas paints, so render-variant and the live shell agree.
 
@@ -150,7 +147,7 @@
               install-render-host!
               ui-panels/install-canonical-panels!])])
 
-;; ---- auto-install gate (rf2-p1ydc) ---------------------------------------
+;; ---- auto-install gate --------------------------------------------------
 ;;
 ;; Per spec/001 §Boot — auto-install of the canonical vocabulary, the
 ;; canonical vocabulary auto-installs on first `reg-*` call so authors
@@ -203,7 +200,7 @@
 
   Re-exported from the public facade as
   `re-frame.story/install-canonical-vocabulary!`. Authors may call this
-  explicitly at boot — or rely on the rf2-p1ydc auto-install hook,
+  explicitly at boot — or rely on the auto-install hook,
   which fires the same chain on the first `reg-*` call. Either path
   is idempotent.
 

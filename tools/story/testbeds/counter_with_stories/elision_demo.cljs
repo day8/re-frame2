@@ -102,14 +102,13 @@
 ;; may be `nil` (when the user hasn't uploaded yet), so the schema permits
 ;; nil via `:maybe`.
 ;;
-;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local —
+;; EP-0002: `reg-app-schema` is context-required frame-local —
 ;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
 ;; (boot-time namespace loading is NOT a reason to synthesise `:rf/default`,
 ;; per Spec 002 §Frame target resolution). This demo's app runs in the
 ;; `:rf/default` frame (see `core/run`), so name it explicitly here via
 ;; `with-frame` — the registration carries a frame stamp even though it
-;; lands at module-load before `init!`. (The broader testbed migration to a
-;; root provider is owned by the Story/tools bead rf2-bd4div.)
+;; lands at module-load before `init!`.
 (with-frame :rf/default
   (rf/reg-app-schema [:user/avatar-pdf]
                      {:schema [:maybe :string]}))

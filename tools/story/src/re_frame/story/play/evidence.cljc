@@ -1,21 +1,18 @@
 (ns re-frame.story.play.evidence
   "Project run evidence from the retained epoch tape — the single source of
-  truth for what a Story run proved (NewTestStory rf2-5x1wt.4,
-  spec/017-Testing-Story.md §Run-result evidence projection +
-  §Epoch tape and narrative).
+  truth for what a Story run proved (spec/017-Testing-Story.md
+  §Run-result evidence projection + §Epoch tape and narrative).
 
   ## One tape, many projections
 
   Spec/017 §Run result says the run-result slots are *projections from the
   epoch tape wherever possible*: the result shape is API-stable, but the
   storage / source of truth is ONE tape so Story UI, CI, docs, agents, and
-  the future golden/diff tools cannot disagree about what happened. Before
-  this ns, schema failures, warnings, and effects were captured into a
-  parallel per-frame accumulator (the former `re-frame.story.assertions`
-  `trace-accumulators` side-table, removed in rf2-luzky), which could drift
-  from the trace evidence the Xray UI already reads — a second capture path
-  that could report green while the tape showed a failure (the documented
-  \"false GREEN\").
+  the future golden/diff tools cannot disagree about what happened. Schema
+  failures, warnings, and effects all project from this ONE tape — the
+  same trace evidence the Xray UI already reads — so there is no second
+  capture path that could report green while the tape showed a failure
+  (the \"false GREEN\" hazard a parallel accumulator invites).
 
   This ns makes the epoch tape the evidence boundary. Given the vector of
   `:rf/epoch-record` maps the framework retains for a frame
@@ -185,12 +182,10 @@
 ;; ===========================================================================
 ;;
 ;; A warning is any trace event whose `:op-type` is `:warning` (Spec 009
-;; §Trace event shape / §Op-type vocabulary — `:warning`, NOT `:warn`; the
-;; same stream the former `re-frame.story.assertions` `record-warning!`
-;; side-table feed used to siphon — that siphon keyed off `:op-type
-;; :warning`, and every framework emit site uses `(trace/emit! :warning …)`.
-;; rf2-luzky removed the side-table; this is now the only projection, read
-;; by `:rf.assert/no-warnings`).
+;; §Trace event shape / §Op-type vocabulary — `:warning`, NOT `:warn`).
+;; Every framework emit site uses `(trace/emit! :warning …)`. This
+;; projection is the single warning source, read by
+;; `:rf.assert/no-warnings`.
 
 (def warning-operation
   "The trace `:op-type` that marks a warning severity. Spec 009 §Trace event
@@ -533,7 +528,7 @@
 ;; ---- exact stamping from runner-recorded settle boundaries ---------------
 ;;
 ;; This is the PRODUCER-side bridge that lights up `explicit-beats?` /
-;; `spans-from-stamps` (rf2-rkd14). The runner / replay path records, per
+;; `spans-from-stamps`. The runner / replay path records, per
 ;; dispatch-opening step (in executed-script order), the epoch-history
 ;; LENGTH at the moment that step's settle began (`settle-boundaries`). The
 ;; epoch tape is append-only during a run, so dispatch step K owns the
@@ -564,7 +559,7 @@
   The stamp is a `:rf.story/*` accumulator key, so the deterministic
   projection (`re-frame.story.fingerprint/project`) strips it before the
   run-hash is taken — it is evidence-fidelity metadata on the narrative
-  projection, NOT a behavioural slice (rf2-rkd14 determinism guard).
+  projection, NOT a behavioural slice (the determinism guard).
 
   Degrades gracefully: with no `boundaries` (a bare tape — replay/live
   paths that did not record settle boundaries) the tape is returned
@@ -617,7 +612,7 @@
     PRODUCER feeds: the runner / replay path records each dispatch step's
     settle boundary (the epoch-history length at the start of its settle),
     and `project-evidence` stamps the tape via `stamp-tape` before handing
-    it here (rf2-rkd14). A re-dispatch step that settles to N committed
+    it here. A re-dispatch step that settles to N committed
     epochs has all N attributed to the one authored step — exactly.
   - EVEN — absent stamps (a bare `epoch-history` tape with no recorded
     attribution — e.g. a hand-built tape or a host that did not record
@@ -795,8 +790,7 @@
     `(seq unconsumed-violations)` — no set-subtraction, so N>1 same-selector
     violations partially consumed by M<N expectations correctly leave (N−M)
     unconsumed and trip the floor. The `run-result` assembly uses this path
-    so a partially-consumed schema violation is NOT falsely excused
-    (rf2-5mrnwx)."
+    so a partially-consumed schema violation is NOT falsely excused."
   ([epoch-tape violations effects consumed-selectors]
    (let [unconsumed (remove #(contains? consumed-selectors (:selector %)) violations)]
      (evidence-shows-failure? epoch-tape unconsumed effects nil :unconsumed)))
@@ -859,7 +853,7 @@
     step's settle, in dispatch-step order). When present, the
     `:narrative` is attributed EXACTLY via these boundaries
     (`stamp-tape` → `spans-from-stamps`); absent, the narrative falls
-    back to the EVEN forward partition (rf2-rkd14). The stamp lands ONLY
+    back to the EVEN forward partition. The stamp lands ONLY
     on the records the narrative projection consumes — the verbatim
     `:epoch-tape` slot stays RAW — and is a `:rf.story/*` key the
     determinism projection strips, so the run-hash is unaffected.
@@ -899,9 +893,9 @@
          sub-rows    (sub-runs tape)
          render-rows (renders tape)
          rc          (reactive-counts sub-rows render-rows)
-         ;; rf2-rkd14 — when the runner / replay path recorded per-dispatch-
-         ;; step settle boundaries, stamp the tape so the narrative is
-         ;; attributed EXACTLY (`spans-from-stamps`). The stamp lives ONLY on
+         ;; When the runner / replay path recorded per-dispatch-step settle
+         ;; boundaries, stamp the tape so the narrative is attributed EXACTLY
+         ;; (`spans-from-stamps`). The stamp lives ONLY on
          ;; the narrative's input records; the `:epoch-tape` slot below stays
          ;; the verbatim raw tape. (`stamp-tape` returns the tape unchanged
          ;; when `attribution` is absent → EVEN fallback.)

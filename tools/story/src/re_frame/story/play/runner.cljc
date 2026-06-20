@@ -1,6 +1,6 @@
 (ns re-frame.story.play.runner
   "Pure step executor for Story's `:play-script` slot — the Storybook
-  `play()`-equivalent rich DSL (rf2-8i2a9).
+  `play()`-equivalent rich DSL.
 
   ## What this module does
 
@@ -29,10 +29,10 @@
   (`re-frame.story.play.settled-boundary`) governs settlement and the
   capability registry (`re-frame.story.requirements`) governs which
   runner can prove it. Bare event-vector shorthand is NOT the public form
-  — it is normalized to `[:dispatch event-vector]` during migration
-  (`coerce-script`) because an app event genuinely named `:dispatch` /
-  `:click` / `:wait` / `:focus` would otherwise be silently
-  un-dispatchable (a reserved-word hazard).
+  — it is normalized to `[:dispatch event-vector]` (`coerce-script`)
+  because an app event genuinely named `:dispatch` / `:click` / `:wait` /
+  `:focus` would otherwise be silently un-dispatchable (a reserved-word
+  hazard).
 
   `[:wait-until predicate-spec]` advances when a queue/state predicate
   becomes true, so it is DETERMINISTIC (the determinism gate accepts it;
@@ -83,8 +83,8 @@
                                 `{:script :auto-run? :name}` map.
   - `step-type`               — first element of a step vector.
   - `step-arity-ok?`          — validate step shape (pre-flight).
-  - `coerce-script`           — normalise mixed shapes (legacy bare
-                                event vectors become `[:dispatch evec]`).
+  - `coerce-script`           — normalise mixed shapes (bare event
+                                vectors become `[:dispatch evec]`).
   - `initial-state` / `advance-state` — pure state-machine driving the
                                 run-status (`:idle`/`:running`/`:pass`/`:fail`).
   - `step-summary`            — human-readable string for log/trace.
@@ -101,7 +101,7 @@
 (def step-types
   "The canonical step-type tags the runner recognises — the one tagged
   step grammar across `:setup` and `:script` (spec/017 §Script step
-  grammar, rf2-5x1wt.17). `:assert` is the in-script checkpoint atom
+  grammar). `:assert` is the in-script checkpoint atom
   (the wrapped `:rf.assert/*` assertion); `:wait-until` is the
   deterministic settle-on-condition; `:focus` is the DOM focus step."
   #{:dispatch :dispatch-sync :wait :wait-until
@@ -110,7 +110,7 @@
 
 (def assertion-step-types
   "Steps whose outcome contributes to the play's pass/fail status —
-  including the `[:assert …]` in-script checkpoint (rf2-5x1wt.17), which
+  including the `[:assert …]` in-script checkpoint, which
   evaluates a `:rf.assert/*` atom at this exact point in the script."
   #{:assert :assert-db :assert-dom})
 
@@ -121,19 +121,18 @@
   explicitly). The driver yields one tick AFTER these steps so the
   queued effects drain before the next step runs.
 
-  `:dispatch` is NOT in this set as of rf2-5x1wt.2: a `[:dispatch …]`
-  step now settles through `settled-boundary` (spec/017) — in headless
-  the `dispatch-sync*` run-to-fixed-point drain — so it is synchronous
-  at the step boundary, exactly like `:dispatch-sync`. Yielding between
-  synchronous steps is what let concurrent `auto-run!` calls interleave
-  and overshoot counter increments in the Playwright matrix (rf2-ftow6);
-  settling `:dispatch` synchronously removes that hazard for the queued
-  authoring form too.
+  `:dispatch` is not in this set: a `[:dispatch …]` step settles through
+  `settled-boundary` (spec/017) — in headless the `dispatch-sync*`
+  run-to-fixed-point drain — so it is synchronous at the step boundary,
+  exactly like `:dispatch-sync`. Yielding between synchronous steps would
+  let concurrent `auto-run!` calls interleave and overshoot counter
+  increments; settling `:dispatch` synchronously removes that hazard for
+  the queued authoring form too.
 
   `:wait-until` is NOT here either: in headless the predicate is checked
-  synchronously once the preceding dispatch has settled (rf2-5x1wt.17),
-  so it recurs synchronously like the assertion steps. A richer runner's
-  bounded poll handles its own scheduling.
+  synchronously once the preceding dispatch has settled, so it recurs
+  synchronously like the assertion steps. A richer runner's bounded poll
+  handles its own scheduling.
 
   Steps NOT in this set (`:dispatch`, `:dispatch-sync`, `:wait-until`,
   `:assert`, `:assert-db`, `:assert-dom`) recur synchronously on CLJS."
@@ -169,11 +168,11 @@
   `coerce-script` to pre-flight a script before driving it."
   [step]
   (case (step-type step)
-    ;; rf2-l2cn5d (EP-0017): a `:dispatch` / `:dispatch-sync` step is
-    ;; either the bare 2-element `[:dispatch evec]` or the 3-element
-    ;; `[:dispatch evec opts]` carrying a recordable-coeffect envelope
-    ;; (`{:rf.cofx <map>}`) the runner threads into the dispatch opts.
-    ;; The opts slot, when present, MUST be a map.
+    ;; A `:dispatch` / `:dispatch-sync` step is either the bare 2-element
+    ;; `[:dispatch evec]` or the 3-element `[:dispatch evec opts]` carrying
+    ;; a recordable-coeffect envelope (`{:rf.cofx <map>}`) the runner
+    ;; threads into the dispatch opts. The opts slot, when present, MUST be
+    ;; a map.
     :dispatch       (boolean
                       (and (<= 2 (count step) 3)
                            (vector? (nth step 1))
@@ -192,8 +191,8 @@
                            (not (neg? (nth step 1)))))
     ;; `[:wait-until predicate-spec]` — deterministic settle-on-condition.
     ;; The predicate-spec is `[:db path expected]`, `[:db path :pred fn]`,
-    ;; or `[:queue-empty]` (rf2-5x1wt.17). A 2-arity vector whose payload
-    ;; is itself a tagged predicate-spec vector.
+    ;; or `[:queue-empty]`. A 2-arity vector whose payload is itself a
+    ;; tagged predicate-spec vector.
     :wait-until     (boolean
                       (and (= 2 (count step))
                            (let [pspec (nth step 1)]
@@ -214,7 +213,7 @@
                                     :queue-empty (= 1 (count pspec))
                                     false)))))
     ;; `[:assert assertion-vector]` — the in-script checkpoint atom. The
-    ;; wrapped form is a `:rf.assert/*` event vector (rf2-5x1wt.17).
+    ;; wrapped form is a `:rf.assert/*` event vector.
     :assert         (boolean
                       (and (= 2 (count step))
                            (let [a (nth step 1)]
@@ -258,11 +257,11 @@
                            (string? (nth step 1))))
     false))
 
-;; ---- legacy bare-event-vector lift --------------------------------------
+;; ---- bare-event-vector lift ---------------------------------------------
 
 (defn- bare-event-vector?
   "True iff `v` looks like a re-frame event vector but is NOT a known
-  step. We treat these as legacy sugar for `[:dispatch v]`."
+  step. These are sugar for `[:dispatch v]`."
   [v]
   (and (vector? v)
        (pos? (count v))
@@ -319,7 +318,7 @@
     (cond-> {:script script :auto-run? auto-run?}
       nm (assoc :name nm))))
 
-;; ---- :plays multi-play resolution (rf2-tl7zk) ----------------------------
+;; ---- :plays multi-play resolution ----------------------------------------
 
 (defn- parse-named-play
   "Normalise ONE `:plays` entry. Auto-run defaults differ for the first
@@ -386,7 +385,7 @@
 
 (defn play-key
   "Stable key for ONE play within a variant. The empty / single-script
-  shape uses `nil` (the legacy `:play-script` slot has no per-play
+  shape uses `nil` (the `:play-script` slot has no per-play
   identifier). Multi-play entries use the play's `:name` string.
 
   Used by the runner-events ns to key per-(variant, play) run-state
@@ -397,7 +396,7 @@
 
 (defn find-play
   "Return the play at `play-key` (a name string) in `plays`, or nil.
-  `play-key` of nil matches the single-entry case (the legacy
+  `play-key` of nil matches the single-entry case (the single-script
   `:play-script` wrap)."
   [plays play-key]
   (when (seq plays)
@@ -506,7 +505,7 @@
   not be attempted, not a fail), so it must NOT bump `:failures` — otherwise
   `finish`'s `:status :cannot-run` verdict and this `:failures` count
   disagree, and a CI consumer keying off `:failures > 0` would flag a
-  cannot-run-only run as red (rf2-eztym.1). This uses the same predicate
+  cannot-run-only run as red. This uses the same predicate
   (`cannot-run-step?`) `finish` consults for `real-failures`."
   [state result]
   (-> state
@@ -519,8 +518,8 @@
 
 (defn finish
   "Transition `state` to the terminal `:pass` / `:fail` / `:cannot-run`
-  status (rf2-5x1wt.19 — `:cannot-run` is the unified distinct THIRD
-  status, spec/017 §`:cannot-run`).
+  status (`:cannot-run` is the unified distinct THIRD status, spec/017
+  §`:cannot-run`).
 
   - A genuine failure (an exception, or a failing assertion that is NOT a
     `:cannot-run` refusal) → `:fail`.
@@ -550,7 +549,7 @@
 (defn run-state-refusals
   "The `:cannot-run` refusal records carried by a settled run-`state`'s
   per-step `:results` — the same step-results `finish` inspects to decide
-  the run-state status (rf2-q5jw4). Pure data → data.
+  the run-state status. Pure data → data.
 
   A refusal is a step-result a runner could not even ATTEMPT for its
   declared capability (a no-DOM `[:assert-dom …]` / `[:click …]` skip, or a
@@ -567,9 +566,9 @@
 
   This is the SINGLE bridge from the run-state's refusal facts to the
   unified result, so the run-state and the unified `:status` cannot disagree
-  — the false-GREEN class rf2-5x1wt.19 set out to kill (a DOM-skip-only
-  variant read `:pass` via the unified result while the run-state read
-  `:cannot-run`). Empty when no step refused."
+  — closing the false-GREEN class where a DOM-skip-only variant would read
+  `:pass` via the unified result while the run-state read `:cannot-run`.
+  Empty when no step refused."
   [state]
   (into []
         (comp (filter cannot-run-step?)
@@ -757,7 +756,7 @@
 (defn step-cofx
   "Return the captured flat `:rf.cofx` map from a 3-element
   `[:dispatch evec opts]` / `[:dispatch-sync evec opts]` step
-  (rf2-l2cn5d, EP-0017), or nil. The opts map's `:rf.cofx` is the
+  (EP-0017), or nil. The opts map's `:rf.cofx` is the
   recordable-coeffect envelope the recorder captured; the executor
   threads it into the dispatch opts so replay re-presents the recorded
   values (provided facts + the framework `:rf/time-ms`)."
@@ -775,8 +774,8 @@
 
 (defn step-assertion
   "Return the wrapped `:rf.assert/*` assertion atom from an
-  `[:assert assertion-vector]` checkpoint step, or nil (rf2-5x1wt.17).
-  This is the ONE assertion atom in its in-script position — the same
+  `[:assert assertion-vector]` checkpoint step, or nil. This is the ONE
+  assertion atom in its in-script position — the same
   vector the terminal `:assertions` slot carries."
   [step]
   (when (= :assert (step-type step))
@@ -785,8 +784,8 @@
 (defn step-wait-until
   "Decompose a `[:wait-until predicate-spec]` step into
   `{:kind :db|:queue-empty :path <vec> :mode :equals|:pred :expected <val>
-  :pred-ref <fn-or-sym> :pred-fn? <bool>}` (rf2-5x1wt.17). Returns nil
-  for a non-`:wait-until` step.
+  :pred-ref <fn-or-sym> :pred-fn? <bool>}`. Returns nil for a
+  non-`:wait-until` step.
 
   - `[:db path expected]`       → `{:kind :db :path … :mode :equals :expected …}`
   - `[:db path :pred fn-or-sym]`→ `{:kind :db :path … :mode :pred :pred-ref … :pred-fn? …}`

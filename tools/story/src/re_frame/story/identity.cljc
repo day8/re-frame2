@@ -9,44 +9,41 @@
   the body changes, the hash changes; when it doesn't, the hash is
   stable across hosts and runs.
 
-  ## Migration path (rf2-5x1wt.3 — single canonical primitive)
+  ## Single canonical primitive
 
-  The canonical projection + hashing that used to live here
-  (`canonical-form` / `content-hash`) has been **folded into the single
-  fingerprinting primitive** `re-frame.story.fingerprint`, per
-  tools/story/spec/017-Testing-Story.md §Canonicalization. There is now
+  The canonical projection + hashing lives in the single fingerprinting
+  primitive `re-frame.story.fingerprint`, per
+  tools/story/spec/017-Testing-Story.md §Canonicalization. There is
   exactly one canonical path; `:plan-hash`, `:run-hash`, determinism, and
   semantic-diff share it with snapshot identity.
 
-  This ns keeps its public surface (`snapshot-tuple`, `snapshot-identity`)
-  so the shipping watch-mode + visual-regression call sites keep working
-  unchanged. Snapshot identity hashes its tuple through the fingerprint
-  `content-hash` low primitive — the **strip-free** ordered hash.
+  This ns exposes its public surface (`snapshot-tuple`, `snapshot-identity`)
+  for the watch-mode + visual-regression call sites. Snapshot identity
+  hashes its tuple through the fingerprint `content-hash` low primitive —
+  the **strip-free** ordered hash.
 
-  The rf2-5x1wt.3 *fold* was a pure relocation of the hashing code (no
-  value change). The later rf2-lvrqa *soundness* fix is a deliberate
-  canonical-form REVISION: it type-tags the canonical form (so `{}` ≠ `[]`,
-  `{:k 1}` ≠ `[:k 1]`) and folds functions to a stable sentinel, and BUMPS
-  the canonical-version tag `re-frame.story.fingerprint/canonical-version`
-  `:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`. That tag is the
-  single source of truth for the version: `fingerprint/hash-canonical`
-  prepends it as the first hashed slot of EVERY hash (`content-hash`,
-  `canonical-hash`, `plan-hash`, `run-hash`), so the snapshot content-hash
-  VALUE changes with the bump. External visual-regression baselines
-  therefore re-capture on their next run (the bump is the re-stamp signal);
-  there are no in-repo stored hash fixtures to migrate. The hashing CODE
-  lives in the single fingerprint primitive; this ns hashes its snapshot
-  tuple through it. The snapshot tuple also carries a `:rf/snapshot-canonical` data slot,
-  which reads its value straight from `fingerprint/canonical-version` (it is
-  NOT a second, independently-versioned marker — it tracks the one tag).
+  The canonical form is sound: it type-tags the canonical form (so `{}` ≠
+  `[]`, `{:k 1}` ≠ `[:k 1]`) and folds functions to a stable sentinel. The
+  canonical-version tag `re-frame.story.fingerprint/canonical-version`
+  (`:rf/snapshot-canonical-v2`) is the single source of truth for the
+  version: `fingerprint/hash-canonical` prepends it as the first hashed
+  slot of EVERY hash (`content-hash`, `canonical-hash`, `plan-hash`,
+  `run-hash`), so a canonical-form revision changes the snapshot
+  content-hash VALUE. External visual-regression baselines re-capture on
+  their next run (a version bump is the re-stamp signal); there are no
+  in-repo stored hash fixtures. The hashing CODE lives in the single
+  fingerprint primitive; this ns hashes its snapshot tuple through it. The
+  snapshot tuple also carries a `:rf/snapshot-canonical` data slot, which
+  reads its value straight from `fingerprint/canonical-version` (it is NOT
+  a second, independently-versioned marker — it tracks the one tag).
 
   The volatile-field strip + `:variant-id` → `:variant/id` reconciliation
   live in the fingerprint `canonicalize` path that backs determinism /
   semantic-diff / `:plan-hash` / `:run-hash`; they do NOT touch the
   strip-free snapshot `content-hash`, so the snapshot tuple keeps its
-  `:variant-id` slot exactly as before. The deliberate path for any *new*
-  consumer is to call `re-frame.story.fingerprint/canonicalize` (or
-  `content-hash` / `canonical-hash` / `plan-hash` / `run-hash`) directly.
+  `:variant-id` slot. The path for any *new* consumer is to call
+  `re-frame.story.fingerprint/canonicalize` (or `content-hash` /
+  `canonical-hash` / `plan-hash` / `run-hash`) directly.
 
   ## What's in the hash
 
@@ -55,7 +52,7 @@
 
   - Variant id
   - `:events` setup dispatches and the `:play-script` / `:plays` play
-    surfaces (in order) — rf2-0wrud removed the legacy `:play` slot
+    surfaces (in order)
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown`
     (in declared order; canonicalised)
   - Effective `:args` (post-`:extends`-merge with story + active modes)
@@ -90,7 +87,7 @@
   collision-resistance.
 
   The canonical-form version tag `fingerprint/canonical-version`
-  (now `:rf/snapshot-canonical-v2`, bumped by rf2-lvrqa) is prepended by
+  (`:rf/snapshot-canonical-v2`) is prepended by
   `fingerprint/hash-canonical` as the first slot of the hashed structure, so
   a canonical-form revision bumps the version and old baselines are
   detectably stale rather than silently mis-compared."
@@ -110,18 +107,16 @@
   participate in the hash — watch-mode auto-rerun keys off this identity
   so a decorator-only edit MUST perturb it.
 
-  ## Slice membership (rf2-bgwnf)
+  ## Slice membership
 
   A key belongs in the slice iff editing it changes the variant's
   *settled rendered/tested state* — the thing a visual-regression
-  baseline or watch-mode rerun must invalidate on. Audited 2026-05-21:
+  baseline or watch-mode rerun must invalidate on.
 
   Included:
   - `:play-script` / `:plays` — the post-render interaction sequences.
     A play edit changes the asserted/driven state, so it MUST perturb
-    the hash. (rf2-0wrud removed the legacy `:play` slot; this slice
-    tracked `:play`, which silently no longer existed — the bug
-    rf2-bgwnf fixes.)
+    the hash.
   - `:events` — pre-render setup dispatches.
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — async
     setup + the symmetric teardown; both shape the frame's settled state.
@@ -178,7 +173,7 @@
   variant snapshot identity — exactly the invalidation visual-regression
   baselines need on schema changes.
 
-  EP-0002 (rf2-bd4div) — app-db schemas are CONTEXT-REQUIRED FRAME-LOCAL,
+  EP-0002 — app-db schemas are CONTEXT-REQUIRED FRAME-LOCAL,
   so the digest hook resolves a TARGET frame; absence is
   `:rf.error/no-frame-context`, NEVER a synthesised `:rf/default`. Story
   computes snapshot identity for a specific variant, so the variant frame
@@ -215,7 +210,7 @@
          effective    (args/resolve-args variant-id
                                          {:active-modes   active-modes
                                           :cell-overrides cell-overrides})
-         ;; EP-0002 (rf2-bd4div) — the variant frame is the explicit
+         ;; EP-0002 — the variant frame is the explicit
          ;; target for the frame-local app-db schema digest (no ambient
          ;; resolution / no `:rf/default` synthesis).
          schema-digest (view-schema-digest variant-id)]
@@ -225,7 +220,7 @@
       :story                 story
       :effective-args        effective
       :view-schema-digest    schema-digest
-      ;; rf2-z86vu — `:active-modes` already perturbs identity via
+      ;; `:active-modes` already perturbs identity via
       ;; `:effective-args` (mode args are merged in by `resolve-args`),
       ;; so this top-level slot is intentionally belt-and-braces: it
       ;; keeps the mode-id SET part of the identity so two distinct modes

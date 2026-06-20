@@ -36,10 +36,10 @@
 ;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
 ;; cap-honours-default test to sum tokens without reaching into cap's
 ;; private result-io reify. Mirrors the runtime IO instance in
-;; `re-frame.story-mcp.tools.wire-pipeline/result-io` (rf2-eyelu / rf2-mzndx) so
+;; `re-frame.story-mcp.tools.wire-pipeline/result-io` so
 ;; a drift on the consumer's content-shape would be caught by the
 ;; assertion sitting on this mirror — INCLUDING the `:structuredContent`
-;; sizing path added in rf2-mzndx.
+;; sizing path.
 (def ^:private test-io
   (reify base-cap/ResultIO
     (wire-payload-strings [_ result]
@@ -78,14 +78,14 @@
   (story/clear-all!)
   (story/install-canonical-vocabulary!)
   (config/set-allow-writes! false)
-  ;; rf2-g9fje — sensitive-read gate. Default off everywhere (mirrors
+  ;; Sensitive-read gate. Default off everywhere (mirrors
   ;; the `--allow-sensitive-reads` boot-time posture). Tests that
   ;; exercise the opt-in branch flip it explicitly.
   (config/set-allow-sensitive-reads! false)
   (schemas/clear-schemas-by-frame!)
   ;; Frame-owned classification accumulator is per-process — clear between
   ;; tests so a previous test's declared sensitive/large paths don't bleed
-  ;; in (EP-0015 §8, rf2-d2r3um).
+  ;; in (EP-0015 §8).
   (reset! declared-class {})
   ;; Recorder atom is per-process — clear between tests so a previous
   ;; test's captured events don't bleed in.
@@ -122,7 +122,7 @@
   (story/reg-mode :Mode.theme/dark
     {:doc  "Dark theme."
      :args {:theme :dark}})
-  ;; Decorator fixtures — one of each kind (rf2-mqp1u). The `:wrap`
+  ;; Decorator fixtures — one of each kind. The `:wrap`
   ;; closure on the hiccup decorator is the load-bearing case for
   ;; `list-decorators`: the projected EDN must NOT carry the fn, only
   ;; a `:has-wrap?` boolean.
@@ -139,11 +139,11 @@
      :doc      "Pin http effect to a known response."
      :fx-id    :http
      :response {:status 200 :body "ok"}})
-  ;; rf2-d2r3um (EP-0015 §8) reconciliation — a test helper event the
+  ;; EP-0015 §8 — a test helper event the
   ;; privacy tests wire into a variant's `:setup` so the frame-owned
   ;; durable classification (`:sensitive` / `:large {:app-db …}`) is
-  ;; RE-INSTALLED on every fresh run. rf2-294yq5.3 made `run-variant`
-  ;; reset the variant frame's state IN PLACE on each run, which
+  ;; RE-INSTALLED on every fresh run. `run-variant`
+  ;; resets the variant frame's state IN PLACE on each run, which
   ;; overwrites the runtime-db partition with `{}` — wiping the frame's
   ;; elision registry (the `[:rf.runtime/elision …]` slot frame
   ;; classification installs). For the wire-egress redaction to bite at
@@ -224,7 +224,7 @@
       (is (every? #(not (contains? % :category)) ds)))))
 
 (deftest typical-tokens-hint-on-every-tool
-  ;; rf2-6sddv — `:typicalTokens` is an informational ballpark of
+  ;; `:typicalTokens` is an informational ballpark of
   ;; response-payload size in tokens; AI clients use it to budget calls.
   ;; Not a cap. Required to be a positive integer on every tool.
   (testing "registry: every tool carries a positive-integer :typicalTokens"
@@ -239,7 +239,7 @@
       (is (every? #(pos? (:typicalTokens %)) ds)))))
 
 (deftest output-schema-on-every-tool
-  ;; rf2-3l3be — every tool descriptor MUST declare an `:outputSchema`
+  ;; Every tool descriptor MUST declare an `:outputSchema`
   ;; describing its `structuredContent` payload shape. Asserted at
   ;; load time in `registry.cljc` too; this test makes the contract
   ;; visible in the test corpus and pins the wire projection.
@@ -253,7 +253,7 @@
       (is (every? #(map? (:outputSchema %)) ds)))))
 
 (deftest annotations-on-every-tool
-  ;; rf2-94p8q — every tool descriptor MUST declare an `:annotations`
+  ;; Every tool descriptor MUST declare an `:annotations`
   ;; map carrying the MCP tool-annotation hints (`readOnlyHint`,
   ;; `destructiveHint`, `idempotentHint`, `openWorldHint`). Asserted
   ;; at load time in `registry.cljc` too; this test pins the wire
@@ -282,12 +282,11 @@
       (doseq [n ro-tools]
         (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
             (str n " should have readOnlyHint true (rf2-94p8q matrix)")))))
-  ;; rf2-8h778: preview-variant moves to the destructive list. It dispatches
+  ;; preview-variant is on the destructive list. It dispatches
   ;; events into the variant's frame via the same `story/run-variant`
-  ;; lifecycle as `run-variant`; the original `read-only-annotations`
-  ;; marking was a wire-mismatch with the actual side-effect surface and
-  ;; would have let agent-host auto-approval skip the destructive-write
-  ;; ceremony.
+  ;; lifecycle as `run-variant`; marking it read-only would be a
+  ;; wire-mismatch with the actual side-effect surface and would let
+  ;; agent-host auto-approval skip the destructive-write ceremony.
   (testing "matrix: destructive tools have destructiveHint"
     (let [by-name (into {} (map (juxt :name identity)) registry/tool-registry)
           dest-tools ["preview-variant" "run-variant" "register-variant"
@@ -295,7 +294,7 @@
       (doseq [n dest-tools]
         (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
             (str n " should have destructiveHint true (rf2-94p8q matrix)")))))
-  ;; rf2-e6knrq finding 2 — the open-world axis is now LOAD-BEARING and
+  ;; The open-world axis is LOAD-BEARING and
   ;; must not drift silently. `run-variant` / `preview-variant` run the
   ;; author's lifecycle events/fx, which can reach external systems unless
   ;; the author stubbed them (fx-stubbing is an opt-in authoring surface,
@@ -319,7 +318,7 @@
                    "not run the author's lifecycle (rf2-e6knrq finding 2)")))))))
 
 (def ^:private tool-names-fixture
-  "Canonical tool-name list (rf2-36upq TE7). Single source of truth
+  "Canonical tool-name list. Single source of truth
   shared with `test/stdio-roundtrip.js` — a registry change updates one
   file, not two. The fixture sits at `test/fixtures/tool-names.json`;
   this def parses it once at ns-load."
@@ -370,7 +369,7 @@
                " registry-only=" (set/difference (set reg-names) (set tool-names-fixture)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Code ↔ skill drift guard (rf2-dxh2s)
+;; Code ↔ skill drift guard
 ;;
 ;; The `tool-names.json` net above guards code↔test↔conformance (JVM
 ;; corpus, `stdio-roundtrip.js`, `end-to-end-story.cjs`). The CONSUMING
@@ -386,8 +385,8 @@
 (defn- artefact-root
   "Resolve the `tools/story-mcp/` artefact root on disk, cwd-independently.
   The per-tool `:test` alias runs from `tools/story-mcp` (a cwd-relative
-  `(io/file …)` works), but the tools-root aggregate (`tools/deps.edn :test`,
-  rf2-f2tkbt) runs from `tools/`, where a cwd-relative `spec/API.md` /
+  `(io/file …)` works), but the tools-root aggregate (`tools/deps.edn :test`)
+  runs from `tools/`, where a cwd-relative `spec/API.md` /
   `../../skills/…` would miss. The repo-tree files `spec/API.md` and the
   consuming skill leaf are NOT on the classpath (story-mcp ships only `src`
   + `test`), so we anchor off a known classpath SOURCE resource
@@ -439,7 +438,7 @@
     (into table-names ["get-story-instructions" "snapshot-identity"])))
 
 (deftest skill-leaf-tool-names-match-registry
-  ;; rf2-dxh2s — code↔skill drift ratchet for the reference leaf prose.
+  ;; Code↔skill drift ratchet for the reference leaf prose.
   (let [leaf       @story-mcp-loop-leaf
         reg-names  (set (map :name registry/tool-registry))
         named      (skill-named-tools leaf)]
@@ -451,9 +450,9 @@
       ;; `skill-named-tools` folds in. Pinned explicitly so a table row
       ;; silently dropping a tool is caught even if the registry still
       ;; carries it. NOT pinned: `run-variant` / `read-failures` (and the
-      ;; other Testing-category run tools) — rf2-r2xswa reframed this leaf
-      ;; into an author/refine recipe and moved the run/self-heal loop to a
-      ;; `re-frame2-pair` handoff, so those live in pair's allow-list, not
+      ;; other Testing-category run tools) — this leaf is an author/refine
+      ;; recipe and the run/self-heal loop lives on a `re-frame2-pair`
+      ;; handoff, so those live in pair's allow-list, not
       ;; this skill's catalogue. The Testing-tools split is asserted below.
       (doseq [t ["register-variant" "unregister-variant" "preview-variant"
                  "get-variant" "explain-variant" "get-story-instructions"
@@ -517,13 +516,13 @@
       (is (re-find #"snapshot-identity" text)))))
 
 (deftest get-story-instructions-covers-the-full-registration-surface
-  ;; rf2-4537df — the onboarding text + descriptor are the agent-facing
-  ;; contract for the Story registration surface. They previously listed
-  ;; only the SEVEN reg-* macros and omitted the public `reg-fragment` /
-  ;; `reg-check` composition macros, so an agent following the onboarding
-  ;; would never discover the `:compose` reuse surface. These assertions
-  ;; pin all nine public macros + the count so a future macro-surface
-  ;; change can't silently drift the onboarding again.
+  ;; The onboarding text + descriptor are the agent-facing
+  ;; contract for the Story registration surface. They enumerate all nine
+  ;; public reg-* macros — including the `reg-fragment` / `reg-check`
+  ;; composition cohort — so an agent following the onboarding discovers
+  ;; the `:compose` reuse surface. These assertions pin all nine public
+  ;; macros + the count so a macro-surface change can't silently drift
+  ;; the onboarding.
   (testing "the onboarding text enumerates all nine reg-* macros, including the composition cohort"
     (let [text (-> (invoke "get-story-instructions" {}) :content first :text)]
       (doseq [m ["reg-story" "reg-variant" "reg-fragment" "reg-check"
@@ -547,7 +546,7 @@
       (is (re-find #"reg-check" desc) "descriptor names reg-check"))))
 
 (deftest get-story-instructions-emits-structured-content
-  ;; rf2-vyacl — the descriptor declares an `:outputSchema`, so the
+  ;; The descriptor declares an `:outputSchema`, so the
   ;; official MCP SDK's high-level callTool REJECTS a result with no
   ;; `:structuredContent` (JSON-RPC -32600). The handler MUST emit a
   ;; structuredContent slot. Mirrors re-frame2-pair-mcp's sibling
@@ -577,7 +576,7 @@
     (is (re-find #"story\.button(/|%2F)primary" (:share-url s)))
     ;; :lifecycle is the loader STATE (retained adjunct); the verdict is
     ;; the unified :status — preview speaks the same vocabulary run-variant
-    ;; does (rf2-ba86n.17), so a vacuous-pass preview reads :status :pass.
+    ;; does, so a vacuous-pass preview reads :status :pass.
     (is (some? (:lifecycle s)))
     (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
     (is (vector? (:checks s)))))
@@ -597,9 +596,7 @@
     (is (success? r))
     (is (vector? (-> r :structuredContent :substrates)))))
 
-;; rf2-4sgak — pin the CLJS-var resolver contract. The senior-review
-;; finding suspected the substrate bridge resolved an ALIAS symbol that
-;; `clojure.core/resolve` would not honour. In fact `resolve` DOES honour
+;; Pin the CLJS-var resolver contract. `clojure.core/resolve` honours
 ;; the calling ns's aliases, and the substrate var is nil on the JVM purely
 ;; because it is CLJS-only (a `#?(:cljs …)` def with no JVM Var). These
 ;; tests pin both facts so the contract can't silently regress.
@@ -647,7 +644,7 @@
       (is (empty? (:stories s)))
       (is (not (contains? s :ignored-tags))
           "a REGISTERED tag that simply matches no story is not 'ignored'")))
-  ;; rf2-wu1o2d — an unknown-only tag filter (a typo / stale tag) MUST
+  ;; An unknown-only tag filter (a typo / stale tag) MUST
   ;; return an empty result, NOT silently widen to the full catalogue.
   ;; The supplied-but-unresolved name rides the `:ignored-tags` diagnostic.
   (testing "filtering by an UNKNOWN-only tag returns empty, never the full catalogue"
@@ -698,7 +695,7 @@
     (is (= "Primary button." (-> r :structuredContent :body :doc)))))
 
 (deftest explain-variant-happy
-  ;; rf2-ba86n.17 — the agent mirror of the human Explain panel: the
+  ;; The agent mirror of the human Explain panel: the
   ;; variant-plan `:explain` projection (spec/017 §Explain API), a thin
   ;; wrapper over the shipped `story/explain` data API.
   (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
@@ -739,7 +736,7 @@
     (is (= :Mode.theme/dark (-> ms first :id)))
     (is (= {:theme :dark} (-> ms first :args)))))
 
-;; rf2-mqp1u — `list-decorators` is a read-only enumeration. The
+;; `list-decorators` is a read-only enumeration. The
 ;; `:wrap` closure on `:hiccup` decorators must NOT cross the wire
 ;; (closures don't serialise); the projection drops the slot in
 ;; favour of a `:has-wrap?` boolean. The canonical vocabulary
@@ -788,7 +785,7 @@
   (let [r (invoke "list-assertions" {})
         s (:structuredContent r)]
     (is (success? r))
-    ;; rf2-5x1wt.21 — the seven dispatched assertions PLUS the tape-evaluated
+    ;; The seven dispatched assertions PLUS the tape-evaluated
     ;; :rf.assert/schema-error (the EXPECTED-schema-violation declaration).
     (is (= 8 (count (:canonical s))))
     (is (some #(= :rf.assert/path-equals (:id %)) (:canonical s)))
@@ -796,12 +793,11 @@
     (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))))
 
 (deftest list-assertions-registered-covers-plan-compiler-vocabulary
-  ;; rf2-4sgak — :registered MUST advertise the FULL vocabulary the Story
+  ;; :registered MUST advertise the FULL vocabulary the Story
   ;; plan compiler accepts (`assertions/known-assertion-ids`, the SAME set
-  ;; `plan.cljc` validates authored assertion atoms against). Previously it
-  ;; mirrored only `canonical-assertion-ids`, so MCP agents could not
-  ;; discover the DOM / visual / a11y / reactive-count ids the compiler
-  ;; would accept and fell back to stale prose.
+  ;; `plan.cljc` validates authored assertion atoms against), so MCP agents
+  ;; can discover the DOM / visual / a11y / reactive-count ids the compiler
+  ;; accepts rather than falling back to prose.
   (testing ":registered == the plan compiler's known-assertion-ids set"
     (let [r (invoke "list-assertions" {})
           s (:structuredContent r)]
@@ -811,7 +807,7 @@
           ":registered must equal the plan compiler's known-assertion-ids"))))
 
 (deftest list-assertions-registered-surfaces-browser-tier-families
-  ;; rf2-4sgak — the specific browser-tier ids the canonical doc-vec does
+  ;; The specific browser-tier ids the canonical doc-vec does
   ;; NOT cover but the plan compiler accepts: DOM, visual, a11y,
   ;; reactive-count. A regression that re-narrowed :registered to the
   ;; canonical eight would drop these and fail here.
@@ -840,15 +836,15 @@
         (is (map? back))
         (is (= "Primary button." (:doc back))))))
   (testing "rf2-vyacl: variant->edn ALSO emits structuredContent (it declares an outputSchema, so the SDK requires it)"
-    ;; `variant->edn` was the only other tool besides get-story-instructions
-    ;; that returned text-only while declaring an :outputSchema — the same
-    ;; -32600 latent defect. It now mirrors the body into structuredContent.
+    ;; `variant->edn` declares an :outputSchema, so a text-only result
+    ;; would trip the SDK's -32600. It mirrors the body into
+    ;; structuredContent.
     (let [r (invoke "variant->edn" {:variant-id "story.button/primary"})]
       (is (some? (:structuredContent r))
           "an outputSchema-declaring tool MUST return structuredContent (SDK -32600)")
       (is (= "Primary button." (-> r :structuredContent :doc))))))
 
-;; rf2-i0kyy — `get-docs-markdown` is the agent-paste shape.
+;; `get-docs-markdown` is the agent-paste shape.
 (deftest get-docs-markdown-renders-story-and-variants
   (let [r  (invoke "get-docs-markdown" {:story-id "story.button"})
         s  (:structuredContent r)
@@ -879,13 +875,12 @@
     (is (re-find #"story-id" (-> r :content first :text)))))
 
 ;; ---------------------------------------------------------------------------
-;; Pagination on the Docs `list-*` tools (rf2-76sf6)
+;; Pagination on the Docs `list-*` tools
 ;;
 ;; spec/Principles.md §'Tight token budget' MUST: every read tool whose
 ;; return size is a function of registry size MUST accept `:limit` +
 ;; `:cursor`. These tests pin:
 ;;   - small registries return the bare shape (no pagination metadata)
-;;     — the pre-rf2-76sf6 wire shape is preserved
 ;;   - large registries (>= :limit) return :total :limit :has-more?
 ;;     :next-cursor
 ;;   - cursor round-trips across pages
@@ -1021,7 +1016,7 @@
     (let [r (invoke "list-assertions" {:limit 3})
           s (:structuredContent r)]
       (is (success? r))
-      ;; rf2-5x1wt.21 — eight: the seven dispatched + the tape-evaluated
+      ;; Eight: the seven dispatched + the tape-evaluated
       ;; :rf.assert/schema-error.
       (is (= 8 (count (:canonical s)))
           "the canonical-doc vec is the bounded reference; not subject to pagination")
@@ -1036,8 +1031,8 @@
         s (:structuredContent r)]
     (is (success? r))
     (is (= :story.button/primary (:frame s)))
-    ;; rf2-ba86n.17 clean break — the verdict is the unified :status, not
-    ;; the retired :passing? boolean. A zero-assertion run is vacuously :pass.
+    ;; The verdict is the unified :status; there is no :passing? boolean.
+    ;; A zero-assertion run is vacuously :pass.
     (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
     (is (not (contains? s :passing?)) "the retired :passing? boolean is gone")
     (is (vector? (:assertions s)))
@@ -1049,9 +1044,9 @@
     (is (re-find #"not found" (-> r :content first :text)))))
 
 (deftest run-variant-cannot-run-reachable
-  ;; rf2-ba86n.17 — the distinct THIRD verdict `:cannot-run` must be
-  ;; reachable over the wire (the old :passing? boolean could not express
-  ;; it). A `:rf.assert/caused` expectation needs reactive evidence; run
+  ;; The distinct THIRD verdict `:cannot-run` must be
+  ;; reachable over the wire. A `:rf.assert/caused` expectation needs
+  ;; reactive evidence; run
   ;; under the default no-reactive headless runner, the causal matcher
   ;; fails closed to :cannot-run rather than silently passing against an
   ;; empty projection (spec/017 §Causal and cascade assertions).
@@ -1083,13 +1078,14 @@
   (let [r (invoke "snapshot-identity" {:variant-id "story.nope/missing"})]
     (is (error? r))))
 
-;; rf2-09rfpu Finding 2 — `snapshot-identity` forwards `:cell-overrides`
+;; `snapshot-identity` forwards `:cell-overrides`
 ;; into `story/snapshot-identity`, where it perturbs the `:content-hash`
-;; via the resolved `:effective-args`. The descriptor + API now advertise
-;; the slot (it was hidden behind `additionalProperties false`, so a
-;; validating client stripped a real identity input while a non-validating
-;; client got a different hash). These tests pin: (a) the slot is in the
-;; advertised input schema, and (b) an override actually changes the hash.
+;; via the resolved `:effective-args`. The descriptor + API advertise
+;; the slot, since it is a real identity input — hiding it behind
+;; `additionalProperties false` would let a validating client strip it
+;; while a non-validating client got a different hash. These tests pin:
+;; (a) the slot is in the advertised input schema, and (b) an override
+;; actually changes the hash.
 (deftest snapshot-identity-advertises-cell-overrides
   (testing "the snapshot-identity descriptor exposes :cell-overrides in its input schema"
     (let [desc  (first (filter #(= "snapshot-identity" (:name %)) registry/tool-registry))
@@ -1119,11 +1115,11 @@
       (is (re-find #"CLJS-only" (:note s))))))
 
 (deftest read-a11y-violations-co-hosted-surfaces-stored-violations
-  ;; rf2-ynjts.20 — the co-hosted (CLJS var resolved) branch of
-  ;; `tool-read-a11y-violations`. The existing test covers ONLY the JVM-standalone
-  ;; path (var unresolved ⇒ empty + :note). The populated path — the
-  ;; resolved violations atom carries findings for the frame — was
-  ;; untested. We stand in for the resolved CLJS var with a var-of-atom
+  ;; The co-hosted (CLJS var resolved) branch of
+  ;; `tool-read-a11y-violations`. This covers the populated path — the
+  ;; resolved violations atom carries findings for the frame (the
+  ;; JVM-standalone path, var unresolved ⇒ empty + :note, is covered
+  ;; above). We stand in for the resolved CLJS var with a var-of-atom
   ;; mirror: the handler does `(deref @violations-by-frame-var)`, so the
   ;; redef must hold a value whose deref is the per-frame violations atom.
   (testing "violations stored for the frame are surfaced; :note is nil"
@@ -1157,16 +1153,15 @@
       (is (= 0 (:total s)))
       (is (empty? (:failures s)))
       (is (empty? (:assertions s)))
-      ;; rf2-ba86n.17 clean break — :status is the unified verdict; the
-      ;; retired :passing? boolean is gone.
+      ;; :status is the unified verdict; there is no :passing? boolean.
       (is (= :pass (:status s)))
       (is (not (contains? s :passing?))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Self-healing loop — failing :rf.assert/* through run-variant → read-failures
 ;;
-;; Per rf2-6r441: existing tests cover the optimistic (vacuous-pass) flow only.
-;; This deftest drives a DELIBERATELY-FAILING `:rf.assert/path-equals` through
+;; While other tests cover the optimistic (vacuous-pass) flow, this
+;; deftest drives a DELIBERATELY-FAILING `:rf.assert/path-equals` through
 ;; the MCP tool surface and asserts the AI-visible failure shape — the wire-
 ;; side contract an agent would consume.
 ;;
@@ -1345,22 +1340,21 @@
       (is (= "Wire body." (:doc (story/variant->edn :story.button/wire)))))))
 
 ;; ---------------------------------------------------------------------------
-;; EDN reader hardening on register-variant :body (rf2-g9fje fix 2/3)
+;; EDN reader hardening on register-variant :body
 ;;
-;; The EDN-string path through `tool-register-variant` is locked down per
-;; the rf2-uaymx audit: no tagged literals, no custom readers, 64KB size
-;; cap, 64-level depth cap. Pre-fix, `(edn/read-string body)` would happily
-;; eval `#=(...)` evaluator forms (when `*read-eval*` was true) or invoke
-;; any data reader on the `*data-readers*` table; post-fix the reader is
-;; `:readers {}` with a throwing `:default`, so any tagged-literal form
-;; lands in `::edn-error`.
+;; The EDN-string path through `tool-register-variant` is locked down:
+;; no tagged literals, no custom readers, 64KB size cap, 64-level depth
+;; cap. The reader is `:readers {}` with a throwing `:default`, so any
+;; tagged-literal form — including a `#=(...)` evaluator form or any data
+;; reader on the `*data-readers*` table — lands in `::edn-error` rather
+;; than evaluating.
 ;; ---------------------------------------------------------------------------
 
 (deftest register-variant-rejects-tagged-literal
   (testing "EDN body containing a custom tagged literal is rejected (rf2-g9fje)"
     (config/set-allow-writes! true)
     ;; Custom tags (non-EDN-built-in: not #inst / #uuid) route through the
-    ;; reader's :default handler, which throws under the rf2-g9fje
+    ;; reader's :default handler, which throws under the EDN
     ;; hardening. The throw lands as ::edn-error → the "must be a map or
     ;; a valid EDN string" error message.
     (let [r (invoke "register-variant"
@@ -1418,12 +1412,12 @@
       (is (re-find #"(?i)Registration failed" (-> r :content first :text))))))
 
 (deftest register-variant-rejects-non-map-body
-  ;; rf2-ynjts.20 — the `coerce-body` `::not-a-map` branch (write.cljc).
+  ;; The `coerce-body` `::not-a-map` branch (write.cljc).
   ;; The hardening tests above all cover the `::edn-error` branch (tagged
   ;; literal, oversize, over-deep, malformed). The DISTINCT `::not-a-map`
   ;; branch — a `:body` that PARSES cleanly but isn't a map — emits a
-  ;; different error message ("must be a map; got <class>") and was
-  ;; untested. A vector/scalar body must not reach the registrar.
+  ;; different error message ("must be a map; got <class>"). A
+  ;; vector/scalar body must not reach the registrar.
   (testing "an EDN-string body that parses to a vector is rejected as not-a-map"
     (config/set-allow-writes! true)
     (let [r (invoke "register-variant"
@@ -1443,19 +1437,17 @@
       (is (re-find #"(?i):body must be a map" (-> r :content first :text))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-tag30h — write-side no-intern: an INVALID id that correctly returns
+;; Write-side no-intern: an INVALID id that correctly returns
 ;; an MCP error must leave NO keyword in the JVM keyword table.
 ;;
-;; The write paths minted the keyword via `fresh-keyword` (intern FIRST),
-;; then let the registrar's downstream `assert-id!` reject on grammar — so
-;; an invalid `:variant-id` / `:new-variant-id` was REJECTED but already
-;; INTERNED. A hostile/malfunctioning client could grow the never-shrinking
-;; JVM keyword table unboundedly through failed write attempts (a slow-burn
-;; DoS), and a wide object-form body could intern many arbitrary keys before
-;; the registrar normalised them. The fix validates the id grammar on the
-;; STRING shape (`fresh-keyword-checked` + `variant-id-shape?`) and caps the
-;; object-body string-key WIDTH — both BEFORE any intern. `find-keyword`
-;; (JVM, no-intern lookup) is the no-intern oracle.
+;; Interning an invalid id before rejecting it would let a
+;; hostile/malfunctioning client grow the never-shrinking JVM keyword
+;; table unboundedly through failed write attempts (a slow-burn DoS), and
+;; a wide object-form body could intern many arbitrary keys before the
+;; registrar normalised them. So the write paths validate the id grammar
+;; on the STRING shape (`fresh-keyword-checked` + `variant-id-shape?`)
+;; and cap the object-body string-key WIDTH — both BEFORE any intern.
+;; `find-keyword` (JVM, no-intern lookup) is the no-intern oracle.
 ;; ---------------------------------------------------------------------------
 
 (deftest register-variant-invalid-id-does-not-intern
@@ -1532,16 +1524,14 @@
     (is (nil? (story/variant->edn :story.button/primary)))))
 
 (deftest unregister-variant-unknown-is-error-not-no-op
-  ;; Correctness review (rf2-nce6f): `unregister-variant` resolves
-  ;; `:variant-id` via `safe-keyword` against the LIVE registered-variant
-  ;; set (rf2-lqjbk `with-variant-id`), so an unregistered id NEVER reaches
-  ;; the handler body — it short-circuits to a `Variant not found` error.
-  ;; The success path therefore always reports `:unregistered? true` (the
-  ;; old `:unregistered? false` "already-gone" branch was structurally
-  ;; unreachable dead code; the descriptor example documenting it was
-  ;; impossible). This pins the spec-conformant contract (spec/API.md
-  ;; §unregister-variant: error when not registered) so the dead branch
-  ;; cannot regress back in.
+  ;; `unregister-variant` resolves `:variant-id` via `safe-keyword`
+  ;; against the LIVE registered-variant set (`with-variant-id`), so an
+  ;; unregistered id NEVER reaches the handler body — it short-circuits to
+  ;; a `Variant not found` error. The success path therefore always
+  ;; reports `:unregistered? true`; there is no reachable
+  ;; `:unregistered? false` "already-gone" branch. This pins the
+  ;; spec-conformant contract (spec/API.md §unregister-variant: error when
+  ;; not registered).
   (testing "an unregistered :variant-id is a tool-execution error, never a false-no-op"
     (config/set-allow-writes! true)
     (let [r (invoke "unregister-variant" {:variant-id "story.no/such"})]
@@ -1557,12 +1547,12 @@
           "a resolved (hence registered) variant is always actually removed"))))
 
 (deftest gated-error-tool-slot-pins-caller
-  ;; Regression for rf2-c52j0. Pre-fix, `assert-writes-allowed` hardcoded
-  ;; `:tool "register-variant"` in its error payload, so the two other
-  ;; callers (`unregister-variant`, `record-as-variant`) returned a gated
-  ;; error whose `:structuredContent :tool` slot LIED about its origin.
-  ;; This test pins the slot to the actual tool name at each callsite so
-  ;; the lie cannot regress.
+  ;; `assert-writes-allowed` must stamp the gated-error payload with the
+  ;; ACTUAL invoking tool name. Hardcoding `:tool "register-variant"` would
+  ;; make the two other callers (`unregister-variant`, `record-as-variant`)
+  ;; return a gated error whose `:structuredContent :tool` slot LIED about
+  ;; its origin. This test pins the slot to the actual tool name at each
+  ;; callsite.
   (testing "gated error's :structuredContent :tool matches the invoking tool"
     (is (false? (config/writes-allowed?))
         "fixture must leave the gate closed for this test")
@@ -1592,9 +1582,9 @@
 
 (defn- drive-events-during-recording
   "Spawn a worker thread that polls for the recorder's open window, then
-  pushes `events` once `recording?` flips true. Replaces the
-  `Thread/sleep delay-ms` race the original helper had (TE5, rf2-36upq)
-  — on a slow CI runner the worker could either fire BEFORE
+  pushes `events` once `recording?` flips true. Polling `recording?`
+  avoids a `Thread/sleep delay-ms` race
+  — on a slow CI runner a fixed sleep could either fire BEFORE
   `start-recording!` (events dropped, capture truncated) or AFTER
   `stop-recording!` (same outcome). Polling `recording?` from the worker
   end means we never depend on a sleep window outlasting the tool.
@@ -1609,7 +1599,7 @@
   Most callers just spawn-and-forget — the `:duration-ms` window the
   tool sleeps in is more than long enough for the polled push.
 
-  rf2-l2cn5d (EP-0017): the 2-arity `(drive-events-during-recording
+  EP-0017: the 2-arity `(drive-events-during-recording
   events cofx-vec)` pushes a parallel, index-aligned vector of captured
   flat `:rf.cofx` maps (the framework `:rf/time-ms` + any provided facts
   a dispatch carried) via the recorder's 2-arity `record-event!`, so a
@@ -1621,10 +1611,10 @@
      (doto (Thread.
              ^Runnable
              (fn []
-               ;; Poll `recording?` with a 1ms park between probes — far
-               ;; finer-grained than the original 20ms sleep. Bails after
-               ;; 5s if the recorder never opens (a tool bug; the test
-               ;; assertions will catch it).
+               ;; Poll `recording?` with a 1ms park between probes — fine-
+               ;; grained so the worker fires promptly once the window opens.
+               ;; Bails after 5s if the recorder never opens (a tool bug;
+               ;; the test assertions will catch it).
                (let [deadline (+ (System/nanoTime) (* 5 1000000000))]
                  (loop []
                    (cond
@@ -1656,8 +1646,8 @@
 
 (deftest record-as-variant-zero-duration-empty-capture
   (testing "duration 0 with no in-flight dispatches ⇒ empty public :script snippet"
-    ;; rf2-7mj4z: the recorder's `gen-play-snippet` emits the PUBLIC
-    ;; `:script {:auto-run? true :script [...]}` body, NOT the transitional
+    ;; The recorder's `gen-play-snippet` emits the PUBLIC
+    ;; `:script {:auto-run? true :script [...]}` body, NOT the internal
     ;; `:play-script` spelling. With zero captured events the inner
     ;; `:script` vector is empty.
     (let [r (invoke "record-as-variant" {:variant-id "story.button/primary"})
@@ -1709,12 +1699,11 @@
       (is (true? (:written-back? s)))
       (is (= :story.button/primary (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
-      ;; rf2-7mj4z: write-back assocs the PUBLIC `:script` authoring slot,
+      ;; Write-back assocs the PUBLIC `:script` authoring slot,
       ;; which `reg-variant*` lowers to the shipping `:play-script` slot —
       ;; so the STORED body (`variant->edn`) reads `:play-script` carrying
-      ;; the captured events as a LIVE, replayable script (NOT the dead
-      ;; `:play` slot the schema dropped in rf2-0wrud, which no runner
-      ;; executes). Each captured event becomes a `[:dispatch ...]` step.
+      ;; the captured events as a LIVE, replayable script. Each captured
+      ;; event becomes a `[:dispatch ...]` step.
       ;; The exact count is derived from `:recorded-event-count` because
       ;; the live-recorder capture races the :duration-ms window.
       (let [body (story/variant->edn :story.button/primary)]
@@ -1742,7 +1731,7 @@
       (is (true? (:written-back? s)))
       (is (= :story.button/recorded (:new-variant-id s)))
       (is (pos? n) "the recorder captured at least one event")
-      ;; rf2-7mj4z: write-back assocs the public `:script` slot, lowered to
+      ;; Write-back assocs the public `:script` slot, lowered to
       ;; the shipping `:play-script` slot in storage (count derived from
       ;; `:recorded-event-count` — capture races the :duration-ms window).
       (is (= {:script (vec (repeat n [:dispatch [:counter/inc]])) :auto-run? true}
@@ -1830,10 +1819,9 @@
 
 (deftest record-as-variant-write-back-round-trips-and-replays
   (testing "rf2-50jzf: a written-back recording's :script body ACTUALLY replays"
-    ;; The headline acceptance criterion for rf2-50jzf — the previous
-    ;; write-back wrote a dead `:play` slot the schema dropped in
-    ;; rf2-0wrud, so a round-tripped recording silently never replayed.
-    ;; This test closes the loop end-to-end: record real dispatches →
+    ;; The headline acceptance criterion: a round-tripped recording
+    ;; actually replays. This test closes the loop end-to-end: record
+    ;; real dispatches →
     ;; write them back under a fresh variant → run THAT variant through
     ;; the MCP `run-variant` tool → assert the captured dispatches fired
     ;; against the frame's app-db (proving the slot the runner executes
@@ -1979,7 +1967,7 @@
       (is (re-find #":extends :story\.button/primary" snippet)))))
 
 ;; ---------------------------------------------------------------------------
-;; :origin :story-mcp stamping (rf2-7dnct)
+;; :origin :story-mcp stamping
 ;;
 ;; Per spec/Cross-Cutting-Designs.md §5 — every write surface tags its
 ;; writes with a single `:origin` keyword so post-mortem queries can
@@ -2201,7 +2189,7 @@
           "a missing tool name is invalid-params (nil is not a string)"))))
 
 ;; ---------------------------------------------------------------------------
-;; Lifecycle state enforcement (rf2-e6knrq finding 1)
+;; Lifecycle state enforcement
 ;;
 ;; Before a successful `initialize`, the dispatcher MUST accept only
 ;; `initialize` + `ping` (and any notification); every other request —
@@ -2209,7 +2197,7 @@
 ;; protocol-level `-32600 invalid-request`. A malformed or hostile client
 ;; must not be able to enumerate or invoke tools before the handshake.
 ;; These deftests drive BOTH the direct stateful `dispatch` (2-arity) AND
-;; the full `run-loop!` stdio order, per the bead's acceptance criteria.
+;; the full `run-loop!` stdio order.
 ;; ---------------------------------------------------------------------------
 
 (deftest dispatch-rejects-tools-list-before-initialize
@@ -2364,7 +2352,7 @@
                        "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}\n")
           reader (java.io.BufferedReader. (java.io.StringReader. in-text))
           sw     (java.io.StringWriter.)
-          ;; Silent-on-success (rf2-try1x): the server logs the parse
+          ;; Silent-on-success: the server logs the parse
           ;; error to *err* per MCP stdio rules; capture it into a
           ;; throwaway buffer so the green test run stays at the
           ;; canonical 3-line shape.
@@ -2398,7 +2386,7 @@
   ;; to *err* and skipped, leaving the config map untouched. Surrounding
   ;; recognised flags must still parse.
   (testing "an unknown flag leaves the config map empty"
-    ;; Silent-on-success (rf2-try1x): the log line goes to *err*; capture
+    ;; Silent-on-success: the log line goes to *err*; capture
     ;; it so the green run keeps the canonical reporter shape.
     (let [err (java.io.StringWriter.)]
       (binding [*err* err]
@@ -2439,7 +2427,7 @@
           "initialize echoes read-version into :serverInfo :version"))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-boundary token-budget cap (rf2-rvyzy / rf2-zavp5).
+;; Wire-boundary token-budget cap.
 ;;
 ;; The cap is applied at `invoke-tool` egress — the cumulative
 ;; `:text`-slot byte count is compared against `:max-tokens` (default
@@ -2486,15 +2474,15 @@
       (is (not (overflow-marker? r))))))
 
 (deftest cap-negative-max-tokens-rejected-not-overflow-lockout
-  ;; rf2-5rdit — a negative `:max-tokens` resolves to a
+  ;; A negative `:max-tokens` resolves to a
   ;; `{:rf.mcp/invalid-arg {...}}` rejection, NOT a negative cap. The
   ;; handler is never dispatched and the result is an actionable
-  ;; `isError: true` error — not the `:rf.mcp/overflow` lock-out a
-  ;; negative ceiling used to cause (over-cap? trips on any non-negative
-  ;; token count against a negative cap, so even a tiny response was
-  ;; replaced by the overflow marker). The wire `:minimum 0` schema is the
-  ;; first line of defence for validating hosts; this is the egress
-  ;; backstop for hosts that don't validate.
+  ;; `isError: true` error — not an `:rf.mcp/overflow` lock-out. Were a
+  ;; negative ceiling accepted, `over-cap?` would trip on any non-negative
+  ;; token count against it, so even a tiny response would be replaced by
+  ;; the overflow marker. The wire `:minimum 0` schema is the first line
+  ;; of defence for validating hosts; this is the egress backstop for
+  ;; hosts that don't validate.
   (testing "negative :max-tokens surfaces an :rf.mcp/invalid-arg error, not overflow"
     (let [r    (wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})
           body (get-in r [:structuredContent vocab/invalid-arg-key])]
@@ -2537,14 +2525,14 @@
           (str "tool " (:name t) " :max-tokens slot is not integer-typed")))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-egress privacy posture (rf2-73wuj)
+;; Wire-egress privacy posture
 ;;
-;; Per spec/Tool-Pair.md §Direct-read privacy posture (lines 544-566) every
+;; Per spec/Tool-Pair.md §Direct-read privacy posture, every
 ;; pair-shaped tool that surfaces a live `:app-db` slice MUST route the
 ;; value through `re-frame.core/elide-wire-value` before egress, with
 ;; off-box defaults (`:rf.size/include-sensitive?` and
 ;; `:rf.size/include-large?` both default false). The cross-MCP
-;; `:include-sensitive` arg (rf2-vw4sq) is the documented escape hatch.
+;; `:include-sensitive` arg is the documented escape hatch.
 ;;
 ;; These tests pin the contract at the story-mcp surface: a sensitive
 ;; slot declared through app-schema metadata on the variant's frame must
@@ -2572,8 +2560,8 @@
    (frame-container variant-id)))
 
 (defn- replace-frame-db! [variant-id new-db]
-  ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db! —
-  ;; `frame/app-db-container` is now a read-only projection over the one
+  ;; EP-0001: write the app-db PARTITION via swap-frame-db! —
+  ;; `frame/app-db-container` is a read-only projection over the one
   ;; physical frame-state container.
   ((requiring-resolve 're-frame.frame/swap-frame-db!)
    variant-id (constantly new-db)))
@@ -2613,8 +2601,7 @@
 (defn- declare-classification!
   "Accumulate `path` under `kind` (`:sensitive` / `:large`) for
   `variant-id` and install the full classification onto the variant's
-  frame, in a way that survives `run-variant`'s fresh-run boundary
-  (rf2-294yq5.3 → rf2-d2r3um).
+  frame, in a way that survives `run-variant`'s fresh-run boundary.
 
   Two seams, mirroring `seed-app-db!`:
 
@@ -2657,7 +2644,7 @@
   "Declare `path` frame-owned `:large` on the named variant's frame
   (EP-0015 §8). The egress walker substitutes the slot's value with the
   `:rf.size/large-elided` marker — the leaf the `:elided-large` indicator
-  counts (rf2-koq5m)."
+  counts."
   [variant-id path]
   (declare-classification! variant-id :large path))
 
@@ -2672,7 +2659,7 @@
      live frame right now.
 
   2. `:db-seed` REGISTRATION — for the lifecycle readers
-     (`run-variant` / `preview-variant`). rf2-294yq5.3 added a fresh-run
+     (`run-variant` / `preview-variant`). There is a fresh-run
      boundary: `run-phase-0!` `destroy!`s any pre-existing frame BEFORE
      allocation so a run never inherits a prior run's (or an externally
      hand-written) app-db. That correctly wipes the direct write above. So
@@ -2757,20 +2744,18 @@
         (is (= "TOPSECRET" (get-in s [:app-db :secret])))))))
 
 (deftest elide-app-db-include?-true-bypasses-walker
-  ;; rf2-brehq — the `include? true` branch of `egress/elide-app-db`
-  ;; skips `elide-wire-value` entirely. Pins behavioural equivalence
-  ;; with the previous walking-then-no-edit implementation:
+  ;; The `include? true` branch of `egress/elide-app-db`
+  ;; skips `elide-wire-value` entirely. Pins two invariants:
   ;;
-  ;;   1. The return is the input db itself (`identical?`) — the walker
-  ;;      would have rebuilt every map / vector via `reduce-kv` and
-  ;;      `mapv`, breaking identity even though value would be
-  ;;      preserved. The bypass returns the original reference.
+  ;;   1. The return is the input db itself (`identical?`) — walking would
+  ;;      rebuild every map / vector via `reduce-kv` and `mapv`, breaking
+  ;;      identity even though value is preserved. The bypass returns the
+  ;;      original reference.
   ;;
   ;;   2. The return is value-equal to running the walker with both
-  ;;      inclusion knobs flipped (the previous behaviour). Future
-  ;;      refactors that reintroduce walker work on this branch will
-  ;;      still pass (2) but break (1) — the load-bearing perf invariant
-  ;;      this bead fixes.
+  ;;      inclusion knobs flipped. Future refactors that reintroduce
+  ;;      walker work on this branch will still pass (2) but break (1) —
+  ;;      the load-bearing perf invariant.
   ;;
   ;; Calls `egress/elide-app-db` directly so the test pins the helper's
   ;; contract, not a downstream tool's composition of it. Avoids
@@ -2806,7 +2791,7 @@
               "nested sensitive slot rides through"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ee38b.17 (headline P1) — derived-tree wire-egress redaction.
+;; Derived-tree wire-egress redaction.
 ;;
 ;; `elide-app-db` scrubs the `:app-db` slot by PATH. But the same sensitive
 ;; value reappears, verbatim, in `:rendered-hiccup` / `:effective-args` /
@@ -2892,19 +2877,19 @@
               "no secrets ⇒ no walk, input ref returned"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-g7cd1 — value-redaction over-scrub guard.
+;; Value-redaction over-scrub guard.
 ;;
 ;; The value-based walk substitutes EVERY derived-tree leaf `=` a
 ;; declared-sensitive value. When a sensitive path holds a short/common
 ;; scalar (`0`, `200`, `:ok`), naive matching scrubs every benign leaf that
 ;; merely equals it — degrading the agent's view AND leaking the secret's
 ;; value-CLASS. `sensitive-values` guards that: a candidate value that ALSO
-;; appears, verbatim, in the POST-elision `:app-db` (the actual wire bytes —
-;; hardened from the raw db in rf2-f3kf7) is dropped from the secret set,
-;; because the path-based `:app-db` egress already ships that value (it is
-;; provably already disclosed, so excluding it leaks nothing new). These tests
-;; pin BOTH the precision win AND the fail-SAFE invariant (a value that is
-;; UNIQUELY secret — absent from the elided db — stays redacted).
+;; appears, verbatim, in the POST-elision `:app-db` (the actual wire bytes)
+;; is dropped from the secret set, because the path-based `:app-db` egress
+;; already ships that value (it is provably already disclosed, so excluding
+;; it leaks nothing new). These tests pin BOTH the precision win AND the
+;; fail-SAFE invariant (a value that is UNIQUELY secret — absent from the
+;; elided db — stays redacted).
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-short-scalar-aliased-to-public-path-is-not-over-scrubbed
@@ -2974,18 +2959,19 @@
               "benign attribute values survive untouched"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-f3kf7 — :large?-blind under-scrub (the headline fix).
+;; :large?-blind under-scrub guard.
 ;;
-;; The g7cd1 guard dropped any candidate that ALSO appeared at a non-sensitive
-;; app-db path, on the premise that elide-app-db ships such a value verbatim.
-;; That premise is FALSE for a :large?-declared non-sensitive path:
-;; elide-wire-value replaces the slot with the :rf.size/large-elided marker, so
-;; the value is NOT on the wire — yet the old guard walked the RAW db, saw the
-;; secret at the :large? position, classified it public, and dropped it from
-;; the secret set, leaking it VERBATIM into the derived trees. The fix
-;; classifies "public" against the POST-elision :app-db (the actual wire
-;; bytes), so a value masked by ANY elision class stays redacted. These tests
-;; pin the no-under-scrub invariant on the in-scope MCP egress.
+;; The over-scrub guard drops any candidate that ALSO appears at a
+;; non-sensitive app-db path, on the premise that elide-app-db ships such a
+;; value verbatim. That premise is FALSE for a :large?-declared non-sensitive
+;; path: elide-wire-value replaces the slot with the :rf.size/large-elided
+;; marker, so the value is NOT on the wire. Classifying "public" against the
+;; RAW db would see the secret at the :large? position, classify it public,
+;; and drop it from the secret set — leaking it VERBATIM into the derived
+;; trees. So the guard classifies against the POST-elision :app-db (the
+;; actual wire bytes), and a value masked by ANY elision class stays
+;; redacted. These tests pin the no-under-scrub invariant on the in-scope
+;; MCP egress.
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-secret-aliased-into-large-subtree-stays-redacted
@@ -3031,14 +3017,14 @@
   (testing "FAIL-SAFE (rf2-f3kf7 secondary): a seq-indexed :sensitive? declaration [:tokens 0] keeps its element redacted in derived trees — the set/seq same-path walk no longer misclassifies it public"
     (with-clean-frame [vid :story.button/primary]
       ;; [:tokens 0] is sensitive and is a UNIQUE value (no benign alias on
-      ;; the wire). The slot is a SEQ (list), the shape the old guard
-      ;; mis-walked: `collect-public-values!` walked set/seq elements at the
-      ;; PARENT path `[:tokens]`, so `under-prefix? [:tokens 0] [:tokens]`
-      ;; returned false (prefix longer than the walk-path) — the element was
-      ;; treated as non-governed/public and dropped from the secret set =>
-      ;; under-scrub. The fix classifies against the POST-elision db, where
-      ;; `elide-wire-value`'s walk-seq HAS indexed + redacted the element, so
-      ;; it never appears at a public wire position and stays in the set.
+      ;; the wire). The slot is a SEQ (list), a shape that needs care:
+      ;; walking set/seq elements at the PARENT path `[:tokens]` would make
+      ;; `under-prefix? [:tokens 0] [:tokens]` return false (prefix longer
+      ;; than the walk-path), treating the element as non-governed/public and
+      ;; dropping it from the secret set => under-scrub. Classifying against
+      ;; the POST-elision db avoids that: `elide-wire-value`'s walk-seq has
+      ;; indexed + redacted the element, so it never appears at a public wire
+      ;; position and stays in the set.
       (let [secret "uniq-seq-secret-TOPSECRET"
             db     {:public "ok"
                     :tokens (list secret "second-public-token")}
@@ -3080,11 +3066,12 @@
               "benign 0 leaves deep in the tree survive"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-9o5ixx — frame-declared :large values must elide in derived slots, not
-;; only in :app-db. EP-0015 treats sensitive + large as peer egress axes; the
-;; derived-tree scrubber redacted only the sensitive axis, so a :large blob
-;; re-keyed into :rendered-hiccup / :snapshot / evidence / explain value slots
-;; crossed the off-box boundary RAW, and the :elided-large count under-reported.
+;; Frame-declared :large values must elide in derived slots, not
+;; only in :app-db. EP-0015 treats sensitive + large as peer egress axes, so
+;; the derived-tree scrubber elides BOTH axes: a :large blob re-keyed into
+;; :rendered-hiccup / :snapshot / evidence / explain value slots is masked
+;; before it crosses the off-box boundary, and the :elided-large count
+;; reflects it.
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-large-value-elides-in-derived-tree
@@ -3187,7 +3174,7 @@
   "A unified-run-result-shaped value whose :app-db carries the secret at a
   declared-sensitive path AND whose derived trees re-embed the same value
   at non-app-db positions. Carries the unified `:status` / `:checks`
-  slots (rf2-ba86n.17) so it is a faithful stand-in for what
+  slots so it is a faithful stand-in for what
   `story/run-variant` actually returns."
   [vid]
   {:status         :pass
@@ -3200,7 +3187,7 @@
    :rendered-hiccup [:input {:type "password" :value "TOPSECRET"}]
    :effective-args {:label "Save" :token "TOPSECRET"}
    :snapshot       {:db {:token "TOPSECRET"}}
-   ;; rf2-j90sb — the three evidence slots that previously egressed RAW.
+   ;; The three evidence slots that must be value-redacted at egress.
    ;; :narrative is a two-level evidence tree whose inner beats carry
    ;; full :db-before / :db-after app-db snapshots (evidence.cljc
    ;; epoch-beat) — the secret rides those verbatim. :warnings are
@@ -3267,16 +3254,15 @@
               "opt-in surfaces the raw value in rendered-hiccup"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j90sb (headline P1, privacy egress) — run-variant's :narrative /
-;; :warnings / :sub-runs evidence slots egressed RAW. :narrative is a
-;; two-level evidence tree whose inner beats carry FULL :db-before /
-;; :db-after app-db snapshots (evidence.cljc epoch-beat), so a declared-
-;; sensitive value — correctly redacted in the top-level :app-db slot —
-;; escaped the MCP wire verbatim inside the narrative tree. :warnings
-;; (trace-event records) and :sub-runs (sub :value) carry the same leak
-;; class. These pin that all three are now value-redacted at egress, with
-;; the same `:include-sensitive` opt-out as the sibling derived slots.
-;; Sibling of pair-mcp's rf2-6wvh5.
+;; run-variant's :narrative / :warnings / :sub-runs evidence slots must be
+;; value-redacted at egress. :narrative is a two-level evidence tree whose
+;; inner beats carry FULL :db-before / :db-after app-db snapshots
+;; (evidence.cljc epoch-beat), so a declared-sensitive value — redacted in
+;; the top-level :app-db slot — would otherwise escape the MCP wire
+;; verbatim inside the narrative tree. :warnings (trace-event records) and
+;; :sub-runs (sub :value) carry the same leak class. These pin that all
+;; three are value-redacted at egress, with the same `:include-sensitive`
+;; opt-out as the sibling derived slots.
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-narrative-redacts-sensitive-by-default
@@ -3365,27 +3351,25 @@
         (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
 
 ;; ---------------------------------------------------------------------------
-;; Non-live wire-egress privacy posture (rf2-12f2q) — closing the split
-;; contract.
+;; Non-live wire-egress privacy posture.
 ;;
 ;; The wire-elision contract in tools/story/spec/006-MCP-Surface.md
 ;; promises EVERY Story-MCP payload crosses elided (registry reads +
-;; recorder output included). Pre-fix, only the three live-state tools
-;; (`preview-variant` / `run-variant` / `read-failures`) routed their
-;; value-bearing slots through the egress scrubbers; the NON-live tools
-;; (`explain-variant`'s plan-resolved value slots, `record-as-variant`'s
-;; captured event vectors + the snippet derived from them) crossed RAW.
+;; recorder output included). This covers the NON-live tools alongside the
+;; three live-state ones (`preview-variant` / `run-variant` /
+;; `read-failures`): `explain-variant`'s plan-resolved value slots and
+;; `record-as-variant`'s captured event vectors + the snippet derived from
+;; them all route their value-bearing slots through the egress scrubbers.
 ;;
 ;; These tests plant a DISTINCTIVE sensitive literal in those non-live
 ;; payloads and assert the MCP wire response does NOT include it by
 ;; default, while the documented `:include-sensitive` opt-in (gated by
-;; --allow-sensitive-reads) reveals it. RED before the fix (the literal
-;; crossed verbatim); GREEN after.
+;; --allow-sensitive-reads) reveals it.
 ;;
-;; The proof that the WITHOUT-fix path leaks: each test's secret value
-;; reaches the wire slot directly from a captured event / plan-resolved
-;; arg, so without the value-redaction step it would appear verbatim in
-;; `:captured` / `:play-snippet` / the explain value slots.
+;; Each test's secret value reaches the wire slot directly from a captured
+;; event / plan-resolved arg, so without the value-redaction step it would
+;; appear verbatim in `:captured` / `:play-snippet` / the explain value
+;; slots — which is what the redaction prevents.
 ;; ---------------------------------------------------------------------------
 
 (deftest explain-variant-redacts-sensitive-effective-args-by-default
@@ -3445,21 +3429,20 @@
               "gate closed: the opt-in cannot exfiltrate the declared-sensitive value"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-q8ebq.1 — explain-variant value-bearing slot COMPOSITION GAP.
+;; explain-variant value-bearing slot composition coverage.
 ;;
-;; rf2-12f2q scrubbed only [:effective-args :args :substitutions :network
-;; :db-seed], but the SAME `substitute-args` that feeds the scrubbed
-;; `:substitutions` also resolves arg values into `:sub-overrides` override
-;; values (plan.cljc:1297) and the `:setup-order` / `:script-order` step
-;; sequences (plan.cljc:1263/1269). A declared-sensitive arg substituted
-;; into any of those crossed the AI/MCP boundary RAW by default — leaving
-;; `:setup-order`/`:script-order` unscrubbed is a clean BYPASS of the
-;; `:substitutions` scrub (the secret rides the unscrubbed sibling).
+;; Beyond [:effective-args :args :substitutions :network :db-seed], the SAME
+;; `substitute-args` that feeds `:substitutions` also resolves arg values
+;; into `:sub-overrides` override values (plan.cljc:1297) and the
+;; `:setup-order` / `:script-order` step sequences (plan.cljc:1263/1269). A
+;; declared-sensitive arg substituted into any of those would cross the
+;; AI/MCP boundary RAW if those slots went unscrubbed — leaving
+;; `:setup-order`/`:script-order` unscrubbed would be a clean BYPASS of the
+;; `:substitutions` scrub (the secret rides the unscrubbed sibling). So all
+;; of these slots are in `explain-value-bearing-slots`.
 ;;
-;; These tests plant a DISTINCTIVE secret in each of the three newly-scrubbed
-;; slots and assert it is redacted on the wire by default. RED before the
-;; fix (the slot was absent from `explain-value-bearing-slots` so the literal
-;; crossed verbatim); GREEN after.
+;; These tests plant a DISTINCTIVE secret in each of those scrubbed slots
+;; and assert it is redacted on the wire by default.
 ;; ---------------------------------------------------------------------------
 
 (deftest explain-variant-redacts-sensitive-sub-overrides-and-step-order-by-default
@@ -3518,38 +3501,36 @@
               "and the raw setup-step value crosses too"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-tag30h — explain-variant PRE-FRAME egress.
+;; explain-variant PRE-FRAME egress.
 ;;
 ;; `explain-variant` is a documented NO-RUN path (spec/API.md §explain-variant:
 ;; "Plan-derived data — no run, no live :app-db slice"): a caller can read it
-;; BEFORE any run-variant / preview-variant allocates the variant frame. The
-;; original value-redaction (`scrub-frame-value`) derived candidate secrets
-;; ONLY from the LIVE frame app-db (`rf/app-db-value`), which is nil pre-frame
-;; — so a declared-sensitive value authored into a plan slot (:db-seed seed
-;; data, a stubbed :network reply, a resolved :effective-args / step payload)
-;; crossed the AI/off-box boundary RAW with no live source to value-match.
+;; BEFORE any run-variant / preview-variant allocates the variant frame.
+;; Deriving candidate secrets ONLY from the LIVE frame app-db
+;; (`rf/app-db-value`) would miss this case — the live app-db is nil
+;; pre-frame, so a declared-sensitive value authored into a plan slot
+;; (:db-seed seed data, a stubbed :network reply, a resolved
+;; :effective-args / step payload) would have no live source to value-match.
 ;;
-;; The fix collects candidate secrets ALSO from the plan's OWN :db-seed slot
-;; at the variant's frame-declared-sensitive PATHS — read from the frame's
-;; durable elision registry, which frame-owned classification populates at
-;; `reg-frame` time (EP-0015 §8, rf2-d2r3um), so the paths are live from
+;; So value-redaction ALSO collects candidate secrets from the plan's OWN
+;; :db-seed slot at the variant's frame-declared-sensitive PATHS — read from
+;; the frame's durable elision registry, which frame-owned classification
+;; populates at `reg-frame` time (EP-0015 §8), so the paths are live from
 ;; frame creation onward without any RUN. These tests declare a sensitive
 ;; path PRE-RUN (frame allocated, no run-variant / preview-variant has
 ;; executed and seeded the live app-db), then assert the secret is redacted
-;; by default and surfaced only via the gated :include-sensitive opt-in. RED
-;; before the fix (the literal crossed verbatim); GREEN after.
+;; by default and surfaced only via the gated :include-sensitive opt-in.
 ;; ---------------------------------------------------------------------------
 
 (defn- declare-sensitive-prerun!
   "Install a frame-owned `:sensitive` `:app-db` declaration for a slot on
   the named variant's frame PRE-RUN — the no-run posture `explain-variant`
-  must defend (rf2-tag30h). Frame-owned classification lives in the frame's
+  must defend. Frame-owned classification lives in the frame's
   durable elision registry (its runtime-db partition), so the frame
   container must exist; we `ensure-variant-frame!` (allocate at reg-frame
   time) then `frame-class/install!`. No run-variant / preview-variant has
   executed, so the LIVE app-db is still empty — the candidate secrets come
-  from the plan's own :db-seed at these declared paths (EP-0015 §8,
-  rf2-d2r3um)."
+  from the plan's own :db-seed at these declared paths (EP-0015 §8)."
   [variant-id path]
   (ensure-variant-frame! variant-id)
   (frame-class/install! variant-id
@@ -3560,7 +3541,7 @@
     (with-clean-frame [vid :story.button/primary]
       ;; No RUN has executed — the live app-db is still empty, so the
       ;; candidate secrets must come from the plan's own :db-seed at the
-      ;; frame's declared-sensitive paths (EP-0015 §8, rf2-d2r3um).
+      ;; frame's declared-sensitive paths (EP-0015 §8).
       (declare-sensitive-prerun! vid [:auth :token])
       (is (empty? (rf/app-db-value vid))
           "precondition: no run has seeded the live app-db")
@@ -3620,14 +3601,14 @@
               "gate closed: the opt-in cannot exfiltrate the seeded secret pre-frame"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-q8ebq.2 — read-a11y-violations shipped raw axe-core violation nodes (incl. node
-;; :html outerHTML) with NO egress scrub. A sensitive value rendered into
-;; the DOM (e.g. `<input value="<token>">`) lands verbatim in node :html and
-;; crossed the AI/off-box MCP boundary unredacted — and read-a11y-violations is
-;; :readOnlyHint true (agent hosts AUTO-APPROVE it), so an unscrubbed runtime
-;; read here is the wrong shape. The fix routes :violations through
-;; `egress/scrub-frame-value` (the same value-based primitive explain/record
-;; use), fail-closed by default + the :include-sensitive opt-in.
+;; read-a11y-violations egress scrub. axe-core violation nodes (incl. node
+;; :html outerHTML) must not cross the AI/off-box MCP boundary unredacted: a
+;; sensitive value rendered into the DOM (e.g. `<input value="<token>">`)
+;; lands verbatim in node :html, and read-a11y-violations is :readOnlyHint
+;; true (agent hosts AUTO-APPROVE it), so an unscrubbed runtime read would be
+;; the wrong shape. :violations route through `egress/scrub-frame-value`
+;; (the same value-based primitive explain/record use), fail-closed by
+;; default + the :include-sensitive opt-in.
 ;;
 ;; The helpers (`seed-app-db!` / `declare-sensitive!`) establish the frame's
 ;; declared-sensitive value; `scrub-frame-value` reads that frame's live
@@ -3765,23 +3746,21 @@
             "gate closed: the opt-in cannot exfiltrate the declared-sensitive value")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-koq5m (headline P1, privacy/observability MUST at the AI boundary) —
-;; egress indicator counts (`:dropped-sensitive` / `:elided-large`).
+;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).
 ;;
 ;; story-mcp drops `:sensitive? true` assertion records and elides
-;; over-threshold / schema-`:large?` leaves at the wire egress, but
-;; surfaced NEITHER count — the canonical silent-swallow failure mode.
+;; over-threshold / schema-`:large?` leaves at the wire egress, and surfaces
+;; a count of each — avoiding the canonical silent-swallow failure mode.
 ;; spec/Conventions.md §Cross-MCP indicator-field vocabulary is MUST-
 ;; level: a tool walking a tree-typed payload MUST carry an
 ;; `:elided-large` count alongside the `:dropped-sensitive` count,
-;; omitting each slot when zero. The fix reuses the mcp-base primitives
+;; omitting each slot when zero. This reuses the mcp-base primitives
 ;; (`envelope/with-indicators` + `elision/count-elided-markers`) the
-;; sibling pair-mcp already wires.
+;; sibling pair-mcp also wires.
 ;;
-;; RED (pre-fix): the response carries no indicator slots even when a
-;; sensitive slot is dropped / a large value is elided.
-;; GREEN (post-fix): `:dropped-sensitive` / `:elided-large` present with
-;; the correct counts; omitted entirely on a clean read.
+;; `:dropped-sensitive` / `:elided-large` are present with the correct
+;; counts whenever a sensitive slot is dropped / a large value is elided,
+;; and omitted entirely on a clean read.
 ;; ---------------------------------------------------------------------------
 
 (deftest read-failures-surfaces-dropped-sensitive-indicator
@@ -3864,10 +3843,11 @@
 
 ;; The full set of tools that surface a value-bearing slot (live `:app-db`
 ;; / assertions OR a non-live runtime/captured value) and so must accept
-;; the `:include-sensitive` opt-in. The live three (rf2-73wuj) plus the
-;; non-live two closed in rf2-12f2q (`explain-variant`'s plan-resolved
-;; value slots, `record-as-variant`'s captured events), plus `read-a11y-violations`'s
-;; runtime DOM `:violations` (rf2-q8ebq.2).
+;; the `:include-sensitive` opt-in. The live three (`preview-variant` /
+;; `run-variant` / `read-failures`) plus the non-live two
+;; (`explain-variant`'s plan-resolved value slots, `record-as-variant`'s
+;; captured events), plus `read-a11y-violations`'s runtime DOM
+;; `:violations`.
 (def ^:private include-sensitive-tools
   ["preview-variant" "run-variant" "read-failures"
    "explain-variant" "record-as-variant" "read-a11y-violations"])
@@ -3881,10 +3861,10 @@
             (str tname " missing :include-sensitive slot"))
         (is (= "boolean" (-> props :include-sensitive :type))
             (str tname " :include-sensitive slot is not boolean-typed")))))
-  ;; rf2-wu1o2d — pin the EXACT include-sensitive tool set against the
-  ;; registry so the spec's "three affected tools" prose (now corrected to
-  ;; six) and the descriptor strip can't silently drift apart. The set is
-  ;; precisely the descriptors that carry the slot — no more, no less.
+  ;; Pin the EXACT include-sensitive tool set against the
+  ;; registry so the spec's affected-tools prose (six) and the descriptor
+  ;; strip can't silently drift apart. The set is precisely the
+  ;; descriptors that carry the slot — no more, no less.
   (testing "the include-sensitive set is EXACTLY the descriptors carrying the slot (no drift)"
     (let [carriers (->> registry/tool-registry
                         (filter #(contains? (-> % :inputSchema :properties) :include-sensitive))
@@ -3923,12 +3903,11 @@
           (subs after 0 end))))))
 
 (deftest api-md-tracks-include-sensitive-descriptor-set
-  ;; rf2-ovmc5e Finding #3 — the consolidated API page must list
+  ;; The consolidated API page must list
   ;; `:include-sensitive` for EVERY tool whose descriptor carries the
   ;; slot, so the summary can't silently under-document the gated
-  ;; privacy escape hatch (the original drift: read-a11y-violations's API.md input
-  ;; omitted it). Derives the expected set from the live registry, so a
-  ;; new value-surfacing tool that gains the slot must also gain the
+  ;; privacy escape hatch. Derives the expected set from the live registry,
+  ;; so a new value-surfacing tool that gains the slot must also gain the
   ;; API.md mention or this trips.
   (testing "API.md documents :include-sensitive for every descriptor that carries it"
     (let [carriers (->> registry/tool-registry
@@ -3944,9 +3923,9 @@
                    "(descriptor carries it; the consolidated page must not under-document it)")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Sensitive-read boot gate (rf2-g9fje)
+;; Sensitive-read boot gate
 ;;
-;; Per the rf2-uaymx (b) decision: the per-call `:include-sensitive` arg
+;; The per-call `:include-sensitive` arg
 ;; is honoured ONLY when the operator opened the server-side gate at boot
 ;; (`--allow-sensitive-reads`). When the gate is closed:
 ;;
@@ -4083,7 +4062,7 @@
                  " — keep the onboarding doc in lockstep with `story/canonical-assertion-ids`"))))))
 
 ;; ---------------------------------------------------------------------------
-;; handle-frame! recovery write — nested catch (rf2-36upq TE2)
+;; handle-frame! recovery write — nested catch
 ;;
 ;; server.cljc's handle-frame! has a nested try around the recovery write
 ;; (the "even the recovery write failed" branch). It's unreachable from the
@@ -4120,13 +4099,13 @@
           "handle-frame! must not propagate writer-side throws"))))
 
 ;; ---------------------------------------------------------------------------
-;; Boot-config precedence — CLI > sysprop > env (rf2-36upq TE4)
+;; Boot-config precedence — CLI > sysprop > env
 ;;
 ;; Per spec/003-Write-Surface-Gating.md §91-94 the precedence is CLI flag >
-;; JVM sysprop > env var. The existing tests cover `parse-args` directly;
-;; this test asserts the merged behaviour: when all three sources supply
-;; conflicting values, CLI wins, sysprop overrides env, and the env-only
-;; case lands too.
+;; JVM sysprop > env var. Alongside the tests that cover `parse-args`
+;; directly, this test asserts the merged behaviour: when all three sources
+;; supply conflicting values, CLI wins, sysprop overrides env, and the
+;; env-only case lands too.
 ;; ---------------------------------------------------------------------------
 
 (deftest boot-config-precedence-cli-over-sysprop-over-env

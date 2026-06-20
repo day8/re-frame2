@@ -1,11 +1,11 @@
 (ns re-frame.story.theme.motion
-  "Story motion tokens + entrance choreography (rf2-3lt89).
+  "Story motion tokens + entrance choreography.
 
-  The pre-rf2-3lt89 chrome shipped ZERO motion. Hover states snapped,
-  the help overlay opened with no fade, and the shell threw every
-  region onto the page in one synchronous render. The audit (rf2-s1r9a
-  RED 2/10) called this out as the rubric's 'predictable layout that
-  lacks context-specific character' anti-pattern.
+  Story's chrome moves with intent: hover states transition, the help
+  overlay fades in, and the shell mount staggers its regions into view
+  rather than throwing them onto the page in one synchronous render.
+  This namespace owns the timing, easing, and choreography that carry
+  that motion register.
 
   This namespace introduces:
 
@@ -169,7 +169,7 @@
     focus ring + author-encoded accents onto Windows HCM system tokens
     (`Highlight`, `CanvasText`, `ButtonText`, `LinkText`, `Mark`,
     `GrayText`) so HCM users keep operator-grade signal — see the
-    `forced-colors` block below for the rule rationale (rf2-ubhmn)."
+    `forced-colors` block below for the rule rationale."
   "@keyframes rf-story-mount-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes rf-story-overlay-in{from{opacity:0;transform:translateY(8px) scale(0.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes rf-story-overlay-out{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(4px) scale(0.99)}}

@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.backgrounds-switcher
-  "Toolbar chip + dropdown for the chrome-wide backgrounds switcher
-  (rf2-zll4h).
+  "Toolbar chip + dropdown for the chrome-wide backgrounds switcher.
 
   Mirrors Storybook's `addon-backgrounds` toolbar surface. The chip
   shows a small swatch + the currently-selected preset label; clicking

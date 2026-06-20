@@ -1,5 +1,5 @@
 (ns login-form.core
-  "Login-form testbed entry (rf2-0sg12).
+  "Login-form testbed entry.
 
   URL-hash-routed between two surfaces:
 
@@ -20,10 +20,9 @@
             [login-form.subs]
             [login-form.views :as views]
             [login-form.stories]
-            ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
-            ;; live-app↔Story-shell hash router + React-root handle, and
-            ;; (rf2-77wqzi) the open-in-editor project-root config via the
-            ;; `:source-subdir` opt.
+            ;; Shared Story-host helper: owns the live-app↔Story-shell
+            ;; hash router + React-root handle, and the open-in-editor
+            ;; project-root config via the `:source-subdir` opt.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -55,7 +54,7 @@
     " five side-by-side, switch to Test mode and watch the assertions"
     " flip green."]])
 
-;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; EP-0002: the runtime never synthesises a frame from absence,
 ;; so the live-app surface must render under an explicit frame scope. The
 ;; Story shell side (`#/stories`) allocates its own per-variant frames; this
 ;; wrapper scopes only the live-app `#/` surface to the testbed's `:rf/default`
@@ -70,8 +69,8 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The live-app↔Story-shell hash router + React-root host handle live in the
-;; shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn); `run`
-;; hands it `login-app` as the live-app surface.
+;; shared `re-frame.testbed.story-host` helper; `run` hands it `login-app`
+;; as the live-app surface.
 
 (defn ^:export run []
   ;; Story owns this page's full-width browser-test canvas. When the
@@ -83,8 +82,7 @@
   (rf/init! reagent-adapter/adapter)
   ;; No explicit `(story/install-canonical-vocabulary!)` — the first
   ;; `reg-*` in `login-form.stories` (loaded via the :require above)
-  ;; auto-installs the canonical vocabulary per rf2-p1ydc (audit D-2
-  ;; / rf2-y8gag).
+  ;; auto-installs the canonical vocabulary.
   ;; The live page wires `:rf.http/managed` to a demo override so
   ;; submit / retry have something to do. Story variants don't see
   ;; this — they allocate their own frames and the `force-fx-stub`
@@ -98,7 +96,7 @@
   ;; Without this, the live page's state-pill renders "state: "
   ;; (nil) until the user submits.
   ;;
-  ;; EP-0002 (rf2-9o48ih): `init!` installs the adapter only and a
+  ;; EP-0002: `init!` installs the adapter only and a
   ;; frameless `dispatch-sync` raises `:rf.error/no-frame-context`.
   ;; Run the seed dispatch inside the testbed's `:rf/default` frame
   ;; scope — symmetric to counter-with-stories' migrated boot.
@@ -108,10 +106,9 @@
   ;; root is frame-scoped via `live-app-root` (the
   ;; `frame-provider-existing` wrapper — scope-only into the already-
   ;; registered `:rf/default` frame).
-  ;; The `:source-subdir` opt (rf2-77wqzi) hands the host this testbed's
+  ;; The `:source-subdir` opt hands the host this testbed's
   ;; tool-relative source subdir; the host resolves the on-disk
   ;; open-in-editor project-root (build-env define or `?checkout-root=`
   ;; override, cross-platform) and calls `story/configure!` itself — which
-  ;; also bridges the root into Xray's slot. Replaces the former inline
-  ;; `resolve-source-root` + `story/configure!`.
+  ;; also bridges the root into Xray's slot.
   (story-host/mount-with-hash-routing! live-app-root {:source-subdir "tools/story/testbeds"}))

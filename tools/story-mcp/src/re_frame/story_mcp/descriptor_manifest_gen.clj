@@ -1,8 +1,8 @@
 (ns re-frame.story-mcp.descriptor-manifest-gen
-  "story-mcp tool-descriptor manifest generator + drift-check (rf2-sofwv).
+  "story-mcp tool-descriptor manifest generator + drift-check.
 
-  Follow-on to the rf2-3nbl5.2 API-governance keystone, mirroring its
-  generate-then-drift-check shape on story-mcp's MCP descriptor surface.
+  Mirrors the API-governance keystone's generate-then-drift-check shape
+  on story-mcp's MCP descriptor surface.
 
   SOURCE OF TRUTH. `re-frame.story-mcp.tools.registry/tool-registry` —
   the ordered vector that bundles every story-mcp tool's name,
@@ -13,16 +13,16 @@
   each entry into the stable catalogue row defined by
   `re-frame.mcp-base.descriptor-manifest`.
 
-  GATED INPUTS (rf2-qo3wvp). The raw registry descriptor carries the
+  GATED INPUTS. The raw registry descriptor carries the
   FULL `tools/list` input surface — including `:include-sensitive`, the
   knob the default profile strips behind `--allow-sensitive-reads`.
-  Projecting it as a flat `:input-keys` made the manifest claim
+  Projecting it as a flat `:input-keys` would make the manifest claim
   `:include-sensitive` is on the DEFAULT surface, which it is not
   (closed-by-default). The generator passes `registry/gated-input-keys`
   (the config-independent set of keys the server gates off by default —
   the SAME set `registry/strip-include-sensitive` removes at
   `tools/list` time) to `dm/build-manifest`, so each row records the
-  gated subset in `:gated-input-keys`. The committed manifest now
+  gated subset in `:gated-input-keys`. The committed manifest
   distinguishes the two deterministic profiles: the default surface is
   `:input-keys` minus `:gated-input-keys`; the gate-open surface is
   `:input-keys` verbatim. The set is static, so the manifest stays
@@ -42,8 +42,7 @@
   `:inputSchema :properties` at def-time (via `schemas/with-max-tokens`),
   so — unlike re-frame2-pair-mcp, which splices the knob at `tools/list`
   time — the raw registry descriptor already carries the actual
-  `tools/list` input surface; no generator-side knob splice is needed
-  (rf2-cwhod2).
+  `tools/list` input surface; no generator-side knob splice is needed.
 
   Run from tools/story-mcp/:
     clojure -M:gen                  ; regenerate tool-descriptors.edn

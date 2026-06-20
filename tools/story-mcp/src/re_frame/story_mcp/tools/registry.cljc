@@ -39,7 +39,7 @@
   "Canonical ordered vector of every tool the server exposes. Dev →
   docs → testing → write. The recorder bridge
   (`record-as-variant`) lives in `tools.recorder` for leaf-size
-  reasons (rf2-zkca8) but belongs at the tail of the write category
+  reasons but belongs at the tail of the write category
   per IMPL-SPEC §7.3 — `recorder/descriptors` is a one-element vec
   so the assembly stays symmetric across every category ns."
   (into [] cat [dev/descriptors
@@ -49,7 +49,7 @@
                 recorder/descriptors]))
 
 ;; Load-time invariant: every registry entry MUST carry a positive-integer
-;; `:typicalTokens` hint (rf2-6sddv). The same shape is asserted by
+;; `:typicalTokens` hint. The same shape is asserted by
 ;; `typical-tokens-hint-on-every-tool` in the test corpus; pinning it at
 ;; load time lets `tool-descriptors` project a plain map literal without
 ;; a defensive `cond->` arm for the slot.
@@ -58,7 +58,7 @@
                 tool-registry)
         "tool-registry: every entry must carry positive-integer :typicalTokens")
 
-;; Load-time invariant (rf2-3l3be): every registry entry MUST carry an
+;; Load-time invariant: every registry entry MUST carry an
 ;; `:outputSchema` map describing the structuredContent payload shape.
 ;; mcp-builder canonical pattern: "Define outputSchema wherever possible
 ;; for structured responses." Asserted at load time so future tool
@@ -66,7 +66,7 @@
 (assert (every? (fn [t] (map? (:outputSchema t))) tool-registry)
         "tool-registry: every entry must carry an :outputSchema map (rf2-3l3be)")
 
-;; Load-time invariant (rf2-94p8q): every registry entry MUST carry an
+;; Load-time invariant: every registry entry MUST carry an
 ;; `:annotations` map advertising the MCP tool-annotation hints
 ;; (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 ;; mcp_best_practices.md: agent hosts use these to auto-approve reads
@@ -77,7 +77,7 @@
 
 (def gated-input-keys
   "The input-property keys the DEFAULT `tools/list` profile gates off
-  behind an operator-only gate (rf2-qo3wvp). Today: `:include-sensitive`
+  behind an operator-only gate. Today: `:include-sensitive`
   — baked into six value-surfacing tools' descriptors at load time and
   stripped from the default wire surface by `strip-include-sensitive`
   when `--allow-sensitive-reads` is closed. As STRINGS (the
@@ -101,7 +101,7 @@
   `:include-sensitive`) from a tool's `:inputSchema` properties. The
   slot is baked into the descriptor at load time by
   `schemas/with-include-sensitive`; this fn runs at `tools/list` time
-  and removes it when the operator-only gate is closed (rf2-g9fje) so
+  and removes it when the operator-only gate is closed so
   the descriptor never advertises an opt-in the server is configured
   to ignore. Idempotent: tools whose schema never carried a gated slot
   are returned unchanged."
@@ -116,7 +116,7 @@
   MCP spec also allows a `title` field; we omit it (the names are
   already human-readable dash-separated forms).
 
-  `typicalTokens` (rf2-6sddv) is an informational hint — an integer
+  `typicalTokens` is an informational hint — an integer
   ballpark of the response payload size in tokens. AI clients use it
   to budget calls and pick size-conscious args without trial-and-error.
   Not a cap (the host enforces real budgets elsewhere); a hint only.
@@ -126,7 +126,7 @@
   assertion below, so the projection is a plain map literal rather
   than a defensive `cond->`.
 
-  ## Sensitive-read gate (rf2-g9fje)
+  ## Sensitive-read gate
 
   The `:include-sensitive` slot is stripped from every tool's input
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
@@ -145,18 +145,18 @@
                      :inputSchema   (cond-> inputSchema
                                       strip? strip-include-sensitive)
                      :typicalTokens typicalTokens}
-              ;; rf2-3l3be — surface :outputSchema when declared. Lifted
+              ;; Surface :outputSchema when declared. Lifted
               ;; via cond-> so omission is forward-compatible (e.g. a
               ;; future tool with no structured response).
               (some? outputSchema) (assoc :outputSchema outputSchema)
-              ;; rf2-94p8q — surface :annotations when declared. Agent
+              ;; Surface :annotations when declared. Agent
               ;; hosts read these to auto-approve reads and gate
               ;; destructive ops behind a confirmation ceremony.
               (some? annotations)  (assoc :annotations annotations)))
           tool-registry)))
 
 (defonce ^:private tool-by-name-index
-  ;; `defonce` (rf2-xa1oc) so a REPL `(require ... :reload)` of this ns
+  ;; `defonce` so a REPL `(require ... :reload)` of this ns
   ;; does NOT re-bind the index out from under callers that captured
   ;; the old map. The registry shape is frozen at load time
   ;; (`tool-registry` is a `def`), so re-binding adds nothing —

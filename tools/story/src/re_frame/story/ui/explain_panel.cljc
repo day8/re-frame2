@@ -1,7 +1,6 @@
 (ns re-frame.story.ui.explain-panel
   "The Explain panel — a read-only provenance + lowering surface over
-  the `story/explain` data (rf2-ba86n.9, spec/020 §4 / spec/017
-  §Explain API).
+  the `story/explain` data (spec/020 §4 / spec/017 §Explain API).
 
   ## What it is — and is NOT
 

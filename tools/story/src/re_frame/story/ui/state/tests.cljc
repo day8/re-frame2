@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.state.tests
   "Pure test-run aggregation + watch-mode helpers for the shell state
-  map. Split from `re-frame.story.ui.state` per rf2-gcpon (leaf-size
-  ceiling rf2-zkca8 — the parent ns was 718L).
+  map. Split from `re-frame.story.ui.state` to honor the leaf-size
+  ceiling.
 
   ## What lives here
 
@@ -31,7 +31,7 @@
   public defs so existing consumer requires (`re-frame.story.ui.state`)
   keep working.")
 
-;; ---- test-runs (rf2-q0irb) -----------------------------------------------
+;; ---- test-runs -----------------------------------------------------------
 ;;
 ;; Cross-variant aggregation surface: each variant's last `run-variant`
 ;; outcome is folded into `[:tests :runs]`. The chrome-level test
@@ -48,9 +48,8 @@
 ;; surfaces.
 
 (def test-run-statuses
-  "Canonical run-state ids, in render order (rf2-5x1wt.19 adds
-  `:cannot-run` — the unified result's distinct THIRD status, spec/017
-  §`:cannot-run`).
+  "Canonical run-state ids, in render order. `:cannot-run` is the
+  unified result's distinct THIRD status (spec/017 §`:cannot-run`).
 
   - `:pass`        last run: every assertion passed (and at least one assertion).
   - `:fail`        last run: ≥1 assertion failed.
@@ -66,9 +65,9 @@
   (assoc-in state [:tests :runs variant-id] {:status :running}))
 
 (defn- record-status
-  "The unified verdict for ONE assertion record (rf2-5x1wt.19): the
-  record's own `:status` when it is one of the four verdicts (the
-  unified shape), else derived from the outcome fields. Pure data →
+  "The unified verdict for ONE assertion record: the record's own
+  `:status` when it is one of the four verdicts (the unified shape),
+  else derived from the outcome fields. Pure data →
   data — a local mirror so this leaf needs no require into
   `re-frame.story.result` (which would loop through the runtime via
   `result` → `runtime`).
@@ -80,9 +79,8 @@
   - an explicit `:status` that is one of the four verdicts wins;
   - `:cannot-run?` / `:skipped?` truthy → `:cannot-run`;
   - `:exception` / `:error` truthy → `:error` (a thrown handler / fx /
-    step — rf2-fslmh: this branch was missing, so a derived record
-    carrying `:exception`/`:error` but no explicit `:status` was mis-
-    counted as `:pass`, a false-green);
+    step — a derived record carrying `:exception`/`:error` but no
+    explicit `:status` must count as `:error`, not a false-green `:pass`);
   - `:passed?` true → `:pass`; `:passed?` false → `:fail`;
   - otherwise `:pass` (a non-assertion / vacuous record does not fail
     the run — the /spec/007-Stories.md §Story-as-test duality).
@@ -111,9 +109,9 @@
        :skipped     <n>
        :all-passed? <bool>}
 
-  rf2-5x1wt.19 — buckets by each record's unified `:status` (spec/017
-  §Run result), so a `:cannot-run` assertion (a runner refusal — the
-  distinct THIRD status) is counted distinctly and NOT folded into
+  Buckets by each record's unified `:status` (spec/017 §Run result), so
+  a `:cannot-run` assertion (a runner refusal — the distinct THIRD
+  status) is counted distinctly and NOT folded into
   `:failed`. `:skipped` is the alias count kept for the legacy
   `:rf.assert/skipped` id (re-frame2's runtime doesn't emit it, but the
   slot stays open). `:all-passed?` is true iff `:total > 0 AND :failed = 0
@@ -146,8 +144,8 @@
 
   `summary` is the map returned by `aggregate-summary` —
   `{:total :passed :failed :cannot-run :skipped :all-passed?}` — extended
-  with optional `:ran-at-ms` / `:elapsed-ms` and (rf2-5x1wt.19) the run's
-  unified `:status` (so the sidebar dot reflects the run-level verdict,
+  with optional `:ran-at-ms` / `:elapsed-ms` and the run's unified
+  `:status` (so the sidebar dot reflects the run-level verdict,
   including a tape-floor `:fail` or a `:cannot-run` refusal that the
   assertion counts alone might miss).
 
@@ -202,8 +200,8 @@
        :all-green? <bool — total > 0 AND failed = 0 AND cannot-run = 0
                           AND running = 0 AND pending = 0>}
 
-  rf2-5x1wt.19 — `:cannot-run` (the unified distinct THIRD status) is
-  counted distinctly; a refusal is NOT green. Pure data → data; the JVM
+  `:cannot-run` (the unified distinct THIRD status) is counted
+  distinctly; a refusal is NOT green. Pure data → data; the JVM
   corpus exercises it against a fixture map without booting Reagent.
   `all-green?` mirrors `aggregate-summary`'s `:all-passed?` — true only
   when every variant has a recorded green run; a sea of `:pending` reads
@@ -235,11 +233,10 @@
 
 (defn- play-surface-has-steps?
   "True iff `body` declares a non-empty play surface — EITHER a
-  `:play-script` (map `:script` or bare-vector form, per rf2-0wrud) OR a
-  non-empty `:plays` vector (rf2-tl7zk multi-play). rf2-ee38b.3: the
-  `:plays` arm was added so a `:plays`-only variant counts as testable
-  in the chrome widget + sidebar dots, matching `ci-runner/has-any-play?`
-  and `test-mode.pure/variant-has-tests?`."
+  `:play-script` (map `:script` or bare-vector form) OR a non-empty
+  `:plays` vector (multi-play). A `:plays`-only variant counts as
+  testable in the chrome widget + sidebar dots, matching
+  `ci-runner/has-any-play?` and `test-mode.pure/variant-has-tests?`."
   [body]
   (let [script (:play-script body)
         plays  (:plays body)]
@@ -256,8 +253,8 @@
   order. The chrome widget + sidebar dots key off this seq.
 
   Variants are testable iff (a) their `:tags` contains `:test`, AND
-  (b) they declare a non-empty play surface (`:play-script` OR `:plays`
-  — rf2-ee38b.3). The second filter prunes variants tagged `:test` but
+  (b) they declare a non-empty play surface (`:play-script` OR `:plays`).
+  The second filter prunes variants tagged `:test` but
   without any assertions to run — those contribute neither to the
   headline counts nor to the 'Run all' iteration. Pure data → data;
   JVM-testable. `id->body` is the `{variant-id → body}` map from
@@ -271,7 +268,7 @@
        sort
        vec))
 
-;; ---- watch mode (rf2-z1h0f) ---------------------------------------------
+;; ---- watch mode ----------------------------------------------------------
 ;;
 ;; Storybook 9 ships a Vitest-addon watch-mode toggle (eye icon) that
 ;; re-runs the changed stories on file save. Story's parity surface is

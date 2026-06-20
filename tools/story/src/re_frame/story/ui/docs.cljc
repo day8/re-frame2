@@ -1,10 +1,9 @@
 (ns re-frame.story.ui.docs
   "The `:docs` mode pane — read-only AutoDocs-equivalent for one variant.
-  Per rf2-rodx + spec/008.
+  Per spec/008.
 
-  Replaces the `mode-tabs/docs-placeholder` stub that landed with the
-  mode-tabs primitive (rf2-9hc8). The pane composes six sections, in
-  the order Storybook 8's MDX/AutoDocs page presents them:
+  The pane composes six sections, in the order Storybook 8's MDX/AutoDocs
+  page presents them:
 
       ┌──────────────────────────────────────────────────────┐
       │  Header — variant id · parent story · tags chips      │
@@ -174,16 +173,15 @@
         ts       (or (:tags vb) (:tags sb) #{})]
     (vec (sort ts))))
 
-;; rf2-ee38b.3: the `docs/parent-story-id` re-export was dropped; the
-;; header chips now call `pred/parent-story-id` directly.
+;; The header chips call `pred/parent-story-id` directly.
 
 ;; ---- pure: status / fidelity / schema / evidence excerpt ----------------
 ;;
-;; rf2-ba86n.14 (spec/022 §1 + §2) — Docs mode SHOULD add fidelity badges,
-;; world-input / runner-requirement chips, a view-arg schema table, a current
-;; test-status summary, and a SPARSE evidence excerpt that links into
-;; Inspector/Xray. The contract that load-bears this whole section: Docs and
-;; Test MUST agree because they read the SAME plan/result. So:
+;; spec/022 §1 + §2 — Docs mode adds fidelity badges, world-input /
+;; runner-requirement chips, a view-arg schema table, a current test-status
+;; summary, and a SPARSE evidence excerpt that links into Inspector/Xray. The
+;; contract that load-bears this whole section: Docs and Test MUST agree
+;; because they read the SAME plan/result. So:
 ;;
 ;;   - the status verdict is `test-pure/run-status` over the SAME unified
 ;;     run-result Test mode wrote (the `evidence-spine/result-for` slot) —
@@ -449,7 +447,7 @@
       :empty         {:color            (:text-tertiary colors/tokens)
                       :font-style       "italic"
                       :padding          "6px 0"}
-      ;; ---- status / fidelity / evidence excerpt (rf2-ba86n.14, spec/022) ----
+      ;; ---- status / fidelity / evidence excerpt (spec/022) ----
       :badge-row     {:display          "flex"
                       :flex-wrap        "wrap"
                       :gap              "6px"
@@ -658,7 +656,7 @@
      `resolve-decorators` semantics."
      [variant-id]
      (let [shell @state/shell-state-atom
-           ;; rf2-eyrpr — thread the active-modes into `resolve-decorators`
+           ;; Thread the active-modes into `resolve-decorators`
            ;; so the plan recompile substitutes `[:arg]` keys resolvable
            ;; only through a mode layer. Mirrors `args-section` (docs is
            ;; read-only — overrides deliberately excluded; the variant's
@@ -917,8 +915,8 @@
                    :data-test "story-docs-evidence-attributed"}
             "attributed only"])
          ;; Per-beat link into Xray — reuses the evidence-spine's host-facing
-         ;; `focus-beat!` (the closed rf2-crtmq focus seam). Docs LINKS to the
-         ;; detailed diagnostics; it never inlines the beat tree / app-db diff.
+         ;; `focus-beat!` focus seam. Docs LINKS to the detailed diagnostics;
+         ;; it never inlines the beat tree / app-db diff.
          [:button {:style     (:excerpt-link styles)
                    :data-test "story-docs-evidence-focus"
                    :data-precise (str (boolean precise?))
@@ -971,12 +969,12 @@
                       :on-click  (fn [_] (spine/open! variant-id nil))}
              "Open full evidence in Inspector"]]])])))
 
-;; ---- pure: TOC entries (rf2-8c7tk) --------------------------------------
+;; ---- pure: TOC entries --------------------------------------------------
 
 (def docs-toc-entries
-  "Canonical TOC entry table for the `:docs` mode pane (rf2-8c7tk, extended
-  for rf2-ba86n.14 / spec/022). Pure data → data so JVM tests can assert the
-  table shape. The header section renders as the variant's `<h1>` and is
+  "Canonical TOC entry table for the `:docs` mode pane (spec/022). Pure data
+  → data so JVM tests can assert the table shape. The header section renders
+  as the variant's `<h1>` and is
   intentionally NOT in the TOC list — it sits beside that h1 and would
   self-reference.
 
@@ -1066,8 +1064,8 @@
 
 #?(:cljs
    (defn- responsive-toc?
-     "Spec rf2-8c7tk: TOC auto-hides below 1024px (more aggressive than
-     Storybook's 1200px since our RHS is already present)."
+     "TOC auto-hides below 1024px (more aggressive than Storybook's
+     1200px since our RHS is already present)."
      []
      (boolean
        (when (exists? js/window)
@@ -1134,11 +1132,11 @@
      "Top-level `:docs` mode pane for `variant-id`.
 
      Renders the docs sections inside a flex layout alongside a sticky TOC
-     pane on the right edge (rf2-8c7tk; auto-hides below 1024px). Per
-     rf2-ba86n.14 / spec/022 the page now also carries a Status & fidelity
-     summary (the SAME run-result Test mode reads, projected through the
-     SAME `run-status` — Docs and Test agree), a view-arg schema table, and
-     a SPARSE evidence excerpt that links into the Inspector/Xray. The
+     pane on the right edge (auto-hides below 1024px). Per spec/022 the page
+     also carries a Status & fidelity summary (the SAME run-result Test mode
+     reads, projected through the SAME `run-status` — Docs and Test agree), a
+     view-arg schema table, and a SPARSE evidence excerpt that links into the
+     Inspector/Xray. The
      status + schema sections compile the variant's plan ONCE here and thread
      it down so the page does not recompile it per section. A variant whose
      plan does not compile degrades to a 'plan unavailable' status line
@@ -1171,12 +1169,11 @@
            [:section {:id "docs-tags"} [tags-section variant-id]]]
           [toc-pane variant-id]]))))
 
-;; ---- per-story rollup docs page (rf2-8j7wg, audit C-4) -----------------
+;; ---- per-story rollup docs page ---------------------------------------
 ;;
 ;; Storybook ships `Component.docs` — a parent-level docs page that
-;; aggregates every variant's docs. Story v1 had no equivalent (spec/008
-;; line 217-220 listed it as v2 scope). The rollup view fills that
-;; gap: click a story header in the sidebar → see ALL variants' docs
+;; aggregates every variant's docs. The rollup view is the re-frame2
+;; equivalent: click a story header in the sidebar → see ALL variants' docs
 ;; sections stacked in one scrollable pane, with the parent story's
 ;; `:doc` blurb at the top.
 
@@ -1210,8 +1207,8 @@
      "Render one variant's docs sections in the rollup. Mirrors `docs-view`
      minus the per-variant `<h1>` (each variant gets an h2 instead — the
      rollup's h1 is the story id at the top). Carries the Status & fidelity
-     summary (the same docs↔Test-agreed projection, rf2-ba86n.14) so a
-     reviewer scanning the rollup sees each variant's verdict + fidelity at a
+     summary (the same docs↔Test-agreed projection) so a reviewer scanning
+     the rollup sees each variant's verdict + fidelity at a
      glance; the full SPARSE evidence excerpt stays on the single-variant
      `docs-view` to keep the rollup terse (documentation, not a debug log)."
      [variant-id]
@@ -1235,7 +1232,7 @@
 
 #?(:cljs
    (defn docs-rollup-view
-     "Top-level rollup docs pane for `story-id` (rf2-8j7wg, audit C-4).
+     "Top-level rollup docs pane for `story-id`.
 
      Aggregates every registered variant of `story-id` into a single
      scrollable pane: the parent story header at the top, then one

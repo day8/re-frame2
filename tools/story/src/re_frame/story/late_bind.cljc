@@ -22,8 +22,8 @@
                                      (read from the stub-call log). The
                                      assertions module unions it with the
                                      epoch tape's effects for
-                                     `:rf.assert/effect-emitted` (rf2-q651r
-                                     — a stubbed fx lands on the tape under
+                                     `:rf.assert/effect-emitted`
+                                     (a stubbed fx lands on the tape under
                                      its rewritten stub id, not its
                                      original). Signature: `(f frame-id) →
                                      #{fx-id …}`.

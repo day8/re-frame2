@@ -1,5 +1,5 @@
 (ns re-frame.story.theme.glyphs
-  "Story iconography (rf2-p0wur).
+  "Story iconography.
 
   Inline-SVG glyph set used by the sidebar (and elsewhere) so the
   three sidebar row types parse visually without reading text:

@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.save-variant
-  "Save-current-canvas-state-as-new-variant UI — the SB9 'Save' affordance
-  (rf2-one3t). The pure machinery lives in
+  "Save-current-canvas-state-as-new-variant UI — the SB9 'Save' affordance.
+  The pure machinery lives in
   `re-frame.story.save-variant`; this ns wires the Reagent ratom, the
   controls-panel button, and the modal dialog around it.
 
@@ -48,14 +48,13 @@
 
 (defn- open-dialog!
   "Open the dialog against `source-variant-id` with the captured
-  `args-snapshot`. `now-ms` seeds the default id. `violations` (rf2-
-  lancu) is the vector returned by
+  `args-snapshot`. `now-ms` seeds the default id. `violations` is the vector returned by
   `schema-validation/args-violations` against the live component
   schema — used by the dialog to render a non-blocking 'Args do not
   match the variant's Spec 010 schema' hint when non-empty. May be
   nil/empty (no schema registered, or all args conform).
 
-  `slices` (rf2-ba86n.6) is the eight-slice capture report from
+  `slices` is the eight-slice capture report from
   `save-variant/capture-slices` — the dialog renders its honesty-floor
   warnings (which slices are captured-as-declared / not-yet-projectable)
   so a saved variant is honest about what it does and does NOT capture.
@@ -156,7 +155,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- violations-hint
-  "Render the rf2-lancu non-blocking violations note. Stripe and list
+  "Render the non-blocking violations note. Stripe and list
   of violating keys, so the user catches a drifted-args paste before
   it lands in source. nil when no violations."
   [violations]
@@ -185,7 +184,7 @@
               (pr-str (:value v)))])]]))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ba86n.6 — the eight-slice capture report.
+;; The eight-slice capture report.
 ;;
 ;; spec/019 §3 requires the save flow to be HONEST about which canvas
 ;; slices it can represent losslessly and which it cannot: "if the
@@ -206,7 +205,7 @@
    :not-wired            {:background "#332a2a" :color "#d09f9f" :border "#704040"}})
 
 (defn slice-report
-  "Render the non-blocking eight-slice capture report (rf2-ba86n.6). Lists
+  "Render the non-blocking eight-slice capture report. Lists
   every slice that is NOT a clean live projection — `:captured-as-declared`
   (carried forward via `:extends`) and `:not-wired` (not yet projectable)
   — with its honest note. Returns nil when every slice projects cleanly
@@ -257,12 +256,12 @@
   edits the new variant id; copy-to-clipboard surfaces the form for the
   user to paste into source.
 
-  rf2-lancu: when the captured snapshot violates the variant's Spec 010
+  When the captured snapshot violates the variant's Spec 010
   schema, a non-blocking hint renders above the snippet listing the
   violating keys. Non-blocking — the user can still paste; the snippet
   carries the violating args as captured (paste at your own risk).
 
-  rf2-ba86n.6: the eight-slice capture report renders below the snippet,
+  The eight-slice capture report renders below the snippet,
   warning which slices are captured-as-declared (carried via `:extends`)
   and which are not yet projectable — the honesty floor for a saved
   variant (spec/019 §3).

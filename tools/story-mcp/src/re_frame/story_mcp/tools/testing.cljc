@@ -3,7 +3,7 @@
   `read-a11y-violations`, `read-failures`. Per IMPL-SPEC §7.2 these
   execute (or inspect the post-execution state of) variants.
 
-  ## Unified run-result mirror (rf2-ba86n.17)
+  ## Unified run-result mirror
 
   `run-variant` and `read-failures` speak the SAME unified
   `re-frame.story.result/run-result` model the human Story UI reads
@@ -15,18 +15,16 @@
   `:sub-runs` / `:renders` / `:narrative`). There is NO agent-only result
   vocabulary — the agent reads off the same verdict a human reads.
 
-  The pre-unification flat shape (`:passing?` / `:lifecycle` / a flat
-  `:assertions` vector) was REMOVED outright (pre-alpha clean break, Mike
-  2026-05-31): `:status` is the verdict; `:passing?` is gone (it could not
-  express the distinct `:cannot-run` third status, and re-derived a
-  green/red bit the result unification existed to fold out).
+  `:status` is the single verdict — it expresses the distinct
+  `:cannot-run` third status that a flat green/red `:passing?` bit
+  cannot, which is why the result vocabulary carries no such bit.
   `story/run-variant` already assembles the unified shape through
   `result/run-result`; these handlers project its slots rather than
   re-deriving a parallel verdict.
 
   Wire-egress posture: `run-variant` and `read-failures` route their
   `:app-db` / `:assertions` slots through
-  `re-frame.story-mcp.tools.egress` (rf2-73wuj)."
+  `re-frame.story-mcp.tools.egress`."
   (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
             [re-frame.story-mcp.tools.args :as targs]
@@ -51,11 +49,9 @@
   `re-frame.story.result/run-result`; this handler projects its slots
   (scrubbing the value-bearing ones at egress) — it does NOT re-derive a
   parallel verdict. The headline an agent reads is the top-level
-  `:status` ∈ `#{:pass :fail :cannot-run :error}` (rf2-ba86n.17 clean
-  break — the old `:passing?` boolean / `:lifecycle` verdict were
-  removed; `:status` is the one verdict, and only it can express the
-  distinct `:cannot-run` third outcome an agent must handle as 'the
-  runner could not attempt this', NOT as a fail).
+  `:status` ∈ `#{:pass :fail :cannot-run :error}` — the one verdict, and
+  only it can express the distinct `:cannot-run` third outcome an agent
+  must handle as 'the runner could not attempt this', NOT as a fail.
 
   Payload slots:
     :status             #{:pass :fail :cannot-run :error} — the verdict
@@ -68,7 +64,7 @@
     :schema-violations / :warnings / :effects / :sub-runs / :renders /
     :narrative          the .4 evidence-slot projections (one tape, one
                         projection); ALL value-bearing — each is
-                        value-redacted at egress (rf2-j90sb: :narrative's
+                        value-redacted at egress (:narrative's
                         per-beat :db-before/:db-after, :warnings trace
                         events, :sub-runs sub :value all carry app-db
                         slices that would otherwise ship sensitive
@@ -86,11 +82,11 @@
     :active-modes   optional — coll of mode ids
     :cell-overrides optional — map of arg overrides
     :timeout-ms     optional — JVM blocking timeout; default 10000;
-                               clamped to `max-timeout-ms` (30000) per
-                               rf2-g9fje so one slow request can't park
-                               the single-threaded stdio loop.
+                               clamped to `max-timeout-ms` (30000) so one
+                               slow request can't park the single-threaded
+                               stdio loop.
     :include-sensitive optional — opt out of wire-egress redaction
-                                  (default false; rf2-73wuj)"
+                                  (default false)"
   [arguments]
   (targs/with-variant arguments
     (fn [vk _body]
@@ -126,14 +122,13 @@
                               ;; value-redacted against the frame's declared-
                               ;; sensitive values, same as :rendered-hiccup —
                               ;; a secret reappears there at a non-app-db path
-                              ;; the path walker can't reach (rf2-ee38b.17).
+                              ;; the path walker can't reach.
                               ;; :narrative is a two-level evidence tree whose
                               ;; inner beats carry :db-before/:db-after FULL
                               ;; app-db snapshots; :warnings are trace-event
                               ;; records; :sub-runs carry subscription :value —
                               ;; all three egressed RAW would ship a declared-
-                              ;; sensitive value off-box verbatim (rf2-j90sb,
-                              ;; sibling of pair-mcp's rf2-6wvh5). scrub-rendered
+                              ;; sensitive value off-box verbatim. scrub-rendered
                               ;; recurses the nested trees and the gate stays
                               ;; symmetric (incl? true forwards raw).
                               :schema-violations  (egress/scrub-rendered (:schema-violations outcome) raw-db vk incl?)
@@ -143,7 +138,7 @@
                               :renders            (egress/scrub-rendered (:renders outcome) raw-db vk incl?)
                               :narrative          (egress/scrub-rendered (:narrative outcome) raw-db vk incl?)
                               ;; Derived trees re-key the same sensitive value
-                              ;; at a non-app-db path — value-redact (rf2-ee38b.17).
+                              ;; at a non-app-db path — value-redact.
                               :rendered-hiccup    (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
                               :elapsed-ms         (:elapsed-ms outcome)
                               :snapshot           (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
@@ -152,7 +147,7 @@
                        ;; attempt some expectation.
                        (contains? outcome :cannot-run)
                        (assoc :cannot-run (:cannot-run outcome)))]
-        ;; Surface the MUST-level egress indicator counts (rf2-koq5m):
+        ;; Surface the MUST-level egress indicator counts:
         ;; dropped sensitive assertion records + elided over-threshold
         ;; leaves across every value-bearing slot. Omitted when zero
         ;; (Conventions §Cross-MCP indicator-field vocabulary).
@@ -198,7 +193,7 @@
   When the server is JVM-standalone (no co-hosted CLJS runtime) this
   returns an empty result with a hint.
 
-  ## Wire-egress posture (rf2-q8ebq.2)
+  ## Wire-egress posture
 
   The `:violations` vec is LIVE RUNTIME observed state — the rendered DOM
   of the variant frame, normalised from axe-core's JS violation objects.
@@ -243,14 +238,14 @@
   inspect failures without re-running.
 
   The records ride the SAME unified shape `run-variant` emits
-  (spec/017 §Run result, rf2-ba86n.17): each record is normalized through
+  (spec/017 §Run result): each record is normalized through
   `re-frame.story/assertion-records` so it carries a derived
   `:status`, and the headline `:status` is the aggregate verdict over the
   records (`re-frame.story/aggregate-verdict` — the ONE rule:
-  `:error` > `:fail` > `:cannot-run` > `:pass`). The clean break removed
-  the re-derived `:passing?` boolean; `:status` is the one verdict, read
-  off the records rather than recomputed as a green/red bit. `:failures`
-  is filtered to the genuine failure statuses (`:fail` / `:error`) — a
+  `:error` > `:fail` > `:cannot-run` > `:pass`). `:status` is the one
+  verdict, read off the records rather than recomputed as a green/red bit.
+  `:failures` is filtered to the genuine failure statuses (`:fail` /
+  `:error`) — a
   `:cannot-run` record is not a failure (the runner proved nothing) and
   surfaces via the run-level `:status`, not the failures list.
 
@@ -260,7 +255,7 @@
   status is the assertion-record aggregate only; for the full run verdict
   (tape floor + refusals) re-run via `run-variant`.
 
-  Wire-egress posture (rf2-73wuj): assertion records carrying the
+  Wire-egress posture: assertion records carrying the
   top-level `:sensitive? true` stamp are dropped via `strip-sensitive`.
   The `:status` aggregate runs against the scrubbed vec so the agent's
   view of the verdict is consistent with the records it actually sees — a
@@ -281,7 +276,7 @@
                         :total      (count records)
                         :failures   failures
                         :assertions records}]
-        ;; Surface the MUST-level egress indicator counts (rf2-koq5m):
+        ;; Surface the MUST-level egress indicator counts:
         ;; how many sensitive assertion records were dropped at egress
         ;; (+ any elided leaves). Omitted when zero (Conventions
         ;; §Cross-MCP indicator-field vocabulary).
@@ -302,7 +297,7 @@
                          "3. Cannot-run (a causal assertion under a non-reactive runner): {:variant-id \":story.cart/caused\"} -> {:status :cannot-run :cannot-run [...] :assertions [{:status :cannot-run :cannot-run? true ...}]}. "
                          "4. Clamped timeout / error: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:status :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}.")
     :typicalTokens  2000
-    ;; rf2-90eft — `run-variant` ships the variant's `:app-db` re-keyed
+    ;; `run-variant` ships the variant's `:app-db` re-keyed
     ;; into `:rendered-hiccup` and `:snapshot`; structural dedup
     ;; collapses those three references into one cache slot at the wire
     ;; boundary. Mirrors pair-mcp's selective `:dedup` knob on

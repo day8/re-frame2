@@ -4,7 +4,7 @@
   `list-stories`, `get-story`, `get-variant`, `list-tags`,
   `list-modes`, `list-assertions`, `variant->edn`.
 
-  ## Pagination (rf2-76sf6)
+  ## Pagination
 
   Per spec/Principles.md §'Tight token budget' MUST, every `list-*`
   tool accepts `:limit` + `:cursor`. Small registries fit on one
@@ -28,20 +28,20 @@
   `args`:
     :tags    — vector of tag ids (strings or `:keyword` forms); narrows
                the result to stories whose `:tags` set intersects this.
-    :limit   — optional, default 25. Per-page entry count (rf2-76sf6).
+    :limit   — optional, default 25. Per-page entry count.
     :cursor  — optional opaque continuation token from a previous call.
 
-  HOT PATH (rf2-d3iso): agents spam this tool. The variant-id slot per
+  HOT PATH: agents spam this tool. The variant-id slot per
   story is read from `story/variants-by-story` — a single O(V) pass
-  over the variant side-table — instead of the previous O(S × V) shape
-  of calling `variants-of` once per story.
+  over the variant side-table — rather than calling `variants-of`
+  once per story (an O(S × V) shape).
 
-  rf2-lqjbk: caller-supplied `:tags` entries route through
+  Caller-supplied `:tags` entries route through
   `args/safe-keyword` against the registered-tag set — unknown tag
   ids skip the intersection rather than interning a fresh JVM
   keyword.
 
-  rf2-wu1o2d: a SUPPLIED `:tags` filter is honoured even when every
+  A SUPPLIED `:tags` filter is honoured even when every
   entry is unknown. We track whether the caller supplied `:tags`
   SEPARATELY from the set of tags that resolved against the registry,
   so an unknown-only filter (a typo / stale tag such as `[\":docz\"]`)
@@ -53,7 +53,7 @@
   no-interning posture is preserved — `:ignored-tags` carries the raw
   supplied strings, the keyword table is untouched.
 
-  rf2-76sf6: pagination via `cursor/page`. The stable-sort key is the
+  Pagination via `cursor/page`. The stable-sort key is the
   story id (string projection). Small registries return the bare
   `{:stories [...]}` payload; once entries exceed `:limit` the
   response adds `:total :limit :has-more? :next-cursor`."
@@ -63,7 +63,7 @@
         supplied     (:tags args)
         supplied?    (some? supplied)
         ;; Resolve each supplied entry against the registered-tag set
-        ;; WITHOUT interning unknowns (rf2-lqjbk). Partition by whether
+        ;; WITHOUT interning unknowns. Partition by whether
         ;; it resolved so the unknown names can ride the `:ignored-tags`
         ;; diagnostic as their raw string forms.
         tags         (into #{} (keep #(args/safe-keyword % tag-set)) (or supplied []))
@@ -71,7 +71,7 @@
                        (into [] (remove #(args/safe-keyword % tag-set)) supplied))
         ;; A SUPPLIED filter always filters — even when nothing resolved
         ;; (unknown-only ⇒ empty intersection ⇒ empty result), so a typo
-        ;; never widens to the whole catalogue (rf2-wu1o2d). Only the
+        ;; never widens to the whole catalogue. Only the
         ;; no-`:tags` call returns the unfiltered registry.
         filtered     (if supplied?
                        (into {}
@@ -99,7 +99,7 @@
 (defn tool-get-story
   "Docs: one story's full body.
 
-  rf2-lqjbk: `:story-id` is resolved through `args/safe-keyword`
+  `:story-id` is resolved through `args/safe-keyword`
   against the registered-stories set — an unknown id returns the
   documented `Story not found` error without interning (via the shared
   `targs/with-story-id` prelude)."
@@ -120,9 +120,9 @@
 (defn tool-list-tags
   "Docs: canonical tags + custom tags.
 
-  rf2-76sf6: the bifurcated `{:canonical :custom :all}` shape is
-  retained; `:canonical` is always the full canonical set (the seven
-  spec/007 inclusion tags + the five rf2-k1k87 `:state/*` magnitude
+  The bifurcated `{:canonical :custom :all}` shape:
+  `:canonical` is always the full canonical set (the seven
+  spec/007 inclusion tags + the five `:state/*` magnitude
   tags = 12 entries total; bounded and not a function of registry
   size, so pagination does not apply). `:custom` (project-registered
   tags) and `:all` (their union) are paginated when the count exceeds
@@ -137,7 +137,7 @@
                          (fn [page]
                            ;; :all is the union of :canonical + the (page-sliced)
                            ;; :custom. When no pagination kicks in (small registry)
-                           ;; the result is byte-identical to the pre-rf2-76sf6 shape.
+                           ;; the result is the bare `{:canonical :custom :all}` shape.
                            {:canonical canonical
                             :custom    page
                             :all       (vec (sort-by str (into canonical page)))}))))
@@ -146,7 +146,7 @@
   "Docs: registered modes (from `reg-mode`). Returns each mode's id +
   body so agents can see the `:args` saved tuple.
 
-  rf2-76sf6: paginated per spec/Principles.md §'Tight token budget'."
+  Paginated per spec/Principles.md §'Tight token budget'."
   [args]
   (let [modes   (story/registrations :mode)
         sorted  (sort-by (comp str key) modes)
@@ -176,14 +176,14 @@
                                     :response (:response body)))))
 
 (def ^:private decorator-kinds
-  "Bounded enum allowlist for `tool-list-decorators` `:kind` filter
-  (rf2-lqjbk). Three legal values per spec/Stage-2 decorator kinds;
+  "Bounded enum allowlist for `tool-list-decorators` `:kind` filter.
+  Three legal values per spec/Stage-2 decorator kinds;
   an unrecognised string short-circuits through `safe-keyword` without
   interning."
   #{:hiccup :frame-setup :fx-override})
 
 (defn tool-list-decorators
-  "Docs: read-only enumeration of registered decorators (rf2-mqp1u).
+  "Docs: read-only enumeration of registered decorators.
   Returns each decorator's id, kind, and doc plus the kind-specific
   pure-data slots. The `:wrap` closure on `:hiccup` decorators is
   not transported — only a `:has-wrap?` boolean — because closures
@@ -197,25 +197,25 @@
   - `:kind` (string, optional) — narrow to one decorator kind. One
     of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`. Resolved
     through `args/safe-keyword` against the bounded `decorator-kinds`
-    set (rf2-lqjbk) — no-intern: an unrecognised string never mints a
+    set — no-intern: an unrecognised string never mints a
     fresh JVM keyword.
 
-  rf2-cdavyf: a SUPPLIED `:kind` outside the bounded enum is an
+  A SUPPLIED `:kind` outside the bounded enum is an
   agent-recoverable error, NOT a silent widen to the full catalogue.
-  The enum is advertised as a filter; resolving a typo (`\"hicup\"`) to
-  `nil` and then treating `nil` as no-filter returned EVERY decorator —
-  hiding the caller's mistake behind a successful-looking full result.
-  An absent `:kind` (the slot was never sent) is still the legitimate
-  no-filter path; only a PRESENT-but-unrecognised value rejects.
+  The enum is advertised as a filter; treating a resolved-to-`nil` typo
+  (`\"hicup\"`) as no-filter would return EVERY decorator and hide the
+  caller's mistake behind a successful-looking full result. An absent
+  `:kind` (the slot was never sent) is the legitimate no-filter path;
+  only a PRESENT-but-unrecognised value rejects.
 
-  rf2-76sf6: pagination via `:limit` / `:cursor`. The filtered+sorted
+  Pagination via `:limit` / `:cursor`. The filtered+sorted
   entry vec is paged; the cursor's fingerprint is over the FILTERED
   id-set so a kind-filter change between pages reads as a stale
   cursor (different sig)."
   [args]
   (let [raw-kind    (:kind args)
         kind-filter (some-> raw-kind (args/safe-keyword decorator-kinds))]
-    ;; rf2-cdavyf — a present-but-unrecognised `:kind` is rejected rather
+    ;; A present-but-unrecognised `:kind` is rejected rather
     ;; than widened to all. `(some? raw-kind)` distinguishes "no filter
     ;; requested" (absent slot ⇒ `raw-kind` nil) from "filter requested
     ;; with a bad value" (`raw-kind` present but `safe-keyword` ⇒ nil).
@@ -240,7 +240,7 @@
 (def canonical-assertion-docs
   "Per spec/007 line 304 + IMPL-SPEC §3.5 the seven dispatched canonical
   assertions' arities, PLUS the tape-evaluated `:rf.assert/schema-error`
-  (rf2-5x1wt.21, spec/017 §Schema rule). `:rf.assert/schema-error` is the
+  (spec/017 §Schema rule). `:rf.assert/schema-error` is the
   one canonical assertion that is NOT dispatched into the frame — it
   declares an EXPECTED schema violation the runner exact-consumes against
   the projected epoch-tape evidence (a run FAILS on any schema violation
@@ -276,13 +276,13 @@
 (defn tool-list-assertions
   "Docs: the `:rf.assert/*` canonical vocabulary + arity docs.
 
-  rf2-76sf6: the bifurcated `{:canonical :registered}` shape is
-  retained; `:canonical` is the full 8-assertion doc vector — the seven
+  The bifurcated `{:canonical :registered}` shape:
+  `:canonical` is the full 8-assertion doc vector — the seven
   dispatched canonical assertions plus the tape-evaluated
   `:rf.assert/schema-error` (bounded and constant, so the pagination MUST
   does not apply).
 
-  rf2-4sgak: `:registered` is the FULL vocabulary the Story plan compiler
+  `:registered` is the FULL vocabulary the Story plan compiler
   accepts — `story/known-assertion-ids` (spec/017 §Assertions),
   the SAME set `plan.cljc` validates authored assertion atoms against via
   `assertion-id-known?`. That is the eight canonical ids PLUS the
@@ -290,11 +290,10 @@
   family (`:rf.assert/dom-visible|dom-hidden|dom-text`), the visual / a11y
   oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`,
   `:rf.assert/a11y-structural`), and the reactive-count assertions
-  (`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`). Previously this
-  slot mirrored only `canonical-assertion-ids`, so an agent could not
-  discover the visual/a11y/DOM ids the compiler would have accepted and
-  fell back to stale prose. `:registered` is paginated when the count
-  exceeds `:limit`; small registries see no pagination metadata."
+  (`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`). Surfacing the
+  full set lets an agent discover the visual/a11y/DOM ids the compiler
+  accepts rather than fall back to prose. `:registered` is paginated when
+  the count exceeds `:limit`; small registries see no pagination metadata."
   [args]
   (let [registered (sort-by str (story/known-assertion-ids))
         reg-vec    (vec registered)]
@@ -304,7 +303,7 @@
 
 (def ^:private explain-value-bearing-slots
   "The `explain` map slots that carry RUNTIME-RESOLVED / SEEDED VALUES
-  (rf2-12f2q, extended rf2-q8ebq.1) — the slots a value-redaction step
+  — the slots a value-redaction step
   must scrub against the variant frame's declared-sensitive values before
   the explain payload crosses the AI/off-box boundary:
 
@@ -325,7 +324,7 @@
     so a sensitive arg substituted into a setup/script step's payload
     rides these post-substitution sequences. Scrubbing `:substitutions`
     while leaving these raw is a clean bypass (the secret leaks via the
-    unscrubbed sibling), so they are scrubbed too (rf2-q8ebq.1).
+    unscrubbed sibling), so they are scrubbed too.
 
   Every OTHER explain slot is plan-STRUCTURE (source/parent chains,
   compose lineage, merge rules, strict conflicts, tags, platforms, runner
@@ -346,8 +345,8 @@
 
 (defn- scrub-explain
   "Value-scrub the runtime/seeded VALUE slots of an `explain` map against
-  `variant-id`'s frame declarations (rf2-12f2q) — on BOTH egress axes
-  (rf2-9o5ixx, EP-0015 peer axes): a leaf equal to a declared-`:sensitive?`
+  `variant-id`'s frame declarations — on BOTH egress axes
+  (EP-0015 peer axes): a leaf equal to a declared-`:sensitive?`
   value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value
   becomes the `:rf.size/large-elided` marker (sensitive wins where both
   apply). Plan-structure slots pass through untouched — they are
@@ -357,7 +356,7 @@
   Delegates to `egress/scrub-explain-values`, which collects candidate
   secrets from BOTH the live variant-frame app-db AND the plan's own
   `:db-seed` slot. The plan-`:db-seed` source is the FAIL-CLOSED pre-frame
-  path (rf2-tag30h): `explain-variant` is a no-run path a caller can hit
+  path: `explain-variant` is a no-run path a caller can hit
   before any run allocates the frame, so a secret authored into `:db-seed`
   (and re-surfaced in `:effective-args` / `:network` / a step payload)
   must be value-matched against the plan's own seed, not just a live
@@ -368,9 +367,8 @@
 (defn tool-explain-variant
   "Docs: the variant-plan `:explain` projection for a variant — the SAME
   data the human Explain panel renders (spec/017 §Explain API). A thin
-  mirror over the already-shipped `re-frame.story/explain` data API
-  (rf2-ba86n.17): the single biggest agent↔human divergence today —
-  humans have the Explain panel, agents had no MCP reach to it.
+  mirror over the `re-frame.story/explain` data API: the agent's reach to
+  the same Explain data humans see in the panel.
 
   The `:explain` map answers 'why did the plan resolve this way':
   `:source-chain` / `:parent-chain` (the `:extends` lineage),
@@ -389,7 +387,7 @@
   payloads can carry a declared-sensitive value (a seeded token, a stubbed
   PII reply, a control-driven override, a setup-dispatched secret). Those
   value-bearing slots are value-redacted against the variant frame's
-  declared-sensitive values at egress (rf2-12f2q, rf2-q8ebq.1) via
+  declared-sensitive values at egress via
   `egress/scrub-frame-value` — the SAME value-based redaction the live
   tools apply to their derived trees. `:sub-overrides` /
   `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME
@@ -414,13 +412,12 @@
   to `get-variant`; the text slot is the byte-stable `pr-str` EDN
   (keyword keys preserved) for agents that want strict EDN diffing.
 
-  Emits a matching `:structuredContent` too (rf2-vyacl). The descriptor
+  Emits a matching `:structuredContent` too. The descriptor
   declares an `:outputSchema`; the official MCP SDK's high-level
   `callTool` REJECTS an outputSchema-declaring tool that returns no
-  structuredContent with JSON-RPC -32600. (Same latent defect class as
-  `get-story-instructions` — `variant->edn` was the only other tool
-  still text-only.) The structured slot carries the same body map; the
-  text slot remains the byte-stable EDN source of truth."
+  structuredContent with JSON-RPC -32600. The structured slot carries
+  the same body map; the text slot remains the byte-stable EDN source of
+  truth."
   [args]
   (targs/with-variant args
     (fn [_vk body]
@@ -482,8 +479,8 @@
       "—\n")))
 
 (defn tool-get-docs-markdown
-  "Docs: render a story's documentation as GitHub-flavoured Markdown
-  (rf2-i0kyy). The existing `get-story` / `get-variant` tools return
+  "Docs: render a story's documentation as GitHub-flavoured Markdown.
+  The `get-story` / `get-variant` tools return
   EDN — useful for programmatic consumption but not the right shape
   when an agent wants to paste a docs blurb into an issue tracker or
   chat. This tool composes story `:doc` + per-variant `:doc` + args /

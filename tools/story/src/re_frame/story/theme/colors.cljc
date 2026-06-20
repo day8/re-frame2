@@ -1,20 +1,17 @@
 (ns re-frame.story.theme.colors
-  "Story color palette + semantic tokens (rf2-i3i5j).
+  "Story color palette + semantic tokens.
 
-  Story is a developer-facing workshop / playground UI. The previous
-  chrome literally adopted VS-Code Dark+ hexes (`#1e1e1e` / `#252526`
-  / `#0e639c` / `#9cdcfe` / `#dcdcaa` / `#4ec9b0` / `#f48771` / …) —
-  the rubric's 'cookie-cutter design that lacks context-specific
-  character' anti-pattern. Worse: Xray (which Story embeds in the
-  RHS) ships its own cool slate palette around violet `#7C5CFF`, and
-  the two render with a visible palette seam where they meet.
+  Story is a developer-facing workshop / playground UI with its own
+  palette, distinct from the cookie-cutter editor look. Xray (which
+  Story embeds in the RHS) ships its own cool slate palette around
+  violet `#7C5CFF`; Story's warmer palette sits cleanly alongside it
+  rather than blurring into one undifferentiated surface.
 
   This namespace defines Story's own palette — warmer slate grounds,
   an **amber accent (#F5A524)** that contrasts but does not clash
   with Xray's cool violet, and a semantic palette that maps each
   feedback-state to the hex resolution. Hex literals at use-sites are
-  banned (rf2-i3i5j acceptance criterion #3); call sites consume the
-  `tokens` map.
+  banned; call sites consume the `tokens` map.
 
   ## Why amber
 
@@ -29,7 +26,7 @@
     complementary contrast (amber yellow ↔ violet purple) without
     landing on the AI-slop 'purple gradient' floor.
   - WCAG-AA contrast preserved across every foreground/background
-    pairing (rf2-2uwv contrast baseline). Amber on `#0F1115` ground
+    pairing. Amber on `#0F1115` ground
     scores ~8:1; `#1A1D24` ground ~6.5:1.
 
   ## How call sites consume tokens
@@ -62,9 +59,9 @@
 
 (def tokens
   "Story's semantic colour tokens. All hex literals in `tools/story/src`
-  resolve through here (rf2-i3i5j contract). Phase 1 uses inline styles
-  so the foundation ships without a CSS asset pipeline; a v1.0 styling
-  pass replaces these with CSS variables.
+  resolve through here; hex literals at use-sites are banned. The
+  foundation ships as inline styles without a CSS asset pipeline; a
+  v1.0 styling pass replaces these with CSS variables.
 
   ## Categories
 
@@ -83,8 +80,7 @@
   - **tag-*** — per-tag palette for the sidebar badge row.
   - **mono-*** — neutral greys for tertiary chrome.
 
-  Values picked so foreground/background pairings preserve WCAG-AA
-  (rf2-2uwv baseline)."
+  Values picked so foreground/background pairings preserve WCAG-AA."
   {;; ── surfaces ──
    :bg-0           "#0B0D11"   ; deepest — outer canvas matte / behind everything
    :bg-1           "#13161D"   ; sidebar / right rail base
@@ -127,7 +123,7 @@
    :mono-2         "#5C594F"   ; tertiary chrome
    :mono-3         "#3E3C36"   ; tertiary chrome ground
 
-   ;; ── play step-debugger (rf2-ulw5m) — amber breakpoint highlights ──
+   ;; ── play step-debugger — amber breakpoint highlights ──
    :breakpoint-bg      "#3A2A0F"   ; row carrying a breakpoint (amber tint)
    :breakpoint-active  "#5A3A18"   ; currently-paused row (deeper amber)
    :breakpoint-ring    "#FFD680"   ; outline / glyph for armed control
@@ -164,12 +160,11 @@
    :tag-agent-bg        "#173533"
    :tag-agent-fg        "#67CFC2"})
 
-;; ── sweep audit (rf2-i3i5j) ─────────────────────────────────────────
+;; ── hex-literal contract ─────────────────────────────────────────────
 ;;
-;; The rf2-i3i5j commit swept VS-Code-Dark+ literals to semantic tokens
-;; across 30+ source files. The substitution was mechanical: each
-;; legacy hex maps to one canonical token (e.g. `#1e1e1e` → `:bg-canvas`,
-;; `#0e639c` → `:accent-amber`). Where one legacy hex carried multiple
-;; meanings at different call sites the sweep accepts a small loss of
-;; per-site semantic precision in exchange for zero hex literals — a
-;; follow-on pass can refine individual call sites case-by-case.
+;; Every colour across `tools/story/src` resolves through one canonical
+;; token in this map; hex literals at use-sites are banned. Each token
+;; carries a single semantic meaning (e.g. `:bg-canvas` for the variant
+;; render surface, `:accent-amber` for the hero accent), so call sites
+;; name the role rather than a raw colour and the palette stays a single
+;; point of truth.

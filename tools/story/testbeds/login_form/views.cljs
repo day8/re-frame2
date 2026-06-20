@@ -1,5 +1,5 @@
 (ns login-form.views
-  "Login-form testbed views (rf2-0sg12).
+  "Login-form testbed views.
 
   Two registered views — `login-form` (the form proper) and
   `login-card` (the framed container that swaps banner / form

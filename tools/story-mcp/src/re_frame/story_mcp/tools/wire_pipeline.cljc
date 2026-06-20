@@ -1,6 +1,5 @@
 (ns re-frame.story-mcp.tools.wire-pipeline
-  "Dispatcher + wire-boundary structural-dedup + token-budget cap
-  (rf2-rvyzy / rf2-zavp5 / rf2-eyelu / rf2-90eft).
+  "Dispatcher + wire-boundary structural-dedup + token-budget cap.
 
   Per `spec/Cross-Cutting-Designs.md §3 Token budgets` every MCP
   `tools/call` response is bounded at ~5,000 tokens by default. The cap
@@ -10,18 +9,18 @@
   exceed the cap, the payload is replaced with a structured
   `{:rf.mcp/overflow {...}}` marker.
 
-  ## Pipeline ordering (rf2-90eft mirroring pair-mcp's rf2-rvyzy → rf2-obpa9)
+  ## Pipeline ordering
 
   Two transforms compose at the wire boundary, in this order:
 
-  1. **Structural dedup** (`tools.dedup/dedup-value`, rf2-90eft) for
-     tools that opt in via `:dedup-eligible?` on the descriptor. The
+  1. **Structural dedup** (`tools.dedup/dedup-value`) for tools that opt
+     in via `:dedup-eligible?` on the descriptor. The
      `:structuredContent` slot is run through `day8/de-dupe` to
      collapse repeated subtrees into a flat cache map. Wrapped under
      `{:rf.mcp/dedup-table <cache>}`. The `:content[*].text` slot is
      re-stringified to match — both slots ride the same payload.
 
-  2. **Token-cap** (`re-frame.mcp-base.cap/apply-cap`, rf2-rvyzy). The
+  2. **Token-cap** (`re-frame.mcp-base.cap/apply-cap`). The
      deduped payload is sized; if still over the per-call cap, the
      payload is replaced with a `{:rf.mcp/overflow ...}` marker.
 
@@ -50,10 +49,10 @@
 
   ## Pipeline ownership
 
-  The cap-enforcement ALGORITHM lives in `re-frame.mcp-base.cap`
-  (rf2-eyelu) — token-summing across `:text` slots, comparing against
-  the per-call cap, and building the overflow result. This ns supplies
-  the per-server specialisation:
+  The cap-enforcement ALGORITHM lives in `re-frame.mcp-base.cap` —
+  token-summing across `:text` slots, comparing against the per-call
+  cap, and building the overflow result. This ns supplies the
+  per-server specialisation:
 
   - `result-io` reifies `mcp-base.cap/ResultIO` over the story-mcp
     result shape (`{:content [...] :structuredContent ...}` CLJ maps).
@@ -103,7 +102,7 @@
   agent client that prefers JSON data reads it directly without
   re-parsing the text).
 
-  HOT PATH (rf2-mzndx): `text-result` writes the same payload into BOTH
+  HOT PATH: `text-result` writes the same payload into BOTH
   `:content[*].text` AND `:structuredContent` on nearly every structured
   tool (`preview-variant`, `run-variant`, `list-stories`, `get-story`,
   `get-variant`, `read-failures`, `record-as-variant`, `get-docs-markdown`).
@@ -133,7 +132,7 @@
   `:structuredContent` slot is the structured JSON projection (agent
   hosts that prefer JSON data read it directly) and the
   `:content[*].text` slot is the `pr-str`-ed EDN (agent hosts that
-  prefer text read it). Per `cap/result-io` (rf2-mzndx) the cap
+  prefer text read it). Per `cap/result-io` the cap
   pipeline sums BOTH slots — if we deduped only `:structuredContent`
   the text slot would still ship the raw EDN at full size, and the
   cap would fire on a payload the agent only sees once. Re-stringifying
@@ -178,26 +177,26 @@
 
 (defn- unknown-arg-error
   "Build the tool-level `isError: true` diagnostic for unknown top-level
-  argument keys (rf2-ovmc5e / rf2-an95jj). `unknown` is the vec of RAW key
-  STRINGS the caller sent outside the tool's allowed set; `t` is the tool
-  descriptor. The result names the unknown keys, the tool, and that tool's
-  allowed key set — so a non-schema-validating host or hand-rolled agent
-  gets agent-recoverable feedback that its intended control knob was
-  ignored rather than a successful-looking call that silently defaulted.
-  The server is the authoritative backstop for the advertised
-  `additionalProperties false` contract; it no longer depends on the
-  client validating.
+  argument keys. `unknown` is the vec of RAW key STRINGS the caller sent
+  outside the tool's allowed set; `t` is the tool descriptor. The result
+  names the unknown keys, the tool, and that tool's allowed key set — so
+  a non-schema-validating host or hand-rolled agent gets
+  agent-recoverable feedback that its intended control knob was ignored
+  rather than a successful-looking call that silently defaulted. The
+  server is the authoritative backstop for the advertised
+  `additionalProperties false` contract, independent of whether the
+  client validates.
 
   Two call sites feed this builder, differing only in WHERE the unknown
   keys came from:
 
-  - rf2-ovmc5e — keys outside the GLOBAL `protocol/arg-keys` allowlist
-    (raw strings dropped + recorded as metadata at frame normalisation).
-  - rf2-an95jj — keys inside the global allowlist (so they survived
-    normalisation as keyword ENTRIES) but outside THIS tool's advertised
-    `inputSchema` properties (e.g. `:body` on `get-variant`,
-    `:write-back` on `run-variant`). Reported as their `name`-stringified
-    form so the diagnostic shape matches the global-unknown case."
+  - Keys outside the GLOBAL `protocol/arg-keys` allowlist (raw strings
+    dropped + recorded as metadata at frame normalisation).
+  - Keys inside the global allowlist (so they survived normalisation as
+    keyword ENTRIES) but outside THIS tool's advertised `inputSchema`
+    properties (e.g. `:body` on `get-variant`, `:write-back` on
+    `run-variant`). Reported as their `name`-stringified form so the
+    diagnostic shape matches the global-unknown case."
   [tool-name t unknown]
   (let [allowed (tool-allowed-arg-keys t)]
     (result/error-result
@@ -213,8 +212,8 @@
 (def ^:private wire-managed-arg-keys
   "Cross-cutting argument keys CONSUMED at the wire boundary
   (`invoke-tool`) rather than by a tool handler — so the per-tool schema
-  check (rf2-an95jj) must tolerate them on EVERY tool even when a given
-  tool's descriptor doesn't advertise them.
+  check must tolerate them on EVERY tool even when a given tool's
+  descriptor doesn't advertise them.
 
   - `:max-tokens` is injected on every tool (`schemas/with-max-tokens`),
     so it is always in the advertised set; listed here only for symmetry
@@ -229,8 +228,8 @@
   #{:max-tokens :dedup})
 
 (defn- tool-invalid-arg-keys
-  "rf2-an95jj — the keyword arg keys in `args` that are GLOBALLY known
-  (they survived `protocol/normalize-frame` as keyword entries against
+  "The keyword arg keys in `args` that are GLOBALLY known (they survived
+  `protocol/normalize-frame` as keyword entries against
   `protocol/arg-keys`) but are NOT valid for the SELECTED tool `t`: not
   in the tool's advertised `inputSchema` properties AND not a
   wire-managed cross-cutting knob (`wire-managed-arg-keys`). Returns the
@@ -241,9 +240,10 @@
   `additionalProperties false` contract at the PER-TOOL granularity: the
   global normalisation only rejects keys outside the UNION of every
   tool's args, so a key valid for ANOTHER tool (`:body`, `:write-back`,
-  `:dedup` on a non-eligible tool) used to survive and be silently
-  ignored. No-intern is preserved — every key here is already an interned
-  keyword (it passed the global allowlist), so `name` mints nothing."
+  `:dedup` on a non-eligible tool) is caught here rather than slipping
+  through to be silently ignored. No-intern is preserved — every key
+  here is already an interned keyword (it passed the global allowlist),
+  so `name` mints nothing."
   [t args]
   (let [advertised (set (-> t :inputSchema :properties keys))]
     (->> (keys args)
@@ -254,16 +254,16 @@
          vec)))
 
 (defn- cap-error
-  "rf2-p0eiq3 — route a pre-dispatch error envelope through the SAME
-  wire-boundary token cap (`base-cap/apply-cap`) that bounds every normal
-  tool response. Per `spec/Principles.md §Tight token budget`, EVERY MCP
-  tool response is bounded, error results included — but the
+  "Route a pre-dispatch error envelope through the SAME wire-boundary
+  token cap (`base-cap/apply-cap`) that bounds every normal tool
+  response. Per `spec/Principles.md §Tight token budget`, EVERY MCP tool
+  response is bounded, error results included — including the
   pre-dispatch rejection branches (`unknown-arg-error`, the
   invalid-`:max-tokens` rejection, the per-tool unknown-argument
-  diagnostic) used to return directly, BEFORE the cap. A caller can pack
-  many long unknown keys inside the 4 MB frame cap and receive an
-  UNCAPPED diagnostic echoing them all back — violating the response-cap
-  contract. Capping these envelopes closes that.
+  diagnostic). Without this, a caller could pack many long unknown keys
+  inside the 4 MB frame cap and receive an UNCAPPED diagnostic echoing
+  them all back — violating the response-cap contract. Capping these
+  envelopes closes that.
 
   `cap` is the resolved per-call cap (the output of `base-cap/max-tokens`):
   an integer ceiling, `nil` (caller disabled the cap with `:max-tokens 0`),
@@ -288,22 +288,21 @@
   Returns the tool's result map, or nil if no such tool. The caller
   serialises the result into a `tools/call` JSON-RPC response.
 
-  ## Wire-boundary pipeline (rf2-90eft)
+  ## Wire-boundary pipeline
 
   1. Dispatch the handler with `arguments`.
-  2. `apply-dedup` (rf2-90eft) — selective: runs only when the
-     descriptor carries `:dedup-eligible? true` AND the `:dedup` arg
-     is true (the default). Today the eligible set is
+  2. `apply-dedup` — selective: runs only when the descriptor carries
+     `:dedup-eligible? true` AND the `:dedup` arg is true (the default).
+     The eligible set is
      `{preview-variant, run-variant, record-as-variant}` — the three
      surfaces where repeated subtrees dominate the wire cost. The
      `:structuredContent` slot is run through `day8/de-dupe` to
      collapse repeated subtrees, and the `:content[*].text` slot is
      re-stringified to match. Per `tools.dedup`.
-  3. `base-cap/apply-cap` (rf2-rvyzy / rf2-zavp5 / rf2-eyelu) — when
-     the (post-dedup) response exceeds the per-call cap (`:max-tokens`
-     arg, default `mcp-base.overflow/default-max-tokens`, `0`
-     disables), the payload is replaced with a structured
-     `{:rf.mcp/overflow ...}` marker. Per
+  3. `base-cap/apply-cap` — when the (post-dedup) response exceeds the
+     per-call cap (`:max-tokens` arg, default
+     `mcp-base.overflow/default-max-tokens`, `0` disables), the payload
+     is replaced with a structured `{:rf.mcp/overflow ...}` marker. Per
      `spec/Cross-Cutting-Designs.md §3 Token budgets`.
 
   Ordering invariant: dedup BEFORE cap. Dedup shrinks the payload first
@@ -323,51 +322,50 @@
   (when-let [t (registry/tool-by-name tool-name)]
     (let [args    (or arguments {})
           cap     (base-cap/max-tokens (get args :max-tokens))
-          ;; rf2-ovmc5e — RAW string keys the caller sent outside the
-          ;; top-level allowlist, recorded as metadata by
+          ;; RAW string keys the caller sent outside the top-level
+          ;; allowlist, recorded as metadata by
           ;; `protocol/normalize-frame` (never interned, never a map
           ;; entry). A non-empty set means the agent typo'd a control
           ;; knob; we diagnose before dispatch rather than silently drop.
           unknown (get (meta args) proto/unknown-arg-keys-meta)
-          ;; rf2-an95jj — keys that ARE in the global allowlist (so they
-          ;; survived normalisation as keyword entries) but are NOT valid
-          ;; for THIS tool (e.g. `:body` on `get-variant`). The global
-          ;; check above only catches keys outside the UNION of every
-          ;; tool's args; this is the per-tool backstop.
+          ;; Keys that ARE in the global allowlist (so they survived
+          ;; normalisation as keyword entries) but are NOT valid for THIS
+          ;; tool (e.g. `:body` on `get-variant`). The global check above
+          ;; only catches keys outside the UNION of every tool's args;
+          ;; this is the per-tool backstop.
           tool-invalid (tool-invalid-arg-keys t args)]
       (cond
         (base-cap/invalid-arg? cap)
-        ;; rf2-5rdit — a negative `:max-tokens` resolves to a
+        ;; A negative `:max-tokens` resolves to a
         ;; `{:rf.mcp/invalid-arg {...}}` rejection rather than a negative
         ;; cap. Surface it as an `isError: true` tool-result so the agent
         ;; gets an actionable, recoverable error — NOT a silent lock-out
         ;; where the bad cap over-trips `apply-cap`'s `over-cap?` and
         ;; every response is replaced by the overflow marker. The handler
         ;; is never dispatched; the malformed cap never reaches the gate.
-        ;; rf2-p0eiq3 — the rejection envelope rides the response cap too
-        ;; (via the default cap, since the caller's cap was malformed).
+        ;; The rejection envelope rides the response cap too (via the
+        ;; default cap, since the caller's cap was malformed).
         (cap-error tool-name cap (result/error-result (result/pr-edn cap) cap))
 
-        ;; rf2-ovmc5e — an unknown top-level argument key is an
-        ;; agent-recoverable diagnostic, not a silent drop. The handler is
-        ;; never dispatched; the response names the unknown keys, the
-        ;; tool, and that tool's allowed key set so the model can retry
-        ;; with the corrected arg name. (The no-intern invariant holds —
-        ;; the unknown keys arrive as strings via metadata and are never
-        ;; keywordised.) rf2-p0eiq3 — the diagnostic rides the response
-        ;; cap so a caller packing many long unknown keys can't bypass
-        ;; the budget with an uncapped echo.
+        ;; An unknown top-level argument key is an agent-recoverable
+        ;; diagnostic, not a silent drop. The handler is never
+        ;; dispatched; the response names the unknown keys, the tool, and
+        ;; that tool's allowed key set so the model can retry with the
+        ;; corrected arg name. (The no-intern invariant holds — the
+        ;; unknown keys arrive as strings via metadata and are never
+        ;; keywordised.) The diagnostic rides the response cap so a
+        ;; caller packing many long unknown keys can't bypass the budget
+        ;; with an uncapped echo.
         (seq unknown)
         (cap-error tool-name cap (unknown-arg-error tool-name t unknown))
 
-        ;; rf2-an95jj — a globally-known but tool-invalid argument key is
-        ;; the per-tool backstop for each descriptor's
-        ;; `additionalProperties false` contract. A key valid for ANOTHER
-        ;; tool (`:body`, `:write-back`, `:dedup` on a non-eligible tool)
-        ;; would otherwise survive global normalisation and be silently
-        ;; ignored by the selected handler. Diagnose it with the same
-        ;; `:rf.story-mcp/unknown-arguments` shape before dispatch, capped
-        ;; per rf2-p0eiq3.
+        ;; A globally-known but tool-invalid argument key is the per-tool
+        ;; backstop for each descriptor's `additionalProperties false`
+        ;; contract. A key valid for ANOTHER tool (`:body`, `:write-back`,
+        ;; `:dedup` on a non-eligible tool) survives global normalisation;
+        ;; without this branch the selected handler would silently ignore
+        ;; it. Diagnose it with the same `:rf.story-mcp/unknown-arguments`
+        ;; shape before dispatch, capped on the same response cap.
         (seq tool-invalid)
         (cap-error tool-name cap (unknown-arg-error tool-name t tool-invalid))
 

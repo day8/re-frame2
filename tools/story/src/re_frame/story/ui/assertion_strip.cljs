@@ -2,13 +2,13 @@
   "Structured assertion-row treatment for inline canvas / workspace
   strips.
 
-  The canvas + workspace cells previously `pr-str`-d raw assertion maps
-  into one verbose row per assertion — hard-to-parse EDN. The `:test`
-  mode pane (`re-frame.story.ui.test-mode.view`) already lifts the
-  Storybook-inspired shape — status glyph + label + collapsible
-  detail — but the inline strip never adopted it. This namespace lifts
-  that shape into a small, dependency-free leaf the inline strip + the
-  workspace cell share.
+  The canvas + workspace cells need a compact assertion display: raw
+  `pr-str`-d assertion maps read as hard-to-parse EDN, one verbose row
+  per assertion. The `:test` mode pane
+  (`re-frame.story.ui.test-mode.view`) carries the Storybook-inspired
+  shape — status glyph + label + collapsible detail. This namespace
+  lifts that shape into a small, dependency-free leaf the inline strip
+  + the workspace cell share.
 
   ## What 'Storybook-inspired' means here
 
@@ -33,7 +33,7 @@
 
   The canvas inline strip (`re-frame.story.ui.canvas/render-assertions`)
   and the workspace cell's trailing strip (`re-frame.story.ui.workspace`)
-  both `pr-str`-ed raw records into a divs-of-one-line shape. Two call
+  both render the same compact assertion shape. Two call
   sites · one component = lift, don't duplicate. The `:test` mode pane
   keeps its richer per-row table (it has space for `:expected` /
   `:actual` / `:reason` columns); the inline strip is the compact
@@ -495,7 +495,7 @@
                       ^{:key (str gi "/" ri "/" rkey)}
                       [render-row row open? toggle])))]))])))))
 
-;; ---- authored-expectation strip (rf2-ba86n.12) ---------------------------
+;; ---- authored-expectation strip -----------------------------------------
 ;;
 ;; The component above renders RUN-RESULT assertion records (each carries a
 ;; `:passed?` verdict). This strip renders AUTHORED expectations — canonical

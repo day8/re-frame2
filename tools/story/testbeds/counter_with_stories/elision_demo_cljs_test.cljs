@@ -63,13 +63,13 @@
   ;; demo namespace's ns-load `reg-app-schema` call ran once at module load;
   ;; the preceding `(clear!)` step wiped it. Re-stamping it here keeps the
   ;; schema present for shape validation.
-  ;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local;
+  ;; EP-0002: reg-app-schema is context-required frame-local;
   ;; pass the target frame explicitly (the *override*) rather than relying on
   ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
                      {:schema [:maybe :string]
                       :frame :rf/default})
-  ;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
+  ;; EP-0015 §8: durable app-db egress classification is
   ;; FRAME-owned. Install the `[:user/avatar-pdf]` large declaration
   ;; (index-free :rf/path) onto :rf/default's elision registry via the
   ;; frame-classification seam so `elide-wire-value` finds a declared-large
@@ -85,8 +85,8 @@
   (reset! frame/frames {})
   (event-emit/clear-event-listeners!))
 
-;; EP-0002 (rf2-bd4div): these tests exercise the ambient dispatch /
-;; app-db-read paths, which now require a carried frame stamp. A function
+;; EP-0002: these tests exercise the ambient dispatch /
+;; app-db-read paths, which require a carried frame stamp. A function
 ;; fixture pins `:rf/default` (registered in `before!` via
 ;; `ensure-default-frame!`) as the established scope for the whole test
 ;; body via `with-frame` — the demo app runs in the ordinary `:rf/default`

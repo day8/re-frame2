@@ -1,9 +1,9 @@
 (ns re-frame.story.save-variant
   "Save-current-canvas-state-as-new-variant — the SB9 'Save' affordance
-  (rf2-one3t; SB9 story-from-UI parity per rf2-v05qb §2.2).
+  (SB9 story-from-UI parity).
 
   Story-from-UI in two affordances: (a) record-as-`:play-script` (Test Codegen,
-  rf2-5fc15 — `re-frame.story.recorder`); (b) snapshot-args-as-`:args`
+  `re-frame.story.recorder`); (b) snapshot-args-as-`:args`
   (this namespace). Both surface the captured state through the same
   review-then-commit modal pattern — Story emits an EDN snippet the user
   copies into source. Source is never written directly; the modal-preview
@@ -81,7 +81,7 @@
 (defn snapshot-violations
   "Project `args-snapshot` against `schema` using the validator-fn pair.
   Thin pass-through to `schema-validation/args-violations` exposed here
-  for the save-as-variant flow (rf2-lancu) — the save dialog reads the
+  for the save-as-variant flow — the save dialog reads the
   result to render a non-blocking 'Args do not match the variant's
   Spec 010 schema' hint above the snippet, so the user catches a
   drifted-args paste before it hits source.
@@ -93,7 +93,7 @@
   (schema-validation/args-violations args-snapshot schema validator-fns))
 
 ;; ---------------------------------------------------------------------------
-;; Pure: the eight-slice capture model (rf2-ba86n.6)
+;; Pure: the eight-slice capture model
 ;;
 ;; spec/019 §3 lists the slices a save-current-state flow MAY have to
 ;; project — args, sub-overrides, db-seed, route, network, fx-overrides,
@@ -169,7 +169,7 @@
 (defn capture-slices
   "Return the eight-slice capture report for a save-current-state flow.
   Pure data → vector of slice descriptors in `slice-order`. The HONESTY
-  FLOOR (rf2-ba86n.6): each slice is classified honestly — a slice is
+  FLOOR: each slice is classified honestly — a slice is
   only `:projectable` when a LIVE controls projection exists; otherwise
   it is `:captured-as-declared` (the source body declares a value we
   carry forward via `:extends`) or `:not-wired` (nothing to capture, and
@@ -224,8 +224,8 @@
        (not-wired :sub-overrides (slice-labels :sub-overrides)
                   "No live View-State controls and none declared on the source — sub-overrides are not yet projectable (rf2-7pgiz)."))
 
-     ;; db-seed: the schema-checked app-db seed fidelity rung is not wired
-     ;; (rf2-blw1q). The closest declared analogue on the source body is
+     ;; db-seed: the schema-checked app-db seed fidelity rung is not wired.
+     ;; The closest declared analogue on the source body is
      ;; `:setup` (real setup events) — surfaced as captured-as-declared so
      ;; the report is honest about what carries forward via :extends.
      (if (some? setup)
@@ -325,12 +325,11 @@
 ;; Default-id derivation + dialog state shape
 ;;
 ;; The dialog state machine + the default-id derivation live in the
-;; shared `re-frame.story.review-dialog` ns (rf2-7jpky); the save-
-;; variant flow's only flavour is the `\"saved-\"` prefix on the auto-
-;; derived id and the `{:args <snapshot>}` shape stashed in the
-;; dialog's `:context` slot. Thin re-exports below for ergonomics +
-;; the legacy `:args` key in the opened state (preserved for callers
-;; that read it via the open-dialog callback).
+;; shared `re-frame.story.review-dialog` ns; the save-variant flow's
+;; only flavour is the `\"saved-\"` prefix on the auto-derived id and
+;; the `{:args <snapshot>}` shape stashed in the dialog's `:context`
+;; slot. Thin re-exports below for ergonomics + the `:args` key in the
+;; opened state (read by callers via the open-dialog callback).
 ;; ---------------------------------------------------------------------------
 
 (def ^:const default-id-prefix
@@ -356,16 +355,15 @@
   "Open the save-variant dialog against `source-variant-id` with the
   captured `args-snapshot`. `now-ms` seeds the default id. The args
   ride in the dialog state's `:context` slot (per the review-dialog
-  contract); a top-level `:args` key is preserved so callers reading
-  the legacy slot keep working.
+  contract); a top-level `:args` key is also exposed for callers that
+  read the snapshot directly off the state.
 
-  3-arity arity preserved for back-compat callers that don't yet pass
-  violations; defaults to no violations. 4-arity stamps the violations
-  vector onto the dialog state so the save dialog can render the
-  rf2-lancu 'Args do not match the variant's Spec 010 schema' hint
-  pre-paste. 5-arity (rf2-ba86n.6) additionally stamps the eight-slice
-  capture report so the dialog can render the per-slice honesty-floor
-  warnings (which slices are captured-as-declared / not-yet-projectable)."
+  3-arity omits violations and defaults to none. 4-arity stamps the
+  violations vector onto the dialog state so the save dialog can render
+  the 'Args do not match the variant's Spec 010 schema' hint
+  pre-paste. 5-arity additionally stamps the eight-slice capture
+  report so the dialog can render the per-slice honesty-floor warnings
+  (which slices are captured-as-declared / not-yet-projectable)."
   ([state source-variant-id args-snapshot now-ms]
    (open state source-variant-id args-snapshot now-ms nil nil))
   ([state source-variant-id args-snapshot now-ms violations]
@@ -421,8 +419,8 @@
   as `(callback source-variant-id args-snapshot now-ms violations slices)`
   where `violations` is the vector returned by
   `schema-validation/args-violations` against the live component schema
-  (rf2-lancu — may be empty/nil) and `slices` is the eight-slice capture
-  report from `capture-slices` (rf2-ba86n.6 — carries the per-slice
+  (may be empty/nil) and `slices` is the eight-slice capture report
+  from `capture-slices` (carries the per-slice
   honesty-floor warnings the dialog renders). Idempotent — calling again
   replaces. The registered callback is invoked with all five positional
   args, so it must accept arity-5 (a variadic `& _` tail is the easy way
@@ -466,7 +464,7 @@
                             target
                             {:active-modes   (:active-modes shell)
                              :cell-overrides (get-in shell [:cell-overrides target])})
-               ;; rf2-lancu — validate the snapshot against the variant's
+               ;; Validate the snapshot against the variant's
                ;; Spec 010 schema BEFORE opening the dialog so the user
                ;; gets a non-blocking 'paste at your own risk' hint when
                ;; the live args have drifted into a non-conforming state.
@@ -477,7 +475,7 @@
                                      (schema-validation/resolve-component-schema target)
                                      (schema-validation/validator-fns))
                              :clj  [])
-               ;; rf2-ba86n.6 — the eight-slice capture report. The honesty
+               ;; The eight-slice capture report. The honesty
                ;; floor: every slice without a live projection is captured-
                ;; as-declared (carried via :extends) or not-wired, and warned
                ;; about. Never fabricated. Read the resolved source body so

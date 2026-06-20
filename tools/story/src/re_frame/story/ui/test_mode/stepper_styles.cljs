@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.test-mode.stepper-styles
-  "Style map for the play step-debugger (rf2-ulw5m + spec/009 §Play
-  step-debugger). Pure data; no Reagent dependency. Matches the rest of
-  the test pane chrome (rf2-2uwv palette)."
+  "Style map for the play step-debugger (spec/009 §Play step-debugger).
+  Pure data; no Reagent dependency. Matches the rest of the test pane
+  chrome palette."
   (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 

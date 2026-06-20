@@ -8,12 +8,11 @@
 
   It deliberately does NOT live in `re-frame.story.canonical` (that ns
   installs the canonical *vocabulary* — tags + the lifecycle machine).
-  This ns is the fingerprinting path, and it folds the former
-  `re-frame.story.identity` `canonical-form` / `content-hash` /
-  `snapshot-tuple` hashing into one place so there are no near-duplicate
-  canonicalisers to drift apart. `re-frame.story.identity` now delegates
-  its projection + hash to this ns (see that ns for the snapshot-identity
-  migration path).
+  This ns is the fingerprinting path: it is the single home for the
+  `canonical-form` / `content-hash` / `snapshot-tuple` hashing, so there
+  are no near-duplicate canonicalisers to drift apart.
+  `re-frame.story.identity` delegates its projection + hash to this ns
+  (see that ns for the snapshot-identity path).
 
   ## The public surface
 
@@ -24,9 +23,8 @@
     per-slot ordering imposed, and key spellings reconciled.
   - `content-hash` — stable 8-char hex hash of an exact value's ordered
     canonical form (NO volatile strip). This is the low primitive the
-    shipping snapshot-identity tuple hashes; preserving the no-strip
-    semantics keeps existing visual-regression baselines byte-identical
-    across the fold.
+    snapshot-identity tuple hashes; the no-strip semantics keep
+    visual-regression baselines byte-identical.
   - `canonical-hash` — stable 8-char hex hash of the `canonicalize`d
     projection (volatile strip applied). This is the determinism /
     semantic-diff / run-equivalence hash.
@@ -55,12 +53,12 @@
 
   ## Hash function
 
-  The hash is the same portable hash the former identity ns used: a
-  stable string serialisation (deterministic key order; sets/vectors
-  written in stable order; each collection wrapped under a reserved
-  structural type-tag so the four collection kinds are distinguishable —
-  rf2-lvrqa; functions folded to the `opaque-fn` sentinel so a hashed slot
-  carrying a fn is deterministic across processes — rf2-4gwja) hashed with
+  The hash is a portable hash: a stable string serialisation
+  (deterministic key order; sets/vectors written in stable order; each
+  collection wrapped under a reserved structural type-tag so the four
+  collection kinds are distinguishable; functions folded to the
+  `opaque-fn` sentinel so a hashed slot carrying a fn is deterministic
+  across processes) hashed with
   `hash` (JVM `clojure.lang.Util/hasheq`, CLJS `cljs.core/hash`), rendered
   as an 8-char lowercase hex string. It is 32-bit and per-artefact, not
   cryptographic; callers that need collision-resistance against an
@@ -81,19 +79,14 @@
   structure, so a canonical-form revision bumps it and old baselines are
   detectably stale rather than silently mis-compared.
 
-  Bumped `:rf/snapshot-canonical-v1` → `:rf/snapshot-canonical-v2`
-  (rf2-lvrqa) for the soundness fix that type-tags the canonical form: maps
-  / sets / vectors / seqs are now wrapped under reserved structural tags
-  (`map-tag` / `set-tag` / `vec-tag` / `seq-tag`) plus functions fold to the
-  `opaque-fn` sentinel (rf2-4gwja). Both change the byte shape of the
-  canonical form, so EVERY hash this primitive emits — `content-hash`
-  (snapshot identity), `canonical-hash`, `plan-hash`, `run-hash` — changes
-  value. Pre-alpha: re-stamping baselines is cheap, and there are NO
-  in-repo stored hash fixtures (every consumer asserts hash STABILITY /
-  SENSITIVITY relationally, never a pinned hex literal — verified
-  rf2-lvrqa), so the bump invalidates only EXTERNAL visual-regression
-  baselines, which re-stamp on their next capture. The v1 → v2 bump is
-  exactly the signal that drives that external re-stamp."
+  The canonical form type-tags its collections: maps / sets / vectors /
+  seqs are wrapped under reserved structural tags (`map-tag` / `set-tag` /
+  `vec-tag` / `seq-tag`) and functions fold to the `opaque-fn` sentinel.
+  Every consumer asserts hash STABILITY / SENSITIVITY relationally, never
+  a pinned hex literal, and there are NO in-repo stored hash fixtures, so a
+  version bump invalidates only EXTERNAL visual-regression baselines, which
+  re-stamp on their next capture. The version tag is exactly the signal
+  that drives that external re-stamp."
   :rf/snapshot-canonical-v2)
 
 ;; ===========================================================================
@@ -114,7 +107,7 @@
   The hashes still key the artifact at the call site; they simply do not
   feed the canonical value recursively.)
 
-  ### Per-run stamp fields (rf2-5x1wt.8 — the determinism strip)
+  ### Per-run stamp fields (the determinism strip)
 
   `:epoch-id`, `:dispatch-id`, `:trace-id`, `:committed-at`, and
   `:schema-digest` are the per-RUN bookkeeping stamps the framework writes
@@ -123,10 +116,10 @@
   counter are PROCESS-GLOBAL monotonic atoms (never reset per frame), and
   `:committed-at` is wall-clock — so two semantically-equal runs replayed
   into FRESH frames (`re-frame.story.artifact/replay-run-artifact`, spec
-  §Run artifact and replay) stamp DIFFERENT values for each. The `.7`
-  worker deliberately left this strip to the determinism gate
-  (rf2-5x1wt.8): a replay into a fresh frame stamps different epoch /
-  dispatch / trace ids, and THIS strip — together with the structural
+  §Run artifact and replay) stamp DIFFERENT values for each. This strip
+  belongs to the determinism gate: a replay into a fresh frame stamps
+  different epoch / dispatch / trace ids, and THIS strip — together with
+  the structural
   `:id` / `:time` / `:frame` strip in `strip-run-stamps` below — is what
   normalizes them so two semantically-equal runs canonicalize `=` and hash
   equal.
@@ -215,7 +208,7 @@
     :else           x))
 
 ;; ===========================================================================
-;; STRUCTURAL RUN-STAMP STRIP  (rf2-5x1wt.8 — the determinism layer)
+;; STRUCTURAL RUN-STAMP STRIP  (the determinism layer)
 ;; ===========================================================================
 ;;
 ;; `:id`, `:time`, and `:frame` are per-RUN stamps on a trace event / epoch
@@ -273,12 +266,10 @@
 (def ^:private volatile-cofx-keys
   "The per-run volatile facts nested INSIDE the flat `:rf.cofx` recordable-
   coeffect map that rides a `:rf.event/dispatched` trace event's `:tags`
-  (rf2-jt854w — EP-0010 observability completion: the router dev-stamps the
-  envelope's `:rf.cofx` onto the enqueue trace so Xray's Event lens can render
-  the COEFFECTS surface; EP-0017 / rf2-alc1lf renamed the envelope field from
-  the nested `:rf.world/inputs` to the flat `:rf.cofx` map — one fact per
-  owner-qualified key, no grouping sub-maps — and the framework time fact from
-  the nested `:time-ms` to the flat `:rf/time-ms`).
+  (the router dev-stamps the envelope's `:rf.cofx` onto the enqueue trace
+  so Xray's Event lens can render the COEFFECTS surface). The `:rf.cofx`
+  map holds one fact per owner-qualified key, with no grouping sub-maps,
+  and the framework time fact rides the flat `:rf/time-ms` key.
 
   The `:rf.cofx` MAP is semantic — caller-supplied owner-qualified facts (the
   app's `:counter/delta`, a subsystem's `:rf.route/location`, …) are the
@@ -303,12 +294,12 @@
   `strip-cofx-stamps` must reach into to drop the volatile fact:
 
   - `:rf.cofx` — the envelope's flat recordable-coeffect map. Rides a
-    `:rf.event/dispatched` trace event's `:tags` (rf2-jt854w — the router
-    dev-stamps it onto the enqueue trace) AND, per rf2-1xdotm, sits as the
-    top-level POST-generation replay-token slot on an `:rf/epoch-record`.
+    `:rf.event/dispatched` trace event's `:tags` (the router dev-stamps it
+    onto the enqueue trace) AND sits as the top-level POST-generation
+    replay-token slot on an `:rf/epoch-record`.
   - `:rf.event/cofx` — the POST-generation flat replay token the router
     dev-stamps onto the `:rf.event/run-start` trace event's `:tags`
-    (rf2-1xdotm, Spec 009 §Trace event shape). It is the SAME post-generation
+    (Spec 009 §Trace event shape). It is the SAME post-generation
     cofx map the epoch record's `:rf.cofx` slot is sourced from
     (`find-trigger-event` reads it off this tag), so it carries the same
     framework `:rf/time-ms` and false-drifts the `:epoch-tape` slice
@@ -330,8 +321,8 @@
   "Drop the per-run volatile facts (`volatile-cofx-keys` — the framework-stamped
   wall-clock `:rf/time-ms`) from EVERY flat recordable-coeffect map `m` carries
   under a `cofx-carrier-keys` slot (`:rf.cofx` / `:rf.event/cofx`), leaving the
-  semantic caller-supplied owner-qualified facts intact (rf2-jt854w / EP-0017
-  rf2-alc1lf / rf2-1xdotm). A slot that is absent or not a map is left untouched.
+  semantic caller-supplied owner-qualified facts intact. A slot that is
+  absent or not a map is left untouched.
   Pure data → data; idempotent.
 
   Three carriers route through here, all sharing the SAME post-generation /
@@ -340,11 +331,11 @@
   `:rf/time-ms`, so the determinism gate / semantic-diff / `:run-hash`
   false-drifts (`:epoch-tape` slice) unless it is stripped here:
 
-  - a `:rf.event/dispatched` TRACE EVENT's `:tags` `:rf.cofx` (rf2-jt854w);
-  - a `:rf.event/run-start` TRACE EVENT's `:tags` `:rf.event/cofx` (rf2-1xdotm —
-    the post-generation replay token the epoch record is sourced from);
-  - an `:rf/epoch-record`'s top-level `:rf.cofx` slot (rf2-1xdotm — the pinned
-    replay token a Tool-Pair replay supplies under `:rf.cofx/mint-policy
+  - a `:rf.event/dispatched` TRACE EVENT's `:tags` `:rf.cofx`;
+  - a `:rf.event/run-start` TRACE EVENT's `:tags` `:rf.event/cofx` (the
+    post-generation replay token the epoch record is sourced from);
+  - an `:rf/epoch-record`'s top-level `:rf.cofx` slot (the pinned replay
+    token a Tool-Pair replay supplies under `:rf.cofx/mint-policy
     :strict`). Same volatile class as the trace-event carriers, one slot up."
   [m]
   (reduce (fn [acc carrier-k]
@@ -358,8 +349,7 @@
   "Drop the per-run stamp keys (`volatile-trace-tag-keys`) from a trace
   event's `:tags` sub-map, leaving the semantic tags, and strip the per-run
   volatile `:rf/time-ms` nested inside the flat `:rf.cofx` recordable-coeffect
-  tag (rf2-jt854w / EP-0017 rf2-alc1lf). No-op when `:tags` is absent. Pure
-  data → data."
+  tag. No-op when `:tags` is absent. Pure data → data."
   [trace-event]
   (if (map? (:tags trace-event))
     (update trace-event :tags
@@ -384,8 +374,8 @@
 (defn strip-run-stamps
   "Strip the per-run stamps that ride a trace event (`:id`, `:time`) or an
   epoch record (`:frame`, plus the volatile `:rf/time-ms` in its top-level
-  `:rf.cofx` replay token — rf2-1xdotm) — the common-key stamps `project`
-  cannot strip globally without erasing app-db data (rf2-5x1wt.8). Recursive
+  `:rf.cofx` replay token) — the common-key stamps `project` cannot strip
+  globally without erasing app-db data. Recursive
   across maps, vectors, sets, and seqs, so it reaches trace events nested in an
   epoch record's `:trace-events` and epoch records nested in a run-result's
   `:epoch-tape`. Pure data → data; idempotent.
@@ -400,8 +390,8 @@
               (trace-event? x) (-> (dissoc :id :time) strip-trace-tags)
               ;; An epoch record loses its per-run `:frame` stamp AND the
               ;; framework-stamped `:rf/time-ms` nested in its top-level
-              ;; `:rf.cofx` replay token (rf2-1xdotm) — the latter is per-RUN
-              ;; volatile, the same class `strip-trace-tags` strips off the
+              ;; `:rf.cofx` replay token — the latter is per-RUN volatile,
+              ;; the same class `strip-trace-tags` strips off the
               ;; trace-event `:tags` carrier; without it the `:epoch-tape`
               ;; slice false-drifts on a fresh-frame replay.
               (epoch-record? x) (-> (dissoc :frame) strip-cofx-stamps))]
@@ -419,66 +409,66 @@
 ;; CANONICAL FORM — stable ordering + host-portable serialisation
 ;; ===========================================================================
 ;;
-;; Folded from the former `re-frame.story.identity` canonical-form path
-;; (rf2-ee38b.3) and hardened for soundness (rf2-lvrqa + rf2-4gwja):
+;; The canonical-form path is sound across collection kinds and fn values:
 ;;
-;; - STRUCTURAL TYPE TAGS (rf2-lvrqa). Each collection is wrapped in a
+;; - STRUCTURAL TYPE TAGS. Each collection is wrapped in a
 ;;   `[<type-tag> [<canon-elems> …]]` vector keyed by a reserved sentinel
 ;;   keyword, so the four collection types are mutually distinguishable
-;;   AFTER `pr-str`. The former code flattened a map `{:a 1}` to the bare
+;;   AFTER `pr-str`. Without tagging, a map `{:a 1}` flattened to the bare
 ;;   vector `[:a 1]` and a set `#{}` to `[]`, so `{}` / `#{}` / `[]` and
-;;   `{:a 1}` / `[:a 1]` collapsed to byte-identical canonical forms and
-;;   hashed equal — a soundness hole every downstream consumer (determinism
-;;   gate, semantic diff, golden, snapshot identity) inherited. Tagging
-;;   closes it: a map<->vector or set<->vector flip now perturbs the hash.
-;; - OPAQUE FN SENTINEL (rf2-4gwja). A function value is canonicalised to
-;;   the stable `:rf/opaque-fn` sentinel rather than passing through the
-;;   Object/default branch, where `pr-str` would embed the fn's per-process
-;;   object identity (`#object[…0x4a2f…]`) and make any hashed slice
-;;   carrying a raw fn NON-DETERMINISTIC across processes. The sentinel is
-;;   the deliberate trade-off (see `-canon` for fns): two plans/runs that
-;;   differ ONLY in fn identity hash EQUAL — determinism is the requirement,
-;;   so fn identity is intentionally NOT discriminated.
+;;   `{:a 1}` / `[:a 1]` would collapse to byte-identical canonical forms
+;;   and hash equal — a soundness hole every downstream consumer
+;;   (determinism gate, semantic diff, golden, snapshot identity) would
+;;   inherit. Tagging closes it: a map<->vector or set<->vector flip
+;;   perturbs the hash.
+;; - OPAQUE FN SENTINEL. A function value is canonicalised to the stable
+;;   `:rf/opaque-fn` sentinel rather than passing through the Object/default
+;;   branch, where `pr-str` would embed the fn's per-process object identity
+;;   (`#object[…0x4a2f…]`) and make any hashed slice carrying a raw fn
+;;   NON-DETERMINISTIC across processes. The sentinel is the deliberate
+;;   trade-off (see `-canon` for fns): two plans/runs that differ ONLY in fn
+;;   identity hash EQUAL — determinism is the requirement, so fn identity is
+;;   intentionally NOT discriminated.
 ;;
 ;; Maps sort entries by the canonicalised key's `pr-str`; sets sort
 ;; elements by a total comparator (`stable-canon-order` — `pr-str` primary
-;; with a deterministic equal-`pr-str` tiebreak, rf2-vvqeo); vectors/seqs keep
+;; with a deterministic equal-`pr-str` tiebreak); vectors/seqs keep
 ;; producer order and recurse. Integer scalars, strings, keywords, symbols,
 ;; booleans, and nil pass through — their `pr-str` is host-identical. Host-
 ;; DIVERGENT numbers (ratios + fractional/special doubles) are normalised to a
-;; bit-stable form by `canon-number` BELOW (rf2-vvqeo), so `pr-str` over every
+;; bit-stable form by `canon-number` BELOW, so `pr-str` over every
 ;; canonical value is host-identical across JVM + CLJS and the ordering — and
 ;; the tags — are stable across hosts.
 
 (def map-tag
-  "Reserved structural type-tag prefixing a map's canonical form
-  (rf2-lvrqa). A map `{:a 1}` canonicalises to `[:rf/map [:a 1]]`, never
+  "Reserved structural type-tag prefixing a map's canonical form.
+  A map `{:a 1}` canonicalises to `[:rf/map [:a 1]]`, never
   the bare `[:a 1]`, so it cannot collide with a literal vector of the same
   flattened shape."
   :rf/map)
 
 (def set-tag
-  "Reserved structural type-tag prefixing a set's canonical form
-  (rf2-lvrqa). A set `#{:a}` canonicalises to `[:rf/set [:a]]`, never the
+  "Reserved structural type-tag prefixing a set's canonical form.
+  A set `#{:a}` canonicalises to `[:rf/set [:a]]`, never the
   bare `[:a]`, so it cannot collide with a vector or a one-entry map."
   :rf/set)
 
 (def vec-tag
-  "Reserved structural type-tag prefixing a vector's canonical form
-  (rf2-lvrqa). A vector `[:a]` canonicalises to `[:rf/vec [:a]]`, so it is
+  "Reserved structural type-tag prefixing a vector's canonical form.
+  A vector `[:a]` canonicalises to `[:rf/vec [:a]]`, so it is
   distinguishable from a list/seq of the same elements and from a tagged
   map/set."
   :rf/vec)
 
 (def seq-tag
-  "Reserved structural type-tag prefixing a seq/list's canonical form
-  (rf2-lvrqa). A list `(:a)` canonicalises to `[:rf/seq [:a]]`, so seq vs
+  "Reserved structural type-tag prefixing a seq/list's canonical form.
+  A list `(:a)` canonicalises to `[:rf/seq [:a]]`, so seq vs
   vector is a distinguishable structural difference."
   :rf/seq)
 
 (def opaque-fn
-  "Stable opaque sentinel a function value canonicalises to (rf2-4gwja).
-  Replaces the per-process object-identity `pr-str` of a raw fn so any
+  "Stable opaque sentinel a function value canonicalises to. Replaces the
+  per-process object-identity `pr-str` of a raw fn so any
   hashed slice carrying a fn (a `:fx-overrides` plan slot,
   an app-db closure-as-value, an effect `:args` callback) hashes
   DETERMINISTICALLY across processes. The deliberate trade-off: two values
@@ -487,14 +477,15 @@
   :rf/opaque-fn)
 
 ;; ===========================================================================
-;; CROSS-HOST SCALAR STABILITY  (rf2-vvqeo)
+;; CROSS-HOST SCALAR STABILITY
 ;; ===========================================================================
 ;;
-;; SCALARS used to pass through `-canon` verbatim and be serialised by raw
+;; Most scalars pass through `-canon` verbatim and are serialised by raw
 ;; `pr-str`. For integers, strings, keywords, symbols, booleans, and nil that
 ;; is host-identical and stays untouched. But two number sub-kinds are NOT
-;; host-portable through `pr-str`, silently breaking the byte-stable-across-
-;; hosts contract that is the whole point of the fingerprint primitive:
+;; host-portable through `pr-str`, which would silently break the
+;; byte-stable-across-hosts contract that is the whole point of the
+;; fingerprint primitive, so they are normalised:
 ;;
 ;; 1. RATIOS. JVM Clojure has `clojure.lang.Ratio` — `(pr-str 1/3)` => "1/3".
 ;;    CLJS has NO Ratio type: the reader collapses `1/3` to the double
@@ -514,12 +505,12 @@
 ;;   verbatim — `Long` / `BigInt` / `BigInteger` on the JVM, integer-valued
 ;;   `number` on CLJS. Their `pr-str` is host-identical, so ordinary-value
 ;;   hashes are UNCHANGED (no golden rebase).
-;; - 3. LARGE INTEGERS (rf2-7w1vp). An integer whose magnitude EXCEEDS the
+;; - 3. LARGE INTEGERS. An integer whose magnitude EXCEEDS the
 ;;   safe-integer range (2^53-1) is NOT host-portable: JavaScript's `Number`
 ;;   cannot represent it exactly, so CLJS rounds it to the nearest double,
 ;;   while a JVM `Long` / `BigInt` keeps full precision and `pr-str`s it
 ;;   verbatim ("100000000000000000000N"). The same logical integer therefore
-;;   canonicalised to a bare integer string on the JVM but `[:rf/double <hex>]`
+;;   canonicalises to a bare integer string on the JVM but `[:rf/double <hex>]`
 ;;   on CLJS → divergent hash. POLICY: route such an integer through the SAME
 ;;   lossy IEEE-754 `double->bits-hex` path on BOTH hosts. Both agree on the
 ;;   double approximation (CLJS has no other option; the JVM converts via
@@ -552,14 +543,14 @@
 
 (def double-tag
   "Reserved structural tag prefixing a non-integer (or out-of-integer-range)
-  number's canonical form (rf2-vvqeo). A double `1.5` canonicalises to
+  number's canonical form. A double `1.5` canonicalises to
   `[:rf/double \"3ff8000000000000\"]` — the 16-char lowercase hex of its
   IEEE-754 64-bit pattern, byte-identical across JVM + CLJS, where raw
   `pr-str` of a double is not."
   :rf/double)
 
 (def nan-tag
-  "Stable sentinel every NaN canonicalises to (rf2-vvqeo). All NaN bit-
+  "Stable sentinel every NaN canonicalises to. All NaN bit-
   patterns fold to this ONE value so a `##NaN` slot hashes deterministically
   and never perturbs a hash by bit-pattern, and so `canon-set`'s
   `(sort-by pr-str)` ordering is stable in the presence of NaN (which is not
@@ -571,7 +562,7 @@
   (`js/Number.MAX_SAFE_INTEGER`). An integer of greater magnitude has no
   exact `js/Number` representation, so CLJS rounds it to the nearest double
   and the canonical form must take the lossy IEEE-754 bit path on BOTH hosts
-  to agree (rf2-7w1vp). Integers within ±this range `pr-str` host-identically
+  to agree. Integers within ±this range `pr-str` host-identically
   and pass through verbatim — no golden rebase."
   9007199254740991)
 
@@ -579,7 +570,7 @@
   "Return the 16-char lowercase hex of the IEEE-754 64-bit pattern of double
   `d`, identically on JVM + CLJS. The bit pattern of a given logical double
   is host-invariant, so this is the host-portable canonical double form where
-  `pr-str` is not (rf2-vvqeo)."
+  `pr-str` is not."
   [d]
   #?(:clj
      (format "%016x" (Double/doubleToLongBits d))
@@ -599,13 +590,13 @@
          (str (hx hi) (hx lo))))))
 
 (defn- canon-number
-  "Canonicalise a number to a host-portable form (rf2-vvqeo + rf2-7w1vp).
+  "Canonicalise a number to a host-portable form.
   An integer WITHIN the IEEE-754 safe-integer range (±2^53-1, `max-safe-
   integer`) passes through verbatim — its `pr-str` is host-identical. An
   integer OUTSIDE that range (a large `Long` / `BigInt` / `BigInteger` /
   `js/Number`) takes the SAME lossy `[double-tag <16-hex bits>]` IEEE-754
-  path on BOTH hosts (rf2-7w1vp — CLJS cannot represent it exactly anyway,
-  so JVM exactness is traded for cross-host agreement). A fractional / out-
+  path on BOTH hosts (CLJS cannot represent it exactly anyway, so JVM
+  exactness is traded for cross-host agreement). A fractional / out-
   of-integer-range double becomes `[double-tag <16-hex bits>]`; an integer-
   valued double within 64-bit integer range folds to that integer (CLJS
   cannot distinguish it from the integer anyway); a ratio is coerced to its
@@ -627,7 +618,7 @@
            (long d)
            :else [double-tag (double->bits-hex d)]))
        ;; An INTEGER whose magnitude exceeds the IEEE-754 safe-integer range
-       ;; (2^53-1) is NOT host-portable through `pr-str` (rf2-7w1vp): CLJS has
+       ;; (2^53-1) is NOT host-portable through `pr-str`: CLJS has
        ;; no exact integer past 2^53 — a `js/Number` rounds it to the nearest
        ;; double, and the CLJS branch below already routes it through
        ;; `double->bits-hex`. So a JVM `Long` / `BigInt` / `BigInteger` of the
@@ -654,11 +645,11 @@
 (defprotocol Canonicalise
   "Render a value into a canonical form: stable key order in maps, stable
   element order in sets, structural type tags distinguishing the four
-  collection kinds (rf2-lvrqa), function values folded to a stable opaque
-  sentinel (rf2-4gwja), host-divergent numbers normalised to a bit-stable
-  form (rf2-vvqeo — ratios + fractional/special doubles fold to a `:rf/double`
-  / `:rf/nan` tag; safe-range integers are unchanged, integers beyond ±2^53-1
-  take the same lossy `:rf/double` path on both hosts — rf2-7w1vp), and the
+  collection kinds, function values folded to a stable opaque sentinel,
+  host-divergent numbers normalised to a bit-stable form (ratios +
+  fractional/special doubles fold to a `:rf/double` / `:rf/nan` tag;
+  safe-range integers are unchanged, integers beyond ±2^53-1 take the same
+  lossy `:rf/double` path on both hosts), and the
   remaining terminal types
   (strings, keywords, booleans, nil) unchanged. Returns a value that
   round-trips through `pr-str` deterministically across hosts and processes."
@@ -668,7 +659,7 @@
   "Map canon: sort by the canonicalised key (via `pr-str` of the
   canon-key), flatten into a `[k v k v ...]` vector, then wrap under the
   reserved `map-tag` so a map is never byte-identical to a vector / set of
-  the same flattened shape (rf2-lvrqa). Symmetric across JVM + CLJS because
+  the same flattened shape. Symmetric across JVM + CLJS because
   `pr-str` over canonical scalars is host-identical."
   [m]
   (let [entries (->> m
@@ -677,14 +668,14 @@
     [map-tag (into [] (mapcat identity) entries)]))
 
 (defn- stable-canon-order
-  "A TOTAL, host-portable comparator over ALREADY-canonical set elements
-  (rf2-vvqeo). Primary key is `pr-str` (the historical order — so an ordinary
-  set of distinct-`pr-str` elements sorts EXACTLY as before, no hash rebase).
-  The secondary key is the SECOND `pr-str` only when the primaries tie, giving
-  a deterministic tiebreak for two DISTINCT elements that canonicalise to the
-  same `pr-str` (e.g. two `:rf/opaque-fn` sentinels) — previously `sort-by`
-  left their relative order comparator-unstable, a latent hole in the
-  byte-stable claim. Comparing the same string to itself yields 0, which
+  "A TOTAL, host-portable comparator over ALREADY-canonical set elements.
+  Primary key is `pr-str`, so an ordinary set of distinct-`pr-str` elements
+  sorts by it directly. The secondary key is the SECOND `pr-str` only when
+  the primaries tie, giving a deterministic tiebreak for two DISTINCT
+  elements that canonicalise to the same `pr-str` (e.g. two
+  `:rf/opaque-fn` sentinels), where a bare `sort-by` would leave their
+  relative order comparator-unstable — a latent hole in the byte-stable
+  claim. Comparing the same string to itself yields 0, which
   `sort` then orders deterministically, so even a genuine duplicate-`pr-str`
   pair is stable. The comparison is pure string compare, identical on JVM +
   CLJS."
@@ -701,24 +692,22 @@
 
 (defn- canon-set
   "Set canon: sort canonicalised elements into a stable vector via the total
-  `stable-canon-order` comparator (rf2-vvqeo — `pr-str` primary with a
-  deterministic equal-`pr-str` tiebreak, replacing the bare
-  `(sort-by pr-str)` whose order was comparator-unstable for two distinct
-  elements sharing a `pr-str`), then wrap under the reserved `set-tag` so a
-  set is never byte-identical to a vector / map (rf2-lvrqa)."
+  `stable-canon-order` comparator (`pr-str` primary with a deterministic
+  equal-`pr-str` tiebreak, so two distinct elements sharing a `pr-str`
+  order deterministically), then wrap under the reserved `set-tag` so a
+  set is never byte-identical to a vector / map."
   [s]
   [set-tag (vec (sort stable-canon-order (map -canon s)))])
 
 (defn- canon-vector
   "Vector canon: recurse over elements (producer order preserved — it is
-  semantic) and wrap under the reserved `vec-tag` (rf2-lvrqa)."
+  semantic) and wrap under the reserved `vec-tag`."
   [v]
   [vec-tag (mapv -canon v)])
 
 (defn- canon-seq
   "Seq/list canon: realise + recurse (producer order preserved) and wrap
-  under the reserved `seq-tag`, so a seq is distinguishable from a vector
-  (rf2-lvrqa)."
+  under the reserved `seq-tag`, so a seq is distinguishable from a vector."
   [s]
   [seq-tag (mapv -canon s)])
 
@@ -729,7 +718,7 @@
   #?(:clj  java.lang.Boolean :cljs boolean)
   (-canon [x] x)
 
-  ;; NUMBER → host-portable canonical number form (rf2-vvqeo). Integers pass
+  ;; NUMBER → host-portable canonical number form. Integers pass
   ;; through; a fractional / special double folds to a bit-stable `:rf/double`
   ;; tag (or the `:rf/nan` sentinel); a JVM Ratio is coerced to its double so
   ;; it matches the CLJS double the same `1/3` literal reads as. Ordinary
@@ -746,7 +735,7 @@
   #?(:clj  clojure.lang.Symbol  :cljs Symbol)
   (-canon [x] x)
 
-  ;; FUNCTION → stable opaque sentinel (rf2-4gwja). `clojure.lang.Fn` is the
+  ;; FUNCTION → stable opaque sentinel. `clojure.lang.Fn` is the
   ;; marker interface fns / closures implement but keywords, symbols, maps,
   ;; vectors, and sets do NOT (they are IFn but not Fn), so this extension
   ;; catches only genuine functions and does not shadow the collection
@@ -773,7 +762,7 @@
     ;; with canonical recursion. A raw fn reaching here (an `IFn` host type
     ;; the `Fn` / `function` branch above did not match) is mapped to the
     ;; opaque sentinel BEFORE the collection branches, so it can never fall
-    ;; through to an object-identity `pr-str` (rf2-4gwja). `pr-str` over the
+    ;; through to an object-identity `pr-str`. `pr-str` over the
     ;; result is deterministic across hosts AND processes.
     (cond
       (fn? x)         opaque-fn
@@ -820,7 +809,7 @@
   Projection composes two strips before ordering: the recursive reserved-key
   strip (`project` — volatile + `:rf.story/*` accumulator keys) and the
   structural per-run-stamp strip (`strip-run-stamps` — `:id` / `:time` /
-  `:frame` only on their trace-event / epoch-record carriers, rf2-5x1wt.8).
+  `:frame` only on their trace-event / epoch-record carriers).
   Together they erase every per-run stamp a fresh-frame replay writes, so
   two semantically-equal runs canonicalize `=` (the determinism gate's
   `test/assert-deterministic` is exactly this equality over N replays)."
@@ -845,18 +834,17 @@
                  hs)))))
 
 (defn hash-canonical
-  "Hash an ALREADY-canonical value (rf2-lvrqa). Prepends `canonical-version`
+  "Hash an ALREADY-canonical value. Prepends `canonical-version`
   as the first hashed slot and renders the `[version canonical-value]` pair
   to an 8-char-hex hash via a SINGLE `pr-str` — it does NOT re-run
   `canonical-form` over its input.
 
   This is the load-bearing primitive `content-hash` and `canonical-hash`
-  share. The former code re-applied `canonical-form` to the already-canonical
-  value before hashing; that was harmless only while `canonical-form` was
-  idempotent, but the rf2-lvrqa type-tags make it NON-idempotent (a second
-  pass would re-wrap `[:rf/map …]` as `[:rf/vec [:rf/map …]]`), so the
-  double-canon is removed. A consequence the determinism gate + golden rely
-  on: a caller holding an already-`canonicalize`d value `c` gets
+  share. It does NOT re-apply `canonical-form` to its already-canonical
+  input: the type-tags make `canonical-form` NON-idempotent (a second pass
+  would re-wrap `[:rf/map …]` as `[:rf/vec [:rf/map …]]`), so a single
+  canon pass is the contract. A consequence the determinism gate + golden
+  rely on: a caller holding an already-`canonicalize`d value `c` gets
   `(hash-canonical c)` == `(canonical-hash <the raw value>)` == `run-hash`,
   with no second canonicalization pass and no idempotence assumption."
   [canonical-value]
@@ -870,14 +858,13 @@
   (`:rf/snapshot-canonical-v2`) as the first hashed slot, so a
   canonical-form revision bumps the version and old baselines are
   detectably stale. Map key order does not affect the hash; a semantic
-  difference — including a map<->vector / set<->vector type flip
-  (rf2-lvrqa) — does.
+  difference — including a map<->vector / set<->vector type flip — does.
 
-  This is the low primitive the shipping `re-frame.story.identity`
-  snapshot tuple hashes. The rf2-lvrqa canonical-version bump
-  (`:rf/snapshot-canonical-v2`) re-stamps the snapshot content-hash, so
-  external visual-regression baselines re-capture on their next run (there
-  are no in-repo stored hash fixtures). Determinism / run-equivalence
+  This is the low primitive the `re-frame.story.identity` snapshot tuple
+  hashes. The canonical-version (`:rf/snapshot-canonical-v2`) keys the
+  snapshot content-hash, so external visual-regression baselines re-capture
+  whenever it bumps (there are no in-repo stored hash fixtures).
+  Determinism / run-equivalence
   callers want the strip — use `canonical-hash` (or `plan-hash` /
   `run-hash`) there."
   [x]

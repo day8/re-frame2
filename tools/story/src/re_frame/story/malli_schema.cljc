@@ -4,14 +4,12 @@
   CLJS-only) and the schema-validation panel's args-violation walk
   (`re-frame.story.ui.schema-validation`, `.cljc`).
 
-  Used to live as private mirrors in both consumer namespaces — the
-  schema-validation copy carried a comment acknowledging the dup. The
-  shape is canonical Malli vector-schema decoding: optional properties
-  map at index 1, then ordered child schemas. Lives at the leaf of the
-  require graph (depends on `clojure.core` only) so any sibling
-  namespace can `:require` it without cycle risk.
-
-  See rf2-x77hd / audit rf2-cgqam round-2 P1 #2.")
+  This is the single shared home for the introspection helpers both
+  consumers use, so the two panels decode schemas through one
+  implementation. The shape is canonical Malli vector-schema decoding:
+  optional properties map at index 1, then ordered child schemas. Lives
+  at the leaf of the require graph (depends on `clojure.core` only) so
+  any sibling namespace can `:require` it without cycle risk.")
 
 (defn properties?
   "Is `x` the optional Malli properties map at index 1 of a vector
@@ -68,16 +66,16 @@
 ;; consumers agree on the slots WITHOUT a require cycle (view-args requires
 ;; plan; plan must not require view-args).
 ;;
-;; Per the rf2-p5ivc (b) ruling: first match wins over `[:rf/props :schema]`;
-;; `:rf/props` is canonical and wins over `:schema` (no composition). `:spec`
-;; is NOT here — it is dead post-M-54 (the framework reads `:schema` only on
-;; `reg-*` metadata; see migration/from-re-frame-v1/README.md §M-54).
+;; First match wins over `[:rf/props :schema]`: `:rf/props` is canonical
+;; and wins over `:schema` (no composition). `:spec` is NOT a key here —
+;; the framework reads `:schema` only on `reg-*` metadata; see
+;; migration/from-re-frame-v1/README.md §M-54.
 
 (def view-args-schema-keys
   "View-metadata keys carrying the explicit-input (props) schema, in
   resolution order (first present wins): `:rf/props` (canonical) then
-  `:schema` (the post-M-54 alternative location). `:spec` is deliberately
-  ABSENT — it is dead post-M-54 (no framework reads it)."
+  `:schema` (the alternative location). `:spec` is deliberately
+  ABSENT — no framework reads it."
   [:rf/props :schema])
 
 (defn view-args-schema

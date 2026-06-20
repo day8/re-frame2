@@ -18,12 +18,10 @@
 
   ## Generalisation note
 
-  Spec/010 §`with-mode` accessor §Single-mode call sites — the spec
-  formerly carried `:story/mode` (singular) but no implementation ever
-  registered it. This is the replacement landing point — the cofx
-  pair lands here as `:story/active-modes` (plural) + `:story/active-
-  args`. Pre-alpha, no shim for the singular name (per AGENTS.md
-  `pre-alpha-no-back-compat`).
+  Per Spec/010 §`with-mode` accessor §Single-mode call sites, the cofx
+  pair is `:story/active-modes` (plural) + `:story/active-args`. Modes
+  are plural throughout the shell, so there is no singular `:story/mode`
+  accessor.
 
   ## Registration
 

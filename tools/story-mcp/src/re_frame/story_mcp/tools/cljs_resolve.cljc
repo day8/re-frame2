@@ -1,6 +1,5 @@
 (ns re-frame.story-mcp.tools.cljs-resolve
-  "Cross-platform CLJS-var resolution for the JVM-side MCP tools
-  (rf2-8yvyp, split out of the former `tools.helpers`).
+  "Cross-platform CLJS-var resolution for the JVM-side MCP tools.
 
   Several Story surfaces are CLJS-only (the registered-substrates
   registry, the in-browser a11y panel atom) — `def`s behind a
@@ -16,13 +15,11 @@
 
   ## Caching
 
-  `registered-substrates-var` is resolved ONCE at ns-load (rf2-ee38b.17
-  folded the duplicate `tools.dev/registered-substrates-var` into this
-  one). The substrate set is stable across the process lifetime, so
-  the cached var is the single resolution site for the whole story-mcp
-  surface — both the read-run-opts hot path (preview/run/snapshot) and
-  `dev/tool-list-substrates` deref the cached var rather than
-  re-resolving per call."
+  `registered-substrates-var` is resolved ONCE at ns-load, the single
+  resolution site for the whole story-mcp surface. The substrate set is
+  stable across the process lifetime, so both the read-run-opts hot path
+  (preview/run/snapshot) and `dev/tool-list-substrates` deref the cached
+  var rather than re-resolving per call."
   (:require [re-frame.story :as story]))
 
 (defn resolve-cljs-var
@@ -35,7 +32,7 @@
   alias-qualified symbol — even though `resolve` does honour the calling
   ns's aliases, passing the real ns keeps the contract self-describing
   and matches the sibling `'re-frame.story.ui.a11y/violations-by-frame`
-  resolution site (rf2-4sgak).
+  resolution site.
 
   Used by handlers that need a CLJS-side surface (the in-browser a11y
   panel atom, the CLJS substrate registry) — the JVM host reads an empty
@@ -46,17 +43,14 @@
 #?(:clj
    ;; `re-frame.story/registered-substrates` is CLJS-only — probed ONCE at
    ;; ns-load, here, as the single resolution site for the whole story-mcp
-   ;; surface (rf2-ee38b.17 folded the duplicate
-   ;; `tools.dev/registered-substrates-var` into this one). The substrate
-   ;; set is stable across the process lifetime, so `read-run-opts`
-   ;; (preview/run/snapshot hot path) and `dev/tool-list-substrates` both
-   ;; deref the cached var rather than re-probing per call. On a JVM host the
-   ;; CLJS-only Var doesn't exist, so the probe is nil and the set is empty;
-   ;; the `:cljs` accessor branch below reads the live registry directly when
-   ;; these namespaces are hosted in a CLJS runtime. (rf2-4sgak: was the
-   ;; alias-qualified `'story/registered-substrates` — `resolve` honoured the
-   ;; alias, but the fully-qualified form matches the docstring + the a11y
-   ;; site.)
+   ;; surface. The substrate set is stable across the process lifetime, so
+   ;; `read-run-opts` (preview/run/snapshot hot path) and
+   ;; `dev/tool-list-substrates` both deref the cached var rather than
+   ;; re-probing per call. On a JVM host the CLJS-only Var doesn't exist, so
+   ;; the probe is nil and the set is empty; the `:cljs` accessor branch below
+   ;; reads the live registry directly when these namespaces are hosted in a
+   ;; CLJS runtime. The fully-qualified symbol matches the docstring + the
+   ;; a11y resolution site.
    (defonce ^:private registered-substrates-var
      (resolve-cljs-var 're-frame.story/registered-substrates)))
 
@@ -78,7 +72,7 @@
 (defn registered-substrates-set
   "The set form of the CLJS-registered substrate ids — used by
   `args/read-run-opts` as the bounded allowlist when coercing the
-  agent-supplied `:substrate` arg through `safe-keyword` (rf2-lqjbk).
+  agent-supplied `:substrate` arg through `safe-keyword`.
 
   The JVM-standalone deploy reads `#{}`; the nREPL-attached CLJS
   deploy reads the live registry's keys. Mirrors `registered-substrates`
