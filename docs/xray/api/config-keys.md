@@ -118,7 +118,7 @@ Three more published constants name the inline-host CSS contract. These are cons
 | `default-layout-host-css-var` | `"--rf-xray-inline-width"` | The CSS custom property the recommended host snippet reads for its `flex-basis`. Xray never reads this property; the host's stylesheet is the single source of truth for inline width. |
 | `default-layout-host-width` | `"560px"` | Xray's recommended default value for `--rf-xray-inline-width`. |
 | `default-accent-css-var` | `"--rf-xray-accent"` | The CSS custom property the recommended host snippet publishes on `:root` for Xray's brand-accent colour. Host stylesheets read `var(--rf-xray-accent)` to colour their own dev chrome (resize handles, dock separators, story chips). |
-| `default-accent` | `"#7C5CFF"` | Xray's default brand-accent hex (matches `theme/tokens.cljc :accent-violet`). |
+| `default-accent` | `"#539bf5"` | Xray's default brand-accent hex (matches `theme/tokens.cljc :accent`, GitHub blue). |
 | `default-layout-host-snippet` | HTML+CSS block | A copy-pasteable host snippet carrying the recommended markup, `flex-basis` rule, `:root` accent publish, and `min-width: 320px` floor. Reported back to the user in the missing-host diagnostic so the actionable `console.error` already carries the fix. |
 
 ## Keybinding cluster
