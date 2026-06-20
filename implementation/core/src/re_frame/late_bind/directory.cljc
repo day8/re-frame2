@@ -50,13 +50,20 @@
 
     2. CROSS-ARTEFACT  — re-frame.core (or a leaf consumer in core)
        reaching into an OPTIONAL feature artefact (schemas, flows,
-       routing, machines, ssr, epoch, http, marks, elision) without a
+       routing, machines, ssr, epoch, http, elision) without a
        static `:require`. When the artefact is absent from the
        classpath the lookup returns nil and the consumer no-ops (or
        throws a clear `:rf.error/<artefact>-artefact-missing` via
        `require-fn!`). Also covers the always-on observability surface
        (`:event-emit/*`, `:error-emit/*`) — production-survivor seams
-       that fire on every dispatch.
+       that fire on every dispatch. NOTE the `marks` rows are NOT an
+       absent-optional-artefact case (rf2-eq7m0x): `re-frame.marks`
+       ships IN core and is side-effect-required at boot (core.cljc),
+       so the hooks are bound in every canonical build — the
+       indirection is the production-DCE/elision seam (the dev-only
+       marks projection surface constant-folds out of `:advanced` +
+       `goog.DEBUG=false` bundles), not decoupling from an artefact
+       that could be missing. See the per-key notes on those rows.
 
     3. ADAPTER-INJECTION — substrate adapters (Reagent / reagent-slim /
        UIx / Helix / test-react) publish CLJS-side primitives the core
@@ -134,13 +141,27 @@
    ;; GROUP 2 — CROSS-ARTEFACT
    ;;
    ;; re-frame.core reaches into an OPTIONAL feature artefact (schemas,
-   ;; flows, routing, machines, ssr, epoch, http, marks, elision)
-   ;; without a static `:require`. When the artefact is absent from the
+   ;; flows, routing, machines, ssr, epoch, http, elision) without a
+   ;; static `:require`. When the artefact is absent from the
    ;; classpath the lookup returns nil and the consumer no-ops or
    ;; throws `:rf.error/<artefact>-artefact-missing` via `require-fn!`.
    ;; Also covers always-on observability (`:event-emit/*`,
    ;; `:error-emit/*`) — production-survivor seams that fire on every
    ;; dispatch and ship in their own namespaces.
+   ;;
+   ;; EXCEPTION — the `:marks/*` rows are NOT an absent-optional-artefact
+   ;; case (rf2-eq7m0x). `re-frame.marks` ships IN core and is side-
+   ;; effect-required at boot (core.cljc), so the hooks are bound in
+   ;; every canonical build — `marks` is NEVER absent. The late-bind hop
+   ;; from events/fx/subs/cofx into `marks` is the production-DCE/elision
+   ;; SEAM, not decoupling: the dev-only marks projection surface rides
+   ;; `interop/debug-enabled?` and constant-folds out of `:advanced` +
+   ;; `goog.DEBUG=false` bundles (marks.cljc §Hot-path cost), so a direct
+   ;; `:require` would pin that dev-only surface into the prod bundle and
+   ;; regress elision. The always-on survivors (`:marks/validate-marks!`
+   ;; reg-time validator, `:marks/redact-event-by-registration` prod
+   ;; redactor) are reached through the SAME indirection. See the per-key
+   ;; notes below.
    ;; ===========================================================================
 
    ;; ---- re-frame.elision (frame-owned app-db egress registry) ---------------
@@ -157,6 +178,18 @@
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
    ;; ---- re-frame.marks (rf2-vw7f5 Spec 015 data classification) -------------
+   ;; NOT an optional-artefact decoupling (rf2-eq7m0x): `re-frame.marks` ships IN
+   ;; core and is boot side-effect-required (core.cljc), so these hooks are bound
+   ;; in every canonical build. The indirection is the production-DCE/elision
+   ;; SEAM. Two grades live on these rows:
+   ;;   - DCE / DEV-ONLY seam (constant-folds out of `:advanced` +
+   ;;     `goog.DEBUG=false` per marks.cljc §Hot-path cost): :marks/marks-for,
+   ;;     :marks/project-trace-event, :marks/resolve-sub-output-marks,
+   ;;     :marks/mark-sub-output!, :marks/clear-marks!,
+   ;;     :marks/clear-sub-output-marks!.
+   ;;   - ALWAYS-ON production survivors reached through the SAME indirection
+   ;;     (NOT DCE'd): :marks/validate-marks! (reg-time validator, above) and
+   ;;     :marks/redact-event-by-registration (production egress redactor).
    ;; NOTE (rf2-gjp7t6): the `:marks/add-marks` / `:marks/set-marks` hook rows
    ;; are GONE. EP-0015 §3 (rf2-mngp4o) removed the public imperative façade
    ;; exports; the hooks themselves had ZERO consumers and were kept only for
@@ -164,10 +197,20 @@
    ;; `set-marks` fns survive as test / conformance-only helpers reached by
    ;; DIRECT REQUIRE (the marks tests + the conformance corpus harness), never
    ;; through a late-bind hook.
+   ;; DCE-SEAM (rf2-eq7m0x): `re-frame.marks` is core-owned + boot side-effect-
+   ;; required (core.cljc), so this hook is bound in every canonical build. The
+   ;; late-bind hop into marks is the production-DCE/elision seam — the dev-only
+   ;; marks PROJECTION surface (`:marks/project-trace-event`, the sub-output
+   ;; propagation table) rides `interop/debug-enabled?` and constant-folds out of
+   ;; `:advanced` + `goog.DEBUG=false` bundles (marks.cljc §Hot-path cost); a
+   ;; direct `:require` would pin that dev-only surface into the prod bundle and
+   ;; regress elision. `validate-marks!` ITSELF is the ALWAYS-ON reg-time
+   ;; validator (NOT DCE'd — it fail-louds on every reg-* in prod too), reached
+   ;; through that same DCE-seam indirection.
    {:key         :marks/validate-marks!
     :producer-ns 're-frame.marks
     :design-bead "rf2-ehexnw"
-    :description "VALIDATE a registration's :sensitive / :large / :rf.egress/output-sensitivity declarations fail-loud at the reg-* boundary (raising :rf.error/bad-marks on a malformed declaration, before the registrar write so a bad registration never lands). NOTHING is stashed — per-(kind, id) marks are DERIVED from the registrar meta at :marks/marks-for read time (rf2-ehexnw), not duplicated into an imperative side-table. Replaces the deleted :marks/register-marks! (stash) and :marks/union-marks! (additive-merge) hooks. Called from reg-event / reg-fx / reg-cofx / reg-sub via this late-bind hook to keep core decoupled from the optional marks artefact."}
+    :description "ALWAYS-ON reg-time validator (NOT a DCE'd dev surface — fail-louds in production too). VALIDATE a registration's :sensitive / :large / :rf.egress/output-sensitivity declarations fail-loud at the reg-* boundary (raising :rf.error/bad-marks on a malformed declaration, before the registrar write so a bad registration never lands). NOTHING is stashed — per-(kind, id) marks are DERIVED from the registrar meta at :marks/marks-for read time (rf2-ehexnw), not duplicated into an imperative side-table. Replaces the deleted :marks/register-marks! (stash) and :marks/union-marks! (additive-merge) hooks. Called from reg-event / reg-fx / reg-cofx / reg-sub via this late-bind hook NOT to decouple core from an absent artefact (marks is core-owned + boot-bound, never absent) but because the hook routes through the production-DCE/elision seam the rest of the marks surface uses (rf2-eq7m0x)."}
    {:key         :marks/marks-for
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"
@@ -184,7 +227,7 @@
    {:key         :marks/redact-event-by-registration
     :producer-ns 're-frame.marks
     :design-bead "rf2-qe6v1u"
-    :description "ALWAYS-ON: apply an event handler's REGISTRATION-OWNED :sensitive / :large marks to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot so a frame-owned :observability sink redacts a declared-sensitive event arg even with no matching frame :sensitive {:app-db …} classification (rf2-qe6v1u)."}
+    :description "ALWAYS-ON (NOT a DCE seam, rf2-eq7m0x — the registration marks table is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large marks to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot so a frame-owned :observability sink redacts a declared-sensitive event arg even with no matching frame :sensitive {:app-db …} classification (rf2-qe6v1u)."}
    {:key         :marks/resolve-sub-output-marks
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"

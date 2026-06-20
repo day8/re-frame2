@@ -30,8 +30,10 @@
   into the dispatched event vector's arg-map (the second element).
   The marks are DERIVED from the registrar meta at `re-frame.marks/marks-for`
   read time (rf2-ehexnw); reg-event only VALIDATES them fail-loud via
-  `re-frame.marks/validate-marks!` (called through the late-bind hook to keep
-  events decoupled from the optional marks artefact), no imperative stash."
+  `re-frame.marks/validate-marks!` (an ALWAYS-ON validator — `re-frame.marks`
+  is core-owned and boot side-effect-required, so it is never absent; the
+  late-bind hop is the production-DCE/elision seam, not optional-artefact
+  decoupling — rf2-eq7m0x), no imperative stash."
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
@@ -909,13 +911,16 @@
     ;; Per Spec 015 §1. Event handlers: VALIDATE any declared `:sensitive` /
     ;; `:large` marks fail-loud BEFORE the registrar write (rf2-ehexnw); the
     ;; marks themselves are DERIVED from the registrar meta at `marks-for` read
-    ;; time, no imperative stash. Late-bound — the hook is unbound when the
-    ;; marks artefact is absent (which it never is in the canonical build, but
-    ;; the indirection keeps `events` decoupled from `marks`). Runs for MACHINE
-    ;; registrations too: a machine's author marks ride its `:event` reg meta
-    ;; (via `reg-machine` opts), and its `:data-schema` marks flow through the
-    ;; separate schema-marks table — `marks-for :event <id>` unions both at read
-    ;; time (rf2-qpibk0), order-independent with no stash to clobber.
+    ;; time, no imperative stash. Late-bound NOT to decouple from an absent
+    ;; artefact — `re-frame.marks` is core-owned and boot side-effect-required
+    ;; (core.cljc), so this hook is bound in every canonical build; the hop is
+    ;; the production-DCE/elision seam the rest of the marks surface uses, and
+    ;; `validate-marks!` itself is an ALWAYS-ON validator that fail-louds in prod
+    ;; too (rf2-eq7m0x). Runs for MACHINE registrations too: a machine's author
+    ;; marks ride its `:event` reg meta (via `reg-machine` opts); `marks-for
+    ;; :event <id>` returns those registrar-derived author marks (EP-0025
+    ;; rf2-398kql removed the machine `:data-schema`→marks union — frame-declared
+    ;; paths are now the sole app-db classification mechanism).
     (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
       (validate! :event meta))
     (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
