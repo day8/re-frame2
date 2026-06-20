@@ -139,7 +139,8 @@
       (require '[re-frame.substrate.plain-atom :as plain-atom])
       (rf/init! plain-atom/adapter)
 
-  See Spec 006 §The adapter API contract for the nine-fn shape."
+  See Spec 006 §The adapter API contract for the ten-fn shape (six
+  required + three optional + one lifecycle)."
   {:kind                      :rf.adapter/plain-atom
    :make-state-container      atom-container/make-state-container
    :read-container            atom-container/read-container

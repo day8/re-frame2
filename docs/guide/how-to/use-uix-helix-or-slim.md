@@ -12,7 +12,7 @@ Everything upstream of rendering is value-shuffling over Clojure maps. That's th
 
 The adapter, then, is the one piece that does care. It's a small map of functions sitting at the single boundary where re-frame2 touches a rendering library. It provides the reactive container that `app-db` — your app's single state map — lives in. It notices when a subscription's value changed and schedules the dependent components to re-render. And it mounts the tree. That's the whole job.
 
-What the adapter does *not* know is just as important: it has no idea what events are, what your handlers do, or what `app-db` looks like. You'll almost never write one. You pick one of the four that ship, name it at boot, and forget it. If you ever want the full contract — nine functions, the invalidation semantics, the list of things an adapter must never do — it's all in [Spec 006](../../../spec/006-ReactiveSubstrate.md).
+What the adapter does *not* know is just as important: it has no idea what events are, what your handlers do, or what `app-db` looks like. You'll almost never write one. You pick one of the four that ship, name it at boot, and forget it. If you ever want the full contract — ten entries (six required + three optional + one lifecycle), the invalidation semantics, the list of things an adapter must never do — it's all in [Spec 006](../../../spec/006-ReactiveSubstrate.md).
 
 ## The one line that changes
 

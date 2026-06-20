@@ -280,7 +280,7 @@ Most of these components have v1 ancestors. The CLJS-reference implementor can l
 | Drain loop | Level 4 (the FIFO router-layer drain) | Levels 1–3 (machine cascades, `:always` microsteps, snapshot commit), `:raise` as a pre-commit primitive distinct from `:dispatch`, structured drain-depth/raise-depth/always-depth limits |
 | `do-fx` | `:fx` walking, fx handler resolution | Source-order rule made normative; per-frame and per-call `:fx-overrides`; `:platforms` metadata for SSR |
 | Sub-cache | Layer-1/2/3 caching algorithm; invalidation on app-db change | Per-frame caches (v1 is global), explicit disposal-on-frame-destroy, derived-container contract on the substrate adapter |
-| Reactive substrate adapter | Implicit Reagent fusion | The boundary itself — substrate decoupling, the closed nine-fn contract, plain-atom adapter for JVM/SSR/headless, revertibility constraints |
+| Reactive substrate adapter | Implicit Reagent fusion | The boundary itself — substrate decoupling, the closed ten-fn contract, plain-atom adapter for JVM/SSR/headless, revertibility constraints |
 | Trace bus | Trace-event idea, listener registration | Closed core fields, structured error contract, always-on error-emit observability, server error projection, `:platforms` on advisories |
 | Interop layer | Most of `re-frame.interop` carries over | Extended slightly for machine-clock primitives ([002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)) |
 
