@@ -37,7 +37,7 @@
    (`:dev :docs :test :screenshot :experimental :internal :agent` tags,
    the lifecycle machine, the `:rf.assert/*` handlers, the layout-debug
    decorator set, and the v1 panel set) auto-installs on the first
-   `reg-*` call below per rf2-p1ydc — no explicit boot step required."
+   `reg-*` call below — no explicit boot step required."
   []
   ;; -- reg-tag — a project-scoped tag for the canonical screenshot ---------
   (story/reg-tag :{{main}}/canonical

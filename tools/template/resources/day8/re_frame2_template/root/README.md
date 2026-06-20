@@ -366,8 +366,8 @@ The scaffold registers a default error sink at the top of `events.cljs`:
 
 (The listener API lives in `re-frame.trace.tooling`, not `re-frame.core`
 — CLJS production bundles DCE the tooling namespace wholesale, so the
-`rf/...` alias for these fns is JVM-only. Per Spec 009 §JVM-only
-aliases — rf2-qwm0a.)
+`rf/...` alias for these fns is JVM-only. See Spec 009 §JVM-only
+aliases.)
 
 The sink surfaces every error to the console — silent regressions are
 impossible to miss. Replace `js/console.error` with whatever your app

@@ -12,7 +12,7 @@
             ;; lives in `re-frame.trace.tooling`, NOT `re-frame.core` —
             ;; CLJS production bundles DCE the tooling namespace
             ;; wholesale, so the `rf/...` alias for these fns is
-            ;; deliberately JVM-only (per rf2-qwm0a).
+            ;; deliberately JVM-only.
             ;;
             ;; Production elision has two halves and BOTH matter:
             ;;   1. `trace/emit!` is gated on `interop/debug-enabled?`

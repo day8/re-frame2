@@ -110,7 +110,7 @@
   (rf/reg-frame :rf/default {})
   ;; The canonical Story vocabulary auto-installs on the first `reg-*`
   ;; call in `{{namespace}}.stories` (loaded via the :require above)
-  ;; per rf2-p1ydc — no explicit `(story/install-canonical-vocabulary!)`
+  ;; — no explicit `(story/install-canonical-vocabulary!)`
   ;; call needed. The hook is idempotent and survives a `clear-all!`
   ;; during dev experiments.
   ;; Seed app-db before the first render so the live-app branch sees a
