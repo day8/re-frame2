@@ -50,7 +50,7 @@ is the supported host-resize knob — see §Resizing the inline host
 below):
 
 ```css
-:root { --rf-xray-accent: #7C5CFF; } /* brand-accent var (rf2-9ovfb) — see below */
+:root { --rf-xray-accent: #539bf5; } /* brand-accent var (rf2-9ovfb) — see below */
 body { margin: 0; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-xray-host] {
@@ -215,8 +215,8 @@ MUST NOT block host app startup.
 
 Per `rf2-9ovfb`, the recommended host snippet publishes a second CSS
 custom property — `--rf-xray-accent` — set on `:root` to Xray's
-brand violet (`#7C5CFF`, matching `theme/tokens.cljc`'s
-`:accent-violet` and `spec/007-UX-IA.md` §Colour system). Host
+brand accent (`#539bf5` — GitHub blue, matching `theme/tokens.cljc`'s
+`:accent` and `spec/007-UX-IA.md` §Colour system). Host
 applications can read this variable from anywhere in their own
 stylesheet to colour dev chrome that should harmonise with Xray:
 

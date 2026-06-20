@@ -55,7 +55,7 @@ does not read or set the property — the host's stylesheet is the
 single source of truth for inline width.
 
 The recommended snippet also publishes `--rf-xray-accent` (default
-`#7C5CFF` — the brand violet) on `:root` so host stylesheets can
+`#539bf5` — the GitHub-blue brand accent) on `:root` so host stylesheets can
 read it to colour their own dev chrome (resize handles, dock
 separators, story chips) without forking the hex (rf2-9ovfb). See
 `spec/011-Launch-Modes.md` §Brand-accent CSS variable.
@@ -109,9 +109,9 @@ day8.re-frame2-xray.config/default-accent-css-var
 ;;   from CLJS — the host's stylesheet is the single source of truth.
 
 day8.re-frame2-xray.config/default-accent
-;; "#7C5CFF"
+;; "#539bf5"
 ;; — the default value Xray publishes for --rf-xray-accent. Matches
-;;   theme/tokens.cljc's :accent-violet and spec/007-UX-IA.md
+;;   theme/tokens.cljc's :accent (GitHub blue) and spec/007-UX-IA.md
 ;;   §Colour system.
 
 day8.re-frame2-xray.config/default-layout-host-snippet

@@ -63,7 +63,8 @@ The tab-bar render order + the registry `:id` each tab lands on
 
 All nine ids are focusable via `focus!`. The standalone-mountable `Panel`
 re-views (per [`spec/API.md`](./spec/API.md) §Additional public surfaces)
-are the first six; **Graph** and **Modules** are L4-only registry tabs
+are the first seven — Epoch, app-db, Views, Trace, Machine, Routes, and
+Resources; **Graph** and **Modules** are L4-only registry tabs
 (shell-internal, focusable but not independently mountable).
 
 ### Static mode — the 5 browse surfaces (registry catalogue, event-independent)
@@ -125,7 +126,7 @@ right-side host to the app layout (DOM order: `<main>` first, host
 ```
 
 ```css
-:root { --rf-xray-accent: #7C5CFF; }
+:root { --rf-xray-accent: #539bf5; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
