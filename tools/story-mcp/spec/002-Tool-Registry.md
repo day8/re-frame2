@@ -106,7 +106,7 @@ data, so each payload is one of two classes:
 
 | Class | Tools / slots | Egress |
 |---|---|---|
-| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `run-a11y` (`:violations` — axe-core node `:html` is rendered runtime DOM); `explain-variant` (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` override values / `:setup-order` + `:script-order` step payloads); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; value-based `egress/scrub-frame-value` for derived / non-live trees — on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `:sub-overrides` / `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME `substitute-args` that feeds `:substitutions`); the value-only scrub redacts/elides the embedded values while preserving their public step structure — leaving them raw would be a clean bypass of the `:substitutions` scrub (rf2-q8ebq.1). `--allow-sensitive-reads` + per-call `:include-sensitive` is the one opt-in (covers both axes). |
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM); `explain-variant` (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` override values / `:setup-order` + `:script-order` step payloads); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; value-based `egress/scrub-frame-value` for derived / non-live trees — on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `:sub-overrides` / `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME `substitute-args` that feeds `:substitutions`); the value-only scrub redacts/elides the embedded values while preserving their public step structure — leaving them raw would be a clean bypass of the `:substitutions` scrub (rf2-q8ebq.1). `--allow-sensitive-reads` + per-call `:include-sensitive` is the one opt-in (covers both axes). |
 | **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain`'s plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. NOTE: `:setup-order` / `:script-order` are NOT here — their step structure is discovery metadata but `substitute-args` injects resolved arg values into the step payloads, so the post-substitution sequences are value-bearing and scrubbed (above, rf2-q8ebq.1). Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
 
 The value-bearing tools (`preview-variant` / `run-variant` /
@@ -403,12 +403,15 @@ Content hash of `(variant × args × decorators × loaders × substrate ×
 modes)`. The agent uses this to skip cells unchanged since a
 previous run, or to key downstream pixel-diff services.
 
-### `run-a11y`
+### `read-a11y-violations`
 
-axe-core results (delegates to
-`re-frame.story.ui.a11y/violations-by-frame`, the panel data from
-Stage 6). JVM-standalone hosts return an empty list + a documented
-hint that axe-core requires the in-browser panel.
+READS the axe-core violations the in-browser a11y panel has already
+accumulated (delegates to `re-frame.story.ui.a11y/violations-by-frame`,
+the panel data from Stage 6) — it does NOT execute axe-core, so it sits
+in the `read-` no-recompute family alongside `read-failures`, not the
+`run-` execute-and-report family. Calling it neither runs a fresh check
+nor proves the variant accessible. JVM-standalone hosts return an empty
+list + a documented hint that axe-core requires the in-browser panel.
 
 Wire-egress posture (rf2-q8ebq.2): the `:violations` vec is LIVE RUNTIME
 observed state — the rendered DOM of the variant frame, normalised from
@@ -426,7 +429,7 @@ marker — the SAME value-based scrub `explain-variant` /
 value-only scrub preserves the public finding structure (`:id` /
 `:impact` / `:help` / `:target`) while scrubbing the embedded secret.
 Fail-closed by default; `:include-sensitive true` (gated by
-`--allow-sensitive-reads`) opts out. `run-a11y` is `:readOnlyHint true`
+`--allow-sensitive-reads`) opts out. `read-a11y-violations` is `:readOnlyHint true`
 (agent hosts auto-approve it), so an unscrubbed runtime read here would be
 the wrong shape.
 
@@ -457,7 +460,7 @@ same `--allow-sensitive-reads` boot gate as `preview-variant` /
 ## Sensitive-read boot gate (`--allow-sensitive-reads`, rf2-g9fje)
 
 The tools that surface live or plan-resolved frame VALUES
-(`preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+(`preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
 `explain-variant`, `record-as-variant`) all accept a per-call
 `:include-sensitive` boolean to opt out of the default redaction
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
@@ -490,7 +493,7 @@ Closed by default. When closed:
 - `tools/list` omits the `:include-sensitive` slot from the input
   schemas of every affected tool — the six that surface live or
   plan-resolved frame VALUES (`preview-variant`, `run-variant`,
-  `read-failures`, `run-a11y`, `explain-variant`, `record-as-variant`),
+  `read-failures`, `read-a11y-violations`, `explain-variant`, `record-as-variant`),
   i.e. every descriptor that carries the slot. Agents never see an
   opt-in they couldn't exercise.
 - The wire-egress scrubbers silently ignore any caller-supplied

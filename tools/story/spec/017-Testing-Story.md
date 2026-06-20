@@ -2618,7 +2618,7 @@ a differ or a second axe loader:
   is the snapshot identity the finding records; a real pixel diff lands
   with the `:pixels` browser runner;
 - a11y — `re-frame.story.ui.a11y` (the in-browser axe-core panel + its
-  `violations-by-frame` atom the MCP `run-a11y` tool already reads). The
+  `violations-by-frame` atom the MCP `read-a11y-violations` tool already reads). The
   CLJS-only panel REGISTERS its violations-reader into a one-way late-bound
   seam (`register-a11y-reader!`); the below-the-UI `.cljc` executor reads
   through it without a compile-time dependency on the UI ns (the

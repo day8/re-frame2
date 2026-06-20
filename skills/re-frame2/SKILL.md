@@ -34,7 +34,7 @@ allowed-tools:
   # preview one render (preview-variant), and read it back (get-variant /
   # explain-variant). re-frame2-pair owns the RUN side — execute against a
   # live runtime and self-heal off the failures (run-variant / read-failures
-  # / record-as-variant / run-a11y / snapshot-identity). The run loop is a
+  # / record-as-variant / read-a11y-violations / snapshot-identity). The run loop is a
   # HANDOFF to re-frame2-pair, not a loop this skill executes. Per
   # tools/story-mcp/spec/002-Tool-Registry.md; pinned by
   # scripts/check_skill_mcp_drift.py.

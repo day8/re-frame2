@@ -427,7 +427,7 @@ runWithWatchdog(
     }
     console.log('OK   variant->edn -> :doc round-trips through EDN text + structuredContent present');
 
-    // 4c. run-a11y (rf2-ke5n56). Advertised but never SDK-called. The
+    // 4c. read-a11y-violations (rf2-ke5n56). Advertised but never SDK-called. The
     // axe-core run is CLJS-in-browser only; from this JVM-standalone boot
     // the tool READS the (empty) violations atom and returns a success
     // envelope with `:violations []` + a JVM-standalone `:note` — so it
@@ -435,26 +435,26 @@ runWithWatchdog(
     // browser dependency). Pins the callTool envelope + structuredContent
     // shape for the testing-category read against the registered fixture.
     const a11yResp = await client.callTool({
-      name: 'run-a11y',
+      name: 'read-a11y-violations',
       arguments: { 'variant-id': FIXTURE_VARIANT },
     });
     if (a11yResp.isError) {
-      throw new Error('run-a11y on fixture failed: ' + JSON.stringify(a11yResp));
+      throw new Error('read-a11y-violations on fixture failed: ' + JSON.stringify(a11yResp));
     }
     const a11yStruct = structured(a11yResp);
     if (!Array.isArray(a11yStruct.violations)) {
       throw new Error(
-        'run-a11y :violations MUST be an array (empty on a JVM-standalone ' +
+        'read-a11y-violations :violations MUST be an array (empty on a JVM-standalone ' +
           'boot); got: ' + JSON.stringify(a11yResp),
       );
     }
     if (a11yStruct.violations.length !== 0) {
       throw new Error(
-        'run-a11y :violations expected empty on a JVM-standalone boot (no ' +
+        'read-a11y-violations :violations expected empty on a JVM-standalone boot (no ' +
           'in-browser axe-core run); got: ' + JSON.stringify(a11yResp),
       );
     }
-    console.log('OK   run-a11y -> :violations=[] (JVM-standalone read, envelope pinned)');
+    console.log('OK   read-a11y-violations -> :violations=[] (JVM-standalone read, envelope pinned)');
 
     // 5. preview-variant — exercise the full lifecycle via the preview
     // tool. With no :play events the run is vacuously passing; the

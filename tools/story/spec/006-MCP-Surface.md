@@ -105,7 +105,7 @@ data, so the egress classifies each payload as runtime/captured VALUE
   rf2-9o5ixx). This covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion
   records (`preview-variant` / `run-variant` / `read-failures`),
-  `run-a11y`'s `:violations` (axe-core nodes — the violating element's
+  `read-a11y-violations`'s `:violations` (axe-core nodes — the violating element's
   `:html` outerHTML is rendered runtime DOM that can embed a sensitive
   value), AND the non-live value-bearing slots: `explain-variant`'s
   plan-RESOLVED `:effective-args` / `:args` / `:substitutions` /

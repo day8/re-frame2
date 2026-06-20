@@ -258,7 +258,7 @@
   Crystallises the four-line prelude shared by seven tool handlers
   (`preview-variant`, `get-variant`, `explain-variant`, `variant->edn`,
   `run-variant`, `snapshot-identity`, `record-as-variant`). Tools that
-  tolerate unregistered variants (`run-a11y`, `read-failures`,
+  tolerate unregistered variants (`read-a11y-violations`, `read-failures`,
   `unregister-variant`) reach for `with-variant-id` instead."
   [arguments f]
   (let [[vid err] (required-arg arguments :variant-id)]
@@ -303,7 +303,7 @@
   error result.
 
   Used by tools whose reads tolerate an unregistered variant
-  (`run-a11y`, `read-failures`, `unregister-variant`) — but per the
+  (`read-a11y-violations`, `read-failures`, `unregister-variant`) — but per the
   rf2-lqjbk bound, an UNREGISTERED variant id can't intern through
   this surface either. The behavioural change: instead of returning
   an empty result for a never-seen id, the tool returns the same

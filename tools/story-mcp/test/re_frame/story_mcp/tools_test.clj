@@ -278,7 +278,7 @@
                     "list-stories" "get-story" "get-variant" "list-tags"
                     "list-modes" "list-decorators" "list-assertions"
                     "get-docs-markdown" "variant->edn" "explain-variant"
-                    "snapshot-identity" "run-a11y" "read-failures"]]
+                    "snapshot-identity" "read-a11y-violations" "read-failures"]]
       (doseq [n ro-tools]
         (is (true? (get-in (by-name n) [:annotations :readOnlyHint]))
             (str n " should have readOnlyHint true (rf2-94p8q matrix)")))))
@@ -353,7 +353,7 @@
       ;; Testing
       (is (contains? names "run-variant"))
       (is (contains? names "snapshot-identity"))
-      (is (contains? names "run-a11y"))
+      (is (contains? names "read-a11y-violations"))
       (is (contains? names "read-failures"))
       ;; Write
       (is (contains? names "register-variant"))
@@ -1109,18 +1109,18 @@
                 (-> over<- :structuredContent :content-hash))
           "the same variant with a different cell-override must hash differently"))))
 
-(deftest run-a11y-jvm-returns-note
+(deftest read-a11y-violations-jvm-returns-note
   (testing "JVM-standalone deploy returns empty violations with the documented hint"
-    (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+    (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
           s (:structuredContent r)]
       (is (success? r))
       (is (vector? (:violations s)))
       (is (string? (:note s)))
       (is (re-find #"CLJS-only" (:note s))))))
 
-(deftest run-a11y-co-hosted-surfaces-stored-violations
+(deftest read-a11y-violations-co-hosted-surfaces-stored-violations
   ;; rf2-ynjts.20 — the co-hosted (CLJS var resolved) branch of
-  ;; `tool-run-a11y`. The existing test covers ONLY the JVM-standalone
+  ;; `tool-read-a11y-violations`. The existing test covers ONLY the JVM-standalone
   ;; path (var unresolved ⇒ empty + :note). The populated path — the
   ;; resolved violations atom carries findings for the frame — was
   ;; untested. We stand in for the resolved CLJS var with a var-of-atom
@@ -1131,7 +1131,7 @@
           ;; `@var` → inner atom; `(deref inner)` → the by-frame map.
           stand-in (atom (atom {:story.button/primary vios}))]
       (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
-        (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
           (is (= vios (:violations s))
@@ -1141,7 +1141,7 @@
   (testing "a frame with no stored violations returns an empty vec (still co-hosted, :note nil)"
     (let [stand-in (atom (atom {:story.other/frame [{:id "x"}]}))]
       (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
-        (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
           (is (= [] (:violations s))
@@ -3620,10 +3620,10 @@
               "gate closed: the opt-in cannot exfiltrate the seeded secret pre-frame"))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-q8ebq.2 — run-a11y shipped raw axe-core violation nodes (incl. node
+;; rf2-q8ebq.2 — read-a11y-violations shipped raw axe-core violation nodes (incl. node
 ;; :html outerHTML) with NO egress scrub. A sensitive value rendered into
 ;; the DOM (e.g. `<input value="<token>">`) lands verbatim in node :html and
-;; crossed the AI/off-box MCP boundary unredacted — and run-a11y is
+;; crossed the AI/off-box MCP boundary unredacted — and read-a11y-violations is
 ;; :readOnlyHint true (agent hosts AUTO-APPROVE it), so an unscrubbed runtime
 ;; read here is the wrong shape. The fix routes :violations through
 ;; `egress/scrub-frame-value` (the same value-based primitive explain/record
@@ -3643,7 +3643,7 @@
   [by-frame]
   (atom (atom by-frame)))
 
-(deftest run-a11y-redacts-sensitive-violation-html-by-default
+(deftest read-a11y-violations-redacts-sensitive-violation-html-by-default
   (testing "a declared-sensitive value rendered into an axe-core node :html is redacted at egress (rf2-q8ebq.2)"
     (with-clean-frame [vid :story.button/primary]
       ;; The frame app-db carries the secret at a declared-sensitive path;
@@ -3659,7 +3659,7 @@
                                 :failureSummary "Fix any of the following: element has no label"}]}]
             stand-in (a11y-stand-in {:story.button/primary vios})]
         (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
-          (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+          (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
                 s (:structuredContent r)]
             (is (success? r))
             (is (not (tree-contains? (:violations s) "DISTINCTIVE-A11Y-SECRET"))
@@ -3673,7 +3673,7 @@
             (is (nil? (:note s))
                 "the atom resolved, so this is the co-hosted path, not JVM-standalone")))))))
 
-(deftest run-a11y-includes-sensitive-violation-html-when-opted-in
+(deftest read-a11y-violations-includes-sensitive-violation-html-when-opted-in
   (testing ":include-sensitive true forwards the raw axe-core node :html (gate open, rf2-q8ebq.2)"
     (config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
@@ -3682,14 +3682,14 @@
       (let [vios     [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
             stand-in (a11y-stand-in {:story.button/primary vios})]
         (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
-          (let [r (invoke "run-a11y" {:variant-id        "story.button/primary"
+          (let [r (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
                                       :include-sensitive true})
                 s (:structuredContent r)]
             (is (success? r))
             (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
                 "the documented opt-in surfaces the raw node :html")))))))
 
-(deftest run-a11y-gate-closed-ignores-opt-in
+(deftest read-a11y-violations-gate-closed-ignores-opt-in
   (testing "gate closed: :include-sensitive true is silently ignored — violation :html stays redacted (rf2-q8ebq.2)"
     (is (false? (config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
@@ -3698,7 +3698,7 @@
       (let [vios     [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
             stand-in (a11y-stand-in {:story.button/primary vios})]
         (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
-          (let [r (invoke "run-a11y" {:variant-id        "story.button/primary"
+          (let [r (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
                                       :include-sensitive true})
                 s (:structuredContent r)]
             (is (success? r))
@@ -3866,11 +3866,11 @@
 ;; / assertions OR a non-live runtime/captured value) and so must accept
 ;; the `:include-sensitive` opt-in. The live three (rf2-73wuj) plus the
 ;; non-live two closed in rf2-12f2q (`explain-variant`'s plan-resolved
-;; value slots, `record-as-variant`'s captured events), plus `run-a11y`'s
+;; value slots, `record-as-variant`'s captured events), plus `read-a11y-violations`'s
 ;; runtime DOM `:violations` (rf2-q8ebq.2).
 (def ^:private include-sensitive-tools
   ["preview-variant" "run-variant" "read-failures"
-   "explain-variant" "record-as-variant" "run-a11y"])
+   "explain-variant" "record-as-variant" "read-a11y-violations"])
 
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing a value-bearing slot accepts :include-sensitive"
@@ -3926,7 +3926,7 @@
   ;; rf2-ovmc5e Finding #3 — the consolidated API page must list
   ;; `:include-sensitive` for EVERY tool whose descriptor carries the
   ;; slot, so the summary can't silently under-document the gated
-  ;; privacy escape hatch (the original drift: run-a11y's API.md input
+  ;; privacy escape hatch (the original drift: read-a11y-violations's API.md input
   ;; omitted it). Derives the expected set from the live registry, so a
   ;; new value-surfacing tool that gains the slot must also gain the
   ;; API.md mention or this trips.
@@ -3952,7 +3952,7 @@
 ;;
 ;;   1. `tools/list` omits `:include-sensitive` from the input schemas of
 ;;      every affected tool — the six that surface live/plan-resolved
-;;      VALUES (preview-variant / run-variant / read-failures / run-a11y /
+;;      VALUES (preview-variant / run-variant / read-failures / read-a11y-violations /
 ;;      explain-variant / record-as-variant), i.e. every descriptor that
 ;;      carries the slot (caller UX — no ghost knob).
 ;;   2. `:include-sensitive true` on a tool call is silently ignored at

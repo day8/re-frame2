@@ -132,7 +132,7 @@
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
   affected tools — the six that surface live or plan-resolved frame
-  VALUES (`preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+  VALUES (`preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
   `explain-variant`, `record-as-variant`) — silently ignore
   caller-supplied `:include-sensitive true` at the helper layer
   regardless, so the descriptor strip is purely a UX improvement and a

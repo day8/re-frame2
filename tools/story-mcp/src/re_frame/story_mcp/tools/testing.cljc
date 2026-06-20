@@ -1,7 +1,7 @@
 (ns re-frame.story-mcp.tools.testing
   "Testing-category tool handlers — `run-variant`, `snapshot-identity`,
-  `run-a11y`, `read-failures`. Per IMPL-SPEC §7.2 these execute (or
-  inspect the post-execution state of) variants.
+  `read-a11y-violations`, `read-failures`. Per IMPL-SPEC §7.2 these
+  execute (or inspect the post-execution state of) variants.
 
   ## Unified run-result mirror (rf2-ba86n.17)
 
@@ -174,8 +174,14 @@
 (defonce ^:private violations-by-frame-var
   (cljs-resolve/resolve-cljs-var 're-frame.story.ui.a11y/violations-by-frame))
 
-(defn tool-run-a11y
-  "Testing: run axe-core against a variant, return violations.
+(defn tool-read-a11y-violations
+  "Testing: READ the axe-core violations a variant's in-browser a11y
+  panel has accumulated. This tool does NOT execute axe-core — it is a
+  diagnostic re-read of already-computed panel state (the `read-`
+  vocabulary per tools/mcp-conformance/NAMING.md), the sibling of
+  `read-failures`. Calling it neither runs a fresh accessibility check
+  nor proves the variant accessible; it reflects whatever the panel
+  last stored (which may be stale or empty).
 
   Per IMPL-SPEC §7.2 the implementation delegates to a11y panel data
   (`a11y/violations-by-frame` per Stage 6's hot-zone-hooks report).
@@ -208,8 +214,8 @@
   and the live-state tools apply; every Story-MCP payload crosses elided;
   nothing raw). Fail-closed by default; pass `:include-sensitive true` to opt out
   (gated by `--allow-sensitive-reads`, per spec/Tool-Pair.md §Direct-read
-  privacy posture). `run-a11y` is `:readOnlyHint true` (agent hosts
-  auto-approve it), so an unscrubbed runtime read here is the wrong shape."
+  privacy posture). `read-a11y-violations` is `:readOnlyHint true` (agent
+  hosts auto-approve it), so an unscrubbed runtime read here is the wrong shape."
   [arguments]
   (targs/with-variant-id arguments
     (fn [vk]
@@ -338,9 +344,9 @@
     :annotations  s/read-only-annotations
     :handler     tool-snapshot-identity}
 
-   {:name           "run-a11y"
+   {:name           "read-a11y-violations"
     :category       :testing
-    :description    (str "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated. The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is value-scrubbed against the variant frame's frame declarations by default — on BOTH egress axes: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the same scrub `run-variant` / `explain-variant` apply); pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is value-scrubbed against the variant frame's frame declarations by default — on BOTH egress axes: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the same scrub `run-variant` / `explain-variant` apply); pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
                          "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "
@@ -353,7 +359,7 @@
                   :additionalProperties false}
     :outputSchema s/default-output-schema
     :annotations  s/read-only-annotations
-    :handler     tool-run-a11y}
+    :handler     tool-read-a11y-violations}
 
    {:name           "read-failures"
     :category       :testing

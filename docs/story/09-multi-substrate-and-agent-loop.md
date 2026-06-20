@@ -40,7 +40,7 @@ The canonical tool list currently includes:
 |---|---|
 | Dev | `get-story-instructions`, `preview-variant`, `list-substrates` |
 | Docs/read | `list-stories`, `get-story`, `get-variant`, `list-tags`, `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`, `get-docs-markdown`, `explain-variant` |
-| Testing | `run-variant`, `snapshot-identity`, `run-a11y`, `read-failures` |
+| Testing | `run-variant`, `snapshot-identity`, `read-a11y-violations`, `read-failures` |
 | Write, gated | `register-variant`, `unregister-variant`, `record-as-variant` |
 
 That is the agent-facing version of the same operations a human performs in

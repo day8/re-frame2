@@ -55,7 +55,7 @@ allowed-tools:
   - mcp__re-frame2-story-mcp__run-variant
   - mcp__re-frame2-story-mcp__read-failures
   - mcp__re-frame2-story-mcp__snapshot-identity
-  - mcp__re-frame2-story-mcp__run-a11y
+  - mcp__re-frame2-story-mcp__read-a11y-violations
   - mcp__re-frame2-story-mcp__record-as-variant
   # story-mcp — read-only enumerations + agent-paste markdown
   - mcp__re-frame2-story-mcp__list-decorators
@@ -244,7 +244,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
 | Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
-| Use story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, `record-as-variant`) during a live re-frame2-pair session — composition with watch-epochs and dispatch-from-pair | [references/stories.md](references/stories.md) |
+| Use story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`) during a live re-frame2-pair session — composition with watch-epochs and dispatch-from-pair | [references/stories.md](references/stories.md) |
 
 Load at most two references for a single task. If you find yourself wanting three, the request likely spans concerns and should be broken up.
 

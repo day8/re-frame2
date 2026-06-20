@@ -29,7 +29,7 @@
     here is the fail-closed `:cannot-run` refusal.
   - A11Y (axe-style) — `re-frame.story.ui.a11y` runs axe-core in-browser
     and stores violations in `violations-by-frame` (the same atom the MCP
-    `run-a11y` tool reads). The `:rf.assert/a11y` finding projects those
+    `read-a11y-violations` tool reads). The `:rf.assert/a11y` finding projects those
     violations. axe-core is CLJS/browser-only (`:a11y-engine`); the
     headless/JVM contract is `:cannot-run`. This ns does NOT `:require` the
     CLJS-only UI ns into this `.cljc` (which would break the JVM classpath

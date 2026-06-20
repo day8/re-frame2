@@ -307,7 +307,7 @@ Concrete edits I would push into rf2-m6tu, ordered by priority. Each is a *delta
 9. **Tighten §6.1's MCP-tree question with a concrete recommendation**: separate jar (`day8/re-frame-2-story-mcp`), exposed via stdio + JSON-RPC, with the toolset surface matching Storybook MCP's Dev/Docs/Testing split for agent-portability:
     - **Dev**: `get-story-instructions`, `preview-variant`, story-generation guidance.
     - **Docs**: `list-stories`, `get-story`, `get-variant`, `list-tags`, `list-modes`, `list-assertions`, `variant->edn`.
-    - **Testing**: `run-variant`, `snapshot-identity`, `run-a11y`, `read-failures`.
+    - **Testing**: `run-variant`, `snapshot-identity`, `read-a11y-violations`, `read-failures`.
     - **Write surface (v1.1, dev-only)**: `register-variant`, `unregister-variant`.
 
 10. **Add a §"Production hygiene" cross-cutting section** that consolidates §4.6 (DCE), §4.7 (additive contract), and §6.6 (cross-lib `:extends` under `:advanced`). These three together are what makes re-frame-2-story safe to depend on in shipped apps; collecting them under one heading clarifies the production story.
