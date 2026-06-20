@@ -372,6 +372,22 @@
           inputs)
     inputs))
 
+(def ^:private dead-frame-sentinel
+  "A frame id that can NEVER resolve to a live frame, used to FAIL CLOSED a
+  nil / unreachable egress frame WITHOUT borrowing the ambient scope.
+
+  `rf/elide-wire-value` resolves its governing frame as `(or (:frame opts)
+  (frame/resolve-current-frame))` — so a nil `:frame` opt (or no `:frame` at
+  all) falls through to the AMBIENT dynamically-bound frame, applying that
+  frame's (possibly empty) policy and shipping value-bearing fields RAW. An
+  unreachable but NON-nil `:frame` opt instead takes the unresolvable-frame
+  fail-closed branch (`frame/frame` returns nil ⇒ whole value redacted to
+  `:rf/redacted`). We therefore stamp this sentinel as the `:frame` opt when
+  no live governing frame is known, so the walker fails closed on its own
+  dead-frame branch rather than resolving an ambient frame. The keyword is
+  namespaced into this panel so it can never collide with a real frame id."
+  ::no-egress-frame)
+
 (defn- redact-resource-node-identity
   "Project ONE live resource node's secret-bearing identity fields:
   `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
@@ -474,16 +490,20 @@
   overrides any caller-supplied one (egress redacts under the OBSERVED
   frame's policy, never a borrowed one).
 
-  FAIL-CLOSED on an UNREACHABLE frame: `rf/elide-wire-value` treats a
-  carried `:frame` opt as a KNOWN frame even when that id names no live
-  frame — applying an empty (identity) policy, which would ship the value
-  RAW under no policy. Egress must not do that. So this projection first
-  checks the named frame is LIVE (`rf/frame-ids`); when it is not (nil id,
-  a destroyed / never-registered frame), it walks WITHOUT a `:frame` opt so
-  `rf/elide-wire-value` takes its own frameless fail-closed branch and
-  redacts the whole value to `:rf/redacted` rather than borrow another
-  frame's marks. This is the silent-leak this contract abolishes — a graph
-  egressing under no reachable policy redacts, never ships raw.
+  FAIL-CLOSED on a nil / UNREACHABLE frame: `rf/elide-wire-value` resolves
+  its governing frame as `(or (:frame opts) (frame/resolve-current-frame))`,
+  so a nil `:frame` opt (or no `:frame` at all) falls through to the AMBIENT
+  dynamically-bound frame and would ship value-bearing fields RAW under that
+  borrowed frame's (possibly empty) policy. Egress must NOT borrow an ambient
+  frame. So this projection first checks the named frame is LIVE
+  (`rf/frame-ids`); when it is not (nil id, a destroyed / never-registered
+  frame), it stamps a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id
+  that can never resolve to a live frame — so `rf/elide-wire-value` takes its
+  unresolvable-frame fail-closed branch (`frame/frame` returns nil for it)
+  and redacts the whole value to `:rf/redacted` rather than borrow the
+  ambient frame's marks. This is the silent-leak this contract abolishes — a
+  graph egressing under no reachable policy redacts, never ships raw, even
+  when an ambient frame is dynamically bound (rf2-udkj69).
 
   Returns the graph with redacted node value fields + projected live
   resource identities; `:mode` / `:frame` unchanged. IDEMPOTENT — a value may
@@ -499,10 +519,16 @@
   `g-graph-egress-is-idempotent` in derivation-conformance.)"
   ([graph frame-id] (redact-graph-for-egress graph frame-id nil))
   ([graph frame-id opts]
-   ;; A reachable (live) frame governs egress under its own policy; an
-   ;; unreachable / nil frame walks frameless so the walker fails closed.
+   ;; A reachable (live) frame governs egress under its own policy; a nil /
+   ;; unreachable frame stamps the dead-frame sentinel as the `:frame` opt so
+   ;; `rf/elide-wire-value` takes its unresolvable-frame FAIL-CLOSED branch
+   ;; (whole value ⇒ `:rf/redacted`). We must NOT leave the `:frame` opt
+   ;; absent / nil here: that frameless path lets the walker fall through to
+   ;; the AMBIENT dynamically-bound frame (`frame/resolve-current-frame`) and
+   ;; ship value-bearing fields RAW under that frame's policy — the exact
+   ;; ambient-borrow leak this contract abolishes (rf2-udkj69).
    (let [reachable? (and (some? frame-id) (contains? (rf/frame-ids) frame-id))
-         walk-opts  (if reachable? (assoc opts :frame frame-id) opts)
+         walk-opts  (assoc opts :frame (if reachable? frame-id dead-frame-sentinel))
          redact-node
          (fn [node]
            (-> (reduce

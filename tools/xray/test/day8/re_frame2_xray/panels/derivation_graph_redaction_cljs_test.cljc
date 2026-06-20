@@ -36,12 +36,15 @@
        edge that names it survives intact (structure preserved).
     2. **per-frame** — egress redacts under the OBSERVED frame's policy,
        not an ambient or borrowed one; a non-sensitive value rides through.
-    3. **fail-closed** — egress for an unknown / frameless target redacts
-       the whole value rather than ship it raw under no policy.
+    3. **fail-closed** — egress for an unknown / nil / frameless target
+       redacts the whole value rather than ship it raw under no policy — and
+       must NOT borrow an AMBIENT dynamically-bound frame (rf2-udkj69): a nil
+       frame-id under an ambient binding still redacts, never ships raw.
     4. **large elision** — a frame-declared `:large` value is replaced by
        the `:rf.size/large-elided` marker, again keeping structure."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -244,7 +247,31 @@
         (is (some? route))
         (is (= :process (h/superkind route)))
         (is (= (:edges live-graph) (:edges r)))
-        (is (= (set (keys (:nodes live-graph))) (set (keys (:nodes r)))))))))
+        (is (= (set (keys (:nodes live-graph))) (set (keys (:nodes r))))))))
+
+  (testing "egress against a NIL frame fails closed EVEN WHEN an AMBIENT frame
+            is bound — it must NOT borrow that ambient frame's policy and ship
+            the value raw (rf2-udkj69). We bind ambient :app/plain (no sensitive
+            decl, so a borrow WOULD ship the token raw); a nil frame-id MUST
+            redact the whole value-bearing field, not resolve :app/plain."
+    (rf/with-frame plain-frame
+      (is (some? (frame/resolve-current-frame))
+          "PRECONDITION — an ambient frame IS dynamically bound, so a frameless
+           walk WOULD resolve it (the borrow this arm forbids)")
+      (let [r     (h/redact-graph-for-egress live-graph nil)
+            route (get-in r [:nodes [:rf/route :route/article]])]
+        (is (= :rf/redacted (:params route))
+            "nil frame ⇒ the whole :params summary is redacted, NOT shipped raw
+             under the borrowed ambient :app/plain (empty) policy")
+        (is (= :rf/redacted (:query route)))
+        (is (not= "secret-session-jwt-abc123"
+                  (get-in route [:params :current :params :token]))
+            "the session token must NOT ride through under the borrowed frame")
+        (testing "structure STILL survives in the nil-frame fail-closed case"
+          (is (some? route))
+          (is (= :process (h/superkind route)))
+          (is (= (:edges live-graph) (:edges r)))
+          (is (= (set (keys (:nodes live-graph))) (set (keys (:nodes r))))))))))
 
 ;; ===========================================================================
 ;; 5. THE ADVERSARIAL ARM — live resource scoped-key identity egress
