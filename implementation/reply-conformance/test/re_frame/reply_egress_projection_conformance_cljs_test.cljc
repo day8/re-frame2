@@ -31,14 +31,13 @@
        VERBATIM;
     2. sensitive + large markings are honored, with SENSITIVE winning over
        large at a both-marked path;
-    3. the egress frame is supplied by the caller — an explicit `{:frame …}`
-       opt (or the in-effect carried-invariant `with-frame` scope) — and a
-       missing / unresolved frame FAILS CLOSED (the whole value redacts — NOT
-       a fall-through to `:rf/default` or a raw pass-through). The reply map's
-       OWN `:rf.frame/id` stamp is an identity fact that rides verbatim; it is
-       NOT auto-resolved into the egress policy (a caller summarizing a carried
-       reply outside frame scope must pass `{:frame (:rf.frame/id reply)}`, or
-       the wire slots fail closed — rf2-bphg8v);
+    3. the egress frame resolves from the explicit `{:frame …}` opt when
+       given, otherwise from the reply map's OWN carried `:rf.frame/id`
+       stamp — a carried reply SELF-SUMMARIZES under nil opts (rf2-wjo28z);
+       explicit `:frame` still wins, and a frame that resolves to nothing
+       LIVE (neither explicit nor carried) FAILS CLOSED (the whole value
+       redacts — NOT a fall-through to `:rf/default` or a raw pass-through).
+       The carried `:rf.frame/id` also rides verbatim as an identity fact;
     4. off-box profiles do NOT expose raw response bodies / failure payloads
        unless a classified projection explicitly permits it (`:local-raw`);
     5. relocated / completed reply targets do not create an UNPROJECTED
@@ -239,49 +238,52 @@
       (is (= work-id (:work/id unresolved))
           ":work/id still rides verbatim — only the wire slots fail closed"))))
 
-;; rf2-bphg8v — pin the carried-stamp edge: `trace-summary` forwards `opts`
-;; UNCHANGED to `elide-wire-value`, which resolves the egress frame from
-;; `(:frame opts)` or `frame/resolve-current-frame` — it does NOT consult the
-;; reply map's own `:rf.frame/id`. So a tool / log forwarder that summarizes a
-;; CARRIED reply OUTSIDE any frame scope with NIL opts gets the carried
-;; `:rf.frame/id` identity verbatim, but the WIRE slots FAIL CLOSED (the
-;; carried frame's policy is NOT applied). This negative control proves the
-;; carried stamp is not self-resolving; the prior suite only ever passed an
-;; explicit `{:frame …}`, so it would have stayed green even if the carried
-;; stamp were ignored entirely (the unpinned edge the review named).
-(deftest carried-frame-stamp-is-not-auto-resolved-into-the-egress-policy
+;; rf2-wjo28z — pin the carried-stamp seed: `trace-summary` seeds the egress
+;; frame from the reply map's own `:rf.frame/id` when no explicit `:frame` opt
+;; is given (explicit `:frame` still wins; unresolved still fails closed). So a
+;; tool / log forwarder that summarizes a CARRIED reply OUTSIDE any frame scope
+;; with NIL opts now applies the CARRIED frame's elision policy to the wire
+;; slots — the carried reply SELF-SUMMARIZES. (This deftest was previously the
+;; negative control `carried-frame-stamp-is-not-auto-resolved...`; the Mike
+;; ruling flipped the behaviour to option (a), so it now asserts resolution.)
+(deftest carried-frame-stamp-auto-resolves-into-the-egress-policy
   (mk-frame!)
   ;; No ambient frame scope — bind *current-frame* nil so the ONLY frame source
-  ;; would be the reply's carried `:rf.frame/id` (which is NOT consulted).
+  ;; is the reply's carried `:rf.frame/id` (now seeded into the egress opts).
   (binding [frame/*current-frame* nil]
     (testing "a carried `:rf.frame/id` (KNOWN+LIVE frame) summarized with NIL opts
-              still FAILS CLOSED — the carried stamp is not auto-resolved"
+              RESOLVES — the carried frame's elision policy is applied to the wire slots"
       (let [reply   (ok-reply)                 ;; carries :rf.frame/id frame-id (a live frame)
             summary (reply/trace-summary reply nil)]
         (is (= frame-id (:rf.frame/id reply))
             "precondition — the reply DOES carry a KNOWN+LIVE frame stamp")
-        (is (redacted? (:value summary))
-            "the whole :value slot FAILS CLOSED — the carried frame's policy was NOT applied")
+        (is (redacted? (get-in summary [:value :token]))
+            "the carried frame's SENSITIVE policy redacts [:token] — the carried stamp self-resolved")
+        (is (large-marker? (get-in summary [:value :blob]))
+            "the carried frame's LARGE policy elides [:blob]")
+        (is (= 3 (get-in summary [:value :public :count]))
+            "the unmarked sibling passes through — per-leaf policy, not a whole-slot redact")
         (is (not= "bearer-SECRET-do-not-ship" (get-in summary [:value :token]))
-            "the raw token NEVER ships off a carried stamp alone")
+            "the raw token NEVER ships")
         (is (= frame-id (:rf.frame/id summary))
             "the carried :rf.frame/id rides VERBATIM as an identity fact")
         (is (= work-id (:work/id summary))
             ":work/id still rides verbatim")))
     (testing "a carried `:rf.frame/id` naming a NEVER-REGISTERED frame, summarized
-              with NIL opts, ALSO fails closed (unresolved-stamp companion)"
+              with NIL opts, STILL fails closed (unresolved-stamp companion)"
       (let [reply   (assoc (ok-reply) :rf.frame/id :reply-egress/ghost)
             summary (reply/trace-summary reply nil)]
         (is (redacted? (:value summary))
-            "an unresolved carried stamp fails closed under nil opts")
+            "an unresolved carried stamp still fails closed under nil opts")
         (is (= :reply-egress/ghost (:rf.frame/id summary))
             "the carried (unresolved) :rf.frame/id rides verbatim as identity")))
-    (testing "passing the carried stamp THROUGH as the :frame opt is the supported
-              route — `{:frame (:rf.frame/id reply)}` applies the carried frame's policy"
-      (let [reply   (ok-reply)
-            summary (reply/trace-summary reply {:frame (:rf.frame/id reply)})]
-        (is (redacted? (get-in summary [:value :token]))
-            "explicitly threading the carried stamp into :frame applies the policy")))))
+    (testing "an explicit `:frame` opt still WINS over the carried stamp — targeting
+              a DIFFERENT (unresolved) frame fails closed even though the reply
+              carries a LIVE stamp"
+      (let [reply   (ok-reply)                 ;; carries the LIVE frame-id
+            summary (reply/trace-summary reply {:frame :reply-egress/ghost})]
+        (is (redacted? (:value summary))
+            "explicit :frame (unresolved) wins over the carried LIVE stamp — fails closed")))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) off-box profiles do NOT expose raw bodies; an explicit classified
