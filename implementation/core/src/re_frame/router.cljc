@@ -40,8 +40,8 @@
 ;; is the in-flight event's :dispatch-id.
 ;;
 ;; The in-flight dispatch's id is tracked through
-;; `re-frame.trace/*handler-scope*`'s `:dispatch-id` slot (per rf2-g6ih4 —
-;; the scope-bundle Var lives in `trace` so `trace/emit!` can read it and
+;; `re-frame.trace/*handler-scope*`'s `:dispatch-id` slot (the scope-bundle
+;; Var lives in `trace` so `trace/emit!` can read it and
 ;; stamp every trace event emitted inside the cascade with the cascade-
 ;; wide id). `process-event!` binds the scope around the inner
 ;; `process-event*`; child dispatches read it both to populate
@@ -60,7 +60,7 @@
 (defn- next-dispatch-id []
   (swap! dispatch-counter inc))
 
-;; ---- lexical-scope fx-override binding (rf2-5uwl) -------------------------
+;; ---- lexical-scope fx-override binding -------------------------
 ;;
 ;; Per the `rf/with-fx-overrides` macro (declared in re-frame.core) tests
 ;; bind this Var to a `{fx-id -> override}` map for the macro body's
@@ -76,15 +76,14 @@
 ;; key (the per-frame tier).
 (def ^:dynamic *fx-overrides* nil)
 
-;; ---- EP-0017 recordable-coeffect stamping (rf2-s9ss0t / rf2-alc1lf) --------
+;; ---- EP-0017 recordable-coeffect stamping --------
 ;;
 ;; The CAUSAL BOUNDARY: `build-envelope` ensures every dispatch carries an
 ;; `:rf.cofx` map bearing `:rf/time-ms` — the one host-clock read whose value
-;; durable writes may fold (Spec 002 §Recordable coeffects, EP-0010). EP-0017
-;; (slice-A.2) RETIRED the EP-0010 envelope field `:rf.world/inputs`, renaming
-;; it to the flat `:rf.cofx` map (one fact per owner-qualified key, no grouping
-;; sub-maps) and the framework time fact from the nested `:time-ms` to the flat
-;; `:rf/time-ms`.
+;; durable writes may fold (Spec 002 §Recordable coeffects, EP-0010). The
+;; recordable-coeffect envelope field is the flat `:rf.cofx` map (one fact per
+;; owner-qualified key, no grouping sub-maps); the framework time fact is the
+;; flat `:rf/time-ms`.
 ;; This is the ONLY place the clock is read for the causal token; it is NOT
 ;; re-read inside the handler, flow transform, resource reducer, work-ledger
 ;; writer, or commit.
@@ -97,7 +96,7 @@
 ;;     owner-qualified fact slots ride through). The router fills ONLY the
 ;;     framework-required `:rf/time-ms` when absent, never overwriting a
 ;;     supplied one (EP-0010 §Restore, Replay, And Hydration).
-;;   - `:rf/time-ms` is WALL-CLOCK EPOCH ms (rf2-n1rh0f / EP-0010 §Time), read
+;;   - `:rf/time-ms` is WALL-CLOCK EPOCH ms (EP-0010 §Time), read
 ;;     from `interop/epoch-now-ms` (`js/Date.now()` / `System/currentTimeMillis`)
 ;;     — NOT `interop/now-ms` (CLJS `performance.now()` is origin-relative, so a
 ;;     durable timestamp folded from it would be incomparable with `js/Date`-
@@ -147,13 +146,11 @@
                         :after-timer :fx-dispatch :fx-dispatch-later
                         :http :router :ssr-hydration :test :tool
                         :websocket :repl :unknown :other`.
-                        Default `:unknown` per rf2-hxj0d
-                        (changed from `:ui` to avoid false
-                        attribution of unstamped dispatches as
-                        UI-driven). UI handler call-sites stamp
-                        `:source :ui` explicitly; substrate-internal
-                        dispatch sites stamp the matching specific
-                        value per rf2-ejtpd + rf2-c3990 + rf2-1ve9h:
+                        Default `:unknown` — an unstamped dispatch is
+                        not attributed as UI-driven. UI handler
+                        call-sites stamp `:source :ui` explicitly;
+                        substrate-internal dispatch sites stamp the
+                        matching specific value:
                           - machine `:after` timer       → :after-timer
                           - machine `:always` microstep  → :always (on the
                             per-microstep trace; `:always` does not
@@ -161,7 +158,7 @@
                           - machine spawn fx             → :machine-spawn
                           - `:dispatch`(-later) fx from a
                             machine handler              → :machine-action
-                            (rf2-c3990 — the actor-message path)
+                            (the actor-message path)
                           - `:dispatch` fx               → :fx-dispatch
                           - `:dispatch-later` fx         → :fx-dispatch-later
                           - routing-internal dispatch    → :router
@@ -170,14 +167,10 @@
                           - test-harness fixture          → :test
                           - tool / story / REPL          → :tool / :repl
                           - app websocket adapter         → :websocket (opt-in)
-                        Per rf2-c3990 the prior broad `:fx` /
-                        `:machine` / `:dispatch-later` / `:timer`
-                        aliases are dropped — every dispatch site
-                        stamps the specific kind. Per rf2-1ve9h
-                        (Mike-approved Option A, 2026-05-28) the
-                        prior parallel `:rf/dispatch-origin` axis was
-                        collapsed into `:source` — `:source` is now
-                        the single closed-enum functional-origin axis.
+                        Every dispatch site stamps the specific kind;
+                        there are no broad `:fx` / `:machine` /
+                        `:dispatch-later` / `:timer` aliases. `:source`
+                        is the single closed-enum functional-origin axis.
     :origin             actor identity tag (:app default; :pair, :story,
                         :test, ... per Spec 002 §Dispatch origin tagging).
                         Open-vocabulary; distinct from :source which is
@@ -201,14 +194,14 @@
     :parent-dispatch-id the in-flight dispatch's id when this dispatch is
                         emitted from inside another event's processing
     :call-site          compile-time-captured invocation coord stamped by
-                        the `dispatch` / `dispatch-sync` macro (rf2-ts1a).
+                        the `dispatch` / `dispatch-sync` macro.
                         nil for the fn-form path (`dispatch*` etc.) and
                         under `goog.DEBUG=false` advanced builds."
   [event opts]
   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
         parent-dispatch-id (when interop/debug-enabled?
                              (some-> trace/*handler-scope* :dispatch-id))
-        ;; Per rf2-ts1a: read the macro-stamped `:rf.trace/call-site`
+        ;; Read the macro-stamped `:rf.trace/call-site`
         ;; only when interop/debug-enabled?. Wrap the read itself in
         ;; the gate so the closure compiler can DCE the keyword
         ;; reference under `:advanced` + `goog.DEBUG=false`. Without
@@ -218,7 +211,7 @@
         ;; referenced syntactically.
         call-site          (when interop/debug-enabled?
                              (:rf.trace/call-site opts))
-        ;; EP-0010 disposition 5 (rf2-lj39cn): the RETIRED `:dispatched-at`
+        ;; EP-0010 disposition 5: the RETIRED `:dispatched-at`
         ;; dispatch opt gets the STANDARD RETIREMENT TREATMENT — a HARD
         ;; ERROR naming the replacement, NOT the generic warn-on-unknown-opt
         ;; below. Checked FIRST — BEFORE the cofx clock stamp below —
@@ -230,7 +223,7 @@
         ;; is a correctness contract that must fire in production too — see
         ;; `reject-retired-dispatch-opts!`.
         _                  (diag/reject-retired-dispatch-opts! opts event)
-        ;; EP-0010 (rf2-47lgee / rf2-nftz2s): VALIDATE a caller-supplied
+        ;; EP-0010: VALIDATE a caller-supplied
         ;; `:rf.cofx` at the PUBLIC dispatch boundary BEFORE the clock
         ;; stamp below — a supplied value must be nil-or-map and a supplied
         ;; `:rf/time-ms` must be an integer (Spec 002 §Recordable coeffects +
@@ -243,14 +236,14 @@
         ;; read ordering as the retirement check above. See
         ;; `diag/validate-cofx!`.
         _                  (diag/validate-cofx! opts event)
-        ;; EP-0017 §Dispatch Envelope Stamping (rf2-s9ss0t / rf2-alc1lf): the
+        ;; EP-0017 §Dispatch Envelope Stamping: the
         ;; CAUSAL BOUNDARY — ensure `:rf.cofx` carries `:rf/time-ms`, the one
         ;; host-clock read durable writes fold. `ensure-cofx` owns the
         ;; preserve-supplied / fill-missing-`:rf/time-ms` shape contract (see the
         ;; section comment on the helper above). Stamped AFTER the retirement +
         ;; validation checks so an invalid dispatch never reads the clock.
         cofx               (ensure-cofx (:rf.cofx opts))
-        ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
+        ;; Surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a
         ;; `:fram` typo still gets its specific, actionable warning even
@@ -289,7 +282,7 @@
         ;; spelling into the error payload's `:event-id` slot when known,
         ;; so a frameless top-level dispatch's error is attributed to the
         ;; event it was carrying.
-        ;; EP-0023 (rf2-32siq3.32): the explicit `:frame` opt may be a frame-id
+        ;; EP-0023: the explicit `:frame` opt may be a frame-id
         ;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value —
         ;; `(rf/dispatch-sync frame [...])`). Normalize an object to its
         ;; runnable-id ADDRESS via `frame/frame-target->id` so the envelope
@@ -307,7 +300,7 @@
                                    :dispatch
                                    {:where    're-frame.router/build-envelope
                                     :event-id (first event)})))
-        ;; Per rf2-j20a7 / Spec 005 §Level 4: a dispatch emitted from a
+        ;; Per Spec 005 §Level 4: a dispatch emitted from a
         ;; machine's own processing (its `:action` / `:entry` / `:exit` /
         ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
         ;; machine dispatch) is a machine-internal continuation. The
@@ -321,7 +314,7 @@
         ;; ordering guarantee — NOT a trace concern — so the flag is
         ;; carried unconditionally (never gated on interop/debug-enabled?).
         machine-internal?  (true? (:rf.machine/internal? opts))
-        ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): the per-call cofx MINT POLICY
+        ;; EP-0017 §6 / slice-B.8: the per-call cofx MINT POLICY
         ;; — the most-specific binding point. A Tool-Pair replay supplies
         ;; `:strict` (so an incomplete record fails loudly rather than minting
         ;; a fresh value); a nondeterminism-declaring test supplies
@@ -334,17 +327,16 @@
         mint-policy        (:rf.cofx/mint-policy opts)]
     (cond-> {:event                  event
              :frame                  frame
-             ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`
+             ;; Merge the lexical-scope `*fx-overrides*`
              ;; (bound by `rf/with-fx-overrides`) under the per-call opt so
              ;; the per-call opt wins on key collision. The per-frame
              ;; tier is still merged later inside `apply-overrides`.
              :fx-overrides           (merge *fx-overrides* (:fx-overrides opts {}))
              :interceptor-overrides  (:interceptor-overrides opts {})
              :trace-id               (:trace-id opts)
-             ;; Per rf2-hxj0d: default `:source` is `:unknown` —
-             ;; previously defaulted to `:ui`, which silently
-             ;; misattributed every unstamped dispatch (frame-init,
-             ;; internal continuations, REPL eval) as UI-driven. UI
+             ;; Default `:source` is `:unknown` so an unstamped
+             ;; dispatch (frame-init, internal continuations, REPL
+             ;; eval) is never misattributed as UI-driven. UI
              ;; handler call-sites stamp `:source :ui` explicitly; the
              ;; `:on-create` frame-init dispatch (frame.cljc) stamps
              ;; `:source :frame-init`; fx-emit dispatches (fx.cljc)
@@ -352,7 +344,7 @@
              ;; their own kind. `:unknown` surfaces "we lost track"
              ;; rather than fabricating an origin.
              :source                 (:source opts :unknown)
-             ;; Per rf2-5qp4g: per-source-kind detail riding alongside
+             ;; Per-source-kind detail riding alongside
              ;; the closed-set `:source` value. Optional; only stamped
              ;; by substrate dispatch sites that carry kind-specific
              ;; payload (e.g. `:dispatch-later` fx stamps `{:ms <ms>}`
@@ -363,13 +355,13 @@
              ;; `emit-dispatched-trace`).
              :source-detail          (:source-detail opts)
              :origin                 (:origin opts :app)
-             ;; EP-0017 (rf2-s9ss0t / rf2-alc1lf): the flat recordable-coeffect
+             ;; EP-0017: the flat recordable-coeffect
              ;; map, stamped unconditionally (durable causal data, not a
              ;; diagnostic — see the `cofx` binding above). Always carries
              ;; `:rf/time-ms`; caller-supplied additional owner-qualified facts
              ;; ride through preserved.
              :rf.cofx                cofx}
-      ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
+      ;; The macro form of `dispatch` / `dispatch-sync`
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
       ;; `call-site` above is gated on interop/debug-enabled? so this
       ;; branch and its keyword literal DCE under :advanced +
@@ -378,10 +370,10 @@
       call-site          (assoc :call-site         call-site)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
-      ;; Per rf2-j20a7: carry the machine-internal continuation flag onto
+      ;; Carry the machine-internal continuation flag onto
       ;; the envelope so `dispatch!` can front-of-queue insert it.
       machine-internal?  (assoc :rf.machine/internal? true)
-      ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): carry the per-call cofx mint
+      ;; EP-0017 §6 / slice-B.8: carry the per-call cofx mint
       ;; policy onto the envelope only when supplied, so `assemble-initial-ctx`
       ;; reads it (per-call wins over the frame config). Absent ⇒ the key is
       ;; omitted and the frame-config / `:live` fallback applies.
@@ -391,7 +383,7 @@
   (registrar/lookup :event event-id))
 
 (defn- resolve-unhandled
-  "Per rf2-a2sn1 — the pluggable unresolved-handler resolver seam.
+  "The pluggable unresolved-handler resolver seam.
 
   When `resolve-handler` finds no registrar entry for `event-id`,
   `process-event*` consults this before erroring. It is the late-bound
@@ -428,11 +420,9 @@
 ;; Cross-frame dispatch-sync warnings + the no-handler error path live
 ;; in `re-frame.router.diagnostics`. Every one of those fns runs on a
 ;; cold/error path or sits behind `interop/debug-enabled?`, so the
-;; cross-ns indirection adds no measurable cost. (The async-callback
-;; fallthrough-to-default warning family was RETIRED in EP-0002 — a bare
-;; dispatch under no scope now fails loudly with `:rf.error/no-frame-
-;; context` at envelope-build time rather than silently sliding to
-;; `:rf/default` and warning.)
+;; cross-ns indirection adds no measurable cost. (There is no `:rf/default`
+;; floor — a bare dispatch under no scope fails loudly with
+;; `:rf.error/no-frame-context` at envelope-build time.)
 
 (def ^:private empty-fx-overrides
   "Shared sentinel returned by `apply-overrides` on the no-override hot
@@ -498,11 +488,11 @@
 
 (defn- override-replacement
   "Resolve an `:interceptor-overrides` replacement VALUE to an executable
-  interceptor (or nil to remove). Per EP-0022 §`:interceptor-overrides` (the
-  reference-only flip, rf2-0adhqs.9): public override replacements are a `nil`
+  interceptor (or nil to remove). Per EP-0022 §`:interceptor-overrides`:
+  public override replacements are a `nil`
   (remove) or an interceptor REFERENCE (keyword / `[id arg]`, resolved through
-  the registrar). Value-valued overrides are retired — an inline interceptor
-  value (or any non-ref non-nil) is `:rf.error/interceptor-override-invalid`,
+  the registrar). A value-valued override — an inline interceptor
+  value (or any non-ref non-nil) — is `:rf.error/interceptor-override-invalid`,
   keeping the override map serializable + inspectable across story / SSR / test
   / tool surfaces."
   [k replacement]
@@ -578,7 +568,7 @@
 
 (defn- override-summary
   "Build the dev-only `:rf.interceptor/override-summary` trace tag (Spec 009
-  §`:tags` interceptor family, rf2-9vx0jk). Summarises which authored
+  §`:tags` interceptor family). Summarises which authored
   interceptor references an `:interceptor-overrides` map (merged per-frame +
   per-call, per-call winning) actually acted on for THIS dispatch, by walking
   the PRE-override `resolved-chain` (whose entries still carry their authored
@@ -626,7 +616,7 @@
       (assoc matched :count (count (:matched matched))))))
 
 (defn- validate-event!
-  "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
+  "Per Spec 010 §Validation order step 1: validate the
   dispatched event vector against the handler's :schema BEFORE the
   handler's interceptor chain runs. Failures emit
   :rf.error/schema-validation-failure with :where :event and skip the
@@ -636,7 +626,7 @@
   skipped. Defaults to true when the schemas namespace hasn't been
   loaded.
 
-  Body gated on `interop/debug-enabled?` (rf2-gaqwr). Spec 010
+  Body gated on `interop/debug-enabled?`. Spec 010
   validate-*! is a dev-only validator surface — per
   `re-frame.schemas.validate` §Production builds, every dev-time
   `validate-*!` body sits inside its own `(if interop/debug-enabled?
@@ -649,17 +639,17 @@
   the `:schemas/validate-event!` keyword's interned slot to a
   constant `true` on the hot path.
 
-  Per rf2-lo28u: `frame` is threaded so the `:where :event` failure
+  `frame` is threaded so the `:where :event` failure
   trace carries a `:frame` tag and is captured into the in-flight
   cascade's epoch `:trace-events` by `epoch.capture/capture-event!`
   (which drops any trace whose tags lack `:frame`). Without it the
-  violation fired on the global trace stream but never landed in the
-  epoch record — so the Xray Issues / Schema-timeline lens showed
-  nothing for an event-args schema failure, while the `:where :app-db`
-  path (which always tags `:frame`) surfaced correctly."
+  violation would fire on the global trace stream but never land in the
+  epoch record, so the Xray Issues / Schema-timeline lens would show
+  nothing for an event-args schema failure (the `:where :app-db`
+  path always tags `:frame`)."
   [event-id event handler-meta frame]
   (if interop/debug-enabled?
-    ;; Sticky hook (rf2-f72pd) — `:schemas/validate-event!` is published
+    ;; Sticky hook — `:schemas/validate-event!` is published
     ;; once at re-frame.schemas load and never withdrawn in dev; fires
     ;; per-dispatch.
     (if-let [validate! (late-bind/get-fn-cached :schemas/validate-event!)]
@@ -673,7 +663,7 @@
   keys (:source :trace-id) are surfaced as cofx entries so handler bodies
   can read them. Per Spec 002 §Routing — the dispatch envelope.
 
-  EP-0001 (rf2-bvwoi4) — the event context threads BOTH durable partitions
+  EP-0001 — the event context threads BOTH durable partitions
   plus the frame id (per Spec 002 §Event context threads both partitions):
 
     :db            the app-db partition value (the inherited bare key — KEEPS
@@ -685,7 +675,7 @@
                    the frame id, distinct from the public `:frame` opt.
 
   The runtime-db partition is a real frame-state slot (the one-container
-  frame-state, rf2-adwcv6): `frame-runtime-db-value` reads the live runtime-db
+  frame-state): `frame-runtime-db-value` reads the live runtime-db
   projection — `{}` for a fresh frame, the populated partition once a
   subsystem (machines / routing / elision / ssr) has written to it — and that
   value is injected by reference as the `:rf.db/runtime` coeffect.
@@ -693,7 +683,7 @@
   `:rf/framework-authority?` is a NON-coeffect context flag (not visible to
   handler bodies) recording whether THIS handler has framework-write
   authority over the reserved `:rf.db/runtime` partition. Per the GENERAL
-  minting mechanism (EP-0001 rf2-3939ig), it is true for any handler whose
+  minting mechanism (EP-0001), it is true for any handler whose
   registration meta carries the reserved `:rf/framework-authority? true`
   key — stamped by the framework registrars Spec 002 §Write authority names
   (machines, routing; elision / ssr write through privileged frame-state
@@ -717,7 +707,7 @@
         ;; `events/register-event!`). nil / empty for the overwhelming majority
         ;; of handlers (no declarations) — the delivery step is then a no-op.
         requires    (:rf.cofx/requires-parsed handler-meta)
-        ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7) / rf2-n0myjq: the EFFECTIVE cofx
+        ;; EP-0017 §6 / slice-B.8: the EFFECTIVE cofx
         ;; mint policy for this dispatch, resolved ONCE here (per-call envelope
         ;; opt ▸ frame config ▸ `:live`). The event path consumes it inline at
         ;; the `(seq requires)` branch below; it is ALSO stamped onto `base-cofx`
@@ -737,7 +727,7 @@
                              :event           event
                              :rf.db/runtime   runtime-db
                              :rf.frame/id     frame
-                             ;; EP-0017 (rf2-s9ss0t / rf2-alc1lf): the flat
+                             ;; EP-0017: the flat
                              ;; recordable-coeffect map (the envelope's
                              ;; canonical complete record) is a framework
                              ;; coeffect alongside `:db` / `:event` /
@@ -748,7 +738,7 @@
                              ;; Filtered out of the user-cofx trace projection
                              ;; by `fx/framework-coeffect-keys`.
                              :rf.cofx         (:rf.cofx envelope)
-                             ;; rf2-n0myjq — the resolved effective mint policy,
+                             ;; The resolved effective mint policy,
                              ;; a framework coeffect for the machine ensure path.
                              :rf.cofx/mint-policy mint-policy}
                       (:source envelope)   (assoc :source (:source envelope))
@@ -757,7 +747,7 @@
     ;; facts come from the token's `:rf.cofx` (validated against `:schema`);
     ;; ambient facts run their suppliers now; a declared-absent GENERATOR-BACKED
     ;; recordable fact is GENERATED at processing-start (slice B.7) UNDER THE
-    ;; RESOLVED MINT POLICY (slice B.8, rf2-5spzo7 — per-call opt ▸ frame config
+    ;; RESOLVED MINT POLICY (slice B.8 — per-call opt ▸ frame config
     ;; ▸ `:live`; `:strict` does NOT generate and surfaces missing-required) and
     ;; written back into the record; a
     ;; declared-absent PROVIDED fact is `:rf.error/missing-required-cofx`; an
@@ -774,7 +764,7 @@
     ;; EP-0017 §4). With no generators on the path the record is unchanged.
     (let [{:keys [coeffects rf/skip-handler?] :as delivered}
           (if (seq requires)
-            ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): the effective cofx MINT
+            ;; EP-0017 §6 / slice-B.8: the effective cofx MINT
             ;; POLICY for this dispatch (most-specific-wins — per-call opt ▸
             ;; frame config ▸ `:live`) was resolved ONCE above as `mint-policy`
             ;; and is reused here. The policy gates ONLY the declared-absent
@@ -813,7 +803,7 @@
 
 (defn- classify-pipeline-exception
   "Classify a captured `:rf/interceptor-error` into the true failing
-  component (per rf2-mszrz). Returns
+  component. Returns
   `{:operation <:rf.error/*> :failing-id <kw> :reason <string>}` — the
   category and attribution the exception emit fans out under. The chain
   runner records `{:phase :id}`; this fn reads that captured identity
@@ -828,19 +818,18 @@
       `handler-wrapping-interceptor-ids`) → `:rf.error/handler-exception`,
       `:failing-id` = the event id.
 
-  Coeffect-supplier throws do NOT reach here: EP-0017 moved coeffect
-  delivery to context assembly (BEFORE the interceptor chain runs), so a
+  Coeffect-supplier throws do NOT reach here: coeffect delivery runs at
+  context assembly (BEFORE the interceptor chain runs), so a
   supplier throw is captured and emitted as `:rf.error/coeffect-exception`
-  by `re-frame.cofx/emit-coeffect-exception!` directly. The retired
-  `inject-cofx` was the only mechanism that stamped `:rf/cofx-id` on an
-  interceptor; with it gone, the old `:rf/cofx-id`-keyed branch here was
-  permanently unreachable dead code (rf2-oky3gt) and has been removed.
+  by `re-frame.cofx/emit-coeffect-exception!` directly. No interceptor
+  carries a `:rf/cofx-id`, so this classifier only ever discriminates
+  user-interceptor throws from the event handler itself.
 
-  Mirrors the existing distinct-by-component precedent the runtime
-  already follows for `:rf.error/flow-eval-exception` (flow transform)
-  and `:rf.error/fx-handler-exception` (post-commit fx walk) — the
-  `:before` chain was the one site that conflated handler-vs-interceptor
-  into `handler-exception`."
+  Mirrors the distinct-by-component precedent the runtime
+  follows for `:rf.error/flow-eval-exception` (flow transform)
+  and `:rf.error/fx-handler-exception` (post-commit fx walk): each `:before`-
+  chain throw is attributed to its own failing component, not blanket-
+  attributed to the event handler."
   [error event-id]
   (let [id (:id error)]
     (cond
@@ -858,8 +847,8 @@
 (defn- elapsed-ms-from
   "The integer `:elapsed-ms` for an error / event-emit record: `end-ms`
   minus `start-ms`, floored at 0 and rounded to a long. Owns the
-  cross-platform rounding contract in ONE place (per rf2-bacs4 / rf2-rirbq
-  §Record shape — `:elapsed-ms` is an integer): `interop/now-ms` is a long on
+  cross-platform rounding contract in ONE place (§Record shape —
+  `:elapsed-ms` is an integer): `interop/now-ms` is a long on
   the JVM (`System/currentTimeMillis`) but a float on CLJS
   (`js/performance.now()` carries sub-millisecond precision), so the value is
   rounded once at the substrate boundary so the record's contract holds on
@@ -872,11 +861,11 @@
 (defn- emit-pipeline-exception!
   "Surface an interceptor-chain exception as the trace event for its TRUE
   failing component AND fan it out through the always-on error-emit
-  listener substrate (per rf2-bacs4). The chain captures the exception
+  listener substrate. The chain captures the exception
   into `:rf/interceptor-error` rather than re-throwing (the drain must
   not abort); this helper translates that into both delivery channels.
 
-  Per rf2-mszrz the category + `:failing-id` are derived from the
+  The category + `:failing-id` are derived from the
   captured component identity via `classify-pipeline-exception` — a
   coeffect-injection throw emits `:rf.error/coeffect-exception` attributed
   to the cofx id, a user-interceptor throw emits
@@ -892,7 +881,7 @@
   slot, the router-installed redaction interceptor stores the scrubbed
   event form under `:rf/redacted-event`; this helper surfaces it.
 
-  Per rf2-bacs4: a corpus-wide listener registry runs for off-box
+  A corpus-wide listener registry runs for off-box
   observability shippers (Sentry / Honeybadger / Rollbar) and MUST fire
   even when the trace surface is compile-time elided in CLJS production
   builds. We build the tight error-record up-front, hand it to
@@ -905,7 +894,7 @@
   listeners."
   [error event-id event frame ctx start-ms]
   (let [exception  (:exception error)
-        ;; rf2-vzrxp3: nil-safe extractor — a thrown non-Error value (legal in
+        ;; nil-safe extractor — a thrown non-Error value (legal in
         ;; CLJS) has no `.-message`, so a raw read would silently nil the slot.
         msg        (error/ex-message-safe exception)
         emit-event (privacy/redacted-event-from-ctx ctx)
@@ -914,7 +903,7 @@
         {:keys [operation failing-id reason]}
         (classify-pipeline-exception error event-id)
         handler-throw? (= operation :rf.error/handler-exception)
-        ;; rf2-siheh — the throwing user interceptor's definition-site
+        ;; The throwing user interceptor's definition-site
         ;; coord (captured by the `->interceptor` macro and carried on
         ;; the interceptor map → error-record). Threaded onto the
         ;; `:rf.error/interceptor-exception` trace so the Xray Epoch
@@ -935,12 +924,12 @@
                      ;; `:handler-id` is only meaningful when the EVENT
                      ;; handler itself threw — a coeffect / interceptor
                      ;; failure has no handler-id to carry (the handler
-                     ;; never ran). Stamping the event-id regardless
-                     ;; (the pre-rf2-mszrz behaviour) mis-fed consumers.
+                     ;; never ran), so stamping the event-id regardless
+                     ;; would mis-feed consumers.
                      handler-throw? (assoc :handler-id event-id)
                      icpt-coord     (assoc :source-coord icpt-coord))]
-    ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
-    ;; always-on corpus-wide listener (rf2-bacs4): every fn registered through
+    ;; Fan out along BOTH channels (shared helper). Axis 1 — the
+    ;; always-on corpus-wide listener: every fn registered through
     ;; `rf/register-error-listener!` receives the tight error-record so
     ;; production builds with the trace surface elided still observe the error.
     ;; Trigger-handler / dispatch-id enrichment is dev-only and rides the trace
@@ -949,7 +938,7 @@
       operation emit-event event-id frame exception elapsed-ms end-ms tags)))
 
 (defn- run-post-commit-validation!
-  "Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): validate
+  "Per Spec 010 §Per-step recovery row 4: validate
   app-db against registered schemas after each commit. Returns the
   validator's boolean conjunction — true when every registered schema
   for the frame conformed (or the schemas artefact isn't loaded / no
@@ -964,14 +953,14 @@
   registered against THIS dispatch's frame only — sibling frames'
   schemas don't fire here.
 
-  Per rf2-jbbp7 / Spec 010 §Per-step recovery row 7: AND-conjoins the
+  Per Spec 010 §Per-step recovery row 7: AND-conjoins the
   app-db validator with `:machines/validate-machine-data!` (the
   `:where :machine-data` boundary). The machine walker iterates
   `[:rf.runtime/machines :snapshots]` in the new RUNTIME-DB value (EP-0001
-  rf2-vzld77 — machine snapshots are durable runtime-db state) and validates
+  — machine snapshots are durable runtime-db state) and validates
   each snapshot's `:data` against the registered machine's `:data-schema`.
 
-  EP-0001 (rf2-vzld77): each validator runs against its OWN partition's new
+  EP-0001: each validator runs against its OWN partition's new
   value — app-db schema validation on `db-after`, machine-data validation on
   `runtime-db-after` — and only when that partition was actually written this
   commit (`app-effect?` / `rt-effect?`). The conjunction means a `false` from
@@ -986,23 +975,22 @@
   actual app-db state from the rest of the cascade. Real schema
   failures route through the in-band false return.
 
-  Per rf2-ss06u.3 the swallowed throw is NO LONGER SILENT: the catch
+  The swallowed throw is never silent: the catch
   emits a `:rf.error/malformed-schema` trace before coercing to `true`,
-  so a thrown validator is always observable (the prior bare `(catch …
-  true)` installed an unvalidated commit with NO trace — a fail-OPEN
-  bypass of the same class as the rf2-sk0ql path leak). A MALFORMED
-  REGISTERED SCHEMA (childless `[:vector]`, unknown op) no longer reaches
-  this catch at all — `validate-app-schema!` now isolates that throw
-  per-entry (rf2-ss06u.3), surfaces its own `:rf.error/malformed-schema`
+  so a thrown validator is always observable (coercing to `true` without a
+  trace would install an unvalidated commit — a fail-OPEN bypass). A
+  MALFORMED REGISTERED SCHEMA (childless `[:vector]`, unknown op) does not
+  reach this catch at all — `validate-app-schema!` isolates that throw
+  per-entry, surfaces its own `:rf.error/malformed-schema`
   trace, fails CLOSED (in-band `false` → rollback), and keeps validating
-  the frame's sibling schemas. So a throw THAT STILL REACHES THIS CATCH
+  the frame's sibling schemas. So a throw THAT REACHES THIS CATCH
   is the validator/late-bind machinery itself failing wholesale — the
   trace makes that visible without masking app-db from the rest of the
   cascade."
   [db-after runtime-db-after app-effect? rt-effect? event-id frame]
   (let [emit-swallow!
-        ;; Surface a swallowed validator throw so it is never invisible
-        ;; (rf2-ss06u.3). DCE-gated inside `trace/emit-error!`.
+        ;; Surface a swallowed validator throw so it is never invisible.
+        ;; DCE-gated inside `trace/emit-error!`.
         (fn [where ex]
           (trace/emit-error!
             :rf.error/malformed-schema
@@ -1016,12 +1004,11 @@
                      :recovery  :no-recovery}
               event-id (assoc :failing-id event-id))))
         run-partition-validator!
-        ;; The per-partition validator arm template (rf2-6zfzxy). Runs the
+        ;; The per-partition validator arm template. Runs the
         ;; late-bound `hook-key` validator against the partition's new value
         ;; ONLY when `effect?` (that partition was written this commit) AND the
         ;; hook is installed; otherwise → true (an absent validator / unwritten
-        ;; partition is a pass). Resolves the hook ONCE (the prior arms called
-        ;; `get-fn-cached` twice — in the `and` then re-fetched in the `let`).
+        ;; partition is a pass). Resolves the hook ONCE.
         ;; nil-coerce: a nil return is success (don't roll back) so a host
         ;; returning nil on a clean validate keeps working. A host-thrown
         ;; validator is caught, surfaced via `emit-swallow!`, and treated as
@@ -1041,12 +1028,12 @@
             true))
         ;; App-db schema validation runs only when a `:db` effect produced a
         ;; new app-db (app schemas validate app-db only — Mike ruling #11).
-        ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
+        ;; Sticky hook — fires per-dispatch.
         app-ok?
         (run-partition-validator! app-effect? :schemas/validate-app-schema!
                                   db-after :app-db)
-        ;; Per rf2-jbbp7 — the machine-data boundary (Spec 005 §Schema
-        ;; validation). EP-0001 (rf2-vzld77): machine snapshots are durable
+        ;; The machine-data boundary (Spec 005 §Schema
+        ;; validation). EP-0001: machine snapshots are durable
         ;; runtime-db state, so this validates the new RUNTIME-DB value and
         ;; runs only when a `:rf.db/runtime` effect landed this commit. The
         ;; hook is absent when the machines artefact isn't on the classpath;
@@ -1102,7 +1089,7 @@
                   phase (assoc :rf.trace/phase phase)))))
 
 (defn- commit-frame-effects!
-  "Install the partitioned frame transition atomically (EP-0001 rf2-adwcv6,
+  "Install the partitioned frame transition atomically (EP-0001,
   Spec 002 §Drain-loop pseudocode §commit + §An ordinary :db return replaces
   only app-db). A cascade may produce:
 
@@ -1123,8 +1110,8 @@
   Returns true when the commit is durable (no partition effect, or app-db
   schema conformed); false when post-commit app-db schema validation
   rejected the new state and the frame-state has been **rolled back** to the
-  pre-handler value (per Spec 010 §Per-step recovery row 4 / rf2-wkxng /
-  rf2-6m0se). App-db schema validation is APP-DB-ONLY (app schemas validate
+  pre-handler value (per Spec 010 §Per-step recovery row 4). App-db schema
+  validation is APP-DB-ONLY (app schemas validate
   the app partition, Mike ruling #11); a rejection unwinds the WHOLE
   transition (both partitions) so the frame is left coherently at its
   pre-handler state.
@@ -1132,7 +1119,7 @@
   Change traces (per Spec 009 §Canonical per-event trace sequence):
     - `:rf.event/db-changed` — APP-DB-ONLY (Mike ruling #6): fires only when
       the app-db partition changed; NEVER for a runtime-only commit;
-    - `:rf.event/db-noop` (rf2-ekq28v) — APP-DB-ONLY: fires when a `:db`
+    - `:rf.event/db-noop` — APP-DB-ONLY: fires when a `:db`
       effect was present but app-db did NOT change (the handler returned an
       unchanged db; the `identical?`-noop fast-path in
       `commit-frame-transition!` skipped the write, or a distinct-but-`=`
@@ -1145,13 +1132,13 @@
   `#{:app-db}`); an unchanged-db `:db` commit emits db-noop (and no
   frame-state-changed for the app-db partition).
 
-  nil-coercion (rf2-ekq28v): a `:db nil` effect is coerced to `{}` HERE —
+  nil-coercion: a `:db nil` effect is coerced to `{}` HERE —
   at the `:db` effect → `:rf.db/app` partition mapping, before the commit —
   so the partition layer never sees a nil app-db (app-db is always a map).
   The coercion emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic for
   accidental-wipe visibility; a deliberate clear (`{:db {}}`) does not.
 
-  Per Spec 013 §Drain integration (rf2-u0zz5): `(:db effects)` here is the
+  Per Spec 013 §Drain integration: `(:db effects)` here is the
   FLOW-AUGMENTED app-db value — the OUTERMOST flows-after-interceptor has
   already rewritten the pending `:db` effect by the time the chain returns.
   So `:event/db-changed` reflects the flow-derived db and fires AFTER
@@ -1168,7 +1155,7 @@
   Schema-derived redaction is reflected in the change traces' `:tags :event`
   slot via `privacy/redacted-event-from-ctx`.
 
-  Per rf2-4wqu6 finding 1: on rollback the flow dirty-check (`last-inputs`)
+  On rollback the flow dirty-check (`last-inputs`)
   bookkeeping is rolled back in lock-step (the flow transform advanced each
   computed flow's row inside the chain; restoring app-db without restoring
   those rows would leave the dirty-check believing the flows are
@@ -1178,11 +1165,11 @@
   [effects event-id event frame ctx db-before runtime-before]
   (let [app-effect?  (contains? effects :db)
         rt-effect?   (contains? effects :rf.db/runtime)
-        ;; nil-coercion (rf2-ekq28v): app-db is ALWAYS a map, never nil. A
+        ;; nil-coercion: app-db is ALWAYS a map, never nil. A
         ;; `:db nil` effect is coerced to `{}` HERE — at the `:db` effect →
         ;; `:rf.db/app` partition mapping, BEFORE `commit-frame-transition!` —
-        ;; so the partition layer never sees a nil app-db. This removes the v1
-        ;; nil-footgun (a db handler returning nil wiping app-db to nil)
+        ;; so the partition layer never sees a nil app-db. This rules out a
+        ;; db handler returning nil wiping app-db to nil
         ;; structurally, at the commit boundary. A `:db nil` return is more
         ;; often a BUG (a handler accidentally computed nil) than a deliberate
         ;; clear, so the coercion emits a dev-mode `:rf.warning/db-nil-coerced`
@@ -1205,7 +1192,7 @@
                          "diagnostic).")}))
     (if (or app-effect? rt-effect?)
       (let [emit-event (privacy/redacted-event-from-ctx ctx)
-            ;; rf2-gom797: a whole-value `:rf.db/runtime` effect REPLACES the
+            ;; A whole-value `:rf.db/runtime` effect REPLACES the
             ;; runtime-db partition (decision #5), but the elision declaration
             ;; registry at `[:rf.runtime/elision]` is a CROSS-CUTTING durable
             ;; subsystem child written OUT-OF-BAND by `reg-flow` / `add-marks` /
@@ -1218,7 +1205,7 @@
             ;; survives unless the effect speaks about it explicitly (a
             ;; full-frame install / deliberate clear is honoured verbatim).
             ;;
-            ;; rf2-upx16k (privacy fail-open): reconcile against the LIVE
+            ;; Privacy fail-open: reconcile against the LIVE
             ;; runtime-db read AT COMMIT, NOT the chain-start `runtime-before`
             ;; snapshot. The flow drain's `refresh-flow-output-declarations!`
             ;; writes propagated output-sensitivity marks straight into the
@@ -1257,7 +1244,7 @@
         ;; partition actually changed. A runtime-only commit never fires it.
         (when app-changed?
           (emit-db-event! :rf.event/db-changed event-id emit-event frame))
-        ;; db-noop (rf2-ekq28v): a `:db` effect that left app-db UNCHANGED — the
+        ;; db-noop: a `:db` effect that left app-db UNCHANGED — the
         ;; handler returned an unchanged db (the `identical?`-noop fast-path in
         ;; `commit-frame-transition!` skipped the write, OR a distinct-but-`=`
         ;; value collapsed to no change). The forward commit is a genuine
@@ -1270,7 +1257,7 @@
           (emit-db-event! :rf.event/db-noop event-id emit-event frame))
         ;; Partition-tagged frame-state-changed — when EITHER partition changed.
         (emit-frame-state-changed! event-id emit-event frame changed)
-        ;; Post-commit validation runs per-partition (EP-0001 rf2-vzld77):
+        ;; Post-commit validation runs per-partition (EP-0001):
         ;; app-db schema validation on the new app-db (only when a `:db` effect
         ;; landed — app schemas validate app-db only, Mike ruling #11) AND the
         ;; machine-data `:where :machine-data` boundary on the new runtime-db
@@ -1279,13 +1266,12 @@
         ;; WHOLE transition.
         (if (run-post-commit-validation! new-db new-runtime-db
                                          app-effect? rt-effect? event-id frame)
-          ;; EP-0001 (rf2-vzld77): framework runtime subsystems no longer live
-          ;; in app-db under `:rf/runtime` — they are in the runtime-db
-          ;; partition — so the `{:db fresh-map}` footgun (rf2-p806o: a fresh
-          ;; `:db` map dropping co-located `:rf/runtime`) is structurally gone
+          ;; EP-0001: framework runtime subsystems live in the runtime-db
+          ;; partition, not in app-db under `:rf/runtime` — so a fresh
+          ;; `{:db fresh-map}` cannot drop co-located runtime state
           ;; (Conventions §The clobber footgun is eliminated structurally). The
-          ;; legacy `:rf/runtime` app-db key becomes a hard error in bead 9
-          ;; (rf2-tfepxu); no per-commit detector is needed here.
+          ;; `:rf/runtime` app-db key is a hard error elsewhere; no per-commit
+          ;; detector is needed here.
           true
           (do
             ;; Roll back the WHOLE transition (both partitions) to the
@@ -1298,14 +1284,14 @@
                                frame
                                {frame/app-partition-key     db-before
                                 frame/runtime-partition-key runtime-before})]
-              ;; Per rf2-4wqu6 finding 1: roll back the flow dirty-check
+              ;; Roll back the flow dirty-check
               ;; (`last-inputs`) bookkeeping in lock-step with the app-db
-              ;; (frame-scoped, rf2-94ol5). No-op when no flow ran or the
+              ;; (frame-scoped). No-op when no flow ran or the
               ;; flows artefact never loaded.
               (when (contains? ctx :rf/flow-last-inputs-before)
                 (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
                   (restore-li frame (:rf/flow-last-inputs-before ctx))))
-              ;; rf2-z980k8: re-record the IN-DRAIN abandoned output paths the
+              ;; Re-record the IN-DRAIN abandoned output paths the
               ;; flow transform drained-and-cleared. The pending `:db` (which
               ;; carried the vacated state) was just discarded by the rollback,
               ;; so the `:path` move must re-attempt next drain rather than be
@@ -1321,7 +1307,7 @@
       true)))
 
 (def ^:private flows-after-interceptor
-  "Per Spec 013 §Drain integration (rf2-u0zz5): the framework-owned
+  "Per Spec 013 §Drain integration: the framework-owned
   OUTERMOST `:after` interceptor that runs the flow transform. The router
   PREPENDS it to the dispatch-time `full-chain` (NOT the registered
   handler-meta chain — see `prepare-handler-ctx`), so it is the first
@@ -1344,8 +1330,8 @@
   When the flows artefact is absent (`:flows/run-flows-on-db` hook nil)
   the `:after` is a single nil-check no-op.
 
-  Failure (Spec 013 §Failure semantics — atomicity contract, Mike
-  2026-05-24): a flow throw is a PRE-INSTALL throw, so it aborts the whole
+  Failure (Spec 013 §Failure semantics — atomicity contract): a flow throw
+  is a PRE-INSTALL throw, so it aborts the whole
   event exactly like a handler / interceptor-`:after` throw. The `:after`
   catches the ex-info, DISCARDS the pending `:db` effect (`dissoc`-ing it
   from `(:effects ctx)`) so the single deferred install installs NOTHING —
@@ -1363,7 +1349,7 @@
   allocation). The dispatching frame is read from the context coeffects
   (`assemble-initial-ctx` stamps `:frame`).
 
-  Per rf2-ta0y7 (Mike 2026-05-25): this interceptor is also the emit
+  This interceptor is also the emit
   point for the t1 / t2 pending-`:db` snapshot pair on the trace
   stream. The handler returned its `:db` effect; the rest of the
   `:after` chain reshaped it (e.g. `path`-interceptor splice) and the
@@ -1379,11 +1365,11 @@
                                             commit (the value flows
                                             reshaped, when they did).
 
-  Mike's ruling stores the full value plain — same posture as
+  The full value is stored plain — same posture as
   `:rf.event/fx` on `:rf.fx/do-fx`. Persistent data structures make
   the cost a pointer per emit (structural sharing with app-db); no
   copy, no diff, no DEBUG conditional. `day8/de-dupe` at the pair-mcp
-  wire boundary (rf2-obpa9) collapses the repeated subtrees on
+  wire boundary collapses the repeated subtrees on
   egress. The Xray Handler panel reads t1 to render the returned
   `:db` value under EVENT HANDLER and (t1, t2) together to render
   the t1→t2 reshape under FLOWS — the framework does NOT precompute
@@ -1412,7 +1398,7 @@
       (let [frame       (:rf.frame/id (:coeffects ctx))
             effects     (:effects ctx)
             has-db?     (contains? effects :db)
-            ;; EP-0001 §535-551 (rf2-4eisfr): a runtime-db write also lands as
+            ;; EP-0001 §535-551: a runtime-db write also lands as
             ;; a pending `:rf.db/runtime` effect (e.g. a pure
             ;; `:rf.route/transitioned` returns `{:rf.db/runtime …}` and NO
             ;; `:db`). The flow transform must observe the SETTLED pending
@@ -1438,7 +1424,7 @@
                                  (if has-runtime-effect?
                                    (:rf.db/runtime effects)
                                    (frame/frame-runtime-db-value frame)))
-            ;; Per rf2-ta0y7: stamp `:rf.event/v` + `:rf.trace/event-id`
+            ;; Stamp `:rf.event/v` + `:rf.trace/event-id`
             ;; on the t1 / t2 trace events so they carry the same
             ;; per-event attribution every other `:op-type :rf.event`
             ;; emit carries (parity with `:rf.event/run-start` /
@@ -1463,7 +1449,7 @@
                         :rf.event/db       pending-db}))
         (if run-on-db
           (try
-            (let [;; Per rf2-4wqu6 finding 1: snapshot THIS frame's
+            (let [;; Snapshot THIS frame's
                   ;; dirty-check (`last-inputs`) rows BEFORE the flow transform
                   ;; advances them. The transform eagerly advances a flow's row
                   ;; the moment it recomputes, folding the output into the
@@ -1479,7 +1465,7 @@
                   ;; can permanently suppress a flow). We stash the pre-drain
                   ;; snapshot on the ctx; `commit-db-effect!` restores it iff it
                   ;; rolls back — the exact mirror of the throw-path rollback,
-                  ;; at the post-commit boundary. Frame-scoped (rf2-94ol5): the
+                  ;; at the post-commit boundary. Frame-scoped: the
                   ;; snapshot is `frame`'s own container, structurally unable to
                   ;; touch a sibling frame draining on another thread. The
                   ;; snapshot is a persistent map (pointer-sized to stash); the
@@ -1487,7 +1473,7 @@
                   ;; which case there are no rows and nothing to restore.
                   snapshot-li (late-bind/get-fn-cached :flows/snapshot-last-inputs)
                   li-before   (when snapshot-li (snapshot-li frame))
-                  ;; rf2-z980k8: snapshot the frame's pending abandoned-output-
+                  ;; Snapshot the frame's pending abandoned-output-
                   ;; paths BEFORE the transform (it DRAINS/clears them and
                   ;; dissocs them from the pending `:db`). On a POST-commit
                   ;; rollback `commit-frame-effects!` re-records this snapshot —
@@ -1495,7 +1481,7 @@
                   ;; the boundary `run-flows-on-db`'s own throw arm cannot see.
                   snapshot-ap (late-bind/get-fn-cached :flows/snapshot-abandoned-paths)
                   ap-before   (when snapshot-ap (snapshot-ap frame))
-                  ;; EP-0001 §535-551 (rf2-4eisfr): hand the flow transform
+                  ;; EP-0001 §535-551: hand the flow transform
                   ;; BOTH partitions of the pending frame-state. Bare `:inputs`
                   ;; resolve against `pending-db` (app-db); `[:rf.db/runtime …]`
                   ;; inputs resolve against `pending-runtime-db`. The returned
@@ -1507,8 +1493,8 @@
               ;; t1→t2 reshape. The dirty-check below is the same
               ;; identical-by-reference guard the effect-publish below
               ;; uses; t2 fires on the same condition that a `:db`
-              ;; effect survives to `commit-db-effect!`. Per
-              ;; rf2-ta0y7 t2 may fire even when the handler returned
+              ;; effect survives to `commit-db-effect!`. t2 may fire
+              ;; even when the handler returned
               ;; no `:db` (flows synthesised one from app-db); resolve
               ;; the attribution-event lazily so the no-handler-`:db`
               ;; case still carries it.
@@ -1526,22 +1512,22 @@
               ;; effect (which would force an app-db install + db-changed
               ;; trace on an event that wrote nothing). When we DO publish a
               ;; `:db`, stash the pre-drain dirty-check snapshot + the
-              ;; restorer fn (rf2-4wqu6 finding 1) so `commit-db-effect!` can
+              ;; restorer fn so `commit-db-effect!` can
               ;; roll `last-inputs` back in lock-step with an app-db rollback.
               ;; A no-flow / no-write event publishes no `:db`, hits no
               ;; commit/rollback boundary, and needs no snapshot.
               (if (or has-db? (not (identical? new-db pending-db)))
                 (cond-> (interceptor/assoc-effect ctx :db new-db)
                   snapshot-li (assoc :rf/flow-last-inputs-before li-before)
-                  ;; rf2-z980k8: stash the pre-drain abandoned-paths snapshot so
+                  ;; Stash the pre-drain abandoned-paths snapshot so
                   ;; a post-commit rollback can re-record the drained-but-not-
                   ;; durably-vacated path moves. Only when a `:db` is published
                   ;; (a no-`:db` event hits no commit/rollback boundary).
                   snapshot-ap (assoc :rf/flow-abandoned-paths-before ap-before))
                 ctx))
             (catch #?(:clj Throwable :cljs :default) e
-              ;; Atomicity contract (Spec 013 §Failure semantics, Mike
-              ;; 2026-05-24): a flow throw is a PRE-INSTALL throw, so it
+              ;; Atomicity contract (Spec 013 §Failure semantics): a flow
+              ;; throw is a PRE-INSTALL throw, so it
               ;; aborts the whole event. DISCARD any pending `:db` effect
               ;; (the handler's and any prior flows' writes) so the single
               ;; deferred install installs NOTHING — app-db stays unchanged,
@@ -1567,12 +1553,11 @@
 (defn- emit-flow-eval-exception!
   "Surface a flow-eval throw (stashed by `flows-after-interceptor` under
   `:rf/flow-error`) as `:rf.error/flow-eval-exception` through BOTH the
-  dev-only trace surface AND the always-on error-emit substrate (per
-  rf2-hrt5c — the security-audit fix). Per Spec 013 §Failure semantics
-  rule 3 the caller skips `:fx` after this fires; the drain continues
-  with the NEXT event.
+  dev-only trace surface AND the always-on error-emit substrate. Per
+  Spec 013 §Failure semantics rule 3 the caller skips `:fx` after this
+  fires; the drain continues with the NEXT event.
 
-  Per rf2-hrt5c: `trace/emit-error!` is gated by `interop/debug-enabled?`
+  `trace/emit-error!` is gated by `interop/debug-enabled?`
   and DCEs under `:advanced` + `goog.DEBUG=false` — so the always-on
   listener path is what survives prod elision and reaches off-box
   monitors. Mirrors the pipeline-exception path
@@ -1580,10 +1565,9 @@
   [e event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
         elapsed-ms (elapsed-ms-from start-ms end-ms)]
-    ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
-    ;; always-on corpus-wide listener (rf2-bacs4) fires in CLJS production where
-    ;; the trace surface (axis 2) is compile-time elided. Same payload shape as
-    ;; before — existing trace consumers are unaffected.
+    ;; Fan out along BOTH channels (shared helper). Axis 1 — the
+    ;; always-on corpus-wide listener fires in CLJS production where
+    ;; the trace surface (axis 2) is compile-time elided.
     (error-emit/emit-error-both!
       :rf.error/flow-eval-exception
       event event-id frame e elapsed-ms end-ms
@@ -1592,7 +1576,7 @@
 (defn- emit-legacy-runtime-root!
   "Surface `:rf.error/legacy-runtime-root` through BOTH the always-on
   error-emit substrate AND the dev-only trace surface — the FINAL-effects
-  boundary counterpart (rf2-u1kdvg) of the in-chain
+  boundary counterpart of the in-chain
   `events/reject-legacy-runtime-root!` throw.
 
   Why a SEPARATE in-band emit rather than re-throwing: the in-chain guard
@@ -1603,18 +1587,18 @@
   AFTER that guard has run, in the FINAL effects map the router consumes.
   Detecting it here and THROWING would escape `process-event!` into
   `drain-emergency-release!` — which re-throws, abandoning the rest of the
-  drained queue (the very queue-abandonment footgun the bead closes). So
+  drained queue. So
   we emit in-band and abort THIS event only (`:error`
   outcome, NO commit, NO `:fx`), preserving the no-partial-commit promise
   while keeping the drain alive.
 
-  Always-on per rf2-bacs4: the corpus-wide listener observes the
+  Always-on: the corpus-wide listener observes the
   rejection in production where the trace surface DCEs."
   [event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
         elapsed-ms (elapsed-ms-from start-ms end-ms)
         tags       (events/legacy-runtime-root-ex-data event)]
-    ;; Fan out along BOTH channels (rf2-c4oycd shared helper). Axis 1 — the
+    ;; Fan out along BOTH channels (shared helper). Axis 1 — the
     ;; always-on listener (survives prod elision); axis 2 — the dev trace (DCE'd
     ;; under `:advanced` + `goog.DEBUG=false`). No exception object: this is an
     ;; invalid-write rejection, not a host throw.

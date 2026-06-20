@@ -1,7 +1,7 @@
 (ns re-frame.late-bind
   "Hook registry for cross-namespace and cross-artefact forward
   references. Producing ns calls `set-fn!` (single key) or `set-fns!`
-  (map of entries, rf2-rtk2e) at load time; consumer calls `get-fn` at
+  (map of entries) at load time; consumer calls `get-fn` at
   call time. Identical behaviour on JVM and CLJS.
 
   Carries two flavours of forward reference:
@@ -17,7 +17,7 @@
   `re-frame.late-bind.directory` — one CLJC entry per hook key. The
   drift test `implementation/core/test/re_frame/late_bind_drift_test.clj`
   asserts the directory matches the in-tree publications, walking both
-  the per-key `set-fn!` form and the rf2-rtk2e map-form `set-fns!`
+  the per-key `set-fn!` form and the map-form `set-fns!`
   block."
   (:require [re-frame.error :as error]))
 
@@ -31,7 +31,7 @@
   hooks
   (atom {}))
 
-;; ---- sticky resolution cache (rf2-f72pd) ----------------------------------
+;; ---- sticky resolution cache ----------------------------------------------
 ;;
 ;; `get-fn-cached` is a sticky variant of `get-fn` for hooks that are
 ;; published once at boot and never withdrawn in production
@@ -50,10 +50,9 @@
 ;; Invariant: `set-fn!` and `chain-fn!` invalidate the slot for the key
 ;; they re-publish. Production registers each hook once at boot and
 ;; never again — cache hits 100%. Dev hot-reload of an artefact
-;; re-registers — the next cached lookup re-resolves through `hooks`,
-;; identical to today's behaviour. The pattern mirrors
-;; `re-frame.registrar/emit!-cache` (which memoised `:trace/emit!`
-;; under the same logic before this generalised mechanism existed).
+;; re-registers — the next cached lookup re-resolves through `hooks`.
+;; The pattern mirrors `re-frame.registrar/emit!-cache`, which memoises
+;; `:trace/emit!` under the same logic.
 
 (defonce ^:private fn-cache
   ;; hook-key → resolved-fn. Distinct from `hooks` so the cache slot
@@ -87,7 +86,7 @@
   nil)
 
 (defn set-fns!
-  "Register every `hook-key → fn` entry in `m` in one call (rf2-rtk2e).
+  "Register every `hook-key → fn` entry in `m` in one call.
 
   Equivalent to calling `set-fn!` once per entry, but reads as a single
   publication of an artefact's late-bind contract rather than a column
@@ -114,7 +113,7 @@
   (get @hooks hook-key))
 
 (defn get-fn-cached
-  "Sticky variant of `get-fn` (rf2-f72pd) — memoises the resolved fn
+  "Sticky variant of `get-fn` — memoises the resolved fn
   for `hook-key` so subsequent calls read a per-key atom slot rather
   than re-deref'ing the global `hooks` map.
 
@@ -127,8 +126,8 @@
   Use at hot-path call sites — every dispatch reads
   `:schemas/validate-event!`, `:schemas/validate-app-schema!`,
   `:flows/run-flows-on-db`, `:epoch/settle!`, `:epoch/capture-event`,
-  `:event-emit/dispatch-on-event`, `:router/dispatch!` — so a
-  100-event cascade resolved each ~100 times before this cache."
+  `:event-emit/dispatch-on-event`, `:router/dispatch!` — where a
+  100-event cascade would otherwise resolve each key ~100 times."
   [hook-key]
   (or (get @fn-cache hook-key)
       (when-let [resolved (get @hooks hook-key)]
@@ -158,10 +157,10 @@
         (when previous (apply previous args))
         nil))))
 
-;; ---- warn-once clear-fn governance registry (rf2-z79p8) -------------------
+;; ---- warn-once clear-fn governance registry ------------------------------
 ;;
 ;; Every process-wide `defonce` warn-once cache in the adapter / views
-;; family (`warned-non-dom-roots`, the rf2-9hoos `seen-render-keys` set,
+;; family (`warned-non-dom-roots`, the `seen-render-keys` set,
 ;; the slim hiccup interpreter's `warned-keyword-prop` cache, and the
 ;; React-hook spine's per-adapter source-coord cache) must be wiped by the
 ;; standard `make-reset-runtime-fixture` between tests — otherwise a sibling
@@ -169,23 +168,19 @@
 ;; warning. The mechanism is the chained `:adapter/clear-warn-once-caches!`
 ;; late-bind hook the fixture fires.
 ;;
-;; This defect class bit four times before the chokepoint landed: rf2-4edk
-;; (the original source-coord cache), rf2-9hoos (seen-render-keys), rf2-qy6cl
-;; (the slim keyword-prop cache), and rf2-z79p8 (a since-retired plain-fn
-;; pairs cache — its warning is gone per EP-0002, removed in rf2-k4xous).
-;; Each fix was the SAME one-liner: chain the clear-fn. The pattern was
-;; fragile because there was no single chokepoint and nothing asserted the
-;; set of `defonce` warn-once caches equals the set of clears in the chain —
-;; a cache could be added with a bare `defonce` + a standalone clear-fn and
-;; silently escape the fixture.
+;; This defect class is fragile to wire by hand: chaining the clear-fn is a
+;; one-liner, but with no single chokepoint nothing asserts the set of
+;; `defonce` warn-once caches equals the set of clears in the chain — a cache
+;; could be added with a bare `defonce` + a standalone clear-fn and silently
+;; escape the fixture.
 ;;
 ;; `register-warn-once-clear-fn!` is that chokepoint: it both (a) chains
 ;; the clear-fn into `:adapter/clear-warn-once-caches!` and (b) records
 ;; the cache in this governance registry with `:arm` / `:armed?` probes.
 ;; The governance assertion (warn_once_clear_governance test) enumerates
 ;; the registry, arms every cache, fires the chain once, and asserts each
-;; cache is empty afterwards — so a future 5th cache that registers but
-;; forgets the chain (or escapes the chokepoint entirely) trips the gate.
+;; cache is empty afterwards — so a cache that registers but forgets the
+;; chain (or escapes the chokepoint entirely) trips the gate.
 
 (defonce
   ^{:doc "Vector of governance entries for the adapter/views warn-once
@@ -193,7 +188,7 @@
    `:adapter/clear-warn-once-caches!` fixture hook. Populated at ns-load
    by `register-warn-once-clear-fn!`. Each entry is
    `{:label keyword, :clear-fn fn, :arm fn, :armed? fn}`. Consumed only by
-   the warn-once-clear governance assertion (rf2-z79p8); production never
+   the warn-once-clear governance assertion; production never
    reads it. The registry is the authoritative enumeration of the cache
    class — the assertion proves every member is actually cleared by the
    single canonical chain."}
@@ -201,7 +196,7 @@
   (atom []))
 
 (defn register-warn-once-clear-fn!
-  "Canonical chokepoint (rf2-z79p8) for wiring a process-wide warn-once
+  "Canonical chokepoint for wiring a process-wide warn-once
   `defonce` cache into the chained `:adapter/clear-warn-once-caches!`
   fixture-reset hook. Call this — never a bare `chain-fn!` on that key —
   so the cache is BOTH chained AND enrolled in the governance registry

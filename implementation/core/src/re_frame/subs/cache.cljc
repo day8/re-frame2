@@ -1,8 +1,6 @@
 (ns re-frame.subs.cache
   "Sub-cache state, ref-counting, synchronous disposal, hot-reload
-  invalidation, and the test-fixture cache clear. Extracted from
-  `re-frame.subs` per rf2-0ytl4 Phase-2 seam S-A (fold-in of seam S-E
-  for the registrar-replacement hook).
+  invalidation, and the test-fixture cache clear.
 
   Per Spec 006 §Subscription cache and §Reference counting and disposal.
   This ns owns the per-frame `:sub-cache` shape:
@@ -13,7 +11,7 @@
   via deref. Disposal is wired on the reaction (interop/add-on-dispose!),
   not an entry-level callback slot.
 
-  Disposal is **synchronous on derefer-count → 0** (rf2-cmfln, per
+  Disposal is **synchronous on derefer-count → 0** (per
   Spec 006 §Reference counting and disposal). When the last subscriber
   drops (`unsubscribe!` drives the 1 → 0 transition), the cache entry is
   evicted IN-TICK — the reaction is disposed, the on-dispose callback
@@ -24,7 +22,7 @@
 
   The shared-component-thrash scenario (a component unmounts and the
   same subscription remounts in the same tick) re-builds the slot on the
-  new mount; this is acceptable per the rf2-cmfln design — the
+  new mount; this is acceptable by design — the
   recomputed value is `=` to the disposed one, so the post-mount render
   observes no value change, and the cache-miss path's cost is dominated
   by `compute-and-cache!`'s reaction construction (one allocation, no
@@ -42,7 +40,7 @@
   if it stays trivial. Keeping the constant chokepoint co-located with
   `subscribe` preserves the hot-path lookup.
 
-  Per rf2-mrnur (Spec 009 §:op-type vocabulary §`:rf.sub/dispose`): every
+  Per Spec 009 §:op-type vocabulary §`:rf.sub/dispose`: every
   eviction site emits a `:rf.sub/dispose` trace event so consumers can
   observe the sub-cache lifecycle's terminal half — created / run / skip
   / **dispose**. The reason axis discriminates the eviction path:
@@ -51,7 +49,7 @@
   teardown), `:frame-destroy` (the frame's cache was torn down by
   `destroy-frame!` — routed in via the
   `:subs.cache/dispose-all-for-frame-destroy!` late-bind hook so
-  `frame.cljc` carries no static dep on this ns; rf2-x3m8c).
+  `frame.cljc` carries no static dep on this ns).
   Cache-key shape is the query-vector itself
   (`re-frame.subs/cache-key` is identity), so the emit derives
   `:rf.sub/id` and `:rf.sub/query-v` directly from `k`. The emits ride
@@ -66,7 +64,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- dispose trace emit (rf2-mrnur) ---------------------------------------
+;; ---- dispose trace emit ---------------------------------------------------
 ;;
 ;; Per Spec 009 §:op-type vocabulary §`:rf.sub/dispose` — every cache
 ;; eviction site funnels through this helper so the emit tag-shape is
@@ -99,13 +97,13 @@
   (`interop/dispose!`) inside the swap-fn could fire 2+ times under
   concurrent invalidate + dispose race.
 
-  Per rf2-mrnur: emits `:rf.sub/dispose` with `:rf.sub/reason
+  Emits `:rf.sub/dispose` with `:rf.sub/reason
   :no-more-derefers` after the CAS commits, for the call that actually
   drove the eviction (read off the `old` / `new` snapshot diff — the
   same single-fire discipline that gates `interop/dispose!`). `frame-id`
-  rides on the emit's `:frame` tag; the 2-arity form is preserved for
-  legacy call sites that don't carry a frame-id (the emit fires with
-  `:frame nil` and tools fall back to `:rf.sub/id` for grouping)."
+  rides on the emit's `:frame` tag; the 2-arity form serves call sites
+  that don't carry a frame-id (the emit fires with `:frame nil` and
+  tools fall back to `:rf.sub/id` for grouping)."
   ([cache k] (dispose-entry-now! cache k nil))
   ([cache k frame-id]
    (let [[old new] (swap-vals! cache
@@ -120,7 +118,7 @@
      ;; replace! or clear-sub-cache!) that won the CAS race would
      ;; have left the slot absent in `old` too, so we don't double-dispose.
      (when (and (contains? old k) (not (contains? new k)))
-       ;; rf2-mrnur — emit the dispose trace before tearing down the
+       ;; Emit the dispose trace before tearing down the
        ;; reaction. Single-fire (gated on the same CAS-winner check as
        ;; `interop/dispose!`) so we never double-emit under contention.
        (emit-dispose! frame-id k :no-more-derefers)
@@ -134,8 +132,7 @@
   ref-count reaches 0, dispose the entry **synchronously** — evict the
   cache slot, run the reaction's on-dispose callback (which releases
   input refs symmetrically), and emit `:rf.sub/dispose` with reason
-  `:no-more-derefers`. Per Spec 006 §Reference counting and disposal
-  (rf2-cmfln).
+  `:no-more-derefers`. Per Spec 006 §Reference counting and disposal.
 
   No grace-period: the 1 → 0 transition disposes in-tick. A resubscribe
   arriving AFTER `unsubscribe!` returns is treated as a fresh cache miss
@@ -147,11 +144,11 @@
   Called from the public `re-frame.subs/unsubscribe` after `cache-key`
   + `cache` resolution; the facade fn holds the public API shape.
 
-  Per rf2-mrnur: `frame-id` is threaded through to `dispose-entry-now!`
+  `frame-id` is threaded through to `dispose-entry-now!`
   so the `:rf.sub/dispose` trace emit at the actual eviction site
-  carries the right `:frame` tag. The 2-arity form is preserved for
-  legacy callers that don't carry a frame-id; the emit falls back to
-  `:frame nil` on that path."
+  carries the right `:frame` tag. The 2-arity form serves callers that
+  don't carry a frame-id; the emit falls back to `:frame nil` on that
+  path."
   ([cache k] (unsubscribe! cache k nil))
   ([cache k frame-id]
    (let [;; The swap-fn body is pure — it returns only the new cache
@@ -243,7 +240,7 @@
               ;; swap saw them, so the diff names ONLY the keys we own.
               evicted-keys (filterv #(not (contains? new %))
                                     (keys old))]
-          ;; rf2-mrnur — emit dispose per evicted key BEFORE running the
+          ;; Emit dispose per evicted key BEFORE running the
           ;; per-reaction `interop/dispose!` teardown. The reason
           ;; `:hot-reload` discriminates this path from sync 1 → 0 fires
           ;; (`:no-more-derefers`) and explicit `clear-sub-cache!`
@@ -280,7 +277,7 @@
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (doseq [[k entry] @cache]
-       ;; rf2-mrnur — emit dispose per evicted key BEFORE the per-
+       ;; Emit dispose per evicted key BEFORE the per-
        ;; reaction `interop/dispose!`. Reason `:cache-clear`
        ;; discriminates the explicit-teardown path from sync 1 → 0
        ;; fires (`:no-more-derefers`) and hot-reload re-registration
@@ -305,7 +302,7 @@
   static dependency on the CLJS-only spine. Per Spec 006 §Lifetime
   contract — frame disposal §Adapter symmetry: the adapter's
   `dispose-adapter!` disposes every frame's sub-cache as part of process
-  teardown (rf2-ghfkkk).
+  teardown.
 
   Best-effort, per-frame: a throwing per-entry dispose does NOT abort the
   rest of the walk — every other cached entry in the same frame AND every
@@ -318,7 +315,7 @@
     (clear-sub-cache! frame-id))
   nil)
 
-;; ---- frame-destroy eviction (rf2-x3m8c) ----------------------------------
+;; ---- frame-destroy eviction ----------------------------------------------
 ;;
 ;; `re-frame.frame/destroy-frame!` tears the destroyed frame's sub-cache
 ;; down as one of its ordered steps. It MUST funnel through this helper

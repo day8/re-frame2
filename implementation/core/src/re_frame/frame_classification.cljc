@@ -24,7 +24,7 @@
 
          :on-create [:app/init]})
 
-  ## What this slice owns (EP-0015 bead-plan item 3)
+  ## What this namespace owns
 
   This namespace is the frame metadata **schema + registry** for the three
   classification keys. It is the validation + install seam `reg-frame`
@@ -35,11 +35,10 @@
     registry (`[:rf.runtime/elision :sensitive-declarations]` /
     `[:rf.runtime/elision :declarations]`, Conventions §Reserved runtime-db
     keys) under `:source :frame` — the canonical durable app-db egress
-    route post-EP-0015 §8 (the `reg-app-schema` schema→app-db-egress route
-    is GONE; schemas describe shape, not durable app-db egress policy). The
-    only other source that can live in this registry is the demoted
+    route (per EP-0015 §8: schemas describe shape, not durable app-db egress
+    policy). The only other source that can live in this registry is the
     imperative-mark route (`:source :marks` — internal / test /
-    generated-code only, no longer public). A path declared by ANY source
+    generated-code only). A path declared by ANY source
     is classified: the sources union at lookup time. Re-registering a frame
     REPLACES the `:source :frame` entries (the declaration IS the frame's
     policy); any `:source :marks` entries survive untouched.
@@ -53,13 +52,13 @@
     the config; the `http-carriers` resolver (this ns) lowers them to
     lower-cased extension sets the HTTP privacy redactor unions onto the
     immutable built-in carrier denylist at trace-emit time, reached via the
-    `:frame-classification/http-carriers` late-bind hook (EP-0015 HTTP
-    slice, bead-plan item 8 — rf2-ppkh3v).
+    `:frame-classification/http-carriers` late-bind hook (EP-0015 §3, HTTP
+    carriers).
 
     `:headers` is vector-only — the header denylist is immutable (a
     default-off header would be a real leak). `:query-params` additionally
-    accepts a `{:include [..] :except [..]}` policy map (rf2-4wqxq8):
-    `:include` extends the defaults (as the legacy vector form does), and
+    accepts a `{:include [..] :except [..]}` policy map:
+    `:include` extends the defaults (as the plain vector form does), and
     `:except` SUBTRACTS denylisted names from the built-in defaults for
     THIS frame's own dev trace — effective policy `(defaults − except) ∪
     include`. All redaction is debug-gated trace surface (elided in
@@ -72,8 +71,7 @@
     sink policy, likewise retained on the frame's `:config`. This slice
     validates its shape (each entry a map naming a `:sink` keyword);
     ROUTING production records through the declared sinks — the EP-0015 §9
-    central claim — is now LIVE in `re-frame.observability` (bead-plan
-    item 7, rf2-t55hxg.7): the router fires
+    central claim — lives in `re-frame.observability`: the router fires
     `:observability/route-handled-event` once per processed event and
     `error-emit/dispatch-on-error!` fires `:observability/route-error` per
     `:rf.error/*` site, each projecting the record through `project-egress`
@@ -149,7 +147,7 @@
 ;; values. A well-formed declaration is a VECTOR of paths; each path is a
 ;; sequential collection of CONCRETE EDN segments (the empty path `[]` is
 ;; legal — it marks the whole app-db). `rf.path/normalize-concrete` is the
-;; EP-0012 VALIDATED concrete boundary (rf2-w9x5fv item 2): it canonicalises
+;; EP-0012 VALIDATED concrete boundary: it canonicalises
 ;; a sequential path to a vector AND fails closed with `:rf.error/bad-path`
 ;; on a non-sequential path OR any segment outside the concrete EDN domain
 ;; (an opaque host object, a function, a template-parameter segment). We
@@ -240,8 +238,8 @@
   denylist is immutable (no `:except` subtraction; a default-off header
   would be a real leak).
 
-  `:query-params` (rf2-4wqxq8) accepts EITHER:
-   - a vector of carrier-name strings — the legacy include-only form, OR
+  `:query-params` accepts EITHER:
+   - a vector of carrier-name strings — the include-only form, OR
    - a map `{:include [..] :except [..]}` — `:include` extends the defaults,
      `:except` subtracts from the built-in defaults for this frame's own dev
      trace. Both keys are optional; each (when present) is a vector of
@@ -253,7 +251,7 @@
   (cond
     (nil? names) nil
 
-    ;; rf2-4wqxq8 — query-params may carry a {:include :except} policy map.
+    ;; query-params may carry a {:include :except} policy map.
     (and (= :query-params carrier-key) (map? names))
     (do
       (doseq [k (keys names)]
@@ -354,7 +352,7 @@
              (str ":observability " stream " entries must carry a :sink "
                   "keyword id")
              {:bad-key [:observability stream :sink] :bad-entry entry})))
-  ;; rf2-t55hxg.13 — `:rf.egress/profile`, when present, must name a member
+  ;; `:rf.egress/profile`, when present, must name a member
   ;; of the closed EP-0015 §10 profile enum (`re-frame.projection/profiles`).
   ;; `projection.cljc`'s `resolve-elision-opts` already throws on an unknown
   ;; profile at egress time, but that is far downstream of registration — a
@@ -465,16 +463,16 @@
 ;;
 ;; Frame-owned app-db classification installs into `[:rf.runtime/elision …]`
 ;; tagged `:source :frame`. Re-registration REPLACES only the `:source :frame`
-;; entries; any `:source :marks` entries (the demoted imperative-mark route —
+;; entries; any `:source :marks` entries (the imperative-mark route —
 ;; `re-frame.marks`, internal / test only) survive untouched, and the sources
-;; union at lookup time. The schema→app-db-egress route is GONE (EP-0015 §8 —
-;; no `:source :schema` installer feeds this registry; schemas describe shape,
-;; not durable app-db egress policy). This mirrors how `re-frame.marks/set-marks`
-;; replaces only its own `:source :marks` entries.
+;; union at lookup time. No `:source :schema` installer feeds this registry
+;; (per EP-0015 §8: schemas describe shape, not durable app-db egress policy).
+;; This mirrors how `re-frame.marks/set-marks` replaces only its own
+;; `:source :marks` entries.
 
 (defn- without-frame-sourced
   "Drop `:source :frame` entries from a `{path decl}` declaration map,
-  preserving any other-sourced entries (the demoted `:source :marks` route).
+  preserving any other-sourced entries (the `:source :marks` route).
   Returns `{}` for nil."
   [decls]
   (reduce-kv (fn [acc p decl]
@@ -543,8 +541,8 @@
       {:headers      #{<lower-cased header name>...}
        :query-params <query-param policy>}
 
-  where the `:query-params` policy is (rf2-4wqxq8):
-   - a `#{<lower-cased name>...}` SET for the legacy include-only vector form
+  where the `:query-params` policy is:
+   - a `#{<lower-cased name>...}` SET for the include-only vector form
      (`:query-params [\"shop_token\"]`) — names EXTEND the built-in defaults; OR
    - a `{:include #{..} :except #{..}}` MAP for the `{:include [..] :except [..]}`
      form — `:include` extends the defaults, `:except` subtracts from them for
@@ -577,7 +575,7 @@
                          (cond-> {}
                            inc (assoc :include inc)
                            exc (assoc :except exc))))
-                     ;; legacy include-only vector → plain extension set
+                     ;; include-only vector → plain extension set
                      (->set raw-qs))]
             (when (or hs qs)
               (cond-> {}

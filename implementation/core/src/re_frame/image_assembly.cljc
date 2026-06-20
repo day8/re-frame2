@@ -1,6 +1,6 @@
 (ns re-frame.image-assembly
   "EP-0023 §Image Validation / §Image Patching And Overrides / §Image
-  Composition — the ASSEMBLY slice (rf2-32siq3.4): resolve one or more image
+  Composition — the ASSEMBLY slice: resolve one or more image
   values into a SEALED, VALIDATED image generation and fail loud before a frame
   can run it.
 
@@ -42,7 +42,7 @@
       6. seal the result into an immutable [kind id] resolver;
       7. give the frame that sealed generation (frame loading is slice .7).
 
-  ## The DEFAULT image (rf2-32siq3.24)
+  ## The DEFAULT image
 
   The DEFAULT image (EP-0023 §Default Image Semantics) is the implicit selector
   over the WHOLE default source store: `reg-*` mutates the source store, and the
@@ -93,10 +93,10 @@
   ## The .5 / .6 seams (documented boundary)
 
   This slice builds the validation STRUCTURE and fails loud on every condition
-  the EP names for assembly. One seam (.6) is left for a sibling slice to deepen;
-  the .5 replacement policy is now LANDED here:
+  the EP names for assembly. The .5 replacement policy lives here; one seam
+  (.6) is left for a sibling slice to deepen:
 
-    * SLICE .5 (replacement policy — LANDED) — owns the EXACT `:replace` /
+    * SLICE .5 (replacement policy) — owns the EXACT `:replace` /
       `:replace-standard` winner policy: a replacement declares the survivor of
       a REAL collision and is never a silent order override. The three fail-loud
       legs (EP-0023 §Image Validation / §Image Patching And Overrides):
@@ -113,9 +113,9 @@
           proves the invariant is preserved ([[standard-replaceable?]] +
           `resolve-collision` → `:rf.error/image-standard-replacement-forbidden`).
       The seam fns [[resolve-replacement-winner]] / [[standard-replaceable?]]
-      remain the future plug points for richer winner-source matching and the
+      are the plug points for richer winner-source matching and the
       conformance-profile proof that would lift the invariant-coupled lock; the
-      detection STRUCTURE (`.4`'s undeclared-collision fail-loud) is unchanged.
+      undeclared-collision fail-loud detection STRUCTURE sits alongside them.
 
     * SLICE .6 (capability checks) — owns the DEEP capability-map checking
       against the frame's host `:capabilities`. This slice already collects the
@@ -159,9 +159,9 @@
 ;; ship standard registrations (e.g. the `:rf.interceptor/path` standard from
 ;; EP-0022, the `:rf.nav/*` standards from routing) can contribute their
 ;; descriptors at load without this core ns static-requiring them. Assembly
-;; reads the current set. The first version ships an EMPTY standard set — the
-;; structure + policy keys are in place; the specific standard descriptors are
-;; contributed by their owning artefacts in later wave work.
+;; reads the current set. The standard set starts EMPTY — the structure +
+;; policy keys are in place; each owning artefact contributes its standard
+;; descriptors at load via `register-standard!`.
 
 (defonce ^{:doc "Framework-standard descriptors, keyed `[kind id]` → descriptor.
   Each descriptor carries `:standard true` and the `:rf.standard/*` policy keys.
@@ -362,20 +362,20 @@
                     (image/select-descriptors image descriptors))))
         images))
 
-;; ---- inline-registration lowering (EP-0023 §Image Fragments, rf2-ffc6s0) ---
+;; ---- inline-registration lowering (EP-0023 §Image Fragments) ---------------
 ;;
 ;; An inline `:registrations` entry lowers (in the pure `re-frame.image` slice)
 ;; to a descriptor carrying its raw fn BODY under `:impl` — inert data with NO
 ;; runnable slots. A registered descriptor, by contrast, carries the RUNNABLE
 ;; shape `register!` stored (`:handler-fn` + the per-kind discriminators: an
 ;; event's `:interceptors` wrapper chain, a sub's `:input-kind` / `:input-signals`).
-;; So a generation built from inline `:registrations` resolved the descriptor
-;; but ran NOTHING — the cascade reads `registrar/handler` (`:handler-fn`) and
-;; an event needs `:interceptors`, neither of which an `:impl`-only descriptor
-;; carries (rf2-ffc6s0). EP-0023 §Image Fragments is explicit: "Both paths
-;; should lower to the same runtime descriptor shape."
+;; The cascade reads `registrar/handler` (`:handler-fn`) and an event needs
+;; `:interceptors`, neither of which an `:impl`-only descriptor carries, so an
+;; inline descriptor must be lowered to the runnable shape before a generation
+;; runs it. EP-0023 §Image Fragments is explicit: "Both paths should lower to
+;; the same runtime descriptor shape."
 ;;
-;; This step closes that gap: for each SELECTED descriptor that is inline
+;; This step does that lowering: for each SELECTED descriptor that is inline
 ;; (`:rf.provenance/inline`) and carries a real fn body (`:impl`), call the
 ;; kind's late-bound lowering (`:image/lower-inline-<kind>`, published by
 ;; `re-frame.events` / `.subs` / `.fx` / `.cofx`) with the inline `:metadata` +
@@ -395,7 +395,7 @@
 
 (defn lower-inline-descriptor
   "Lower ONE selected descriptor into its runnable shape when it is an inline
-  descriptor carrying a real fn body (EP-0023 §Image Fragments, rf2-ffc6s0).
+  descriptor carrying a real fn body (EP-0023 §Image Fragments).
   An inline descriptor (`:rf.provenance/inline`) with an `:impl` fn is merged
   with the runnable slots its kind's late-bound lowering produces (the same
   slots `register!` stores for a `reg-*` of that kind) — preserving `:impl`,
@@ -418,7 +418,7 @@
 (defn lower-inline-descriptors
   "Map `lower-inline-descriptor` over `descriptors` — lowering every selected
   inline descriptor with a real fn body into its runnable shape before
-  validation + sealing (EP-0023 §Image Fragments, rf2-ffc6s0). Registered /
+  validation + sealing (EP-0023 §Image Fragments). Registered /
   standard / metadata-only descriptors pass through untouched. Order
   preserved (it never decides a collision winner downstream)."
   [descriptors]
@@ -984,7 +984,7 @@
   `descriptors` is the candidate pool. This is the function the cache wraps —
   it has no cache awareness, so every cache MISS computes one full generation
   here (the SSR re-seal the cache exists to avoid). Throws on every fail-loud
-  condition exactly as before (a throwing input is NOT cached)."
+  condition (a throwing input is NOT cached)."
   [images descriptors]
   (let [;; A representative image id for diagnostics (the first that carries
         ;; one); collision/winner errors also name exact coordinates.
@@ -993,8 +993,8 @@
         ;; runnable shape (`:handler-fn` + per-kind runtime slots) so the
         ;; sealed resolver's inline entries route through dispatch / subscribe
         ;; identically to a `:include-ns`-selected registered descriptor
-        ;; (EP-0023 §Image Fragments — "the same runtime descriptor shape",
-        ;; rf2-ffc6s0). Registered / standard / metadata-only entries are
+        ;; (EP-0023 §Image Fragments — "the same runtime descriptor shape").
+        ;; Registered / standard / metadata-only entries are
         ;; unchanged; `:impl` + provenance are preserved for collision /
         ;; replacement / dedupe (all unchanged downstream).
         selected (lower-inline-descriptors (select-for-images images descriptors))
@@ -1021,7 +1021,7 @@
 
 ;; ===========================================================================
 ;; Resolved-generation cache (EP-0023 §Image — "The reference implementation
-;; MUST cache resolved generations") + rf2-3sjdmi (cache-key correctness)
+;; MUST cache resolved generations") + cache-key correctness
 ;; ===========================================================================
 ;;
 ;; Resolved generations are IMMUTABLE and may be physically shared across many
@@ -1052,7 +1052,7 @@
 ;;   * `:replace` / `:replace-standard` — the declared replacement maps.
 ;;
 ;; So the image vector IS the "normalized :images + inline fingerprints +
-;; replacement maps" portion of the key. This is the rf2-3sjdmi correctness
+;; replacement maps" portion of the key. This is the correctness
 ;; point: the key is built from the image INPUTS, NOT from `:rf.gen/resolver`
 ;; alone — two compositions differing ONLY in `:replace` carry different image
 ;; values, so they occupy different cache slots and can never cache-collide on
@@ -1068,7 +1068,7 @@
 ;;     `*source-store*` vs the process-default) can each sit at the same
 ;;     generation integer over DIFFERENT descriptor pools. The store identity
 ;;     disambiguates them so a sealed generation assembled from one store is
-;;     never handed back for another (rf2-1x2zuc). ANY reg-*/forget-*/clear on
+;;     never handed back for another. ANY reg-*/forget-*/clear on
 ;;     the active store bumps its generation leg.
 ;;   * the framework-standard generation: `standard-generation` — ANY
 ;;     register-standard!/clear bumps it.
@@ -1118,7 +1118,7 @@
       atom (identity, so distinct stores never alias) paired with its monotonic
       per-store generation (so a mutation re-seals). The identity is REQUIRED
       because the generation is keyed per store: two distinct stores at the
-      same generation integer would otherwise collide (rf2-1x2zuc);
+      same generation integer would otherwise collide;
     * explicit-pool arity — the explicit descriptor pool VALUE itself (distinct
       pools are distinct values, so distinct keys without a separate identity).
 
@@ -1133,7 +1133,7 @@
   "Look the normalized `images` up in the resolved-generation cache under
   `[images pool-leg (standard-generation)]` (the live-store `pool-leg` is the
   `[store-identity store-generation]` pair, so distinct stores at the same
-  generation never alias — rf2-1x2zuc); on a MISS compute the sealed
+  generation never alias); on a MISS compute the sealed
   generation via `assemble*` (against `descriptors`), cache it, and return it.
   A cache HIT returns the SAME sealed object — this is the SSR no-re-seal
   guarantee. A throwing `assemble*` (a fail-loud validation) is NOT cached: the
@@ -1189,14 +1189,14 @@
   object without re-running selection + validation + sealing. This is the SSR
   fast path. ANY change to a selected, standard, inline, or replacement input
   bumps a key leg and forces a re-seal; two compositions differing only in
-  `:replace` never cache-collide (rf2-3sjdmi).
+  `:replace` never cache-collide.
 
   Two arities:
     (assemble images)            — select against the live source store; the
                                    key's pool leg is the live source-store
                                    IDENTITY + its generation (the identity stops
                                    two distinct stores at the same generation
-                                   from aliasing — rf2-1x2zuc).
+                                   from aliasing).
     (assemble images descriptors)— select against an explicit descriptor pool
                                    (tests / harnesses / a pre-snapshotted
                                    store); the key's pool leg is the descriptor
@@ -1238,7 +1238,7 @@
        ;; The pool leg pairs the active store IDENTITY with its generation: the
        ;; generation is keyed per store, so the identity is what stops two
        ;; distinct stores at the same generation from aliasing one sealed
-       ;; generation (rf2-1x2zuc).
+       ;; generation.
        (assemble-cached images
                         (source-store-descriptors)
                         [(source-store/store-identity)
@@ -1256,7 +1256,7 @@
 (defn assemble-default
   "Resolve the DEFAULT image — the implicit selector over the WHOLE registration
   source store + the framework standards — into a SEALED, VALIDATED image
-  generation (EP-0023 §Default Image Semantics / Bead Plan item 6). The default
+  generation (EP-0023 §Default Image Semantics). The default
   path projects ALL default-source `reg-*` descriptors into the default image
   generation, FAILING LOUD if that projection contains same-kind same-id
   collisions.
@@ -1281,7 +1281,7 @@
                                    generation is cached, invalidated the instant
                                    any `reg-*` / `forget-*` / `clear-*` bumps it,
                                    and never aliased across two distinct stores
-                                   at the same generation (rf2-1x2zuc; EP-0023
+                                   at the same generation (EP-0023
                                    §Image — the default generation is cached
                                    keyed on the source-store generation).
     (assemble-default descriptors)— select against an explicit descriptor pool
@@ -1296,7 +1296,7 @@
   ([]
    ;; Live-store default: pair the active store identity with its generation so
    ;; the default generation of two distinct stores at the same generation never
-   ;; aliases (rf2-1x2zuc).
+   ;; aliases.
    (assemble-cached [default-image]
                     (source-store-descriptors)
                     [(source-store/store-identity)

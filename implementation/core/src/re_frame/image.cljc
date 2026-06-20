@@ -7,7 +7,7 @@
   > stream. It answers one question: which registrations are visible to this
   > frame?
 
-  This namespace is the FOUNDATION slice of the EP-0023 wave (rf2-32siq3.3):
+  This namespace is the FOUNDATION slice of the EP-0023 wave:
   the constructor (`image`), the normalized image value, the exact `:include-ns`
   glob grammar, inline `:registrations` lowering, and the PURE selector that
   given a collection of descriptors — each carrying its source-code provenance
@@ -36,18 +36,18 @@
       inline descriptors), with zero-match `:include-ns` patterns failing loud
       (EP-0023 §Namespace-Selected Images \"Zero matches are fail-loud\").
 
-  DEFERRED to sibling slices (NOT touched here):
+  OWNED by sibling slices (NOT here):
 
     * the provenance-preserving registration SOURCE STORE keyed by
       `[kind id provenance-namespace]` (slice .2) — the live store that
-      PRODUCES the descriptors this selector consumes. This slice tests the
-      selector against SYNTHETIC descriptor collections so the two slices can
-      land in parallel; the live wiring is slice .4 (assembly).
+      PRODUCES the descriptors this selector consumes. This selector works
+      against any descriptor collection carrying `:rf.provenance/ns`; the live
+      wiring is slice .4 (assembly).
     * image ASSEMBLY into a sealed `[kind id]` generation, collision
       validation, framework-standard registrations, replacement winners
       (`:replace` / `:replace-standard`), capability checks, and resolved-
-      generation caching (later wave beads).
-    * `make-frame` / `reload-images!` frame loading (later wave beads).
+      generation caching.
+    * `make-frame` / `reload-images!` frame loading.
 
   ## The selector contract (input shape from the source store)
 
@@ -389,14 +389,14 @@
 
   `:replace` / `:replace-standard` are the EP-0023 §Image Patching And Overrides
   declared-winner maps (`{[kind id] winner-source-coordinate}`). They are BARE
-  structural slots (the EP-0017 v5 line, per Conventions §`:rf.image/*`) carried
+  structural slots (per Conventions §`:rf.image/*`) carried
   through UNINTERPRETED here — the image value is inert data; the assembly slice
-  (rf2-32siq3.4) reads them to resolve collisions. The constructor validates the
+  reads them to resolve collisions. The constructor validates the
   STRUCTURAL shape of each entry (`validate-replacement-map!`): the map and each
   key/value, so a malformed key or winner coordinate fails loud at `rf/image`
   with an actionable diagnostic rather than reaching assembly's collision checks
   as a generic `nth not supported` destructuring error or a misleading
-  no-collision report (rf2-32siq3.20). The SEMANTIC winner-coordinate validation
+  no-collision report. The SEMANTIC winner-coordinate validation
   AGAINST the actual selected collisions (does this key really collide? does the
   coordinate name exactly one selected descriptor?) stays the assembly slice's
   fail-loud job."
@@ -433,7 +433,7 @@
 
 (defn- validate-replacement-map!
   "Fail-loud STRUCTURAL validation of a `:replace` / `:replace-standard` map at
-  the image boundary (rf2-32siq3.20). `map-key` is `:replace` or
+  the image boundary. `map-key` is `:replace` or
   `:replace-standard` (named in diagnostics); `m` the declared-winner map;
   `image-id` the containing image's id (when known). Pure.
 
@@ -443,10 +443,11 @@
   `{:standard true}`). A malformed key (non-vector, wrong arity, or an
   unsupported kind) or a malformed winner coordinate throws
   `:rf.error/invalid-image` with an actionable diagnostic BEFORE assembly's
-  `check-replacement-keys-collide!` destructures the key — so a keyword key no
-  longer surfaces as `nth not supported`, and a typo'd coordinate no longer
-  masquerades as a stale winner. The SEMANTIC checks (real collision? winner
-  names exactly one selected descriptor?) remain the assembly slice's job."
+  `check-replacement-keys-collide!` destructures the key — so a keyword key
+  surfaces as a clear diagnostic rather than `nth not supported`, and a typo'd
+  coordinate is caught here rather than masquerading downstream as a stale
+  winner. The SEMANTIC checks (real collision? winner names exactly one
+  selected descriptor?) remain the assembly slice's job."
   [image-id map-key m]
   (doseq [[k winner] m]
     (when-not (and (vector? k) (= 2 (count k)))
@@ -584,7 +585,7 @@
                  "winner source coordinate — got " (pr-str m) ".")
             {:recovery :use-a-replacement-winner-map
              :extra    {:image id :bad-key k :received m}}))
-        ;; Structural validation of each entry (rf2-32siq3.20): the [kind id]
+        ;; Structural validation of each entry: the [kind id]
         ;; key and the winner source coordinate, fail-loud before assembly.
         (validate-replacement-map! id k m)))
     (cond-> {:rf.image/include-ns include-ns

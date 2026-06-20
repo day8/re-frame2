@@ -10,9 +10,10 @@
   property of the data VALUE at a path, not of the handler that touched it.
 
   EP-0015 §8: schemas describe shape, not durable app-db egress policy — a
-  `reg-app-schema` `{:sensitive? true}` slot prop is no longer a route into
-  this registry. (Schema `:sensitive?` still drives schema-validation-
-  failure-trace redaction in `re-frame.schemas`, a separate egress product.)
+  `reg-app-schema` `{:sensitive? true}` slot prop is not a route into this
+  registry, which is fed solely by frame-owned classification. (Schema
+  `:sensitive?` drives schema-validation-failure-trace redaction in
+  `re-frame.schemas`, a separate egress product.)
 
   The helpers here are the path-overlap arm of that scheme — they redact
   event-payload paths whose path-scoped handler slice overlaps a
@@ -50,7 +51,7 @@
 
 (defn- sensitive-declarations
   [frame-id]
-  ;; rf2-ivr38u — HOT PATH (every dispatch, via `schema-redaction-paths`
+  ;; HOT PATH (every dispatch, via `schema-redaction-paths`
   ;; in the router's `prepare-handler-ctx`). The
   ;; `:elision/sensitive-declarations` hook is published ONCE at boot
   ;; (`re-frame.elision`, bottom of file) and never withdrawn in
@@ -84,10 +85,9 @@
 
   The overlap is computed against the frame's sensitive-declarations
   registry (frame-owned `:sensitive {:app-db …}` classification, EP-0015
-  §3 / §8) — NOT against schema-attached `{:sensitive? true}` slot props,
-  which no longer feed this registry. The fn name is retained for callers.
+  §3 / §8), the single source of truth for app-db sensitivity.
 
-  rf2-ivr38u — DOMINANT-PATH SKIP: when the frame declares ZERO sensitive
+  DOMINANT-PATH SKIP: when the frame declares ZERO sensitive
   app-db paths (the common case) there is no overlap to compute, so the
   `handler-db-paths` chain walk + `mapcat` are bypassed entirely."
   [frame-id interceptors]
@@ -103,16 +103,15 @@
       (empty? path)
       redacted-sentinel
 
-      ;; rf2-agpv2.4 — the parent must be ASSOCIATIVE for `assoc-in` to
-      ;; descend into it, not merely non-nil. A `(some? …)` guard let a
-      ;; non-nil scalar parent through (e.g. payload `{:auth "tok"}` with
-      ;; redact path `[:auth :password]`): `assoc-in` then recurses into
-      ;; the string and throws ("cannot assoc onto a String"). That throw
-      ;; lands inside a `:before` interceptor and aborts the whole event
-      ;; (classified `:rf.error/interceptor-exception`, no `:db` commit, no
-      ;; `:fx`) — a redaction that silently drops the event. `associative?`
-      ;; treats a non-associative parent as a no-op, matching the
-      ;; missing-leaf no-op posture below.
+      ;; The parent must be ASSOCIATIVE for `assoc-in` to descend into it,
+      ;; not merely non-nil. A non-nil scalar parent (e.g. payload
+      ;; `{:auth "tok"}` with redact path `[:auth :password]`) would make
+      ;; `assoc-in` recurse into the string and throw ("cannot assoc onto a
+      ;; String"); that throw lands inside a `:before` interceptor and aborts
+      ;; the whole event (classified `:rf.error/interceptor-exception`, no
+      ;; `:db` commit, no `:fx`) — a redaction that silently drops the event.
+      ;; `associative?` treats a non-associative parent as a no-op, matching
+      ;; the missing-leaf no-op posture below.
       (associative? (get-in payload (butlast path)))
       (assoc-in payload path redacted-sentinel)
 
@@ -179,17 +178,16 @@
   event vector's payload map with the `:rf/redacted` sentinel before the
   handler body runs.
 
-  REMOVED FROM THE PUBLIC API (EP-0015 §7, rf2-mngp4o). A positional
-  \"redact for the trace but not the handler\" interceptor made privacy
+  NOT part of the public API (EP-0015 §7). A positional
+  \"redact for the trace but not the handler\" interceptor would make privacy
   depend on interceptor placement rather than on the owner of the payload
-  shape; registration-owned `:sensitive` payload classification +
-  centralized `project-egress` at egress boundaries replace it. This fn
-  remains as internal router plumbing (the router still recognises a
-  resolved `redact-interceptor`-shaped value — `:id :rf/redact-interceptor`
-  — in a handler's chain), but it is no longer published from the
-  `re-frame.core` façade. Since EP-0022 (chains are reference-only) it can
-  only reach a chain via `reg-interceptor` + a by-id reference, never as an
-  inline value.
+  shape; privacy instead rests on registration-owned `:sensitive` payload
+  classification + centralized `project-egress` at egress boundaries. This
+  fn is internal router plumbing (the router recognises a resolved
+  `redact-interceptor`-shaped value — `:id :rf/redact-interceptor` — in a
+  handler's chain) and is not published from the `re-frame.core` façade.
+  Per EP-0022 (chains are reference-only) it can only reach a chain via
+  `reg-interceptor` + a by-id reference, never as an inline value.
 
   The handler itself receives the UNREDACTED payload via the regular
   `:event` coeffect slot; the redaction is for the trace surface only
@@ -213,7 +211,7 @@
       handler invocation on the trace surface inside the cascade. The
       record carries the already-scrubbed trace events into the fn.
 
-  Internal usage (no longer a public `rf/` surface; reference-only since
+  Internal usage (not a public `rf/` surface; reference-only per
   EP-0022 — register the built value, reference it by id):
 
       (rf/reg-interceptor :auth/redact-login
@@ -264,7 +262,7 @@
         interceptors))
 
 (defn collect-redaction-paths
-  "Single-pass fusion (rf2-ivr38u / rf2-tgea2z companion) of
+  "Single-pass fusion of
   `schema-redaction-paths` + `user-redaction-paths` over the SAME
   resolved interceptor chain — read together by the router's
   `prepare-handler-ctx` on every dispatch.
@@ -278,9 +276,9 @@
   to calling `schema-redaction-paths` and `user-redaction-paths`
   separately. The schema-path overlap is only computed when the frame
   declares ≥1 sensitive app-db path (the dominant no-classification path
-  skips the overlap `mapcat` entirely); the single chain walk still
+  skips the overlap `mapcat` entirely); the single chain walk
   collects `:path` slices unconditionally so the overlap, when needed,
-  sees the same db-paths the two-walk form did."
+  sees the same db-paths it would under two separate walks."
   [frame-id interceptors]
   (let [sensitive-paths (keys (sensitive-declarations frame-id))
         {:keys [db-paths user-paths]}

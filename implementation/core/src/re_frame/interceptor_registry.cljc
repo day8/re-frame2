@@ -1,6 +1,6 @@
 (ns re-frame.interceptor-registry
   "Registered interceptors — the `:interceptor` registrar kind and the
-  by-reference chain resolution (EP-0022; reference-only since rf2-0adhqs.9).
+  by-reference chain resolution (EP-0022; chains are reference-only).
 
   Per [Spec 001 §Interceptors](../../../spec/001-Registration.md) and
   [Spec 002 §Registered interceptors and the chain grammar](../../../spec/002-Frames.md):
@@ -32,18 +32,17 @@
     static descriptor; an `[id arg]` vector resolves a `:factory` and builds
     for the arg.
 
-  - `resolve-chain` — the chain-assembly seam (EP-0022 reference-only flip,
-    rf2-0adhqs.9). Walk an event/frame `:interceptors` chain and resolve every
-    REFERENCE to its registered interceptor value. A stale INLINE interceptor
+  - `resolve-chain` — the chain-assembly seam (EP-0022 reference-only
+    grammar). Walk an event/frame `:interceptors` chain and resolve every
+    REFERENCE to its registered interceptor value. An INLINE interceptor
     value (a map carrying `:before` / `:after` / `:id`, a `->interceptor` call
     result, a value-Var) in a chain position fails LOUD with
     `:rf.error/inline-interceptor-removed` — chains are reference-only. The ONE
     inline value that flows through is the framework's own appended handler-
     wrapper (`:rf/default? true`), which is framework machinery, not an
-    application-authored chain entry. (The additive window where refs and
-    inline values coexisted is closed — mirrors EP-0018 B-add→Z.)
+    application-authored chain entry.
 
-  ## Realm-awareness (rf2-a15n62)
+  ## Realm-awareness
 
   Resolution goes through `registrar/lookup`, which reads the active
   registrar (`registrar/*registrar*` when an explicit-realm seating is in
@@ -178,10 +177,9 @@
   An interceptor value is legal ONLY at the `reg-interceptor` REGISTRATION
   boundary (the authoring input) and as the framework's own appended handler-
   wrapper. In an event/frame `:interceptors` CHAIN an application-authored
-  interceptor value is `:rf.error/inline-interceptor-removed` (EP-0022
-  reference-only flip, rf2-0adhqs.9) — chains carry references only. This
-  predicate is the shape detector both the registration boundary and the
-  chain's stale-inline rejection share."
+  interceptor value is `:rf.error/inline-interceptor-removed` (EP-0022:
+  chains carry references only). This predicate is the shape detector both
+  the registration boundary and the chain's inline rejection share."
   [x]
   (and (map? x)
        (or (contains? x :before)
@@ -192,11 +190,10 @@
 ;; predicate) is the ONE inline interceptor value `resolve-chain` lets pass
 ;; through a chain untouched: it is framework machinery (the terminal
 ;; `:before` that invokes the user handler), not an application-authored
-;; chain entry, so the reference-only flip (rf2-0adhqs.9) does not reject
-;; it. The predicate lives in `re-frame.interceptor` (already required here)
-;; and is shared with that ns's `invoke-after` ctx-delta-capture gate —
-;; one copy, not two (rf2-ih437c). Call it as
-;; `interceptor/framework-default-interceptor?`.
+;; chain entry, so the reference-only grammar does not reject it. The
+;; predicate lives in `re-frame.interceptor` (already required here) and is
+;; shared with that ns's `invoke-after` ctx-delta-capture gate — one copy,
+;; not two. Call it as `interceptor/framework-default-interceptor?`.
 
 (defn interceptor-ref?
   "True when `x` is an interceptor REFERENCE (Spec 002 §Interceptor
@@ -320,17 +317,16 @@
 (defn- throw-inline-interceptor-removed!
   "Raise `:rf.error/inline-interceptor-removed` (ex-info) for an INLINE
   interceptor value found in a chain position. Per EP-0022 §Event and frame
-  chain grammar (the reference-only flip, rf2-0adhqs.9): event/frame
-  `:interceptors` chains carry REFERENCES only — a bare keyword id or an
-  `[id arg]` 2-vector. An inline interceptor map / value / Var (an
-  `->interceptor` result, a `(path …)` value, a `(redact-interceptor …)`
-  value, a locally-bound interceptor symbol) is no longer accepted; it must be
-  registered with `reg-interceptor` and referenced by id. Loud-fail at chain
-  assembly rather than a silent no-op (Conventions §No silent swallow).
-  Delegates to the ONE shared `error/throw-inline-interceptor-removed!`
-  (rf2-8au0w6) passing this site's `:where 'rf/resolve-chain`, reason, and
-  ex-data — the registration-time twin (`re-frame.events`) shares the same
-  thrower."
+  chain grammar: event/frame `:interceptors` chains carry REFERENCES only —
+  a bare keyword id or an `[id arg]` 2-vector. An inline interceptor map /
+  value / Var (an `->interceptor` result, a `(path …)` value, a
+  `(redact-interceptor …)` value, a locally-bound interceptor symbol) is not
+  accepted; it must be registered with `reg-interceptor` and referenced by
+  id. Loud-fail at chain assembly rather than a silent no-op (Conventions §No
+  silent swallow). Delegates to the ONE shared
+  `error/throw-inline-interceptor-removed!` passing this site's
+  `:where 'rf/resolve-chain`, reason, and ex-data — the registration-time
+  twin (`re-frame.events`) shares the same thrower."
   [entry]
   (error/throw-inline-interceptor-removed!
     'rf/resolve-chain
@@ -372,7 +368,7 @@
                     (throw-factory-arity!
                       ref id
                       (str "the `:factory` for interceptor `" id "` threw while building "
-                           ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
+                           ;; nil-safe (a thrown non-Error value has no message).
                            "for arg `" (pr-str arg) "`: " (error/ex-message-safe e) ".")))))]
     (cond
       ;; Factory returned an executable interceptor value (a map with
@@ -430,8 +426,8 @@
 
 (defn resolve-chain
   "Resolve an event/frame `:interceptors` chain entry-by-entry into executable
-  interceptor values. REFERENCE-ONLY (EP-0022 flip, rf2-0adhqs.9): a REFERENCE
-  (keyword / `[id arg]`) resolves to its registered interceptor value. A stale
+  interceptor values. REFERENCE-ONLY (EP-0022): a REFERENCE
+  (keyword / `[id arg]`) resolves to its registered interceptor value. An
   INLINE interceptor value (a map carrying `:before` / `:after` / `:id`, an
   `->interceptor` result, a value-Var) in a chain position fails LOUD with
   `:rf.error/inline-interceptor-removed` — chains are reference-only. A
@@ -467,8 +463,8 @@
               ;; true`) — framework machinery, not an authored chain entry;
               ;; passes through untouched (the reference-only carve-out).
               (interceptor/framework-default-interceptor? entry) entry
-              ;; A stale INLINE interceptor value — reference-only flip rejects
-              ;; it LOUD (EP-0022, rf2-0adhqs.9): register it + reference by id.
+              ;; An INLINE interceptor value — the reference-only grammar
+              ;; rejects it LOUD (EP-0022): register it + reference by id.
               (interceptor-value? entry) (throw-inline-interceptor-removed! entry)
               :else (throw-invalid-ref! entry)))
           chain)))
@@ -479,7 +475,7 @@
   (rejected `:rf.error/inline-interceptor-removed`). A hot-path predicate the
   resolution seams use to skip the walk when a chain is nothing but the
   framework's appended handler-wrapper (the common all-default shape — an event
-  with no authored chain). Reference-only since EP-0022 (rf2-0adhqs.9): a
+  with no authored chain). Reference-only (EP-0022): a
   chain carrying ONLY the framework default needs no resolution; the moment it
   carries a ref OR a stale inline value, `resolve-chain` must walk it (to
   resolve the ref, or to reject the inline value loudly)."

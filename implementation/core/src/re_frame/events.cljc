@@ -3,13 +3,12 @@
   §Registry model.
 
   The ONE public event form is `reg-event` — pure (cofx, event) → a closed
-  effects map (EP-0018, ruled 2026-06-14; final removal flip rf2-xhfxcs.14).
-  Coeffects in, a closed effects map out.
+  effects map (EP-0018). Coeffects in, a closed effects map out.
 
-  EP-0018 collapsed the historical three-form family to one. `reg-event-db` /
+  `reg-event` is the single event-registration form. `reg-event-db` /
   `reg-event-fx` are REMOVED and public `reg-event-ctx` is demoted to a
   framework-internal `context -> context` primitive; calling any of the
-  retired public names is a hard error naming the replacement (the
+  removed public names is a hard error naming the replacement (the
   facade-exported throwing stubs `re-frame.events/reg-event-db` /
   `reg-event-fx` / `reg-event-ctx` raise
   `:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`, per
@@ -17,29 +16,26 @@
   is expressed with interceptors authored via the public `reg-interceptor`
   form and referenced by id from a `reg-event` registration's
   `:interceptors` chain (`->interceptor` is the internal lowering
-  constructor post-EP-0022, not the application authoring form).
+  constructor, not the application authoring form).
 
   All event registrations register under registry kind `:event` and share the
   ONE handler-wrapping interceptor `:rf/event-handler` (`:rf/default? true`);
-  the historical `:event/kind` sub-tag and the per-kind `:rf/db-handler` /
-  `:rf/fx-handler` / `:rf/ctx-handler` ids are gone (EP-0018 §5). The runtime
+  there is no `:event/kind` sub-tag and no per-kind `:rf/db-handler` /
+  `:rf/fx-handler` / `:rf/ctx-handler` ids (EP-0018 §5). The runtime
   treats every event uniformly during drain.
 
   Per Spec 015 §1. Event handlers — the registration meta-map accepts
   optional `:sensitive [paths]` and `:large [paths]` keys that index
   into the dispatched event vector's arg-map (the second element).
   The marks are DERIVED from the registrar meta at `re-frame.marks/marks-for`
-  read time (rf2-ehexnw); reg-event only VALIDATES them fail-loud via
+  read time; reg-event only VALIDATES them fail-loud via
   `re-frame.marks/validate-marks!` — an ALWAYS-ON registration-time validator
-  reached by DIRECT REQUIRE (rf2-58bq1r). `re-frame.marks` is core-owned, lives
-  in the SAME artefact as events/fx/subs, and is already pinned into every
+  reached by DIRECT REQUIRE. `re-frame.marks` is core-owned, lives
+  in the SAME artefact as events/fx/subs, and is pinned into every
   production bundle (it is side-effect-required by `re-frame.core`); the
-  validator fail-louds in prod as well as dev. The former `:marks/validate-marks!`
-  late-bind hop bought nothing for THIS key — it was not a DCE seam (marks is in
-  the bundle regardless), not optional-artefact decoupling (marks is never
-  absent), and the require is cycle-free (marks' transitive closure touches none
-  of events/fx/cofx/subs). The dev-gated marks PROJECTION hooks stay late-bound
-  (eq7m0x). No imperative stash."
+  validator fail-louds in prod as well as dev. The direct require is
+  cycle-free (marks' transitive closure touches none of events/fx/cofx/subs).
+  The dev-gated marks PROJECTION hooks stay late-bound. No imperative stash."
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
@@ -53,19 +49,15 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- metadata-map `:interceptors` — the superset middle slot (rf2-bpmszk) -
+;; ---- metadata-map `:interceptors` — the superset middle slot -------------
 ;;
 ;; The `reg-event` metadata-map carries a RESERVED `:interceptors` key,
 ;; making the map the ONE superset middle-slot shape:
 ;; `{:doc … :schema … :sensitive … :interceptors [i1 i2]}`.
-;; The historical positional interceptor VECTOR form (`[i1 i2]`) is retired:
-;; put the chain under `:interceptors` in the metadata map.
+;; The interceptor chain goes under `:interceptors` in the metadata map.
 ;;
-;; This SUPERSEDES the former rf2-bbea warning
-;; (`:rf.warning/interceptors-in-metadata-map`): `:interceptors` inside the
-;; metadata-map is now the documented home, not a typo. The Circle-Drawer
-;; footgun rf2-w3vn flagged (a silently-dropped chain) is structurally gone —
-;; the chain is now honoured, not dropped.
+;; `:interceptors` inside the metadata-map is the documented home for the
+;; chain, and the chain is honoured.
 ;;
 ;; The malformed-value guard below keeps the superset honest: a non-vector
 ;; `:interceptors` value, or a vector carrying a non-map (non-interceptor)
@@ -75,10 +67,10 @@
 
 (defn- interceptor-entry?
   "True when `x` is a valid `:interceptors` chain entry. REFERENCE-ONLY under
-  EP-0022 (the flip, rf2-0adhqs.9): an entry MUST be an interceptor REFERENCE —
+  EP-0022: an entry MUST be an interceptor REFERENCE —
   a bare keyword id or an `[id arg]` 2-vector. Refs resolve to their registered
   values at chain assembly. An INLINE interceptor value (a map carrying `:id` /
-  `:before` / `:after`, an `->interceptor` result, a value-Var) is no longer a
+  `:before` / `:after`, an `->interceptor` result, a value-Var) is not a
   valid entry — register it with `reg-interceptor` and reference it by id. A
   non-ref entry is rejected at registration by `validate-meta-interceptors!`
   (an inline value gets the `:rf.error/inline-interceptor-removed`-aimed
@@ -106,14 +98,13 @@
 (defn- throw-inline-interceptor-removed!
   "Raise `:rf.error/inline-interceptor-removed` (ex-info) at registration when a
   metadata-map `:interceptors` chain carries an INLINE interceptor value. Per
-  EP-0022 §Event and frame chain grammar (the reference-only flip,
-  rf2-0adhqs.9): chains carry REFERENCES only. The earliest, clearest fail
-  point for a stale inline value (an `->interceptor` result, a `(path …)` /
-  `(redact-interceptor …)` value, a value-Var) — a typo dies at `reg-event`,
-  not at first dispatch. Mirrors the dispatch-time
+  EP-0022 §Event and frame chain grammar: chains carry REFERENCES only. The
+  earliest, clearest fail point for a stale inline value (an `->interceptor`
+  result, a `(path …)` / `(redact-interceptor …)` value, a value-Var) — a typo
+  dies at `reg-event`, not at first dispatch. Mirrors the dispatch-time
   `interceptor-registry/resolve-chain` rejection with the same error id —
   both delegate to the ONE shared `error/throw-inline-interceptor-removed!`
-  (rf2-8au0w6) passing this site's `:where 'rf/reg-event`, reason, and ex-data."
+  passing this site's `:where 'rf/reg-event`, reason, and ex-data."
   [reg-fn-name id value offending]
   (error/throw-inline-interceptor-removed!
     'rf/reg-event
@@ -135,12 +126,12 @@
   keyword id or an `[id arg]` 2-vector — per `interceptor-entry?`). A no-op
   (returns `value`) for a well-shaped vector.
 
-  Reference-only since EP-0022 (the flip, rf2-0adhqs.9):
+  Reference-only (EP-0022):
     - a non-vector value raises `:rf.error/reg-event-bad-interceptors`;
     - an INLINE interceptor value entry (a map carrying `:before` / `:after` /
       `:id`, an `->interceptor` result, a value-Var) raises the dedicated
       `:rf.error/inline-interceptor-removed` — the loud, actionable signal that
-      chains are now reference-only (vs. the generic bad-interceptors message);
+      chains are reference-only (vs. the generic bad-interceptors message);
     - any OTHER non-ref entry (a string, number, …) raises the generic
       `:rf.error/reg-event-bad-interceptors`."
   [reg-fn-name id value]
@@ -153,8 +144,8 @@
            "references (e.g. `{:interceptors [:auth/required [:rf.interceptor/path [:cart]]]}`)."))
 
     (not (every? interceptor-entry? value))
-    ;; Discriminate a stale INLINE value (the EP-0022 reference-only flip's
-    ;; headline footgun) from any other malformed entry, so the developer gets
+    ;; Discriminate a stale INLINE value (the headline reference-only
+    ;; footgun) from any other malformed entry, so the developer gets
     ;; the actionable "register + reference by id" message rather than a generic
     ;; bad-interceptors tell.
     (if-let [inline (some (fn [e]
@@ -178,7 +169,7 @@
   interceptor. A reference to an absent id throws
   `:rf.error/unregistered-interceptor` at registration so typos die before
   dispatch. Only refs are checked here; the appended framework handler-wrapper
-  (the one inline value a chain carries since the reference-only flip) is
+  (the one inline value a chain carries) is
   skipped — any other inline value has already been rejected by
   `validate-meta-interceptors!`. Resolution is deferred to chain assembly (the
   router) so hot-reloaded descriptors are picked up on the next dispatch."
@@ -192,14 +183,13 @@
       (icpt-reg/resolve-ref entry)))
   chain)
 
-;; ---- validate-at-boundary-interceptor registration-time validation (rf2-iftj4) -----------------
+;; ---- validate-at-boundary-interceptor registration-time validation -------
 ;;
 ;; The `:rf.schema/at-boundary` interceptor (per Spec 010 §Production builds)
-;; is structurally meaningless without a `:schema` to validate against. Per
-;; rf2-ycqtv finding #8 (Mike-pick option (b)), the registrar hard-rejects
-;; any handler that attaches the interceptor without `:schema` metadata,
-;; throwing `:rf.error/at-boundary-missing-schema` at reg time so the
-;; developer learns immediately, regardless of dev/prod gate.
+;; is structurally meaningless without a `:schema` to validate against. The
+;; registrar hard-rejects any handler that attaches the interceptor without
+;; `:schema` metadata, throwing `:rf.error/at-boundary-missing-schema` at reg
+;; time so the developer learns immediately, regardless of dev/prod gate.
 ;;
 ;; Detection is by interceptor `:id` (`:rf.schema/at-boundary`), not by var
 ;; equality — keeps `events` decoupled from `re-frame.spec` (which depends
@@ -208,22 +198,21 @@
 (defn- at-boundary-entry?
   "Truthy when a single RAW chain entry attaches the `:rf.schema/at-boundary`
   interceptor by REFERENCE — the bare keyword `:rf.schema/at-boundary` (the
-  only legal chain form since the EP-0022 reference-only flip, rf2-0adhqs.9;
-  the chain stores refs UNRESOLVED, so the bare keyword reaches here).
+  only legal chain form, EP-0022; the chain stores refs UNRESOLVED, so the
+  bare keyword reaches here).
 
   The `[:rf.schema/at-boundary arg]` 2-vector form is NOT detected here: it is
   unreachable for this missing-schema check. `:rf.schema/at-boundary` is a
   STATIC interceptor (no `:factory`), so an `[:rf.schema/at-boundary arg]`
   chain ref is rejected at `validate-refs-registered!` with
   `:rf.error/interceptor-factory-arity` BEFORE
-  `reject-at-boundary-without-schema!` (which calls this predicate) ever runs
-  (rf2-48ypb6.1, rf2-wjr8ow). The `[id arg]` shape is therefore simply an
-  unregistered-factory-shape misuse and fails loud on its own.
+  `reject-at-boundary-without-schema!` (which calls this predicate) ever runs.
+  The `[id arg]` shape is therefore simply an unregistered-factory-shape
+  misuse and fails loud on its own.
 
-  The former INLINE-VALUE migration form — the `validate-at-boundary-interceptor`
-  Var dropped directly into the chain — is no longer accepted (chains are
-  reference-only; `validate-meta-interceptors!` rejects it
-  `:rf.error/inline-interceptor-removed` before this runs). Detects by id
+  Chains are reference-only, so an inline `:rf.schema/at-boundary` value is
+  rejected by `validate-meta-interceptors!` with
+  `:rf.error/inline-interceptor-removed` before this runs. Detects by id
   keyword so the check stays cycle-free against `re-frame.spec`."
   [icpt]
   ;; By-ref: bare keyword.
@@ -232,7 +221,7 @@
 (defn- attaches-validate-at-boundary-interceptor?
   "Truthy when the effective user interceptor chain attaches the
   `:rf.schema/at-boundary` interceptor by REF (`[:rf.schema/at-boundary]`, the
-  only legal chain form since the EP-0022 reference-only flip). See
+  only legal chain form, EP-0022). See
   `at-boundary-entry?`. Detects by id so the check stays cycle-free against
   `re-frame.spec`."
   [interceptors]
@@ -243,7 +232,7 @@
   "Raise `:rf.error/at-boundary-missing-schema` (ex-info) when the
   metadata-map `:interceptors` chain includes `:rf.schema/at-boundary`
   but the metadata-map carries no `:schema`. Per Spec 010 §Production
-  builds + rf2-iftj4: the boundary interceptor is structurally
+  builds: the boundary interceptor is structurally
   meaningless without a `:schema`, so the registrar rejects the call
   at registration time rather than waiting until first dispatch.
 
@@ -278,12 +267,11 @@
 ;; (:dispatch, :dispatch-later, :dispatch-n, :http, etc.) must move into :fx
 ;; as [[fx-id args] ...] entries.
 ;;
-;; EP-0001 (rf2-bvwoi4): the partition split widened the closed set from
-;; #{:db :fx} to #{:db :rf.db/runtime :fx} (per Spec-Schemas §:rf/effect-map +
-;; Spec 002 §Write authority). `:db` is the app-db partition (still targets
-;; app-db); `:rf.db/runtime` is the runtime-db partition — the one new
-;; state-bearing top-level key, reserved BY CONVENTION for framework-authority
-;; writers (NOT a security boundary). `:rf.db/runtime` is NOT a shape error
+;; EP-0001: the closed set is #{:db :rf.db/runtime :fx} (per Spec-Schemas
+;; §:rf/effect-map + Spec 002 §Write authority). `:db` is the app-db partition;
+;; `:rf.db/runtime` is the runtime-db partition — a state-bearing top-level
+;; key, reserved BY CONVENTION for framework-authority writers (NOT a security
+;; boundary). `:rf.db/runtime` is NOT a shape error
 ;; here — a non-framework handler emitting it is surfaced by the
 ;; `:rf.warning/app-handler-runtime-effect` dev diagnostic (in
 ;; `commit-fx-effects`), not dropped. All OTHER unknown top-level keys remain
@@ -298,7 +286,7 @@
   "The closed set of top-level effect-map keys a `reg-event` handler may
   return. Per Spec-Schemas §:rf/effect-map — `:db` (app-db partition),
   `:rf.db/runtime` (runtime-db partition, framework-authority by convention,
-  EP-0001 rf2-bvwoi4), and `:fx` (everything else). Widening this set is a
+  EP-0001), and `:fx` (everything else). Widening this set is a
   Spec change; any other top-level key is a shape error."
   #{:db :rf.db/runtime :fx})
 
@@ -308,7 +296,7 @@
   effect-map is closed at the top level (`#{:db :rf.db/runtime :fx}`).
   Returns the list of offending keys (which the caller drops).
 
-  Hot-path short-circuit (rf2-4ymm0 EV4): the well-shaped case is the
+  Hot-path short-circuit: the well-shaped case is the
   overwhelming majority — handlers return `{}`, `{:db ...}`, `{:fx ...}`,
   or `{:db ... :fx ...}`. Allocating an `offending` vector per dispatch
   for the every-key-walks-the-closed-set check is wasted work. Pre-check
@@ -335,20 +323,19 @@
                               :recovery          :logged-and-skipped})))
       offending)))
 
-;; ---- :fx VALUE-shape policing (rf2-24zly) ---------------------------------
+;; ---- :fx VALUE-shape policing --------------------------------------------
 ;;
-;; `police-effect-map-shape!` above polices the top-level KEYS only. The
-;; one shape it does NOT check is the :fx VALUE: per Spec-Schemas §:rf/effect-map
-;; the :fx value is `[:vector [:tuple :keyword :any]]` — a sequential of
-;; [fx-id args] pairs. A handler that returns a non-sequential :fx value
-;; (e.g. `{:fx :oops}` or `{:fx {:dispatch [...]}}` — a plausible
-;; forgot-the-outer-vector typo) used to escape policing entirely: the value
-;; was assoc'd straight into the effects map, and `fx/do-fx`'s
-;; `(doseq [pair fx-vec] ...)` then threw an uncaught host exception
-;; ("Don't know how to create ISeq from: …"). Because :fx runs AFTER the :db
-;; commit, that throw escaped `process-event!` into the drain's emergency
-;; release: app-db left mutated, no structured trace, no `:on-error` fire,
-;; downstream queued events abandoned.
+;; `police-effect-map-shape!` above polices the top-level KEYS only. This
+;; checks the one shape it does NOT: the :fx VALUE. Per Spec-Schemas
+;; §:rf/effect-map the :fx value is `[:vector [:tuple :keyword :any]]` — a
+;; sequential of [fx-id args] pairs. A handler that returns a non-sequential
+;; :fx value (e.g. `{:fx :oops}` or `{:fx {:dispatch [...]}}` — a plausible
+;; forgot-the-outer-vector typo) is caught here. Without this check the value
+;; would be assoc'd straight into the effects map, and `fx/do-fx`'s
+;; `(doseq [pair fx-vec] ...)` would throw an uncaught host exception
+;; ("Don't know how to create ISeq from: …") AFTER the :db commit — escaping
+;; `process-event!` into the drain's emergency release with app-db mutated, no
+;; structured trace, no `:on-error` fire, downstream queued events abandoned.
 ;;
 ;; We close the gap symmetric with M-8: a non-sequential (and non-nil) :fx
 ;; value emits :rf.error/effect-map-shape (recovery :logged-and-skipped) and
@@ -383,7 +370,7 @@
                             :recovery          :logged-and-skipped})
         false))))
 
-;; ---- final-effects boundary policing (rf2-u1kdvg) -------------------------
+;; ---- final-effects boundary policing -------------------------------------
 ;;
 ;; `commit-fx-effects` (below) polices the effect-map shape + the whole-`:fx`
 ;; value for a `reg-event` HANDLER RETURN — at the moment the handler-wrapping
@@ -419,7 +406,7 @@
 
   This is the boundary gate covering effects that bypass the
   `commit-fx-effects` per-handler-return checks — an `:after`-interceptor
-  mutation (rf2-u1kdvg). `nil` / a non-map effects value (no effects
+  mutation. `nil` / a non-map effects value (no effects
   produced) passes through untouched.
 
   Hot-path short-circuit: when the effects map is already well-shaped (the
@@ -438,10 +425,9 @@
 
 ;; ---- handler-as-interceptor wrapper ---------------------------------------
 ;;
-;; EP-0018 (rf2-xhfxcs.14): the historical db/fx/ctx triple collapsed to ONE
-;; event form, so the handler-wrapping interceptor is ONE shape too. Its
-;; `:before`:
-;;   1. honours :rf/skip-handler? (Spec 010 §Validation order, rf2-7leq/jwm4),
+;; EP-0018: there is ONE event form, so the handler-wrapping interceptor is
+;; ONE shape too. Its `:before`:
+;;   1. honours :rf/skip-handler? (Spec 010 §Validation order),
 ;;   2. invokes the user handler with the coeffects map + the event vector
 ;;      (`(fn [coeffects event] effect-map)`),
 ;;   3. projects the returned closed effects map into the context via
@@ -449,15 +435,15 @@
 ;;      policing).
 ;; The interceptor stamps the single id `:rf/event-handler` and carries
 ;; `:rf/default? true` so tools filter the framework auto-wrapper without an
-;; id allowlist. (The former per-kind `:rf/db-handler` / `:rf/fx-handler` /
-;; `:rf/ctx-handler` ids + the `:event/kind` sub-tag are gone.)
+;; id allowlist. There are no per-kind handler ids and no `:event/kind`
+;; sub-tag.
 
 (defn- police-runtime-effect-authority!
-  "EP-0001 (rf2-bvwoi4): when `effects` carries a `:rf.db/runtime` effect AND
+  "EP-0001: when `effects` carries a `:rf.db/runtime` effect AND
   the running handler does NOT have framework-write authority, emit the
   `:rf.warning/app-handler-runtime-effect` dev diagnostic. `:rf.db/runtime`
-  is reserved BY CONVENTION for framework / runtime-extension code (Mike
-  ruling #4) — NOT a security boundary: the effect is STILL applied (recovery
+  is reserved BY CONVENTION for framework / runtime-extension code — NOT a
+  security boundary: the effect is STILL applied (recovery
   `:warned`); the diagnostic names the runtime-db ownership rule rather than
   enforcing a capability or silently dropping the effect.
 
@@ -489,35 +475,31 @@
                          "code should reach subsystem state through public framework "
                          "subscriptions and effects, and write application data via `:db`.")}))))
 
-;; ---- legacy :rf/runtime root — HARD ERROR (EP-0001 rf2-tfepxu) -------------
+;; ---- legacy :rf/runtime root — HARD ERROR (EP-0001) -----------------------
 ;;
 ;; Per Conventions §The legacy `:rf/runtime` root — hard error in final form
-;; (decision #8) + 009 §Error event catalogue: the former single reserved
-;; app-db root `:rf/runtime` is RETIRED. Framework durable state now lives in
-;; the runtime-db partition (`:rf.db/runtime`), addressed by `:rf.runtime/*`
-;; children. A stray `:rf/runtime` root surviving at the TOP of app-db —
-;; whether written by user code or carried over from v1-shaped code — is a
-;; HARD ERROR (`:rf.error/legacy-runtime-root`) in the final form (pre-alpha:
-;; no long-lived migration alias; the temporary migration WARNING is removed
-;; now that all in-repo consumers are on runtime-db).
+;; + 009 §Error event catalogue: the `:rf/runtime` app-db root key is reserved
+;; and rejected. Framework durable state lives in the runtime-db partition
+;; (`:rf.db/runtime`), addressed by `:rf.runtime/*` children. A stray
+;; `:rf/runtime` root at the TOP of app-db is a HARD ERROR
+;; (`:rf.error/legacy-runtime-root`); there is no migration alias.
 ;;
-;; This supersedes the retired `:rf.warning/runtime-state-dropped` containment
-;; diagnostic: under the two-partition contract an ordinary `:db` return
-;; replaces ONLY app-db and CANNOT touch runtime-db (the clobber footgun is
-;; structurally gone), so the only remaining way `:rf/runtime` reaches app-db
-;; is a handler that EXPLICITLY writes it — which this guard rejects loudly.
+;; Under the two-partition contract an ordinary `:db` return replaces ONLY
+;; app-db and CANNOT touch runtime-db (the clobber footgun is structurally
+;; absent), so the only way `:rf/runtime` reaches app-db is a handler that
+;; EXPLICITLY writes it — which this guard rejects loudly.
 
 (def ^:private legacy-runtime-root-key
-  "The retired app-db root key. Framework durable state moved to the
-  runtime-db partition; a stray `:rf/runtime` at the top of app-db is the
-  legacy-shaped write this guard rejects."
+  "The reserved app-db root key this guard rejects. Framework durable state
+  lives in the runtime-db partition; a stray `:rf/runtime` at the top of
+  app-db is the legacy-shaped write this guard rejects."
   :rf/runtime)
 
 (defn legacy-runtime-root?
-  "True iff `app-db` carries the retired `:rf/runtime` root key at its top
-  level (per Conventions §The legacy `:rf/runtime` root + decision #8). The
+  "True iff `app-db` carries the reserved `:rf/runtime` root key at its top
+  level (per Conventions §The legacy `:rf/runtime` root). The
   pure detector both `reject-legacy-runtime-root!` (the in-chain throw) and
-  the router's final-effects boundary (rf2-u1kdvg, the in-band abort) share
+  the router's final-effects boundary (the in-band abort) share
   so the rejection rule has a single definition. Cheap on the hot path — a
   single `contains?` over the top-level keys."
   [app-db]
@@ -527,7 +509,7 @@
   "The shared `:rf.error/legacy-runtime-root` ex-data / error-trace tag map
   for the offending `event`. Used both by `reject-legacy-runtime-root!`
   (carried on the thrown ex-info) and by the router's final-effects
-  boundary emit (rf2-u1kdvg) so the two rejection sites surface an identical
+  boundary emit so the two rejection sites surface an identical
   payload."
   [event]
   (let [event-id (when (vector? event) (first event))]
@@ -548,11 +530,11 @@
 
 (defn reject-legacy-runtime-root!
   "Throw `:rf.error/legacy-runtime-root` (ex-info) when `app-db` carries the
-  retired `:rf/runtime` root key at its top level. Per Conventions §The
-  legacy `:rf/runtime` root + decision #8: a HARD ERROR in the final form —
-  framework runtime state lives in the runtime-db partition now, never under
-  an app-db `:rf/runtime` root. A no-op (returns `app-db`) for any value that
-  does not carry the legacy key, so it is cheap on the hot path.
+  reserved `:rf/runtime` root key at its top level. Per Conventions §The
+  legacy `:rf/runtime` root: a HARD ERROR — framework runtime state lives in
+  the runtime-db partition, never under an app-db `:rf/runtime` root. A no-op
+  (returns `app-db`) for any value that does not carry the key, so it is cheap
+  on the hot path.
 
   Always-on (NOT dev-gated): a legacy-shaped write is a structural contract
   violation that must surface in every build, not a dev-only advisory.
@@ -561,7 +543,7 @@
   `:before`, so a handler-RETURN legacy root is captured by the interceptor
   machinery and surfaced as `:rf.error/handler-exception`). The symmetric
   FINAL-effects boundary check — covering a legacy root inserted by an
-  `:after` interceptor AFTER this ran — lives in the router (rf2-u1kdvg) and
+  `:after` interceptor AFTER this ran — lives in the router and
   emits in-band rather than throwing, so the drain is not aborted."
   [app-db event]
   (when (legacy-runtime-root? app-db)
@@ -571,25 +553,24 @@
 (defn- commit-fx-effects
   "fx-kind commit: enforce the closed effect-map (M-8 + EP-0001) and assoc
   :db / :rf.db/runtime / :fx into the context. Bad-return / nil-return policy
-  lives here too — `nil` is the documented legal no-op (rf2-k3bj); any
+  lives here too — `nil` is the documented legal no-op; any
   non-map return emits :rf.error/effect-handler-bad-return with :no-recovery
   and the dispatch becomes a no-op.
 
   Two shape checks run before commit: `police-effect-map-shape!` rejects
   top-level keys outside `#{:db :rf.db/runtime :fx}` (M-8 + EP-0001), and
-  `fx-value-ok?` rejects a non-sequential `:fx` value (rf2-24zly) — both emit
+  `fx-value-ok?` rejects a non-sequential `:fx` value — both emit
   :rf.error/effect-map-shape (:logged-and-skipped) and DROP the offending
   slot, so a malformed effect map never reaches `fx/do-fx` to throw a raw
   host exception after the :db commit.
 
-  EP-0001 (rf2-bvwoi4): `:db` targets the app-db partition; `:rf.db/runtime`
+  EP-0001: `:db` targets the app-db partition; `:rf.db/runtime`
   targets the runtime-db partition (reserved by convention — a non-framework
   handler emitting it fires `:rf.warning/app-handler-runtime-effect` via
   `police-runtime-effect-authority!`, but the effect is still committed). The
-  `:rf.db/runtime` effect is assoc'd into the context here; the actual
-  PARTITIONED commit (scoping `:db` to app-db, installing the runtime-db /
-  full-frame write as one atomic frame-state transition) lands in rf2-adwcv6
-  (bead 5)."
+  `:rf.db/runtime` effect is assoc'd into the context here; the partitioned
+  commit (scoping `:db` to app-db, installing the runtime-db / full-frame
+  write as one atomic frame-state transition) happens downstream."
   [ctx event effects]
   (cond
     (nil? effects) ctx                       ;; documented legal no-op
@@ -608,9 +589,9 @@
       (police-runtime-effect-authority! ctx event effects)
       (cond-> ctx
         (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
-        ;; runtime-db partition effect (EP-0001 rf2-bvwoi4). Carried through the
-        ;; context here; the partitioned/atomic commit path lands in rf2-adwcv6
-        ;; (bead 5). Reserved-by-convention — the authority diagnostic above has
+        ;; runtime-db partition effect (EP-0001). Carried through the
+        ;; context here; the partitioned/atomic commit path runs downstream.
+        ;; Reserved-by-convention — the authority diagnostic above has
         ;; already fired for a non-framework writer; the effect is applied either way.
         (contains? effects :rf.db/runtime) (interceptor/assoc-effect :rf.db/runtime (:rf.db/runtime effects))
         (and (contains? effects :fx)
@@ -618,16 +599,15 @@
 
 (def event-handler-interceptor-id
   "The single `:id` the framework stamps on the handler-wrapping interceptor
-  (the terminal `:before` that invokes the user event handler). One id since
-  EP-0018 collapsed the db/fx/ctx triple to one form — a captured
-  `:rf/interceptor-error` whose `:id` is this is the EVENT HANDLER itself
-  throwing (vs. a user interceptor). A stable framework-owned contract."
+  (the terminal `:before` that invokes the user event handler). There is ONE
+  such id (EP-0018) — a captured `:rf/interceptor-error` whose `:id` is this
+  is the EVENT HANDLER itself throwing (vs. a user interceptor). A stable
+  framework-owned contract."
   :rf/event-handler)
 
 (defn- wrap-event-handler
   "Wrap `handler-fn` into the ONE event-handler interceptor whose :before
-  runs the handler (EP-0018 — the historical per-kind db/fx/ctx wrappers
-  collapsed to this single shape).
+  runs the handler (EP-0018 — one wrapper shape for every event).
 
   The :before:
     (a) honours :rf/skip-handler? (Spec 010 steps 1-2 recovery — schema
@@ -638,7 +618,7 @@
     (d) commits the returned closed effects map via `commit-fx-effects`.
 
   The interceptor stamps `:rf/event-handler` and carries `:rf/default? true`
-  (rf2-twt7m Change 3) so tools (Xray, Story, the Event lens) can filter the
+  so tools (Xray, Story, the Event lens) can filter the
   framework's auto-wrapper without a hardcoded id allowlist. Self-describing:
   the meta lives on the interceptor map itself."
   [handler-fn]
@@ -652,7 +632,7 @@
         (let [event   (interceptor/get-coeffect ctx :event)
               new-ctx (commit-fx-effects ctx event
                                          (handler-fn (interceptor/get-coeffect ctx) event))]
-          ;; EP-0001 (rf2-tfepxu, decision #8): a `:db` effect carrying the
+          ;; EP-0001: a `:db` effect carrying the
           ;; retired `:rf/runtime` app-db root is a HARD ERROR — reject it at
           ;; the single post-commit chokepoint. No-op (cheap) when the legacy
           ;; key is absent.
@@ -666,7 +646,7 @@
   `:interceptors` vector carrying the `:rf/event-handler` wrapping
   interceptor at its tail.
 
-  Per rf2-a2sn1 — the single source of truth for the handler-meta shape,
+  The single source of truth for the handler-meta shape,
   shared by `register-event!` (the registration path) AND the machines
   lazy-actor-handler resolver (which materialises a spawned actor's
   handler-meta on demand from its app-db snapshot rather than from a
@@ -689,7 +669,7 @@
   handler may legitimately return a `:rf.db/runtime` effect without
   tripping the `:rf.warning/app-handler-runtime-effect` dev diagnostic.
 
-  EP-0001 (rf2-3939ig) — the GENERAL minting mechanism. A registration
+  EP-0001 — the GENERAL minting mechanism. A registration
   site mints authority by stamping the reserved `:rf/framework-authority?
   true` registration-meta key (see Conventions §Reserved registration
   meta). Spec 002 §Write authority names machines, routing, elision, and
@@ -705,7 +685,7 @@
   predicate folds the implication in, keeping the machine contract
   unchanged.
 
-  Reserved BY CONVENTION (Mike ruling #4), not a capability gate: the
+  Reserved BY CONVENTION, not a capability gate: the
   effect is applied either way; the flag only governs the dev diagnostic."
   [meta]
   (boolean (or (:rf/framework-authority? meta)
@@ -716,10 +696,9 @@
 ;; `:rf.cofx/requires` is a standard registration-metadata key (Spec 001 middle
 ;; slot) on `reg-event` declaring the handler's consumed coeffect ids. The
 ;; runtime delivers EXACTLY the declared facts, flat, into the handler's
-;; coeffects map (declared-only delivery — Spec 002 §Satisfaction). Since
-;; EP-0018 collapsed to the one coeffects-in form, `:rf.cofx/requires` is
-;; uniformly available to every event (the EP-0017 hole — a db handler that
-;; structurally could not take delivery — is closed). The parsing / shape
+;; coeffects map (declared-only delivery — Spec 002 §Satisfaction). Every
+;; event takes the one coeffects-in form, so `:rf.cofx/requires` is uniformly
+;; available to every event. The parsing / shape
 ;; validation / duplicate-id check lives in `re-frame.cofx/parse-requires`; the
 ;; parsed entries are stored on the registration under
 ;; `:rf.cofx/requires-parsed` for the satisfaction step
@@ -729,20 +708,18 @@
 
 ;; ---- registration ---------------------------------------------------------
 
-;; ---- bare-interceptor detection (rf2-3ut12) -------------------------------
+;; ---- bare-interceptor detection ------------------------------------------
 ;;
 ;; The `reg-event` interceptor chain lives under metadata `:interceptors`
 ;; and MUST be a VECTOR (per Spec 001 §Allowed forms of the middle slot).
 ;; A BARE interceptor —
 ;; `(reg-event id mw/some-interceptor handler)` rather than
-;; `(reg-event id {:interceptors [mw/some-interceptor]} handler)` — used to be SILENTLY
-;; dropped: an interceptor built by `->interceptor` / `->interceptor*` is a
-;; *map* (`{:id … :before … :after …}`), so `normalise-args`' two-arg branch
-;; read it as the metadata-map, the chain never reached the registrar, and
-;; the interceptor never ran — no error, no warning (field-confirmed via the
-;; rf8 migration). This is the same silent-drop class as
-;; `:rf.warning/runtime-state-dropped` (p806o), the fail-closed work (gro94),
-;; and the M-8 silent no-op (cxo1h).
+;; `(reg-event id {:interceptors [mw/some-interceptor]} handler)` — is a
+;; recognised-but-unhonourable input: an interceptor built by `->interceptor` /
+;; `->interceptor*` is a *map* (`{:id … :before … :after …}`), so without this
+;; detection `normalise-args`' two-arg branch would read it as the
+;; metadata-map, the chain would never reach the registrar, and the
+;; interceptor would never run — a silent drop.
 ;;
 ;; Per Conventions §No silent swallow — recognised input MUST signal: a
 ;; bare interceptor is a recognised-but-unhonourable input, and the cascade
@@ -795,7 +772,7 @@
   Per Spec 001 §Allowed forms of the middle slot. Returns
   `[metadata handler]`.
 
-  Loud-fails on a BARE interceptor (rf2-3ut12): an interceptor map handed
+  Loud-fails on a BARE interceptor: an interceptor map handed
   where a metadata-map was expected is rejected with
   `:rf.error/reg-event-bare-interceptor` rather than silently dropped — the
   two-arg branch catches `(reg-event id bare-icpt handler)` (a map with
@@ -826,15 +803,15 @@
 
 (defn- merge-form-source
   "Merge `*pending-form-source*` into `m` under `:rf.handler/source`
-  (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch,
-  rf2-xgfuy). User-supplied `:rf.handler/source` overrides the auto-
+  (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch).
+  User-supplied `:rf.handler/source` overrides the auto-
   captured value (mirrors `source-coords/merge-coords` semantics — so
   tooling that synthesises registrations from another source can stamp
   the original form-source). Returns `m` unchanged when no source is
   pending (programmatic / REPL registrations that bypass the macro
   path).
 
-  Per rf2-xgfuy §Production elision: the whole body is gated on
+  Production elision: the whole body is gated on
   `interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`
   Closure constant-folds the gate to `false` and DCEs the entire merge
   — both the literal `:rf.handler/source` keyword's reachability from
@@ -858,7 +835,7 @@
   The metadata-map carries a reserved `:interceptors` key. A non-vector /
   non-interceptor value raises `:rf.error/reg-event-bad-interceptors`.
 
-  RETAIN-vs-STRIP decision (one line, per the bead): the raw `:interceptors`
+  RETAIN-vs-STRIP: the raw `:interceptors`
   key is STRIPPED from the stored metadata. The registrar entry already stores
   the EFFECTIVE chain (user interceptors + the framework wrapper) under
   `:interceptors`; retaining the raw user value under the same key would collide
@@ -876,7 +853,7 @@
       ;; REFERENCE resolves at registration (typos die before dispatch), but
       ;; store the chain UNRESOLVED — the router resolves refs at chain
       ;; assembly so a hot-reloaded interceptor descriptor is picked up on the
-      ;; next dispatch (EP-0022, rf2-0adhqs.2).
+      ;; next dispatch (EP-0022).
       (validate-refs-registered! meta-interceptors)
       [(dissoc meta :interceptors) meta-interceptors])))
 
@@ -886,13 +863,13 @@
   Steps:
     1. parse the variadic tail into [metadata handler];
     2. resolve the interceptor chain from metadata `:interceptors` via
-       `resolve-interceptors` (rf2-bpmszk): validates the map value and strips
+       `resolve-interceptors`: validates the map value and strips
        the raw key from the stored meta;
     3. wrap the user handler into the `:rf/event-handler` interceptor via
        `wrap-event-handler`;
     4. register under `:event` with `:handler-fn` retained for tooling
        introspection and `:rf.handler/source` carrying the macro-captured
-       form-source string when present (Spec 009, rf2-xgfuy);
+       form-source string when present (Spec 009);
     5. return the event id. Path-D schema-first privacy has no
        user-facing redaction interceptor to police at registration time.
 
@@ -901,7 +878,7 @@
   (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
         [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
         wrapped (wrap-event-handler handler-fn)]
-    ;; Per Spec 010 §Production builds + rf2-iftj4: reject the
+    ;; Per Spec 010 §Production builds: reject the
     ;; registration when `:rf.schema/at-boundary` is attached but no
     ;; `:schema` is declared on the metadata-map. The boundary
     ;; interceptor is structurally meaningless without a schema, so
@@ -913,20 +890,19 @@
     ;; entry vector the satisfaction step consumes (`cofx/deliver-declared-cofx`,
     ;; via `assemble-initial-ctx`), raising `:rf.error/cofx-request-invalid` /
     ;; `:rf.error/cofx-name-collision` on a malformed / duplicate declaration.
-    ;; EP-0018: `:rf.cofx/requires` is uniformly available (the former
-    ;; db-handler exception is gone — the one form is coeffects-in).
+    ;; EP-0018: `:rf.cofx/requires` is uniformly available — the one form is
+    ;; coeffects-in.
     ;; Per Spec 015 §1. Event handlers: VALIDATE any declared `:sensitive` /
-    ;; `:large` marks fail-loud BEFORE the registrar write (rf2-ehexnw); the
-    ;; marks themselves are DERIVED from the registrar meta at `marks-for` read
-    ;; time, no imperative stash. DIRECT REQUIRE (rf2-58bq1r): `marks` is
-    ;; core-owned, same-artefact, already pinned into the prod bundle, and
-    ;; always-on, so the former `:marks/validate-marks!` late-bind hop bought
-    ;; nothing here (no DCE seam, no optional-artefact decoupling) and the require
-    ;; is cycle-free. Runs for MACHINE registrations too: a machine's author
-    ;; marks ride its `:event` reg meta (via `reg-machine` opts); `marks-for
-    ;; :event <id>` returns those registrar-derived author marks (EP-0025
-    ;; rf2-398kql removed the machine `:data-schema`→marks union — frame-declared
-    ;; paths are now the sole app-db classification mechanism).
+    ;; `:large` marks fail-loud BEFORE the registrar write; the marks
+    ;; themselves are DERIVED from the registrar meta at `marks-for` read
+    ;; time, no imperative stash. DIRECT REQUIRE: `marks` is core-owned,
+    ;; same-artefact, pinned into the prod bundle, and always-on, so the
+    ;; require needs no late-bind hop (no DCE seam, no optional-artefact
+    ;; decoupling) and is cycle-free. Runs for MACHINE registrations too: a
+    ;; machine's author marks ride its `:event` reg meta (via `reg-machine`
+    ;; opts); `marks-for :event <id>` returns those registrar-derived author
+    ;; marks (EP-0025 — frame-declared paths are the sole app-db classification
+    ;; mechanism).
     (marks/validate-marks! :event meta)
     (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
       (registrar/register! :event id
@@ -939,8 +915,8 @@
 
 (defn reg-event
   "Register a `(fn [coeffects event-vec] effect-map)` event handler under
-  `id` — the ONE public event-registration form (EP-0018, ruled
-  2026-06-14). Coeffects in, a closed effects map out.
+  `id` — the ONE public event-registration form (EP-0018). Coeffects in, a
+  closed effects map out.
 
   The handler is **pure** — it receives a coeffect map (carrying `:db`,
   `:event`, plus exactly the facts it declared via `:rf.cofx/requires`,
@@ -978,13 +954,12 @@
 
   Coeffects are declared via `:rf.cofx/requires` on the metadata map (the
   value arrives FLAT in the cofx map under its id) — uniformly available
-  to every event (the EP-0017 hole closed by EP-0018). `inject-cofx` is
-  removed (EP-0017). The historical positional interceptor vector middle
-  slot is removed; put the chain under metadata `:interceptors`.
+  to every event. `inject-cofx` is not available. Put the interceptor chain
+  under metadata `:interceptors`.
 
   Returns `id`. Returning `nil` from the handler is a documented no-op.
 
-  Full-context work that a `(fn [context] context)` handler once expressed
+  Full-context work that a `(fn [context] context)` handler expresses
   is done with a registered interceptor (authored with `reg-interceptor`,
   the public `context -> context` form) referenced by id from a `reg-event`
   registration's `:interceptors` chain.
@@ -1039,7 +1014,7 @@
   call to a removed public event registrar `reg-fn-name` (a string like
   \"reg-event-db\"), naming `replacement` and showing `fix` (the actionable
   conversion). The `inject-cofx` removed-stub twin: composes the EP-0018
-  reason then delegates to the ONE shared `cofx/raise-removed!` (rf2-8au0w6),
+  reason then delegates to the ONE shared `cofx/raise-removed!`,
   which surfaces on the always-on error-emit listener (production-survivable)
   AND the dev trace bus, then throws the ex-info carrying the same
   `:rf.error/id` — the offending `id` rides the trace + ex-data under `:id`."
@@ -1048,7 +1023,7 @@
                     "Use `" replacement "` instead — " fix)]
     (cofx/raise-removed! error-kw where reason id :id)))
 
-;; ---- data-driven removed event-registration names (rf2-ne2uk8) ------------
+;; ---- data-driven removed event-registration names ------------------------
 ;;
 ;; The three retired public event registrars are described ONCE in the data
 ;; table below, not as three near-identical bespoke stubs. Each row carries the
@@ -1068,7 +1043,7 @@
 
 (def ^:private removed-reg-event-names
   "The EP-0018 retired public event-registration names, one row each — the
-  single audit surface for the removed event registrars (rf2-ne2uk8). A row is
+  single audit surface for the removed event registrars. A row is
   `{:sym :error-kw :where :replacement :fix}`:
     - `:sym`         the bare var symbol exported `^:no-doc` from this ns and
                      aliased onto the `re-frame.core` facade;
@@ -1163,7 +1138,7 @@
   ([] (registrar/clear-kind! :event))
   ([id] (registrar/unregister! :event id)))
 
-;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
+;; ---- EP-0023 inline-registration lowering --------------------------------
 ;;
 ;; An image's inline `:registrations` `:reg-event` entry carries the raw
 ;; handler fn under `:impl` (image lowering is the pure `re-frame.image`
@@ -1191,9 +1166,9 @@
   satisfaction step (`router/assemble-initial-ctx`) reads the TOP-LEVEL
   `:rf.cofx/requires-parsed` slot to deliver the declared coeffects, so an
   inline image-loaded event MUST carry it or its declared facts are silently
-  dropped (rf2-khi7xr — a fail-open drop, violating EP-0017 §5 uniform
-  declared-only delivery and the EP-0023 §Image Fragments \"both paths lower to
-  the same runtime descriptor shape\" contract). A malformed / duplicate
+  dropped (a fail-open drop, violating EP-0017 §5 uniform declared-only
+  delivery and the EP-0023 §Image Fragments \"both paths lower to the same
+  runtime descriptor shape\" contract). A malformed / duplicate
   declaration fails loud at lowering (`:rf.error/cofx-request-invalid` /
   `:rf.error/cofx-name-collision`), mirroring registration.
 

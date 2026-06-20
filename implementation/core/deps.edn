@@ -1,51 +1,42 @@
-;; day8/re-frame2 — core artefact (rf2-0hxm).
+;; day8/re-frame2 — core artefact.
 ;;
 ;; Per Spec 006 §Adapter shipping convention: adapters ship as separate
 ;; Maven artefacts; this is the core (registry, drain, fx, trace) and
-;; excludes substrate-specific code. Per rf2-zha9 the adapters live under
-;; implementation/adapters/<name>/ (renamed from substrates/ per rf2-0imy);
-;; the Reagent adapter is in implementation/adapters/reagent/. Per rf2-p7va
-;; (the first per-feature split per rf2-5vjj Strategy B) the Spec 010
-;; schema-attachment surface
-;; lives in implementation/schemas/ (`day8/re-frame2-schemas`); per
-;; rf2-xbtj (the second per-feature split) the Spec 005 state-machine
-;; surface lives in implementation/machines/ (`day8/re-frame2-machines`);
-;; per rf2-k682 (the third per-feature split) the Spec 012 routing
-;; surface lives in implementation/routing/ (`day8/re-frame2-routing`);
-;; per rf2-tfw3 (the fourth per-feature split) the Spec 013 flows
-;; surface lives in implementation/flows/ (`day8/re-frame2-flows`);
-;; per rf2-5kpd (the fifth per-feature split) the Spec 014 managed-HTTP
-;; surface lives in implementation/http/ (`day8/re-frame2-http`); per
-;; rf2-uo7v (the sixth per-feature split) the Spec 011 SSR surface
-;; lives in implementation/ssr/ (`day8/re-frame2-ssr`); per rf2-lt4e
-;; (the seventh and final per-feature split) the Tool-Pair epoch
-;; surface lives in implementation/epoch/ (`day8/re-frame2-epoch`).
+;; excludes substrate-specific code. The adapters live under
+;; implementation/adapters/<name>/; the Reagent adapter is in
+;; implementation/adapters/reagent/. The Spec 010 schema-attachment surface
+;; lives in implementation/schemas/ (`day8/re-frame2-schemas`); the Spec 005
+;; state-machine surface lives in implementation/machines/
+;; (`day8/re-frame2-machines`); the Spec 012 routing surface lives in
+;; implementation/routing/ (`day8/re-frame2-routing`); the Spec 013 flows
+;; surface lives in implementation/flows/ (`day8/re-frame2-flows`); the
+;; Spec 014 managed-HTTP surface lives in implementation/http/
+;; (`day8/re-frame2-http`); the Spec 011 SSR surface lives in
+;; implementation/ssr/ (`day8/re-frame2-ssr`); the Tool-Pair epoch surface
+;; lives in implementation/epoch/ (`day8/re-frame2-epoch`).
 ;;
 ;; Reagent appears as a dependency here because re-frame.views (CLJS-only
-;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
-;; scope. Per the rf2-0hxm decision, that coupling is preserved at the
-;; views.cljs layer; the *substrate* adapter ns (re-frame.adapter.reagent)
-;; lives in the Reagent artefact. The full substrate-config plumbing
-;; unification is deferred to rf2-3yij (UIx adapter).
+;; reg-view) is Reagent-coupled per Spec 006 §CLJS reference scope. That
+;; coupling lives at the views.cljs layer; the *substrate* adapter ns
+;; (re-frame.adapter.reagent) lives in the Reagent artefact.
 ;;
-;; metosin/malli is intentionally NOT a dep of this artefact: per
-;; rf2-p7va the schemas artefact owns the Malli relationship. The
-;; runtime resolves of `malli.core/validate` in `re-frame.epoch` and
-;; `re-frame.http.managed` are intentional best-effort `(resolve ...)`
-;; calls that no-op when Malli is absent — apps that opt into managed
-;; HTTP decode-schemas or epoch-restore schema validation pull in the
-;; schemas artefact (which carries Malli) alongside core.
+;; metosin/malli is intentionally NOT a dep of this artefact: the schemas
+;; artefact owns the Malli relationship. The runtime resolves of
+;; `malli.core/validate` in `re-frame.epoch` and `re-frame.http.managed`
+;; are intentional best-effort `(resolve ...)` calls that no-op when Malli
+;; is absent — apps that opt into managed HTTP decode-schemas or
+;; epoch-restore schema validation pull in the schemas artefact (which
+;; carries Malli) alongside core.
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
          org.clojure/clojurescript {:mvn/version "1.12.145"}
          reagent/reagent           {:mvn/version "2.0.1"}}
 
  :aliases
- {;; The core artefact's tests historically exercised schema-aware,
-  ;; machine-aware, routing-aware AND flow-aware paths (every
-  ;; reset-runtime fixture rolled the per-frame schema registry, the
-  ;; machines wall-clock-timer table (rf2-gr8q replaced the per-process
-  ;; spawn-counter atom with in-snapshot allocation), the route-
+ {;; The core artefact's tests exercise schema-aware, machine-aware,
+  ;; routing-aware AND flow-aware paths (every reset-runtime fixture
+  ;; rolls the per-frame schema registry, the machines wall-clock-timer
+  ;; table (whose spawn ids are allocated in-snapshot), the route-
   ;; registration counter, and the per-frame
   ;; flow registry; many test files require re-frame.schemas to set up
   ;; their data shapes; smoke_test.clj / pattern_smoke_test.clj /
@@ -66,13 +57,9 @@
   ;; epoch-history / restore-epoch! / register-epoch-listener! / unregister-epoch-listener!
   ;; / clear-history! / clear-epoch-listeners! surface so the production-elision
   ;; build asserts every gated branch in the namespace).
-  ;; Per rf2-p7va those tests stay in core/test/ and pull schemas in as
-  ;; a test-only dep; per rf2-xbtj they pull machines in the same way;
-  ;; per rf2-k682 they pull routing in the same way; per rf2-tfw3 they
-  ;; pull flows in the same way; per rf2-5kpd they pull http in the same
-  ;; way; per rf2-uo7v they pull ssr in the same way; per rf2-lt4e they
-  ;; pull epoch in the same way. The core artefact's test classpath
-  ;; therefore includes schemas (with Malli), machines, routing, flows,
+  ;; Those tests stay in core/test/ and pull schemas, machines, routing,
+  ;; flows, http, ssr, and epoch in as test-only deps. The core artefact's
+  ;; test classpath therefore includes schemas (with Malli), machines, routing, flows,
   ;; http, ssr, and epoch while the published library jar carries none
   ;; of them. Keeps the per-test coverage intact without smuggling any
   ;; feature into the production classpath. See
@@ -81,18 +68,16 @@
   ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
   ;; implementation/epoch/deps.edn.
   :test {:extra-paths ["test" "../../examples/reagent"
-                       ;; rf2-cd2zo — the ssr / ssr_streaming /
+                       ;; The ssr / ssr_streaming /
                        ;; state_machine_walkthrough examples' headless test
-                       ;; fns were folded INTO re-frame.examples-test (this
-                       ;; artefact's test/ tree) as inline deftest bodies,
-                       ;; retiring the sibling examples/.../test/ source
-                       ;; dirs. examples_test.clj now requires only the
+                       ;; fns live IN re-frame.examples-test (this
+                       ;; artefact's test/ tree) as inline deftest bodies.
+                       ;; examples_test.clj requires only the
                        ;; example *source* nses (`ssr.core`,
                        ;; `ssr-streaming.core`, `state-machine-walkthrough.core`),
                        ;; which the bare `../../examples/reagent` root above
                        ;; carries — so no examples/.../test source path is
-                       ;; needed and the example tree is test-free
-                       ;; (rf2-8cevm).
+                       ;; needed and the example tree is test-free.
                        ]
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-machines   {:local/root "../machines"}
@@ -101,18 +86,18 @@
                        day8/re-frame2-http       {:local/root "../http"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
                        day8/re-frame2-epoch      {:local/root "../epoch"}
-                       ;; rf2-p10npe — the optional Resources artefact
+                       ;; The optional Resources artefact
                        ;; (Spec 016). Pulled in as a TEST-ONLY dep so the
                        ;; JVM core test build can require re-frame.resources
                        ;; (conformance_test.clj) and populate the
                        ;; `:resources` feature probe that features-cljs-test
                        ;; asserts; the published core jar carries none of it.
                        day8/re-frame2-resources  {:local/root "../resources"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         ;; rf2-bv2qqm — the default PR/local gate (incl. the fast-PR
+         ;; The default PR/local gate (incl. the fast-PR
          ;; spine `scripts/test-fast-pr.sh`, which runs this artefact)
          ;; EXCLUDES the heavy `^:stress` namespace
          ;; (`concurrency_stress_test`, three 5000-iter × 8-thread
@@ -123,7 +108,7 @@
          ;; `scripts/test-rigorous-local.sh`.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
 
-  ;; rf2-bv2qqm — nightly/rigorous slow-test gate. INCLUDES ONLY the
+  ;; Nightly/rigorous slow-test gate. INCLUDES ONLY the
   ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
   ;; excludes), so `:test` + `:slow-test` together cover every test once.
   :slow-test
@@ -141,8 +126,8 @@
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow:
-  ;; the release workflow runs `clojure -M:clein deploy` from this
+  ;; Clojars deploy. The release workflow runs `clojure -M:clein deploy`
+  ;; from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars
   ;; using CLOJARS_USERNAME / CLOJARS_PASSWORD env vars.
   :clein {:extra-deps {io.github.noahtheduke/clein
@@ -152,8 +137,7 @@
 
   ;; Build descriptor consumed by clein. Per-artefact: this builds the
   ;; `day8/re-frame2` core artefact. The Reagent adapter has its own
-  ;; build descriptor in implementation/adapters/reagent/deps.edn
-  ;; (per rf2-zha9 / rf2-0imy).
+  ;; build descriptor in implementation/adapters/reagent/deps.edn.
   ;;
   ;; :version is a relative path to the repo-root VERSION file — single
   ;; source of truth for both artefacts. Mike updates VERSION in the

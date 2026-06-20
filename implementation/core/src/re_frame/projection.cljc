@@ -37,9 +37,7 @@
   override WINS — `profile-opts` is the floor, the caller's opts the
   overlay).
 
-  The six ruled profiles (EP-0015 issue 3, renamed for axis consistency —
-  `local-redacted` / `local-raw` replacing the EP's earlier
-  on-box-hidden-sensitive / trusted-local-raw spellings):
+  The six ruled profiles (EP-0015 issue 3):
 
   | Profile | Default behaviour |
   |---|---|
@@ -61,7 +59,7 @@
   borrow another frame's policy — `project-egress` inherits that fail-closed
   posture, it does NOT synthesise `:rf/default`.
 
-  ## Event-shaped slots carry REGISTRATION-owned marks (EP-0015 / rf2-qe6v1u)
+  ## Event-shaped slots carry REGISTRATION-owned marks (EP-0015)
 
   An `:rf.observe/*` record's `:event` slot is the raw dispatched vector — a
   REGISTRATION-OWNED transient payload (EP-0015): a handler registered with
@@ -223,7 +221,7 @@
 (defn- redact-event-by-registration
   "Apply the event handler's REGISTRATION-OWNED `:sensitive` / `:large` marks
   to an event-shaped slot value (a `[event-id arg-map …]` vector) via the
-  always-on `:marks/redact-event-by-registration` hook (EP-0015 / rf2-qe6v1u).
+  always-on `:marks/redact-event-by-registration` hook (EP-0015).
   A no-op (returns `event` unchanged) when the hook is unbound (the marks ns has
   not loaded) or the handler declared no marks. This is the EVENT-owner pass
   that precedes the FRAME-policy `walk-slot`: event args are registration-owned
@@ -235,7 +233,7 @@
 
 (defn- project-event-slot
   "Project an event-shaped slot: the event registration's marks FIRST (the
-  EVENT owner — EP-0015 / rf2-qe6v1u), then the frame-policy size/sensitive
+  EVENT owner — EP-0015), then the frame-policy size/sensitive
   walk. A sentinel the registration pass writes is inert under the subsequent
   walk."
   [event elision-opts]
@@ -272,7 +270,7 @@
     (if (and (contains? record :event)
              (include-event-args? elision-opts))
       ;; Trusted-local opt-in: keep `:event`, PROJECTED (never raw) — the event
-      ;; registration's marks FIRST (EP-0015 / rf2-qe6v1u), then frame policy.
+      ;; registration's marks FIRST (EP-0015), then frame policy.
       (assoc base :event (project-event-slot (:event record) elision-opts))
       ;; Off-box default: the `:event` args slot is omitted entirely.
       base)))
@@ -301,7 +299,7 @@
   [record opts elision-opts]
   (let [base (select-keys record error-summary-keys)
         ;; Tree-shaped slots → walker. The `:event` slot is REGISTRATION-owned
-        ;; (EP-0015 / rf2-qe6v1u): apply the event handler's marks before the
+        ;; (EP-0015): apply the event handler's marks before the
         ;; frame-policy walk. `:tags` is frame-policy-only (it is the generic
         ;; non-event tree-lift from `route-error-record!`).
         with-tree (reduce
@@ -376,7 +374,7 @@
   (the override wins). An unknown `:rf.egress/profile` throws
   `:rf.error/unknown-egress-profile` — the enum is closed.
 
-  Frame resolution (EP-0015 / rf2-vkblw4): an `:rf.observe/*` record is
+  Frame resolution (EP-0015): an `:rf.observe/*` record is
   FRAME-BEARING — it carries its OWNING frame under a top-level `:frame`
   slot (the §`project-egress` example record carries `:frame :app/main`
   with opts supplying only `:rf.egress/profile`). That owning frame is the
@@ -384,11 +382,11 @@
   when `opts` does NOT supply `:frame` it is SEEDED from the record's
   top-level `:frame`. An explicit `:frame` opt still WINS (override
   semantics — it is the caller's deliberate reclassification), and a
-  kindless / frameless input seeds nothing. Without this seed the
-  documented record-owned-frame call shape silently dropped the record's
-  frame and walked every tree slot under the AMBIENT (or no) frame — which
-  over-redacted off-box slots and, under a sensitive opt-in profile,
-  shipped values raw that the record's frame would have governed.
+  kindless / frameless input seeds nothing. This seed is what lets the
+  record-owned-frame call shape walk every tree slot under the record's
+  OWN frame: without it those slots would fall to the AMBIENT (or no)
+  frame, over-redacting off-box slots and, under a sensitive opt-in
+  profile, shipping raw values the record's frame would have governed.
 
   Fail-closed (EP-0002 / Spec 015 §Direct reads): a tree-shaped slot is
   projected only when the frame is KNOWN — the explicit `:frame` opt, the
@@ -404,7 +402,7 @@
    ;; The record is frame-bearing: seed `:frame` from its owning `:frame`
    ;; slot when opts omits one (an explicit `:frame` opt WINS). A kindless
    ;; / frameless input adds nothing, so the fail-closed posture below is
-   ;; preserved when no frame is known from any source. rf2-vkblw4.
+   ;; preserved when no frame is known from any source.
    (let [opts         (let [record-frame (and (map? record-or-value)
                                               (:frame record-or-value))]
                         (if (and record-frame (not (:frame opts)))

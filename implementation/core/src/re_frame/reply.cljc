@@ -133,22 +133,20 @@
        (seq event)
        (keyword? (first event))))
 
-;; ---- the canonical thrown-error shape for reply failures (rf2-tqlwzr) ------
+;; ---- the canonical thrown-error shape for reply failures -------------------
 ;;
-;; Reply throws historically carried a reply-specific `:rf.error/kind`
-;; discriminator and a human message but no canonical `:rf.error/id` — so a
-;; tool classifying thrown errors by Spec 009's `:rf.error/id` could not handle
-;; reply failures uniformly with every other framework throw. `reply-error`
-;; routes every reply throw through the central builder
-;; (`re-frame.error/thrown-ex-info`, Spec 009 §The thrown-error shape): the
-;; canonical `:rf.error/id` is the `:rf.error/reply-*` keyword (the SOLE Spec
-;; 009 machine discriminator — `:rf.error/`-namespaced so the framework's grep
-;; token / conformance machinery handles it like every other throw), the human
-;; sentence rides `:reason` and leads the derived message (+ the
-;; `[:rf.error/<id>]` token), and the reply-specific `:rf.reply/*` category is
-;; PRESERVED in `:rf.error/kind` for callers that already branch on it. The
-;; `:rf.error/id` ↔ `:rf.error/kind` pair stays in lockstep by construction.
-;; `:where` names the user-facing surface (`:rf/reply-to`).
+;; Every reply throw carries a canonical `:rf.error/id` so a tool classifying
+;; thrown errors by Spec 009's `:rf.error/id` handles reply failures uniformly
+;; with every other framework throw. `reply-error` routes every reply throw
+;; through the central builder (`re-frame.error/thrown-ex-info`, Spec 009 §The
+;; thrown-error shape): the canonical `:rf.error/id` is the `:rf.error/reply-*`
+;; keyword (the SOLE Spec 009 machine discriminator — `:rf.error/`-namespaced
+;; so the framework's grep token / conformance machinery handles it like every
+;; other throw), the human sentence rides `:reason` and leads the derived
+;; message (+ the `[:rf.error/<id>]` token), and the reply-specific
+;; `:rf.reply/*` category rides `:rf.error/kind` for callers that branch on it.
+;; The `:rf.error/id` ↔ `:rf.error/kind` pair stays in lockstep by
+;; construction. `:where` names the user-facing surface (`:rf/reply-to`).
 
 (defn- reply-category->error-id
   "Map a reply-specific `:rf.reply/<suffix>` category to its canonical
@@ -160,7 +158,7 @@
   (keyword "rf.error" (str "reply-" (name category))))
 
 (defn- reply-error
-  "Build the canonical reply thrown-error `ex-info` (rf2-tqlwzr). `category`
+  "Build the canonical reply thrown-error `ex-info`. `category`
   is the `:rf.reply/*` discriminator: it lands in `:rf.error/kind` (the
   preserved reply-specific slot), and its `:rf.error/reply-*` projection lands
   in `:rf.error/id` (the canonical Spec 009 slot). `reason` is the human
@@ -607,7 +605,7 @@
   otherwise from the reply map's own carried `:rf.frame/id` stamp. A reply
   carrying its frame identity SELF-SUMMARIZES by default: a caller need not
   thread the identity back through `opts` just to apply the right egress
-  policy (rf2-wjo28z). Explicit `:frame` still wins (an inspector may target
+  policy. Explicit `:frame` still wins (an inspector may target
   a different policy frame), and resolution still fails closed — if neither
   an explicit `:frame` nor a carried `:rf.frame/id` names a LIVE frame, the
   wire slots redact to the `:rf/redacted` sentinel rather than ship under no
@@ -686,7 +684,7 @@
                 `:work/status :suppressed`, and a `:value` in `extra` is
                 STRIPPED (a stale reply MUST NOT carry `:value` — see
                 `validate-reply`). So threading a natural success/error reply
-                as `extra` cannot produce a non-stale outcome (rf2-waawic).
+                as `extra` cannot produce a non-stale outcome.
 
   Returns:
     {:deliver? <bool>           ;; false ⇒ DO NOT dispatch the app target
@@ -718,7 +716,7 @@
                               :stale/reason   reason
                               :stale/authorised? authorised?})))
          opt-in?  (and wants? authorised?)
-         ;; rf2-waawic — `suppress` is THE correctness boundary, so "stale
+         ;; `suppress` is THE correctness boundary, so "stale
          ;; wins over the natural completion status" (Managed-Effects
          ;; §Status taxonomy) MUST be structurally impossible for a caller
          ;; to violate. Merge `extra` FIRST (its identity facts — `:work/id`,

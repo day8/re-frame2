@@ -1,9 +1,8 @@
 (ns re-frame.subs.memo
   "Memo wrappers + the trace/perf/validate/recover bracket that brackets
-  a user sub body. Extracted from `re-frame.subs` per rf2-0ytl4 Phase-2
-  seam S-B — pure cohesion split, public surface unchanged.
+  a user sub body.
 
-  Per Spec 006 §No-op via value equality (rf2-719e). Reagent's auto-run
+  Per Spec 006 §No-op via value equality. Reagent's auto-run
   reaction unconditionally invokes the compute fn on any source-watch
   fire, then dedups *downstream notification* by `=`. That's one level
   too late for the spec — the body fn itself must NOT re-run when the
@@ -22,14 +21,13 @@
   allocation in the artefact.
 
   Layer-2 with a single `:<-` input gets the same fixed-arity-1
-  treatment (rf2-0y2bp). The adapter's `make-derived-value` already
-  specialises its recompute closure to `(compute-fn @s0)` for the
-  1-source case (rf2-v1nu0) — but the layer-N memo wrapper was
-  varargs (`(fn [& in-vals])`), which forces a one-element ArraySeq
-  allocation on every recompute. The dominant layer-2 shape is
-  1-input, so we mirror the layer-1 specialisation here: fixed-arity-1
-  wrapper, direct scalar compare against the last-seen input value.
-  The ≥2-input path keeps the original varargs shape.
+  treatment. The adapter's `make-derived-value` specialises its
+  recompute closure to `(compute-fn @s0)` for the 1-source case, and the
+  memo wrapper mirrors the layer-1 specialisation: a fixed-arity-1
+  wrapper with a direct scalar compare against the last-seen input value,
+  avoiding the one-element ArraySeq allocation a varargs
+  (`(fn [& in-vals])`) form would force on every recompute. The dominant
+  layer-2 shape is 1-input. The ≥2-input path uses the varargs shape.
 
   Per-recompute hot path is the closure body (in-process) — unaffected
   by the ns boundary. Per-miss constructor call (from
@@ -46,11 +44,12 @@
 
 ;; ---- recompute attribution sentinel + cause-sub resolution ---------------
 ;;
-;; Per rf2-l1jz8 — the `:sub/run` trace carries value-change + cascade
+;; The `:sub/run` trace carries value-change + cascade
 ;; attribution so Xray's Reactive panel can populate its "SUBS WHOSE
 ;; VALUE CHANGED" and "SUBS THAT CASCADED" sections. The memo wrapper
 ;; already holds the prior computed value and prior input value(s) in its
-;; volatile cells (it must, to dedup `=`-equal recomputes per rf2-719e),
+;; volatile cells (it must, to dedup `=`-equal recomputes per Spec 006
+;; §No-op via value equality),
 ;; so the attribution is computed from data already on hand — no extra
 ;; cache read, no second `=` walk on the hot recompute path beyond the one
 ;; the memo wrapper already performed.
@@ -88,7 +87,7 @@
             (recur (inc i))))))))
 
 (defn maybe-validate-sub!
-  "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
+  "Per Spec 010 §Validation order step 6 — after a sub
   recomputes, validate its return value against any :schema on the sub
   meta. On failure, emit :rf.error/schema-validation-failure and
   return nil per :replaced-with-default recovery; otherwise return
@@ -98,14 +97,14 @@
   stays free of a hard re-frame.schemas dep (avoids load-order
   surprises).
 
-  rf2-9cm27 — `frame-id` (the reaction's frame) is passed through to
+  `frame-id` (the reaction's frame) is passed through to
   `validate-sub!` so the `:where :sub-return` failure trace carries
   `:frame` and lands in the per-frame epoch `:trace-events` (epoch
   capture buffers only frame-tagged traces). Mirrors the `:where
   :app-db` / `:where :event` traces."
   [value query-v sub-id sub-meta frame-id]
   (if (and sub-meta (:schema sub-meta))
-    ;; Sticky hook (rf2-f72pd) — fires per-sub recompute.
+    ;; Sticky hook — fires per-sub recompute.
     (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub!)]
       (if (try (validate sub-id query-v value sub-meta frame-id)
                (catch #?(:clj Throwable :cljs :default) _ true))
@@ -124,26 +123,26 @@
 
   Concerns folded in here, in order:
 
-  1. Spec 009 §Performance instrumentation (rf2-du3i) — bracket the
+  1. Spec 009 §Performance instrumentation — bracket the
      body call in performance marks so prod builds with the perf flag
      enabled produce a `rf:sub:<sub-id>` measure entry. Default-off;
      under `:advanced` + `re-frame.performance/enabled?=false` the
      bracket DCEs.
-  2. Spec 010 §Validation order step 6 (rf2-wcam) — validate the body's
+  2. Spec 010 §Validation order step 6 — validate the body's
      return value against the sub's `:schema` meta. Failures emit
      :rf.error/schema-validation-failure and yield nil (recovery
      :replaced-with-default).
   3. Spec 009 §:op-type vocabulary — emit :sub/run for the recompute.
      The memo-hit path does NOT emit (per Spec 006 §No-op via value
      equality). The emit fires AFTER (1)+(2) so the trace can carry the
-     COMPUTED value and value-change / cascade attribution (rf2-l1jz8 —
-     see §Recompute attribution below). It MUST stay inside
+     COMPUTED value and value-change / cascade attribution (see
+     §Recompute attribution below). It MUST stay inside
      `with-handler-scope` so the sub's source-coord rides the tag.
   4. Spec 009 §Error contract — `try/catch` around (1)+(2)+(3). On
      exception emit :rf.error/sub-exception and yield nil (recovery
      :replaced-with-default).
 
-  ## Recompute attribution (rf2-l1jz8, dev-only)
+  ## Recompute attribution (dev-only)
 
   When `interop/debug-enabled?` the `:sub/run` tag carries:
 
@@ -158,7 +157,7 @@
                        `false` on every subsequent recompute. Disambiguates
                        a value-change row from a freshly-created sub row
                        so consumers (Xray's SUBSCRIPTIONS leaf-scalar
-                       renderer per rf2-fyd8u) can pick `← was X` vs
+                       renderer) can pick `← was X` vs
                        `:added` chrome without inferring from
                        `:prev-value nil`. Not wire-sensitive. Per
                        Spec 009 §`:rf.sub/run`.
@@ -175,7 +174,7 @@
                        reactive input. Sourced from the in-flight
                        cascade buffer via the `:epoch/cascade-cause`
                        late-bind hook — same source the views path uses
-                       for `:rf.view/cause-event-id` (rf2-25zo2 / rf2-okz1u).
+                       for `:rf.view/cause-event-id`.
                        OMITTED (key absent, not nil) when the sub runs
                        outside any cascade (a post-settle reactive flush
                        against no live drain) or when the epoch artefact
@@ -227,17 +226,17 @@
   ;; (`:sub/run` success, `:rf.error/sub-exception` / schema-validation /
   ;; transitive sub-miss errors). The emit MUST sit inside the scope.
   ;;
-  ;; `vector-inputs?` (rf2-7brl74): when true, the body ALWAYS receives the
+  ;; `vector-inputs?`: when true, the body ALWAYS receives the
   ;; resolved inputs as a VECTOR (in producer order) — the contract for a
   ;; PARAMETRIC `input-fn` sub, whose computation fn destructures `[[a] q]`
-  ;; even for a single input (Spec 006 §Subscription input producers; EP
-  ;; §Single input). When false (the static `:<-` path) the existing v1
+  ;; even for a single input (Spec 006 §Subscription input producers
+  ;; §Single input). When false (the static `:<-` path) the v1
   ;; convention holds: a single `:<-` input is delivered as the bare value,
   ;; ≥2 inputs as a vector. The layer-1 / single-`:<-` wrappers pass false.
   (trace/with-handler-scope
     (trace/handler-scope-from-meta :sub query-id sub-meta)
     (try
-      ;; rf2-hhh92: wall-clock the sub body (dev-only) so `:rf.sub/run`
+      ;; Wall-clock the sub body (dev-only) so `:rf.sub/run`
       ;; carries `:rf.sub/elapsed-ms` — the per-op duration the Trace
       ;; panel's DURATION column reads. The `now-ms` brackets ride
       ;; `interop/debug-enabled?` (nil t0 in prod), so Closure DCEs them
@@ -265,7 +264,7 @@
             elapsed-ms (when interop/debug-enabled? (- (interop/now-ms) t0))
             validated (maybe-validate-sub! computed query-v query-id sub-meta frame-id)]
         ;; Emit AFTER compute+validate so the trace carries the computed
-        ;; value + attribution (rf2-l1jz8). The base tag is unconditional
+        ;; value + attribution. The base tag is unconditional
         ;; (op-type vocabulary parity with the prod path); the attribution
         ;; slots ride the dev gate so Closure DCEs the enriched tag map
         ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
@@ -276,7 +275,7 @@
         (if interop/debug-enabled?
           (let [cascade?  (boolean (seq input-signals))
                 cause-sub (changed-cause-sub prev-in-vals in-vals input-signals)
-                ;; rf2-vh1k3 — the render-key of the view whose render is
+                ;; The render-key of the view whose render is
                 ;; deref-ing this reaction (nil outside a view render). The
                 ;; epoch back-fill reads this off the target epoch's
                 ;; `:sub-runs` so a late-arriving render is attributed to
@@ -287,10 +286,10 @@
                 reader-rk (when-let [f (late-bind/get-fn-cached
                                          :views/reading-render-key)]
                             (f))
-                ;; rf2-okz1u — `:rf.sub/cause-event-id` names the
+                ;; `:rf.sub/cause-event-id` names the
                 ;; dispatching cascade whose handler-body invalidated
                 ;; this sub's reactive input. Same source the views path
-                ;; uses for `:rf.view/cause-event-id` (rf2-25zo2): the
+                ;; uses for `:rf.view/cause-event-id`: the
                 ;; in-flight cascade buffer published by re-frame.epoch
                 ;; under the `:epoch/cascade-cause` late-bind hook. The
                 ;; hook walks the frame's per-cascade buffer and returns
@@ -320,15 +319,14 @@
                                                            prev-value)
                                   :rf.sub/value          validated
                                   :rf.sub/cascade?       cascade?
-                                  ;; rf2-e3acps — the REALIZED input
+                                  ;; The REALIZED input
                                   ;; query-vectors for this concrete cache
                                   ;; entry (the literal `:<-` list for
                                   ;; `:static`, the `(input-fn query-v)`
                                   ;; result for `:parametric`, `[]` for
                                   ;; layer-1). `input-signals` is the
                                   ;; per-entry realized edge set (Spec 006
-                                  ;; §Subscription input producers; the EP
-                                  ;; §Tooling live/cache view). Lets the
+                                  ;; §Subscription input producers). Lets the
                                   ;; Xray live-cascade view render REALIZED
                                   ;; parametric edges without fabricating
                                   ;; un-materialized ones. Query-vectors,
@@ -348,13 +346,13 @@
                         :frame          frame-id}))
         validated)
       (catch #?(:clj Throwable :cljs :default) e
-        (let [msg    (error/ex-message-safe e) ; rf2-vzrxp3: nil-safe
+        (let [msg    (error/ex-message-safe e) ; nil-safe (a thrown non-Error value has no message)
               reason (str "Subscription `" query-id
                           "` threw while computing: "
                           msg ". Returning nil.")
               ;; Shared `:tags` body — consumed by BOTH the always-on
               ;; error-emit policy-event (below) and the dev-only trace.
-              ;; rf2-7d30s — frame-attribute the sub-exception (the reactive
+              ;; Frame-attribute the sub-exception (the reactive
               ;; sub-run knows its `frame-id`, used by the success emit
               ;; above). Without `:frame` the error is dropped by
               ;; `re-frame.epoch.capture/capture-event!` (frame-tagged only)
@@ -369,7 +367,7 @@
                       :exception-message msg
                       :reason            reason
                       :recovery          :replaced-with-default}]
-          ;; rf2-vvwmi — route the reactive `:rf.error/sub-exception`
+          ;; Route the reactive `:rf.error/sub-exception`
           ;; through the ALWAYS-ON `error-emit/dispatch-on-error!`
           ;; substrate (mirroring router.cljc's handler-exception and
           ;; fx.cljc's reserved-fx typed-throw paths) so it survives
@@ -385,7 +383,7 @@
           ;; leaks `:exception` / message; that detail rides the trace +
           ;; off-box listener record only (Spec 011 §Internal trace
           ;; events are not leaked). A reactive sub has no triggering
-          ;; event vector, but per rf2-bxud9v the failing sub's `query-v`
+          ;; event vector, but the failing sub's `query-v`
           ;; / `query-id` ride `:event` / `:event-id` (mirroring the
           ;; sub-input-fn path) so the kind-aware error-emit lookup
           ;; resolves the sub's `:source-coord` under `[:sub query-id]`
@@ -399,11 +397,11 @@
           ;; status source of truth.
           ;;
           ;; `:rf.error/sub-exception` recovery is the framework's built-in
-          ;; 'return nil' — there is no app-steering recovery policy
-          ;; (rf2-hiqtk8). The SSR fail-closed posture (rf2-vvwmi) rides the
+          ;; 'return nil' — there is no app-steering recovery policy.
+          ;; The SSR fail-closed posture rides the
           ;; always-on listener record the `error-emit-projection-listener`
           ;; buffers — which preserves the SSR 500 projection.
-          ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the
+          ;; Both channels via the shared helper: axis 1 the
           ;; always-on listener (survives prod elision), axis 2 the dev trace —
           ;; preserved for the trace surface + retain-N buffer + dev-side
           ;; projection (carries the same rich internal detail; DCEs under
@@ -423,21 +421,21 @@
               tags)))
         nil))))
 
-;; ---- the shared memo-hit `:rf.sub/skip` emit (rf2-6zfzxy) -----------------
+;; ---- the shared memo-hit `:rf.sub/skip` emit -----------------------------
 ;;
 ;; All three memo wrappers below emit a byte-identical `:rf.sub/skip` trace on a
-;; memo hit (input value-equal to last-seen, the user body does NOT re-run,
-;; rf2-719e) so tools can show the "considered, no recompute" branch of the
-;; reactive cascade DAG (rf2-931pm). The ONLY thing that varied was
+;; memo hit (input value-equal to last-seen, the user body does NOT re-run)
+;; so tools can show the "considered, no recompute" branch of the
+;; reactive cascade DAG. The only thing that varies is
 ;; `:rf.sub/input-paths-unchanged` (`[]` for layer-1 which has no upstream sub
 ;; inputs; `(vec input-signals)` for the layer-n forms). The skip-emit BODY is
-;; deduped here; the three wrappers stay separate (their per-recompute hot
-;; closures are perf-justified — fixed-arity-1 vs single-input vs varargs — and
-;; only the cold skip-emit body was the clone).
+;; deduped here; the three wrappers stay separate — their per-recompute hot
+;; closures are perf-justified (fixed-arity-1 vs single-input vs varargs) and
+;; only the cold skip-emit body is shared.
 
 (defn- emit-sub-skip!
   "Emit the memo-hit `:rf.sub/skip` trace for a sub that was reactively
-  considered but did NOT recompute (input value-equal, rf2-719e / rf2-931pm).
+  considered but did NOT recompute (input value-equal).
   `input-paths-unchanged` is the inputs-stable set (`[]` for layer-1, the
   realized `:<-` query-vectors for layer-n). Outer `interop/debug-enabled?`
   gate elides the tag-map construction + emit in CLJS production (Closure DCE
@@ -474,21 +472,21 @@
       (when body-fn
         (if (= @last-db db)
           ;; Memo hit — input value-equal to last-seen, the user body
-          ;; does NOT re-run (rf2-719e). Emit `:rf.sub/skip` so tools
+          ;; does NOT re-run. Emit `:rf.sub/skip` so tools
           ;; can show the "considered, no recompute" branch of the
-          ;; reactive cascade DAG (rf2-931pm). Layer-1 has no upstream
+          ;; reactive cascade DAG. Layer-1 has no upstream
           ;; sub inputs, so `:input-paths-unchanged` is `[]`.
           (do
             (emit-sub-skip! query-id query-v frame-id sub-meta [])
             @last-result)
           ;; Capture the prior cells BEFORE the recompute so the
-          ;; `:sub/run` attribution (rf2-l1jz8) can report value-change
+          ;; `:sub/run` attribution can report value-change
           ;; against the last computed value. Layer-1 has no upstream
           ;; sub inputs, so `input-signals` is `[]` and `prev-in-vals`
           ;; is irrelevant to cause-sub resolution (a layer-1 recompute
           ;; is driven by an app-db path change, never a sub cascade).
           ;;
-          ;; rf2-fyd8u — pass `unset` for `prev-value` on the run that
+          ;; Pass `unset` for `prev-value` on the run that
           ;; allocated the cache slot (the input cell `last-db` is still
           ;; the `::unset` sentinel here — pre-vreset). `last-result`
           ;; starts at `nil` (not `::unset`) so it cannot serve as the
@@ -507,7 +505,7 @@
 
 (defn make-layer-n-single-input-memoised-body
   "Specialised memo wrapper for layer-2 subs with a single `:<-` input
-  (the dominant layer-2 shape — see rf2-v1nu0 perf-sweep finding).
+  (the dominant layer-2 shape).
   Fixed-arity-1 — avoids the varargs-seq allocation that a
   `(fn [& in-vals])` form would force on every reaction recompute, and
   compares the upstream value to the last-seen scalar (no seq-vs-seq
@@ -523,7 +521,7 @@
   `validate-and-trace` receives `in-vals` as a singleton list — the
   same shape the varargs wrapper would have produced for arity-1 —
   preserving the `(body-fn (first in-vals) query-v)` invocation path
-  inside the validate/trace bracket (rf2-0y2bp)."
+  inside the validate/trace bracket."
   [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)]
@@ -531,7 +529,7 @@
       (when body-fn
         (if (= @last-v0 v0)
           ;; Memo hit — see `make-layer-1-memoised-body` for the
-          ;; `:rf.sub/skip` rationale (rf2-931pm). `:input-paths-unchanged`
+          ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
           ;; carries the upstream sub query-vector(s) whose values were
           ;; stable; layer-2+ subs name their inputs by `[query-id args]`
           ;; rather than db-paths.
@@ -539,13 +537,13 @@
             (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:sub/run`
-          ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
+          ;; attribution. `prev-in-vals` is the last-seen
           ;; single input value in singleton-list shape (matching the
           ;; `(list v0)` `in-vals` form) so `changed-cause-sub` can diff
           ;; it positionally against `input-signals`; the `::unset`
           ;; sentinel on first recompute leaves `:cause-sub` nil.
           ;;
-          ;; rf2-fyd8u — pass `unset` for `prev-value` on the run that
+          ;; Pass `unset` for `prev-value` on the run that
           ;; allocated the cache slot (the input cell `last-v0` is still
           ;; the `::unset` sentinel here). `last-result` is `nil` then
           ;; too but keying on `last-v0` keeps the discriminator well-
@@ -573,16 +571,16 @@
   Returns a `(fn [& in-vals])`. When `body-fn` is nil the wrapper
   yields nil on every call without touching the memo cells.
 
-  `vector-inputs?` (rf2-7brl74, optional — defaults false): forwarded to
+  `vector-inputs?` (optional — defaults false): forwarded to
   `validate-and-trace`. True for a parametric `input-fn` sub so the body
   always receives a VECTOR of input values (producer order) even at one
-  input — the EP §Single input contract (`(fn [[a] q] ...)`). False (or
-  omitted) for a static `:<-` multi-input sub so the existing v1
+  input — the Spec 006 §Single input contract (`(fn [[a] q] ...)`). False
+  (or omitted) for a static `:<-` multi-input sub so the v1
   convention holds.
 
   See `make-layer-1-memoised-body` for the layer-1 specialisation and
   `make-layer-n-single-input-memoised-body` for the static single-`:<-`
-  specialisation (rf2-0y2bp)."
+  specialisation."
   ([body-fn query-id query-v frame-id input-signals sub-meta]
    (make-layer-n-memoised-body
      body-fn query-id query-v frame-id input-signals sub-meta false))
@@ -593,7 +591,7 @@
       (when body-fn
         (if (= @last-in-vals in-vals)
           ;; Memo hit — see `make-layer-1-memoised-body` for the
-          ;; `:rf.sub/skip` rationale (rf2-931pm). `:input-paths-unchanged`
+          ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
           ;; carries every upstream `:<-` query-vector whose value was
           ;; stable (the varargs path has ≥2 inputs and the memo
           ;; compare is whole-seq `=`, so every input was stable).
@@ -601,12 +599,12 @@
             (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
             @last-result)
           ;; Capture prior cells BEFORE the recompute for the `:sub/run`
-          ;; attribution (rf2-l1jz8). `prev-in-vals` is the last-seen
+          ;; attribution. `prev-in-vals` is the last-seen
           ;; input-value seq (parallel to `input-signals`), which
           ;; `changed-cause-sub` diffs positionally to name the upstream
           ;; sub that cascaded. `::unset` on first recompute → nil cause.
           ;;
-          ;; rf2-fyd8u — pass `unset` for `prev-value` on the run that
+          ;; Pass `unset` for `prev-value` on the run that
           ;; allocated the cache slot (the input cell `last-in-vals` is
           ;; still the `::unset` sentinel here). Keying on `last-in-vals`
           ;; rather than `last-result` so a sub whose first cached value

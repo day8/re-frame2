@@ -9,20 +9,19 @@
   (Schemas Describe Shape, Not Public Egress Policy): schemas describe
   shape and validation, NOT durable app-db egress policy — a
   `reg-app-schema` `{:sensitive? true}` / `{:large? true}` slot prop is
-  **no longer** a second route into this registry. Schema `:sensitive?`
-  still drives schema-validation-failure-trace redaction (the schema's own
+  not a route into this registry. Schema `:sensitive?`
+  drives schema-validation-failure-trace redaction (the schema's own
   egress product — `re-frame.schemas`), and machine `:data-schema` per-slot
-  props still classify machine `:data` (EP-0005, unchanged). There are no
+  props classify machine `:data` (EP-0005). There are no
   imperative large-path APIs.
 
-  EP-0001 (rf2-vzld77): the elision declaration registry is DURABLE,
+  EP-0001: the elision declaration registry is DURABLE,
   serializable framework state (it must survive epoch-restore / SSR-
   hydration so an off-box projection redacts consistently), so it lives in
-  the frame's **runtime-db** partition at `[:rf.runtime/elision …]` — NOT in
-  app-db (where it briefly sat under the retired `:rf/runtime` root). Per
-  Conventions §Reserved runtime-db keys. Reads come off the runtime-db
-  projection; writes go through `frame/swap-runtime-db!` (the runtime-db
-  partition write surface)."
+  the frame's **runtime-db** partition at `[:rf.runtime/elision …]`, not in
+  app-db. Per Conventions §Reserved runtime-db keys. Reads come off the
+  runtime-db projection; writes go through `frame/swap-runtime-db!` (the
+  runtime-db partition write surface)."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -96,9 +95,9 @@
   `add-marks` / `set-marks` — can share a single source of truth
   for the prune logic. Not part of the public API.
 
-  EP-0001 (rf2-vzld77): operates on the runtime-db partition value (the
+  EP-0001: operates on the runtime-db partition value (the
   elision registry is durable framework state — Conventions §Reserved
-  runtime-db keys), no longer on the app-db `:rf/runtime` root."
+  runtime-db keys)."
   [runtime-db new-reg]
   (cond
     (seq new-reg)
@@ -115,7 +114,7 @@
 
 (defn ^:no-doc reconcile-runtime-db-effect
   "Reconcile the durable elision registry across a whole-value
-  `:rf.db/runtime` partition commit (rf2-gom797).
+  `:rf.db/runtime` partition commit.
 
   A framework-authority event may return a `:rf.db/runtime` effect whose
   value WHOLE-VALUE-REPLACES the runtime-db partition (Spec 002 §A runtime
@@ -170,10 +169,9 @@
   truth for the read-transform-write skeleton. Not part of the
   public API.
 
-  EP-0001 (rf2-vzld77): writes through `frame/swap-runtime-db!` (the
+  EP-0001: writes through `frame/swap-runtime-db!` (the
   runtime-db partition of the one physical frame-state container) — the
-  elision registry is durable framework state and lives in runtime-db, not
-  in the retired app-db `:rf/runtime` root."
+  elision registry is durable framework state and lives in runtime-db."
   [frame-id f]
   (frame/swap-runtime-db! frame-id
                           (fn [old-runtime-db]
@@ -209,17 +207,14 @@
   ([frame-id]
    (or (get (registry-of frame-id) :sensitive-declarations) {})))
 
-;; EP-0015 §8 (rf2-d2r3um): the schema-attached `{:sensitive? true}` /
-;; `{:large? true}` slot props are NO LONGER a route into this app-db
+;; EP-0015 §8: the schema-attached `{:sensitive? true}` /
+;; `{:large? true}` slot props are NOT a route into this app-db
 ;; egress registry. Durable app-db classification is frame-owned —
 ;; `re-frame.frame-classification/install!` writes `:source :frame`
-;; declarations at `reg-frame` time. The former
-;; `populate-{elision,sensitive}-from-schemas!` / `populate-from-schemas!`
-;; functions (which walked `reg-app-schema` slot props into `:source
-;; :schema` declarations) are removed: schemas describe shape, not durable
-;; app-db egress policy. Schema `:sensitive?` still drives
+;; declarations at `reg-frame` time. Schemas describe shape, not durable
+;; app-db egress policy. Schema `:sensitive?` drives
 ;; schema-validation-failure-trace redaction (`re-frame.schemas`), and
-;; machine `:data-schema` props still classify machine `:data` (EP-0005) —
+;; machine `:data-schema` props classify machine `:data` (EP-0005) —
 ;; both consult the schema directly, not this registry.
 
 (defn clear-warning-cache!
@@ -231,7 +226,7 @@
   "Return a byte-count for a value's printed representation. Used by the
   `:rf.size/large-elided` marker payload. `^:no-doc` public so
   `re-frame.marks` reuses it rather than re-inlining the same `pr-str`
-  byte-count a second time (rf2-ih437c)."
+  byte-count a second time."
   [v]
   #?(:clj  (count (.getBytes ^String (pr-str v) "UTF-8"))
      :cljs (count (pr-str v))))
@@ -239,7 +234,7 @@
 (defn ^:no-doc value-type
   "Coarse value-type tag for the `:rf.size/large-elided` marker payload.
   `^:no-doc` public so `re-frame.marks` reuses it rather than re-inlining
-  the same closed `cond` a second time (rf2-ih437c)."
+  the same closed `cond` a second time."
   [v]
   (cond
     (map? v)    :map
@@ -269,15 +264,15 @@
   "Build the `:rf.size/large-elided` marker map for value `v` at `path`.
   `^:no-doc` public so `re-frame.marks/large-marker` builds the marker
   here (with `{:reason :marks}`) rather than re-inlining the shape a
-  second time (rf2-ih437c)."
+  second time."
   [v path {:keys [hint as-of-epoch include-digests? reason]}]
   (let [body (cond-> {:path   (vec path)
                       :bytes  (pr-str-bytes v)
                       :type   (value-type v)
-                      ;; EP-0015 §8 (rf2-d2r3um): the declaration source is
-                      ;; now frame-owned (`:source :frame`), not schema —
-                      ;; carry that provenance in `:reason` (defaults to
-                      ;; `:frame` when the decl omits an explicit source).
+                      ;; EP-0015 §8: the declaration source is
+                      ;; frame-owned (`:source :frame`) — carry that
+                      ;; provenance in `:reason` (defaults to `:frame`
+                      ;; when the decl omits an explicit source).
                       :reason (or reason :frame)
                       :hint   hint
                       :handle (handle-of (vec path) as-of-epoch)}
@@ -289,7 +284,7 @@
   matched `large-decl` (its `:hint` / `:source`) and the walk `ctx` (its
   `:as-of-epoch` / `:include-digests?`). Single source for the BYTE-IDENTICAL
   4-key option map the path-based walker (`walk`) and the value-match large
-  collector (`collect-large-markers!`) each pass to `->marker` (rf2-4p0bxp).
+  collector (`collect-large-markers!`) each pass to `->marker`.
   Both call sites carry the same `:as-of-epoch` / `:include-digests?` keys on
   their respective `ctx`, so the marker is identical whichever arm emits it."
   [large-decl ctx]
@@ -311,7 +306,7 @@
                       :hint     "Add this path to the frame's `:large {:app-db [...]}` classification (EP-0015)."
                       :recovery :no-recovery})))))
 
-;; ---- collection-coordinate declaration matching (rf2-wm9kp) ---------------
+;; ---- collection-coordinate declaration matching --------------------------
 ;;
 ;; Schema-derived declarations are INDEX-FREE: the schema walker descends
 ;; positional/keyed containers (`:vector` / `:sequential` / `:set` /
@@ -397,7 +392,7 @@
   segment). Both are retained only when they remain a prefix of some
   declared path (`decl-prefixes`), bounding the set.
 
-  POSITION-PRECISE skip (rf2-wm9kp follow-up): the `:map-of`-key
+  POSITION-PRECISE skip: the `:map-of`-key
   interpretation — keeping `c` unchanged so the key is treated as a
   collection coordinate — is only legitimate for a candidate that has
   ALREADY consumed at least one declared segment (`(seq c)`). A non-empty
@@ -478,7 +473,7 @@
   integer index, forking decl-paths via fork-index-paths' micro-shape that
   otherwise recurs across the path-based walker (`walk-indexed` / `walk-seq`)
   and the large-value collector (`collect-large-markers!`'s vector / seq
-  branches) (rf2-zp0g04). `reduce` iterates a vector in index order, so the
+  branches). `reduce` iterates a vector in index order, so the
   vector and seq cases share one traversal; the volatile index reproduces the
   per-element `(conj path i)` exactly. The caller owns `acc`'s identity
   (transient vector for the walkers, transient `[raw marker]` accumulator for
@@ -520,9 +515,8 @@
   "Walk a POSITIONAL container `coll` (a vector OR a seq), reproducing each
   element at its integer-indexed path `(conj path i)` and forking the
   candidate decl-paths through the index. Both the vector (`:vector`) and seq
-  (`:sequential`) walk arms share this body (rf2-zp0g04): each yields a
-  persistent vector of walked elements (a seq normalises to a vector here, as
-  the prior `walk-seq` did)."
+  (`:sequential`) walk arms share this body: each yields a persistent vector
+  of walked elements (a seq normalises to a vector here)."
   [coll path decl-paths ctx]
   (let [decl-prefixes (:decl-prefixes ctx)]
     (persistent!
@@ -554,7 +548,7 @@
         ;; length of the prior marker, not the original payload. Mirrors
         ;; the sensitive-case idempotence (the `:rf/redacted` scalar
         ;; sentinel is non-matchable so the walker descends into nothing
-        ;; on a re-projection pass). Per rf2-fq8ep.
+        ;; on a re-projection pass).
         v
         (->marker v path (marker-opts large-decl ctx)))
 
@@ -604,8 +598,8 @@
                    :large              large
                    :sensitive          sensitive
                    ;; Prefix set of every declared path — bounds the forked
-                   ;; candidate decl-path set as the walker descends maps
-                   ;; (rf2-wm9kp). Empty when nothing is declared ⇒ the fork
+                   ;; candidate decl-path set as the walker descends maps.
+                   ;; Empty when nothing is declared ⇒ the fork
                    ;; prunes to {} immediately and the walker is identity.
                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
                    :include-large?     (true? (:rf.size/include-large? opts))
@@ -623,10 +617,10 @@
   "Walk `v` and substitute the frame's declared sensitive or large paths for
   wire egress (the durable declarations live in `[:rf.runtime/elision …]`,
   installed frame-owned by `re-frame.frame-classification` under
-  `:source :frame` — EP-0015 §8; the schema→app-db-egress route is gone).
-  Sensitive wins over large when both declarations match.
+  `:source :frame` — EP-0015 §8). Sensitive wins over large when both
+  declarations match.
 
-  EP-0002 (rf2-gjq3ow) — the wire-egress frame resolves from the CARRIED
+  EP-0002 — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
   carried-invariant scope (`frame/resolve-current-frame` — a `with-frame`
   binding or an enclosing frame-provider). There is NO `:rf/default` floor:
@@ -636,14 +630,14 @@
 
   A resolved frame-id is not enough — it must RESOLVE to a live frame.
   An explicit `:frame` opt (or a stale carried scope) may name a frame that
-  was never registered or has since been destroyed. EP-0015 issue 1
-  (rf2-t55hxg.18): an unresolvable frame's per-frame elision registry is
-  unreachable (`registry-of` returns nil), so feeding it through the policy
-  walk produced an EMPTY-policy identity transform — shipping every value
-  verbatim under NO policy, the exact silent leak this contract abolishes.
-  An unknown / destroyed frame therefore FAILS CLOSED here too, identically
-  to the frameless case: it is validated against the live registry
-  (`frame/frame`) before being treated as policy-bearing. Spec 015
+  was never registered or has since been destroyed. EP-0015 issue 1: an
+  unresolvable frame's per-frame elision registry is unreachable
+  (`registry-of` returns nil), so feeding it through the policy walk would
+  be an EMPTY-policy identity transform — shipping every value verbatim under
+  NO policy, a silent leak. An unknown / destroyed frame therefore FAILS
+  CLOSED here too, identically to the frameless case: it is validated against
+  the live registry (`frame/frame`) before being treated as policy-bearing.
+  Spec 015
   §Direct reads and fail-closed frame resolution: an unresolved frame must
   fail closed — it must not fall through to a permissive walk, and never
   synthesizes `:rf/default`.
@@ -664,7 +658,7 @@
          ;; LIVE frame. `frame/frame` returns nil for an unknown /
          ;; never-registered / destroyed id, so an explicit `:frame` opt or
          ;; a stale carried scope that names a dead frame is treated exactly
-         ;; like the frameless case below (fail closed). rf2-t55hxg.18.
+         ;; like the frameless case below (fail closed).
          live-frame? (and (some? frame-id) (some? (frame/frame frame-id)))]
      (cond
        ;; Known + LIVE carried frame ⇒ apply that frame's elision policy.
@@ -690,7 +684,7 @@
   (and (map? v) (contains? v :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
-;; Derived-tree VALUE-based redaction (EP-0015 issue 2, rf2-i783h0).
+;; Derived-tree VALUE-based redaction (EP-0015 issue 2).
 ;;
 ;; `elide-wire-value` redacts a value by its frame-declared `:sensitive`
 ;; app-db PATH. But a DERIVED tree — rendered hiccup, a resolved
@@ -706,9 +700,9 @@
 ;; the same `:rf/redacted` sentinel `elide-wire-value` emits. This is the
 ;; value-based DUAL of the path-based walker above — it belongs in the same
 ;; ns so the two arms of "redact app-db-sensitive values at egress" share one
-;; home (the elision registry, the sentinel, the indexing convention). It
-;; centralizes the engine Story-MCP / re-frame2-pair-mcp previously each
-;; carried privately (the SECOND place EP-0015 egress semantics could drift).
+;; home (the elision registry, the sentinel, the indexing convention). It is
+;; the single engine Story-MCP / re-frame2-pair-mcp share for value-based
+;; redaction, so EP-0015 egress semantics live in one place.
 ;;
 ;; ## Non-unique-secret guard
 ;;
@@ -840,7 +834,7 @@
   "The set of values sitting at `frame-id`'s declared-`:sensitive?` app-db
   paths, read out of the RAW `source-db` — the candidate secrets, with NO
   wire-disclosure guard applied. The fail-SAFE base set for value-matching a
-  derived tree (EP-0015 issue 2, rf2-i783h0).
+  derived tree (EP-0015 issue 2).
 
   Reads the SAME frame-owned `:sensitive` `:app-db` declarations
   (`sensitive-declarations`) the path-based walker reads — installed by
@@ -877,7 +871,7 @@
   disclosed on the wire (the non-unique-secret guard). Use this to
   value-redact a DERIVED tree where the same sensitive value reappears at a
   non-app-db position the path-based `elide-wire-value` walker can't reach
-  (EP-0015 issue 2, rf2-i783h0).
+  (EP-0015 issue 2).
 
   Candidates come from `collect-sensitive-values` (the unguarded base set).
   The non-unique-secret guard then subtracts any candidate that ALSO appears,
@@ -915,7 +909,7 @@
 
 (defn- redact-matching-tree
   "The single derived-tree value-match walker, parameterized by the egress
-  AXIS via `replace-fn` (rf2-jevy26). Walks `tree`; at each node `replace-fn`
+  AXIS via `replace-fn`. Walks `tree`; at each node `replace-fn`
   returns either the AXIS replacement (a matched node is substituted wholesale
   and NOT descended) or the `no-match` sentinel (descend structurally).
   Recurses maps/vectors/sets/seqs (map KEYS too — a secret/large value used as
@@ -962,9 +956,8 @@
   "Value-redact a DERIVED `tree` (rendered hiccup, a resolved `:effective-args`
   map, a snapshot body, a plan-resolved value slot) against the live values
   at `frame-id`'s declared-`:sensitive?` app-db paths, before wire egress
-  (EP-0015 issue 2, rf2-i783h0). The single framework home for the
-  value-match-redaction primitive Story-MCP / re-frame2-pair-mcp previously
-  each carried privately.
+  (EP-0015 issue 2). The single framework home for the
+  value-match-redaction primitive Story-MCP / re-frame2-pair-mcp share.
 
   Collects the secret set from `source-db` (the raw db the derived tree was
   produced from) via `sensitive-value-set` — including the non-unique-secret
@@ -994,7 +987,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Large-value value-match — the DUAL of the sensitive engine for the :large
-;; egress axis (rf2-9o5ixx, EP-0015: sensitive + large are PEER egress axes).
+;; egress axis (EP-0015: sensitive + large are PEER egress axes).
 ;;
 ;; `elide-wire-value` elides a declared-`:large` slot to a `:rf.size/large-
 ;; elided` marker by PATH. But the same large blob can be re-keyed into a
@@ -1051,7 +1044,7 @@
 
       ;; Positional container (vector OR seq): descend each element at its
       ;; integer-indexed path, forking decl-paths through the index — the
-      ;; shared `reduce-indexed-forks` micro-shape (rf2-zp0g04).
+      ;; shared `reduce-indexed-forks` micro-shape.
       (or (vector? node) (seq? node))
       (reduce-indexed-forks
         node decl-paths (:decl-prefixes ctx)
@@ -1066,7 +1059,7 @@
 
 (defn large-value-marker-map
   "The `{large-value marker}` map for `frame-id`'s declared-`:large` app-db
-  paths, read out of the RAW `source-db` (rf2-9o5ixx). Each key is the whole
+  paths, read out of the RAW `source-db`. Each key is the whole
   blob value sitting at a declared-large path; each value is the
   `:rf.size/large-elided` marker `elide-wire-value` would have emitted for it
   (same `:path` / `:bytes` / `:handle` / digest under `wire-opts`).
@@ -1095,7 +1088,7 @@
 
 (defn redact-matching-large-values
   "Walk `tree`, substituting any leaf `=` to a key of `marker-map` with that
-  key's `:rf.size/large-elided` marker (rf2-9o5ixx). The large-axis dual of
+  key's `:rf.size/large-elided` marker. The large-axis dual of
   `redact-matching-values`. Recurses maps/vectors/sets/seqs; map KEYS are
   walked too. Returns `tree` unchanged when `marker-map` is empty.
 
@@ -1111,7 +1104,7 @@
 
 (defn redact-derived-large-values
   "Value-elide a DERIVED `tree` against the live values at `frame-id`'s
-  declared-`:large` app-db paths, before wire egress (rf2-9o5ixx). The
+  declared-`:large` app-db paths, before wire egress. The
   large-axis dual of `redact-derived-values`: collects the
   `{large-value marker}` map from `source-db` via `large-value-marker-map`
   (under the egress floor `wire-opts`), then substitutes any matching leaf in
@@ -1130,29 +1123,28 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Composed multi-slot derived-tree egress — the SINGLE public assembling
-;; helper (rf2-leggev Option B2, rf2-j7qbhm).
+;; helper.
 ;;
-;; The sensitive + large value-match arms above are the disassembled GEARS of
-;; one operation: "redact a frame's app-db-sensitive / -large values out of a
+;; The sensitive + large value-match arms above are the GEARS of one
+;; operation: "redact a frame's app-db-sensitive / -large values out of a
 ;; derived tree (or a set of derived value slots) before off-box egress". The
 ;; one assembling consumer — Story-MCP's `scrub-rendered` (single tree, both
 ;; axes) and `scrub-explain-values` (one collection pass over many value
-;; slots) — previously reached the gears piecemeal through the `re-frame.core`
-;; façade. Spec 015 names the BOUNDARY / OPERATION, not the gearbox, so the
-;; gears no longer crowd the façade: this one helper subsumes them, and the
-;; low-level arms stay in this namespace for the rare bespoke caller.
+;; slots) — names the BOUNDARY / OPERATION via this helper. Spec 015 names the
+;; BOUNDARY / OPERATION, not the gearbox: this one helper subsumes the gears,
+;; and the low-level arms stay in this namespace for the rare bespoke caller.
 ;;
-;; The one-pass property the gears were carved to provide is preserved: the
-;; sensitive candidate set AND the large marker-map are each collected ONCE
-;; from `source-db`, then substituted across EVERY slot. Sensitive runs FIRST
-;; (it wins — the large collector already skips sensitive-declared nodes), and
-;; the large pass sees only the sensitive-survived slots.
+;; One-pass: the sensitive candidate set AND the large marker-map are each
+;; collected ONCE from `source-db`, then substituted across EVERY slot.
+;; Sensitive runs FIRST (it wins — the large collector already skips
+;; sensitive-declared nodes), and the large pass sees only the
+;; sensitive-survived slots.
 ;; ---------------------------------------------------------------------------
 
 (defn redact-derived-slots
   "Redact a frame's app-db-sensitive / -large values out of one or more
   DERIVED value slots before off-box egress — the SINGLE composed multi-slot
-  egress helper (rf2-leggev Option B2). The value-based DUAL of the path-based
+  egress helper. The value-based DUAL of the path-based
   `elide-wire-value`, assembled so a consumer names the BOUNDARY (\"scrub these
   derived slots for `frame-id`'s egress\") instead of hand-wiring the
   sensitive / large value-match gears.
@@ -1179,7 +1171,7 @@
        `:rf.size/large-elided` marker.
 
   Both collections are done a SINGLE time and reused across every slot — the
-  one-pass property the low-level gears were carved to expose.
+  one-pass property the low-level gears expose.
 
   `wire-opts` is the `elide-wire-value` egress floor the path-based `:app-db`
   slot ships under (e.g. an off-box-tool profile's `:rf.size/*` opt-set);
@@ -1239,7 +1231,7 @@
               m
               slot-keys))))
 
-;; EP-0015 §8 (rf2-d2r3um): no `:elision/populate-from-schemas!` hook —
-;; schemas no longer feed the app-db egress registry (frame policy owns it).
+;; EP-0015 §8: there is no `:elision/populate-from-schemas!` hook — frame
+;; policy owns the app-db egress registry; schemas describe shape only.
 (late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
 (late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)
