@@ -923,7 +923,16 @@ var.
 `tail-build`) bypass — their return value is the result of an
 action, not a read. Streaming tools (`subscribe`,
 `unsubscribe`) bypass — they emit progress notifications, not
-single payloads. `:isError` results bypass — a transient
+single payloads. Volatile runtime-state reads bypass too —
+`list-streams` / `get-stream-controls` (the streaming-tap registry)
+and `get-operating-frame`, whose resolved triple is a function of the
+live frame registry plus the per-session pin: both axes can move
+WITHOUT an app-db mutation and WITHOUT a `set-operating-frame` /
+`reset-operating-frame` call (a frame mount/unmount, or a runtime
+reload with a different live frame set), and the result-hash cache only
+flushes on an explicit operating-frame mutation — so caching it could
+serve a stale `:rf.mcp/cache-hit` masking a newly ambiguous session or
+a newly available app frame. `:isError` results bypass — a transient
 failure must not mask a future successful read.
 
 **Cross-MCP vocabulary**. `:rf.mcp/cache-hit` is the wire

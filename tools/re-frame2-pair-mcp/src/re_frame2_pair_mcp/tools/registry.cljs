@@ -300,14 +300,27 @@
     :descriptor data/reset-operating-frame}
    {:name       "get-operating-frame"
     :handler    (ignoring-extra #(operating-frame/get-operating-frame-tool %1 %2))
-    ;; Pure read of the resolved frame triple — a function of the frame
-    ;; registry + session pin. Cacheable like the other read tools; the
-    ;; precheck-hash short-circuit keys on app-db, but the triple is
-    ;; cheap to recompute and the cache opt-in is per-call, so a stale
-    ;; read after a set/reset is avoided by the :cache default-false
-    ;; posture (rf2-c4fmh). Treating it as cacheable keeps it in the
-    ;; read family for the cache opt-in knob.
-    :cacheable? true
+    ;; NOT cacheable — same posture as `get-stream-controls` / `list-streams`:
+    ;; a read of volatile process/runtime state, not a function of frame
+    ;; app-db. The resolved triple (`:frames` / `:app-frames` / `:selected`
+    ;; / `:operating`) depends on the live frame registry plus the per-
+    ;; session pin, and BOTH axes can move WITHOUT an app-db mutation and
+    ;; WITHOUT a `set-operating-frame` / `reset-operating-frame` call —
+    ;; e.g. a frame mounts/unmounts or a connected runtime reloads with a
+    ;; different live frame set. The cache key is only
+    ;; `[tool build (args->fingerprint args)]` (see `cache/cache-key`); it
+    ;; cannot fold in the registry/pin, and the result-hash cache only
+    ;; clears on an explicit operating-frame mutation (see
+    ;; `operating-frame-mutating?` in `tools.cljs`). So a repeated
+    ;; `get-operating-frame {cache true}` over byte-identical empty args
+    ;; could serve a `:rf.mcp/cache-hit` marker telling the agent to reuse
+    ;; stale frame-discovery data — hiding a newly ambiguous session or a
+    ;; newly available app frame. Marking it non-cacheable keeps the read
+    ;; always-fresh; the triple is cheap to recompute. If caching is ever
+    ;; wanted here, add a runtime frame-registry/session-pin generation
+    ;; token to the cache identity — do NOT key it on tool/build/args
+    ;; alone.
+    :cacheable? false
     :descriptor data/get-operating-frame}
    {:name       "get-re-frame2-pair-instructions"
     :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2))
@@ -355,9 +368,13 @@
   for the inline `get-re-frame2-pair-instructions` onboarding text
   (which is a pure-data function with no state whatsoever — once is
   forever). False for action tools (`dispatch`, `eval-cljs`,
-  `tail-build`) and streaming tools (`subscribe`, `unsubscribe`,
-  `list-streams`) — their return value is the result of an action /
-  a read of the volatile streaming registry, not frame state.
+  `tail-build`), streaming tools (`subscribe`, `unsubscribe`,
+  `list-streams`, `get-stream-controls`), and volatile runtime-state
+  reads whose value can move without an app-db mutation —
+  `get-operating-frame`, whose resolved triple is a function of the
+  live frame registry plus the per-session pin (rf2-flm0iz). Their
+  return value is the result of an action / a read of volatile
+  process/runtime state, not frame app-db.
 
   Unknown names return false."
   [tool]

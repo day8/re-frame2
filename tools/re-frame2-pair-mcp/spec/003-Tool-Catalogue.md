@@ -286,9 +286,19 @@ session per the [persistent-socket principle](Principles.md#single-persistent-nr
 no cross-process leak, no manual invalidation.
 
 Action tools (`dispatch`, `eval-cljs`, `tail-build`) and
-streaming tools (`subscribe`, `unsubscribe`, `list-streams`) bypass
-the cache — their return value is the result of an action / a read of
-the volatile streaming-tap registry, not frame state.
+streaming tools (`subscribe`, `unsubscribe`, `list-streams`,
+`get-stream-controls`) bypass the cache — their return value is the
+result of an action / a read of the volatile streaming-tap registry,
+not frame state. `get-operating-frame` bypasses for the same reason:
+its resolved triple is a function of the live **frame registry** plus
+the per-session **pin**, both of which can move WITHOUT an app-db
+mutation and WITHOUT a `set-operating-frame` / `reset-operating-frame`
+call (a frame mount/unmount, or a runtime reload with a different live
+frame set). The cache key cannot fold the registry/pin in, and the
+result-hash cache only flushes on an explicit operating-frame mutation
+— so caching it could serve a stale `:rf.mcp/cache-hit` for byte-
+identical empty args, masking a newly ambiguous session or a newly
+available app frame. It is non-cacheable.
 (`list-subscriptions` opts IN — it reads the live reactive sub-cache,
 a pure function of frame state, just like `snapshot`; rf2-qicji.)
 `:isError` results bypass too; a transient failure must not

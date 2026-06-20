@@ -359,12 +359,22 @@ Post-Lock additions accumulated as follows:
   named session setting (the operating frame), and the spec-mandated
   name wins for cross-server mental-model transfer (re-frame-pair-improver
   / Xray / Story carry the same trio). See Lock #8 + NAMING.md §The verb
-  table for the catalogue addition. `set` / `reset` are `:cacheable? false`
-  (session-state writes); `get` is `:cacheable? true` (a read of the
-  frame registry + pin, caught by the post-eval result-hash cache — the
-  precheck path is single-frame app-db-only `snapshot`-only (rf2-ww877w
-  retired `get-path` from precheck eligibility), so a pin write between
-  two `get`s is never served stale).
+  table for the catalogue addition. All three are `:cacheable? false`: `set` /
+  `reset` are session-state writes; `get` is a read of VOLATILE runtime
+  state — the live frame registry plus the per-session pin — NOT a
+  function of an app-db hash. Both axes can move WITHOUT an app-db
+  mutation and WITHOUT a `set` / `reset` call (a frame mount/unmount, or
+  a runtime reload with a different live frame set), and the result-hash
+  cache only flushes on an explicit operating-frame mutation — so a
+  cacheable `get` could serve a stale `:rf.mcp/cache-hit` for byte-
+  identical empty args, masking a newly ambiguous session or a newly
+  available app frame. It is non-cacheable, same posture as
+  `get-stream-controls` (the recording/streaming volatile-state reads).
+  An earlier revision marked `get` `:cacheable? true` on the theory that
+  set/reset cache-flushes covered every pin change; that missed the
+  registry-mutation axis above. If caching is ever wanted here, add a
+  runtime frame-registry/session-pin generation token to the cache
+  identity — do NOT key it on tool/build/args alone.
 - **rf2-3bu3d.7 / rf2-3bu3d.8** added the **read-orientation pair** —
   `read-sub` and `orient`. `read-sub {sub-id}` is the validated single-
   subscription read: resolve the named subscription against the reactive

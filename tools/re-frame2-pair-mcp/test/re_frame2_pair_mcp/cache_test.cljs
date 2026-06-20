@@ -77,6 +77,23 @@
   (is (not (cache/cacheable? "unsubscribe")))
   (is (not (cache/cacheable? "unknown-tool"))))
 
+(deftest cacheable-excludes-get-operating-frame
+  ;; rf2-flm0iz — `get-operating-frame` is a read of VOLATILE runtime
+  ;; state (the live frame registry + the per-session pin), not a
+  ;; function of frame app-db. Both axes can move WITHOUT an app-db
+  ;; mutation and WITHOUT a `set-operating-frame` / `reset-operating-
+  ;; frame` call (a frame mount/unmount, or a runtime reload with a
+  ;; different live frame set). The cache key cannot fold the
+  ;; registry/pin in (see `cache/cache-key`), and the result-hash cache
+  ;; only flushes on an explicit operating-frame mutation — so caching
+  ;; it could serve a stale `:rf.mcp/cache-hit` for byte-identical empty
+  ;; args. It must be non-cacheable, same posture as `get-stream-
+  ;; controls` / `list-streams`.
+  (is (not (cache/cacheable? "get-operating-frame"))
+      "get-operating-frame must not consult the response cache")
+  (is (not (cache/cacheable? "get-stream-controls"))
+      "sibling volatile-state read stays non-cacheable too"))
+
 ;; ---------------------------------------------------------------------------
 ;; args->fingerprint — stable across JS-object key order.
 ;; ---------------------------------------------------------------------------
@@ -214,6 +231,31 @@
       (is (identical? r out)))
     (is (zero? (cache/size))
         "action tools never poison the cache")))
+
+(deftest get-operating-frame-never-serves-stale-cache-hit
+  ;; rf2-flm0iz — the load-bearing scenario. Two byte-identical
+  ;; `get-operating-frame` responses MUST NOT collapse into a
+  ;; `:rf.mcp/cache-hit` marker, because the resolved frame triple can
+  ;; have changed underneath identical bytes (a frame mounted/unmounted,
+  ;; the runtime reloaded with a different live frame set) without any
+  ;; app-db mutation and without an operating-frame set/reset call to
+  ;; flush the cache. With `get-operating-frame` non-cacheable, both
+  ;; calls pass through untouched and nothing is stored.
+  (let [args (args-js {})
+        text "{:ok? true :frames [:rf/default] :selected nil :operating :rf/default}"
+        r1   (mcp-result text)
+        r2   (mcp-result text)
+        opts {:tool "get-operating-frame" :args args :enabled? true}]
+    (let [out1 (cache/apply-cache r1 opts)]
+      (is (identical? r1 out1)
+          "first get-operating-frame read passes through untouched"))
+    (let [out2 (cache/apply-cache r2 opts)]
+      (is (identical? r2 out2)
+          "second byte-identical read still returns the fresh payload")
+      (is (not (cache-hit-result? out2))
+          "no :rf.mcp/cache-hit marker — could mask a changed frame/session"))
+    (is (zero? (cache/size))
+        "get-operating-frame never poisons the cache")))
 
 (deftest error-results-bypass-cache
   ;; An :isError result should not be cached — a transient error
