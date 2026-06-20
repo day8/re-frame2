@@ -173,3 +173,78 @@
       (is (some? props))
       (is (= #{} (:fired-edge-ids props))
           "empty fired set → no fired highlight on the blank-epoch chart"))))
+
+;; ---- Topology → Chart parallel region-map snapshot boundary (rf2-di7mda) -
+;;
+;; A PARALLEL machine's live snapshot `:state` is a region-map (Spec 005 +
+;; machines-viz API §:current-state) of N simultaneously-active leaves. When
+;; the wrapper falls back to a live snapshot (no focused transition / history
+;; hit), the region-map MUST forward through to the chart's `:current-state`
+;; UNCHANGED so the multi-active highlight (`chart.layout/highlight-ids`)
+;; lights EVERY active region leaf. The bug narrowed the snapshot fallback to
+;; keyword/vector only, dropping the region-map before the chart could render
+;; the N-active highlight (a live parallel machine showed no active regions
+;; while the wrapper still claimed `data-current-state-source = "snapshot"`).
+
+(defn- parallel-ingest-definition
+  "Canonical Spec 005 parallel fixture (mirrors the machines-viz
+  `highlight-ids` region-map test): two regions, each with its OWN
+  same-named `:done` leaf — so the region-scoped highlight must
+  attribute each region's active leaf to its OWN node."
+  []
+  {:type    :parallel
+   :regions {:fetch    {:initial :loading
+                        :states  {:loading {:on {:loaded :done}}
+                                  :done    {:final? true}}}
+            :validate {:initial :checking
+                       :states  {:checking {:on {:ok :done}}
+                                 :done     {:final? true}}}}})
+
+(deftest topology-forwards-parallel-region-map-snapshot-to-chart
+  (testing "rf2-di7mda — a parallel `:snapshot-state` region-map reaches the
+            `machine-canvas/Chart` mount's `:current-state` UNCHANGED, so the
+            chart's multi-active highlight lights every active region leaf.
+            Before the fix the wrapper dropped the map (narrowed to
+            keyword/vector) and a live parallel machine rendered no active
+            regions."
+    (let [def          (parallel-ingest-definition)
+          ;; BOTH regions reached their (same-named) :done leaf — the
+          ;; multi-active live snapshot a running parallel machine carries.
+          region-map   {:fetch :done :validate :done}
+          props        (find-chart-props
+                         (tv/Topology {:machine-id     :ingest
+                                       :definition     def
+                                       :snapshot-state region-map}))]
+      (is (some? props)
+          "the :else branch mounts machine-canvas/Chart")
+      (is (= region-map (:current-state props))
+          "the parallel region-map forwards through UNCHANGED — not dropped,
+           not narrowed to a single path")
+      ;; End-to-end: the forwarded map drives the chart's multi-active
+      ;; highlight — every active region leaf lights up (one id per region,
+      ;; region-scoped so the two same-named :done leaves stay distinct).
+      (let [ids (chart-layout/highlight-ids (:current-state props))]
+        (is (= 2 (count ids))
+            "TWO active leaves light up (one per region), not zero (dropped)
+             and not one (narrowed)")
+        (is (= #{(chart-layout/region-scoped-id :fetch [:done])
+                 (chart-layout/region-scoped-id :validate [:done])}
+               ids)
+            "each region's active :done leaf is attributed to its OWN
+             region-scoped node-id — every active region leaf lit")))))
+
+(deftest topology-keyword-and-vector-snapshot-still-forward
+  (testing "rf2-di7mda — the single-active arms are unchanged: a flat-keyword
+            snapshot forwards as a 1-element path, a vector path forwards
+            verbatim (regression guard around the region-map arm addition)."
+    (let [def       (toy-definition)
+          kw-props  (find-chart-props
+                      (tv/Topology {:machine-id :cart :definition def
+                                    :snapshot-state :populated}))
+          vec-props (find-chart-props
+                      (tv/Topology {:machine-id :cart :definition def
+                                    :snapshot-state [:populated]}))]
+      (is (= [:populated] (:current-state kw-props))
+          "flat keyword snapshot → 1-element path forwarded")
+      (is (= [:populated] (:current-state vec-props))
+          "vector path snapshot → forwarded verbatim"))))
