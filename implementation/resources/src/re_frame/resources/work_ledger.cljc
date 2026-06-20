@@ -182,9 +182,8 @@
   summary. Terminal rows are pruned on the linked entry's next successful
   transition; a bounded per-resource-key tail is retained for Xray. Per
   Spec 016 §Ledger row retention and identity. The canonical set lives in
-  `re-frame.resources.state/terminal-work-statuses` (rf2-366u0g — no longer
-  re-typed here); re-bound under the ledger surface's own name so a ledger
-  consumer reads one home."
+  `re-frame.resources.state/terminal-work-statuses` (rf2-366u0g); re-bound
+  under the ledger surface's own name so a ledger consumer reads one home."
   state/terminal-work-statuses)
 
 (defn terminal?
