@@ -277,14 +277,40 @@
 ;; ---- fixture loader -------------------------------------------------------
 
 (def fixtures-dir
-  ;; The corpus lives under spec/conformance/fixtures at the repo root.
-  ;; Per rf2-0hxm the JVM tests run from implementation/core/, so the
-  ;; relative path is ../../spec/conformance/fixtures. Fall back to the
-  ;; pre-split layout for transitional REPLs running from
-  ;; implementation/ — whichever exists first wins.
-  (let [nested  (io/file "../../spec/conformance/fixtures")
-        legacy  (io/file "../spec/conformance/fixtures")]
-    (if (.exists nested) nested legacy)))
+  ;; The conformance corpus lives under spec/conformance/fixtures at the
+  ;; repo root.
+  ;;
+  ;; Anchored to a CLASSPATH RESOURCE, not the working directory
+  ;; (rf2-ywrwkl, the same fix rf2-55j4s3 applied to 3 sibling core tests).
+  ;; The earlier cwd-relative form ((io/file "../../spec/conformance/
+  ;; fixtures") with a "../spec/..." legacy fallback) assumed the JVM cwd
+  ;; was implementation/core/. That holds for the canonical per-artefact
+  ;; gate (clojure -M:test from implementation/core/, which CI runs) but
+  ;; SILENTLY MIS-SCOPES under the combined implementation/deps.edn :test
+  ;; alias: run from implementation/, "../../" resolves ABOVE the repo root,
+  ;; file-seq returns nothing, and the corpus discovers zero fixtures (the
+  ;; rf2-3hamsq floor turns that mis-discovery RED instead of silent-green).
+  ;;
+  ;; This test namespace's own source file is on the test classpath (the
+  ;; artefact's :test {:extra-paths ["test"]}), so resolving it via
+  ;; io/resource pins the anchor to the on-disk source location regardless
+  ;; of cwd or which alias loaded the namespace. Walking five parents
+  ;; (conformance_test.clj → re_frame → test → core → implementation → repo
+  ;; root) reaches the repo root, then we descend into
+  ;; spec/conformance/fixtures.
+  (let [res (io/resource "re_frame/conformance_test.clj")]
+    (assert res
+            (str "conformance-test cannot locate its own source on the "
+                 "classpath — the core test/ dir must be on the test "
+                 "classpath for fixture discovery to anchor."))
+    (-> (io/file res)        ; .../core/test/re_frame/conformance_test.clj
+        .getParentFile       ; .../core/test/re_frame
+        .getParentFile       ; .../core/test
+        .getParentFile       ; .../core
+        .getParentFile       ; .../implementation
+        .getParentFile       ; repo root
+        (io/file "spec" "conformance" "fixtures")
+        .getCanonicalFile)))
 
 (defn- load-fixture [file]
   (try
