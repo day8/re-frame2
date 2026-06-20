@@ -42,7 +42,7 @@
 ;; sizing path added in rf2-mzndx.
 (def ^:private test-io
   (reify base-cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
         (conj (pr-str (:structuredContent result)))))
@@ -2517,7 +2517,7 @@
     ;; A tiny payload like `list-tags` is well under 5K tokens; verify
     ;; the cap does not trip on routine reads.
     (let [r (wire-pipeline/invoke-tool "list-tags" {})
-          tokens (base-cap/sum-text-tokens test-io r)]
+          tokens (base-cap/sum-payload-tokens test-io r)]
       (is (not (overflow-marker? r)))
       (is (< tokens overflow/default-max-tokens)))))
 
@@ -5084,11 +5084,11 @@
     ;; only counts `:text` — assert the wire-side sum reflects both.
     (let [r          (wire-pipeline/invoke-tool "list-stories" {:max-tokens 0})
           text-only  (let [io (reify base-cap/ResultIO
-                                (content-texts [_ result]
+                                (wire-payload-strings [_ result]
                                   (map :text (:content result)))
                                 (build-overflow-result [_ _m _o] {}))]
-                       (base-cap/sum-text-tokens io r))
-          with-struct (base-cap/sum-text-tokens test-io r)]
+                       (base-cap/sum-payload-tokens io r))
+          with-struct (base-cap/sum-payload-tokens test-io r)]
       ;; The `test-io` mirror counts structured content (see rf2-mzndx
       ;; update at top of file). It MUST report more tokens than the
       ;; text-only baseline whenever the result carries a non-nil

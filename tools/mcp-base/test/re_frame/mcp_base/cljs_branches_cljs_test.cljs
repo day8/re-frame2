@@ -113,7 +113,7 @@
 
 (def map-io
   (reify cap/ResultIO
-    (content-texts [_ result] (map :text (:content result)))
+    (wire-payload-strings [_ result] (map :text (:content result)))
     (build-overflow-result [_ marker _original]
       {:content           [{:type "text" :text (pr-str marker)}]
        :structuredContent marker})))
@@ -143,7 +143,7 @@
 ;;     (rf2-13wbe). re-frame2-pair-mcp's `wire/ok-text` / `err-text` emit
 ;;     a `:structuredContent` JS projection alongside the `:content[*].text`
 ;;     EDN on EVERY result — the SAME payload, twice on the wire. The
-;;     mcp-base `content-texts` contract (rf2-mzndx / rf2-13wbe) requires a
+;;     mcp-base `wire-payload-strings` contract (rf2-mzndx / rf2-13wbe) requires a
 ;;     dual-coding consumer to surface a stable string of that slot too;
 ;;     otherwise the cap undercounts by ~50% and a small-`:content` /
 ;;     huge-`:structuredContent` response slips past the overflow marker.
@@ -164,13 +164,13 @@
         acc))))
 
 (def ^:private structured-pair-io
-  "Pair-shaped reify that HONOURS the dual-slot contract: `content-texts`
+  "Pair-shaped reify that HONOURS the dual-slot contract: `wire-payload-strings`
   surfaces both the `#js`-array `:text` slots AND a `js/JSON.stringify`
   of the `:structuredContent` JS object — the exact bytes the npm SDK
   serialises. This is the shape pair-mcp's `result-io` must adopt
   (rf2-13wbe). Mirrors story-mcp's `structured-io` on the JS side."
   (reify cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (let [sc      (.-structuredContent ^js result)
             sc-text (when (some? sc) (js/JSON.stringify sc))]
         (cond-> (js-text-slots (.-content ^js result))
@@ -185,7 +185,7 @@
   contract forbids — the same payload passes the cap here while
   `structured-pair-io` trips it."
   (reify cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (js-text-slots (.-content ^js result)))
     (build-overflow-result [_ marker _original]
       #js {:content          #js [#js {:type "text" :text (pr-str marker)}]

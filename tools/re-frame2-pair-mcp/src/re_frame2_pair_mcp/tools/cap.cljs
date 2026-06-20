@@ -118,13 +118,13 @@
   small-`:content` / huge-`:structuredContent` response slips past the
   overflow marker and busts the MCP token budget. We surface the
   structured slot as one extra string — `js/JSON.stringify` of the JS
-  object, the exact wire bytes — appended to the `content-texts` seq;
-  `sum-text-tokens` then transduces it alongside the `:text` strings
+  object, the exact wire bytes — appended to the `wire-payload-strings` seq;
+  `sum-payload-tokens` then transduces it alongside the `:text` strings
   under one budget. (story-mcp uses `pr-edn` because its structured slot
   is a CLJ map; pair-mcp's is a JS object, so `JSON.stringify` is the
   byte-faithful equivalent.)"
   (reify base-cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (let [content (j/get result :content)
             n       (if (array? content) (.-length content) 0)
             sc      (when result (j/get result :structuredContent))]
@@ -148,7 +148,7 @@
       ;; hosts reading structuredContent missed the marker.
       (wire/result marker false))))
 
-(defn sum-text-tokens
+(defn sum-payload-tokens
   "Sum `token-estimate` across every wire-bearing slot in the MCP
   `{:content [{:type \"text\" :text ...} ...] :structuredContent ...}`
   result — both the `:content[*].text` strings AND the
@@ -156,11 +156,11 @@
   as the serialised tool-result body; the bounded JSON envelope keys
   are ignored.
 
-  Delegates to `base-cap/sum-text-tokens` against re-frame2-pair-mcp's
-  JS-shape `result-io`, whose `content-texts` surfaces the structured
+  Delegates to `base-cap/sum-payload-tokens` against re-frame2-pair-mcp's
+  JS-shape `result-io`, whose `wire-payload-strings` surfaces the structured
   slot as `js/JSON.stringify` of the JS object."
   [result-js]
-  (base-cap/sum-text-tokens result-io result-js))
+  (base-cap/sum-payload-tokens result-io result-js))
 
 (defn apply-cap
   "Wire-boundary cap enforcement. Returns either `result-js` unchanged

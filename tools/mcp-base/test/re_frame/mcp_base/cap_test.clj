@@ -20,7 +20,7 @@
   Mirrors story-mcp's runtime instance; story-mcp's tests exercise the
   full registry-backed pipeline."
   (reify cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (map :text (:content result)))
     (build-overflow-result [_ marker _original]
       {:content          [{:type "text" :text (pr-str marker)}]
@@ -157,29 +157,29 @@
       "the safe-integer ceiling itself is an in-domain cap"))
 
 ;; ---------------------------------------------------------------------------
-;; sum-text-tokens — sums every :text slot via ResultIO.
+;; sum-payload-tokens — sums every :text slot via ResultIO.
 ;; ---------------------------------------------------------------------------
 
-(deftest sum-text-tokens-single-slot
+(deftest sum-payload-tokens-single-slot
   (let [r (ok-text-result {:hello "world"})]
-    (is (pos? (cap/sum-text-tokens map-io r)))
+    (is (pos? (cap/sum-payload-tokens map-io r)))
     (is (= (overflow/token-estimate (pr-str {:hello "world"}))
-           (cap/sum-text-tokens map-io r)))))
+           (cap/sum-payload-tokens map-io r)))))
 
-(deftest sum-text-tokens-empty-content-is-zero
-  (is (zero? (cap/sum-text-tokens map-io {:content []})))
-  (is (zero? (cap/sum-text-tokens map-io {:content nil}))))
+(deftest sum-payload-tokens-empty-content-is-zero
+  (is (zero? (cap/sum-payload-tokens map-io {:content []})))
+  (is (zero? (cap/sum-payload-tokens map-io {:content nil}))))
 
-(deftest sum-text-tokens-aggregates-across-slots
+(deftest sum-payload-tokens-aggregates-across-slots
   (let [r {:content [{:type "text" :text (big-string 4000)}
                      {:type "text" :text (big-string 4000)}]}]
-    (is (= 2000 (cap/sum-text-tokens map-io r)))))
+    (is (= 2000 (cap/sum-payload-tokens map-io r)))))
 
-(deftest sum-text-tokens-skips-non-string-slots
+(deftest sum-payload-tokens-skips-non-string-slots
   (let [r {:content [{:type "text" :text (big-string 4000)}
                      {:type "image"}
                      {:type "text"}]}]
-    (is (= 1000 (cap/sum-text-tokens map-io r)))))
+    (is (= 1000 (cap/sum-payload-tokens map-io r)))))
 
 ;; ---------------------------------------------------------------------------
 ;; apply-cap — the strategy entry point.
@@ -216,7 +216,7 @@
   (let [big (big-string 8000)
         r   (ok-text-result {:huge big})
         out (cap/apply-cap map-io r {:tool "snapshot" :cap 500})]
-    (is (<= (cap/sum-text-tokens map-io out) 500)
+    (is (<= (cap/sum-payload-tokens map-io out) 500)
         "The overflow marker itself must be under the cap")))
 
 (deftest apply-cap-absent-hint-uses-fallback
@@ -230,7 +230,7 @@
   ;; <= cap passes; only > cap trips. Boundary check pins inclusive-low.
   (let [s    (big-string 400)
         r    (ok-text-result s)
-        toks (cap/sum-text-tokens map-io r)
+        toks (cap/sum-payload-tokens map-io r)
         out  (cap/apply-cap map-io r {:tool "snapshot" :cap toks})]
     (is (identical? r out))))
 
@@ -238,7 +238,7 @@
   ;; Verify the build-overflow-result hook is what produces the new
   ;; result — a custom IO can shape the result however it likes.
   (let [marker-only-io (reify cap/ResultIO
-                         (content-texts [_ result] (map :text (:content result)))
+                         (wire-payload-strings [_ result] (map :text (:content result)))
                          (build-overflow-result [_ marker _]
                            {::custom-shape true :marker marker}))
         big (big-string 8000)
@@ -251,19 +251,19 @@
 ;; ---------------------------------------------------------------------------
 ;; Secondary char-byte cap (rf2-ih7g4) — defence in depth against the
 ;; `(quot count 4)` token undercount on CJK / emoji / base64 / dense
-;; code. `sum-text-tokens` divides by 4; a payload where 1 char ≈ 2-3
+;; code. `sum-payload-tokens` divides by 4; a payload where 1 char ≈ 2-3
 ;; tokens still trips the cap because the secondary char check uses
 ;; `cap * byte-cap-multiplier`.
 ;; ---------------------------------------------------------------------------
 
-(deftest sum-text-chars-aggregates-across-slots
+(deftest sum-payload-chars-aggregates-across-slots
   (let [r {:content [{:type "text" :text (big-string 1000)}
                      {:type "text" :text (big-string 2000)}]}]
-    (is (= 3000 (cap/sum-text-chars map-io r)))))
+    (is (= 3000 (cap/sum-payload-chars map-io r)))))
 
-(deftest sum-text-chars-empty-content-is-zero
-  (is (zero? (cap/sum-text-chars map-io {:content []})))
-  (is (zero? (cap/sum-text-chars map-io {:content nil}))))
+(deftest sum-payload-chars-empty-content-is-zero
+  (is (zero? (cap/sum-payload-chars map-io {:content []})))
+  (is (zero? (cap/sum-payload-chars map-io {:content nil}))))
 
 (deftest byte-cap-multiplier-pinned-at-8x
   ;; The multiplier is part of the cap contract — call out a change.
@@ -287,15 +287,15 @@
 (deftest byte-cap-multiplier-and-char-sum-are-pinned
   ;; Defence-in-depth shape pin (rf2-ih7g4 / rf2-8cpsg / F18). The
   ;; secondary byte cap is `cap * byte-cap-multiplier` and reads from
-  ;; the same `content-texts` seq the token sum does.
+  ;; the same `wire-payload-strings` seq the token sum does.
   ;;
   ;; Pin the two shape invariants — `byte-cap-multiplier = 8` and
-  ;; `sum-text-chars` and `sum-text-tokens` read the same content-
+  ;; `sum-payload-chars` and `sum-payload-tokens` read the same content-
   ;; texts seq.
   (is (= 8 cap/byte-cap-multiplier))
   (let [r {:content [{:type "text" :text (big-string 100)}]}]
-    (is (= 100 (cap/sum-text-chars map-io r)))
-    (is (= 25 (cap/sum-text-tokens map-io r)))))
+    (is (= 100 (cap/sum-payload-chars map-io r)))
+    (is (= 25 (cap/sum-payload-tokens map-io r)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Two-stage gate, unit-trippable in isolation (rf2-80y2h) + reachable
@@ -363,8 +363,8 @@
   (let [big (big-string 4000)        ;; 4000 chars ⇒ 1000 tokens
         r   (ok-text-result {:huge big})
         cap-tokens 500
-        toks (cap/sum-text-tokens map-io r)
-        chrs (cap/sum-text-chars map-io r)
+        toks (cap/sum-payload-tokens map-io r)
+        chrs (cap/sum-payload-chars map-io r)
         out  (cap/apply-cap map-io r {:tool "snapshot" :cap cap-tokens})
         body (get-in out [:structuredContent vocab/overflow-key])]
     (is (true? (cap/over-cap? toks chrs cap-tokens)))
@@ -384,11 +384,11 @@
   (let [r        {:content (vec (repeat 3000 {:type "text" :text "xxx"}))}
         cap-toks 1]
     ;; Confirm the precondition that makes this the SOLE char-gate trip.
-    (is (zero? (cap/sum-text-tokens map-io r))
+    (is (zero? (cap/sum-payload-tokens map-io r))
         "many sub-4-char slots ⇒ token sum floors to 0 (token gate quiet)")
-    (is (= 9000 (cap/sum-text-chars map-io r))
+    (is (= 9000 (cap/sum-payload-chars map-io r))
         "char sum is large — only the secondary gate can trip")
-    (is (false? (> (cap/sum-text-tokens map-io r) cap-toks))
+    (is (false? (> (cap/sum-payload-tokens map-io r) cap-toks))
         "primary token gate does NOT trip on its own")
     (let [out  (cap/apply-cap map-io r {:tool "trace-window" :cap cap-toks})
           body (get-in out [:structuredContent vocab/overflow-key])]
@@ -402,18 +402,18 @@
 ;; ---------------------------------------------------------------------------
 ;; structuredContent counted toward the budget (rf2-ih7g4) — story-mcp
 ;; pattern: its reify surfaces `:structuredContent` as one extra
-;; `pr-str`-ed string in `content-texts`. Pin the contract via a
+;; `pr-str`-ed string in `wire-payload-strings`. Pin the contract via a
 ;; mirror reify here.
 ;; ---------------------------------------------------------------------------
 
 (def structured-io
-  "Mirrors story-mcp's runtime reify: `content-texts` surfaces both
+  "Mirrors story-mcp's runtime reify: `wire-payload-strings` surfaces both
   the `:content[*].text` slots and a `pr-str`'d `:structuredContent`
   payload. This is the cross-MCP convention pin — a consumer that
   duplicates a payload into `:structuredContent` MUST count both
   copies."
   (reify cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
         (conj (pr-str (:structuredContent result)))))
@@ -425,7 +425,7 @@
   ;; A response where the `:content[*].text` slot is small but
   ;; `:structuredContent` is large. The cap MUST trip — `:structuredContent`
   ;; rides the wire and counts toward the budget when the consumer's
-  ;; reify surfaces it via `content-texts`.
+  ;; reify surfaces it via `wire-payload-strings`.
   (let [small-text "ok"
         huge       {:big-payload (big-string 30000)}
         r          {:content          [{:type "text" :text small-text}]

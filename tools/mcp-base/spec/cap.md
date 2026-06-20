@@ -40,7 +40,7 @@ The pipeline is a **two-stage** gate (rf2-ih7g4) that folds both sums in a **sin
                          {:tokens (+ (:tokens acc) (overflow/token-estimate s))
                           :chars  (+ (:chars acc)  (count s))}))
                      {:tokens 0 :chars 0}
-                     (content-texts io result))]
+                     (wire-payload-strings io result))]
       (if-not (over-cap? tokens chars cap)          ; token gate OR char gate
         result                                      ; under-budget
         (let [marker (overflow/overflow-payload
@@ -51,7 +51,7 @@ The pipeline is a **two-stage** gate (rf2-ih7g4) that folds both sums in a **sin
           (build-overflow-result io marker result)))))) ; over-budget
 ```
 
-The algorithm runs synchronously at the wire boundary, after the response body has been assembled but before the consumer-side transport ships it. The cost is one walk over the `:content` vector — O(content size).
+The algorithm runs synchronously at the wire boundary, after the response body has been assembled but before the consumer-side transport ships it. The cost is one walk over the consumer's measured wire payload strings (every serialized payload-bearing slot, not only `:content`) — O(measured payload strings).
 
 ### Why the secondary char gate is load-bearing today (rf2-of2cd)
 
@@ -74,27 +74,29 @@ Each consumer reifies `ResultIO` with two methods:
 
 ```clojure
 (defprotocol ResultIO
-  (content-texts       [io result]                        "Seq of :text slot strings inside result's content vector")
+  (wire-payload-strings  [io result]                      "Seq of strings — ONE for EVERY serialized payload-bearing wire slot (e.g. :content[*].text PLUS a duplicated :structuredContent), not only :text")
   (build-overflow-result [io marker original-result]      "Fresh result map / object carrying the overflow marker"))
 ```
 
-- `(content-texts io result)` ⇒ seq of strings — **one for every serialized, payload-bearing slot that rides the wire**. This is the cap's measurement surface: `apply-cap` sums tokens + chars across exactly these strings, so a slot omitted here is a slot the cap cannot see. At minimum that means the `:text`-slot values inside `result`'s content vector (platform accessor `:text` / `j/get :text` lives behind this method).
+- `(wire-payload-strings io result)` ⇒ seq of strings — **one for every serialized, payload-bearing slot that rides the wire**, NOT only the `:text` slots. This is the cap's measurement surface: `apply-cap` sums tokens + chars across exactly these strings, so a slot omitted here is a slot the cap cannot see. At minimum that means the `:text`-slot values inside `result`'s content vector (platform accessor `:text` / `j/get :text` lives behind this method), PLUS any duplicated payload slot the envelope also ships (most commonly `:structuredContent` — see the contract below). The method is named `wire-payload-strings`, not `content-texts`, precisely so a new consumer implements the whole wire payload, not just `:content[*].text`.
 - `(build-overflow-result io marker original-result)` ⇒ a fresh result map / object carrying the overflow marker, shaped for the consumer's transport.
 
 The cap pipeline calls these two methods; everything else is shared. Adding a third consumer is a single reify, not a code copy.
 
 ### Contract: count every payload-bearing slot, not only `:content` (rf2-mzndx / rf2-13wbe)
 
-A consumer whose result envelope **duplicates** the payload into a second wire slot MUST surface a stable string representation of that slot from `content-texts` too. The common case is a `:structuredContent` JSON projection emitted **alongside** the `:content[*].text` EDN on **every** result — both re-frame2-pair-mcp's `wire/ok-text` / `err-text` and story-mcp's `text-result` do exactly this (the dual-coded envelope: agent hosts that understand `:structuredContent` read the typed object; the rest fall back to the text). Both copies ride the wire, so both count toward the one budget.
+A consumer whose result envelope **duplicates** the payload into a second wire slot MUST surface a stable string representation of that slot from `wire-payload-strings` too. The common case is a `:structuredContent` JSON projection emitted **alongside** the `:content[*].text` EDN on **every** result — both re-frame2-pair-mcp's `wire/ok-text` / `err-text` and story-mcp's `text-result` do exactly this (the dual-coded envelope: agent hosts that understand `:structuredContent` read the typed object; the rest fall back to the text). Both copies ride the wire, so both count toward the one budget.
 
-Omitting the second copy undercounts the response by **~50%**: a response whose `:content[*].text` slot is under budget but whose `:structuredContent` is large would slip past the overflow marker and bust the MCP token budget. story-mcp closed this (rf2-mzndx) by appending a `pr-edn`'d `:structuredContent` string to `content-texts`; any dual-coding consumer (pair-mcp's `result-io`) must mirror it (`JSON.stringify` / `pr-str` of the structured value). The unit suites pin the contract with **both** a dual-coding reify (`structured-io` — counts both slots and trips the cap) and a single-slot reify (`map-io` — counts one), so a regression that drops the second copy fails the dual-coding regression.
+Omitting the second copy undercounts the response by **~50%**: a response whose `:content[*].text` slot is under budget but whose `:structuredContent` is large would slip past the overflow marker and bust the MCP token budget. story-mcp closed this (rf2-mzndx) by appending a `pr-edn`'d `:structuredContent` string to `wire-payload-strings`; any dual-coding consumer (pair-mcp's `result-io`) must mirror it (`JSON.stringify` / `pr-str` of the structured value). The unit suites pin the contract with **both** a dual-coding reify (`structured-io` — counts both slots and trips the cap) and a single-slot reify (`map-io` — counts one), so a regression that drops the second copy fails the dual-coding regression.
 
-### Example reify — re-frame2-pair-mcp (CLJS, JS-object results)
+### Example reify — minimal single-slot consumer (content-only envelope)
+
+A consumer that ships ONLY `:content[*].text` (no duplicated slot) surfaces just those strings:
 
 ```clojure
-(deftype ReFrame2PairResultIO []
+(deftype MinimalResultIO []
   ResultIO
-  (content-texts [_ result]
+  (wire-payload-strings [_ result]
     (->> (j/get result :content)
          (map #(j/get % :text))))
   (build-overflow-result [_ marker original]
@@ -104,14 +106,17 @@ Omitting the second copy undercounts the response by **~50%**: a response whose 
                   :text (pr-str marker)}]})))
 ```
 
-### Example reify — story-mcp (CLJ, Clojure-map results)
+### Example reify — dual-coding consumer (story-mcp / pair-mcp, `:structuredContent` envelope)
+
+Both shipping servers emit `:structuredContent` alongside `:content[*].text` on every result, so `wire-payload-strings` MUST surface BOTH slots — the second as a stable string projection (`pr-str` / `JSON.stringify`) — or the cap undercounts by ~50%:
 
 ```clojure
 (deftype StoryResultIO []
   ResultIO
-  (content-texts [_ result]
-    (->> (:content result)
-         (map :text)))
+  (wire-payload-strings [_ result]
+    (cond-> (mapv :text (:content result))
+      (contains? result :structuredContent)
+      (conj (pr-str (:structuredContent result)))))   ; the duplicated wire slot
   (build-overflow-result [_ marker original]
     {:isError          true
      :content          [{:type "text" :text (pr-str marker)}]
