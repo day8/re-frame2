@@ -34,6 +34,19 @@ on:
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
+      # rf2-2c8zq6 — root-support surfaces the retired-composition gate now
+      # scans (README/CHANGELOG/SKILL-REDIRECT/AGENTS/CLAUDE + the JVM gate
+      # scripts). Listed so a drift there triggers the gate. (TESTING.md above
+      # is already on the surface.)
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'SKILL-REDIRECT.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'scripts/test-jvm-implementation.sh'
+      - 'scripts/test-jvm-tools.sh'
+      - 'scripts/test-fast-pr.sh'
+      - 'scripts/test-rigorous-local.sh'
       - 'requirements.txt'
       - 'scripts/check_doc_slugs.py'
       - 'scripts/_test_fixtures/check_doc_slugs/**'
@@ -93,7 +106,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -289,7 +302,12 @@ jobs:
       # it repo-wide (facade exports, spec/API rows, doc/skill teaching
       # surface). This guard keeps the scrub done: it scans docs/api, docs/guide,
       # docs/EP, spec/, and skills/ markdown for the retired symbols as LIVE
-      # copy-pasteable public API (inside fenced code blocks) with a narrow
+      # copy-pasteable public API (inside fenced code blocks), and (rf2-2c8zq6)
+      # the root-support surfaces the dir scan misses — README.md, TESTING.md,
+      # CHANGELOG.md, SKILL-REDIRECT.md, AGENTS.md, CLAUDE.md, and the JVM gate
+      # scripts (scripts/test-*.sh) — for the retired ARCHITECTURE prose phrases
+      # "event[- ]program" / "realm[- ]routing" (removed-context mentions stay
+      # green). All with a narrow
       # self-documenting file allowlist for the historical / internal surface
       # (the EP docs, the migration skill, the implementor/Pair/Xray tooling
       # skills that read the retained-internal substrate, and the spec
