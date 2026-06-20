@@ -205,11 +205,11 @@
   means 'keep every record's :trace-events'.
 
   HOT PATH: invoked from `append-record` on every drain settle (every
-  user-facing event). Pre-rf2-1e38x this rewrote the whole history
-  vector via `map-indexed`; under steady state only one record per
-  append actually transitions, so the O(n) walk was wasted work. The
-  steady-state invariant holds because every prior append already
-  elided its own just-crossed record; runtime reductions of `keep`
+  user-facing event). Under steady state only one record per append
+  actually transitions out of the keep-window, so touching just that
+  record (rather than walking the whole history vector) is all that is
+  needed. The steady-state invariant holds because every prior append
+  already elided its own just-crossed record; runtime reductions of `keep`
   via `(rf/configure! {:epoch-history ...})` will take full effect on
   subsequent appends rather than retroactively rewriting the buffer
   (pre-alpha posture)."
@@ -300,11 +300,11 @@
 ;; settled (Reagent batches re-renders onto a later tick — see
 ;; `re-frame.interop/after-render`). By commit time `settle!` has already
 ;; harvested the cascade buffer and committed the record, so the render
-;; emit lands in a now-empty buffer and — pre-rf2-qs6dl — was harvested
-;; by the NEXT cascade's settle, mis-attributing every render to cascade
-;; N+1 (the one-epoch lag the bead documents).
+;; emit lands in a now-empty buffer; left to the ordinary harvest it would
+;; be vacuumed by the NEXT cascade's settle and mis-attributed to cascade
+;; N+1 (a one-epoch lag).
 ;;
-;; The fix attributes the render to the cascade that CAUSED it: when a
+;; Instead the render is attributed to the cascade that CAUSED it: when a
 ;; render fires with no in-flight cascade for the frame, it is back-filled
 ;; into that frame's most-recently-settled epoch record (the cascade that
 ;; dirtied the view's inputs and scheduled the re-render). `last-settled-
@@ -560,16 +560,16 @@
       `:sub-runs` `deps`-only match (harmless — they predate the re-render).
 
     * keep = 0 (rf2-bhglx) — no record retains raw traces, so EVERY record is
-      matched via its structured `:sub-runs`. Pre-fix the scan broke at the
-      first trace-elided record (the NEWEST one under keep-0) and returned nil,
-      so a genuine value-changing sub-run sitting in the newest epoch's
-      `:sub-runs` was never seen and the render was mis-attributed to the
+      matched via its structured `:sub-runs`. The scan must NOT break at the
+      first trace-elided record (the NEWEST one under keep-0): a genuine
+      value-changing sub-run sitting in the newest epoch's `:sub-runs` must
+      still be seen, or the render would be mis-attributed to the
       mount/default epoch. Consulting `:sub-runs` lets the newest-first scan
       find it and short-circuit on the current epoch.
 
-  The earlier hard break at the elision boundary (rf2-3rg4j / rf2-b2c02) is
-  GONE: it assumed a trace-elided record can never match, which the structured
-  `:sub-runs` fallback makes false. Under keep-0 the scan is O(depth) to a
+  The scan never treats the elision boundary as a hard stop (rf2-3rg4j /
+  rf2-b2c02): a trace-elided record can still match via its structured
+  `:sub-runs` fallback. Under keep-0 the scan is O(depth) to a
   miss; that is the necessary cost of attribution when no trace window exists,
   and it still short-circuits on the first (newest) value-change for the common
   genuine-re-render case. One pass newest-first; short-circuits at the first
@@ -628,13 +628,13 @@
 ;; A `:view/render` (rf2-qs6dl) and a reactive `:sub/run` (rf2-wi900) both
 ;; fire at React COMMIT / DEREF time, which Reagent batches onto a later
 ;; tick AFTER the causing cascade settled. So each lands in the now-empty
-;; capture buffer post-settle and — pre-fix — was harvested by the NEXT
-;; cascade's settle, mis-attributing it to cascade N+1 (the one-epoch lag
-;; both beads document: a phantom render in the wrong cascade's
-;; `:renders`, a phantom sub-run + `:value-changed?` in the wrong
-;; cascade's `:sub-runs` / Xray Views subs table).
+;; capture buffer post-settle; left to the ordinary harvest it would be
+;; vacuumed by the NEXT cascade's settle and mis-attributed to cascade N+1
+;; (a one-epoch lag: a phantom render in the wrong cascade's `:renders`, a
+;; phantom sub-run + `:value-changed?` in the wrong cascade's `:sub-runs` /
+;; Xray Views subs table).
 ;;
-;; The fix back-fills the event into the cascade that CAUSED it (the
+;; Instead the event is back-filled into the cascade that CAUSED it (the
 ;; frame's most-recently-settled epoch — the cascade that dirtied the
 ;; view's / reaction's inputs and scheduled the re-render / recompute),
 ;; reusing the `last-settled-epoch` map. The render and sub-run paths are
@@ -942,9 +942,9 @@
       ;; (capture/capture-event! out-of-cascade branch) so in normal
       ;; operation none arrive. This seam is the defensive backstop: a
       ;; nil-dispatch-id orphan that slips past the upstream guard has no
-      ;; settle event to ever reclaim it, so retaining it (the pre-rf2-ee38b
-      ;; behaviour) left it in the buffer indefinitely — re-grouped into
-      ;; `theirs` and re-retained on every subsequent harvest. Discarding
+      ;; settle event to ever reclaim it, so retaining it would leave it in
+      ;; the buffer indefinitely — re-grouped into `theirs` and re-retained
+      ;; on every subsequent harvest. Discarding
       ;; it makes the harvest self-cleaning and removes reliance on the
       ;; upstream guard being perfect (rf2-ee38b §correctness). The
       ;; `event-dispatch-id = settling-id` predicate already guarantees an
