@@ -1,13 +1,13 @@
 # Pattern — Form Action (SSR POST handling)
 
 > **Type:** Pattern
-> The standard form-action convention for SSR — a browser submits an HTML form to a URL; the server parses the POST body, validates, dispatches a domain event, and returns either a redirect or a re-rendered page. Built on the host adapter (Ring/Pedestal/Jetty/etc.), the `:rf.server/request` cofx ([011-SSR.md §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context)), the `[:rf/response]` accumulator ([011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract)), and Pattern-Forms ([Pattern-Forms.md](Pattern-Forms.md)). Convention, not Spec.
+> The standard form-action convention for SSR — a browser submits an HTML form to a URL; the server parses the POST body, validates, dispatches a domain event, and returns either a redirect or a re-rendered page. Built on the host adapter (Ring/Pedestal/Jetty/etc.), the `:rf.server/request` cofx ([011-SSR.md §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context)), the per-request response accumulator (a framework-private side-channel atom keyed by frame-id, read via `get-response` — [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract)), and Pattern-Forms ([Pattern-Forms.md](Pattern-Forms.md)). Convention, not Spec.
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
 
 ## Role
 
-A **convention**, not a Spec. The runtime gives you everything: per-request frames, the request cofx, the response accumulator, the six standard server-only fxs (`:rf.server/set-status` / `:rf.server/redirect` / `:rf.server/set-cookie` / …), `reg-event`, schema validation per [010-Schemas.md](010-Schemas.md), the error projector. What this doc names is **the canonical shape for handling an HTML form POST in an SSR app** — Next.js Server Actions / Remix `action` exports translated to re-frame2 primitives.
+A **convention**, not a Spec. The runtime gives you everything: per-request frames, the request cofx, the response accumulator, the seven standard server-only fxs (`:rf.server/set-status` / `:rf.server/redirect` / `:rf.server/safe-redirect` / `:rf.server/set-cookie` / …), `reg-event`, schema validation per [010-Schemas.md](010-Schemas.md), the error projector. What this doc names is **the canonical shape for handling an HTML form POST in an SSR app** — Next.js Server Actions / Remix `action` exports translated to re-frame2 primitives.
 
 The pattern exists because SSR apps need progressive-enhancement-friendly form handling: a form must work without JavaScript (the server processes the POST and returns a fresh page), and the same submission code path should run client-side once JS hydrates (the client intercepts `:on-submit`, dispatches the same event, no full-page reload). Pattern-Forms covers the client-side lifecycle and the form-slice shape; this pattern covers the server-side POST seam and the cross-platform handler tree.
 
@@ -19,7 +19,7 @@ A six-step shape:
 2. **The host adapter receives the POST**. Per [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract), the host owns the wire layer; it MUST parse the request body (form-urlencoded or multipart), bind it to `*current-request*` under a `:form-params` slot, and create a per-request frame.
 3. **`:rf/server-init` dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, and `:form-params` from the supplied request coeffect; on POST it dispatches the domain event (e.g. `[:cart/add-item form-params]`); on GET it dispatches the standard page-load loader (Pattern-SSR-Loaders applies).
 4. **The domain event handler validates** the form-params against the registered schema for the form ([010-Schemas.md §Validation timing](010-Schemas.md#validation-timing)). On schema failure, the handler writes structured errors into the form slice's `:errors` map (per [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice)) and lets the drain settle; the standard SSR render reads the slice and emits the form again with errors. On schema success, the handler runs the side effect (DB write, external API call), then emits either `:rf.server/redirect` (success path) or writes a structural success flag plus the standard re-render.
-5. **The drain settles**, the SSR emitter runs (or is short-circuited by `:rf.server/redirect`), and the host adapter materialises the `[:rf/response]` accumulator.
+5. **The drain settles**, the SSR emitter runs (or is short-circuited by `:rf.server/redirect`), and the host adapter materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` handler intercepts the native submission, calls `(.preventDefault e)`, and dispatches the *same* domain event the server dispatched. The handler tree is identical; only the dispatch site differs.
 
 The progressive-enhancement guarantee is mechanical: the form works without JS because the server response is a full HTML page with the post-validation slice rendered into it; the client-side enhancement is purely additive.
@@ -254,7 +254,7 @@ A form-action implementation conforms to this convention when:
 ## Cross-references
 
 - [011-SSR.md §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context) — the `:rf.server/request` cofx the host adapter binds.
-- [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract) — the `[:rf/response]` accumulator and the six standard server-only fxs.
+- [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract) — the side-channel response accumulator (read via `get-response`) and the seven standard server-only fxs.
 - [011-SSR.md §Standard fx](011-SSR.md#standard-fx) — `:rf.server/redirect` and the multi-status policy.
 - [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/schema-validation-failure` to a 400 public-error response.
 - [011-SSR.md §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx) — the platform-gating that lets one handler emit both server and client effects.

@@ -267,7 +267,7 @@ Declarative actor spawn anchored on a state node. The framework owns the actor's
 
 ### `:rf.server/*` — SSR per-request fxs ([Spec 011](011-SSR.md))
 
-Six server-side response-shape fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`) plus the `reg-error-projector` registry kind and the per-request HTTP response accumulator. The "interaction" here is the HTTP response itself; the framework owns building it across the per-request frame's lifetime, then emitting it as the response.
+Seven server-side response-shape fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`, `safe-redirect`) plus the `reg-error-projector` registry kind and the per-request HTTP response accumulator (a framework-private side-channel atom keyed by frame-id, read via `get-response`). The "interaction" here is the HTTP response itself; the framework owns building it across the per-request frame's lifetime, then emitting it as the response.
 
 ### `:rf.flow/*` — managed derived computation ([Spec 013](013-Flows.md))
 

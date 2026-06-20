@@ -17,13 +17,16 @@
   ;; per Spec 011 §HTTP response contract / rf2-8pif). The harness's
   ;; :fixture/registry :fx slot would shadow that with a no-op stub, so
   ;; the canonical fx is intentionally not declared here.
-  :sub   {:rf/response          {:doc "Read the response accumulator."}}}
+  ;; No :sub for the response accumulator: it lives in a framework-private
+  ;; side-channel atom (re-frame.ssr/response-slots), NOT app-db, so it is
+  ;; read via re-frame.ssr/get-response (pinned below via :ssr/request-result),
+  ;; not through a registered subscription.
+  }
 
  :fixture/handlers
  {:event {:rf/server-init  [[:fx [[:dispatch [:rf.route/not-found]]]]]
           :rf.route/not-found [[:set [:page] :not-found]
-                            [:fx [[:rf.server/set-status 404]]]]}
-  :sub   {:rf/response [[:get [:rf/response]]]}}
+                            [:fx [[:rf.server/set-status 404]]]]}}
 
  :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
 

@@ -3303,7 +3303,7 @@ The HTTP-response accumulator owned by the request frame during SSR. Per [011 §
    [:content-type {:optional true} :string]])                              ;; convenience accessor; mirrors headers' "content-type"
 ```
 
-Open shape — implementations may attach `:rf.response/...`-namespaced keys (e.g., `:rf.response/cache-tag`) without breaking consumers. The canonical six fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/append-header`, `:rf.server/set-cookie`, `:rf.server/delete-cookie`, `:rf.server/redirect`) write only the four canonical keys.
+Open shape — implementations may attach `:rf.response/...`-namespaced keys (e.g., `:rf.response/cache-tag`) without breaking consumers. The canonical seven fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/append-header`, `:rf.server/set-cookie`, `:rf.server/delete-cookie`, `:rf.server/redirect`, `:rf.server/safe-redirect`) write only the four canonical keys.
 
 ### `:rf.server/cookie`
 
