@@ -368,7 +368,7 @@
          into the canonical top-level app-db slices the running app
          reads. Fires :boot/hydrated back at :app/boot to transition
          from :hydrating to :ready."}
-  ;; EP-0001 (rf2-vzld77): the app slices land in app-db (`:db`); the boot
+  ;; EP-0001: the app slices land in app-db (`:db`); the boot
   ;; machine's snapshot is durable runtime-db state, so the snapshot mirror
   ;; is a `:rf.db/runtime` effect (the reference handler is framework-shaped
   ;; example code — emitting the reserved runtime-db effect is in-bounds,
@@ -417,7 +417,7 @@
 ;; SUBS — boot-state slots the views read
 ;; ============================================================================
 
-;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
+;; EP-0001: machine snapshots are durable runtime-db state — read
 ;; them through the framework `:rf/machine` sub.
 (rf/reg-sub :app.boot/snapshot
   :<- [:rf/machine :app/boot]

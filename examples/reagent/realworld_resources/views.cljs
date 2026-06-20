@@ -46,7 +46,7 @@
 ;; `{:from-db :realworld/session}` resolver (routing.cljs / resources.cljs) —
 ;; so the home page no longer needs an `:on-match` event to ensure it by hand.
 
-;; ROUTE-SHAPE CONFORMANCE (rf2-e90vfv): the tag filter is the `/tag/:tag` PATH
+;; ROUTE-SHAPE CONFORMANCE: the tag filter is the `/tag/:tag` PATH
 ;; route (`:realworld/home-tag`) — the active tag is a route PARAM, not a
 ;; `?tag=` query — and the following feed uses `?feed=following` (NOT `your`).
 ;;
@@ -121,7 +121,7 @@
                          :cause    [:click :ui/follow username]}]]]})))
 
 ;; ----------------------------------------------------------------------------
-;; ARTICLE-DETAIL SOCIAL CONTROLS  (rf2-2xi8sr)
+;; ARTICLE-DETAIL SOCIAL CONTROLS
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The official Conduit article page carries contextual controls: a non-author
@@ -323,7 +323,7 @@
        (if (seq articles)
          (into [:div {:data-testid "article-list"}]
                (for [a articles] ^{:key (:slug a)} [article-preview {:article a}]))
-         ;; rf2-e90vfv: the official RealWorld E2E contract asserts the
+         ;; The official RealWorld E2E contract asserts the
          ;; `.empty-feed-message` marker on an empty list state.
          [:div.article-preview.empty-feed-message {:data-testid "list-empty"}
           (or empty-msg "No articles are here… yet.")])
@@ -424,7 +424,7 @@
                               :on-click #(dispatch [:comment/delete slug (:id comment)])}
          [:i.ion-trash-a]])]]))
 
-(reg-view ^{:doc "Article-detail contextual controls (rf2-2xi8sr): the author
+(reg-view ^{:doc "Article-detail contextual controls: the author
                   byline plus the author's Follow/Unfollow for a non-author
                   viewer, OR Edit (→ /editor/:slug) + Delete for the author.
                   Logged-out viewers see the byline only. `article` is the
@@ -502,7 +502,7 @@
             (when (:fetching? article-state)
               [:span {:data-testid "article-refreshing"} " (refreshing…)"])
             [:span.article-controls
-             ;; rf2-e90vfv: the official RealWorld article-detail favorite
+             ;; The official RealWorld article-detail favorite
              ;; control shows visible "Favorite"/"Unfavorite" text and toggles
              ;; `.btn-outline-primary` ↔ `.btn-primary` on the favorited flag —
              ;; the E2E contract asserts on both. (The compact heart-only card

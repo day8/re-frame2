@@ -136,7 +136,7 @@
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 ;;
-;; EP-0002 (rf2-5q7um6): reg-app-schemas is context-required frame-local; a
+;; EP-0002: reg-app-schemas is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; :rf/default (see core/run's reg-frame :rf/default), so name it here.
 

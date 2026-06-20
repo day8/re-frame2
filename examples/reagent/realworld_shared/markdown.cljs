@@ -3,8 +3,8 @@
    both realworld example apps (`realworld.*` and `realworld-resources.*`).
 
    The official RealWorld (Conduit) spec renders the article body as
-   CommonMark. rf2-e2t7v4 replaces the earlier hand-rolled markdown subset
-   (rf2-ke9gtx) with a real CommonMark library so the clone is faithful:
+   CommonMark. This replaces the earlier hand-rolled markdown subset
+   with a real CommonMark library so the clone is faithful:
    tables, nested lists, images, footnotes — the shapes a hand-rolled
    subset could not cover — render correctly, and the parser is no longer
    our maintenance/bug surface.

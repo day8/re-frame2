@@ -1,6 +1,6 @@
 # RealWorld (Conduit) in re-frame2
 
-> **Canonical multi-artefact integration test.** This example is the canonical multi-artefact integration test for re-frame2. It exercises `day8/re-frame2` (core) + `-schemas` + `-machines` + `-routing` + `-flows` + `-http` together in a single app. CI runs its CLJS fixtures on every PR via `npm run test:cljs` from `implementation/` (the example tree is test-free per rf2-8cevm — `npm run test:examples` drives only the three adapter smokes and never builds this example). When a per-artefact change accidentally breaks cross-artefact composition, this is the test that catches it. See [docs/release-process.md](../../../docs/release-process.md) for how this slots into the multi-artefact deploy pipeline.
+> **Canonical multi-artefact integration test.** This example is the canonical multi-artefact integration test for re-frame2. It exercises `day8/re-frame2` (core) + `-schemas` + `-machines` + `-routing` + `-flows` + `-http` together in a single app. CI runs its CLJS fixtures on every PR via `npm run test:cljs` from `implementation/` (the example tree is test-free — `npm run test:examples` drives only the three adapter smokes and never builds this example). When a per-artefact change accidentally breaks cross-artefact composition, this is the test that catches it. See [docs/release-process.md](../../../docs/release-process.md) for how this slots into the multi-artefact deploy pipeline.
 
 The canonical re-frame2 demo for **Spec 014 — `:rf.http/managed`**. Built on the [RealWorld spec](https://github.com/gothinkster/realworld), the de-facto cross-framework benchmark for SPA frameworks.
 
@@ -55,10 +55,10 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 | `auth.cljs` | implemented | Auth machine plus login/register forms (managed-HTTP). |
 | `articles.cljs` | implemented | Home page, global feed, tag filter UI; managed-HTTP with retry + abort. Home page uses Pattern-NineStates — a `:realworld/articles-home` parallel machine with three regions (`:feed` × `:filter` × `:data`) + a render-priority table; the root view is a `case` over `:articles.home/render`. Popular-tags loading moved to `tags.cljs`. Hosts the shared `pagination` view (`.pagination` / `.page-item` / `.page-link`) reused by the profile pages, and the home pagination subs. |
 | `favorites.cljs` | implemented | Favorite toggle and followed-authors feed; optimistic updates with managed-HTTP rollback. The authenticated feed paginates via `?page=` like the global feed. |
-| `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete, plus the article-detail contextual controls (author Follow/Unfollow for non-author viewers; Edit / Delete for the author — rf2-2xi8sr). **`:article/load` uses default reply addressing.** The article body is rendered through `realworld-shared.markdown/render` (sanitized CommonMark → hiccup — rf2-e2t7v4). |
-| `realworld_shared/avatar.cljs` | implemented | Shared (both realworld apps) default-avatar helper — `avatar-src` falls a nil/empty author/user image back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img` (RealWorld contract conformance, rf2-e90vfv). |
+| `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete, plus the article-detail contextual controls (author Follow/Unfollow for non-author viewers; Edit / Delete for the author). **`:article/load` uses default reply addressing.** The article body is rendered through `realworld-shared.markdown/render` (sanitized CommonMark → hiccup). |
+| `realworld_shared/avatar.cljs` | implemented | Shared (both realworld apps) default-avatar helper — `avatar-src` falls a nil/empty author/user image back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img` (RealWorld contract conformance). |
 | `default-avatar.svg` | asset | The fallback avatar asset, served from the app root. |
-| `realworld_shared/markdown.cljs` | implemented | Shared (both realworld apps) CommonMark → hiccup renderer for the article body, built on `io.github.nextjournal/markdown` in hiccup-emitting mode (full CommonMark: headings, emphasis, code, links, images, tables, nested lists, blockquotes). **Sanitized by construction**: emits hiccup (never raw HTML / `dangerouslySetInnerHTML`) so React escapes all text; raw inline/block HTML degrades to inert escaped text; and link/image URL schemes are allowlisted (http/https/mailto + relative) so `javascript:`/`data:`/`vbscript:` URLs are dropped. Supersedes the hand-rolled per-app subset from rf2-ke9gtx (rf2-e2t7v4). |
+| `realworld_shared/markdown.cljs` | implemented | Shared (both realworld apps) CommonMark → hiccup renderer for the article body, built on `io.github.nextjournal/markdown` in hiccup-emitting mode (full CommonMark: headings, emphasis, code, links, images, tables, nested lists, blockquotes). **Sanitized by construction**: emits hiccup (never raw HTML / `dangerouslySetInnerHTML`) so React escapes all text; raw inline/block HTML degrades to inert escaped text; and link/image URL schemes are allowlisted (http/https/mailto + relative) so `javascript:`/`data:`/`vbscript:` URLs are dropped. Supersedes the hand-rolled per-app subset. |
 | `article_editor.cljs` | implemented | New/edit/delete article plus unsaved-change guard. Hosts the `:editor/can-submit?` **flow** (Spec 013) — a materialised valid-AND-dirty boolean read by the submit handler and the submit button. |
 | `profile.cljs` | implemented | Profile banner, authored/favorited tabs, follow/unfollow. Uses Pattern-NineStates — a `:ui/profile` parallel machine with two regions (`:tab` × `:data`) + a render-priority table; the root view is a `case` over `:profile/render`. Each tab's article list paginates via `?page=` (reusing `articles/pagination`). |
 | `settings.cljs` | implemented | User settings form and logout affordance. Form lifecycle as the **`:form-region` machine** variant of Pattern-Forms — `:settings/form` is a single-region state machine whose state-keyword IS the Pattern-Forms lifecycle. |
@@ -104,7 +104,7 @@ The app supports three backend modes; the default needs no network.
 
 ## RealWorld contract conformance
 
-This example is **code-conformant** with the official RealWorld browser/E2E contract (the upstream Cypress E2E suite + the Newman/Postman API collection) — the external official suites validate against it; there is **no in-repo test harness and no `*.spec.cjs`** (the examples tree is test-free, rf2-8cevm). What "conformance" means concretely (rf2-e90vfv):
+This example is **code-conformant** with the official RealWorld browser/E2E contract (the upstream Cypress E2E suite + the Newman/Postman API collection) — the external official suites validate against it; there is **no in-repo test harness and no `*.spec.cjs`** (the examples tree is test-free). What "conformance" means concretely:
 
 - **Route shapes.** The official frontend route surface — `/`, `/login`, `/register`, `/settings`, `/editor`, `/editor/:slug`, `/article/:slug`, `/profile/:username`, `/profile/:username/favorites`, the tag list at the PATH route `/tag/:tag` (with `/tag/:tag?page=N`), and the following feed at `/?feed=following`. Pagination rides `?page=N` (1-indexed) on every list. The tag filter is a path param (NOT `?tag=`) and the following token is `following` (NOT `your`).
 - **Session storage.** The JWT is persisted under `localStorage["jwtToken"]` — the exact contract key (`auth.cljs`). **Same-origin caveat:** the contract assumes **one app per origin**. The repo's dev orchestrator serves both this app and the resources variant from a *single* origin (at `/realworld/` and `/realworld-resources/`), so the two conforming apps share — and clobber — each other's `jwtToken` there. That is a known dev-mode artifact, not a contract violation: conformance is validated against **standalone serving** (one app per origin), which the external suite does anyway (see the runbook below).
@@ -128,15 +128,15 @@ Conformance is claimed against an **actual external run**, not an in-repo assert
    - **Cypress E2E:** clone the upstream `gothinkster/realworld` Cypress spec and run it with `CYPRESS_baseUrl=<your-origin>`.
    - **Newman/Postman API:** run the upstream `Conduit.postman_collection.json` against the backend with `newman run … --env-var APIURL=<api-base>`.
 
-Record the run result in the PR. **Rows that need the hosted backend** (favorite/follow round-trips, comment post/delete, settings save) cannot be exercised against the canned stub; if a hosted backend is unavailable, note honestly which rows were and were not executed rather than claiming conformance from an in-repo test alone (the works-on-my-test failure mode, rf2-lo28u).
+Record the run result in the PR. **Rows that need the hosted backend** (favorite/follow round-trips, comment post/delete, settings save) cannot be exercised against the canned stub; if a hosted backend is unavailable, note honestly which rows were and were not executed rather than claiming conformance from an in-repo test alone (the works-on-my-test failure mode).
 
 ## Headless tests
 
 The headless tests are browserless sketches. The example tree is
-test-free (rf2-8cevm), so the per-feature fixtures + the canned-stub
+test-free, so the per-feature fixtures + the canned-stub
 helpers live in the integration test at
 [`implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs)
-— folded inline by rf2-cd2zo. Each helper stubs `:rf.http/managed` via
+— folded inline. Each helper stubs `:rf.http/managed` via
 `:fx-overrides`, delegating to the framework-shipped canned-stub fxs
 (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`)
 through small `reg-canned-*` wrappers in that ns.

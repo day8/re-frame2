@@ -24,7 +24,7 @@
    - official hosted API — point `api-base` at `https://api.realworld.show/api`
      and drop the demo-stub override. The frame-wide `:realworld/bearer-auth`
      interceptor (core.cljs) already attaches the token, so authenticated calls
-     work against the real API (rf2-j4kbro).
+     work against the real API.
    - local reference backend — the upstream Node/Postgres backend on
      `http://localhost:3000/api`.
 
@@ -132,7 +132,7 @@
                  :description "A short greeting from the realworld-resources stub."
                  ;; A markdown body so the article-detail page exercises the
                  ;; sanitized CommonMark renderer (realworld-shared.markdown/
-                 ;; render — rf2-e2t7v4): headings, bold/italic, inline + fenced
+                 ;; render): headings, bold/italic, inline + fenced
                  ;; code, a safe link, lists, plus full-CommonMark shapes the old
                  ;; hand-rolled subset could not do (a table, a nested list).
                  ;; The renderer emits hiccup (never raw HTML), so this is real

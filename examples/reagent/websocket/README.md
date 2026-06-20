@@ -26,7 +26,7 @@
 | `schema.cljs` | Malli schemas for the connection-machine snapshot, the `:data` slice, and the `[:messages]` slice. |
 | `index.html` | Minimal harness. |
 
-The example tree is test-free (rf2-8cevm). The headless fixtures + the
+The example tree is test-free. The headless fixtures + the
 test-only re-registration scaffolding were folded into the integration
 test (see [Headless tests](#headless-tests)).
 
@@ -71,11 +71,11 @@ serves only the three adapter testbeds; see
 ## Headless tests
 
 The headless tests are pure-CLJS browserless fixtures. The example tree
-is test-free (rf2-8cevm), so the connection + message fixtures and the
+is test-free, so the connection + message fixtures and the
 test-only re-registration scaffolding (which recovers from upstream
 `clear-all!` callers) were folded into the integration test at
 [`implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs)
-(rf2-cd2zo). Each fixture is one `deftest` there, so the `:each` fixture
+(folded inline). Each fixture is one `deftest` there, so the `:each` fixture
 (which resets the mock server + re-registers everything) runs around
 each individually:
 

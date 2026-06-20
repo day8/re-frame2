@@ -140,7 +140,7 @@
 ;; (`reg-view` defs `root-view`, which is what we render.)
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih + rf2-nn0jqa): under the carried invariant the runtime
+;; EP-0002: under the carried invariant the runtime
 ;; never synthesises a frame from absence, and URL ownership is an EXPLICIT
 ;; declaration — a frame owns the browser URL only by carrying
 ;; `:url-bound? true` (Spec 012 §Multi-frame routing). So the app frame:

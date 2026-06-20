@@ -51,7 +51,7 @@
             ;; `login.stories` transitively requires `login.core`.
             [login.core :as core]
             [login.stories]
-            ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
+            ;; Shared Story-host helper: owns the
             ;; live-app↔Story-shell hash router + React-root handle.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -81,7 +81,7 @@
     " on either surface to open Xray and inspect the auth-submit cascade."]
    [core/root-view]])
 
-;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; EP-0002: the runtime never synthesises a frame from absence,
 ;; so the live-app `#/` surface must render under an explicit frame scope. The
 ;; Story shell side (`#/stories`) allocates its own per-variant frames; this
 ;; wrapper scopes only the live-app surface to the showcase's `:rf/default`
@@ -94,7 +94,7 @@
 ;; -- Routing between the live app and the Story shell ----------------------
 ;;
 ;; The live-app↔Story-shell hash router + React-root host handle live in the
-;; shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn); `run`
+;; shared `re-frame.testbed.story-host` helper; `run`
 ;; hands it `login-app` as the live-app surface (mirrors
 ;; nine-states.stories-host).
 
@@ -106,11 +106,11 @@
   (rf/init! reagent-adapter/adapter)
   ;; No explicit `(story/install-canonical-vocabulary!)` — the first
   ;; `reg-*` in `login.stories` (loaded via the require above)
-  ;; auto-installs the canonical Story vocabulary (rf2-p1ydc).
+  ;; auto-installs the canonical Story vocabulary.
   (install-live-frame!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell without a manual click-through. The
-  ;; `:source-subdir` opt (rf2-77wqzi) tells the host this showcase's Story
+  ;; `:source-subdir` opt tells the host this showcase's Story
   ;; source-coords are classpath-relative to `examples/reagent`, so the host
   ;; resolves the on-disk project-root (build-env define or `?checkout-root=`
   ;; override, cross-platform) and calls `story/configure!` itself — that

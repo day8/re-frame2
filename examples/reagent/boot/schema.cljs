@@ -168,7 +168,7 @@
 ;; every registration is wrapped in :maybe so the validator passes
 ;; during the staging/loading phases.
 
-;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
+;; EP-0001: machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
 ;; `:app/boot` machine's own `:data-schema schema/BootData` (attached on
@@ -176,7 +176,7 @@
 ;; so no app-schema reg applies to the boot machine snapshot. The
 ;; `reg-app-schema` calls below validate only the app-db slices.
 
-;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local —
+;; EP-0002: `reg-app-schema` is context-required frame-local —
 ;; a bare ns-load call under no scope raises `:rf.error/no-frame-context`
 ;; (boot-time namespace loading is NOT a reason to synthesise `:rf/default`,
 ;; per Spec 002 §Frame target resolution). This example's app runs in the

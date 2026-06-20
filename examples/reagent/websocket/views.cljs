@@ -81,7 +81,7 @@
         reconnecting? @(subscribe [:ws/reconnecting?])
         failed?       @(subscribe [:ws/failed?])
         any-active?   (or connected? reconnecting?)
-        ;; EP-0002 (rf2-9o48ih): the Drop button calls a module-level
+        ;; EP-0002: the Drop button calls a module-level
         ;; mock-server seam that dispatches outside any drain / render scope.
         ;; Capture this view's frame handle at render time and hand it to the
         ;; seam so the deferred dispatch carries the frame (Spec 002
@@ -147,7 +147,7 @@
           demo-buttons []
   (let [connected?  @(subscribe [:ws/connected?])
         last-reply  @(subscribe [:messages/last-reply])
-        ;; EP-0002 (rf2-9o48ih): the server-push button calls a module-level
+        ;; EP-0002: the server-push button calls a module-level
         ;; mock-server seam that dispatches outside any drain / render scope.
         ;; Capture this view's frame handle and pass it so the deferred
         ;; dispatch carries the frame (see `lifecycle-buttons`).

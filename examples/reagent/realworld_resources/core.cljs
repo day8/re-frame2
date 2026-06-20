@@ -24,9 +24,9 @@
      http.cljs       — the demo backend stub + failure projection
      views.cljs      — passive pages + the small UI event glue
 
-   STATUS. EP-0003 graduated accepted→final on 2026-06-11 (rf2-9l9xs2), so the
+   STATUS. EP-0003 graduated accepted→final on 2026-06-11, so the
    resources + mutations runtime is real and this example runs live. The
-   example tree is test-free (rf2-8cevm); resource/mutation contract coverage
+   example tree is test-free; resource/mutation contract coverage
    lives in `implementation/resources/test/` and the conformance fixtures.
 
    For the `:rf.http/managed` counterpart (schema-driven decode, retry/abort,
@@ -69,7 +69,7 @@
          is NOT in this fan-out — it consumes the RECORDABLE+PROVIDED
          `:realworld-resources.session/token` coeffect, whose value the host
          boundary (`run`) reads ONCE and stamps onto a dedicated boot dispatch
-         token (EP-0017, rf2-16ck78). The `:dispatch` fx does not forward
+         token (EP-0017). The `:dispatch` fx does not forward
          `:rf.cofx`, so that boot dispatch is issued directly at the boundary in
          `run`. The page reads (articles, tags, feed, …) are CAUSED by the
          route's `:resources` metadata on the initial URL→route sync, not from
@@ -98,7 +98,7 @@
                          [:i.ion-gear-a] " Settings"]]
           [:li.nav-item [rf/route-link {:to :realworld.profile/show :params {:username (:username user)}
                                         :class "nav-link" :data-testid "nav-username"}
-                         ;; rf2-e90vfv: official navbar shows the user's avatar
+                         ;; Official navbar shows the user's avatar
                          ;; (`.user-pic`) next to their name.
                          [:img.user-pic {:src (avatar/avatar-src (:image user))}]
                          " " (:username user)]]
@@ -168,7 +168,7 @@
 ;; per-call; the auth slice is the single source of truth and this is the
 ;; single read site.
 ;;
-;; CARRIED-FRAME-CORRECT (EP-0002 rf2-9o48ih): the token is read from
+;; CARRIED-FRAME-CORRECT (EP-0002): the token is read from
 ;; `(:frame ctx)` — the frame the cascade actually runs under — not a
 ;; hard-coded `:rf/default`, so the header tracks a renamed / multi-frame
 ;; mount. The interceptor returns ctx unchanged when no token is present, so
@@ -178,7 +178,7 @@
 ;; and assert the decoration — the sibling's route guard takes the other route
 ;; now: it is a `reg-interceptor` descriptor referenced BY ID
 ;; (`:realworld-resources.routing/auth-guard`, EP-0022) rather than a var. The
-;; example tree stays test-free (rf2-8cevm); the visibility is the only concession.
+;; example tree stays test-free; the visibility is the only concession.
 (defn bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))
                       :auth :token)]
@@ -187,7 +187,7 @@
                       (str "Token " token)))))
 
 ;; ============================================================================
-;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv)
+;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE
 ;; ============================================================================
 ;;
 ;; The official RealWorld browser/E2E harness sometimes reads app session state
@@ -254,7 +254,7 @@
   ;; prefix before the matcher sees the URL so :realworld/home (path "/") matches.
   (routing/set-base-path! "/realworld-resources")
   (rf/with-frame app-frame
-    ;; EP-0017 (rf2-16ck78): session restore consumes the RECORDABLE+PROVIDED
+    ;; EP-0017: session restore consumes the RECORDABLE+PROVIDED
     ;; `:realworld-resources.session/token` coeffect and folds it into durable
     ;; [:auth :token]. The host read happens ONCE here at the boundary; its
     ;; value rides this boot dispatch token as the flat recordable coeffect, so
@@ -275,7 +275,7 @@
     ;; tab returns or the network reconnects (Spec 016 §Stale and GC; CLJS-only,
     ;; idempotent). The host signals are never dispatched by hand.
     (rf/install-revalidation-listeners! app-frame))
-  ;; Conformance-contract surface (rf2-e90vfv) — NOT a re-frame2 pattern; see
+  ;; Conformance-contract surface — NOT a re-frame2 pattern; see
   ;; install-conduit-debug! above. The external RealWorld suite may read it.
   (install-conduit-debug! app-frame)
   (when (exists? js/document)

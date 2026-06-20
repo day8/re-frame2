@@ -25,7 +25,7 @@
 
    STATUS. Resources is a POST-V1 optional artefact and the read-resource
    runtime + mutations have LANDED (EP-0003, final on main 2026-06-11), so all
-   of this runs live. The example tree is test-free (rf2-8cevm)."
+   of this runs live. The example tree is test-free."
   (:require [clojure.string]
             [re-frame.core :as rf]
             ;; Managed HTTP ships in day8/re-frame2-http — the single built-in

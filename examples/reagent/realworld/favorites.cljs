@@ -121,7 +121,7 @@
 ;; FAVORITES
 ;; ============================================================================
 ;;
-;; Optimistic rollback shapes across the app (rf2-ygh4m ITEM 5). realworld
+;; Optimistic rollback shapes across the app (ITEM 5). realworld
 ;; has three optimistic-with-rollback flows and they DELIBERATELY use three
 ;; different rollback shapes — because the thing being rolled back differs:
 ;;

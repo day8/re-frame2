@@ -32,9 +32,9 @@
 ;; SCHEMA
 ;; ============================================================================
 ;;
-;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local and
+;; EP-0002: `reg-app-schema` is context-required frame-local and
 ;; raises `:rf.error/no-frame-context` under no frame scope — so a bare ns-load
-;; registration is wrong, and (rf2-9wc2ed) a naive `with-frame :rf/default`
+;; registration is wrong, and a naive `with-frame :rf/default`
 ;; would bind the schema to the client frame ONLY, leaving the per-request
 ;; SERVER frame (where the SSR commits actually validate) unschema'd. Streaming
 ;; SSR has TWO frame families: the per-request server frame (gensym, in
@@ -47,7 +47,7 @@
 ;; `[:maybe …]` because the slice is ABSENT (nil) until `:rf/server-init`
 ;; seeds it on the server / the client hydrates it — a bare `[:map-of …]` would
 ;; reject the legitimate pre-seed `nil` and roll the commit back. (The bug was
-;; masked because validation never actually ran on these frames — rf2-9wc2ed.)
+;; masked because validation never actually ran on these frames.)
 (def CardsSchema
   [:maybe [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]]])
 
@@ -138,7 +138,7 @@
      [_request]
      (let [fid (keyword "rf.frame" (str (gensym "")))
            ;; Register the app schema AGAINST THIS per-request server frame
-           ;; (rf2-9wc2ed) BEFORE `:on-create` fires `:rf/server-init` — the
+           ;; BEFORE `:on-create` fires `:rf/server-init` — the
            ;; per-request frame is where the server-side `:cards` commit
            ;; actually validates, so the schema must bind here. `reg-frame` runs
            ;; the `:on-create` cascade synchronously before returning, so the
@@ -179,7 +179,7 @@
                              fid render-hash
                              {:version 1
                               :payload :rf.ssr.payload/whole-app-db}))
-           ;; EP-0002 (rf2-acjknb): `streaming-build-final-payload` stamps the
+           ;; EP-0002: `streaming-build-final-payload` stamps the
            ;; per-request server frame (`fid`) as `:rf/frame-id`, but the
            ;; client hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
            ;; below). `ssr/hydrate!` VALIDATES a present payload `:rf/frame-id`
@@ -243,7 +243,7 @@
 ;; example namespaces don't race `create-root` onto the shared `#app`.
 #?(:cljs (defonce react-root (atom nil)))
 
-;; EP-0002 (rf2-9o48ih + rf2-acjknb): the SSR hydration target is CARRIED —
+;; EP-0002: the SSR hydration target is CARRIED —
 ;; established explicitly by the app and threaded through the streaming
 ;; `install!`, `ssr/hydrate!`, AND the root `frame-provider`. The runtime
 ;; never synthesises a frame from absence. This example uses `:rf/default`
@@ -271,7 +271,7 @@
      ;; makes the hydrate compatibility-check fxs fire.
      (rf/reg-frame app-frame {:doc      "ssr-streaming-example client app-frame"
                               :platform :client})
-     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME (rf2-9wc2ed) so
+     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME so
      ;; the progressively-merged + finally-hydrated `:cards` commits validate on
      ;; the client too — the symmetric counterpart of the per-request
      ;; registration in `handle-request`. `{:frame app-frame}` is the explicit
@@ -305,6 +305,6 @@
 ;; The JVM-runnable headless test that exercises the server stream
 ;; (shell → per-card resolved chunks → final payload) lives in
 ;; re-frame.examples-test (implementation/core/test/), folded inline as
-;; the `ssr-streaming-example-runs-end-to-end` deftest (rf2-cd2zo),
+;; the `ssr-streaming-example-runs-end-to-end` deftest,
 ;; keeping this example source pure demonstrative code (the example tree
-;; is test-free, rf2-8cevm). It runs on the JVM.
+;; is test-free). It runs on the JVM.

@@ -97,13 +97,13 @@
 ;; SCHEMA REGISTRATIONS  (ns-load — the production-app idiom)
 ;; ============================================================================
 
-;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
+;; EP-0001: machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
 ;; machine's own `:data-schema` is the snapshot-validation surface, so the
 ;; vestigial app-schema reg is removed.
 ;;
-;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; EP-0002: reg-app-schema is context-required frame-local; a
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; the :rf/default frame, so name it explicitly here.
 (with-frame :rf/default

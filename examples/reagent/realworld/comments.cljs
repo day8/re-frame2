@@ -279,7 +279,7 @@
       db)}))
 
 ;; ============================================================================
-;; ARTICLE-DETAIL SOCIAL CONTROLS  (rf2-2xi8sr)
+;; ARTICLE-DETAIL SOCIAL CONTROLS
 ;; ============================================================================
 ;;
 ;; The official Conduit article page puts contextual controls ON THE DETAIL
@@ -362,7 +362,7 @@
 
 (rf/reg-sub :article/own?
   {:doc "True when the signed-in viewer is the article's author — gates the
-         Edit / Delete controls on the detail page (rf2-2xi8sr)."}
+         Edit / Delete controls on the detail page."}
   (fn [db _]
     (let [me (get-in db [:auth :user :username])]
       (and me (= me (get-in db [:article :data :author :username]))))))
@@ -420,7 +420,7 @@
           :on-click #(dispatch [:comment/delete (:id comment)])}
          [:i.ion-trash-a]])]]))
 
-(reg-view ^{:doc "The article-detail contextual controls (rf2-2xi8sr): the
+(reg-view ^{:doc "The article-detail contextual controls: the
                   author byline plus, per the official Conduit template, the
                   author's Follow/Unfollow for a non-author viewer OR Edit /
                   Delete for the author. Logged-out viewers see the byline only.
@@ -492,7 +492,7 @@
           [:h1 {:data-testid "article-title"} (:title article)]
           [:p {:data-testid "article-description"} (:description article)]
           [:span.article-controls
-           ;; rf2-e90vfv: the official RealWorld article-detail favorite
+           ;; The official RealWorld article-detail favorite
            ;; control shows visible "Favorite"/"Unfavorite" text and toggles
            ;; `.btn-outline-primary` (not favorited) ↔ `.btn-primary`
            ;; (favorited) — the E2E contract asserts on both. The compact

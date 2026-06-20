@@ -213,7 +213,7 @@
                tools/xray/testbeds/managed_http/core.cljs."
    :platforms #{:client}}
   (fn fx-seed-long-request [frame-ctx {:keys [request-id]}]
-    ;; EP-0002 (rf2-9o48ih): the abort-fn fires later (when the LIVE
+    ;; EP-0002: the abort-fn fires later (when the LIVE
     ;; :rf.http/managed-abort fx resolves this handle), so it carries no
     ;; ambient frame of its own — a bare `rf/dispatch` inside it would raise
     ;; :rf.error/no-frame-context. Capture the fx-context's frame and pass it
@@ -311,7 +311,7 @@
 
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
+;; EP-0002: under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
 ;; `reg-frame` registers the app frame, the boot dispatch runs under

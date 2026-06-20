@@ -24,16 +24,16 @@
      hydrated entry renders immediately and does NOT immediately re-fetch
      (stale / redacted / omitted entries refetch by the hydration plan).
 
-   LANDED BEHAVIOUR (EP-0003). The SSR blocking-drain (rf2-er7qx2), the
+   LANDED BEHAVIOUR (EP-0003). The SSR blocking-drain, the
    per-entry projection with redaction / omission / scoped-key privacy /
-   index omission (rf2-otms75 / rf2-fopuj9), and the client hydration
-   reconcile + refetch plan (rf2-ctk2av) are all RUNTIME-real. So this
+   index omission, and the client hydration
+   reconcile + refetch plan are all RUNTIME-real. So this
    example drives the actual server path: it DRAINS the blocking page
    resource before render (`ssr/drain-blocking-resources!`) and serializes
    only the ALLOWED runtime-db projection (`payload-policy/project-runtime-db`)
    into `:rf/runtime-db` — NEVER the full runtime-db. The `:rf/app-db` slice is
    projected through the explicit fail-closed allowlist (`apply-policy`) the
-   real Ring host uses. The example tree is test-free (rf2-8cevm); the static
+   real Ring host uses. The example tree is test-free; the static
    `index.html` next to this file carries a pre-baked payload for the runnable
    browser-side `run` (no Clojure server ships with the example), exactly as
    the sibling `examples/reagent/ssr/` does for plain SSR.
@@ -65,7 +65,7 @@
             ;; uses (`re-frame.ssr.ring.shell/payload-script-tag` →
             ;; `escape-edn-script-body`). Server-side only — a server-provided
             ;; string carrying `</script>` would otherwise close the payload
-            ;; `<script>` envelope (security audit 2026-05-14 §P1, rf2-7ksyr).
+            ;; `<script>` envelope (security audit 2026-05-14 §P1).
             #?(:clj [re-frame.ssr.html-helpers :as html])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
@@ -212,7 +212,7 @@
                                  (assoc policy-opts
                                         :runtime-db (payload-policy/project-runtime-db
                                                       final-runtime)))
-                 ;; EP-0002 (rf2-acjknb): `build-payload` stamps the per-request
+                 ;; EP-0002: `build-payload` stamps the per-request
                  ;; server frame (`f`) as `:rf/frame-id`, but the client
                  ;; hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
                  ;; below). `ssr/hydrate!` VALIDATES a present payload
@@ -234,7 +234,7 @@
                    "<div id='app'>" html "</div>"
                    ;; Emit the payload `<script>` through the EDN-aware
                    ;; `</script>`-escaper the production Ring host uses
-                   ;; (security audit 2026-05-14 §P1, rf2-7ksyr) so a server-
+                   ;; (security audit 2026-05-14 §P1) so a server-
                    ;; provided string carrying `</script>` can't close the
                    ;; envelope.
                    "<script id='__rf_payload' type='application/edn'>"
@@ -257,7 +257,7 @@
 
 #?(:cljs (defonce react-root (atom nil)))
 
-;; EP-0002 (rf2-acjknb): the SSR hydration target is CARRIED — established
+;; EP-0002: the SSR hydration target is CARRIED — established
 ;; explicitly here and threaded through both `ssr/hydrate!` and the root
 ;; `frame-provider`. This example uses `:rf/default` as its FIXED client
 ;; app-frame. `handle-request` above renders under a per-request gensym frame

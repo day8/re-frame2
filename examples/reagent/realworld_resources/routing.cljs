@@ -55,7 +55,7 @@
 ;; routes plan the same three reads (global list, popular tags, session feed);
 ;; they differ only in WHERE the active tag comes from — the `/tag/:tag` route
 ;; reads it from PATH params, the bare home route has none. `home-resources`
-;; takes a `tag-fn` so each route supplies its own tag source (rf2-e90vfv).
+;; takes a `tag-fn` so each route supplies its own tag source.
 (defn- home-resources [tag-fn]
   [{:resource  :realworld/articles
     ;; Route → resource params: the active tag (param or nil) AND `?page=` flow
@@ -67,7 +67,7 @@
                             ;; subscribe through (`(or (:page q) 1)`); a raw
                             ;; nil would mint a `{:page nil}` entry no view
                             ;; reads, leaving first-page lists permanently
-                            ;; empty (rf2-01jbr9).
+                            ;; empty.
                             :page (or (get-in route [:query :page]) 1)})
     :blocking? true
     :keep-previous? true}
@@ -85,7 +85,7 @@
    {:resource  :realworld/feed
     :scope     {:from-db :realworld/session}
     ;; Default to page 1 — the feed subscription reads `(or (:page q) 1)`
-    ;; too, so the route must own `{:page 1}` on the bare URL (rf2-01jbr9).
+    ;; too, so the route must own `{:page 1}` on the bare URL.
     :params    (fn [route] {:page (or (get-in route [:query :page]) 1)})
     :blocking? false
     :keep-previous? true}])
@@ -97,7 +97,7 @@
            paginates — both flow into the resources' params. `:keep-previous?`
            keeps the prior page visible while the next first-loads (no
            flicker). The tag filter is its own `/tag/:tag` PATH route below
-           (rf2-e90vfv route-shape conformance — no `?tag=` query)."
+           (route-shape conformance — no `?tag=` query)."
    :query [:map
            [:feed {:optional true} :string]
            [:page {:optional true} :int]]
@@ -106,7 +106,7 @@
 
 (rf/reg-route :realworld/home-tag
   {:doc   "The tag-filtered article list at the official RealWorld `/tag/:tag`
-           PATH route (rf2-e90vfv — replacing the prior `?tag=` query). The
+           PATH route (replacing the prior `?tag=` query). The
            active tag is a route PARAM that flows into the articles resource's
            params, so each tag is a distinct cache entry; `?page=` paginates
            within it (`/tag/:tag?page=2`). Same three reads as the home route."
@@ -175,7 +175,7 @@
      :params    (fn [route] {:username (get-in route [:params :username])})
      :blocking? true}
     {:resource  :realworld/author-articles
-     ;; Default to page 1 to match the view's `(or (:page q) 1)` key (rf2-01jbr9).
+     ;; Default to page 1 to match the view's `(or (:page q) 1)` key.
      :params    (fn [route] {:username (get-in route [:params :username])
                              :page     (or (get-in route [:query :page]) 1)})
      :blocking? false
@@ -196,7 +196,7 @@
      :params    (fn [route] {:username (get-in route [:params :username])})
      :blocking? true}
     {:resource  :realworld/favorited-articles
-     ;; Default to page 1 to match the view's `(or (:page q) 1)` key (rf2-01jbr9).
+     ;; Default to page 1 to match the view's `(or (:page q) 1)` key.
      :params    (fn [route] {:username (get-in route [:params :username])
                              :page     (or (get-in route [:query :page]) 1)})
      :blocking? false

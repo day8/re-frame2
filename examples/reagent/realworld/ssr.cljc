@@ -43,7 +43,7 @@
   ;; CDN-cacheable). Redact it at the payload boundary — the client
   ;; re-establishes [:auth :token] on hydrate via `:auth/initialise`
   ;; (auth.cljs), which folds the RECORDABLE+PROVIDED `:auth.session/token`
-  ;; coeffect the boot boundary stamps from localStorage (EP-0017, rf2-16ck78).
+  ;; coeffect the boot boundary stamps from localStorage (EP-0017).
   ;; The durable token slot is thus a function of a recorded boot coeffect, not
   ;; an ambient write-site read, so dropping it from the payload costs nothing
   ;; and stays replay-sound.
@@ -71,7 +71,7 @@
        (reader/read-string (.-textContent el)))))
 
 #?(:cljs
-   ;; EP-0002 (rf2-9o48ih): the caller names the frame to hydrate explicitly —
+   ;; EP-0002: the caller names the frame to hydrate explicitly —
    ;; no zero-arity `:rf/default` convenience. Under the carried invariant the
    ;; hydration target is a deliberate choice, not an inferred default; a
    ;; renamed / multi-frame client must pass its own frame-id.

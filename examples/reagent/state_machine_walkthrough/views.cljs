@@ -110,7 +110,7 @@
   ;; Install the canned-failure override on the default frame so every
   ;; `:rf.http/managed` request resolves :failure. The chapter's
   ;; lockout scenario depends on three consecutive failures.
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence —
+  ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the app frame explicitly and wrap the render in a `frame-provider`
   ;; so the `reg-view`-injected `dispatch`/`subscribe` (and the login machine
   ;; reads) resolve to it (a no-provider render reads the no-provider sentinel

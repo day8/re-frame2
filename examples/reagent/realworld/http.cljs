@@ -24,9 +24,9 @@
      `:realworld/bearer-auth` HTTP interceptor (`core.cljs`), which reads the
      token from the CARRIED frame's auth slice (`(:frame ctx)`) on every
      request — so the header tracks whichever frame the cascade runs under, not
-     a hard-coded `:rf/default` (the carried invariant, EP-0002 rf2-9o48ih).
+     a hard-coded `:rf/default` (the carried invariant, EP-0002).
      A single source of truth is the recommended production shape; this example
-     follows it (rf2-63c89b).
+     follows it.
    - `data-fetch-retry` — the standard retry policy used for read-only
      fetches (transport, 5xx, timeout — not 4xx; the user's request was
      valid even when the server is sad).
@@ -39,7 +39,7 @@
    `:rf.http/managed` to a canned-stub override so the CLJS test fixtures
    (in the framework test tree at
    `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
-   the example tree is test-free, rf2-8cevm) run without a network."
+   the example tree is test-free) run without a network."
   (:require [clojure.string]
             [re-frame.core :as rf]))
 

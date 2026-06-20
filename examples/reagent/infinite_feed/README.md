@@ -126,7 +126,7 @@ this example — it compiles and serves only the three adapter testbeds; see
 
 ## Coverage
 
-The example tree is test-free (rf2-8cevm), but this example's wiring is pinned by
+The example tree is test-free, but this example's wiring is pinned by
 a direct headless CLJS fixture, **`re-frame.infinite-feed-example-cljs-test`**
 (`implementation/adapters/reagent/test/re_frame/`, run by `npm run test:cljs`).
 It requires this example's production `infinite-feed.core` and drives the

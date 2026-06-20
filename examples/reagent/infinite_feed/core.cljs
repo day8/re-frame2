@@ -54,7 +54,7 @@
    a live server would produce), so every page fetch exercises a REAL fetch,
    in-flight dedupe, generation/stale suppression, and the passive status flow.
    A small reply delay lets the load-more spinner render before each page
-   lands. The example tree is test-free (rf2-8cevm); the example-specific
+   lands. The example tree is test-free; the example-specific
    composition coverage lives in
    `implementation/adapters/reagent/test/re_frame/infinite_feed_example_cljs_test.cljs`,
    and the infinite-resource runtime contract is pinned in

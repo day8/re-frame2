@@ -44,8 +44,8 @@
    This example covers the READ side only; mutations (`reg-mutation` /
    `:rf.mutation/execute`) have also landed but live in the guide
    (docs/guide/concepts/server-state.md §Writes invalidate by tag) and the migration walkthrough.
-   GraphQL is a deferred later phase. The example tree is test-free
-   (rf2-8cevm); resource-contract coverage lives in
+   GraphQL is a deferred later phase. The example tree is test-free;
+   resource-contract coverage lives in
    `implementation/resources/test/` and the conformance fixtures."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]

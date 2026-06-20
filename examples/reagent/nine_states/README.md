@@ -69,8 +69,8 @@ that keyword is the only branch site.
 - **Headless tests** — every state has a fixture that drives `app-db`
   into that state and asserts against the machine's tag union and the
   resolved `:ui/render` keyword. They run via `compute-sub` /
-  `dispatch-sync` / `with-frame`. The example tree is test-free
-  (rf2-8cevm); the fixtures live in the framework test tree (see
+  `dispatch-sync` / `with-frame`. The example tree is test-free;
+  the fixtures live in the framework test tree (see
   [How to run](#how-to-run)).
 
 ## Legacy variant
@@ -97,7 +97,7 @@ examples/reagent/nine_states/
 
 The three `stories*` files are an **intentionally auxiliary Story
 showcase** layered over this example (build
-`:examples/nine-states-with-stories`, rf2-rgyia) — not a second example
+`:examples/nine-states-with-stories`) — not a second example
 and not tool-owned. They source `nine-states.core`'s real parallel
 machine and `:ui/render` selector and enumerate the nine canonical
 render keywords (plus the async fetch-lifecycle) as Story variants, with
@@ -110,7 +110,7 @@ with the tool. See [How to run](#how-to-run) for the showcase command.
 
 For brevity the example is one file; in a real codebase it would
 split per CP-6 conventions (`schema.cljc / machine.cljc / events.cljs
-/ subs.cljs / views.cljs`). The example tree is test-free (rf2-8cevm)
+/ subs.cljs / views.cljs`). The example tree is test-free
 — the per-state headless fixtures live in the framework test tree.
 
 ## How to run
@@ -142,7 +142,7 @@ either surface to open Xray over the load cascade.
 
 The per-state headless fixtures live in the integration test at
 [`implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs)
-(folded inline by rf2-cd2zo so the example source stays test-free) and
+(folded inline so the example source stays test-free) and
 run as part of the framework's CLJS test suite (`npm run test:cljs`).
 Each of the nine states is one `testing` block under the
 `nine-states-runs-end-to-end` deftest.
