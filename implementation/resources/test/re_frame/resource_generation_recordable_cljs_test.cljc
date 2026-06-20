@@ -5,17 +5,18 @@
   the reply token as the stale-suppression correlation), so the minted VALUE
   must be RECORDABLE even though the host allocator stays transient.
 
-  ## The hole this proves-then-closes
+  ## The hazard this guards against
 
-  The generation used to be minted from the AMBIENT `:rf.resource/generation`
-  cofx — a host-cache read, never recorded, re-run on replay. On replay the
-  ambient read re-mints a DIFFERENT generation (the host allocator is at a
-  different high-water than it was at record time), so a recorded managed
-  reply that was ACCEPTED at record time (its generation matched the live
-  entry's) replays as STALE-SUPPRESSED (the re-minted generation no longer
-  matches), or vice versa — the recorded log and the replayed state diverge.
+  If the generation were minted from an AMBIENT `:rf.resource/generation`
+  cofx — a host-cache read, never recorded, re-run on replay — then on replay
+  the ambient read would re-mint a DIFFERENT generation (the host allocator
+  is at a different high-water than it was at record time), so a recorded
+  managed reply that was ACCEPTED at record time (its generation matched the
+  live entry's) would replay as STALE-SUPPRESSED (the re-minted generation no
+  longer matches), or vice versa — the recorded log and the replayed state
+  would diverge.
 
-  The fix makes `:rf.resource/generation-allocation` a GENERATOR-BACKED
+  Instead `:rf.resource/generation-allocation` is a GENERATOR-BACKED
   RECORDABLE cofx: the generator mints the next monotone allocation at
   processing-start and the runtime records the value on the causal token, so
   replay (supplying the recorded allocation) reproduces the IDENTICAL
@@ -28,15 +29,15 @@
      success reply (carrying generation 1) is ACCEPTED (the entry loads). The
      recorded `:rf.cofx/generated` trace op captures the allocation the
      runtime stamped onto the token: `{:generation 1 :counter 1}`.
-  2. REPLAY-CORRECT (the fix) — the host allocator is now at a DIFFERENT
-     high-water (10, as a fresh process / a different frame's work would
-     leave it); replay the SAME ensure SUPPLYING the recorded allocation on
-     the token. The handler reads generation 1 (the recorded value), NOT
+  2. REPLAY-CORRECT (determinism preserved) — the host allocator is now at a
+     DIFFERENT high-water (10, as a fresh process / a different frame's work
+     would leave it); replay the SAME ensure SUPPLYING the recorded allocation
+     on the token. The handler reads generation 1 (the recorded value), NOT
      `(inc 10)` = 11. The recorded reply (generation 1) is ACCEPTED again —
      the durable outcome equals the record.
-  3. REPLAY-DIVERGENT (the bug, shown as a control) — same allocator at 10,
+  3. REPLAY-DIVERGENT (the hazard, shown as a control) — same allocator at 10,
      but replay the ensure WITHOUT the recorded allocation, so the generator
-     re-mints generation 11 (the old ambient behaviour). The recorded reply
+     re-mints generation 11 (the un-recorded ambient path). The recorded reply
      (generation 1) is now STALE-SUPPRESSED — generation 1 no longer matches
      the live entry's generation 11 — so the entry never loads the reply
      value: the exact divergence the recordable allocation kills.
