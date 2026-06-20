@@ -87,9 +87,8 @@
 ;; The WALL-clock epoch-ms read this slice uses — the server clock stamped on
 ;; `loaded-at` / `stale-at`, and the live clock the client compares restored
 ;; absolute timestamps against to surface skew — is the core
-;; `re-frame.interop/epoch-now-ms` (rf2-366u0g). It is byte-identical to the
-;; private `now-ms` this ns used to define (`System/currentTimeMillis` on the
-;; JVM, `js/Date.now` on CLJS) and is the canonical EP-0010 §Time wall-clock
+;; `re-frame.interop/epoch-now-ms` (rf2-366u0g — `System/currentTimeMillis`
+;; on the JVM, `js/Date.now` on CLJS), the canonical EP-0010 §Time wall-clock
 ;; surface — NOT the perf clock `interop/now-ms` (`performance.now()` on CLJS,
 ;; origin-relative, ~1e4), which is incomparable with `js/Date`-based freshness
 ;; checks. These resources are durable freshness / skew readers, so the wall
