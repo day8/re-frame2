@@ -18,7 +18,7 @@
             [re-frame.flows.topo :as topo]))
 
 ;; ---------------------------------------------------------------------------
-;; extract-cycle-path defensive throw (rf2-oozsq)
+;; extract-cycle-path defensive throw
 ;;
 ;; Construct a graph + remaining-set whose entries violate Kahn's stuck-
 ;; node invariant: a stuck node whose graph entry has no edges into the
@@ -111,8 +111,7 @@
             "ex-data carries exactly the canonical slots + :cycle (no extras, no missing)")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-m05md — depends-on? direct function-boundary tests
-;; (follow-on from rf2-q1z1u F4)
+;; depends-on? direct function-boundary tests
 ;;
 ;; `depends-on?` is the load-bearing helper that `topo-sort` consumes
 ;; when building the dependency graph (each flow's set of dep ids is

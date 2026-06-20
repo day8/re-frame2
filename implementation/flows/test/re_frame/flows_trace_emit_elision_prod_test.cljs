@@ -48,7 +48,7 @@
             ;; the prod test must prove the validation surface elides even
             ;; when the seam is wired, not merely when it is absent.
             [re-frame.schemas :as schemas]
-            ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
+            ;; The listener surface lives in `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each

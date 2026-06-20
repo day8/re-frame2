@@ -63,9 +63,9 @@
        Per-thread cycle-detection probe: each thread, mid-stress, does
        a `try`/`catch` `reg-flow` of a flow whose registration would
        close a two-flow cycle. The detector MUST throw
-       `:rf.error/flow-cycle` under contention; pre-fix any race in
-       topo-sort's snapshot read could miss the prospective edge and
-       silently admit the cycle. The probe is deterministic — every
+       `:rf.error/flow-cycle` under contention; a race in topo-sort's
+       snapshot read that missed the prospective edge would silently
+       admit the cycle. The probe is deterministic — every
        attempt MUST be detected — so the shared atomic counter for
        cycle hits MUST equal exactly `n-threads` (each thread did one
        probe).
@@ -106,8 +106,8 @@
 ;; state. The flows ns keeps a private `last-inputs` atom for
 ;; dirty-checking (per Spec 013 §Dirty-check semantics); we reset it
 ;; via `flows/reset-flows!` (which clears BOTH `flows` and
-;; `last-inputs` in lockstep per rf2-mb65w) so cross-test state cannot
-;; leak in either direction.
+;; `last-inputs` in lockstep) so cross-test state cannot leak in either
+;; direction.
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -118,27 +118,25 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
+  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
+  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
+  ;; ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-;; Per-thread iteration count. Kept at the rf2-ynk7 / rf2-35rgj /
-;; rf2-1gpx8 standard 5000 so CI stays under ~60s wall-clock with the
-;; default thread count. Operators dial up via the env override; CI
-;; dials down by lowering it (e.g. `RF2_ZTW5P_STRESS_ITERS=500` for a
-;; smoke-test pass).
+;; Per-thread iteration count. The standard 5000 keeps CI under ~60s
+;; wall-clock with the default thread count. Operators dial up via the
+;; env override; CI dials down by lowering it (e.g.
+;; `RF2_ZTW5P_STRESS_ITERS=500` for a smoke-test pass).
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_ZTW5P_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — matches rf2-ynk7's `concurrent-dispatch-stress`
-;; (`n-submitters 8`) and the rf2-1gpx8 thread count. Higher contention
-;; than the typical 4-core CI box; the per-frame partitioning means
+;; Eight parallel threads — higher contention than the typical 4-core CI
+;; box; the per-frame partitioning means
 ;; we're not over-saturating any one drain-lock, we're driving N
 ;; independent reg/eval/clear cycles in parallel and asserting the
 ;; flow-id allocator + registrar lookup + per-frame registry write
@@ -148,11 +146,9 @@
 ;; ---- the stress test ------------------------------------------------------
 
 (deftest ^:stress flow-reg-eval-clear-stress
-  ;; rf2-ztw5p — mirrors rf2-1gpx8's pattern for the flows surface.
-  ;;
-  ;; The two pinned counter invariants are the same as rf2-35rgj /
-  ;; rf2-1gpx8: every dispatched event ran exactly once (no drops) and
-  ;; every transition / `:derive` invocation fired exactly once per
+  ;; The two pinned counter invariants: every dispatched event ran exactly
+  ;; once (no drops) and every transition / `:derive` invocation fired
+  ;; exactly once per
   ;; dispatch (no doubles). Two distinct counter views (per-thread
   ;; atom + global AtomicLong) detect them independently — divergence
   ;; between the two would indicate the per-thread observation lost
@@ -267,8 +263,7 @@
                           ;; Clear the cycle-probe registration so
                           ;; the leak invariant can pass. (`:cyc-b`
                           ;; never registered because the cycle
-                          ;; throw rolled it back per
-                          ;; rf2-7csri/rf2-cdh9h.)
+                          ;; throw rolled it back.)
                           (flows/clear-flow cyc-a {:frame frame-id})
                           ;; Clear the main flow so the leak
                           ;; invariant can pass.
@@ -284,9 +279,9 @@
         ;; Bounded join — if a cycle ever hangs (e.g. a clear-flow
         ;; that doesn't fire under contention), we want a visible
         ;; failure rather than a stuck CI run. 120s gives ample
-        ;; headroom for 8 × 5000 cycles on a slow box; pre-fix races
-        ;; that drop events would surface as either a counter
-        ;; mismatch OR a future hanging at a downstream dispatch.
+        ;; headroom for 8 × 5000 cycles on a slow box; a race that
+        ;; dropped events would surface as either a counter mismatch
+        ;; OR a future hanging at a downstream dispatch.
         (doseq [f futures]
           (let [v (deref f 120000 ::timeout)]
             (is (not= ::timeout v)
@@ -337,9 +332,9 @@
         ;;     must be gone for every per-thread flow id (the LAST frame
         ;;     holding it released the id per Spec 013 §Frame-scoping).
         ;;
-        ;; rf2-4bbaw: each per-thread frame had ALL its flows cleared, so
-        ;; clearing the last one prunes the frame-id key entirely — the
-        ;; slot is strictly `nil`, never a `{frame-id {}}` empty husk.
+        ;; Each per-thread frame had ALL its flows cleared, so clearing the
+        ;; last one prunes the frame-id key entirely — the slot is strictly
+        ;; `nil`, never a `{frame-id {}}` empty husk.
         (let [flows-snapshot       (flows/flows-snapshot)
               last-inputs-snapshot (flows/last-inputs-snapshot)]
           (doseq [{:keys [frame-id flow-id cyc-a cyc-b]} per-thread]
