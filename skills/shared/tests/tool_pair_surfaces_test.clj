@@ -127,18 +127,71 @@
                  "wire surface is stale (rf2-c9xgp)."))))))
 
 (deftest direct-reads-route-through-elide-wire-value
-  (testing "the leaf pins rf/elide-wire-value as the MUST egress site for direct reads"
+  (testing "the leaf still names rf/elide-wire-value as the low-level walker beneath the egress boundary"
     (let [body @surfaces-md]
       (is (str/includes? body "rf/elide-wire-value")
           (str "tool-pair-surfaces.md no longer names `rf/elide-wire-value` "
-               "as the wire-egress site for direct reads. This is THE "
-               "leak-prevention boundary the spec makes load-bearing — a "
-               "direct read bypasses trace redaction, so off-box egress "
-               "MUST route through the walker (spec/Tool-Pair.md "
-               "§Direct-read privacy)."))
+               "as the low-level tree walker for direct-read egress. It is "
+               "the leaf-level value primitive the `project-egress` boundary "
+               "delegates tree slots to (spec/015 §elide-wire-value, "
+               "spec/Tool-Pair.md §Direct-read privacy)."))
       (is (contains-any? body ["MUST"])
           (str "The MUST-level imperative was downgraded. The direct-read "
                "egress contract is normative, not advisory.")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock — the public egress boundary is `project-egress`, NOT `elide-wire-value`
+;; (rf2-2s4jre)
+;;
+;; EP-0015 moved the public egress boundary up a layer: `rf/project-egress`
+;; is the record-level boundary primitive (resolves a `:rf.egress/*` profile +
+;; known `:frame`, applies frame-owned classification, fails closed with no
+;; frame), and `rf/elide-wire-value` is the low-level tree walker it delegates
+;; to. spec/015 §project-egress + implementation/SECURITY.md pin this split;
+;; spec/015:264 says tools/sinks should rarely call `elide-wire-value`
+;; directly. The earlier leaf taught `elide-wire-value` as "the single
+;; normative direct-value emission site" — that wording teaches new direct-
+;; read surfaces to hand-call the low-level walker (hand-assembling
+;; `:rf.size/*` opts) and bypass closed-profile validation + fail-closed
+;; frame seeding. These pins keep the boundary primitive named and forbid the
+;; stale boundary-overload wording from creeping back.
+;; ---------------------------------------------------------------------------
+
+(deftest project-egress-named-as-the-public-boundary
+  (testing "the leaf names rf/project-egress as the public off-box egress boundary primitive"
+    (let [body @surfaces-md]
+      (is (str/includes? body "project-egress")
+          (str "tool-pair-surfaces.md no longer names `project-egress` — the "
+               "EP-0015 public, record-level off-box egress boundary "
+               "primitive. Direct reads / sinks must project through it "
+               "(known `:frame` + `:rf.egress/*` profile, fail-closed) before "
+               "off-box egress; `elide-wire-value` is the low-level walker it "
+               "delegates to, not the boundary (spec/015 §project-egress, "
+               "rf2-2s4jre)."))
+      (is (contains-any? body [":rf.egress/off-box-tool" ":rf.egress/"])
+          (str "tool-pair-surfaces.md no longer names a closed `:rf.egress/*` "
+               "egress profile (off-box reads use `:rf.egress/off-box-tool`). "
+               "The profile is what `project-egress` resolves and validates "
+               "fail-closed (rf2-2s4jre).")))))
+
+(deftest elide-wire-value-not-overloaded-as-the-boundary
+  (testing "the leaf does NOT teach elide-wire-value as the single normative direct-value emission site"
+    (let [body @surfaces-md]
+      ;; rf2-2s4jre: the stale framing called the low-level walker "the single
+      ;; normative direct-value emission site". Post-EP-0015 the boundary is
+      ;; `project-egress`; the walker is delegated to. Guard the exact stale
+      ;; phrasings so a regression to walker-as-boundary fails loudly.
+      (is (not (str/includes? body "single normative direct-value emission site"))
+          (str "tool-pair-surfaces.md again calls `elide-wire-value` \"the "
+               "single normative direct-value emission site\". Post-EP-0015 "
+               "the public boundary is `project-egress`; the walker is "
+               "delegated to, not the emission site (spec/015:264 — tools "
+               "should rarely call `elide-wire-value` directly, rf2-2s4jre)."))
+      (is (not (str/includes? body "elide-wire-value egress MUST"))
+          (str "tool-pair-surfaces.md again labels the linked contract the "
+               "\"elide-wire-value egress MUST\". The MUST is the off-box "
+               "egress / `project-egress` boundary; `elide-wire-value` is the "
+               "walker beneath it (rf2-2s4jre).")))))
 
 (deftest direct-reads-default-suppress-sensitive-and-large
   (testing "the leaf pins the off-box default-suppress posture + indicators"
