@@ -821,10 +821,17 @@
   "Project an `:rf/epoch-record` for off-box egress. Routes the
   app-db-rooted full-value payload slots (`:frame-state-before`,
   `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through
-  `re-frame.elision/elide-wire-value` against the record's frame, with
-  the off-box defaults `:include-sensitive? false` /
-  `:include-large? false`. Sensitive paths land as `:rf/redacted`; large
-  paths land as `:rf.size/large-elided` markers per the §Composition rule.
+  the record-level egress boundary `re-frame.projection/project-egress`
+  under the selected `:rf.egress/profile` (default
+  `:rf.egress/off-box-observability`; tools pass `:rf.egress/off-box-tool`
+  — see §Egress profile below) against the record's frame, with the
+  off-box defaults `:include-sensitive? false` / `:include-large? false`.
+  `project-egress` resolves the named profile to the `:rf.size/*` opt set
+  and delegates each tree-shaped slot to the low-level walker
+  `re-frame.elision/elide-wire-value` (the walker is the delegated
+  primitive, NOT the egress boundary — name and validate the profile, not
+  the walker). Sensitive paths land as `:rf/redacted`; large paths land as
+  `:rf.size/large-elided` markers per the §Composition rule.
 
   The `:trigger-event` slot is NOT app-db-rooted (rf2-nm611o): the
   dispatched event vector's ARGS are registration-owned transient payloads
