@@ -38,10 +38,10 @@
     7. Hot reload (§Hot Reload) — `reload-images!` / `reproject-live-frames!`
        re-resolve every live frame; no frame left stale; reload of an unknown
        frame errors cleanly.
-    8. Migration diagnostics (§Backwards Compatibility) —
-       `assert-process-local-frame-id!` (cross-realm dup) fires on the right
-       conditions; `rf/make-frame` is repointed onto the EP-0023 object
-       constructor (the dual-export window is closed).
+    8. The one frame constructor (EP-0024 §One constructor) — `rf/make-frame`
+       is the SINGLE public constructor, returning the frame VALUE (not a bare
+       id keyword), with `:on-create` firing AFTER the resolved generation and
+       seeded app-db are installed on the record.
 
   Every fail-loud assertion branches on the `:rf.error/id` DISCRIMINATOR, never
   the message bytes (Spec 009 §The thrown-error shape rule 3).
