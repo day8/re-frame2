@@ -662,10 +662,13 @@
   ;; `rf/reinstall!` (stage-7 installation), `rf/realm` / `rf/dispose-realm!`
   ;; (stage-9 realm constructor), `rf/realm-ids` / `rf/frame-realm` /
   ;; `rf/installed-app` (realm-enumeration + installed-app reads) — were REMOVED
-  ;; from the facade, so they drop out of the generated manifest. The machinery
-  ;; remains in `re-frame.realm` / `re-frame.app-value` as internal substrate (not
-  ;; rowed: only the `re-frame.core` facade is enumerated). The public model is
-  ;; `image -> frame -> event stream`; see `re-frame.core` `rf/image` /
+  ;; from the facade, so they drop out of the generated manifest. The underlying
+  ;; realm / app-value / module machinery was then DELETED IN FULL by EP-0024
+  ;; (no `re-frame.realm` / `re-frame.app-value` namespace survives — see line
+  ;; 451 above and spec/Spec-Schemas.md `:rf/realm` "Status: REMOVED"): there is
+  ;; no retained internal substrate. The public model is
+  ;; `image -> frame -> event stream`; frame resolution routes directly through
+  ;; the process registrar. See `re-frame.core` `rf/image` /
   ;; `make-frame` / `reload-images!` rows and EP-0023 §Backwards Compatibility.
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
