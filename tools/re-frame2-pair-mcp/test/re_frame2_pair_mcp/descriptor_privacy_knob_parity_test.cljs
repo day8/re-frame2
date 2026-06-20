@@ -1,23 +1,23 @@
 (ns re-frame2-pair-mcp.descriptor-privacy-knob-parity-test
-  "Descriptor ↔ handler privacy-knob parity gate (rf2-mmd7o6).
+  "Descriptor ↔ handler privacy-knob parity gate.
 
-  THE BUG. Several egress tools' handlers consume privacy/egress knobs
-  (`:include-sensitive`, `:elision`) that govern whether app-db / sub /
-  epoch values cross the LLM-facing wire verbatim — but their published
-  MCP descriptors omitted those inputs. Because every descriptor declares
-  `:additionalProperties false`, a schema-aware client would never offer
-  (or could reject) the supported knob, and agents were taught an
-  INCOMPLETE privacy boundary: the live `tools/call` behaviour diverged
-  from `tools/list` / the generated `tool-descriptors.edn`.
+  THE CONTRACT. Several egress tools' handlers consume privacy/egress
+  knobs (`:include-sensitive`, `:elision`) that govern whether app-db /
+  sub / epoch values cross the LLM-facing wire verbatim. Every descriptor
+  declares `:additionalProperties false`, so a schema-aware client would
+  never offer (or could reject) a supported knob that the descriptor
+  omits, and agents would be taught an INCOMPLETE privacy boundary — the
+  live `tools/call` behaviour diverging from `tools/list` / the generated
+  `tool-descriptors.edn`. Every handler-consumed knob must therefore be
+  published on the descriptor.
 
   THE GATE. For every tool whose handler reads a privacy knob, the knob
   MUST appear as a boolean property on that tool's descriptor
   `:inputSchema :properties` — both on the raw registry descriptor AND on
   the spliced `tools/list` surface (`tool-descriptors-js`). The expected
-  set is pinned here from the handler source (file:line in the bead), so a
-  FUTURE egress-control addition that wires a handler knob without
-  publishing it trips this test rather than silently shipping an
-  unadvertised privacy control.
+  set is pinned here from the handler source, so a FUTURE egress-control
+  addition that wires a handler knob without publishing it trips this test
+  rather than silently shipping an unadvertised privacy control.
 
   WHY A STATIC EXPECTATION (not a source scrape). The handlers read the
   knobs via `(wire/arg args :include-sensitive)` / `(args/parse-bool-arg
@@ -37,8 +37,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Authoritative table — tool -> privacy knobs its HANDLER consumes.
 ;;
-;; Source of truth (rf2-mmd7o6 evidence; verify against the cited handler
-;; if you change this):
+;; Source of truth (verify against the cited handler if you change this):
 ;;   dispatch     :include-sensitive  — dispatch.cljs (`incl?`, :trace/:settle epoch egress)
 ;;   subscribe    :include-sensitive  — subscribe.cljs (`incl?`, top-level sensitive drop)
 ;;                :elision            — subscribe.cljs (`elision?`, per-event value walk)
@@ -48,10 +47,10 @@
 ;;                :elision            — watch_until.cljs (`elision?`, :sample / :last-sample)
 ;;
 ;; (snapshot / get-path / read-sub / list-subscriptions / dispatch-dry-run
-;; already published their knobs before this bead and are covered by the
-;; raw-state conformance fixtures; they are included here so the gate's
-;; coverage of the full structured-egress surface is explicit and a
-;; regression on them also trips.)
+;; publish their knobs and are covered by the raw-state conformance
+;; fixtures; they are included here so the gate's coverage of the full
+;; structured-egress surface is explicit and a regression on them also
+;; trips.)
 ;; ---------------------------------------------------------------------------
 
 (def ^:private handler-consumed-knobs

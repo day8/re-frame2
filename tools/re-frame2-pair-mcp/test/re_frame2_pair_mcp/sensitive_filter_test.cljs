@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.sensitive-filter-test
   "Unit tests for the spec/009 §Privacy default-suppress filter on
-  `:sensitive? true` events (rf2-zq0n1, follows rf2-a32kd).
+  `:sensitive? true` events.
 
   Spec 009 mandates that framework-published forwarders (Sentry /
   Honeybadger, re-frame2-pair server, Xray-MCP) MUST default-drop trace events
@@ -16,8 +16,8 @@
   The `wire-pipeline-epoch-vector-*` deftests at the foot drive the
   `:epoch-vector` arm of `run-wire-pipeline` — the SAME call site
   `trace-window` and `watch-epochs` route projected epoch vectors
-  through — so the fixed `sensitive-epoch?` predicate (rf2-5613h)
-  cannot be bypassed by the tool response path."
+  through — so the `sensitive-epoch?` predicate cannot be bypassed by
+  the tool response path."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
@@ -37,15 +37,14 @@
   (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
 
 (deftest sensitive-event-non-true-truthy-drops-fail-closed
-  ;; Fail-closed (rf2-ih7g4): the literal `true` drops AND any
-  ;; non-boolean truthy value drops too. The `:rf/trace-event` schema
-  ;; types `:sensitive?` as a boolean; a string `"true"` or keyword
-  ;; `:yes` is a contract violation that means an upstream
-  ;; serialisation bug has coerced the boolean into the wrong shape.
-  ;; The previous fail-OPEN posture silently leaked sensitive events
-  ;; on such drift. re-frame2-pair-mcp delegates to
-  ;; `re-frame.mcp-base.sensitive/sensitive-event?` (rf2-vw4sq) so the
-  ;; contract is byte-identical across the MCP triplet.
+  ;; Fail-closed: the literal `true` drops AND any non-boolean truthy
+  ;; value drops too. The `:rf/trace-event` schema types `:sensitive?`
+  ;; as a boolean; a string `"true"` or keyword `:yes` is a contract
+  ;; violation that means an upstream serialisation bug has coerced the
+  ;; boolean into the wrong shape. A fail-OPEN posture would silently
+  ;; leak sensitive events on such drift. re-frame2-pair-mcp delegates
+  ;; to `re-frame.mcp-base.sensitive/sensitive-event?` so the contract
+  ;; is byte-identical across the MCP triplet.
   (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the contract-drift warning
     (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
     (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
@@ -98,7 +97,7 @@
     (is (= 3 dropped))))
 
 (deftest strip-sensitive-fail-closed-drops-malformed-truthy
-  ;; rf2-ih7g4: a transport bug that coerces `:sensitive? true` into
+  ;; A transport bug that coerces `:sensitive? true` into
   ;; `:sensitive? "true"` (string) or `:sensitive? :yes` (keyword) MUST
   ;; NOT silently leak the event past the re-frame2-pair-mcp wire boundary. The
   ;; fail-closed posture (inherited from `re-frame.mcp-base.sensitive`)
@@ -139,8 +138,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest snapshot-scrubber-strips-sensitive-from-traces
-  ;; The epoch slice uses the REAL record-level rollup `:rf.epoch/sensitive?`
-  ;; (rf2-5613h) — the key the runtime epoch assembler writes — not the
+  ;; The epoch slice uses the record-level rollup `:rf.epoch/sensitive?`
+  ;; — the key the runtime epoch assembler writes — not the
   ;; trace-event-level unqualified `:sensitive?`.
   (let [snap {:rf/default
               {:app-db  {:user/name "ada" :password "secret"}
@@ -166,9 +165,9 @@
   ;; they reach this scrubber: :app-db / :sub-cache through
   ;; `re-frame.core/elide-wire-value`, and the :machines runtime-db slice
   ;; fail-closed to `:rf/redacted` by default (EP-0015 / EP-0001 — Spec 011
-  ;; §Off-box redaction; the retired `redact-interceptor` is NOT involved).
-  ;; Here the slices arrive already-projected, so the scrubber passes them
-  ;; through verbatim even when they carry literal "sensitive"-looking shapes.
+  ;; §Off-box redaction). Here the slices arrive already-projected, so the
+  ;; scrubber passes them through verbatim even when they carry literal
+  ;; "sensitive"-looking shapes.
   (let [snap {:rf/default
               {:app-db    {:password "still-here" :sensitive? true}
                :sub-cache {:user/profile {:sensitive? true :data "x"}}
@@ -195,26 +194,26 @@
     (is (zero? dropped))))
 
 ;; ---------------------------------------------------------------------------
-;; sensitive-epoch? — defense-in-depth on the epoch-record shape (rf2-re2s3).
+;; sensitive-epoch? — defense-in-depth on the epoch-record shape.
 ;;
 ;; Spec 009 §Privacy / Security.md §Epoch privacy mandate that the runtime's
 ;; epoch assembler computes a record-level `:rf.epoch/sensitive?` rollup at
-;; record-assembly time (rf2-isdwf / rf2-mrsck, the "epoch is sensitive iff
-;; any constituent trace event is sensitive OR a schema-declared sensitive
-;; app-db path resolves" rule). `projected-record` preserves that QUALIFIED
-;; key verbatim through off-box projection. This forwarder-side guard reads
-;; the real `:rf.epoch/sensitive?` key (rf2-5613h — pre-fix it wrongly read
-;; the UNqualified `:sensitive?`, which the runtime never writes on a record,
-;; leaking schema-derived sensitive epochs whose constituent traces are
-;; clean). It is also BELT-AND-BRACES: if the rollup is absent (older runtime,
+;; record-assembly time (the "epoch is sensitive iff any constituent trace
+;; event is sensitive OR a schema-declared sensitive app-db path resolves"
+;; rule). `projected-record` preserves that QUALIFIED key verbatim through
+;; off-box projection. This forwarder-side guard reads the
+;; `:rf.epoch/sensitive?` key — the runtime never writes the UNqualified
+;; `:sensitive?` on a record, so reading the unqualified key would leak
+;; schema-derived sensitive epochs whose constituent traces are clean. It
+;; is also BELT-AND-BRACES: if the rollup is absent (older runtime,
 ;; missing late-bind hook, hand-built record), it still detects sensitivity by
 ;; walking the record's `:trace-events` slot at egress.
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-epoch-rollup-true-detected
-  ;; The REAL runtime rollup key (rf2-5613h): `:rf.epoch/sensitive? true`,
-  ;; NO unqualified `:sensitive?`, NO sensitive constituent trace event —
-  ;; the schema-derived-sensitive shape that pre-fix leaked.
+  ;; The runtime rollup key: `:rf.epoch/sensitive? true`, NO unqualified
+  ;; `:sensitive?`, NO sensitive constituent trace event — the
+  ;; schema-derived-sensitive shape.
   (is (sensitive/sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :rf.epoch/sensitive? true})))
 
 (deftest sensitive-epoch-rollup-false-passes
@@ -232,9 +231,9 @@
   (is (not (sensitive/sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :sensitive? true}))))
 
 (deftest sensitive-epoch-rollup-malformed-truthy-fails-closed
-  ;; rf2-5613h + rf2-ih7g4: a transport bug that coerces
-  ;; `:rf.epoch/sensitive? true` into a string/keyword MUST NOT leak the
-  ;; record. The rollup is classified through the shared fail-closed
+  ;; A transport bug that coerces `:rf.epoch/sensitive? true` into a
+  ;; string/keyword MUST NOT leak the record. The rollup is classified
+  ;; through the shared fail-closed
   ;; `mcp-base.sensitive/sensitive-stamp?`, so malformed-truthy drops.
   (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the warning
     (is (sensitive/sensitive-epoch? {:epoch-id 1 :rf.epoch/sensitive? "true"}))
@@ -283,8 +282,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive on epoch records — the streaming-surface defense-in-depth
-;; scenarios (rf2-re2s3). These match how trace-window-tool / watch-epochs-tool
-;; feed epoch vectors through the same helper.
+;; scenarios. These match how trace-window-tool / watch-epochs-tool feed
+;; epoch vectors through the same helper.
 ;; ---------------------------------------------------------------------------
 
 (deftest strip-sensitive-drops-epoch-with-sensitive-constituent
@@ -332,13 +331,13 @@
     (is (= 2 dropped))))
 
 (deftest strip-sensitive-drops-schema-derived-sensitive-epoch-rollup-only
-  ;; rf2-5613h REGRESSION — the leak. A schema-derived sensitive epoch:
-  ;; `:rf.epoch/sensitive? true` (the real runtime rollup), NO unqualified
-  ;; `:sensitive?`, and NO sensitive constituent trace event. Pre-fix this
-  ;; survived `strip-sensitive` (the predicate read `:sensitive?`, which is
-  ;; absent) and shipped its metadata across the MCP boundary. Post-fix it
-  ;; default-DROPs and increments `:dropped-sensitive` under the default
-  ;; `include-sensitive false` gate.
+  ;; Regression guard: a schema-derived sensitive epoch:
+  ;; `:rf.epoch/sensitive? true` (the runtime rollup), NO unqualified
+  ;; `:sensitive?`, and NO sensitive constituent trace event. A predicate
+  ;; that read `:sensitive?` (which is absent here) would let this survive
+  ;; `strip-sensitive` and ship its metadata across the MCP boundary.
+  ;; Instead it default-DROPs and increments `:dropped-sensitive` under
+  ;; the default `include-sensitive false` gate.
   (let [epochs [{:epoch-id 1
                  :event-id :auth/sign-in
                  :rf.epoch/sensitive? true
@@ -369,14 +368,14 @@
     (is (zero? dropped))))
 
 ;; ---------------------------------------------------------------------------
-;; Integration through the :epoch-vector wire pipeline (rf2-5613h).
+;; Integration through the :epoch-vector wire pipeline.
 ;;
 ;; `run-wire-pipeline` with `:kind :epoch-vector` is the EXACT call site
 ;; `trace-window` (trace_window.cljs:138) and `watch-epochs`
 ;; (watch_epochs.cljs) route projected epoch vectors through before the
 ;; payload crosses the MCP boundary. Its first step is `strip-sensitive`,
-;; so the fixed `sensitive-epoch?` predicate governs the tool response
-;; path — these tests assert the leak cannot be bypassed by the pipeline.
+;; so the `sensitive-epoch?` predicate governs the tool response path —
+;; these tests assert the leak cannot be bypassed by the pipeline.
 ;; The pipeline reports the drop count on `:indicators :dropped` (the
 ;; `:dropped-sensitive` indicator the tools surface on the envelope).
 ;; ---------------------------------------------------------------------------

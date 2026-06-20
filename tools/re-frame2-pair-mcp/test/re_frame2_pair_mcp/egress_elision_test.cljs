@@ -1,28 +1,27 @@
 (ns re-frame2-pair-mcp.egress-elision-test
-  "Regression tests for the app-db egress-redaction fixes (rf2-6wvh5 +
-  rf2-f1ose) — same privacy class, shared fix.
+  "Regression tests for the app-db egress-redaction contract — same
+  privacy class across two pull-mode tools, one shared mechanism.
 
-  ## The bugs
+  ## What is guarded
 
-  Two pull-mode tools shipped raw slices of a live app's state off-box,
-  bypassing the redaction that snapshot / get-path / the `:epoch`
-  subscribe drain already route through:
+  Two pull-mode tools must NOT ship raw slices of a live app's state
+  off-box; they route through the same redaction that snapshot /
+  get-path / the `:epoch` subscribe drain use:
 
-    - rf2-6wvh5: `trace-window` / `watch-epochs` egress whole epoch
-      records carrying `:db-before` / `:db-after` (and `:trigger-event`
-      / `:trace-events`) app-db snapshots — a declared-sensitive slot
-      rode off-box verbatim because the pull-mode ring was never routed
-      through the framework's `re-frame.core/projected-record` egress
-      projection (the single normative off-box-egress emission site for
-      epoch records; core.cljc names the per-slot hand-walk an
-      anti-pattern \"one missed `mapv projected-record` away from a
-      leak\").
-    - rf2-f1ose: `list-subscriptions :include-values` ships each sub's
-      current `:value` (deref) raw — a value over a declared-sensitive
-      app-db slot leaked the same way. A sub-cache value is NOT an
-      epoch record, so its egress routes through the same
-      `re-frame.core/elide-wire-value` walker `snapshot`'s `:sub-cache`
-      slice uses (the two read the same reactive cache source).
+    - `trace-window` / `watch-epochs` egress whole epoch records carrying
+      `:db-before` / `:db-after` (and `:trigger-event` / `:trace-events`)
+      app-db snapshots — a declared-sensitive slot must NOT ride off-box
+      verbatim; the pull-mode ring routes through the framework's
+      `re-frame.core/projected-record` egress projection (the single
+      normative off-box-egress emission site for epoch records; core.cljc
+      names the per-slot hand-walk an anti-pattern \"one missed `mapv
+      projected-record` away from a leak\").
+    - `list-subscriptions :include-values` ships each sub's current
+      `:value` (deref) — a value over a declared-sensitive app-db slot
+      must not leak. A sub-cache value is NOT an epoch record, so its
+      egress routes through the same `re-frame.core/elide-wire-value`
+      walker `snapshot`'s `:sub-cache` slice uses (the two read the same
+      reactive cache source).
 
   ## What these tests pin
 
@@ -72,8 +71,8 @@
   {:before (fn []
              ;; The signal-runtime! cache is process-global; clear it so a
              ;; test's `configure-raw-state!` round-trip is never skipped by
-             ;; a prior test having already signalled the build (rf2-8fin7.2
-             ;; — snapshot / record / watch-until now issue signal-runtime!).
+             ;; a prior test having already signalled the build (snapshot /
+             ;; record / watch-until issue signal-runtime!).
              (raw-state/reset-runtime-signal-cache!))
    :after  (fn []
              (raw-state/set-allow-raw-state! false)
@@ -134,7 +133,7 @@
    :remaining     0})
 
 ;; ===========================================================================
-;; rf2-6wvh5 — trace-window epoch :db-* egress
+;; trace-window epoch :db-* egress
 ;; ===========================================================================
 
 (deftest trace-window-gate-off-projects-records
@@ -157,11 +156,11 @@
 
 (deftest trace-window-gate-on-include-sensitive-routes-through-projection
   (testing "gate ON + include-sensitive true: STILL projected, threading :include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
-    ;; rf2-m9duxl — `:include-sensitive true` is NOT a raw bypass. It routes
-    ;; THROUGH `projected-record` as the `:include-sensitive? true` egress opt
+    ;; `:include-sensitive true` is NOT a raw bypass. It routes THROUGH
+    ;; `projected-record` as the `:include-sensitive? true` egress opt
     ;; (app-db sensitive axis only), composed OVER the off-box-tool profile
-    ;; floor (rf2-nmjcll). fx-args / runtime-db / large slots / `:redact-fn`
-    ;; stay fail-closed because we do NOT pass their opts.
+    ;; floor. fx-args / runtime-db / large slots / `:redact-fn` stay
+    ;; fail-closed because we do NOT pass their opts.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -200,7 +199,7 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; rf2-6wvh5 — watch-epochs epoch record egress
+;; watch-epochs epoch record egress
 ;; ===========================================================================
 
 (deftest watch-epochs-gate-off-projects-records
@@ -243,21 +242,19 @@
 
 (deftest watch-epochs-gate-on-default-still-projects
   (testing "gate ON but include-sensitive omitted (default false): records STILL projected"
-    ;; rf2-ywn27.2 — the two-key opt-in fail-safe, the watch-epochs SIBLING
-    ;; of `trace-window-gate-on-default-still-projects` /
+    ;; The two-key opt-in fail-safe, the watch-epochs SIBLING of
+    ;; `trace-window-gate-on-default-still-projects` /
     ;; `snapshot-epochs-gate-on-default-still-projects`. The opt-in is
-    ;; TWO-KEY (epoch_egress.cljs:35-50): the launch flag
-    ;; --allow-sensitive-reads ALONE does NOT flip the per-call default.
-    ;; watch_epochs.cljs:61-63 computes `incl? (if (raw-state-allowed?)
-    ;; (parse-bool-arg ... :include-sensitive) false)` — gate-ON + omitted
-    ;; arg ⇒ parse-bool-arg false ⇒ incl? false ⇒ project? true. A
-    ;; regression that flipped the per-call default to true under the gate
-    ;; (e.g. `incl? (raw-state-allowed?)`, the plausible "the flag IS the
-    ;; opt-in" misreading) would leak raw epoch state on EVERY poll once an
-    ;; operator launched with the flag for ONE deliberate read. Pre-this
-    ;; the watch-epochs gate-ON coverage only asserted the
-    ;; include-sensitive:true case, so the flip shipped GREEN here while
-    ;; trace-window's identical regression WOULD be caught — asymmetric.
+    ;; TWO-KEY (epoch_egress.cljs): the launch flag --allow-sensitive-reads
+    ;; ALONE does NOT flip the per-call default. watch_epochs.cljs computes
+    ;; `incl? (if (raw-state-allowed?) (parse-bool-arg ... :include-sensitive)
+    ;; false)` — gate-ON + omitted arg ⇒ parse-bool-arg false ⇒ incl? false
+    ;; ⇒ project? true. A regression that flipped the per-call default to
+    ;; true under the gate (e.g. `incl? (raw-state-allowed?)`, the plausible
+    ;; "the flag IS the opt-in" misreading) would leak raw epoch state on
+    ;; EVERY poll once an operator launched with the flag for ONE deliberate
+    ;; read. This guards the watch-epochs gate-ON omitted-arg case
+    ;; symmetrically with trace-window.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -272,7 +269,7 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; rf2-f1ose — list-subscriptions :include-values sub :value egress
+;; list-subscriptions :include-values sub :value egress
 ;; ===========================================================================
 
 (def ^:private sub-cache-canned
@@ -328,13 +325,12 @@
                        (done)))))))))
 
 (deftest list-subscriptions-gate-on-elision-false-still-redacts-sensitive
-  ;; rf2-t55hxg.13 — fail-CLOSED. Pre-fix this asserted that gate-ON +
-  ;; `:elision false` bypassed the walker entirely (raw value egress),
-  ;; which let a caller pull declared-sensitive sub values off-box WITHOUT
-  ;; the per-call `:include-sensitive true` opt-in — collapsing EP-0015's
-  ;; two-key sensitive gate. The contract is now: a BARE `:elision false`
-  ;; (no sensitive opt-in) STILL walks — large content passes
-  ;; (`include-large? true`) but a declared-sensitive value redacts.
+  ;; Fail-CLOSED. A BARE `:elision false` (no sensitive opt-in) STILL
+  ;; walks — large content passes (`include-large? true`) but a
+  ;; declared-sensitive value redacts. `:elision false` must NOT bypass
+  ;; the walker entirely, which would let a caller pull declared-sensitive
+  ;; sub values off-box WITHOUT the per-call `:include-sensitive true`
+  ;; opt-in — collapsing EP-0015's two-key sensitive gate.
   (testing "gate ON + include-values + elision false (no sensitive opt-in): STILL walks, sensitive redacts"
     (async done
       (raw-state/set-allow-raw-state! true)
@@ -353,9 +349,9 @@
                        (done)))))))))
 
 (deftest list-subscriptions-gate-on-full-raw-opt-in-ships-bare
-  ;; rf2-t55hxg.13 — the ONLY combination that skips the walker is the
-  ;; deliberate full-raw local opt-in: `:elision false` AND
-  ;; `:include-sensitive true` (the operator's `:rf.egress/local-raw` act).
+  ;; The ONLY combination that skips the walker is the deliberate
+  ;; full-raw local opt-in: `:elision false` AND `:include-sensitive true`
+  ;; (the operator's `:rf.egress/local-raw` act).
   (testing "gate ON + include-values + elision false + include-sensitive true: full-raw opt-in skips the walker"
     (async done
       (raw-state/set-allow-raw-state! true)
@@ -406,16 +402,16 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; rf2-8fin7.1 — snapshot :epochs slice raw :db-* egress
+;; snapshot :epochs slice raw :db-* egress
 ;; ===========================================================================
 ;;
-;; The snapshot eval form elided ONLY :app-db / :sub-cache; the :epochs
-;; slice rode raw. The client scrub merely DROPS whole sensitive epochs, so
-;; a schema-declared-sensitive SLOT inside a NON-sensitive epoch's
-;; :db-before / :db-after leaked off-box in :full mode under the gate-OFF
-;; default. The fix routes the :epochs slice through projected-record (the
-;; same projection trace-window / watch-epochs use), gated by the
-;; include-sensitive two-key opt-in — parity with rf2-6wvh5.
+;; The snapshot eval form must redact the :epochs slice too, not just
+;; :app-db / :sub-cache. The client scrub merely DROPS whole sensitive
+;; epochs, so a schema-declared-sensitive SLOT inside a NON-sensitive
+;; epoch's :db-before / :db-after would leak off-box in :full mode under
+;; the gate-OFF default. The :epochs slice routes through
+;; projected-record (the same projection trace-window / watch-epochs
+;; use), gated by the include-sensitive two-key opt-in.
 
 ;; The snapshot eval form returns {:value <snap> :elided-count N
 ;; :tool-frames-excluded []}. The slice content is irrelevant to the
@@ -497,11 +493,11 @@
     ;; the large-elision toggle (elision?). Turning elision off must not
     ;; re-open the epoch leak.
     ;;
-    ;; rf2-t55hxg.13 — and a BARE `:elision false` (no sensitive opt-in)
-    ;; must ALSO keep walking the `:app-db` / `:sub-cache` slices
-    ;; (fail-closed): large content passes but a declared-sensitive slot
-    ;; redacts. Pre-fix `:elision false` suppressed the per-slot walker,
-    ;; leaking sensitive `:app-db` / `:sub-cache` slots off-box.
+    ;; And a BARE `:elision false` (no sensitive opt-in) must ALSO keep
+    ;; walking the `:app-db` / `:sub-cache` slices (fail-closed): large
+    ;; content passes but a declared-sensitive slot redacts. `:elision
+    ;; false` must NOT suppress the per-slot walker, which would leak
+    ;; sensitive `:app-db` / `:sub-cache` slots off-box.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -526,8 +522,8 @@
 
 (deftest snapshot-full-raw-opt-in-skips-slice-walker
   (testing "gate ON + elision false + include-sensitive true: full-raw opt-in skips the :app-db/:sub-cache walker"
-    ;; rf2-t55hxg.13 — the ONLY combination that skips the per-slot walker
-    ;; is the deliberate full-raw local opt-in.
+    ;; The ONLY combination that skips the per-slot walker is the
+    ;; deliberate full-raw local opt-in.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -544,18 +540,17 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; rf2-8fin7.2 — record / watch-until raw :app-db & :sub signal egress
+;; record / watch-until raw :app-db & :sub signal egress
 ;; ===========================================================================
 ;;
 ;; record (read back via read-recording) and watch-until sample {:app-db
 ;; [path]} / {:sub [query-v]} signals and ship the SAMPLED VALUES back to
-;; the model. Before the fix neither routed the value through
-;; elide-wire-value / a raw-state gate, so a declared-sensitive slot leaked
-;; off-box under the gate-OFF default. The fix threads an elision-opts map
-;; (gate + per-call posture) into the runtime sampler via :elide-opts
-;; (record) / the 3rd sample-signals arg (watch-until), and issues
-;; signal-runtime! before sampling — parity with get-path / read-sub /
-;; snapshot.
+;; the model. Each routes the value through elide-wire-value behind a
+;; raw-state gate, so a declared-sensitive slot redacts off-box under the
+;; gate-OFF default. They thread an elision-opts map (gate + per-call
+;; posture) into the runtime sampler via :elide-opts (record) / the 3rd
+;; sample-signals arg (watch-until), and issue signal-runtime! before
+;; sampling — parity with get-path / read-sub / snapshot.
 
 (def ^:private record-canned
   {:ok? true :recording-id "rec-x" :signals [{:app-db [:auth :token]}]
@@ -628,7 +623,7 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; rf2-nmjcll — epoch egress names the :rf.egress/off-box-tool profile
+;; epoch egress names the :rf.egress/off-box-tool profile
 ;; ===========================================================================
 ;;
 ;; Pair-MCP is an OFF-BOX TOOL WIRE (epoch records cross to an external
@@ -636,10 +631,10 @@
 ;; epoch egress MUST name `:rf.egress/off-box-tool`, NOT lean on
 ;; `projected-record`'s `:rf.egress/off-box-observability` default (same
 ;; redact/elide floor, but OMITS the structural `:rf.size/include-digests?`
-;; indicators a tool needs to reason about an elided slot's shape). The fix
-;; lives in `egress-opts-edn`, so every epoch egress caller that threads
-;; through it (trace-window / watch-epochs / snapshot :epochs / dispatch
-;; :trace / :settle / subscribe epoch-topic drain) inherits the profile.
+;; indicators a tool needs to reason about an elided slot's shape). The
+;; profile lives in `egress-opts-edn`, so every epoch egress caller that
+;; threads through it (trace-window / watch-epochs / snapshot :epochs /
+;; dispatch :trace / :settle / subscribe epoch-topic drain) inherits it.
 ;;
 ;; These unit tests pin the helper directly — they PARSE the emitted EDN
 ;; (not just substring it) so the assertion is the actual data shape, and

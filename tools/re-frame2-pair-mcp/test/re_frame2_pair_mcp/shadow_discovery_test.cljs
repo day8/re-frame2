@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.shadow-discovery-test
-  "Unit tests for the shadow-cljs HTTP probe (rf2-umoz2).
+  "Unit tests for the shadow-cljs HTTP probe.
 
   Two surfaces under test:
 

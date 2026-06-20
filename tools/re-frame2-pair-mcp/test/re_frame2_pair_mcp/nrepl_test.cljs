@@ -1,10 +1,9 @@
 (ns re-frame2-pair-mcp.nrepl-test
   "Unit tests for the bencode framing helpers in nrepl.cljs.
 
-  The hard bug we fixed during the pilot — bencode@2 storing the
-  post-decode cursor on `bencode.decode.position` rather than the
-  module-level export — is the kind of regression that's easy to
-  reintroduce, so the multi-frame walker gets a thorough test.
+  bencode@2 stores the post-decode cursor on `bencode.decode.position`
+  rather than a module-level export — an easy detail to get wrong, so the
+  multi-frame walker gets a thorough test.
 
   Tests pin `decode-all-frames` directly from
   `re-frame2-pair-mcp.nrepl` — the source ns is the contract."
@@ -32,8 +31,9 @@
     (is (zero? (.-length rst)))))
 
 (deftest two-concatenated-frames-decode
-  ;; This is the case the bash-shim chain never had to handle (each
-  ;; call opened a fresh socket), and the one that bit us in the pilot.
+  ;; The persistent-socket case: two complete frames arrive in a single
+  ;; chunk and both must decode. (A fresh-socket-per-call design would
+  ;; never see this shape.)
   (let [buf      (js/Buffer.from "d3:foo3:bared3:baz3:quxe" "utf8")
         [fs rst] (decode-all buf)]
     (is (= 2 (count fs)))
@@ -63,8 +63,8 @@
     (is (zero? (.-length rst)))))
 
 (deftest incomplete-frame-retained-as-trailer
-  ;; rf2-ynjts.19 — the partial-frame branch directly on the public
-  ;; seam. A truncated bencode frame can't decode; `decode-all-frames`
+  ;; The partial-frame branch directly on the public seam. A truncated
+  ;; bencode frame can't decode; `decode-all-frames`
   ;; MUST return zero frames and hand the partial bytes back as the
   ;; trailer so the next TCP chunk can complete them. This is the
   ;; contract `attach-handlers!` relies on for its partial-frame
@@ -98,14 +98,14 @@
     (is (zero? (.-length rst)))))
 
 ;; ===========================================================================
-;; Port discovery — `read-port-from-fs` (rf2-wnrpi, finding G2).
+;; Port discovery — `read-port-from-fs`.
 ;;
 ;; The fn has a four-way precedence: the `SHADOW_CLJS_NREPL_PORT` env var
 ;; wins; failing that, three port-file candidates are tried in order; a
 ;; non-numeric value at any source is rejected via the `isNaN` guard; an
-;; all-miss returns nil. None of this was pinned — only `decode-all-frames`
-;; was. We stub `fs.readFileSync` + `process.env.SHADOW_CLJS_NREPL_PORT`
-;; to exercise every branch without touching the real filesystem.
+;; all-miss returns nil. We stub `fs.readFileSync` +
+;; `process.env.SHADOW_CLJS_NREPL_PORT` to exercise every branch without
+;; touching the real filesystem.
 ;; ===========================================================================
 
 (def ^:private env-key "SHADOW_CLJS_NREPL_PORT")
@@ -122,7 +122,7 @@
   value of `body`.
 
   Sync-only: the `finally` block restores the stub immediately after
-  `body` returns. The new async cascade tests use [[with-async-fs-stub!]]
+  `body` returns. The async cascade tests use [[with-async-fs-stub!]]
   which keeps the stub alive across Promise microtasks."
   [env-val stub-fn body]
   (let [orig-read (.-readFileSync fs)
@@ -146,9 +146,9 @@
 
   Always pair `install-fs-stub!` with its restoration call inside the
   final `.then` (BEFORE `(done)`) so the next test in the queue starts
-  with a pristine fs.readFileSync (rf2-umoz2). The local convention
-  here: bind the thunk in a `let`, do assertions in `.then`, call the
-  thunk, then call done."
+  with a pristine fs.readFileSync. The local convention here: bind the
+  thunk in a `let`, do assertions in `.then`, call the thunk, then call
+  done."
   [env-val stub-fn]
   (let [orig-read (.-readFileSync fs)
         orig-env  (j/get-in js/process [:env env-key])]
@@ -228,9 +228,9 @@
         (is (nil? (nrepl/read-port-from-fs)))))))
 
 ;; ---------------------------------------------------------------------------
-;; --port-file explicit override (rf2-3dbwh). The 1-arity `read-port-from-fs`
-;; takes an explicit, cwd-independent path that wins over BOTH the env var and
-;; the relative file-scan candidates. nil/blank ⇒ falls through to the normal
+;; --port-file explicit override. The 1-arity `read-port-from-fs` takes an
+;; explicit, cwd-independent path that wins over BOTH the env var and the
+;; relative file-scan candidates. nil/blank ⇒ falls through to the normal
 ;; precedence chain.
 ;; ---------------------------------------------------------------------------
 
@@ -283,15 +283,14 @@
             "0-arity stays equivalent")))))
 
 ;; ===========================================================================
-;; Transport data-handler — `attach-handlers!` (rf2-wnrpi, finding G3).
+;; Transport data-handler — `attach-handlers!`.
 ;;
 ;; The persistent-socket `data` handler folds each chunk into the conn's
-;; `:buf` and splits off complete frames in a SINGLE swap! (the framing-
-;; race fix), then dispatches every complete frame to its pending-id
-;; handler. That logic carried heavy rationale comments but no automated
-;; regression in the default gate (only the opt-in live-nrepl.js). It is
-;; pure buffer logic over a fed chunk — unit-testable with a fake socket
-;; that records its event callbacks rather than a real TCP connection.
+;; `:buf` and splits off complete frames in a SINGLE swap! (so framing is
+;; race-free), then dispatches every complete frame to its pending-id
+;; handler. It is pure buffer logic over a fed chunk — unit-testable with a
+;; fake socket that records its event callbacks rather than a real TCP
+;; connection.
 ;; ===========================================================================
 
 (defn- fake-socket
@@ -395,7 +394,7 @@
       (is (true? (:closed? @conn))))))
 
 ;; ===========================================================================
-;; `close!` — reconnect / probe-cache reset (rf2-wnrpi, finding G3).
+;; `close!` — reconnect / probe-cache reset.
 ;; ===========================================================================
 
 (deftest close!-resets-probe-cache-and-pending
@@ -414,14 +413,15 @@
           "probe cache cleared — a fresh connect must re-probe the preload"))))
 
 ;; ===========================================================================
-;; `send-op!` connect→write race nil-guard (rf2-av5kl).
+;; `send-op!` connect→write race nil-guard.
 ;;
 ;; `connect!`'s fast path resolves immediately when a live socket is present,
 ;; but the socket close/error handlers can fire in the window between that
-;; resolve and the actual `.write`. If `:socket` got nilled by `close!` in
-;; that window, a bare `(.write nil ...)` would throw an opaque native
-;; "Cannot read .write of null" AND strand the just-registered id in
-;; `:pending`. We simulate the race by nilling `:socket` synchronously after
+;; resolve and the actual `.write`. If `:socket` is nilled by `close!` in
+;; that window, the guard rejects with a structured retry-to-reconnect
+;; message rather than a bare `(.write nil ...)` (which would throw an opaque
+;; native "Cannot read .write of null" AND strand the just-registered id in
+;; `:pending`). We simulate the race by nilling `:socket` synchronously after
 ;; the send-op! call but before the `.then` microtask runs.
 ;; ===========================================================================
 
@@ -471,14 +471,13 @@
             (done)))))))
 
 ;; ===========================================================================
-;; `discover-port*` async cascade (rf2-umoz2 + rf2-3grub).
+;; `discover-port*` async cascade.
 ;;
 ;; The five-step cascade — explicit > env > MCP roots/list > shadow HTTP probe
-;; > cwd scan — promotes the cwd-bound file scan from highest-priority-after-
-;; env to a last-resort fallback. Steps 3 and 4 are async I/O; the others are
-;; sync.
+;; > cwd scan — runs the cwd-bound file scan as a last-resort fallback. Steps
+;; 3 and 4 are async I/O; the others are sync.
 ;;
-;; The cascade now returns a discovery-result map
+;; The cascade returns a discovery-result map
 ;; `{:port :project-home :ambiguous :workspace-roots ...}` so callers can
 ;; drive elicitation when roots/list returns 2+ candidates. Tests pass
 ;; stubs for the probe and roots fns to exercise each cascade branch
@@ -529,9 +528,9 @@
             (.then (fn [r]
                      (is (= 9001 (:port r))
                          "explicit --port-file wins the cascade")
-                     ;; rf2-ww877w — the explicit branch returns the EXACT
-                     ;; path the caller named, so the server caches it
-                     ;; verbatim (no derived `.shadow-cljs/nrepl.port`).
+                     ;; The explicit branch returns the EXACT path the caller
+                     ;; named, so the server caches it verbatim (no derived
+                     ;; `.shadow-cljs/nrepl.port`).
                      (is (= "explicit/nrepl.port" (:port-file r))
                          "explicit --port-file returns the exact path it read")
                      (is (false? @probed?)
@@ -542,11 +541,11 @@
                      (done))))))))
 
 (deftest discover-port-explicit-port-file-unreadable-falls-through-to-env
-  ;; rf2-olvr5 finding 4 — a stale / typo'd explicit --port-file must NOT
-  ;; short-circuit the cascade to `{:port nil}`. When the explicit file is
-  ;; unreadable (ENOENT) the cascade falls through to step 2 ($SHADOW_CLJS_
-  ;; NREPL_PORT) — mirroring `read-port-from-fs`'s leading `or`. Pre-fix
-  ;; this resolved `{:port nil}` and stranded a live env-provided port.
+  ;; A stale / typo'd explicit --port-file must NOT short-circuit the
+  ;; cascade to `{:port nil}`. When the explicit file is unreadable (ENOENT)
+  ;; the cascade falls through to step 2 ($SHADOW_CLJS_NREPL_PORT) —
+  ;; mirroring `read-port-from-fs`'s leading `or` — so a live env-provided
+  ;; port is honoured rather than stranded.
   (testing "explicit --port-file unreadable → fall through to env var"
     (async done
       (let [restore! (install-fs-stub! "7788" throwing-read)]
@@ -557,9 +556,9 @@
             (.finally (fn [] (restore!) (done))))))))
 
 (deftest discover-port-explicit-port-file-unreadable-falls-through-to-roots
-  ;; rf2-olvr5 finding 4 — with no env var, the unreadable explicit file
-  ;; falls all the way through to the MCP roots/list step (step 3). The
-  ;; explicit-but-stale path is fully transparent to the rest of the cascade.
+  ;; With no env var, the unreadable explicit file falls all the way
+  ;; through to the MCP roots/list step (step 3). The explicit-but-stale
+  ;; path is fully transparent to the rest of the cascade.
   (testing "explicit --port-file unreadable + no env → fall through to roots discovery"
     (async done
       (let [restore! (install-fs-stub! nil throwing-read)]
@@ -639,10 +638,10 @@
                          "step 4 caught the port after step 3 was unsupported")
                      (is (= "/abs/proj/root" (:project-home r))
                          "project-home flows through from shadow probe step")
-                     ;; rf2-ww877w — the HTTP-probe result surfaces the
-                     ;; WINNING candidate file (here target/shadow-cljs/
-                     ;; nrepl.port resolved against the shadow root) so the
-                     ;; server caches the exact path that read.
+                     ;; The HTTP-probe result surfaces the WINNING candidate
+                     ;; file (here target/shadow-cljs/nrepl.port resolved
+                     ;; against the shadow root) so the server caches the
+                     ;; exact path that read.
                      (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
                                   (str (:port-file r)))
                          "winning candidate file (target/shadow-cljs/nrepl.port) is surfaced")
@@ -666,7 +665,7 @@
             (.then (fn [r]
                      (is (= 5550 (:port r))
                          "first candidate (target/shadow-cljs/nrepl.port) wins")
-                     ;; rf2-ww877w — the winning candidate's path is surfaced
+                     ;; The winning candidate's path is surfaced
                      ;; (target/shadow-cljs/nrepl.port, the first candidate).
                      (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
                                   (str (:port-file r)))
@@ -674,12 +673,12 @@
                      (restore!)
                      (done))))))))
 
-;; rf2-ww877w — exhaustive port-file surfacing for the HTTP-probe path. For
-;; EACH candidate order (only the .shadow-cljs file present, only the
-;; .nrepl-port present), the SURFACED :port-file must be the candidate that
-;; actually read — NOT a fixed derivation. This is the drift the bead kills:
-;; the server caches whatever discovery resolved, so the per-tool-call
-;; re-read checks the right file and doesn't false-positive "file vanished".
+;; Exhaustive port-file surfacing for the HTTP-probe path. For EACH
+;; candidate order (only the .shadow-cljs file present, only the .nrepl-port
+;; present), the SURFACED :port-file must be the candidate that actually
+;; read — NOT a fixed derivation. The server caches whatever discovery
+;; resolved, so the per-tool-call re-read checks the right file and doesn't
+;; false-positive "file vanished".
 (deftest discover-port-shadow-probe-surfaces-each-candidate-file
   (testing ".shadow-cljs/nrepl.port wins → that exact file is surfaced"
     (async done
@@ -721,8 +720,8 @@
                      (restore!)
                      (done))))))))
 
-;; rf2-ww877w — the roots/list single-candidate path threads the candidate's
-;; own :port-file through (the `.shadow-cljs/nrepl.port` adjacent to the
+;; The roots/list single-candidate path threads the candidate's own
+;; :port-file through (the `.shadow-cljs/nrepl.port` adjacent to the
 ;; discovered shadow-cljs.edn), so the server caches the discovered file.
 (deftest discover-port-roots-single-candidate-surfaces-port-file
   (testing "step 3 single candidate → its :port-file flows through"
@@ -736,9 +735,9 @@
                      (restore!)
                      (done))))))))
 
-;; rf2-ww877w — the cwd-scan last resort (step 5) supplies NO :port-file:
-;; there is no project-home anchor for a stable absolute path, so the server
-;; must fall back to its derivation (or skip the per-call re-read).
+;; The cwd-scan last resort (step 5) supplies NO :port-file: there is no
+;; project-home anchor for a stable absolute path, so the server must fall
+;; back to its derivation (or skip the per-call re-read).
 (deftest discover-port-cwd-scan-surfaces-no-port-file
   (testing "step 5 (cwd scan) → :port-file is nil (no project-home anchor)"
     (async done
@@ -842,20 +841,18 @@
                      (done))))))))
 
 ;; ===========================================================================
-;; `connect!` reopen preserves the session build-id caches (rf2-c3dsr).
+;; `connect!` reopen preserves the session build-id caches.
 ;;
-;; THE BUG: `connect!` used to blank `:probed-builds` / `:resolved-build-id`
-;; / `:build-alias` every time it OPENED the socket (whenever `:closed?`
-;; was true). `send-op!` calls `connect!` on every nREPL op, and the
-;; close/error handlers flip `:closed? true` on a TRANSIENT socket hiccup
-;; without changing the target build — so the next op's `connect!` reopened
-;; the SAME port AND wiped a valid same-session sticky build. The next
-;; no-`:build` call then fell back to `:app` (the live orient-{} symptom).
+;; `connect!` is transport-only: it preserves `:probed-builds` /
+;; `:resolved-build-id` / `:build-alias` across a same-port reopen.
+;; `send-op!` calls `connect!` on every nREPL op, and the close/error
+;; handlers flip `:closed? true` on a TRANSIENT socket hiccup without
+;; changing the target build — so the next op's `connect!` reopens the SAME
+;; port and must keep the valid same-session sticky build (otherwise a
+;; no-`:build` call falls back to `:app`).
 ;;
-;; THE FIX (option a): `connect!` is transport-only — it preserves the
-;; caches across a same-port reopen. The genuine "operator restarted shadow
-;; against a DIFFERENT build" reset (rf2-l9ixp) is preserved at the layers
-;; that observe the build identity changing:
+;; The genuine "operator restarted shadow against a DIFFERENT build" reset
+;; is enforced at the layers that observe the build identity changing:
 ;;   - `close!` (operator-initiated teardown) clears all three; and
 ;;   - `server.cljs/ensure-connection!` builds a FRESH conn (empty caches)
 ;;     on a shadow port change/vanish — which is how a different build
@@ -902,10 +899,11 @@
     p))
 
 (deftest connect!-reopen-preserves-resolved-build-id-after-hiccup
-  ;; rf2-c3dsr core regression: a transient socket close+reopen of the
-  ;; SAME port mid-session PRESERVES the sticky `:resolved-build-id` (and
-  ;; the sibling `:probed-builds` / `:build-alias` caches). The bug wiped
-  ;; them, so a follow-up no-`:build` op fell back to `:app`.
+  ;; Core regression guard: a transient socket close+reopen of the SAME
+  ;; port mid-session PRESERVES the sticky `:resolved-build-id` (and the
+  ;; sibling `:probed-builds` / `:build-alias` caches), so a follow-up
+  ;; no-`:build` op keeps targeting the right build rather than falling
+  ;; back to `:app`.
   (async done
     (let [cbs*     (atom {})
           restore! (with-stubbed-create-connection! cbs*)
@@ -982,11 +980,10 @@
                    (done)))))))
 
 ;; ===========================================================================
-;; The l9ixp different-build reset is PRESERVED (rf2-c3dsr).
+;; The different-build reset is enforced.
 ;;
-;; The fix preserves the cache across a transient hiccup but must NOT
-;; regress the rf2-l9ixp guarantee that a genuine different-build reconnect
-;; clears the stale cache. That guarantee now lives in two places:
+;; The cache survives a transient hiccup, but a genuine different-build
+;; reconnect must clear the stale cache. That guarantee lives in two places:
 ;;
 ;;   1. `close!` (operator-initiated teardown) clears all three caches —
 ;;      so a reopen after an explicit close starts clean.
@@ -1000,7 +997,7 @@
 (deftest different-build-reconnect-after-close-resets-caches
   ;; The operator-teardown path: `close!` clears the caches, so a SUBSEQUENT
   ;; reopen of the (possibly same) socket starts with no stale build —
-  ;; exactly the rf2-l9ixp "restarted shadow against a different build" guard.
+  ;; the "restarted shadow against a different build" guard.
   (async done
     (let [cbs*     (atom {})
           restore! (with-stubbed-create-connection! cbs*)
@@ -1033,7 +1030,8 @@
   ;; `ensure-connection!` discards the old conn and builds a fresh one for
   ;; the new ephemeral port. A fresh conn has empty build-id caches by
   ;; construction — so the new build is re-discovered, never inheriting the
-  ;; old build's sticky id (l9ixp preserved without relying on connect!).
+  ;; old build's sticky id (the different-build reset holds without relying
+  ;; on connect!).
   (let [old-conn (nrepl/make-conn 6001 "127.0.0.1")]
     (swap! old-conn assoc
            :resolved-build-id :examples/old-build

@@ -1,14 +1,14 @@
 (ns re-frame2-pair-mcp.path-slicing-test
-  "Unit tests for the path-slicing surfaces added under rf2-tygdv.
+  "Unit tests for the path-slicing surfaces.
 
   Two MCP surfaces share the same path vocabulary:
 
-    - The `snapshot` tool gained a `:path` arg that slices the
+    - The `snapshot` tool carries a `:path` arg that slices the
       `:app-db` slice. Without `:path`, the `:app-db` slice is
       replaced by a `{:rf.mcp/summary ...}` marker (default mode
       `:summary`) so the response stays under the wire cap.
-    - The new `get-path` tool returns the value at a single path —
-      a minimal primitive for targeted reads.
+    - The `get-path` tool returns the value at a single path — a
+      minimal primitive for targeted reads.
 
   Tests pin the public helpers directly from their owning namespaces:
   `tools.args/parse-path-arg`, `tools.summary/tree-summary`,
@@ -78,13 +78,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest tree-summary-map-records-top-level-keys-and-bytes-approx
-  ;; rf2-qta8j: `:bytes` is a cheap approximation, not a precise count.
-  ;; Earlier shape paid `(count (pr-str v))` per branch — a deep walk
-  ;; that contradicted the marker's "no-deep-walk" contract (54MB
-  ;; app-db slice burned a 54MB string allocation per summary). The
-  ;; field is now `count × per-entry constant`. Pin the contract: the
-  ;; estimate scales linearly with entry count, is non-negative, and
-  ;; is order-of-magnitude reasonable for tiny maps.
+  ;; `:bytes` is a cheap approximation, not a precise count. It is
+  ;; `count × per-entry constant`, never `(count (pr-str v))` — a
+  ;; deep walk would contradict the marker's "no-deep-walk" contract
+  ;; (a 54MB app-db slice would burn a 54MB string allocation per
+  ;; summary). Pin the contract: the estimate scales linearly with
+  ;; entry count, is non-negative, and is order-of-magnitude
+  ;; reasonable for tiny maps.
   (let [v {:a 1 :b 2 :nested {:deep {:value 42}}}
         s (summary/tree-summary v)
         marker (:rf.mcp/summary s)]
@@ -112,11 +112,10 @@
         "10-entry map's bytes estimate should be 10x a 1-entry map's")))
 
 (deftest tree-summary-bytes-is-cheap-on-large-values
-  ;; rf2-qta8j: the load-bearing property. Computing `:bytes` on a
-  ;; 50K-entry map MUST be effectively instant — the marker exists
-  ;; precisely to avoid serialising the deep value. Earlier shape
-  ;; paid `(count (pr-str v))` which would have burned ~megabytes
-  ;; of string allocation here.
+  ;; The load-bearing property. Computing `:bytes` on a 50K-entry map
+  ;; MUST be effectively instant — the marker exists precisely to avoid
+  ;; serialising the deep value. A `(count (pr-str v))` approach would
+  ;; burn ~megabytes of string allocation here.
   ;;
   ;; We don't time the call (test environments vary too much) but we
   ;; pin the structural property: the result is the entry count
@@ -157,10 +156,10 @@
         "Marker for a 5k-entry map MUST still fit the wire cap")))
 
 (deftest tree-summary-scalar-returns-value-unchanged
-  ;; rf2-ambfv: scalars already fit the wire cap by definition, so
-  ;; wrapping them in a summary marker would add tokens without saving
-  ;; any. The fn returns the scalar unchanged — no `:rf.mcp/summary`
-  ;; wrapper, no `:type :scalar` marker.
+  ;; Scalars already fit the wire cap by definition, so wrapping them in
+  ;; a summary marker would add tokens without saving any. The fn returns
+  ;; the scalar unchanged — no `:rf.mcp/summary` wrapper, no
+  ;; `:type :scalar` marker.
   (is (= 42 (summary/tree-summary 42)))
   (is (= "hello" (summary/tree-summary "hello")))
   (is (= :a-keyword (summary/tree-summary :a-keyword)))
@@ -302,11 +301,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest summary-mode-bounds-the-5mb-scenario
-  ;; rf2-jlq5j: a 5MB app-db pr-strs to ~5.6M chars ⇒ ~1.4M tokens,
-  ;; 290× the 5,000-token cap. With path slicing's :summary default,
-  ;; the same call replaces the slice with a small marker — fits the
-  ;; cap by construction. The wire-cap remains the backstop for the
-  ;; remaining slices, but :app-db alone no longer blows the budget.
+  ;; A 5MB app-db pr-strs to ~5.6M chars ⇒ ~1.4M tokens, 290× the
+  ;; 5,000-token cap. With path slicing's :summary default, the call
+  ;; replaces the slice with a small marker — fits the cap by
+  ;; construction. The wire-cap remains the backstop for the remaining
+  ;; slices, but :app-db alone never blows the budget.
   (let [big-app-db (apply hash-map
                           (mapcat (fn [i] [(keyword (str "k" i))
                                            (apply str (repeat 1024 "x"))])

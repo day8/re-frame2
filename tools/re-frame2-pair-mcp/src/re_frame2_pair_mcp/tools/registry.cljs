@@ -1,19 +1,19 @@
 (ns re-frame2-pair-mcp.tools.registry
-  "Single source of truth for the re-frame2-pair-mcp tool catalogue (rf2-47g8l).
+  "Single source of truth for the re-frame2-pair-mcp tool catalogue.
 
   ## Why one registry
 
-  Before this ns landed, three places enumerated the tool list with no
-  compile-time validation they agreed:
+  This ns is the ONE place the tool list is enumerated, so three
+  downstream views can never drift apart:
 
   - `tool-descriptors` in `descriptors.cljs` — the `tools/list` surface.
   - `dispatch-tool*` in `tools.cljs` — the `tools/call` dispatcher.
   - `cacheable-tools` in `cache.cljs` — the per-tool cache opt-in.
 
-  A new tool added to the dispatcher without a descriptor silently
-  vanished from `tools/list`; a tool added to the descriptor without a
-  `cacheable-tools` entry silently no-op'd the `:cache` knob. The drift
-  was always *possible* and only caught (at best) by hand-review.
+  Generating all three from one source makes the drift class structurally
+  impossible: a tool can't reach the dispatcher without a descriptor (and
+  vanish from `tools/list`), nor carry a descriptor without a cache
+  decision (and silently no-op the `:cache` knob).
 
   ## What's here
 
@@ -54,8 +54,8 @@
 
   Land *one* map entry in the `tools` vector below — name, handler,
   cacheable flag, descriptor. The three downstream views update
-  automatically; drift is structurally impossible. Per-tool ns provides
-  the handler implementation as before.
+  automatically; drift is structurally impossible. The per-tool ns
+  provides the handler implementation.
 
   ## Layout
 
@@ -98,7 +98,7 @@
 ;;
 ;; Handlers in the registry are LATE-BINDING — they call the per-tool fn
 ;; on each invocation rather than capturing a direct reference at load
-;; time. The `invoke-test` suite (rf2-nogok) stubs per-tool fns by
+;; time. The `invoke-test` suite stubs per-tool fns by
 ;; `set!`-ing their vars and expects subsequent dispatches to hit the
 ;; replacement. A captured reference would freeze the original and
 ;; break the seam. `ignoring-extra` takes a NAMESPACE-QUALIFIED var
@@ -114,7 +114,7 @@
 
   Callers wrap the per-tool fn in a `#(per-tool-fn %1 %2)` literal
   so the namespaced-symbol lookup happens per-call. That preserves
-  the test seam (rf2-nogok): `(set! snapshot/snapshot-tool ...)`
+  the test seam: `(set! snapshot/snapshot-tool ...)`
   updates the namespace's JS slot and the next dispatch finds the
   replacement."
   [f]
@@ -139,14 +139,14 @@
   inline `(fn [conn args extra] ...)` for `subscribe` (which
   uses `extra` for its progress-callback plumbing). Both shapes
   resolve the underlying fn per-call so test seams that `set!` the
-  var (rf2-nogok) take effect on the next dispatch."
+  var take effect on the next dispatch."
   [{:name       "discover-app"
     :handler    (ignoring-extra #(discover-app/discover-app %1 %2))
     :cacheable? true
     :descriptor data/discover-app}
    {:name       "orient"
     :handler    (ignoring-extra #(orient/orient-tool %1 %2))
-    ;; App-shape orientation summary (rf2-3bu3d.8) — registrar counts/ids +
+    ;; App-shape orientation summary — registrar counts/ids +
     ;; per-app-frame app-db top-keys + machines, composed from the existing
     ;; introspection surfaces. A pure function of the frame registry + app-db
     ;; state, idempotent across same-state calls — cacheable like the other
@@ -195,12 +195,12 @@
     :descriptor data/get-path}
    {:name       "read-sub"
     :handler    (ignoring-extra #(read-sub/read-sub-tool %1 %2))
-    ;; Validated one-shot subscription read (rf2-3bu3d.7). A function of
+    ;; Validated one-shot subscription read. A function of
     ;; frame state (the sub's deref) — idempotent across same-state calls,
     ;; cacheable like get-path / snapshot. The precheck-hash short-circuit
     ;; keys on (hash app-db); a sub value derives from app-db, so a cache
     ;; keyed on app-db is correct for the common case (the :cache default
-    ;; is opt-in per-call, rf2-c4fmh).
+    ;; is opt-in per-call).
     :cacheable? true
     :descriptor data/read-sub}
    {:name       "read-dom"
@@ -215,7 +215,7 @@
     :descriptor data/read-dom}
    {:name       "read-ui"
     :handler    (ignoring-extra #(read-ui/read-ui-tool %1 %2))
-    ;; The typed ui/read op (rf2-3bu3d.1) — rendered view content + the
+    ;; The typed ui/read op — rendered view content + the
     ;; producing entity, riding the view<->DOM map. Read of live rendered
     ;; DOM, same posture as read-dom: NOT cacheable — the precheck-hash
     ;; short-circuit keys on `(hash app-db)`, but the DOM (and the live
@@ -262,8 +262,8 @@
     :descriptor data/list-streams}
    {:name       "get-stream-controls"
     :handler    (ignoring-extra #(get-stream-controls/get-stream-controls-tool %1 %2))
-    ;; Pure read over the server's IN-PROCESS resource-control atoms
-    ;; (rf2-a0kxsb). NOT cacheable: the active-stream / token-bucket /
+    ;; Pure read over the server's IN-PROCESS resource-control atoms.
+    ;; NOT cacheable: the active-stream / token-bucket /
     ;; abuse-window state is volatile session-local state, not a function
     ;; of app-db — a precheck-hash cache keyed on app-db would serve stale
     ;; control readings. Same posture as `list-streams` (volatile
@@ -280,7 +280,7 @@
     :descriptor data/list-handlers}
    {:name       "describe-image"
     :handler    (ignoring-extra #(describe-image/describe-image-tool %1 %2))
-    ;; Pure read of a frame's resolved image generation (rf2-srobm0) — a
+    ;; Pure read of a frame's resolved image generation — a
     ;; function of the frame's sealed generation, cacheable like the other
     ;; read tools. The generation is inert until reload-images!, so the
     ;; precheck-hash cache opt-in is safe.
@@ -364,7 +364,7 @@
   True for read tools whose return value is a function of state
   (`snapshot`, `get-path`, `trace-window`, `watch-epochs`,
   `discover-app`, `list-subscriptions` — the last reads the live
-  reactive sub-cache, a pure function of frame state, rf2-qicji) and
+  reactive sub-cache, a pure function of frame state) and
   for the inline `get-re-frame2-pair-instructions` onboarding text
   (which is a pure-data function with no state whatsoever — once is
   forever). False for action tools (`dispatch`, `eval-cljs`,
@@ -372,7 +372,7 @@
   `list-streams`, `get-stream-controls`), and volatile runtime-state
   reads whose value can move without an app-db mutation —
   `get-operating-frame`, whose resolved triple is a function of the
-  live frame registry plus the per-session pin (rf2-flm0iz). Their
+  live frame registry plus the per-session pin. Their
   return value is the result of an action / a read of volatile
   process/runtime state, not frame app-db.
 

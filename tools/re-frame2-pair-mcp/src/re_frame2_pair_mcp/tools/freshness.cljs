@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.freshness
-  "Freshness / liveness token (rf2-ertqw).
+  "Freshness / liveness token.
 
   ## The problem this closes
 
@@ -14,8 +14,8 @@
       blank, indistinguishable from a form that genuinely returns nil;
     - a STALE incremental build is serving OLD code → the runtime is
       alive and answering, but it's running code from before your last
-      edit. THIS is the silent killer — the rf2-lo28u false-alarm detour
-      was ~30 min of debugging a 'bug' that was just a stale build.
+      edit. THIS is the silent killer — a stale build masquerades as a
+      runtime bug and can burn long debugging detours.
 
   The freshness token makes all three OBVIOUS up front, on the very
   first `discover-app` call (and optionally on any op result). The
@@ -39,8 +39,7 @@
       :compile-cycle        MONOTONIC build counter (shadow's
                             `::build/build-info :compile-cycle`). Bumps
                             on every successful compile. This is the
-                            'is my edit live?' monotonic id (subsumes
-                            rf2-3bu3d.5 — see the bead).
+                            'is my edit live?' monotonic id.
       :build-flushed-at     wall-clock ms of the build's last flush
                             (shadow's `:flush-complete`). The compile
                             that produced the bytes currently on disk.
@@ -57,8 +56,7 @@
     :fresh           runtime connected, heartbeat recent, build NOT
                      recompiled since the runtime loaded.
     :stale-build     the build flushed AFTER the runtime loaded — the
-                     browser is serving OLD code. RELOAD THE PAGE. (The
-                     rf2-lo28u killer.)
+                     browser is serving OLD code. RELOAD THE PAGE.
     :no-runtime      no REPL runtime connected for the build (WS dropped
                      / no tab open).
     :unknown         the JVM half couldn't be read after a retry — degrade
@@ -67,9 +65,9 @@
                      Ctrl-C'd without freeing its ports; the socket reaches
                      a runtime whose build worker is in a DIFFERENT JVM, so
                      the worker lookup misses). The hint names the
-                     `npx shadow-cljs stop` → single-watch remediation
-                     (rf2-646lr). Rarer: an old shadow without get-worker,
-                     or a transient socket hiccup.
+                     `npx shadow-cljs stop` → single-watch remediation.
+                     Rarer: an old shadow without get-worker, or a
+                     transient socket hiccup.
 
   Everything here is best-effort: a JVM probe failure degrades to the
   browser half plus `:liveness :unknown`. The token is a DIAGNOSTIC
@@ -148,7 +146,7 @@
   "One JVM round-trip reading the build-worker freshness half for
   `build-id`. Resolves to the parsed map or nil (unreadable / blank /
   non-map / socket hiccup). The single-attempt primitive
-  `jvm-build-freshness` retries over (rf2-jkwu4)."
+  `jvm-build-freshness` retries over this."
   [conn build-id]
   (-> (try
         (nrepl/jvm-eval conn (build-state-jvm-form build-id))
@@ -160,7 +158,7 @@
 
 (defn retry-once-on-nil
   "Run the Promise-returning thunk `read!`; if it resolves to a non-map
-  (nil / blank), run it ONCE more and return that (rf2-jkwu4). A nil read
+  (nil / blank), run it ONCE more and return that. A nil read
   of the build-worker state is most often a TRANSIENT socket hiccup, so
   one retry recovers the common case before the caller degrades to the
   non-actionable `:liveness :unknown`. The retry round-trip is paid only
@@ -182,7 +180,7 @@
   read), so a never-connected / stub conn never triggers a real TCP
   connect.
 
-  ## One retry before degrading (rf2-jkwu4)
+  ## One retry before degrading
 
   A `:liveness :unknown` verdict is degraded and non-actionable — the
   agent can't tell the runtime is live and only finds out when a later
@@ -222,7 +220,7 @@
     :fresh         runtime connected, heartbeat recent, build not
                    recompiled since load.
     :unknown       the JVM half is absent (couldn't read shadow state —
-                   most often a multiple/zombie-shadow JVM split, rf2-646lr).
+                   most often a multiple/zombie-shadow JVM split).
 
   Order matters: `:no-runtime` wins over `:stale-build` (you can't be
   serving stale code if nothing's connected), and both win over
@@ -249,8 +247,8 @@
     :fresh))
 
 (defn- reload-target
-  "The concrete thing the human reloads to wake/refresh the runtime
-  (rf2-jkwu4). Prefer the app URL when the port is known (the agent then
+  "The concrete thing the human reloads to wake/refresh the runtime.
+  Prefer the app URL when the port is known (the agent then
   relays ONE crisp instruction — `reload http://localhost:<port>`);
   otherwise name the build so `shadow-cljs watch <build>` is unambiguous."
   [{:keys [port build-id]}]
@@ -267,7 +265,7 @@
   resolved the build from) + `:build-id` so the `:no-runtime` / `:unknown`
   hints can name the EXACT thing the human reloads — the agent cannot
   reload a browser itself, so a non-fresh verdict is an early, crisp
-  human-in-the-loop instruction, not a self-heal (rf2-jkwu4)."
+  human-in-the-loop instruction, not a self-heal."
   [liveness {:keys [build-flushed-at runtime-loaded-at build-id] :as ctx}]
   (let [target (reload-target ctx)]
     (case liveness
@@ -323,7 +321,7 @@
 
   The optional 4-arity `opts` carries `:port` (the browser URL port the
   caller knows — discover-app's `:port` arg) so a non-fresh hint names
-  the EXACT `http://localhost:<port>` the human reloads (rf2-jkwu4).
+  the EXACT `http://localhost:<port>` the human reloads.
   `:port` rides on the token too, so the agent can relay it.
 
   Best-effort: a nil JVM half degrades to `:liveness :unknown` with the
@@ -367,10 +365,10 @@
 (defn token-from-health
   "Convenience: extract the browser half from a `health` map and
   assemble the full token. `health` carries `:runtime-instance-id`,
-  `:runtime-loaded-at`, and `:read-at` (rf2-ertqw added them). Returns a
+  `:runtime-loaded-at`, and `:read-at`. Returns a
   Promise of the token map.
 
-  The optional 4-arity `opts` carries `:port` (rf2-jkwu4) so a non-fresh
+  The optional 4-arity `opts` carries `:port` so a non-fresh
   hint can name `http://localhost:<port>` — the EXACT URL the human
   reloads to wake / refresh a quiet runtime."
   ([conn build-id health] (token-from-health conn build-id health nil))

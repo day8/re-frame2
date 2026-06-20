@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.diff-encode-epochs-test
-  "Unit tests for the diff-encoded epoch slice (rf2-1wdzp).
+  "Unit tests for the diff-encoded epoch slice.
 
   Per `tools/re-frame2-pair-mcp/spec/Principles.md` mechanism (Diff-encoded
   epoch slice), every `:rf/epoch-record` shipped over the wire has
@@ -60,11 +60,11 @@
          (diff/collect-patches {:a 1} :replaced []))))
 
 (deftest collect-patches-same-length-vector-diffs-element-wise
-  ;; rf2-cwhod2: same-length vectors now diff element-by-element under
-  ;; numeric index paths — a reorder of [1 2 3] → [3 2 1] differs at
-  ;; indices 0 and 2 and emits index-level patches, not a whole-vector
-  ;; replacement. This is the actionable item-level shape the token-budget
-  ;; premise needs for tables / cards / queues / logs.
+  ;; Same-length vectors diff element-by-element under numeric index
+  ;; paths — a reorder of [1 2 3] → [3 2 1] differs at indices 0 and 2
+  ;; and emits index-level patches, not a whole-vector replacement. This
+  ;; is the actionable item-level shape the token-budget premise needs
+  ;; for tables / cards / queues / logs.
   (is (= [[[:items 0] :assoc 3]
           [[:items 2] :assoc 1]]
          (diff/collect-patches {:items [1 2 3]} {:items [3 2 1]} [])))
@@ -118,9 +118,9 @@
                   :user {:id 7}}})
 
 (deftest diff-encode-db-after-replaces-db-after-with-marker
-  ;; rf2-qeous: the wire shape is path-headed cluster sections, not a
-  ;; flat patch list. The `:rf.mcp/diff-from` marker stays the same;
-  ;; the body slot moves from `:patches` to `:sections`.
+  ;; The wire shape is path-headed cluster sections, not a flat patch
+  ;; list. The `:rf.mcp/diff-from` marker tags the source slot; the body
+  ;; lives under `:sections`.
   (let [enc (diff/diff-encode-db-after fixture-epoch)
         da  (:db-after enc)]
     (is (= :db-before (:rf.mcp/diff-from da))
@@ -158,9 +158,8 @@
         "encode→decode round-trips the full epoch unchanged")))
 
 (deftest round-trip-identical-db-before-and-db-after
-  ;; Degenerate case: no change. Sections list is empty (per the
-  ;; rf2-qeous shape — empty patches → empty sections); decoder
-  ;; returns :db-before unchanged.
+  ;; Degenerate case: no change. Sections list is empty (empty patches →
+  ;; empty sections); decoder returns :db-before unchanged.
   (let [epoch (assoc fixture-epoch :db-after (:db-before fixture-epoch))
         enc   (diff/diff-encode-db-after epoch)
         dec   (diff/decode-db-after enc)]
@@ -180,12 +179,11 @@
 
 (deftest round-trip-deeply-nested-leaf-change
   ;; The load-bearing efficiency case: one tiny change in a deeply
-  ;; nested tree. Per rf2-qeous the wire shape is now sections-per-
-  ;; cluster — the encoded :db-after carries the section wrapper
-  ;; (~60-80 chars constant overhead per cluster) plus the patches
-  ;; themselves. The win still scales: when the unchanged parts
-  ;; truly dwarf the change, the encoded :db-after is a small
-  ;; fraction of the full one.
+  ;; nested tree. The wire shape is sections-per-cluster — the encoded
+  ;; :db-after carries the section wrapper (~60-80 chars constant
+  ;; overhead per cluster) plus the patches themselves. The win scales:
+  ;; when the unchanged parts truly dwarf the change, the encoded
+  ;; :db-after is a small fraction of the full one.
   (let [;; Build a wide map so the unchanged parts dwarf the change.
         ;; 200 keys × ~30 chars each ≈ 6KB of unchanged context.
         wide (into {} (for [i (range 200)]
@@ -228,8 +226,8 @@
           ":b was removed → surfaces as a :dissoc patch inside the section"))))
 
 (deftest round-trip-vector-reordering
-  ;; Same-length vectors diff element-wise (rf2-cwhod2) under index paths;
-  ;; the round-trip MUST still reconstruct exactly regardless of patch
+  ;; Same-length vectors diff element-wise under index paths; the
+  ;; round-trip MUST still reconstruct exactly regardless of patch
   ;; granularity.
   (let [epoch {:db-before {:items [1 2 3]}
                :db-after  {:items [3 2 1]}}
@@ -371,7 +369,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-size impact: 10-epoch window with a 1MB app-db, single-key
-;; change per epoch — the load-bearing scenario rf2-jlq5j flagged.
+;; change per epoch — the load-bearing scenario.
 ;; ---------------------------------------------------------------------------
 
 (deftest ten-epoch-window-with-1mb-app-db-shrinks-dramatically

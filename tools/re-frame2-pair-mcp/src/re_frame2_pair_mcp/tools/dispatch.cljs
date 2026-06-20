@@ -1,16 +1,15 @@
 (ns re-frame2-pair-mcp.tools.dispatch
   "Tool: dispatch — fire an event.
 
-  ## Why parse the `event` arg as EDN (rf2-vflrg)
+  ## Why parse the `event` arg as EDN
 
   The MCP `dispatch` surface is intentionally narrower than `eval-cljs`:
   the contract is `dispatch {event '[:ev/id ...]'}` — an EDN event
-  vector, nothing else. An earlier shape inlined the caller's string
-  verbatim into the generated eval form via `rt-raw`, which made the
-  string a host-form expression rather than data. Any caller (or a
-  prompt-injected agent) could supply arbitrary CLJS — `(println :pwn)`
-  would have run — defeating the boundary that gates `eval-cljs`
-  separately. Pre-alpha posture: this is gating the accident
+  vector, nothing else. Inlining the caller's string verbatim into the
+  generated eval form (as a host-form expression rather than data) would
+  let any caller — or a prompt-injected agent — supply arbitrary CLJS
+  (`(println :pwn)` would run), defeating the boundary that gates
+  `eval-cljs` separately. Parsing as EDN gates both the accident
   (\"I meant to dispatch an event, not execute code\") and the trivial
   malicious-string injection.
 
@@ -21,13 +20,13 @@
   `:reason :not-an-event-vector` error rather than reaching the
   runtime.
 
-  ## Render-settle — `:await-render` (rf2-gfu33)
+  ## Render-settle — `:await-render`
 
   `pair-dispatch-sync!` returns once the handler has committed app-db,
   but the substrate (Reagent / the React spine) re-renders on a LATER
-  tick — so \"dispatch then observe the DOM\" previously needed a manual
-  `requestAnimationFrame` dance inside `eval-cljs`. The `:await-render`
-  option makes `dispatch → observe` one deterministic step: the tool
+  tick. The `:await-render` option makes \"dispatch then observe the
+  DOM\" one deterministic step without a manual `requestAnimationFrame`
+  dance inside `eval-cljs`: the tool
   resolves only AFTER the substrate has flushed the new state to the
   DOM and the next paint has been scheduled.
 
@@ -39,7 +38,7 @@
   hook (Spec 006 §Substrate adapter contract). Each adapter publishes
   its substrate-native impl: Reagent maps it to `r/after-render`
   (post-commit), the UIx / Helix spine to a `React.useLayoutEffect`-
-  backed queue drain (post-commit / pre-paint, rf2-334d9), plain-atom /
+  backed queue drain (post-commit / pre-paint), plain-atom /
   SSR to `next-tick`. `after-render` fires once the DOM reflects the new
   state; the form then chains ONE `requestAnimationFrame` so resolution
   lands at the paint boundary. The MCP server therefore stays
@@ -56,7 +55,7 @@
   uses). A render-settle that doesn't complete within `:timeout-ms`
   (default 5000) returns `:reason :rf.error/dispatch-await-render-timeout`.
 
-  ## Dispatch-and-settle — `:settle` (rf2-vk79g)
+  ## Dispatch-and-settle — `:settle`
 
   `:settle true` closes the observe→drive loop SYNCHRONOUSLY and returns
   the COMPLETE epoch in ONE call: dispatch → flush renders → return the
@@ -94,7 +93,7 @@
   `:trace` / `:queued` when set (it is the most complete single-call
   shape).
 
-  ## Epoch-egress privacy — boot-gate signal + projection (rf2-8fin7.3)
+  ## Epoch-egress privacy — boot-gate signal + projection
 
   `dispatch` egresses epoch-derived sensitive payloads on THREE paths,
   all governed by the `--allow-sensitive-reads` boot gate
@@ -111,7 +110,7 @@
   off-box projection (`epoch_egress/project-dispatch-result-src` →
   `re-frame.core/projected-record`) APP-SIDE before the result crosses
   the wire, gated on `raw-state-allowed?` + the `:include-sensitive`
-  two-key opt-in (rf2-olvr5 finding 1) — sensitive leaves land as
+  two-key opt-in — sensitive leaves land as
   `:rf/redacted`, large slots elide, the cascade stays structurally
   useful.
 
@@ -121,11 +120,11 @@
   redacts the `:event-vector` only when `(not (:allow-raw-state?
   @raw-state-config))`, and `raw-state-config` DEFAULTS to
   `{:allow-raw-state? true}` — it flips to the server's gate state ONLY
-  when a tool signals. `dispatch` was the lone state-emitting tool that
-  never signalled, so a FIRST-in-session sensitive dispatch ran with
-  the runtime still permissive and shipped its raw event vector even
-  under the OFF gate. The signal closes that. Posture parity with
-  `dispatch-dry-run` (signal-runtime! + projected egress, same gate)."
+  when a tool signals. Signalling before the dispatch eval means even a
+  first-in-session sensitive dispatch runs with the runtime at the
+  server's gate state, so its raw event vector redacts to `:rf/redacted`
+  under the OFF gate. Posture parity with `dispatch-dry-run`
+  (signal-runtime! + projected egress, same gate)."
   (:require [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.args :as args]
@@ -183,31 +182,27 @@
 (defn- runtime-envelope->result
   "Translate the runtime dispatch fn's return into the wire envelope.
 
-  rf2-ldfnx — the runtime (`pair-dispatch!` / `pair-dispatch-sync!` /
+  The runtime (`pair-dispatch!` / `pair-dispatch-sync!` /
   `dispatch-and-collect`) returns a structured envelope. On real
   success it carries `:ok? true` (sync/trace) or `:queued? true`
   (queued) plus the cascade slots. On a frame-targeting failure it
   carries `:ok? false` with a `:reason` (`:no-new-epoch`,
   `:no-epoch-recorded`, …) — the dispatch did NOT land.
 
-  The pre-fix shape merged `{:mode <m>}` over whatever the runtime
-  returned and ALWAYS emitted a success (`ok-text`) envelope. A
-  frame-targeted dispatch that no-op'd (the runtime reporting
-  `:ok? false`) therefore rode back as `{:mode :sync}` with no
-  `:isError` flag — a silent wrong-success. The `:mode` slot is the
-  caller's signal that the dispatch took effect, so it MUST appear
-  only on a genuine landing.
+  The `:mode` slot is the caller's signal that the dispatch took effect,
+  so it appears ONLY on a genuine landing — never merged over a runtime
+  `:ok? false` (which would read as a silent wrong-success).
 
   Contract:
     - runtime `:ok? false`  ⇒ `err-text` (`:isError true`), NO `:mode`
       slot. The failure rides through verbatim so the caller sees the
-      structured `:reason`/`:hint`. This covers the rf2-3bu3d.3
+      structured `:reason`/`:hint`. This covers the
       `:reason :unknown-id` validation miss too — an unknown event-id
       surfaces as an error envelope carrying `:nearest` matches, NEVER
       a silent success.
     - queued mode whose cascade hasn't drained yet
       (`:cascade-summary-pending? true`) ⇒ `ok-text` with `:settled?
-      false` merged in (rf2-3bu3d.2) so the agent knows to
+      false` merged in so the agent knows to
       `watch-epochs` the eventual settlement.
     - otherwise (success / settled queued / non-map degraded runtime) ⇒
       `ok-text` with `{:mode <m>}` merged in."
@@ -215,7 +210,7 @@
   (if (and (map? v) (false? (:ok? v)))
     (wire/err-text v)
     (let [base (merge {:mode mode} (when (map? v) v))
-          ;; rf2-3bu3d.2 — async/queued that hasn't settled rides back
+          ;; Async/queued that hasn't settled rides back
           ;; with `:settled? false` so the consequence-vs-ack distinction
           ;; is explicit (the default sync path carries the consequence).
           base (cond-> base
@@ -226,7 +221,7 @@
       (wire/ok-text base))))
 
 ;; ---------------------------------------------------------------------------
-;; Render-settle — `:await-render` (rf2-gfu33).
+;; Render-settle — `:await-render`.
 ;;
 ;; The settle form runs the dispatch synchronously (so app-db has
 ;; committed and the substrate has been invalidated), then returns a
@@ -252,7 +247,7 @@
   return) with `:settled? true` already merged in by the settle form —
   route it through `runtime-envelope->result` so a frame-targeting
   failure (`:ok? false`) still surfaces as an `:isError` envelope, never
-  a silent `{:mode :sync}` success (the rf2-ldfnx invariant). Timeout /
+  a silent `{:mode :sync}` success. Timeout /
   malformed-sentinel surface as structured dispatch errors."
   [mode]
   {:on-resolved (fn [{:keys [value]}] (runtime-envelope->result mode value))
@@ -298,14 +293,14 @@
 (defn dispatch-tool [conn args]
   (let [event-str    (wire/arg args :event)
         build-id     (wire/arg-build conn args)
-        ;; rf2-vk79g: `:settle` is the most complete single-call shape —
+        ;; `:settle` is the most complete single-call shape —
         ;; dispatch → SYNCHRONOUS flush-render! → return the settled epoch
         ;; WITH its `:rf.view/render` / `:rf.view/unmounted` entries. It
         ;; routes to the runtime `dispatch-and-settle!` (fully synchronous
         ;; — no Promise / mailbox), so it wins over every other mode flag.
         settle?      (boolean (wire/arg args :settle))
         await-render? (boolean (and (wire/arg args :await-render) (not settle?)))
-        ;; rf2-wz66k7 — validate `:timeout-ms` as a positive-millisecond
+        ;; Validate `:timeout-ms` as a positive-millisecond
         ;; integer BEFORE it threads into `await-promise/poll-mailbox!`'s
         ;; `(>= elapsed timeout-ms)` deadline (the `:await-render` path).
         ;; A non-numeric value (`"never"`) makes `(>= n NaN)` never true ⇒
@@ -314,33 +309,32 @@
         ;; default. Bad value short-circuits to an honest isError below.
         timeout-r    (args/parse-timeout-arg "timeout-ms" (wire/arg args :timeout-ms))
         timeout-ms   (or (second timeout-r) await-promise/default-timeout-ms)
-        ;; rf2-gfu33: `:await-render` forces synchronous dispatch — the
+        ;; `:await-render` forces synchronous dispatch — the
         ;; cascade must have committed before the render can settle
         ;; against the new state. `:settle` likewise forces sync. An
         ;; explicit `:trace` still wins for the non-settle modes (the
         ;; caller asked for the assembled epoch); otherwise sync.
         sync?        (boolean (or (wire/arg args :sync) await-render? settle?))
         trace?       (boolean (and (wire/arg args :trace) (not settle?)))
-        ;; rf2-3bu3d.2 — `:queued true` opts INTO the async transport-ack
+        ;; `:queued true` opts INTO the async transport-ack
         ;; shape (`{:settled? false}`). Without it the default is the
         ;; SYNC CONSEQUENCE (`dispatch-consequence!`) so a no-op is
         ;; VISIBLE (`:db-changed? false :effects-fired []`) instead of a
         ;; fake ack. `:trace` / `:sync` / `:await-render` still win.
         queued?      (boolean (and (wire/arg args :queued)
                                    (not trace?) (not sync?) (not settle?)))
-        ;; rf2-ldfnx — coerce `frame` via the colon-tolerant
-        ;; `->frame-keyword` (the shared `fresh-keyword` path), NOT the
-        ;; raw `(keyword ...)` of `wire/arg-keyword`. The documented
-        ;; `frame` arg is the colon-prefixed id (`":rf/xray"`, `":foo"`
-        ;; — Tool-Catalogue §Id representation, rf2-cg37y). Raw
-        ;; `(keyword ":rf/xray")` mints the MALFORMED `::rf/xray`
-        ;; (namespace literally `":rf"`), which matches no registered
-        ;; frame — the runtime then no-op'd while the tool reported
-        ;; `{:mode :sync}`. `->frame-keyword` strips the leading colon
-        ;; so the frame routes the same way `eval-cljs` / `snapshot` /
-        ;; `replace-app-db` already route it.
+        ;; Coerce `frame` via the colon-tolerant `->frame-keyword` (the
+        ;; shared `fresh-keyword` path), NOT the raw `(keyword ...)` of
+        ;; `wire/arg-keyword`. The documented `frame` arg is the
+        ;; colon-prefixed id (`":rf/xray"`, `":foo"` — Tool-Catalogue §Id
+        ;; representation). Raw `(keyword ":rf/xray")` would mint the
+        ;; MALFORMED `::rf/xray` (namespace literally `":rf"`), which
+        ;; matches no registered frame — the runtime would no-op while the
+        ;; tool reported `{:mode :sync}`. `->frame-keyword` strips the
+        ;; leading colon so the frame routes the same way `eval-cljs` /
+        ;; `snapshot` / `replace-app-db` route it.
         frame        (some-> (wire/arg args :frame) args/->frame-keyword)
-        ;; rf2-hf7m9j — coerce override VALUES too. A plain
+        ;; Coerce override VALUES too. A plain
         ;; `(js->clj o :keywordize-keys true)` keywordizes object keys
         ;; only, leaving a documented `{":http": ":stub-http"}` target as
         ;; the string `":stub-http"`. Core's `resolve-fx-with-overrides`
@@ -351,7 +345,7 @@
         ;; and REJECTS any other value with a structured error.
         fx-r         (args/parse-fx-overrides (wire/arg args :fx-overrides))
         fx-overrides (when (= :ok (first fx-r)) (second fx-r))
-        ;; rf2-q6s1nb / EP-0010 + EP-0017 — caller-scripted recordable
+        ;; EP-0010 + EP-0017 — caller-scripted recordable
         ;; coeffects. The agent supplies `cofx "{:rf/time-ms …}"` (EDN data,
         ;; same data-not-source gate as `event`); the router PRESERVES the
         ;; supplied map verbatim and stamps only the framework-required
@@ -363,7 +357,7 @@
         ;; would reject deep in the eval.
         cofx-r       (args/parse-cofx (wire/arg args :cofx))
         cofx         (when (= :ok (first cofx-r)) (second cofx-r))
-        ;; rf2-v52xsr · EP-0017 §6 / Tool-Pair §Replay — the named STRICT
+        ;; EP-0017 §6 / Tool-Pair §Replay — the named STRICT
         ;; REPLAY affordance. `cofx` alone is the LIVE scripted-coeffect path
         ;; (the router's `:live` default — a declared-but-absent
         ;; generator-backed fact is freshly MINTED). Replay is the other
@@ -381,7 +375,7 @@
         ;; fact absent from the (empty) record halts. Bare colon-tolerant
         ;; boolean — no value parse needed.
         replay?      (boolean (wire/arg args :replay))
-        ;; rf2-olvr5 finding 1 — `:trace` (`dispatch-and-collect`) and
+        ;; `:trace` (`dispatch-and-collect`) and
         ;; `:settle` (`dispatch-and-settle!`) return RAW epoch material
         ;; (`:epoch` carrying `:db-before`/`:db-after`/`:trigger-event`/
         ;; `:trace-events`; `:settle` also `:render-events`). Unlike the
@@ -389,35 +383,35 @@
         ;; app-db — these MUST route through the framework's off-box
         ;; projection (`re-frame.core/projected-record`) before crossing
         ;; the nREPL/MCP wire, exactly as the pull-mode `trace-window` /
-        ;; `watch-epochs` surfaces do (rf2-6wvh5). The `--allow-sensitive-
-        ;; reads` boot gate (`raw-state-allowed?`, positive sense — true
-        ;; only when the operator opted in at launch) governs whether the
-        ;; per-call `:include-sensitive true` is honoured.
-        ;; rf2-m9duxl — `incl?` (gate-ON + `:include-sensitive true`) NO
-        ;; LONGER bypasses the epoch projection: the `:trace` / `:settle`
-        ;; epoch ALWAYS routes through `projected-record`, and `incl?`
-        ;; threads `{:include-sensitive? true}` INTO it (app-db sensitive
-        ;; axis only). The orthogonal fx-args / runtime-db / large axes
-        ;; and the app `:redact-fn` stay fail-closed regardless of
+        ;; `watch-epochs` surfaces do. The `--allow-sensitive-reads` boot
+        ;; gate (`raw-state-allowed?`, positive sense — true only when the
+        ;; operator opted in at launch) governs whether the per-call
+        ;; `:include-sensitive true` is honoured.
+        ;; `incl?` (gate-ON + `:include-sensitive true`) does NOT bypass
+        ;; the epoch projection: the `:trace` / `:settle` epoch ALWAYS
+        ;; routes through `projected-record`, and `incl?` threads
+        ;; `{:include-sensitive? true}` INTO it (app-db sensitive axis
+        ;; only). The orthogonal fx-args / runtime-db / large axes and the
+        ;; app `:redact-fn` stay fail-closed regardless of
         ;; `:include-sensitive` (Security.md §Off-box egress).
         incl?        (if (raw-state/raw-state-allowed?)
                        (boolean (wire/arg args :include-sensitive))
                        false)
         [tag payload] (parse-event-edn event-str)]
     (cond
-      ;; rf2-wz66k7 — a malformed `:timeout-ms` short-circuits to an honest
+      ;; A malformed `:timeout-ms` short-circuits to an honest
       ;; isError BEFORE the dispatch eval, rather than threading a value
       ;; that would spin the `:await-render` mailbox poll loop unbounded.
       (= :err (first timeout-r))
       (js/Promise.resolve (wire/err-text (second timeout-r)))
 
-      ;; rf2-hf7m9j — an invalid fx-overrides target short-circuits to an
+      ;; An invalid fx-overrides target short-circuits to an
       ;; honest isError rather than silently falling through to the real
       ;; fx (which the documented stub recipe promised was inert).
       (= :err (first fx-r))
       (js/Promise.resolve (wire/err-text (second fx-r)))
 
-      ;; rf2-q6s1nb · EP-0017 — a malformed `cofx` map (non-map / unreadable /
+      ;; EP-0017 — a malformed `cofx` map (non-map / unreadable /
       ;; non-integer :rf/time-ms) short-circuits to an honest isError before
       ;; the dispatch eval, rather than threading a value the runtime would
       ;; reject.
@@ -434,13 +428,13 @@
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides)
-                        ;; rf2-q6s1nb · EP-0017 — thread the scripted
+                        ;; EP-0017 — thread the scripted
                         ;; recordable coeffects under the flat `:rf.cofx` opts
                         ;; key the router reads. The map is `pr-str`'d as an
                         ;; EDN literal by `rt-call`'s arg-emit path, exactly
                         ;; like `:fx-overrides`.
                         cofx         (assoc :rf.cofx cofx)
-                        ;; rf2-v52xsr · EP-0017 §6 / Tool-Pair §Replay — the
+                        ;; EP-0017 §6 / Tool-Pair §Replay — the
                         ;; named replay affordance HARD-WIRES the strict mint
                         ;; policy alongside the recorded `:rf.cofx`. The
                         ;; per-call opt is the most-specific binding point and
@@ -449,13 +443,13 @@
                         ;; whether or not a `cofx` token was supplied (a record
                         ;; with no scripted facts still re-drives strict).
                         replay?      (assoc :rf.cofx/mint-policy :strict))
-            ;; rf2-vflrg: the event is now a parsed CLJS vector. Pass it
-            ;; through `rt-call`'s normal arg-emit path so it is `pr-str`'d
-            ;; as an EDN literal — the runtime fn receives data, not host
-            ;; source. NO `rt-raw` splice on this surface.
+            ;; The event is a parsed CLJS vector. Pass it through
+            ;; `rt-call`'s normal arg-emit path so it is `pr-str`'d as an
+            ;; EDN literal — the runtime fn receives data, not host source.
+            ;; NO `rt-raw` splice on this surface.
             ;;
-            ;; rf2-3bu3d.2 / rf2-3bu3d.3 — the DEFAULT (and explicit
-            ;; `:sync` / `:await-render`) routes through
+            ;; The DEFAULT (and explicit `:sync` / `:await-render`) routes
+            ;; through
             ;; `dispatch-consequence!`, which (a) VALIDATES the event-id
             ;; against the live `:event` registrar and returns a
             ;; structured `:unknown-id` error WITHOUT dispatching on a
@@ -465,11 +459,11 @@
             ;; a genuine no-op is visible. `:queued` opts into the async
             ;; settled?-false transport ack; `:trace` returns the full
             ;; assembled epoch.
-            ;; rf2-vk79g — `:settle` routes to the synchronous
+            ;; `:settle` routes to the synchronous
             ;; `dispatch-and-settle!` (dispatch-sync → flush-render! →
             ;; re-read the settled epoch). It returns a map directly, so
             ;; it rides the non-await prelude (ensure-runtime! →
-            ;; signal-runtime! → eval, rf2-8fin7.3) — no Promise / mailbox,
+            ;; signal-runtime! → eval) — no Promise / mailbox,
             ;; unlike `:await-render`.
             fn-sym     (cond settle? 'dispatch-and-settle!
                              trace?  'dispatch-and-collect
@@ -477,23 +471,22 @@
                              :else   'dispatch-consequence!)
             mode (cond settle? :settle trace? :trace queued? :queued :else :sync)]
         (if await-render?
-          ;; rf2-gfu33 — render-settle path. The form's synchronous
-          ;; return is a Promise; await it through the shared mailbox so
+          ;; Render-settle path. The form's synchronous return is a
+          ;; Promise; await it through the shared mailbox so
           ;; `dispatch → observe` is one deterministic step.
           (let [settle-form (render-settle-form fn-sym event-vec opts-form)
                 mailbox-id  (await-promise/mailbox-key)
                 wrapped     (await-promise/wrap-form settle-form mailbox-id)]
-            ;; rf2-8fin7.3 — the signalled prelude flips the boot-gate
-            ;; posture BEFORE the dispatch eval, exactly as
-            ;; `dispatch-dry-run` does. This sets the runtime's
-            ;; `raw-state-config` to the server's gate state (OFF by
-            ;; default) so the cascade-summary's `:event-vector` (the raw
-            ;; `:trigger-event`) redacts to `:rf/redacted` for a sensitive
-            ;; epoch — closing the path-3 leak (a first-in-session
-            ;; sensitive dispatch shipping its raw event vector under the
-            ;; default OFF gate). Without the signal the runtime stays at
-            ;; its permissive `{:allow-raw-state? true}` default and the
-            ;; redaction never fires. See raw-state/signal-runtime!.
+            ;; The signalled prelude flips the boot-gate posture BEFORE
+            ;; the dispatch eval, exactly as `dispatch-dry-run` does. This
+            ;; sets the runtime's `raw-state-config` to the server's gate
+            ;; state (OFF by default) so the cascade-summary's
+            ;; `:event-vector` (the raw `:trigger-event`) redacts to
+            ;; `:rf/redacted` for a sensitive epoch — even a
+            ;; first-in-session sensitive dispatch. Without the signal the
+            ;; runtime stays at its permissive `{:allow-raw-state? true}`
+            ;; default and the redaction never fires. See
+            ;; raw-state/signal-runtime!.
             (probe/eval-after-runtime-signalled!
               conn build-id wrapped :dispatch-failed
               (fn [sentinel]
@@ -501,7 +494,7 @@
                   conn build-id timeout-ms sentinel
                   (await-render-callbacks mode)))))
           (let [call-src (ef/emit (ef/rt-call fn-sym event-vec opts-form))
-                ;; rf2-olvr5 finding 1 — only the epoch-bearing modes
+                ;; Only the epoch-bearing modes
                 ;; (`:trace` / `:settle`) carry raw `:epoch` /
                 ;; `:render-events`; wrap their emitted form so the
                 ;; projection runs APP-SIDE (where the frame's
@@ -512,19 +505,19 @@
                 form     (if (contains? #{:trace :settle} mode)
                            (egress/project-dispatch-result-src call-src incl?)
                            call-src)]
-            ;; rf2-8fin7.3 — the signalled prelude issues the boot-gate
-            ;; signal between the preload probe and the dispatch eval (the
-            ;; snapshot / get-path / dispatch-dry-run prelude shape, NOT
-            ;; the bare `eval-after-runtime!`). `signal-runtime!` flips the
+            ;; The signalled prelude issues the boot-gate signal between
+            ;; the preload probe and the dispatch eval (the snapshot /
+            ;; get-path / dispatch-dry-run prelude shape, NOT the bare
+            ;; `eval-after-runtime!`). `signal-runtime!` flips the
             ;; runtime's `raw-state-config` to the server's gate state so
             ;; the DEFAULT cascade-summary's `:event-vector` (the raw
-            ;; `:trigger-event`) redacts under the OFF gate — closing the
-            ;; path-3 leak where a first-in-session sensitive dispatch
-            ;; shipped its raw event vector because the runtime was still
-            ;; at its permissive `{:allow-raw-state? true}` default. The
+            ;; `:trigger-event`) redacts under the OFF gate — even a
+            ;; first-in-session sensitive dispatch, which would otherwise
+            ;; ship its raw event vector while the runtime sits at its
+            ;; permissive `{:allow-raw-state? true}` default. The
             ;; `:trace` / `:settle` epoch slots are ALSO projected
-            ;; (egress/project-dispatch-result-src above, rf2-olvr5) — the
-            ;; two protections compose, mirroring dispatch-dry-run.
+            ;; (egress/project-dispatch-result-src above) — the two
+            ;; protections compose, mirroring dispatch-dry-run.
             (probe/eval-after-runtime-signalled!
               conn build-id form :dispatch-failed
               (fn [v] (runtime-envelope->result mode v))))))))))

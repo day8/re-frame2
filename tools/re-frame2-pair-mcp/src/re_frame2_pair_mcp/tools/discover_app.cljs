@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.discover-app
   "Tool: discover-app — verify the stack and probe the preloaded runtime.
 
-  ## Freshness / liveness token (rf2-ertqw)
+  ## Freshness / liveness token
 
   Every `:ok? true` discover-app payload carries a `:freshness` token —
   the browser-side runtime-instance-id + load time merged with the
@@ -9,16 +9,15 @@
   age, plus a single `:liveness` verdict (`:fresh` / `:stale-build` /
   `:no-runtime` / `:unknown`). It makes 'the runtime I'm reading is
   stale / disconnected / serving a stale BUILD' obvious on the FIRST
-  call — the signal that would have killed the rf2-lo28u stale-build
-  false-alarm detour instantly. Assembled by
-  `re-frame2-pair-mcp.tools.freshness`."
+  call — so a stale-build symptom is diagnosed immediately rather than
+  chased. Assembled by `re-frame2-pair-mcp.tools.freshness`."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.freshness :as freshness]))
 
 (defn- port-unresolved-result
   "Error envelope for a `:port` arg that didn't resolve to a build via
-  the `:dev-http` map (rf2-fyf0h)."
+  the `:dev-http` map."
   [port]
   (wire/ok-text
     {:ok?    false
@@ -37,13 +36,13 @@
     1. Explicit `:build` arg (or a build cached by a prior discover-app)
        — `wire/arg-build` carries a deliberate choice; honour it
        verbatim, never auto-select. Wins over `:port`.
-    2. `:port` arg (rf2-fyf0h) — resolve the serving build from the
+    2. `:port` arg — resolve the serving build from the
        shadow-cljs `:dev-http` map so an agent that only knows the
        browser URL (e.g. http://localhost:8031/...) needn't grep the
        repo for the build-id. A `:port` that resolves to no build is a
        loud `:port-unresolved` error — NOT a silent fall-through to the
        `:app` default (the operator asked for that port specifically).
-    3. Single running build (rf2-v70kv) — exactly one → auto-select +
+    3. Single running build — exactly one → auto-select +
        flag it. Zero/many → keep the `:app` default so the diagnostic
        ladder surfaces `:build-not-running` with the running list.
 
@@ -73,7 +72,7 @@
 
 (defn- with-auto-selection
   "Annotate an `:ok? true` discover-app payload with the auto-selection
-  fact (rf2-v70kv). No-op when the build was NOT auto-selected (an
+  fact. No-op when the build was NOT auto-selected (an
   explicit / cached / default build). When auto-selected, records
   `:auto-selected-build` and either seeds or prepends an auto-selection
   sentence to `:note` so the operator sees which build the no-arg call
@@ -91,7 +90,7 @@
 (defn- with-frame-resolution
   "Annotate a healthy (non-ambiguous) discover-app payload with the
   resolved operating frame and, when applicable, the auto-resolution
-  fact (rf2-3bu3d.4).
+  fact.
 
   `health` carries `:operating-frame` (the runtime's resolved frame),
   `:frames` (all registered), and `:app-frames` (frames with `:rf/*`
@@ -115,7 +114,7 @@
 
 (defn- with-freshness
   "Attach the assembled freshness/liveness token to an `:ok? true`
-  health payload (rf2-ertqw). Async — reads the JVM-side build worker
+  health payload. Async — reads the JVM-side build worker
   state and merges with the browser half already on `health`. The
   payload-shaping fn `shape` takes the freshness-annotated health map
   and returns the final MCP envelope. On a stale-BUILD verdict the
@@ -123,7 +122,7 @@
   already set) so the alarm rides at the top level too.
 
   `opts` carries the optional `:port` (the browser URL port discover-app
-  resolved the build from, rf2-jkwu4) so a non-fresh hint names the EXACT
+  resolved the build from) so a non-fresh hint names the EXACT
   `http://localhost:<port>` the human reloads to wake / refresh a quiet
   runtime — the agent can't reload a browser, so this is the early,
   actionable, human-in-the-loop signal."
@@ -144,7 +143,7 @@
 
 (defn- port-opts
   "Build the freshness `opts` map carrying the browser URL `:port` the
-  caller passed (rf2-jkwu4), or nil when no `:port` arg is present. The
+  caller passed, or nil when no `:port` arg is present. The
   port lets a non-fresh liveness hint name the EXACT
   `http://localhost:<port>` the human reloads to wake a quiet runtime.
   The port may arrive as a string off the MCP wire; coerce to an int so
@@ -181,7 +180,7 @@
 
               (empty? (:frames health))
               (js/Promise.resolve
-                ;; EP-0002 (rf2-bd4div) — `rf/init!` installs adapters /
+                ;; EP-0002 — `rf/init!` installs adapters /
                 ;; runtime capabilities; it does NOT register `:rf/default`
                 ;; (the runtime never synthesises a default frame — Spec 002
                 ;; §`:rf/default` is an ordinary id). The app registers its
@@ -196,7 +195,7 @@
 
               (:ambiguous-frame? health)
               (do
-                ;; rf2-l9ixp: even on the ambiguous-frame warning the
+                ;; Even on the ambiguous-frame warning the
                 ;; build-id is resolved — record it so subsequent tool
                 ;; calls (with the frame disambiguator) don't need to
                 ;; re-specify `:build`.
@@ -204,7 +203,7 @@
                 (with-freshness conn build-id
                   (assoc health :ok? true
                                 :warning :ambiguous-frame
-                                ;; rf2-3bu3d.4 — point the operator at the
+                                ;; Point the operator at the
                                 ;; APP frames (the real choices). `:rf/*`
                                 ;; tool frames (`:rf/xray`, …) were already
                                 ;; excluded from the ambiguity count, so
@@ -236,14 +235,14 @@
 
               :else
               (do
-                ;; rf2-l9ixp: cache the resolved build-id session-wide so
+                ;; Cache the resolved build-id session-wide so
                 ;; subsequent tool calls without an explicit `:build` arg
                 ;; default to it instead of the `SHADOW_CLJS_BUILD_ID` /
                 ;; `:app` env-var fallback. Invalidates on nREPL reconnect.
                 (wire/mark-resolved-build-id! conn build-id)
                 (with-freshness conn build-id
-                  ;; rf2-8t3ct — echo the CANONICAL `:build` keyword
-                  ;; alongside the historical `:build-id`. The two carry
+                  ;; Echo the CANONICAL `:build` keyword
+                  ;; alongside `:build-id`. The two carry
                   ;; the same value; `:build` matches the INPUT arg name so
                   ;; an agent copies it straight back into a later tool's
                   ;; `:build` slot (round-trippable). `fresh-keyword` reads

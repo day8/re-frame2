@@ -3,7 +3,7 @@
   family — path vectors, frame ids, slice include lists, summary modes,
   per-slice mode maps, and the streaming filter map.
 
-  Path-arg parsing (rf2-tygdv): two tools take a `:path` argument:
+  Path-arg parsing: two tools take a `:path` argument:
   `snapshot` (slice the :app-db slice) and `get-path` (direct
   read-by-path). Same parser, same semantics so agents learn the shape
   once.
@@ -27,18 +27,16 @@
   #{:app-db :sub-cache :machines :epochs :traces})
 
 ;; ---------------------------------------------------------------------------
-;; Boolean-arg table (rf2-c4fmh).
+;; Boolean-arg table.
 ;;
 ;; The four boolean MCP args shared across re-frame2-pair-mcp tools each have one
 ;; load-bearing knob: their default posture. Their accept-shapes —
 ;; `true`/`false`, `"true"`/`"false"`/`"yes"`/`"no"`/`"1"`/`"0"` (case-
 ;; insensitive), `:true`/`:false`, unrecognised ⇒ default — are
-;; identical and come from `re-frame.mcp-base.args/parse-boolean`
-;; (rf2-vw4sq). Per-arg micro-wrappers were redundant friction: an
-;; agent that learned `:dedup "yes"` worked, but `:cache "yes"` had
-;; previously default-falsed because cache.cljs hand-rolled a smaller
-;; parser. This table is the single source of truth for both the
-;; default posture AND the accept-shape contract.
+;; identical and come from `re-frame.mcp-base.args/parse-boolean`.
+;; This table is the single source of truth for both the default posture
+;; AND the accept-shape contract: every boolean arg shares one parser, so
+;; an agent that learns `:dedup "yes"` knows `:cache "yes"` works too.
 ;;
 ;; Defaults:
 ;;
@@ -47,9 +45,8 @@
 ;;   :cache              false  — per-call cache is opt-in until agent
 ;;                                hosts have been taught the marker
 ;;   :include-sensitive  false  — spec/009 MUST default-suppress.
-;;                                Wire-key drops the trailing `?` per
-;;                                rf2-y710n + rf2-ihq4d: Anthropic's
-;;                                tool-input-schema regex
+;;                                The wire-key has no trailing `?`:
+;;                                Anthropic's tool-input-schema regex
 ;;                                `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`.
 ;;                                The predicate FUNCTION name retains `?`
 ;;                                (idiom on predicates, not on data keys).
@@ -60,27 +57,27 @@
 ;; the args object is centralised here.
 
 (def bool-args
-  "Cross-tool boolean MCP args + their default postures (rf2-c4fmh)."
+  "Cross-tool boolean MCP args + their default postures."
   {:dedup             {:default true}
    :elision           {:default true}
    :cache             {:default false}
    :include-sensitive {:default false}
-   ;; rf2-6to9xj — dispatch-dry-run's :would-fire-effects[*].args are
+   ;; dispatch-dry-run's :would-fire-effects[*].args are
    ;; RAW fx-handler arguments (HTTP request bodies, dispatched event
    ;; vectors, payment maps). They are NOT rooted at the frame's app-db,
    ;; so the schema-path-keyed `elide-wire-value` walker cannot prove them
    ;; safe — the same leak class as an epoch record's :effects[].args,
-   ;; which `projected-record` fails closed (EP-0015 §13 residual). Off-box
+   ;; which `projected-record` fails closed (EP-0015 §13). Off-box
    ;; egress therefore FAILS CLOSED: :args redacts to :rf/redacted by
    ;; default. This knob is the trusted-local opt-in that keeps the raw
    ;; args, honoured only under --allow-sensitive-reads (same gate as
-   ;; :include-sensitive). Wire-key drops the trailing `?` per rf2-y710n.
+   ;; :include-sensitive). The wire-key has no trailing `?`.
    :include-fx-args   {:default false}
-   ;; rf2-qicji — list-subscriptions toggles its per-entry shape.
+   ;; list-subscriptions toggles its per-entry shape.
    ;; Default false: only the query-vectors ride the wire (the cheap
    ;; "what's subscribed" read); true also ships :value + :ref-count.
    :include-values    {:default false}
-   ;; rf2-zo4b9 — read-recording's two toggles. :drain consumes the
+   ;; read-recording's two toggles. :drain consumes the
    ;; buffered change-entries (the live-watch poll→consume→repeat idiom);
    ;; :stop tears the recording down after reading (read-and-close).
    ;; Both default false: a bare read is non-destructive.
@@ -91,7 +88,7 @@
   "Resolve a boolean MCP arg by name. Returns the per-arg default from
   `bool-args` when the slot is absent / nil / unrecognised; delegates
   recognised-value parsing to
-  `re-frame.mcp-base.args/parse-boolean` (rf2-vw4sq) — the cross-MCP
+  `re-frame.mcp-base.args/parse-boolean` — the cross-MCP
   accept-shape contract.
 
   `args` may be a JS args object, `nil`, or `js/undefined` — all three
@@ -107,7 +104,7 @@
    (`\"rf/default\"`) and EDN-shaped strings (`\":rf/default\"`) — strips
    a leading colon when present so callers can pass either form.
 
-   Delegates to `re-frame.mcp-base.args/fresh-keyword` (rf2-xxtrz) so
+   Delegates to `re-frame.mcp-base.args/fresh-keyword` so
    the slice-key / frame-key coercion is single-sourced across the
    re-frame2-pair-mcp wire surface — same helper underpins both
    `parse-frames-arg` and the per-slice-mode key coercion in
@@ -126,7 +123,7 @@
   Over the JSON-MCP wire a caller can only send a JSON object, so BOTH
   the override KEY and the override VALUE arrive as strings (`{\":http\":
   \":stub-http\"}` ⇒ key `\":http\"`, value `\":stub-http\"`). The naive
-  `(js->clj o :keywordize-keys true)` is doubly wrong here (rf2-hf7m9j):
+  `(js->clj o :keywordize-keys true)` is doubly wrong here:
   it leaves the value the string `\":stub-http\"`, AND it mints a
   MALFORMED key by calling `(keyword \":http\")` ⇒ `::http` (namespace
   literally `\"\"`), which matches no registered fx-id — the same colon-
@@ -231,7 +228,7 @@
 
 (defn parse-paths-arg
   "Normalise the plural `paths` MCP arg into a vector of path vectors —
-  the batch-read shape `get-path` consumes (rf2-lbm21). Each element is
+  the batch-read shape `get-path` consumes. Each element is
   itself a path (run through `parse-path-arg`), so a caller can read N
   app-db subtrees in ONE round-trip instead of N `get-path` calls.
 
@@ -284,7 +281,7 @@
    Returns one of three shapes the `snapshot-state` composer dispatches on:
 
      :app   — the APP frames only: every registered frame with the
-              reserved `:rf/*` TOOL frames removed (rf2-3bu3d.6). This is
+              reserved `:rf/*` TOOL frames removed. This is
               the DEFAULT (absent / nil / unrecognised arg). It is what a
               first investigate-read wants: the app the operator is
               pairing against, NOT the Xray / Story / SSR tool-frame
@@ -339,10 +336,10 @@
 (defn parse-mode-arg
   "Normalise the global `mode` MCP arg. Accepts strings (`\"summary\"`,
   `\"full\"`) or keywords. Defaults to `:summary` — the lazy-summary
-  default per rf2-u2029. Unrecognised values default to `:summary`
+  default. Unrecognised values default to `:summary`
   (budget-sensitive default).
 
-  Delegates to `re-frame.mcp-base.args/parse-mode` (rf2-vw4sq)."
+  Delegates to `re-frame.mcp-base.args/parse-mode`."
   [raw]
   (base-args/parse-mode raw :summary #{:summary :full}))
 
@@ -358,7 +355,7 @@
   through `re-frame.mcp-base.args/fresh-keyword`); per-slice mode
   coercion delegates to `re-frame.mcp-base.args/parse-mode` with a
   sentinel default so unrecognised values can be detected and
-  dropped rather than coerced to the global default (rf2-vw4sq)."
+  dropped rather than coerced to the global default."
   [raw]
   (let [as-clj (cond
                  (nil? raw)   nil
@@ -385,7 +382,7 @@
 
 (defn read-edn-arg
   "Read a single-value EDN MCP arg into the `[:ok parsed]` / `[:err reason]`
-  shape the write/introspection tools branch on (rf2-jkake.19).
+  shape the write/introspection tools branch on.
 
   Trims, then `read-string`s the value; an absent / blank value yields
   `[:err missing]`, an unreadable one `[:err invalid]`. `missing` /
@@ -397,7 +394,7 @@
   `handler-meta` (`:id`). The richer `dispatch` / `dispatch-dry-run`
   event parsers are deliberately NOT routed through here — they layer a
   vector-shape contract + parsed-type classification on top, and their
-  ns docstrings pin them as separately-evolving surfaces."
+  ns docstrings pin them as separate surfaces."
   [raw missing invalid]
   (let [trimmed (some-> raw str/trim)]
     (if (or (nil? trimmed) (str/blank? trimmed))
@@ -409,7 +406,7 @@
           [:ok parsed])))))
 
 ;; ---------------------------------------------------------------------------
-;; Numeric subscribe-control args (rf2-uvfph).
+;; Numeric subscribe-control args.
 ;;
 ;; `subscribe` forwards five integer knobs straight from the MCP args to
 ;; the runtime queue budget / poll loop / termination caps. The
@@ -444,18 +441,16 @@
   whole number. Accepts a JS/CLJS number (must be integral) or a numeric
   string. Fractional numbers and non-numeric junk are `::bad`.
 
-  Cross-runtime safe-integer guard (rf2-ykv9a0, routed here by
-  rf2-ttspi7): the numeric core goes through
+  Cross-runtime safe-integer guard: the numeric core goes through
   `base-args/coerce-finite-long`, which returns `nil` for `##NaN` /
   `##Inf` / `##-Inf` and for any finite magnitude outside the JS
-  safe-integer window `[-(2^53−1), 2^53−1]`. Previously a JS
+  safe-integer window `[-(2^53−1), 2^53−1]`. A JS
   `Number.isInteger` value above that ceiling (e.g. `9007199254740993`,
   representable as a JS integral double but NOT round-trippable through
-  a CLJS `long` / a JVM long without loss) passed straight through to
-  `(long raw)` here while `mcp-base` rejected the same value — the
-  divergence this routing closes. The tagged `[:ok]`/`[:err]` wrappers
-  (`parse-positive-int-arg` etc.) stay local; only the numeric core is
-  shared.
+  a CLJS `long` / a JVM long without loss) is therefore `::bad` here —
+  the same value `mcp-base` rejects, so the two runtimes agree. The
+  tagged `[:ok]`/`[:err]` wrappers (`parse-positive-int-arg` etc.) stay
+  local; only the numeric core is shared.
 
   A whole numeric below the safe-integer ceiling but outside the window
   on the string arm is caught by routing the parsed string back through
@@ -489,7 +484,7 @@
                       " (got " (pr-str raw) ").")}])
 
 (defn parse-positive-int-arg
-  "Validate an OPTIONAL positive-integer MCP arg value (rf2-uvfph).
+  "Validate an OPTIONAL positive-integer MCP arg value.
   `raw` is the already-extracted arg value (via `wire/arg`); `arg-name`
   is its wire key for the error message. Returns `[:ok nil]` when absent
   (`raw` nil), `[:ok n]` for an integer `>= 1`, and `[:err {…}]` (with
@@ -505,7 +500,7 @@
         (err-int arg-name raw "a positive integer (>= 1)")))))
 
 (defn parse-non-negative-int-arg
-  "Validate an OPTIONAL non-negative-integer MCP arg value (rf2-uvfph)
+  "Validate an OPTIONAL non-negative-integer MCP arg value
   where 0 is the documented unbounded sentinel. `raw` is the already-
   extracted arg value; `arg-name` is its wire key. Returns `[:ok nil]`
   when absent, `[:ok n]` for an integer `>= 0`, and `[:err {…}]` for a
@@ -520,7 +515,7 @@
         (err-int arg-name raw "a non-negative integer (>= 0; 0 = unbounded)")))))
 
 ;; ---------------------------------------------------------------------------
-;; Timeout / wait millisecond args (rf2-wz66k7).
+;; Timeout / wait millisecond args.
 ;;
 ;; Three NON-streaming tools thread a millisecond deadline straight from
 ;; the MCP args into an `(>= elapsed deadline)` poll comparison with NO
@@ -549,8 +544,8 @@
 ;; `[:ok nil]` — the caller falls back to its documented default.
 
 (defn parse-timeout-arg
-  "Validate an OPTIONAL positive-millisecond MCP timeout/wait arg value
-  (rf2-wz66k7). A thin alias over `parse-positive-int-arg` — the
+  "Validate an OPTIONAL positive-millisecond MCP timeout/wait arg value.
+  A thin alias over `parse-positive-int-arg` — the
   millisecond deadline knobs (`tail-build :wait-ms`, `eval-cljs` /
   `dispatch` `:timeout-ms`) share the positive-integer contract (>= 1).
   Named distinctly so the call sites read as a timeout check and a future
@@ -563,12 +558,12 @@
   (parse-positive-int-arg arg-name raw))
 
 ;; ---------------------------------------------------------------------------
-;; Recordable coeffects (rf2-q6s1nb / EP-0010 + EP-0017 agent-replay-determinism).
+;; Recordable coeffects (EP-0010 + EP-0017 agent-replay-determinism).
 ;;
 ;; `:rf.cofx` is an optional key of the PUBLIC `:rf/dispatch-opts` schema
-;; (spec/Spec-Schemas.md §:rf.cofx). EP-0017 renamed the field from the
-;; nested `:rf.world/inputs` (key `:time-ms`) to the flat `:rf.cofx` (key
-;; `:rf/time-ms`). The router preserves a caller-supplied map VERBATIM and
+;; (spec/Spec-Schemas.md §:rf.cofx) — a flat map of recordable coeffects
+;; keyed by owner-qualified keywords, the framework-required one being
+;; `:rf/time-ms`. The router preserves a caller-supplied map VERBATIM and
 ;; fills only the framework-required `:rf/time-ms` when absent — so an AI
 ;; agent that scripts a `:rf.cofx` map gets a REPRODUCIBLE resulting state (a
 ;; fixed `:rf/time-ms`, named owner-qualified recordable facts). This is the
@@ -576,7 +571,7 @@
 ;; tool-dispatch helpers.
 ;;
 ;; The MCP wire shape is an EDN STRING (the same data-not-source posture as
-;; the `event` arg, rf2-vflrg) — the agent passes `cofx
+;; the `event` arg) — the agent passes `cofx
 ;; "{:rf/time-ms 1781078400123}"` and we parse + shape-check it. The schema
 ;; requires `:rf/time-ms` to be an integer when present; we surface a bad
 ;; `:rf/time-ms` as a structured error rather than threading a value that the
@@ -585,7 +580,7 @@
 ;; runtime stamps `:rf/time-ms` itself, the ordinary live-dispatch path).
 
 (defn parse-cofx
-  "Parse the OPTIONAL `cofx` MCP arg (rf2-q6s1nb · EP-0017) into the CLJS map
+  "Parse the OPTIONAL `cofx` MCP arg (EP-0017) into the CLJS map
   threaded into the dispatch opts under `:rf.cofx`. Returns `[:ok nil]` when
   absent, `[:ok m]` for a well-shaped map, or `[:err {…}]` for a malformed
   one.
@@ -644,11 +639,11 @@
 
 (defn parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
-  accept both for ergonomic parity with the bash-shim chain (`pred`
-  has been a JSON object there).
+  accept both for ergonomic parity with the bash-shim chain (`pred` is
+  a JSON object there).
 
   Returns the tagged `[:ok m]` / `[:err :invalid-filter-edn]` shape
-  (mirroring `read-edn-arg`, rf2-5kbkl) so the caller can surface a bad
+  (mirroring `read-edn-arg`) so the caller can surface a bad
   filter EDN as an honest `:ok? false` error rather than subscribing
   with a nonsense filter. The two success shapes:
 
@@ -657,14 +652,13 @@
                      a JS object keywordised.
 
   The lone failure shape `[:err :invalid-filter-edn]` is returned when
-  an EDN STRING fails to `read-string`. Pre-rf2-5kbkl this branch
-  returned a `{:invalid-filter-edn raw}` MAP that flowed straight into
-  the runtime `subscribe!` `:filter` slot — a typo'd filter silently
-  became a nonsense filter that streamed the wrong (likely empty) event
-  set with no corrective signal. The tag lets `subscribe-tool`
+  an EDN STRING fails to `read-string`. The tag lets `subscribe-tool`
   short-circuit to the same honest-error envelope `:unknown-topic`
   already uses, rather than swallowing the parse failure into a
-  broken-success path."
+  broken-success path: a typo'd filter that flowed straight into the
+  runtime `subscribe!` `:filter` slot would silently become a nonsense
+  filter streaming the wrong (likely empty) event set with no
+  corrective signal."
   [raw]
   (cond
     (nil? raw)        [:ok nil]

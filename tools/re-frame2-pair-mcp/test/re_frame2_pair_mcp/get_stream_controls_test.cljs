@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.get-stream-controls-test
-  "Unit tests for the `get-stream-controls` diagnostic tool (rf2-a0kxsb).
+  "Unit tests for the `get-stream-controls` diagnostic tool.
 
   The tool is a pure read over the server-side `resource-controls`
   atoms — no nREPL round-trip — so these tests drive the controller

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.args-test
-  "Unit tests for the table-driven boolean-arg parser (rf2-c4fmh).
+  "Unit tests for the table-driven boolean-arg parser.
 
   Pins the four boolean MCP args shared across re-frame2-pair-mcp tools to the
   single `args/bool-args` table:
@@ -7,7 +7,7 @@
     :dedup             ⇒ default true
     :elision           ⇒ default true
     :cache             ⇒ default false
-    :include-sensitive ⇒ default false (rf2-ihq4d — wire-key drops `?`)
+    :include-sensitive ⇒ default false (wire-key carries no `?`)
 
   Accept-shape coverage (true/false bools, `\"true\"`/`\"yes\"`/`\"1\"`
   string forms, `:true`/`:false` keywords, case-insensitivity,
@@ -35,9 +35,8 @@
 (deftest bool-args-table-shape
   ;; The catalogued arg keys; their default postures are the cross-MCP
   ;; convention. Drift here = drift across consumers. `:include-values`
-  ;; was added by rf2-qicji for the reactive `list-subscriptions` tool;
-  ;; `:drain` / `:stop` by rf2-zo4b9 for `read-recording`;
-  ;; `:include-fx-args` by rf2-6to9xj for `dispatch-dry-run`'s
+  ;; serves the reactive `list-subscriptions` tool; `:drain` / `:stop`
+  ;; serve `read-recording`; `:include-fx-args` serves `dispatch-dry-run`'s
   ;; fail-closed :would-fire-effects[*].args.
   (is (= #{:dedup :elision :cache :include-sensitive :include-fx-args
            :include-values :drain :stop}
@@ -83,10 +82,8 @@
     (is (false? (args/parse-bool-arg off? :cache)))))
 
 (deftest parse-bool-arg-string-forms-accepted-uniformly
-  ;; Pre-rf2-c4fmh, `:cache "yes"` default-falsed because cache.cljs
-  ;; hand-rolled a smaller parser. The unified table delegates to
-  ;; `base-args/parse-boolean` for every key, so `"yes"` flips on
-  ;; uniformly across all four args.
+  ;; The unified table delegates to `base-args/parse-boolean` for every
+  ;; key, so `"yes"` flips on uniformly across all four args.
   (let [a (args-js {:dedup             "no"
                     :elision           "off"
                     :cache             "yes"
@@ -112,10 +109,10 @@
     (is (false? (args/parse-bool-arg a :cache)))))  ; default false
 
 (deftest parse-bool-arg-include-sensitive-name-is-stringified
-  ;; Post-rf2-ihq4d the keyword carries NO trailing `?`; the JS wire
-  ;; key is `"include-sensitive"`. The name coercion in `parse-bool-arg`
+  ;; The keyword carries NO trailing `?`; the JS wire key is
+  ;; `"include-sensitive"`. The name coercion in `parse-bool-arg`
   ;; round-trips the literal `(name k)` correctly — pin the contract so
-  ;; a future drift either way (re-adding `?`, snake_case, etc.) breaks
+  ;; a future drift either way (adding `?`, snake_case, etc.) breaks
   ;; here. Per Anthropic's tool-input-schema regex
   ;; `^[a-zA-Z0-9_.-]{1,64}$`, predicate-style `?` is rejected at the
   ;; agent host.
@@ -123,13 +120,12 @@
     (is (true? (args/parse-bool-arg a :include-sensitive)))))
 
 ;; ---------------------------------------------------------------------------
-;; read-edn-arg — the [:ok parsed] / [:err reason] EDN-arg helper
-;; (rf2-jkake.19). Factored out of replace-app-db (:db),
-;; restore-epoch (:epoch-id) and handler-meta (:id); each passes its own
-;; per-tool reason keywords so the error envelope stays specific. The
-;; three outcomes (missing / invalid / ok) were only exercised
-;; indirectly via the conformance corpus; pin the helper directly so a
-;; regression surfaces at the unit it lives in (rf2-ynjts.19).
+;; read-edn-arg — the [:ok parsed] / [:err reason] EDN-arg helper.
+;; Shared by replace-app-db (:db), restore-epoch (:epoch-id) and
+;; handler-meta (:id); each passes its own per-tool reason keywords so
+;; the error envelope stays specific. The three outcomes (missing /
+;; invalid / ok) are pinned directly here so a regression surfaces at
+;; the unit it lives in.
 ;; ---------------------------------------------------------------------------
 
 (deftest read-edn-arg-absent-returns-missing-reason
@@ -173,14 +169,14 @@
   (is (= [:ok 'nope] (args/read-edn-arg "nope(" :missing :invalid))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-filter-arg — the streaming filter map (rf2-hq49). Returns the
-;; tagged `[:ok m]` / `[:err :invalid-filter-edn]` shape (rf2-5kbkl,
-;; mirroring `read-edn-arg`) so a bad filter EDN surfaces as an honest
+;; parse-filter-arg — the streaming filter map. Returns the tagged
+;; `[:ok m]` / `[:err :invalid-filter-edn]` shape (mirroring
+;; `read-edn-arg`) so a bad filter EDN surfaces as an honest
 ;; `:ok? false` error rather than a nonsense filter the runtime applies.
 ;; The nil / string / map arms are covered in subscribe_test; the
 ;; `:else` arm (a JS object that is neither a string nor a CLJS map —
 ;; the shape an MCP host sends a structured filter as) routes through
-;; `js->clj :keywordize-keys true` and was untested. Pin it (rf2-ynjts.19).
+;; `js->clj :keywordize-keys true` and is pinned here.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-filter-arg-js-object-keywordizes
@@ -198,7 +194,7 @@
     (is (= [:ok {:touches-path ["cart" "items"] :meta {:min-ms 50}}] out))))
 
 (deftest parse-filter-arg-malformed-edn-is-err-tagged
-  ;; rf2-5kbkl — the regression: an unparseable EDN string must NOT
+  ;; Regression: an unparseable EDN string must NOT
   ;; become a `{:invalid-filter-edn raw}` map that rides into the runtime
   ;; `:filter` slot. It returns the honest `[:err :invalid-filter-edn]`
   ;; tag (mirroring read-edn-arg's :invalid arm) so the caller can
@@ -208,7 +204,7 @@
       "unparseable filter EDN → honest :err tag, not a nonsense map"))
 
 ;; ---------------------------------------------------------------------------
-;; parse-timeout-arg — positive-millisecond deadline knobs (rf2-wz66k7).
+;; parse-timeout-arg — positive-millisecond deadline knobs.
 ;;
 ;; `tail-build :wait-ms` and `eval-cljs` / `dispatch :await-render`
 ;; `:timeout-ms` thread their value straight into an `(>= elapsed
@@ -231,8 +227,8 @@
       "MCP hosts sometimes stringify numbers"))
 
 (deftest parse-timeout-arg-rejects-non-numeric
-  ;; THE Finding-2 regression: "never" / "bogus" must NOT slip through as
-  ;; a deadline that makes `(>= elapsed NaN)` never true (unbounded poll).
+  ;; Regression: "never" / "bogus" must NOT slip through as a deadline
+  ;; that makes `(>= elapsed NaN)` never true (unbounded poll).
   (let [[tag env] (args/parse-timeout-arg "wait-ms" "never")]
     (is (= :err tag) "a non-numeric deadline is rejected, not threaded raw")
     (is (= :invalid-numeric-arg (:reason env)))
@@ -253,7 +249,7 @@
     (is (= :err tag) "a fractional millisecond is not a valid integer deadline")))
 
 ;; ---------------------------------------------------------------------------
-;; fx-overrides parse (rf2-hf7m9j) — over JSON-MCP the override VALUE
+;; fx-overrides parse — over JSON-MCP the override VALUE
 ;; arrives as a string. The documented colon-prefixed form coerces to a
 ;; keyword (so core honours it as an id-redirect); any other value is
 ;; rejected rather than silently falling through to the real fx.

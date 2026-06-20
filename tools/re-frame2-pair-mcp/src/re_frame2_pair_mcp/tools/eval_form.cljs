@@ -1,20 +1,18 @@
 (ns re-frame2-pair-mcp.tools.eval-form
-  "Mini-DSL for composing the CLJS eval forms tools ship over nREPL
-  (rf2-dpzpe).
+  "Mini-DSL for composing the CLJS eval forms tools ship over nREPL.
 
-  Several call-sites — `dispatch`, `trace-window`, `watch-epochs`,
+  Many call-sites — `dispatch`, `trace-window`, `watch-epochs`,
   `snapshot`, `get-path`, `subscribe`, `subscribe`'s drain/unsubscribe
   loop forms, `list-subscriptions` (reactive sub-cache), `list-streams`
-  (streaming-tap registry), `unsubscribe`, plus `precheck-form` —
-  build CLJS source strings by raw `str` concatenation. Two costs:
+  (streaming-tap registry), `unsubscribe`, plus `precheck-form` — need
+  CLJS source strings. Building them by raw `str` concatenation carries
+  two costs this DSL avoids:
 
-  1. The runtime namespace prefix (`re-frame2-pair.runtime/`)
-     appeared verbatim at 17+ sites — one rename, seventeen edits.
-  2. Tests had to `cljs.reader/read-string` a substring back out
-     of the source to assert on the embedded EDN
-     (`subscribe-test.cljs` line 96-98). The string-as-IR shape
-     made the test fragile against whitespace / formatting drifts
-     in the form-builder.
+  1. The runtime namespace prefix (`re-frame2-pair.runtime/`) would
+     appear verbatim at every call-site, so a rename touches them all.
+  2. Tests would have to `cljs.reader/read-string` a substring back out
+     of the source to assert on the embedded EDN, making them fragile
+     against whitespace / formatting drifts in the form-builder.
 
   This namespace gives a tiny tagged-vector IR with a single
   `emit` recursion:
@@ -62,7 +60,7 @@
 
 (def runtime-ns
   "The CLJS namespace every `rt-call` resolves into. Centralised here so
-  a future runtime rename is one edit, not seventeen."
+  a runtime rename is a single edit."
   "re-frame2-pair.runtime")
 
 (defn rt-call
@@ -107,7 +105,7 @@
   (strings, keywords, numbers, scalar maps, scalar vectors, …) is
   `pr-str`'d as an EDN literal.
 
-  rf2-lbfzu — without the collection-recursion arm, a mixed
+  Without the collection-recursion arm, a mixed
   data-and-nodes vector like `(rt-call 'foo [bar (rt-raw \"x\")])`
   would `pr-str` the whole vector including the `[::raw \"x\"]` IR
   node, producing garbage source. The recursion lets callers mix
@@ -162,10 +160,9 @@
                       ")"))
 
         ::call* (let [[_ qsym args] form]
-                  ;; rf2-lbfzu — `(str qsym)` handles both shapes
+                  ;; `(str qsym)` handles both shapes
                   ;; uniformly: a symbol prints as its fully-qualified
-                  ;; name, a string prints verbatim. The prior `if`
-                  ;; had two identical arms.
+                  ;; name, a string prints verbatim.
                   (str "(" (str qsym)
                        (when (seq args)
                          (apply str (for [a args] (str " " (emit-arg a)))))

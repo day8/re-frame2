@@ -1,11 +1,11 @@
 (ns re-frame2-pair-mcp.reserved-frame-guard-test
-  "Tests for the wholesale-read backstop (rf2-qef58).
+  "Tests for the wholesale-read backstop.
 
-  A live pair session blew a single read past 126K tokens by reading the
-  `:rf/xray` frame wholesale. rf2-ihqpn (#2845) taught the SKILL to orient
-  first + never wholesale-read a tool frame; this guard adds the SERVER
-  backstop so a stray full read can't blow the context window regardless
-  of agent judgment. Skill steers, MCP guards.
+  A wholesale read of the `:rf/xray` frame can blow a single read past
+  126K tokens. The SKILL steers the agent to orient first + never
+  wholesale-read a tool frame; this guard adds the SERVER backstop so a
+  stray full read can't blow the context window regardless of agent
+  judgment. Skill steers, MCP guards.
 
   Three surfaces are pinned:
 
@@ -104,8 +104,8 @@
     (is (nil? (guard/get-path-refusal :stories [] nil)))
     (is (nil? (guard/get-path-refusal :rf/default [] nil))))
   (testing "a nil frame (defaulted operating frame) does not fire this client-side guard"
-    ;; rf2-wdxyx3 finding 1 — this is NOT an escape hatch. The client guard
-    ;; can't see the runtime-resolved frame for an omitted-:frame call, but
+    ;; This is NOT an escape hatch. The client guard can't see the
+    ;; runtime-resolved frame for an omitted-:frame call, but
     ;; set-operating-frame refuses to PIN a reserved :rf/* frame, so the
     ;; runtime's current-frame resolver can never return one at tier 2 — an
     ;; omitted-:frame read resolves to an APP frame (or refuses
@@ -116,8 +116,8 @@
 ;; ---------------------------------------------------------------------------
 ;; End-to-end: invoke the real tool bodies with a stubbed nREPL conn.
 ;;
-;; Stub lifetime is fixture-scoped (rf2-wb06a) — bare `set!` per test,
-;; `:after` restores the pristine original captured at ns-load.
+;; Stub lifetime is fixture-scoped — bare `set!` per test, `:after`
+;; restores the pristine original captured at ns-load.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private pristine-eval nrepl/cljs-eval-value)
@@ -263,15 +263,14 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-wdxyx3 finding 1 — the operating-frame bypass. The client-side
-;; get-path guard fires on the explicit `:frame` arg; an omitted `:frame`
-;; resolves runtime-side via `current-frame`, which returns the session
-;; pin at tier 2. If `set-operating-frame` let a reserved `:rf/*` TOOL
-;; frame be pinned, a later `get-path {path "[]"}` with no `:frame` would
-;; resolve the wholesale read through it — re-opening the overflow the
-;; guard was built to close. The fix refuses the reserved-frame PIN at its
-;; source, so the resolver can never return a tool frame for an
-;; omitted-:frame call.
+;; The operating-frame bypass. The client-side get-path guard fires on
+;; the explicit `:frame` arg; an omitted `:frame` resolves runtime-side
+;; via `current-frame`, which returns the session pin at tier 2. If
+;; `set-operating-frame` let a reserved `:rf/*` TOOL frame be pinned, a
+;; later `get-path {path "[]"}` with no `:frame` would resolve the
+;; wholesale read through it — re-opening the overflow the guard closes.
+;; The reserved-frame PIN is refused at its source, so the resolver can
+;; never return a tool frame for an omitted-:frame call.
 ;; ---------------------------------------------------------------------------
 
 (deftest set-operating-frame-refuses-reserved-tool-frame

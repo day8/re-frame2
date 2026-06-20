@@ -1,12 +1,12 @@
 (ns re-frame2-pair-mcp.structured-content-test
-  "Pin rf2-hj3pi — every MCP result envelope MUST carry both the
+  "Every MCP result envelope MUST carry both the
   wire-canonical `:content [{:type \"text\" :text ...}]` slot and a
   `:structuredContent` slot whose value is the JS-coerced projection
   of the same payload.
 
-  The change centralises in `tools.wire/ok-text` + `err-text` so the
-  dual-slot rule is enforced at one site; the test corpus pins the
-  shape on the four canonical paths:
+  The dual-slot rule is enforced at one site, in `tools.wire/ok-text`
+  + `err-text`; the test corpus pins the shape on the four canonical
+  paths:
 
     - Success envelope (`ok-text`).
     - Error envelope (`err-text`).
@@ -42,8 +42,8 @@
           "the :structuredContent slot is present (rf2-hj3pi)")
       ;; The structured slot should be a JS object whose shape mirrors
       ;; the input. Keywords lose their `:` prefix in the JSON-coercible
-      ;; projection but KEEP their namespace (rf2-t2n04 — `:rf/x` →
-      ;; "rf/x"); plain keys like `:ok?` become the bare "ok?".
+      ;; projection but KEEP their namespace (`:rf/x` → "rf/x"); plain
+      ;; keys like `:ok?` become the bare "ok?".
       (is (object? (j/get result :structuredContent))
           ":structuredContent is a JS object")
       (is (= true (j/get-in result [:structuredContent :ok?]))
@@ -91,11 +91,10 @@
       (is (object? (j/get result :structuredContent))))))
 
 (deftest cache-hit-marker-key-keeps-namespace-in-structured-slot
-  ;; rf2-or8s29 — the cache-hit marker is built OUTSIDE the per-tool
-  ;; callbacks; before the fix it used a raw namespace-lossy `clj->js`,
-  ;; so SDK-friendly hosts reading structuredContent saw `"cache-hit"`
-  ;; (the marker key truncated) and missed the marker. Now it routes
-  ;; through `wire/result`, preserving the fully-qualified token.
+  ;; The cache-hit marker is built OUTSIDE the per-tool callbacks. It
+  ;; routes through `wire/result` so SDK-friendly hosts reading
+  ;; structuredContent see the fully-qualified `"rf.mcp/cache-hit"`
+  ;; token rather than a namespace-truncated `"cache-hit"` key.
   (testing "the :rf.mcp/cache-hit marker KEY survives namespace-faithfully (rf2-or8s29)"
     (let [entry  {:hash 12345 :unchanged-since 1700000000000}
           result (cache/cache-hit-result entry "snapshot" :result-hash)]
@@ -105,16 +104,16 @@
           "the namespace-truncated \"cache-hit\" key must NOT appear (the lossy old shape)"))))
 
 ;; ---------------------------------------------------------------------------
-;; structuredContent is NEVER null (rf2-r5erl).
+;; structuredContent is NEVER null.
 ;;
 ;; Every tool descriptor declares a map-shaped `:outputSchema`
 ;; (`{:type "object"}`). The npm MCP SDK validates `structuredContent`
 ;; against it, and a `null` is not a record — the SDK rejects the whole
 ;; `tools/call` at the transport layer with
 ;; `Invalid tools/call result: expected record at structuredContent,
-;; received null`. read-dom hit this in the wild when its browser eval
-;; came back blank (`cljs-eval-value` → nil → `(wire/ok-text nil)` →
-;; `(clj->js nil)` → null). `ok-text` / `err-text` now make the slot a
+;; received null`. read-dom can produce this when its browser eval
+;; comes back blank (`cljs-eval-value` → nil → `(wire/ok-text nil)` →
+;; `(clj->js nil)` → null). `ok-text` / `err-text` make the slot a
 ;; total non-null record.
 ;; ---------------------------------------------------------------------------
 
@@ -151,15 +150,15 @@
             "the EDN text slot still carries the verbatim scalar")))))
 
 ;; ---------------------------------------------------------------------------
-;; Namespaced keywords keep their namespace over the wire (rf2-t2n04).
+;; Namespaced keywords keep their namespace over the wire.
 ;;
 ;; A bare `(clj->js v)` is namespace-lossy: the default `:keyword-fn` for
 ;; map KEYS is `name` (`:rf/runtime` → `"runtime"`), and keyword VALUES
 ;; always go through `name` too (`:door/main` → `"main"`). Both drop the
 ;; namespace AND the colon, so an agent reading the structured slot then
 ;; threading the name-only key back through `get-path` hits `nil`. The
-;; fix stringifies every keyword to its colon-less fully-qualified token
-;; (`"rf/runtime"`) before `clj->js`. The EDN text slot stays the
+;; wire layer stringifies every keyword to its colon-less fully-qualified
+;; token (`"rf/runtime"`) before `clj->js`. The EDN text slot stays the
 ;; namespace-faithful, fully-typed canonical round-trip.
 ;; ---------------------------------------------------------------------------
 
@@ -168,7 +167,7 @@
     (let [payload {:rf/runtime {:loaded? true} :step 3}
           result  (wire/ok-text payload)]
       ;; The structured slot key must be the fully-qualified token, NOT
-      ;; the name-only "runtime" the old clj->js produced.
+      ;; a name-only "runtime".
       (is (some? (j/get-in result [:structuredContent "rf/runtime"]))
           ":rf/runtime serialises to the \"rf/runtime\" key, not \"runtime\"")
       (is (nil? (j/get-in result [:structuredContent "runtime"]))
@@ -184,8 +183,8 @@
 
 (deftest namespaced-keyword-values-keep-namespace-in-structured-slot
   (testing "namespaced keyword VALUES (e.g. machine-ids) keep their namespace (rf2-t2n04)"
-    ;; clj->js's :keyword-fn applies to KEYS only; keyword values always
-    ;; went through `name`. This pins the value path too.
+    ;; clj->js's :keyword-fn applies to KEYS only; keyword values go
+    ;; through `name`. This pins the value path too.
     (let [payload {:machine-ids [:door/main :traffic/light :quiz/scorer]
                    :current     :door/open}
           result  (wire/ok-text payload)

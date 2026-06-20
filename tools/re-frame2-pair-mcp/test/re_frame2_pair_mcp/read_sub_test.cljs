@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.read-sub-test
-  "Unit tests for the read-sub tool (rf2-3bu3d.7) — the validated
-  one-shot subscription read with no-silent-swallow parity with dispatch.
+  "Unit tests for the read-sub tool — the validated one-shot
+  subscription read with no-silent-swallow parity with dispatch.
 
   Two surfaces are pinned:
 
@@ -23,11 +23,11 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.read-sub :as read-sub]))
 
-;; Stub lifetime is fixture-scoped, not Promise-chain-scoped (rf2-wb06a) —
-;; see orient_test for the rationale. Each test installs its stub via a
+;; Stub lifetime is fixture-scoped, not Promise-chain-scoped — see
+;; orient_test for the rationale. Each test installs its stub via a
 ;; bare `set!`; the `:after` fixture restores the pristine original
 ;; captured at ns-load. Closes the cross-test `connect EADDRNOTAVAIL`
-;; race a `.finally`-scoped restore otherwise opened.
+;; race a `.finally`-scoped restore otherwise opens.
 (def ^:private pristine-eval nrepl/cljs-eval-value)
 
 (use-fixtures :each
@@ -109,8 +109,8 @@
 
 (defn- stub-eval!
   "Install a `cljs-eval-value` stub via a bare `set!` (NO `.finally` —
-  cleanup is the `:after` fixture's job, rf2-wb06a). Records the READ-SUB
-  form string into `captured*` and resolves it with `canned`.
+  cleanup is the `:after` fixture's job). Records the READ-SUB form
+  string into `captured*` and resolves it with `canned`.
 
   read-sub's prelude fires up to three evals: the preload-probe sentinel
   (`__re_frame2_pair_runtime`), the `configure-raw-state!` signal-runtime
@@ -177,10 +177,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest unknown-sub-id-surfaces-as-error-with-nearest
-  ;; The headline rf2-3bu3d.7 fix: a typo'd sub-id must NOT silently
-  ;; subscribe to a non-existent sub and return nil. The runtime
-  ;; read-sub! validates first and returns :unknown-id + :nearest; the
-  ;; tool surfaces it as an :isError envelope.
+  ;; A typo'd sub-id must NOT silently subscribe to a non-existent sub
+  ;; and return nil. The runtime read-sub! validates first and returns
+  ;; :unknown-id + :nearest; the tool surfaces it as an :isError
+  ;; envelope.
   (async done
     (let [runtime-result {:ok? false :reason :unknown-id :kind :sub
                           :id :current-userr :query-v [:current-userr]
@@ -202,9 +202,9 @@
 
 (deftest ambiguous-frame-surfaces-as-error
   (async done
-    ;; rf2-n58jxo — the runtime now refuses with the enriched ambiguous-frame
-    ;; envelope (operation, query, available frames, current pin, fix-hint).
-    ;; The tool wrap must carry every slot back to the agent verbatim.
+    ;; The runtime refuses with the enriched ambiguous-frame envelope
+    ;; (operation, query, available frames, current pin, fix-hint). The
+    ;; tool wrap must carry every slot back to the agent verbatim.
     (let [runtime-result {:ok?              false
                           :reason           :ambiguous-frame
                           :operation        :read-sub

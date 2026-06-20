@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.read-dom
-  "Tool: read-dom — the RAW DOM plane read (rf2-nfjil).
+  "Tool: read-dom — the RAW DOM plane read.
 
   ## The two DOM-read planes (read-dom vs read-ui)
 
@@ -21,19 +21,20 @@
 
   re-frame2-pair has rich DATA-plane reads — `snapshot` / `get-path`
   (app-db), `trace-window` / `watch-epochs` (epoch history),
-  `list-subscriptions` (the reactive sub-cache). What it lacked: a way to
-  ask what the app actually RENDERED, by an explicit selector, with no
-  re-frame2 awareness. Answering \"did the UI update?\", \"what does the
-  rendered node / attribute say?\" meant hand-rolling an `eval-cljs` form
-  around `js/document.querySelectorAll` on every call — fiddly, easy to
-  get wrong (text never capped → a multi-megabyte innerText blows the
-  wire cap), and not discoverable in the catalogue. The App-db
-  stale-frame bug (rf2-yng0y) was only diagnosable by reading the DOM
-  repeatedly; this op makes that a first-class gesture.
+  `list-subscriptions` (the reactive sub-cache). `read-dom` complements
+  them with a way to ask what the app actually RENDERED, by an explicit
+  selector, with no re-frame2 awareness. It answers \"did the UI
+  update?\", \"what does the rendered node / attribute say?\" as a
+  first-class, discoverable gesture — capping per-node text at the source
+  (so a multi-megabyte innerText never blows the wire cap) rather than
+  leaving the caller to hand-roll an `eval-cljs` form around
+  `js/document.querySelectorAll`. Diagnosing a stale-frame app-db bug by
+  reading the DOM repeatedly is exactly the kind of workflow it makes
+  cheap.
 
-  ## One shared DOM-read core with read-ui (rf2-q0r7e)
+  ## One shared DOM-read core with read-ui
 
-  Both planes now route through the SAME runtime ns
+  Both planes route through the SAME runtime ns
   (`re-frame2-pair.runtime`): read-dom emits
   `(re-frame2-pair.runtime/dom-read {...})` and read-ui emits
   `(re-frame2-pair.runtime/ui-read {...})`, via the SAME `eval-form` DSL
@@ -41,35 +42,29 @@
   (`probe/eval-after-runtime!`). The per-node projection (tag + capped
   text + attribute map) lives ONCE, in the runtime's `node->content`.
 
-  This folds away a maintenance hazard. read-dom previously INLINED its
-  whole browser-side core as a raw eval string, while read-ui called the
-  runtime fn — two divergent eval forms that rotted apart. rf2-w2mjm: the
-  inlined read-dom form lowered the tag with `(str/lower-case …)`, but
-  the BARE browser cljs-eval context the inlined string ran in aliases
-  NOTHING (no `:require`), so `str` was unresolved, the whole form nilled
-  out, and EVERY read-dom call came back `:read-dom-blank-result` — while
-  read-ui, calling the runtime ns (which DOES require `clojure.string`),
-  stayed green. Both ops gate on the preload runtime being present
-  (`ensure-runtime!`), so the inlining bought nothing; folding read-dom
-  onto the runtime fn removes the alias trap by construction — the core
-  now runs in a namespace with real requires.
+  Routing both planes through the runtime fn keeps a single core for both
+  ops and runs it in a namespace with real `:require`s — so helpers like
+  `clojure.string` resolve, unlike a bare browser cljs-eval context that
+  aliases nothing. Both ops gate on the preload runtime being present
+  (`ensure-runtime!`), so there is no value in inlining the browser-side
+  core as a raw eval string.
 
   ## Naming — the `read-` verb (NAMING.md §The verb table)
 
   Named `read-dom` (not `dom-read`) to ride the catalogued `read-<thing>`
   verb prefix: a cheap reflection of already-rendered state — the render
   already happened; this is a no-recompute read of its output, never a
-  fetch that triggers a render. (The runtime fn it calls keeps the
-  historical `dom-read` spelling — see the runtime ns's MCP-vs-runtime
-  naming table.) The verb-vocab conformance linter
+  fetch that triggers a render. (The runtime fn it calls uses the
+  `dom-read` spelling — see the runtime ns's MCP-vs-runtime naming
+  table.) The verb-vocab conformance linter
   (`tools/mcp-conformance/wire-vocab`) classifies tool names by prefix;
   `read-` is conformant with zero catalogue churn.
 
-  ## Pairs with `:await-render` (rf2-gfu33)
+  ## Pairs with `:await-render`
 
   `dispatch {:await-render true}` resolves only after the substrate
   has flushed the new state to the DOM. The natural follow-up is
-  `read-dom` — `dispatch → settle → read` is now a deterministic
+  `read-dom` — `dispatch → settle → read` is a deterministic
   three-step gesture with no manual requestAnimationFrame dance.
 
   ## Read-only by construction
@@ -86,11 +81,11 @@
   fn, so only the already-bounded EDN crosses the wire — a 5 MB `<pre>`
   blob never leaves the tab. Over-cap text is replaced with the
   framework's size-elision marker shape `{:rf.size/large-elided {...}}`
-  (the same convention `get-path` / `snapshot` emit, per rf2-urjnc) so
+  (the same convention `get-path` / `snapshot` emit) so
   the agent recognises an elision at a glance. The wire-boundary cap step
   (`tools.cljs` §`:apply-cap`) remains the backstop.
 
-  ## Privacy — value-redact derived content (rf2-p9scds)
+  ## Privacy — value-redact derived content
 
   Rendered DOM text / attribute values can carry a secret copied out of a
   declared-sensitive app-db slot — a non-app-db position the path-based
@@ -159,7 +154,7 @@
   "Per-node `textContent` character cap (default). Text longer than this
   is replaced with the `:rf.size/large-elided` marker carrying `:chars`
   — same shape `get-path` / `snapshot` emit for over-threshold app-db
-  slots (rf2-urjnc), so the agent recognises an elision uniformly."
+  slots, so the agent recognises an elision uniformly."
   2000)
 
 (defn- parse-attrs-arg
@@ -181,7 +176,7 @@
 
 (defn- read-dom-form
   "Compose a single `(re-frame2-pair.runtime/dom-read {...})` form via the
-  shared `eval-form` DSL (rf2-q0r7e) — the SAME plumbing read-ui uses. The
+  shared `eval-form` DSL — the SAME plumbing read-ui uses. The
   runtime fn does the whole read (querySelectorAll, per-node text cap,
   attribute collection, node `:limit`) in the tab, so only bounded EDN
   crosses the wire.
@@ -190,7 +185,7 @@
   names (no `data-*`/`aria-*` sweep); omitting it (nil) ⇒ the curated
   default set + the sweep, resolved runtime-side. A `frame` keyword (when
   supplied) names the frame whose declared-sensitive app-db values the
-  rendered nodes are value-redacted against (rf2-p9scds); omitting it lets
+  rendered nodes are value-redacted against; omitting it lets
   the runtime resolve the operating frame. The runtime fn is read-only
   (querySelectorAll + textContent + attribute strings)."
   [selector sub-selector limit max-text attrs frame]
@@ -220,7 +215,7 @@
         max-text     (let [m (wire/arg raw-args :max-text)]
                        (if (and (number? m) (pos? m)) (long m) default-max-text))
         attrs        (parse-attrs-arg (wire/arg raw-args :attrs))
-        ;; rf2-p9scds — the frame whose declared-sensitive app-db values the
+        ;; The frame whose declared-sensitive app-db values the
         ;; rendered nodes are value-redacted against (off-box gate). Omitted
         ;; ⇒ the runtime resolves the operating frame and fails closed on an
         ;; ambiguous one.
@@ -236,7 +231,7 @@
       :else
       (let [form (read-dom-form selector sub-selector limit max-text attrs frame)]
         ;; The runtime's `dom-read` ALWAYS returns a map, so a non-map at
-        ;; `on-value` means a BLANK eval (rf2-r5erl). The shared
+        ;; `on-value` means a BLANK eval. The shared
         ;; `probe/map-result-or-blank` projects a map → `ok-text` with the
         ;; `:build` echo, or a blank → a structured `:ok? false` error (so
         ;; `ok-text` never sees `nil` and emits the `null` structuredContent

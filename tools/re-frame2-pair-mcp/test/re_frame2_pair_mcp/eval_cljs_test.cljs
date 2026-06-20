@@ -1,16 +1,14 @@
 (ns re-frame2-pair-mcp.eval-cljs-test
   "Unit tests for the eval-cljs tool.
 
-  ## rf2-ivlb3 (`no-runtime-for-build-fails-loud` cluster)
+  ## Fail-loud on a runtime-absent build (`no-runtime-for-build` cluster)
 
-  THE BUG: `eval-cljs` against a build with no live re-frame2-pair
-  runtime returned `{:ok? true :value nil}` for EVERY form — including
-  `(count ...)`, which can never be nil — because shadow's `cljs-eval`
-  against a non-running build yields a blank value that
-  `cljs-eval-value` reads as nil, indistinguishable from a genuine nil.
-  ~30 min of dead-end debugging in the wild.
-
-  THE FIX (shared with the bash shim via the same `probe` logic):
+  `eval-cljs` against a build with no live re-frame2-pair runtime must
+  NOT collapse to `{:ok? true :value nil}` for forms like `(count ...)`
+  that can never be nil — shadow's `cljs-eval` against a non-running
+  build yields a blank value that would otherwise read as a genuine
+  nil. The tool guards against that with two behaviours (shared with
+  the bash shim via the same `probe` logic):
     1. Fail loud — preflight the runtime sentinel; a runtime-absent
        build returns `{:ok? false :reason :no-runtime-for-build ...}`
        enumerating the running builds, NEVER `:ok? true :value nil`.
@@ -22,7 +20,7 @@
     - `nrepl/jvm-eval`         — the `active-builds` enumeration (JVM-side).
     - `nrepl/cljs-eval-value`  — the sentinel probe + the actual eval.
 
-  ## rf2-xn4f9 (`await-*` cluster)
+  ## Await mode (`await-*` cluster)
 
   Opt-in `:await true` arg awaits Promise-returning forms server-side.
   The browser-side wrapper either short-circuits with
@@ -38,10 +36,10 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]))
 
-;; eval-cljs defaults ON post-rf2-a0z0h (the operator opts OUT via
-;; --no-eval). The suite leaves the gate at its default so we test the
-;; resolution path, not the gate (the gate's disabled-state coverage
-;; lives in conformance_test + `gate-closed-rejects-before-touching-nrepl`
+;; eval-cljs defaults ON (the operator opts OUT via --no-eval). The
+;; suite leaves the gate at its default so we test the resolution path,
+;; not the gate (the gate's disabled-state coverage lives in
+;; conformance_test + `gate-closed-rejects-before-touching-nrepl`
 ;; below).
 (use-fixtures :each
   {:before (fn [] (eval-cljs/set-eval-allowed! true))
@@ -92,7 +90,7 @@
                     (tu/restore-eval! cljs-stub orig-cljs))))))
 
 ;; ---------------------------------------------------------------------------
-;; Fail-loud — the headline regression (rf2-ivlb3).
+;; Fail-loud — a runtime-absent build never reports a silent nil.
 ;; ---------------------------------------------------------------------------
 
 (deftest no-runtime-for-build-fails-loud
@@ -203,7 +201,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest gate-closed-rejects-before-touching-nrepl
-  ;; Default ON post-rf2-a0z0h. To exercise the disabled envelope we
+  ;; The gate defaults ON. To exercise the disabled envelope we
   ;; flip the gate OFF (mimics `--no-eval` at launch), then restore the
   ;; default ON for downstream tests.
   (async done
@@ -226,11 +224,11 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-wz66k7 — `:timeout-ms` is validated as a positive-millisecond
-;; integer BEFORE the await-mailbox poll loop. A non-numeric value
-;; (`"bogus"`) made `await-promise/poll-mailbox!`'s `(>= elapsed
-;; timeout-ms)` deadline `(>= n NaN)` — never true — so an `:await` over a
-;; pending Promise polled FOREVER. The tool now short-circuits to an honest
+;; `:timeout-ms` is validated as a positive-millisecond integer BEFORE
+;; the await-mailbox poll loop. A non-numeric value (`"bogus"`) would
+;; make `await-promise/poll-mailbox!`'s `(>= elapsed timeout-ms)`
+;; deadline `(>= n NaN)` — never true — so an `:await` over a pending
+;; Promise would poll FOREVER. The tool short-circuits to an honest
 ;; validation error WITHOUT touching nREPL (validation is the first `cond`
 ;; branch, ahead of the eval).
 ;; ---------------------------------------------------------------------------
@@ -261,9 +259,9 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Typed result envelope (rf2-qobqy) — the default (non-await) path wraps
-;; the form so a genuine nil, an eval-error, and an unserializable value
-;; are DISTINCT outcomes instead of collapsing to a bare null. The stub
+;; Typed result envelope — the default (non-await) path wraps the form
+;; so a genuine nil, an eval-error, and an unserializable value are
+;; DISTINCT outcomes instead of collapsing to a bare null. The stub
 ;; returns the TAGGED `:rf.mcp/result` envelope the runtime would emit;
 ;; the server projects it.
 ;; ---------------------------------------------------------------------------
@@ -348,10 +346,10 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mvdwv — END-TO-END unresolved-symbol surfacing. The headline bug:
-;; eval'ing a form with an unresolved symbol (e.g. `re-frame.core/frame-db`,
-;; a fn that doesn't exist) returned `{:ok? true :value nil}` — the form
-;; silently nil'd out and the agent read the nil as a real value.
+;; END-TO-END unresolved-symbol surfacing. Eval'ing a form with an
+;; unresolved symbol (e.g. `re-frame.core/frame-db`, a fn that doesn't
+;; exist) must NOT return `{:ok? true :value nil}` — that would silently
+;; nil out the form and the agent would read the nil as a real value.
 ;;
 ;; Unlike the codec tests above (which stub `cljs-eval-value`, bypassing the
 ;; unwrap), this stubs ONE LAYER LOWER — `nrepl/cljs-eval` — so the REAL
@@ -415,7 +413,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Await mode (rf2-xn4f9) — the opt-in `:await true` arg awaits a
+;; Await mode — the opt-in `:await true` arg awaits a
 ;; Promise-returning form's resolved value, surfaces rejections as
 ;; `:rf.error/eval-cljs-rejected`, surfaces unbounded waits as
 ;; `:rf.error/eval-cljs-timeout`.
@@ -465,7 +463,7 @@
 
 (defn- with-stubbed-await!
   "Like `with-stubbed-runtime!` but additionally walks an in-test
-  mailbox state machine for the await wrapper + poll forms (rf2-xn4f9).
+  mailbox state machine for the await wrapper + poll forms.
 
   `:wrap-result` is the canned synchronous return of the await wrapper —
   either `{:rf.mcp/await-direct v}` (fast-path passthrough) or
@@ -641,7 +639,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Frame targeting (rf2-ntuzf) — `:frame` arg wraps the supplied form
+;; Frame targeting — `:frame` arg wraps the supplied form
 ;; in `(re-frame.core/with-frame <frame> <user-form>)` so subscribe /
 ;; dispatch inside the form target the named frame instead of the MCP
 ;; server's ambient :rf/default context.
@@ -675,9 +673,9 @@
                     (tu/restore-eval! cljs-stub orig-cljs))))))
 
 (deftest frame-arg-wraps-form-in-with-frame
-  ;; The headline rf2-ntuzf assertion: with :frame :rf/xray the user
-  ;; form is sent inside (re-frame.core/with-frame :rf/xray <form>),
-  ;; so subscribe / dispatch inside resolve to :rf/xray.
+  ;; With :frame :rf/xray the user form is sent inside
+  ;; (re-frame.core/with-frame :rf/xray <form>), so subscribe /
+  ;; dispatch inside resolve to :rf/xray.
   (async done
     (let [forms (atom [])]
       (-> (with-form-recorder! {:runtime? true :eval-value 42 :forms-atom forms}
@@ -798,7 +796,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Typed envelope — default path wraps the form (rf2-qobqy). Lives down
+;; Typed envelope — default path wraps the form. Lives down
 ;; here because it reuses `with-form-recorder!` (defined above in the
 ;; frame-targeting section).
 ;; ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.source-uri
-  "Source-URI decoration pass (rf2-cibp8).
+  "Source-URI decoration pass.
 
   Every re-frame2-pair-mcp tool whose response carries source-coord data walks
   the post-shrink payload through this transform. The decorator
@@ -15,7 +15,7 @@
   2. **Flat-key carrier** — `(rf/handler-meta kind id)` / `(rf/frame-
      meta id)` returns merge source-coords flat onto the registration-
      metadata map (`:ns` / `:line` / `:column` / `:file` at the top
-     level — per Spec-Schemas `:rf/source-coord-meta` and rf2-4h8ny).
+     level — per Spec-Schemas `:rf/source-coord-meta`).
      When the walker descends into a map that itself carries a usable
      `:file` string alongside other source-coord keys (`:ns`/`:line`/
      `:column`), the URI is spliced on THAT map at `:rf.source/uri`.

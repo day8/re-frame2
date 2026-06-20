@@ -1,14 +1,14 @@
 (ns re-frame2-pair-mcp.tools.cursor
-  "Cursor pagination on epoch-shipping tools (rf2-kbqq3).
+  "Cursor pagination on epoch-shipping tools.
 
   `trace-window` and `watch-epochs` both surface unbounded epoch
   vectors. With default ring depth 50 and ~2× app-db per record (or ~1%
-  that, post-rf2-1wdzp diff-encode), a single call can blow the 5K
-  wire-cap (rf2-rvyzy). Lazy-summary (rf2-u2029) trims `snapshot` for
+  that, after diff-encode), a single call can blow the 5K
+  wire-cap. Lazy-summary trims `snapshot` for
   discovery; here the agent explicitly asked for the records — the
   right answer is to PAGE the slice, not to collapse it.
 
-  ## Shared codec (rf2-ee38b.19)
+  ## Shared codec
 
   The base64 codec, the tagged-literal-rejecting EDN reader, the size
   cap, the `::malformed` recovery contract, and the cursor-stale
@@ -42,17 +42,17 @@
                                      ; admit fresh epochs mid-page
      :frame <keyword-or-nil>}
 
-  ## Why `:after-id` is `:any`, not `string?` (rf2-ee38b.18)
+  ## Why `:after-id` is `:any`, not `string?`
 
   An epoch-id is OPAQUE — `spec/Spec-Schemas.md` declares `:epoch-id`
   as `:any` and the reference epoch runtime
   (`re-frame/epoch/state.cljc` `next-epoch-id`) emits **integers**
-  (`(swap! counter inc)`). A prior `(string? (:after-id v))` guard
-  rejected every integer-bearing second-page cursor as
+  (`(swap! counter inc)`). The `valid?` predicate requires only that
+  the slot be PRESENT (`some?`), not that it be a string — a `string?`
+  guard would reject every integer-bearing second-page cursor as
   `::malformed` → spurious `:rf.mcp/cursor-stale`, breaking pagination
-  against the real runtime. The `valid?` predicate now only requires
-  the slot be PRESENT (`some?`) — any EDN-printable id (integer,
-  keyword, string) round-trips losslessly through the base64-of-EDN
+  against the real runtime. Any EDN-printable id (integer, keyword,
+  string) round-trips losslessly through the base64-of-EDN
   codec. The codec, size cap, and tagged-literal rejection are the
   base's; only this shape predicate is the pair's.
 
@@ -85,8 +85,8 @@
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def default-limit
-  ;; Sized to fit a 5K-token cap after diff-encode (rf2-1wdzp) and
-  ;; dedup (rf2-obpa9). With diff-encode collapsing `:db-after` to ~1%
+  ;; Sized to fit a 5K-token cap after diff-encode and
+  ;; dedup. With diff-encode collapsing `:db-after` to ~1%
   ;; of `:db-before` and dedup pooling repeated `:db-before` references,
   ;; 50 epochs fit comfortably under 5K tokens for typical app-db sizes.
   ;; Agents that have explicit budget headroom raise via `:limit` arg.
@@ -103,16 +103,16 @@
 (defn parse-limit-arg
   "Normalise the `:limit` MCP arg into an integer in `[1, max-limit]`.
   Default `default-limit` (50). Delegates to
-  `re-frame.mcp-base.cursor/parse-limit-arg` (rf2-ee38b.19), which
+  `re-frame.mcp-base.cursor/parse-limit-arg`, which
   itself routes through `re-frame.mcp-base.args/parse-positive-int`
-  (rf2-vw4sq) for the shared string/number coercion."
+  for the shared string/number coercion."
   [raw]
   (base-cursor/parse-limit-arg raw default-limit max-limit))
 
 (defn- valid-payload?
   "The pair's cursor-payload shape predicate. A well-formed cursor is a
   map carrying a PRESENT `:after-id` of ANY type — per the `:any`
-  `:epoch-id` contract (rf2-ee38b.18), the reference runtime's epoch-ids
+  `:epoch-id` contract, the reference runtime's epoch-ids
   are integers, so a `string?` guard here would reject every legitimate
   second-page cursor. We require presence, not type."
   [v]
@@ -147,7 +147,7 @@
 (defn cursor-stale-result
   "Structured cursor-stale error result. The `:reason` value
   (`base-vocab/cursor-stale-reason`, namespaced `:rf.mcp/cursor-stale`)
-  is the cross-MCP convention agents pattern-match on (rf2-vw4sq);
+  is the cross-MCP convention agents pattern-match on;
   they either restart (drop the cursor) or rewind via a wider window.
 
   Shapes the envelope through `wire/err-text` (the pair's wire

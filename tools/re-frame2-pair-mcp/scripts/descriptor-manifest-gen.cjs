@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * re-frame2-pair-mcp tool-descriptor manifest generator + drift-check
- * (rf2-sofwv) — Node wrapper.
+ * — Node wrapper.
  *
  * Compiles the `:descriptor-gen` shadow-cljs build (the CLJS generator
  * `re-frame2-pair-mcp.descriptor-manifest-gen`) and runs it, forwarding

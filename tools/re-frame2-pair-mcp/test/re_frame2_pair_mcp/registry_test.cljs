@@ -1,9 +1,8 @@
 (ns re-frame2-pair-mcp.registry-test
-  "Structural completeness of the single tool registry (rf2-47g8l;
-  ratchet added by rf2-wnrpi).
+  "Structural completeness of the single tool registry.
 
-  The whole point of the single `registry/tools` source (rf2-47g8l) is
-  that the three derived views — `tool-descriptors`, `handler-for`, and
+  The whole point of the single `registry/tools` source is that the
+  three derived views — `tool-descriptors`, `handler-for`, and
   `cacheable?` — cannot drift, because each is generated from the one
   vector. `cache_test` already pins `cacheable?` for the named tools;
   this suite pins the OTHER derived view that the dispatcher relies on:

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.unknown-tool-test
-  "Server-boundary unknown-tool guard tests (rf2-4mc6q1).
+  "Server-boundary unknown-tool guard tests.
 
   The dispatcher's own `:unknown-tool` branch (`tools/dispatch-tool*`)
   resolves an unregistered name to the recovery-shaped `:unknown-tool`
@@ -8,15 +8,16 @@
   for EVERY tool BEFORE the dispatcher. On a stock / misconfigured install
   with NO nREPL port, that connection step REJECTS with
   `:nrepl-port-not-found` and the unknown name never reaches the
-  dispatcher — so a typo or removed alias (e.g. `registry-list`) returned a
-  misleading discovery error, MASKING the `:unknown-tool` recovery
-  affordances (`:hint` → tools/list, `:available-tools`, `:did-you-mean`).
+  dispatcher. Without an OUTER guard, a typo or absent alias (e.g.
+  `registry-list`) would surface a misleading discovery error and MASK
+  the `:unknown-tool` recovery affordances (`:hint` → tools/list,
+  `:available-tools`, `:did-you-mean`).
 
-  These tests pin the missing OUTER ring: the pre-connection guard
+  These tests pin the OUTER ring: the pre-connection guard
   (`tools/refuse-unknown-tool`) and the server `handle-call` ordering
   that proves the refusal precedes `ensure-connection!` — discovery never
-  runs; the session-state stays pristine. Mirrors `writes_test.cljs`
-  (rf2-wz66k7), the symmetric pre-connection write-gate."
+  runs; the session-state stays pristine. Mirrors `writes_test.cljs`,
+  the symmetric pre-connection write-gate."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -57,7 +58,7 @@
 
 (deftest refuse-unknown-tool-offers-nearest-match
   ;; A near-miss typo of a real name surfaces a :did-you-mean pointer —
-  ;; the same recovery the dispatcher branch emits (rf2-tkmik).
+  ;; the same recovery the dispatcher branch emits.
   (let [result (tools/refuse-unknown-tool "snapsho")
         edn    (read-edn result)]
     (is (= :unknown-tool (:reason edn)))
@@ -105,9 +106,9 @@
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Server-boundary regression guard: a removed alias such as `registry-list`
-;; (renamed to `list-handlers` per rf2-4y595) must diagnose as :unknown-tool
-;; at the boundary — the exact masking the bead reported.
+;; Server-boundary regression guard: an unregistered alias such as
+;; `registry-list` (the live name is `list-handlers`) must diagnose as
+;; :unknown-tool at the boundary — not a discovery error.
 ;; ---------------------------------------------------------------------------
 
 (deftest removed-alias-diagnoses-as-unknown-tool-not-discovery-error
@@ -119,22 +120,22 @@
                    (is (= :unknown-tool (:reason edn))
                        "a removed alias diagnoses as :unknown-tool, not :nrepl-port-not-found")
                    (is (= "registry-list" (:tool edn)))
-                   ;; `registry-list` is too far in edit distance from the
-                   ;; renamed `list-handlers` to trip the :did-you-mean
+                   ;; `registry-list` is too far in edit distance from
+                   ;; `list-handlers` to trip the :did-you-mean
                    ;; near-match cutoff — but the live catalogue still
-                   ;; carries the replacement, so the agent recovers via
+                   ;; carries `list-handlers`, so the agent recovers via
                    ;; the :available-tools list + the tools/list hint.
                    (is (some #{"list-handlers"} (:available-tools edn))
-                       "the renamed tool is enumerated in the live catalogue")
+                       "list-handlers is enumerated in the live catalogue")
                    (is (re-find #"tools/list" (:hint edn))))
                  (done)))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; structuredContent on the boundary refusal preserves the keyword
-;; namespace (rf2-or8s29) — the envelope rides through `wire/err-text`, the
-;; same dual-slot constructor the dispatcher uses, so the SDK-friendly slot
-;; is namespace-faithful (not a raw, namespace-lossy clj->js).
+;; namespace — the envelope rides through `wire/err-text`, the same
+;; dual-slot constructor the dispatcher uses, so the SDK-friendly slot is
+;; namespace-faithful (a raw clj->js would truncate the namespace).
 ;; ---------------------------------------------------------------------------
 
 (deftest unknown-tool-boundary-structured-content-is-faithful

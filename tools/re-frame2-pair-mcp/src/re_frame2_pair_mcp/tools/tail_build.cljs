@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.tail-build
   "Tool: tail-build — wait for hot-reload to land.
 
-  ## Probe-value diagnostics (rf2-36awg)
+  ## Probe-value diagnostics
 
   When a probe form is supplied, both the success and timeout responses
   carry `:probe-values {:initial <v0> :final <v-last>}` — the two ends
@@ -18,11 +18,10 @@
     3. `:initial` present and `:final` errored consistently →
        `:probe-errored` envelope with `:probe-error <stringified ex>`.
 
-  Pre-rf2-36awg the timeout response carried only the misleading hint
-  \"Likely a compile error\". A pair-debug session 2026-05-25 hit the
-  case where the probe form itself was malformed and could not change;
-  with no value information returned the operator had to manually call
-  `handler-meta` to confirm the rebuild had actually landed."
+  Returning both ends of the comparison lets the operator distinguish a
+  malformed probe form (which can never change) from a genuinely stalled
+  rebuild directly from the envelope, instead of manually calling
+  `handler-meta` to confirm the rebuild landed."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.wire :as wire]))
@@ -49,8 +48,8 @@
   300)
 
 (def ^:private timeout-note
-  "Hint surfaced on the timeout envelope. With the probe-values now
-  riding back, the operator can read the values themselves to pick
+  "Hint surfaced on the timeout envelope. The probe-values ride back
+  alongside it, so the operator can read the values themselves to pick
   the actual cause from the listed candidates."
   (str "Probe value did not change within wait-ms. "
        "Possible causes: (a) compile error in shadow stalled the rebuild, "
@@ -66,7 +65,7 @@
 
 (defn tail-build-tool [conn args]
   (let [build-id (wire/arg-build conn args)
-        ;; rf2-wz66k7 — validate `:wait-ms` as a positive-millisecond
+        ;; Validate `:wait-ms` as a positive-millisecond
         ;; integer BEFORE it reaches the `(>= elapsed wait-ms)` poll
         ;; comparison. A non-numeric value (`"never"`) makes `(>= n NaN)`
         ;; never true ⇒ the probe-change loop polls the nREPL socket

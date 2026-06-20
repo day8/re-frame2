@@ -1,8 +1,7 @@
 (ns re-frame2-pair-mcp.tools.dedup
-  "Diff-encoded epoch slice (rf2-1wdzp) + structural dedup at the wire
-  boundary (rf2-obpa9).
+  "Diff-encoded epoch slice + structural dedup at the wire boundary.
 
-  ## Diff-encoded epoch slice (rf2-1wdzp)
+  ## Diff-encoded epoch slice
 
   Each `:rf/epoch-record` carries `:db-before` and `:db-after` —
   near-identical full app-db snapshots. `pr-str` doesn't preserve
@@ -13,7 +12,7 @@
   without reference to siblings. Opt-back-in to the full pair via
   `:full` mode. Default is `:diff`.
 
-  ## Structural dedup (rf2-obpa9)
+  ## Structural dedup
 
   Persistent data structures share subtrees in memory; `pr-str` flattens
   the sharing. `day8/de-dupe` walks a persistent data structure,
@@ -47,7 +46,7 @@
 
   `dedup` MCP arg (boolean). Default `true`. `false` skips dedup
   entirely. The arg is parsed by the shared
-  `re-frame2-pair-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
+  `re-frame2-pair-mcp.tools.args/parse-bool-arg` table.
 
   ### Idempotence on no-dedup-opportunity
 
@@ -55,11 +54,11 @@
   (the wire shape is very slightly larger than the input). The encoder
   skips wrapping in that case via an `empty-payload?` short-circuit.
 
-  ### Where the dedup encode step lives (rf2-ttspi7)
+  ### Where the dedup encode step lives
 
-  `empty-payload?` and `dedup-value` were byte-identical to story-mcp's,
-  so they are lifted to `re-frame.mcp-base.dedup` and delegated here.
-  The diff-encode delegations are unchanged."
+  `empty-payload?` and `dedup-value` are identical to story-mcp's, so
+  they live in `re-frame.mcp-base.dedup` and are delegated here, as are
+  the diff-encode steps."
   (:require [re-frame.mcp-base.args :as base-args]
             [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame.mcp-base.diff-encode :as base-diff]))
@@ -75,7 +74,7 @@
 
 (defn parse-epochs-mode
   "Normalise the `epochs-mode` MCP arg. Delegates to
-  `re-frame.mcp-base.args/parse-mode` (rf2-vw4sq)."
+  `re-frame.mcp-base.args/parse-mode`."
   [raw]
   (base-args/parse-mode raw :diff #{:diff :full}))
 
@@ -84,19 +83,19 @@
 ;; ---------------------------------------------------------------------------
 
 (defn empty-payload?
-  "Delegates to `re-frame.mcp-base.dedup/empty-payload?` (rf2-ttspi7)."
+  "Delegates to `re-frame.mcp-base.dedup/empty-payload?`."
   [v]
   (base-dedup/empty-payload? v))
 
 (defn dedup-value
-  "Delegates to `re-frame.mcp-base.dedup/dedup-value` (rf2-ttspi7). Uses
+  "Delegates to `re-frame.mcp-base.dedup/dedup-value`. Uses
   `de-dupe-eq` (equality-based) — see the section header for the
   identity-vs-equality rationale."
   [v enabled?]
   (base-dedup/dedup-value v enabled?))
 
-;; `dedup-expand` (the inverse of `dedup-value`) has moved to
-;; `re-frame2-pair-mcp.test-utils/dedup-expand` (rf2-ambfv). It's
+;; `dedup-expand` (the inverse of `dedup-value`) lives in
+;; `re-frame2-pair-mcp.test-utils/dedup-expand`. It's
 ;; never called by the MCP server itself — only by tests asserting
 ;; round-trip exactness. The agent host calls `de-dupe.core/expand`
 ;; directly on the wire payload.

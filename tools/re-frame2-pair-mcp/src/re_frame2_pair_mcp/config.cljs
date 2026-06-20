@@ -1,9 +1,8 @@
 (ns re-frame2-pair-mcp.config
-  "Runtime configuration for the re-frame2-pair-mcp server (rf2-cibp8).
+  "Runtime configuration for the re-frame2-pair-mcp server.
 
-  Phase 1 owns one concern: the 'Open in editor' preference that
-  controls the URI scheme attached to every `:source-coord` map crossing
-  the wire (rf2-cibp8).
+  Owns one concern: the 'Open in editor' preference that controls the
+  URI scheme attached to every `:source-coord` map crossing the wire.
 
   ## Why a separate config ns
 

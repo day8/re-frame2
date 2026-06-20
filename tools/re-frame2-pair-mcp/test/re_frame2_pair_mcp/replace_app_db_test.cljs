@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.replace-app-db-test
-  "Unit tests for the replace-app-db tool (rf2-ee38b.18).
+  "Unit tests for the replace-app-db tool.
 
   State injection — replaces a frame's app-db with an arbitrary EDN
   value via the Tool-Pair `replace-app-db!` write primitive. Pins:
@@ -24,14 +24,13 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; rf2-z7roa — reset now issues `configure-raw-state!` (the raw-state
-;; tap signal) BEFORE `app-db-reset!`. The stub records EVERY form so a
-;; test can assert that ordering. `captured*` holds the LAST recorded
-;; form (the app-db-reset! form, since it runs after the signal) — the
-;; legacy single-form assertions still read it. The `configure-raw-
-;; state!` eval resolves to the same canned value (harmless — its
-;; result is swallowed). The signal cache is reset per test so the
-;; signal fires freshly.
+;; Reset issues `configure-raw-state!` (the raw-state tap signal) BEFORE
+;; `app-db-reset!`. The stub records EVERY form so a test can assert that
+;; ordering. `captured*` holds the LAST recorded form (the app-db-reset!
+;; form, since it runs after the signal) — the single-form assertions
+;; read it. The `configure-raw-state!` eval resolves to the same canned
+;; value (harmless — its result is swallowed). The signal cache is reset
+;; per test so the signal fires freshly.
 (defn- with-captured-eval!
   ([captured* canned-value body-fn]
    (with-captured-eval! captured* (atom []) canned-value body-fn))
@@ -40,8 +39,8 @@
          run  (fn [form-str]
                 (swap! forms* conj form-str)
                 ;; `captured*` mirrors the LAST app-db-reset! form for
-                ;; the legacy assertions (it overwrites on the signal
-                ;; form first, then the reset form).
+                ;; the single-form assertions (it overwrites on the
+                ;; signal form first, then the reset form).
                 (reset! captured* form-str)
                 (js/Promise.resolve canned-value))
          stub (fn
@@ -82,8 +81,8 @@
           (.finally (fn [] (writes/set-allow-writes! prev) (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-z7roa — raw-state tap signal ordering. `configure-raw-state!` MUST
-;; be evaluated BEFORE `app-db-reset!`, so the runtime's tap-emitting
+;; Raw-state tap signal ordering. `configure-raw-state!` MUST be
+;; evaluated BEFORE `app-db-reset!`, so the runtime's tap-emitting
 ;; surface is in its gated (default-elided) posture before the reset taps
 ;; the pre-/post-reset app-db. A write-path test FAILS if app-db-reset!
 ;; can run first.
@@ -206,11 +205,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reset-rejected-envelope-rides-as-isError
-  ;; rf2-or8s29 — a `{:ok? false :reason :reset-rejected ...}` from the
-  ;; runtime means the injection did NOT land (no-such-frame,
-  ;; replace-during-drain, schema-mismatch). It is not a terminal-empty
-  ;; outcome, so it MUST ride as an isError result carrying the reason,
-  ;; not a success-shaped envelope the host reads as a landed write.
+  ;; A `{:ok? false :reason :reset-rejected ...}` from the runtime means
+  ;; the injection did NOT land (no-such-frame, replace-during-drain,
+  ;; schema-mismatch). It is not a terminal-empty outcome, so it MUST
+  ;; ride as an isError result carrying the reason, not a success-shaped
+  ;; envelope the host reads as a landed write.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!
@@ -229,10 +228,10 @@
                    (done)))))))
 
 (deftest unexpected-shape-fallback-rides-as-isError
-  ;; rf2-or8s29 — a degraded / pre-rf2-c2dtu runtime can return a
-  ;; non-map value; the tool synthesises `{:ok? false :reason
-  ;; :unexpected-shape ...}`. That too means the write did not land in a
-  ;; known-good shape, so it MUST ride as an isError result.
+  ;; A degraded runtime can return a non-map value; the tool synthesises
+  ;; `{:ok? false :reason :unexpected-shape ...}`. That too means the
+  ;; write did not land in a known-good shape, so it MUST ride as an
+  ;; isError result.
   (async done
     (let [captured (atom nil)]
       (-> (with-writes-on!
@@ -250,7 +249,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cascade summary (rf2-6yqdl) — successful reset surfaces the synthetic
+;; Cascade summary — a successful reset surfaces the synthetic
 ;; `:rf.epoch/db-replaced` epoch via :cascade-summary.
 ;; ---------------------------------------------------------------------------
 

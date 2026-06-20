@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.writes-test
-  "Server-boundary write-gate tests (rf2-wz66k7).
+  "Server-boundary write-gate tests.
 
   The write-tool BODIES (`restore-epoch-tool` / `replace-app-db-tool`)
   refuse `:rf.error/writes-disabled` as their first action without
@@ -7,13 +7,14 @@
   replace_app_db_test). But the real MCP server handler
   (`server.cljs/handle-call`) runs `ensure-connection!` for EVERY tool
   BEFORE the tool body. On a stock install with NO nREPL port, that
-  connection step REJECTS and the tool body's gate NEVER fires, so a
-  disabled `restore-epoch` / `replace-app-db` returned a misleading
-  `:nrepl-port-not-found` (or ran discovery / elicitation) instead of the
-  intended destructive-tool refusal — the default-safe write posture was
-  observably FALSE at the MCP boundary.
+  connection step REJECTS. Without an OUTER guard the tool body's gate
+  never fires, so a disabled `restore-epoch` / `replace-app-db` would
+  surface a misleading `:nrepl-port-not-found` (or run discovery /
+  elicitation) instead of the intended destructive-tool refusal — the
+  default-safe write posture would be observably FALSE at the MCP
+  boundary.
 
-  These tests pin the missing OUTER ring: the pre-connection guard
+  These tests pin the OUTER ring: the pre-connection guard
   (`writes/refuse-pre-connection`) and the server `handle-call` ordering
   that proves the refusal precedes `ensure-connection!` (discovery never
   runs; the session-state stays pristine)."
@@ -98,19 +99,17 @@
     (assert-refused-locally "replace-app-db" done)))
 
 ;; ---------------------------------------------------------------------------
-;; Server-level error envelope — namespace-preserving structuredContent
-;; (rf2-or8s29).
+;; Server-level error envelope — namespace-preserving structuredContent.
 ;;
 ;; The discovery-error / handler-threw envelopes are built in server.cljs
-;; OUTSIDE the per-tool callbacks. Before rf2-or8s29 they used a raw
-;; `(clj->js payload)` for structuredContent, which truncates the
-;; namespace on `:rf.error/*` reason VALUES (`:rf.error/foo` →
-;; `"foo"`). Routing them through `wire/result` preserves the
-;; fully-qualified token in the SDK-friendly structured slot. Here we
-;; drive a NON-write tool through the pristine, no-port harness so
-;; `ensure-connection!` rejects and `handle-call*` builds the
-;; discovery-error envelope; we assert both the EDN text slot AND the
-;; structured slot agree on the reason, namespace intact.
+;; OUTSIDE the per-tool callbacks, routed through `wire/result` so the
+;; fully-qualified token survives in the SDK-friendly structured slot. A
+;; raw `(clj->js payload)` would truncate the namespace on `:rf.error/*`
+;; reason VALUES (`:rf.error/foo` → `"foo"`). Here we drive a NON-write
+;; tool through the pristine, no-port harness so `ensure-connection!`
+;; rejects and `handle-call*` builds the discovery-error envelope; we
+;; assert both the EDN text slot AND the structured slot agree on the
+;; reason, namespace intact.
 ;; ---------------------------------------------------------------------------
 
 (deftest discovery-error-structured-content-preserves-reason-namespace

@@ -1,6 +1,5 @@
 (ns re-frame2-pair-mcp.tools.operating-frame
-  "Tools: set-operating-frame + reset-operating-frame + get-operating-frame
-  (rf2-zomfq).
+  "Tools: set-operating-frame + reset-operating-frame + get-operating-frame.
 
   The three operating-frame ops the [Tool-Pair contract][1] mandates
   (§Tool-surface obligations) for any pair-shaped tool surface. They are
@@ -21,7 +20,7 @@
   So `set-operating-frame` pins a FRAME ID, full stop. `reset-operating-frame`
   clears the pin so a session resets to a clean posture.
 
-  ## The gap these close
+  ## Why these ops exist
 
   re-frame2 is multi-frame (Spec 002). Every frame-targeted read/write
   (`dispatch`, `snapshot`, `get-path`, `subscribe`, `list-subscriptions`,
@@ -33,12 +32,11 @@
   guessing (per Tool-Pair §Ambiguity surface — a write that lands in the
   wrong frame is unrecoverable without `restore-epoch`).
 
-  Before this tool, tier 2 was *unreachable from the MCP surface*: the
-  runtime exposed `select-frame!` / `current-frame` / `frames-list` but no
-  tool wired them onto the wire, so a multi-frame agent had to thread
-  `:frame` through every single call forever — defeating the
-  implicit-until-reset UX the contract designed. These three ops surface
-  the session pin so the agent declares it ONCE and escapes.
+  These three ops surface tier 2 — the session pin — on the MCP wire. The
+  runtime holds `select-frame!` / `current-frame` / `frames-list`; these
+  tools wire them onto the wire so a multi-frame agent declares its
+  operating frame ONCE and escapes the per-call `:frame` threading,
+  delivering the implicit-until-reset UX the contract designs for.
 
   ## The trio
 
@@ -86,21 +84,20 @@
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
-;; rf2-olvr5 finding 3 — the response cache key is `(tool, build,
-;; args-fingerprint)`; it deliberately can NOT include the resolved
-;; operating frame for an omitted-`:frame` call (that resolves runtime-
-;; side, after the key is built). So a `get-path {path X}` with no
-;; `:frame` arg, cached against operating frame A, would serve A's payload
-;; after the session switches to frame B if B happens to share A's
-;; app-db-hash (the multi-frame identical-initial-db case the bead
-;; reproduces). The fix flushes the WHOLE response cache whenever the
-;; operating frame changes — and to avoid a `cache → registry →
-;; operating-frame → cache` require cycle (registry wires these handlers,
-;; cache reads registry's `cacheable?`), the flush is driven from the
-;; `invoke` dispatch chokepoint in `re-frame2-pair-mcp.tools` (which
-;; already requires both `cache` and `registry`) rather than imported
-;; here. `operating-frame-mutating?` is the predicate that chokepoint
-;; consults.
+;; The response cache key is `(tool, build, args-fingerprint)`; it
+;; deliberately can NOT include the resolved operating frame for an
+;; omitted-`:frame` call (that resolves runtime-side, after the key is
+;; built). So a `get-path {path X}` with no `:frame` arg, cached against
+;; operating frame A, would serve A's payload after the session switches
+;; to frame B if B happens to share A's app-db-hash (the multi-frame
+;; identical-initial-db case). To prevent that, the WHOLE response cache
+;; flushes whenever the operating frame changes — and to avoid a
+;; `cache → registry → operating-frame → cache` require cycle (registry
+;; wires these handlers, cache reads registry's `cacheable?`), the flush
+;; is driven from the `invoke` dispatch chokepoint in
+;; `re-frame2-pair-mcp.tools` (which already requires both `cache` and
+;; `registry`) rather than imported here. `operating-frame-mutating?` is
+;; the predicate that chokepoint consults.
 
 ;; ---------------------------------------------------------------------------
 ;; set-operating-frame
@@ -150,18 +147,18 @@
                         "(EP-0023: image -> frame -> event stream); call "
                         "get-operating-frame to see the registered frames.")}))
 
-      ;; rf2-wdxyx3 finding 1 — refuse pinning a reserved `:rf/*` TOOL frame
-      ;; as the session's operating frame BEFORE any nREPL round-trip. A
-      ;; tool frame (Xray's `:rf/xray`, an SSR slot) is a devtool surface,
-      ;; NOT the app the operator is pairing against (Tool-Pair §Reserved
-      ;; tool frames are excluded from the ambiguity count). Were a pin
+      ;; Refuse pinning a reserved `:rf/*` TOOL frame as the session's
+      ;; operating frame BEFORE any nREPL round-trip. A tool frame
+      ;; (Xray's `:rf/xray`, an SSR slot) is a devtool surface, NOT the
+      ;; app the operator is pairing against (Tool-Pair §Reserved tool
+      ;; frames are excluded from the ambiguity count). Were a pin
       ;; allowed, the runtime's `current-frame` resolver would return the
       ;; tool frame at tier 2, and a later no-`:frame` `get-path {path []}`
       ;; would resolve the wholesale read through it — re-opening the exact
-      ;; context-window overflow the rf2-qef58 guard was introduced to
-      ;; close (the guard fires on the explicit `:frame` arg; an omitted
-      ;; `:frame` resolves runtime-side, where the client guard can't see
-      ;; the reserved pin). Closing the pin here removes the bypass at its
+      ;; context-window overflow the wholesale-read guard closes (that
+      ;; guard fires on the explicit `:frame` arg; an omitted `:frame`
+      ;; resolves runtime-side, where the client guard can't see the
+      ;; reserved pin). Closing the pin here removes the bypass at its
       ;; source: a reserved frame is never the operating frame, so the
       ;; nil-`:frame` resolution can never land on one. Sliced/explicit
       ;; reads of a tool frame stay available via the per-call `:frame`
@@ -187,7 +184,7 @@
         (probe/eval-after-runtime!
           conn build-id form :set-operating-frame-failed
           (fn [v]
-            ;; rf2-wdxyx3 finding 2 — a known-tool execution failure
+            ;; A known-tool execution failure
             ;; (`:ok? false`) MUST ride back as an `isError` envelope so the
             ;; MCP host routes recovery through the error channel and the
             ;; invoke chokepoint does not treat a non-pin as a cache-flushing
@@ -241,15 +238,15 @@
 
 (def operating-frame-mutating-tools
   "Tool names whose successful invocation changes the session's operating
-  frame, invalidating every omitted-`:frame` cached read (rf2-olvr5
-  finding 3). The `invoke` chokepoint flushes the response cache after
-  these run. `get-operating-frame` is a pure read and is NOT included."
+  frame, invalidating every omitted-`:frame` cached read. The `invoke`
+  chokepoint flushes the response cache after these run.
+  `get-operating-frame` is a pure read and is NOT included."
   #{"set-operating-frame" "reset-operating-frame"})
 
 (defn operating-frame-mutating?
-  "True iff `tool-name` is an operating-frame mutation (rf2-olvr5
-  finding 3) — the predicate `re-frame2-pair-mcp.tools/invoke` consults
-  to decide whether to flush the response cache after the call. Lives
+  "True iff `tool-name` is an operating-frame mutation — the predicate
+  `re-frame2-pair-mcp.tools/invoke` consults to decide whether to flush
+  the response cache after the call. Lives
   here (not in `cache`) so the cache ns stays free of an
   operating-frame require; lives as a name-set check (not a per-result
   inspection) so the chokepoint never has to parse the tool's envelope."

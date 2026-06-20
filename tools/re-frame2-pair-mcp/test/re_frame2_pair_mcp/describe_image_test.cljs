@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.describe-image-test
-  "Unit tests for the describe-image tool (rf2-srobm0) — the EP-0023
+  "Unit tests for the describe-image tool — the EP-0023
   Use-Case 7 read over a frame's resolved image generation.
 
   The tool is a thin wrapper over the runtime `describe-image` fn: it emits
@@ -17,7 +17,7 @@
   The runtime `describe-image` composition (the generation projection) is
   exercised by the runtime preload tests.
 
-  ## Stub lifetime — fixture-scoped (rf2-wb06a)
+  ## Stub lifetime — fixture-scoped
 
   Each test installs its `cljs-eval-value` stub via a bare `set!`; a
   `use-fixtures :each :after` step restores the pristine original. See

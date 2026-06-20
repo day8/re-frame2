@@ -1,10 +1,9 @@
 (ns re-frame2-pair-mcp.descriptor-manifest-gen
-  "re-frame2-pair-mcp tool-descriptor manifest generator + drift-check
-  (rf2-sofwv).
+  "re-frame2-pair-mcp tool-descriptor manifest generator + drift-check.
 
-  Follow-on to the rf2-3nbl5.2 API-governance keystone, mirroring its
-  generate-then-drift-check shape on re-frame2-pair-mcp's MCP descriptor
-  surface — the CLJS/Node counterpart to story-mcp's JVM generator.
+  An API-governance keystone: a generate-then-drift-check over
+  re-frame2-pair-mcp's MCP descriptor surface — the CLJS/Node
+  counterpart to story-mcp's JVM generator.
 
   SOURCE OF TRUTH. `re-frame2-pair-mcp.tools.registry/tool-descriptors`
   — the ordered vector of raw `:descriptor` payloads projected from the
@@ -12,7 +11,7 @@
   and projects each into the stable catalogue row defined by
   `re-frame.mcp-base.descriptor-manifest`.
 
-  WIRE-SPLICED INPUTS (rf2-cwhod2). The raw registry descriptors do NOT
+  WIRE-SPLICED INPUTS. The raw registry descriptors do NOT
   carry the universal `max-tokens` / `cache` input knobs — those are
   spliced onto every descriptor's `:inputSchema :properties` at
   `tools/list` time by `tools/descriptors.cljs` (`with-budget-knob` /
@@ -28,9 +27,9 @@
   `tools/list` input surface, and the manifest stays deterministic +
   config-independent.
 
-  GATED INPUTS (rf2-qo3wvp). pair-mcp's `tools/list` surface gates NO
+  GATED INPUTS. pair-mcp's `tools/list` surface gates NO
   input key off behind an operator flag — its `eval-cljs` gate is
-  default-ON (rf2-a0z0h) and gates a whole TOOL, not an input property;
+  default-ON and gates a whole TOOL, not an input property;
   the `max-tokens` / `cache` splices above are deterministic, not gated.
   So this generator passes NO gated-key set to `dm/build-manifest`
   (defaulting to `#{}`), and every pair-mcp row carries
@@ -78,7 +77,7 @@
 
 (defn build
   "Build the manifest from the registry descriptors, with the universal
-  `max-tokens` / `cache` knobs spliced in FIRST (rf2-cwhod2) so the
+  `max-tokens` / `cache` knobs spliced in FIRST so the
   projected `:input-keys` reflect the actual `tools/list` input surface.
   Reuses the very composers `tools/descriptors/tool-descriptors-js`
   applies at `tools/list` time — `with-cache-knob` ∘ `with-budget-knob`,

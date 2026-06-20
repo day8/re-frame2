@@ -1,28 +1,28 @@
 (ns re-frame2-pair-mcp.descriptor-egress-wording-test
   "EP-0015 egress-posture wording gate for the generated MCP descriptors.
 
-  THE DRIFT. The pair-MCP tool catalogue is client-facing root metadata —
-  an AI host reads it to learn what each tool does and what its privacy
-  posture IS. Two descriptors had rotted against EP-0015's frame-owned
-  egress policy:
+  THE CONTRACT. The pair-MCP tool catalogue is client-facing root
+  metadata — an AI host reads it to learn what each tool does and what its
+  privacy posture IS. The descriptions must match EP-0015's frame-owned
+  egress policy on two points:
 
-    - `get-path` / `snapshot` told clients `elision false` \"bypasses the
-      walk and receives the raw value\". The landed implementation does NOT
-      bypass on a bare `:elision false` (`elision/walk-required?` fails
+    - `get-path` / `snapshot` must NOT tell clients that `elision false`
+      \"bypasses the walk and receives the raw value\". A bare
+      `:elision false` does NOT bypass (`elision/walk-required?` fails
       CLOSED — the walker still runs, large passes but declared-sensitive
-      slots redact). The wording trained clients/tests to treat a direct
-      read as a projection bypass rather than a profile/gate-controlled
-      egress (rf2-nu98y7).
-    - `snapshot` said the `:machines` slice \"passes through unchanged —
-      payload redaction there is the redact-interceptor interceptor's
-      job\". EP-0015 retired `redact-interceptor` from the public API, and
-      the landed snapshot impl default-redacts the `:machines` runtime-db
-      slice to `:rf/redacted` under the off-box-tool profile (rf2-e47yxs).
+      slots redact). The bypass wording would train clients/tests to treat
+      a direct read as a projection bypass rather than a profile/gate-
+      controlled egress.
+    - `snapshot` must NOT say the `:machines` slice \"passes through
+      unchanged — payload redaction there is the redact-interceptor
+      interceptor's job\". `redact-interceptor` is not part of the public
+      API, and the snapshot impl default-redacts the `:machines`
+      runtime-db slice to `:rf/redacted` under the off-box-tool profile.
 
   THE GATE. No MCP direct-read tool's published description may carry the
-  retired / ungated egress claims. The forbidden phrases are pinned here;
-  a future descriptor edit (or a regenerated manifest) that re-introduces
-  one trips a RED. The gate scans BOTH the raw registry descriptions (the
+  ungated egress claims. The forbidden phrases are pinned here; a
+  descriptor edit (or a regenerated manifest) that introduces one trips a
+  RED. The gate scans BOTH the raw registry descriptions (the
   `:description` source) so a drift is caught before the manifest is even
   regenerated, AND the committed `tool-descriptors.edn` once present
   (covered transitively by the `check:descriptors` drift gate, asserted
@@ -43,17 +43,17 @@
   (into {} (map (juxt :name :description)) registry/tool-descriptors))
 
 ;; ---------------------------------------------------------------------------
-;; Forbidden EP-0015-drift phrases. Each is a claim the landed
-;; implementation does NOT honour (an ungated raw bypass / a retired
-;; interceptor / a raw machine pass-through). A descriptor carrying one is
-;; stale metadata on the client-facing root surface.
+;; Forbidden EP-0015-drift phrases. Each is a claim the implementation
+;; does NOT honour (an ungated raw bypass / a non-public interceptor / a
+;; raw machine pass-through). A descriptor carrying one is stale metadata
+;; on the client-facing root surface.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private forbidden-phrases
-  ["bypass the walk and receive the raw value"  ; rf2-nu98y7 — get-path/snapshot
-   "to bypass elision and receive the raw value" ; rf2-nu98y7 — elision-property knob
-   "passes through unchanged"                    ; rf2-e47yxs — :machines slice
-   "redact-interceptor"])                        ; rf2-e47yxs — retired public API
+  ["bypass the walk and receive the raw value"  ; get-path/snapshot
+   "to bypass elision and receive the raw value" ; elision-property knob
+   "passes through unchanged"                    ; :machines slice
+   "redact-interceptor"])                        ; not part of the public API
 
 (deftest no-direct-read-descriptor-advertises-a-raw-bypass
   (testing "no published MCP description carries a retired / ungated egress claim"

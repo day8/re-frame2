@@ -1,38 +1,35 @@
 (ns re-frame2-pair-mcp.wire-pipeline-benchmark-test
   "Wall-clock + structural micro-benchmarks for the wire-pipeline
-  hot paths (rf2-w92r8).
+  hot paths.
 
   ## Why this benchmark
 
-  Round-1 audit (rf2-7hie3) surfaced three perf suspicions on the
-  wire-pipeline. None were proven hot; each was a measurement task.
-  Round-2 (rf2-w92r8) lifted them to a single bead so the
-  conclusions are data-driven, not vibes-driven:
+  Three perf-sensitive spots on the wire-pipeline each warrant a
+  data-driven baseline rather than a guess:
 
     1. **Wire-pipeline intermediate allocations** —
        `run-snapshot-map` (in `wire_pipeline.cljs`) chains five
        per-frame transforms (sensitive-strip → slice-app-db →
        diff-encode-epochs → dedup-epochs → summarise-others). Each
        hop allocates a fresh per-frame map. For a 3-frame snapshot
-       under `:include :all`, that's ~15 intermediate maps. The
-       suspicion was that for high event-rate traffic (100/sec) the
-       intermediate-map churn would surface as GC pressure.
+       under `:include :all`, that's ~15 intermediate maps. Under
+       high event-rate traffic (100/sec) the intermediate-map churn
+       could surface as GC pressure.
 
     2. **`count-elided-markers` full-payload walk** at every emit-
-       site. Round-2 (rf2-e35a5) eliminated the walk for the
-       `:snapshot-map` and `:scalar-value` arms — the server-side
-       count rides back on the eval form. The `:epoch-vector` arm
-       (trace-window, watch-epochs) and the subscribe per-tick still
-       walk locally. This benchmark pins the per-walk cost so a
-       future optimisation (e.g. server-side count for runtime
-       drains) has a baseline.
+       site. The `:snapshot-map` and `:scalar-value` arms carry a
+       server-side count on the eval form and skip the walk; the
+       `:epoch-vector` arm (trace-window, watch-epochs) and the
+       subscribe per-tick walk locally. This benchmark pins the
+       per-walk cost so a future optimisation (e.g. server-side
+       count for runtime drains) has a baseline.
 
     3. **Dedup pass on 50-record epoch payloads** — equality-based
        structural dedup over a 50-epoch slice with a 256-key shared
-       `:db-before`. Already pinned at 89.5% reduction by
-       `dedup_test/reduction-ratio-shared-subtrees`. The wall-clock
-       cost is what we measure here — does the dedup pass fit in the
-       per-call budget (rough rule of thumb: < 10ms for an
+       `:db-before`. The compression ratio (89.5% reduction) is
+       pinned by `dedup_test/reduction-ratio-shared-subtrees`. The
+       wall-clock cost is what we measure here — does the dedup pass
+       fit in the per-call budget (rough rule of thumb: < 10ms for an
        interactive read-tool).
 
   ## Output shape
@@ -97,10 +94,10 @@
                       b (nth sorted (quot n 2))]
                   (/ (+ a b) 2)))))
 
-;; Silent-on-success (rf2-try1x): the bench report lines only emit
-;; when `bench-verbose?` is true. The raw min/median/max are also
-;; folded into each failing `is` message via `report-str` below so
-;; triage retains the numbers.
+;; Silent-on-success: the bench report lines only emit when
+;; `bench-verbose?` is true. The raw min/median/max are also folded
+;; into each failing `is` message via `report-str` below so triage
+;; retains the numbers.
 (goog-define bench-verbose? false)
 
 (defn- report-str
@@ -217,9 +214,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Bench 2 — count-elided-markers walk over a marker-rich payload.
 ;;
-;; This is the walker rf2-e35a5 eliminated for snapshot+get-path. The
-;; `:epoch-vector` arm and subscribe per-tick still walk locally. The
-;; bench pins the per-walk cost so a future "server-side count for
+;; snapshot+get-path carry a server-side count and skip this walker;
+;; the `:epoch-vector` arm and subscribe per-tick still walk locally.
+;; The bench pins the per-walk cost so a future "server-side count for
 ;; runtime drains" optimisation has a baseline to claim against.
 ;; ---------------------------------------------------------------------------
 

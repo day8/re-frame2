@@ -1,13 +1,12 @@
 (ns re-frame2-pair-mcp.probe-test
-  "Unit tests for the runtime preload probe + per-socket probe cache
-  (rf2-sjpx0).
+  "Unit tests for the runtime preload probe + per-socket probe cache.
 
   The probe runs one bencode round-trip per non-streaming tool entry
   to confirm the re-frame2-pair runtime is loaded into the consumer build
-  before any tool form is sent. Audit rf2-sjpx0 surfaced that this
-  fixed cost doubles cheap-read latency — once the preload is
-  confirmed for a given `(conn, build-id)` pair, it cannot un-load
-  without socket teardown, so subsequent probes are pure waste.
+  before any tool form is sent. That fixed cost would double cheap-read
+  latency on every call, so it is cached: once the preload is confirmed
+  for a given `(conn, build-id)` pair, it cannot un-load without socket
+  teardown, so subsequent probes would be pure waste.
 
   The cache:
 
@@ -40,12 +39,11 @@
   (returning a Promise) and restore in `.finally` so cleanup outlives
   async resolution. Mirror of `conformance_test/with-stubbed-eval!`.
 
-  rf2-7tgfk: also stubs `nrepl/jvm-eval` minimally so the preload-
-  failure diagnostic ladder runs to the `:runtime-loaded-but-preload-
-  missing` rung (the one that mirrors the OLD `:runtime-not-preloaded`
-  semantics — runtime alive, marker absent). Without the JVM stub the
-  ladder would short-circuit on `:nrepl-unreachable` for every
-  negative cljs probe."
+  Also stubs `nrepl/jvm-eval` minimally so the preload-failure
+  diagnostic ladder runs to the `:runtime-loaded-but-preload-missing`
+  rung (runtime alive, marker absent). Without the JVM stub the ladder
+  would short-circuit on `:nrepl-unreachable` for every negative cljs
+  probe."
   [canned-value call-count* body-fn]
   (let [orig-cljs nrepl/cljs-eval-value
         orig-jvm  nrepl/jvm-eval
@@ -109,9 +107,9 @@
           (.then (fn [_] (done)))))))
 
 (deftest second-positive-probe-is-cached
-  ;; rf2-sjpx0: a confirmed positive probe MUST short-circuit on the
-  ;; next call for the same (conn, build-id). The second call must
-  ;; resolve true WITHOUT incrementing the eval counter.
+  ;; A confirmed positive probe MUST short-circuit on the next call for
+  ;; the same (conn, build-id). The second call must resolve true
+  ;; WITHOUT incrementing the eval counter.
   (async done
     (let [conn  (fresh-conn)
           calls (atom 0)]
@@ -230,14 +228,12 @@
   ;; Negative path surfaces a structured ex-info — cache only
   ;; affects positive-result hot path.
   ;;
-  ;; rf2-7tgfk: the rejection reason is now
-  ;; `:runtime-loaded-but-preload-missing` (the specific rung of the
-  ;; diagnostic ladder for the case where the JVM is reachable, the
-  ;; build is running, a CLJS runtime is connected, and ONLY the
-  ;; marker is absent). The probe-test stub returns `false` for the
-  ;; marker query (runtime alive, marker absent) → the ladder lands
-  ;; on this rung. Pre-rf2-7tgfk a single `:runtime-not-preloaded`
-  ;; reason covered every failure mode regardless of root cause.
+  ;; The rejection reason is `:runtime-loaded-but-preload-missing` (the
+  ;; specific rung of the diagnostic ladder for the case where the JVM
+  ;; is reachable, the build is running, a CLJS runtime is connected,
+  ;; and ONLY the marker is absent). The probe-test stub returns
+  ;; `false` for the marker query (runtime alive, marker absent) → the
+  ;; ladder lands on this rung.
   (async done
     (let [conn  (fresh-conn)
           calls (atom 0)]
@@ -256,7 +252,7 @@
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Diagnostic ladder — rf2-7tgfk. Pin each rung end-to-end.
+;; Diagnostic ladder — pin each rung end-to-end.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-tri-stub!

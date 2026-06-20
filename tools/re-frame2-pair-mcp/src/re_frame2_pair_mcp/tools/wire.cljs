@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.wire
-  "MCP result helpers + per-call argument extraction (rf2-vrbwx split).
+  "MCP result helpers + per-call argument extraction.
 
   Every tool returns an MCP `{:content [{:type \"text\" :text <edn-string>}]}`
   envelope, success or error. This namespace owns that wire shape plus
@@ -36,7 +36,7 @@
 ;; Every result envelope carries BOTH the pr-str-rendered EDN text
 ;; (the wire-canonical form — `:content [{:type \"text\" :text ...}]`)
 ;; AND a `:structuredContent` slot carrying the same value as a JS
-;; object (rf2-hj3pi; mcp-builder canonical pattern). Agent hosts that
+;; object (mcp-builder canonical pattern). Agent hosts that
 ;; understand `:structuredContent` read the typed object directly; the
 ;; rest fall back to the EDN text. The two slots always agree on the
 ;; payload by construction — same `v`, two projections.
@@ -46,7 +46,7 @@
 ;; remains the source of truth for the cljs-readable round-trip; the
 ;; structured slot is the SDK-friendly view.
 ;;
-;; ## Namespaced keywords keep their namespace (rf2-t2n04)
+;; ## Namespaced keywords keep their namespace
 ;;
 ;; A bare `(clj->js v)` is namespace-LOSSY in two compounding ways, and
 ;; both silently corrupt key-bearing reads:
@@ -58,12 +58,11 @@
 ;;     values `:door/main :traffic/light` collapse to `"main" "light"`.
 ;;
 ;; The damage is not cosmetic: a `snapshot` whose `(keys app-db)` carries
-;; `:rf/runtime` projects to the name-only `"runtime"`, so an agent that
-;; reads the structured slot and threads `[:runtime ...]` back through
-;; `get-path` hits `nil` — the real key is `:rf/runtime`. (This sent a
-;; live 2026-06-04 session down a false "snapshots are empty" path.)
-;; Same defect class as the machines-viz `:door/open` → `"open"` tag
-;; truncation (#2922): stringify keywords to their FULLY-QUALIFIED form
+;; `:rf/runtime` would project to the name-only `"runtime"`, so an agent
+;; that reads the structured slot and threads `[:runtime ...]` back
+;; through `get-path` would hit `nil` — the real key is `:rf/runtime`.
+;; The same defect class would truncate a machines-viz `:door/open` tag
+;; to `"open"`. So stringify keywords to their FULLY-QUALIFIED form
 ;; at the `clj->js` boundary so the namespace survives.
 ;;
 ;; The fix pre-walks `v`, replacing every keyword (key OR value) with
@@ -71,17 +70,16 @@
 ;; (`:rf/runtime` → `"rf/runtime"`, `:ok?` → `"ok?"`) — BEFORE `clj->js`
 ;; sees it. `clj->js` then only structurally coerces the (now
 ;; keyword-free) tree; sets/vectors/maps coerce exactly as before. This
-;; is also what the spec's documented projection already PROMISED —
+;; is exactly the projection the spec documents —
 ;; `:structuredContent` "drops the leading colon — ["rf/default"]"
-;; (003-Tool-Catalogue §Id representation, rf2-cg37y); the code was
-;; merely failing to honour its own contract. The EDN text slot
+;; (003-Tool-Catalogue §Id representation). The EDN text slot
 ;; (`pr-str v`) is untouched: it stays the canonical, fully-typed,
 ;; cljs-`read`-able round-trip.
 ;;
-;; ## structuredContent must never be `null` (rf2-r5erl)
+;; ## structuredContent must never be `null`
 ;;
 ;; Every tool descriptor declares a map-shaped `:outputSchema`
-;; (`{:type "object" ...}`, rf2-3l3be). When a descriptor carries an
+;; (`{:type "object" ...}`). When a descriptor carries an
 ;; `:outputSchema`, the npm MCP SDK VALIDATES the result's
 ;; `structuredContent` against it — and a `null` is not an object, so
 ;; the SDK rejects the whole `tools/call` with a host-level
@@ -91,9 +89,8 @@
 ;;
 ;; A `null` reaches here exactly when `v` is `nil` — e.g. a tool that
 ;; threads a blank nREPL eval result straight into `ok-text`
-;; (`cljs-eval-value` returns `nil` for a blank value). `read-dom`
-;; hit this in the wild (rf2-r5erl); `read-ui` did not, by luck of
-;; always getting a map back. Rather than rely on every call-site
+;; (`cljs-eval-value` returns `nil` for a blank value), as a `read-dom`
+;; that finds no node can. Rather than rely on every call-site
 ;; guarding nil, we make the wire shape TOTAL: a `nil` payload
 ;; projects to a structured `{:rf.mcp/null true}` sentinel object so
 ;; `structuredContent` is always a record the SDK accepts. The EDN
@@ -103,7 +100,7 @@
 
 (def ^:private null-structured-sentinel
   "JS object substituted for `structuredContent` when the EDN payload is
-  `nil` (rf2-r5erl). A `null` structuredContent fails the SDK's
+  `nil`. A `null` structuredContent fails the SDK's
   outputSchema validation (`expected record ... received null`); this
   sub-object keeps the slot a record. Hosts that read the EDN text slot
   see the verbatim `nil`; hosts that read the structured slot see the
@@ -118,7 +115,7 @@
   non-keyword scalar and collection structure otherwise intact.
 
   Applied to a payload BEFORE `clj->js` so the structured projection
-  preserves keyword namespaces (rf2-t2n04). `clj->js`'s built-in
+  preserves keyword namespaces. `clj->js`'s built-in
   keyword handling is namespace-lossy for both keys (default
   `:keyword-fn` is `name`) and values (always `name`); pre-stringifying
   here is the single point that closes both holes. `clj->js` then sees
@@ -145,8 +142,7 @@
 
 (defn- structured-of
   "Project `v` to the `:structuredContent` JS value, guaranteeing a
-  non-null record (rf2-r5erl) AND preserving keyword namespaces
-  (rf2-t2n04).
+  non-null record AND preserving keyword namespaces.
 
   Keyword namespaces are kept by pre-walking `v` through
   `qualify-keywords` before `clj->js` — a bare `clj->js` drops the
@@ -174,22 +170,22 @@
 (defn structured-content
   "Public projection of `v` to the SDK-friendly `:structuredContent` JS
   value — the SAME namespace-preserving, null-safe projection `ok-text`
-  / `err-text` use (rf2-t2n04, rf2-r5erl).
+  / `err-text` use.
 
-  Exposed (rf2-or8s29) for the handful of result envelopes built OUTSIDE
+  Exposed for the handful of result envelopes built OUTSIDE
   the per-tool callbacks — server-level handler-threw / discovery
   errors (server.cljs), the cache-hit marker (cache.cljs), and the
-  overflow marker (cap.cljs). Those sites previously built
-  `:structuredContent (clj->js payload)` directly, which is
+  overflow marker (cap.cljs). A bare
+  `:structuredContent (clj->js payload)` at those sites would be
   namespace-LOSSY: `:rf.mcp/cache-hit` → `\"cache-hit\"`,
   `:rf.mcp/overflow` → `\"overflow\"`, and `:rf.error/*` reason VALUES
-  lose their namespace. Routing them through this single helper keeps
-  the structured-content round-trip contract intact everywhere."
+  would lose their namespace. Routing them through this single helper
+  keeps the structured-content round-trip contract intact everywhere."
   [v]
   (structured-of v))
 
 (defn result
-  "Build an arbitrary MCP result envelope (rf2-or8s29) carrying both the
+  "Build an arbitrary MCP result envelope carrying both the
   pr-str EDN `:content` text and the namespace-preserving
   `:structuredContent` projection of the SAME `v`. Sets `:isError true`
   when `error?` is truthy.
@@ -215,7 +211,7 @@
   `:structuredContent` read the typed object; others fall back to
   parsing the text slot.
 
-  `:structuredContent` is guaranteed a non-null record (rf2-r5erl) —
+  `:structuredContent` is guaranteed a non-null record —
   a `nil` payload projects to the `:rf.mcp/null` sentinel object so the
   SDK's outputSchema validation never rejects the result for a `null`
   structuredContent."
@@ -226,7 +222,7 @@
   "Error result envelope. Same dual-slot shape as `ok-text` plus
   `:isError true` so the agent client surfaces the failure to the
   LLM without aborting the conversation (per MCP §Error Handling).
-  `:structuredContent` is non-null by construction (rf2-r5erl)."
+  `:structuredContent` is non-null by construction."
   [v]
   (result v true))
 
@@ -243,7 +239,7 @@
   silently violate the MUST.
 
   Pure-data passthrough to `re-frame.mcp-base.envelope/with-indicators`
-  (rf2-ee38b.18 / rf2-ee38b.19) — the slot keys are
+  — the slot keys are
   `base-vocab/dropped-sensitive-key` / `elided-large-key`, pinned once
   in the shared vocab so a key change can't drift across the pair. This
   thin re-export keeps the per-tool call-sites reading
@@ -271,8 +267,8 @@
   (some-> (arg args k) keyword))
 
 (defn mark-resolved-build-id!
-  "Record the build-id that `discover-app` just resolved on the conn-atom
-  (rf2-l9ixp). Subsequent tool calls without an explicit `:build` arg
+  "Record the build-id that `discover-app` just resolved on the conn-atom.
+  Subsequent tool calls without an explicit `:build` arg
   default to this id instead of the `SHADOW_CLJS_BUILD_ID` / `:app`
   env-var fallback. Defensive against a non-atom `conn` (test stubs)."
   [conn build-id]
@@ -280,7 +276,7 @@
     (swap! conn assoc :resolved-build-id build-id)))
 
 (defn- conn-resolved-build-id
-  "Read the session-scoped resolved-build-id cache from `conn` (rf2-l9ixp).
+  "Read the session-scoped resolved-build-id cache from `conn`.
   Defensive against `nil` / non-atom conn — conformance tests pass a stub
   conn that doesn't carry the cache. Returns the cached keyword or nil."
   [conn]
@@ -289,7 +285,7 @@
 
 (defn- canonicalize-via-alias
   "Map `build-id` through the conn's `:build-alias` forgiving-resolution
-  cache (rf2-qda59). When the requested id has a recorded
+  cache. When the requested id has a recorded
   suffix→canonical alias (populated by `probe/canonicalize-build!` at the
   pipeline's first step), return the canonical running id; otherwise
   return `build-id` unchanged. Defensive against a nil / non-atom conn
@@ -307,22 +303,22 @@
     1. Explicit `:build` MCP arg — operator override always wins
        (no surprise from the cache).
     2. Session-scoped resolved-build-id cache on the conn-atom — populated
-       by `discover-app` after a successful preload probe (rf2-l9ixp) AND
+       by `discover-app` after a successful preload probe AND
        by `stick-build!` after an explicit `:build` on any non-discover
-       tool call (rf2-lbm21). Removes the friction of repeating
+       tool call. Removes the friction of repeating
        `build: foo` on every tool call. Cache resets on nREPL reconnect
        (same lifecycle as `:probed-builds`).
     3. `SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
 
   `arg-build` is a PURE READ — it never writes the cache. The
   session-sticky write happens at the `invoke` boundary via
-  `stick-build!` (rf2-lbm21), deliberately separated so `discover-app`
+  `stick-build!`, deliberately separated so `discover-app`
   (which resolves a build via `arg-build` to PROBE it, and caches only
   on a successful health check) is never forced to cache a build that
   turned out unusable.
 
   The explicit `:build` arg is coerced via
-  `re-frame.mcp-base.args/fresh-keyword` (rf2-8ohwv), which strips a
+  `re-frame.mcp-base.args/fresh-keyword`, which strips a
   leading colon: `\"examples/step-deck\"` and `\":examples/step-deck\"`
   resolve identically. A bare `keyword` on the colon form would mint the
   malformed `::examples/step-deck` (`cljs-eval` then renders it
@@ -333,7 +329,7 @@
   build registry, so the per-id intern cost is capped.
 
   The resolved id is finally mapped through the conn's `:build-alias`
-  forgiving-resolution cache (rf2-qda59): when the requested id named a
+  forgiving-resolution cache: when the requested id named a
   running build by a unique SUFFIX (`:machine-epochs` ⇒
   `:examples/machine-epochs`), the pipeline's first step recorded the
   canonical alias, so every op — explicit-arg or sticky-default —
@@ -354,7 +350,7 @@
 
 (defn requested-build
   "The build-id this call would resolve to BEFORE the forgiving
-  suffix→canonical alias is applied (rf2-qda59). Mirrors `arg-build`'s
+  suffix→canonical alias is applied. Mirrors `arg-build`'s
   precedence (explicit `:build` arg → sticky `:resolved-build-id` →
   env/`:app` default) but does NOT route through the alias cache — it is
   the INPUT to `probe/canonicalize-build!`, which the pipeline's first
@@ -365,7 +361,7 @@
       (default-build-id)))
 
 (defn stick-build!
-  "Session-sticky operating build (rf2-lbm21). When `args` carries an
+  "Session-sticky operating build. When `args` carries an
   explicit `:build`, write it into the `:resolved-build-id` cache on the
   conn-atom so subsequent no-`:build` tool calls inherit it. No-op when
   no explicit `:build` arg is present (an omitted build must not clobber
@@ -387,14 +383,14 @@
 (defn arg-build-explicit?
   "True iff a deliberate build-id is available without falling back to
   the bare `SHADOW_CLJS_BUILD_ID` / `:app` env default. The eval-path
-  build resolver (rf2-ivlb3) auto-detects the running build ONLY when
+  build resolver auto-detects the running build ONLY when
   the build is the bare default — a deliberate choice gets honoured
   verbatim (footgun-and-all; preflight catches typos).
 
   Two sources count as deliberate:
 
     - An explicit `:build` MCP arg on this call.
-    - A session-scoped resolved-build-id cached on `conn` (rf2-l9ixp) —
+    - A session-scoped resolved-build-id cached on `conn` —
       populated by a prior successful `discover-app`. Treating the cache
       as deliberate means a subsequent eval-cljs without `:build` routes
       to the resolved build instead of being auto-detect-rejected on a
@@ -410,8 +406,7 @@
        (some? (conn-resolved-build-id conn)))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi; lifted to
-;; mcp-base.envelope in rf2-ee38b.19 / rf2-ee38b.18).
+;; Wire-bounded marker detection.
 ;;
 ;; The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are
 ;; replacement results emitted by the wire-boundary steps themselves.

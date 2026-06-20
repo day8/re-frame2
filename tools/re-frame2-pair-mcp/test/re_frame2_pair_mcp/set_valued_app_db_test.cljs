@@ -1,29 +1,24 @@
 (ns re-frame2-pair-mcp.set-valued-app-db-test
-  "Regression: set-valued app-db slots survive the wire walkers (rf2-ogqfe).
+  "Set-valued app-db slots survive the wire walkers.
 
   A consumer app whose app-db carries a `#{...}` set value — e.g. a
   state machine stamping `:tags #{:door/locked}` on every snapshot —
   must round-trip cleanly through every wire-shrink walker the
-  `snapshot` and `trace-window` tools run. The bead reported a live
-  `'me.cljs$core$IMapEntry$_key$arity$1 is not a function'` crash on a
-  machine-epochs runtime, hypothesising that a walker iterates every
-  collection as map-entries and calls `key`/`val` on a `PersistentHashSet`
-  element.
+  `snapshot` and `trace-window` tools run. The risk is a walker that
+  iterates every collection as map-entries and calls `key`/`val` on a
+  `PersistentHashSet` element, producing an
+  `'me.cljs$core$IMapEntry$_key$arity$1 is not a function'` crash.
 
-  Investigation found every walker in the path already set-aware
-  (`summary/tree-summary` and `source-uri/decorate` carry explicit
-  `set?` branches; `de-dupe-eq` routes a set through its generic
-  `(coll? form)` arm, not the map-entry arm; the framework's
-  server-side `elide-wire-value` / `projected-record` likewise branch
-  on `set?`). These tests PIN that set-safety as an enforced invariant
-  across the FULL client-side pipeline — both tools, both the summary
-  and the diff/dedup epoch paths — so a future refactor that drops a
-  `set?` branch from any walker trips this gate instead of shipping a
-  runtime crash to a consumer with set-valued state.
-
-  The crashing symptom on the live runtime is attributed to a stale
-  compiled build; no code path in the current pair-mcp + mcp-base +
-  framework walkers reproduces it.
+  Every walker in the path is set-aware: `summary/tree-summary` and
+  `source-uri/decorate` carry explicit `set?` branches; `de-dupe-eq`
+  routes a set through its generic `(coll? form)` arm, not the
+  map-entry arm; the framework's server-side `elide-wire-value` /
+  `projected-record` likewise branch on `set?`. These tests PIN that
+  set-safety as an enforced invariant across the FULL client-side
+  pipeline — both tools, both the summary and the diff/dedup epoch
+  paths — so a refactor that drops a `set?` branch from any walker
+  trips this gate instead of shipping a runtime crash to a consumer
+  with set-valued state.
 
   End-to-end via a substring-matching `cljs-eval-value` stub (mirrors
   `trace_window_test`'s `with-substr-eval!`): the stub stands in for the
@@ -137,7 +132,7 @@
 
 (defn- snapshot-response
   "The `{:value <per-frame-snap> :elided-count N :tool-frames-excluded
-  []}` envelope the snapshot eval form returns (rf2-e35a5)."
+  []}` envelope the snapshot eval form returns."
   [snap]
   {:value snap :elided-count 0 :tool-frames-excluded []})
 

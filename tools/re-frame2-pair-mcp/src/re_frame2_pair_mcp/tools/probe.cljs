@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.probe
-  "Preload probe + error translation (rf2-vrbwx split).
+  "Preload probe + error translation.
 
   The `re-frame2-pair.runtime` namespace ships into the consumer app via
   shadow-cljs's `:devtools :preloads` mechanism. Each tool that needs the
@@ -9,11 +9,10 @@
   the tool refuses with `:reason :runtime-not-preloaded` and a setup
   hint pointing at `skills/re-frame2-pair/SKILL.md`.
 
-  No cljs-eval inject path: the preload is the canonical setup. Earlier
-  drops shipped a per-session inject fallback; that path was cut for
-  rf2-7dvg.
+  No cljs-eval inject path: the preload is the canonical setup, with no
+  per-session inject fallback.
 
-  ## Probe caching (rf2-sjpx0)
+  ## Probe caching
 
   Once `runtime-preloaded?` resolves to true for a `(conn, build-id)`
   pair, the result is cached on the conn-atom (`:probed-builds`)
@@ -22,28 +21,27 @@
   The cache is cleared by `nrepl/close!` (operator-initiated teardown)
   and is reborn empty whenever `server.cljs/ensure-connection!` builds a
   fresh conn for a new shadow port. It is deliberately PRESERVED across a
-  transient same-port socket reopen (rf2-c3dsr) — the
-  `__re_frame2_pair_runtime` marker lives in the browser CLJS heap, which
-  a JVM-side socket hiccup doesn't destroy, so re-probing would be
-  wasteful. (A full page reload DOES destroy the marker, but it leaves
-  the JVM nREPL socket UP — so it never triggered a reconnect-reset
-  before rf2-c3dsr either; this path is unchanged. Negative probes aren't
-  cached, and the diagnostic ladder surfaces a genuinely-dead marker on
-  the next eval against the build.)
+  transient same-port socket reopen — the `__re_frame2_pair_runtime`
+  marker lives in the browser CLJS heap, which a JVM-side socket hiccup
+  doesn't destroy, so re-probing would be wasteful. (A full page reload
+  DOES destroy the marker, but it leaves the JVM nREPL socket UP, so it
+  doesn't trigger a reconnect-reset. Negative probes aren't cached, and
+  the diagnostic ladder surfaces a genuinely-dead marker on the next
+  eval against the build.)
 
   Negative results are NOT cached: a missing preload usually surfaces
   on the very first call, and re-probing on each subsequent call
   lets a freshly-added preload land without a server restart (e.g.
   the user edits `shadow-cljs.edn` and shadow-cljs hot-reloads).
 
-  ## Build resolution + fail-loud preflight (rf2-ivlb3)
+  ## Build resolution + fail-loud preflight
 
   `eval-cljs` (and any future read/eval tool) must NOT eval against a
   build with no live re-frame2-pair runtime — doing so returns
   `{:ok? true :value nil}` (shadow's `cljs-eval` against a non-running
   build yields a blank value, which `cljs-eval-value` reads as nil),
-  indistinguishable from a form that genuinely returns nil. ~30 min of
-  dead-end debugging in the wild.
+  indistinguishable from a form that genuinely returns nil — a silent
+  footgun that masks the real failure.
 
   Two helpers close the footgun:
 
@@ -73,14 +71,12 @@
        "is on :source-paths. See skills/re-frame2-pair/SKILL.md (§Setup)."))
 
 ;; ---------------------------------------------------------------------------
-;; Diagnostic-ladder vocabulary (rf2-7tgfk).
+;; Diagnostic-ladder vocabulary.
 ;;
-;; A failed preload probe used to surface ONE reason
-;; (`:runtime-not-preloaded`) whose hint always read "add the preload
-;; to your shadow-cljs.edn". In the 2026-05-25 pair-debug session that
-;; suggestion was misleading in three of the four failure modes the
-;; operator hit (~30 min of dead-end debugging). The ladder below
-;; distinguishes the cases the original single reason hid:
+;; A failed preload probe surfaces one of four distinct reasons, each
+;; with a targeted hint, rather than a single `:runtime-not-preloaded`
+;; whose "add the preload to your shadow-cljs.edn" hint fits only one of
+;; them. The ladder below distinguishes the failure modes:
 ;;
 ;;   :nrepl-unreachable             - JVM eval round-trip fails. The
 ;;                                    socket may be dead even though
@@ -95,8 +91,7 @@
 ;;                                    has connected (or the tab's ws
 ;;                                    is dead).
 ;;   :runtime-loaded-but-preload-missing
-;;                                  - the original meaning: a CLJS
-;;                                    runtime is alive but the
+;;                                  - a CLJS runtime is alive but the
 ;;                                    `__re_frame2_pair_runtime` marker
 ;;                                    is absent. The "add the preload"
 ;;                                    hint fits ONLY this case.
@@ -114,7 +109,7 @@
 
 (defn build-arg-form
   "Render a build-id keyword in EXACTLY the string form the `:build` MCP
-  arg accepts back (rf2-qda59). The arg coercer (`fresh-keyword`) is
+  arg accepts back. The arg coercer (`fresh-keyword`) is
   colon-tolerant, so the canonical round-trippable form is the keyword's
   own `pr-str` (`:examples/machine-epochs`) — copy-pasting it from an
   error into `:build` resolves to the same build. Used to keep the
@@ -125,7 +120,7 @@
 
 (defn running-build-arg-forms
   "Map the `running` build-id keywords to their round-trippable `:build`
-  arg forms (rf2-qda59) — the copy-paste-ready list for an error's
+  arg forms — the copy-paste-ready list for an error's
   guidance. `[:examples/machine-epochs :panel-gallery]` ⇒
   `[\":examples/machine-epochs\" \":panel-gallery\"]`."
   [running]
@@ -139,7 +134,7 @@
 
     :else
     ;; Render every running id in its round-trippable `:build` arg form
-    ;; (rf2-qda59) so the guidance can be copy-pasted straight back.
+    ;; so the guidance can be copy-pasted straight back.
     (str "shadow-cljs is running " (running-build-arg-forms running) " but not "
          (build-arg-form build-id) ". Pass --build=" (build-arg-form (first running))
          " (or set SHADOW_CLJS_BUILD_ID) — or restart the watch worker "
@@ -185,10 +180,10 @@
   marker set by the preloaded `re-frame2-pair.runtime` namespace.
   Resolves to true iff the marker is present.
 
-  Positive results are cached per `(conn, build-id)` on the conn-atom
-  (rf2-sjpx0). A cached hit resolves synchronously without an nREPL
-  round-trip; a miss runs one bencode round-trip and caches a positive
-  outcome before resolving."
+  Positive results are cached per `(conn, build-id)` on the conn-atom.
+  A cached hit resolves synchronously without an nREPL round-trip; a
+  miss runs one bencode round-trip and caches a positive outcome before
+  resolving."
   [conn build-id]
   (if (conn-has-probed? conn build-id)
     (js/Promise.resolve true)
@@ -208,7 +203,7 @@
 (declare running-builds)
 
 (defn diagnose-preload-failure!
-  "Run the failure-path diagnostic ladder (rf2-7tgfk). Called only when
+  "Run the failure-path diagnostic ladder. Called only when
   `runtime-preloaded?` returned false, so the cost is paid exactly when
   it matters. Resolves to a map `{:reason <kw> :hint <str> ...}` whose
   `:reason` distinguishes:
@@ -245,8 +240,8 @@
                         {:reason                  :build-not-running
                          :build                   build-id
                          :running-builds          running
-                         ;; rf2-qda59 — the round-trippable copy-paste list:
-                         ;; each running build in EXACTLY the `:build` arg
+                         ;; The round-trippable copy-paste list: each
+                         ;; running build in EXACTLY the `:build` arg
                          ;; form. `:running-builds` keeps the keyword vector
                          ;; (still round-trippable via colon-tolerance); this
                          ;; sibling makes the paste-ready strings explicit.
@@ -255,9 +250,8 @@
                       ;; Build IS running — distinguish "no runtime
                       ;; connected" (cljs-eval returns blank/nil) from
                       ;; "runtime present but marker absent" (cljs-eval
-                      ;; returns false). The original probe collapsed
-                      ;; both into "false"; here we re-evaluate the
-                      ;; raw form and inspect the shape.
+                      ;; returns false). Re-evaluate the raw form and
+                      ;; inspect the shape to tell them apart.
                       (-> (nrepl/cljs-eval-value
                             conn build-id
                             "(some? (and (exists? js/globalThis) (.-__re_frame2_pair_runtime js/globalThis)))")
@@ -272,8 +266,8 @@
                                  :hint           (no-runtime-connected-hint build-id)}
 
                                 ;; false → runtime is alive but marker
-                                ;; is absent — the case the original hint
-                                ;; was written for.
+                                ;; is absent — the case the preload hint
+                                ;; addresses.
                                 (false? v)
                                 {:reason :runtime-loaded-but-preload-missing
                                  :build  build-id
@@ -299,7 +293,7 @@
                                        :running-builds running
                                        :hint   (no-runtime-connected-hint build-id)})))))))))))
       (.catch (fn [_]
-                ;; Ladder itself threw — degrade to the original reason.
+                ;; Ladder itself threw — degrade to the blanket reason.
                 (js/Promise.resolve
                   {:reason :runtime-not-preloaded
                    :build  build-id
@@ -317,17 +311,15 @@
   runtime call this first.
 
   After the first positive probe per `(conn, build-id)`, this resolves
-  synchronously from cache — no nREPL round-trip per tool call
-  (rf2-sjpx0).
+  synchronously from cache — no nREPL round-trip per tool call.
 
-  rf2-7tgfk: on a failed probe the rejection no longer always reads
-  `:runtime-not-preloaded`. The diagnostic ladder
+  On a failed probe the diagnostic ladder
   (`diagnose-preload-failure!`) inspects the failure mode and rejects
   with one of four specific reasons — `:nrepl-unreachable`,
   `:build-not-running`, `:no-runtime-connected`, or
   `:runtime-loaded-but-preload-missing` — each with a targeted hint.
-  The original blanket `:runtime-not-preloaded` reason is reserved as
-  the degradation fallback if the ladder itself errors."
+  The blanket `:runtime-not-preloaded` reason is reserved as the
+  degradation fallback if the ladder itself errors."
   [conn build-id]
   (-> (runtime-preloaded? conn build-id)
       (.then (fn [ok?]
@@ -340,7 +332,7 @@
                                          diag))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Running-build enumeration + fail-loud build resolution (rf2-ivlb3).
+;; Running-build enumeration + fail-loud build resolution.
 ;; ---------------------------------------------------------------------------
 
 (defn running-builds
@@ -369,7 +361,7 @@
       (.catch (fn [_] []))))
 
 ;; ---------------------------------------------------------------------------
-;; URL/port → build resolution via the shadow-cljs :dev-http map (rf2-fyf0h).
+;; URL/port → build resolution via the shadow-cljs :dev-http map.
 ;;
 ;; A pair session naturally starts from the URL of the open browser tab
 ;; (e.g. http://localhost:8031/counter), but discover-app speaks build-
@@ -406,12 +398,12 @@
 
 (defn resolve-build-by-port
   "Resolve the shadow-cljs build-id serving `port` via the `:dev-http`
-  map (rf2-fyf0h). Returns a Promise resolving to the build-id keyword,
-  or nil when the port isn't in `:dev-http`, no build's `:output-dir`
-  matches its roots, or the JVM probe fails. `port` is an integer (a
-  string is coerced).
+  map. Returns a Promise resolving to the build-id keyword, or nil when
+  the port isn't in `:dev-http`, no build's `:output-dir` matches its
+  roots, or the JVM probe fails. `port` is an integer (a string is
+  coerced).
 
-  This removes the manual `grep shadow-cljs.edn for 8031` step: an agent
+  This saves the manual `grep shadow-cljs.edn for 8031` step: an agent
   that only knows the browser URL passes the port and gets the build."
   [conn port]
   (let [p (cond
@@ -430,17 +422,15 @@
           (.catch (fn [_] nil))))))
 
 ;; ---------------------------------------------------------------------------
-;; Forgiving suffix→canonical build resolution (rf2-qda59).
+;; Forgiving suffix→canonical build resolution.
 ;;
 ;; shadow-cljs build ids are namespaced keywords (`:examples/machine-epochs`).
 ;; An operator reading the app at a glance — or copying a name out of an
 ;; error / chat — naturally reaches for the short tail (`machine-epochs`).
-;; Before this, `discover-app` happened to normalise (it auto-selects a
-;; single build or resolves by port), but the read/action ops compared the
-;; requested id against `active-builds` by EXACT `=`, so a suffix form was
-;; rejected with `:build-not-running` even though the build it named was
-;; right there in the error's own `:running-builds` list. One shared
-;; forgiving resolver closes the asymmetry across every op.
+;; One shared forgiving resolver accepts a bare tail uniformly across
+;; every op, so a suffix form resolves to the running build it names
+;; rather than being rejected with `:build-not-running` even when that
+;; build sits right there in the error's own `:running-builds` list.
 ;;
 ;; Match rule (deterministic, no most-recent / fuzzy heuristics — those
 ;; are the silent-wrong-build footguns Mike rejected for `auto-select`):
@@ -458,7 +448,7 @@
 
 (defn match-running-build
   "Resolve `requested` (a build-id keyword) against the `running` vector of
-  build-id keywords by exact-or-unique-suffix match (rf2-qda59). Returns
+  build-id keywords by exact-or-unique-suffix match. Returns
   the canonical running keyword on a hit, else `requested` unchanged (so a
   no/ambiguous match falls through to the diagnostic ladder). Pure."
   [requested running]
@@ -473,7 +463,7 @@
         requested))))
 
 (defn canonicalize-build!
-  "Forgiving suffix→canonical build resolution (rf2-qda59). Resolves a
+  "Forgiving suffix→canonical build resolution. Resolves a
   Promise of the canonical running build-id for `requested`:
 
     - `requested` already in this socket's confirmed `:probed-builds`
@@ -513,7 +503,7 @@
 
 (defn auto-select-single-build
   "Resolve a build-id when EXACTLY ONE shadow-cljs build is running, else
-  nil (rf2-v70kv). Returns a Promise resolving to `[build-id true]` when
+  nil. Returns a Promise resolving to `[build-id true]` when
   one build was auto-selected, or `[nil false]` when zero or many run.
 
   Unlike `resolve-build!` (the eval-path resolver, which REJECTS on
@@ -545,7 +535,7 @@
     (str "pass --build=" (build-arg-form (first running)) " or set SHADOW_CLJS_BUILD_ID.")
 
     :else
-    ;; Round-trippable copy-paste forms (rf2-qda59).
+    ;; Round-trippable copy-paste forms.
     (str "multiple shadow-cljs builds are running " (running-build-arg-forms running)
          "; pass --build=<one-of-them> or set SHADOW_CLJS_BUILD_ID.")))
 
@@ -588,7 +578,7 @@
                                                          "not running.")}))))))))
 
 (defn resolve-and-preflight!
-  "The shared eval-path guard (rf2-ivlb3). Resolves the build then
+  "The shared eval-path guard. Resolves the build then
   confirms a live re-frame2-pair runtime for it. Resolves to the
   resolved build-id on success; rejects with a structured ex-info
   otherwise.
@@ -657,7 +647,7 @@
     (wire/err-text {:ok? false :reason fallback-reason :message (.-message err)})))
 
 ;; ---------------------------------------------------------------------------
-;; Shared eval-prelude (rf2-jkake.19).
+;; Shared eval-prelude.
 ;;
 ;; The single-eval read/write tools all wear the SAME four-step promise
 ;; chain: confirm the runtime is preloaded, send ONE form over nREPL,
@@ -671,7 +661,7 @@
 ;;
 ;; State-emitting tools wear the SAME chain plus ONE extra step: a
 ;; `raw-state/signal-runtime!` reconfigure between `ensure-runtime!` and
-;; the eval (the raw-state tap gate, rf2-c2dtu) so the runtime is in its
+;; the eval (the raw-state tap gate) so the runtime is in its
 ;; gated posture before the eval taps / egresses app-db.
 ;; `eval-after-runtime-signalled!` is the sibling combinator for that
 ;; shape — same prelude/postlude, the signal interposed.
@@ -689,7 +679,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn eval-after-runtime!
-  "The shared single-eval prelude (rf2-jkake.19). Confirm the runtime is
+  "The shared single-eval prelude. Confirm the runtime is
   preloaded for `(conn, build-id)`, eval `form` over nREPL, pass the
   resolved value to `on-value` (which returns the MCP envelope), and
   translate any rejection via `err->result` keyed by `fail-reason`.
@@ -712,7 +702,7 @@
   "The shared single-eval prelude for STATE-EMITTING tools. Identical to
   `eval-after-runtime!` except it interposes one extra step — a
   `raw-state/signal-runtime!` reconfigure between `ensure-runtime!` and
-  the eval (the raw-state tap gate, rf2-c2dtu) — so the runtime is in its
+  the eval (the raw-state tap gate) — so the runtime is in its
   gated (default-elided) posture before the eval taps / egresses app-db.
 
   Confirm the runtime is preloaded for `(conn, build-id)`, signal the
@@ -723,7 +713,7 @@
 
   `on-value` carries the part that genuinely differs per tool. The signal
   re-runs on every call rather than caching a per-build flag — the
-  runtime's posture resets on reload (rf2-olvr5 finding 2). As with
+  runtime's posture resets on reload. As with
   `eval-after-runtime!`, `nrepl/cljs-eval-value` is resolved per-call (a
   plain var reference) so the per-tool `set!`-based test seam keeps
   working through this helper."
@@ -735,10 +725,9 @@
       (.catch (fn [err] (err->result fail-reason err)))))
 
 ;; ---------------------------------------------------------------------------
-;; Map-envelope projection for the "runtime fn always returns a map" tools
-;; (rf2-u4s4x).
+;; Map-envelope projection for the "runtime fn always returns a map" tools.
 ;;
-;; `read-dom` and `read-ui` (rf2-q0r7e) both route a single
+;; `read-dom` and `read-ui` both route a single
 ;; `(re-frame2-pair.runtime/<dom-read|ui-read> {...})` form through
 ;; `eval-after-runtime!`. The runtime fn ALWAYS returns a map (its own
 ;; `{:ok? ...}` envelope, or a structured no-document / bad-selector
@@ -749,26 +738,25 @@
 ;;
 ;; Left unguarded, `(wire/ok-text nil)` projects to a `null`
 ;; structuredContent the npm SDK's outputSchema validation rejects at the
-;; transport layer (`expected record at structuredContent, received null`,
-;; rf2-r5erl) — bypassing the normal `{:ok? false}` error contract. Both
-;; read tools carried a byte-for-byte-identical map?/blank guard; this
-;; helper folds it onto ONE projection so a fix or regression-guard on the
-;; blank-result contract covers both. Only the per-tool `:reason`, `:hint`,
-;; and any extra error slots (read-dom echoes `:selector`) differ — those
-;; ride in as args.
+;; transport layer (`expected record at structuredContent, received null`)
+;; — bypassing the normal `{:ok? false}` error contract. This helper
+;; folds the shared map?/blank guard onto ONE projection so a fix or
+;; regression-guard on the blank-result contract covers both read tools.
+;; Only the per-tool `:reason`, `:hint`, and any extra error slots
+;; (read-dom echoes `:selector`) differ — those ride in as args.
 ;; ---------------------------------------------------------------------------
 
 (defn map-result-or-blank
   "Build the `on-value` callback for a tool whose runtime fn always
-  returns a MAP envelope (rf2-u4s4x — read-dom / read-ui). Returns a
+  returns a MAP envelope (read-dom / read-ui). Returns a
   1-arity fn suitable as `eval-after-runtime!`'s `on-value`:
 
     - a `:ok? true` MAP envelope ⇒
       `(wire/ok-text (assoc envelope :build build-id))`, echoing the
-      canonical resolved `:build` (rf2-8t3ct / rf2-fmho5).
+      canonical resolved `:build`.
     - a `:ok? false` MAP envelope ⇒ `(wire/err-text ...)` carrying the
-      runtime's own structured failure verbatim, `:build`-stamped
-      (rf2-q7cavs). The runtime fn returns `:ok? false` ONLY on a
+      runtime's own structured failure verbatim, `:build`-stamped.
+      The runtime fn returns `:ok? false` ONLY on a
       genuine fault — a thrown `:rf.error/read-dom-bad-selector` /
       `:rf.error/ui-read-bad-selector` (malformed CSS ⇒ querySelectorAll
       threw), `:rf.error/read-dom-no-document`, `:no-element`,
@@ -786,8 +774,8 @@
       a different layer).
     - a nil / non-map ⇒ `(wire/err-text {...})` carrying `:ok? false`,
       `:build`, the per-tool `:reason` / `:hint`, and any `error-extras`
-      (e.g. read-dom's `:selector`) — the rf2-r5erl-safe structured
-      blank-result error (never a `null` structuredContent).
+      (e.g. read-dom's `:selector`) — the structured blank-result error
+      (never a `null` structuredContent).
 
   `blank-reason` / `blank-hint` are the tool-specific blank-result
   vocabulary; `error-extras` is an optional map of extra slots merged

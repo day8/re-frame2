@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.record-test
   "Unit tests for the signal-recorder triplet — record / read-recording /
-  watch-until (rf2-zo4b9).
+  watch-until.
 
   Three layers, mirroring `read_dom_test`:
 
@@ -58,11 +58,10 @@
 ;; parse-stop-arg — keeps only the recognised keys.
 ;; ---------------------------------------------------------------------------
 
-;; rf2-e2i29 — `parse-stop-arg` returns the tagged `[:ok m]` /
-;; `[:err :invalid-stop-edn]` shape (mirroring `parse-filter-arg`,
-;; rf2-5kbkl). A malformed `stop` EDN surfaces as an honest `:err` tag
-;; rather than the pre-fix silent collapse to `{}` (the default
-;; wall-clock window).
+;; `parse-stop-arg` returns the tagged `[:ok m]` /
+;; `[:err :invalid-stop-edn]` shape (mirroring `parse-filter-arg`). A
+;; malformed `stop` EDN surfaces as an honest `:err` tag rather than
+;; silently collapsing to `{}` (the default wall-clock window).
 
 (deftest parse-stop-arg-shapes
   (is (= [:ok {:ms 5000}] (record/parse-stop-arg #js {:ms 5000})))
@@ -75,9 +74,9 @@
     (is (= [:ok {}] (record/parse-stop-arg nil)))))
 
 (deftest parse-stop-arg-malformed-edn-is-err-tagged
-  ;; The regression (rf2-e2i29): a malformed `stop` EDN string must NOT
-  ;; silently collapse to `{}` (the default window) — it returns the
-  ;; honest `[:err :invalid-stop-edn]` tag so the caller short-circuits.
+  ;; Regression: a malformed `stop` EDN string must NOT silently
+  ;; collapse to `{}` (the default window) — it returns the honest
+  ;; `[:err :invalid-stop-edn]` tag so the caller short-circuits.
   (testing "unbalanced delimiters ⇒ :err"
     (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "{:ms 5000"))) ;; missing brace
     (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "((("))))      ;; unbalanced
@@ -128,7 +127,7 @@
                {:ms 15000 :pred {:signal 0 :equals :done}}
                :rf/default
                2000
-               ;; rf2-8fin7.2 — the rendered elision-opts walker map.
+               ;; the rendered elision-opts walker map.
                "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
     (testing "calls the runtime start-recording! with the signals + stop"
       (is (str/includes? form "re-frame2-pair.runtime/start-recording!"))
@@ -194,8 +193,8 @@
                  (done))))))
 
 (deftest record-tool-malformed-stop-errors-honestly
-  ;; The headline regression (rf2-e2i29). A malformed `stop` EDN makes
-  ;; `record-tool` short-circuit to an honest `:ok? false` envelope
+  ;; Regression: a malformed `stop` EDN makes `record-tool`
+  ;; short-circuit to an honest `:ok? false` envelope
   ;; (`:reason :invalid-stop-edn`, `:isError true`) — the `cond` branch
   ;; fires BEFORE the `:else` arm reaches `ensure-runtime!` / the nREPL
   ;; socket, so this resolves synchronously with no live runtime and no

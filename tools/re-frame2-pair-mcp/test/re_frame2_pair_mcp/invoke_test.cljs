@@ -1,22 +1,21 @@
 (ns re-frame2-pair-mcp.invoke-test
-  "End-to-end orchestration test for `tools/invoke` (rf2-nogok).
+  "End-to-end orchestration test for `tools/invoke`.
 
   `invoke` is the single egress for every MCP `tools/call`. It glues
   four phases:
 
-    0. `precheck/fetch-precheck-hash` — cheap-hash short-circuit
-       (rf2-36xod). For precheck-eligible tools, fetches a runtime-
-       side hash. On a match against the stored entry, returns the
+    0. `precheck/fetch-precheck-hash` — cheap-hash short-circuit.
+       For precheck-eligible tools, fetches a runtime-side hash. On a
+       match against the stored entry, returns the
        `:rf.mcp/cache-hit :via :precheck` marker WITHOUT running the
        tool body.
     1. `dispatch-tool*` — per-tool dispatch. Runs the actual tool
        implementation when the precheck didn't short-circuit.
-    2. `cache/apply-cache` — post-eval result-hash cache (rf2-3rt1f).
+    2. `cache/apply-cache` — post-eval result-hash cache.
        On a result-hash match returns the `:via :result-hash` marker.
        `isError` results bypass entirely.
-    3. `cap/apply-cap` — wire-boundary token-budget enforcement
-       (rf2-rvyzy). Over-budget responses become
-       `:rf.mcp/overflow` markers.
+    3. `cap/apply-cap` — wire-boundary token-budget enforcement.
+       Over-budget responses become `:rf.mcp/overflow` markers.
 
   Each phase has unit-level coverage in `cache_test.cljs` /
   `wire_cap_test.cljs`. THIS suite pins the wire-up: that the phases
@@ -28,14 +27,13 @@
 
   `invoke` is async (returns a Promise). `cljs.core/with-redefs`
   restores its vars synchronously — by the time the Promise resolves
-  inside `(async done ...)`, the redefs are gone. An earlier shape
-  stubbed via direct `set!` and restored in a `.finally`; the
-  `.finally` could outrun the test's `(done)` call, so the NEXT
-  async test (in this or any later `-test` ns) could start while
-  the stubs were still installed — a hard-to-reproduce flake
-  (rf2-wb06a) that fired on otherwise-unrelated PRs.
+  inside `(async done ...)`, the redefs are gone. A `.finally`-scoped
+  restore is also unsafe: it can outrun the test's `(done)` call, so
+  the NEXT async test (in this or any later `-test` ns) could start
+  while the stubs are still installed — a hard-to-reproduce flake on
+  otherwise-unrelated PRs.
 
-  Current shape: each test does `(set-stubs! ...)` directly (no
+  Each test therefore does `(set-stubs! ...)` directly (no
   `.finally`), and a fixture's `:after` step unconditionally
   restores the pristine originals to ALL three vars. cljs.test's
   async-test contract guarantees `:after` fires synchronously after
@@ -69,7 +67,7 @@
 ;; `get-path/get-path-tool`, `snapshot/snapshot-tool`) are restored
 ;; UNCONDITIONALLY in `:after`. Originals are snapshot once at
 ;; ns-load. Cleanup is fixture-scoped, not Promise-chain-scoped —
-;; which closes the rf2-wb06a race.
+;; which closes the cross-test stub-leakage race.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private orig-fetch-precheck-hash precheck/fetch-precheck-hash)
@@ -130,7 +128,7 @@
 ;; `:after` fixture's job, which restores the pristine originals
 ;; (captured at ns-load) synchronously after `(done)` and before
 ;; the next test runs. The fixture-scoped lifetime is what makes
-;; this Promise-chain-independent (rf2-wb06a fix).
+;; this Promise-chain-independent.
 ;;
 ;; `kind` is the keyword the caller picked to identify which slot
 ;; to stub — `:fetch-precheck-hash`, `:get-path-tool`,
@@ -162,19 +160,19 @@
 
 (deftest precheck-hit-short-circuits-dispatch
   (async done
-    ;; rf2-ww877w — the precheck-eligible vehicle is a single-frame
-    ;; APP-DB-ONLY snapshot (get-path is no longer precheck-eligible). The
-    ;; pipeline mechanics under test (precheck hit ⇒ dispatch skipped) are
-    ;; tool-agnostic; we just need a tool whose `precheck-target` is
-    ;; non-nil so `precheck-step` issues the stubbed fetch.
+    ;; The precheck-eligible vehicle is a single-frame APP-DB-ONLY
+    ;; snapshot. The pipeline mechanics under test (precheck hit ⇒
+    ;; dispatch skipped) are tool-agnostic; we just need a tool whose
+    ;; `precheck-target` is non-nil so `precheck-step` issues the
+    ;; stubbed fetch.
     (let [args        (args-js {:cache "true"
                                 :frames #js ["rf/default"]
                                 :include #js ["app-db"]})
           dispatched? (atom false)
-          ;; rf2-olvr5 finding 3 — the cache key now includes the resolved
-          ;; build, so the priming MUST use the same build the `invoke`
-          ;; pipeline will derive (`arg-build nil args` = the env / `:app`
-          ;; default here) or the lookup key won't match.
+          ;; The cache key includes the resolved build, so the priming
+          ;; MUST use the same build the `invoke` pipeline derives
+          ;; (`arg-build nil args` = the env / `:app` default here) or
+          ;; the lookup key won't match.
           _ (cache/apply-cache (mcp-result "{:app-db {:k :v}}")
                                {:tool "snapshot"
                                 :args args
@@ -209,9 +207,9 @@
 
 (deftest precheck-miss-stores-hash-for-next-call
   (async done
-    ;; rf2-ww877w — vehicle is the single-frame app-db-only snapshot (the
-    ;; sole precheck-eligible surface now). The mechanics are unchanged:
-    ;; cold miss stores the precheck-hash; the next call short-circuits.
+    ;; Vehicle is the single-frame app-db-only snapshot (the sole
+    ;; precheck-eligible surface). The mechanics: cold miss stores the
+    ;; precheck-hash; the next call short-circuits.
     (let [args       (args-js {:cache "true"
                                :frames #js ["rf/default"]
                                :include #js ["app-db"]})
@@ -239,8 +237,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-3 result-hash hit (post-eval). Tools that DON'T have precheck
-;; wiring (or whose precheck returns nil) fall through to the legacy
-;; rf2-3rt1f path: dispatch runs both times, the second result's text
+;; wiring (or whose precheck returns nil) fall through to the post-eval
+;; result-hash path: dispatch runs both times, the second result's text
 ;; hash matches the first, marker replaces it.
 ;;
 ;; `snapshot` with the default :all `frames` is precheck-ineligible —
@@ -325,12 +323,12 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-5rdit — negative :max-tokens is REJECTED at the invoke chokepoint,
-;; BEFORE the pipeline runs. The tool body is never dispatched and the
-;; result is an actionable `{:rf.mcp/invalid-arg ...}` error — NOT the
-;; `:rf.mcp/overflow` lock-out a negative cap used to cause (over-cap?
-;; trips on any non-negative token count against a negative ceiling, so
-;; even a tiny response was replaced by the overflow marker).
+;; Negative :max-tokens is REJECTED at the invoke chokepoint, BEFORE the
+;; pipeline runs. The tool body is never dispatched and the result is an
+;; actionable `{:rf.mcp/invalid-arg ...}` error — NOT an
+;; `:rf.mcp/overflow` lock-out (over-cap? trips on any non-negative token
+;; count against a negative ceiling, so a tiny response would otherwise
+;; be replaced by the overflow marker).
 ;; ---------------------------------------------------------------------------
 
 (deftest negative-max-tokens-rejected-not-overflow-lockout
@@ -341,8 +339,8 @@
         {:snapshot-tool (fn [_conn _args]
                           (reset! dispatched? true)
                           ;; A tiny payload — under any sane positive cap.
-                          ;; With the OLD negative-cap bug this still
-                          ;; overflowed; with the fix the tool never runs.
+                          ;; A negative cap rejects before dispatch, so
+                          ;; the tool body never runs.
                           (js/Promise.resolve (mcp-result (pr-str {:ok? true}))))})
       (-> (tools/invoke nil "snapshot" args nil)
           (.then (fn [result]
@@ -441,13 +439,13 @@
         (.then (fn [result]
                  (is (true? (j/get result :isError)))
                  (let [v (extract-edn result)]
-                   ;; Historical shape preserved (additive — rf2-tkmik).
+                   ;; The base error shape.
                    (is (false? (:ok? v)))
                    (is (= :unknown-tool (:reason v)))
                    (is (= "no-such-tool" (:tool v)))
                    ;; Recovery affordances: a :hint pointing at tools/list
                    ;; and the live catalogue, matching the surface's
-                   ;; honest-error standard (rf2-tkmik).
+                   ;; honest-error standard.
                    (is (string? (:hint v)))
                    (is (re-find #"tools/list" (:hint v))
                        "hint must point the agent at tools/list to recover")
@@ -460,7 +458,7 @@
 
 (deftest unknown-tool-hint-offers-nearest-match
   ;; A near-miss typo of a real tool name surfaces a :did-you-mean
-  ;; pointer (rf2-tkmik) so a model can self-correct without a round-trip.
+  ;; pointer so a model can self-correct without a round-trip.
   (async done
     (-> (tools/invoke nil "snapsho" (args-js {}) nil)
         (.then (fn [result]
@@ -473,7 +471,7 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3ljsa — snapshot precheck eligibility is gated on `:include`.
+;; Snapshot precheck eligibility is gated on `:include`.
 ;;
 ;; The precheck hash is `(hash app-db@frame)` only. `:epochs`/`:traces`
 ;; accrue a record on EVERY event cascade (incl. no-`:db` handlers) and
@@ -496,10 +494,10 @@
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["rf/default"]
                                      :include #js ["app-db" "machines"]})))
-        ;; rf2-ww877w — :machines is RUNTIME-DB state (EP-0001 rf2-vzld77
-        ;; moved machine snapshots to the runtime-db partition). A machine
-        ;; transition rewrites the slice WITHOUT an app-db write, so the
-        ;; `(hash app-db)` precheck hash can't see it move ⇒ ineligible.
+        ;; :machines is RUNTIME-DB state (EP-0001 partitions machine
+        ;; snapshots into the runtime-db). A machine transition rewrites
+        ;; the slice WITHOUT an app-db write, so the `(hash app-db)`
+        ;; precheck hash can't see it move ⇒ ineligible.
         ":machines reads runtime-db — NOT app-db-derived ⇒ ineligible"))
   (testing "single-frame snapshot, default (all-five) include → ineligible"
     (is (nil? (precheck/precheck-target
@@ -509,8 +507,8 @@
     (doseq [slice [#js ["app-db" "epochs"]
                    #js ["app-db" "traces"]
                    #js ["app-db" "sub-cache"]
-                   ;; rf2-ww877w — :machines is now runtime-db-backed, so
-                   ;; an :include retaining it is precheck-ineligible too.
+                   ;; :machines is runtime-db-backed, so an :include
+                   ;; retaining it is precheck-ineligible too.
                    #js ["app-db" "machines"]
                    #js ["machines"]]]
       (is (nil? (precheck/precheck-target
@@ -521,9 +519,9 @@
                 "snapshot" (args-js {:frames #js ["a" "b"] :include #js ["app-db"]}))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ww877w — get-path is NOT precheck-eligible. Its app-db subtree read
-;; is post-processed by `elide-wire-value`, whose elision registry lives in
-;; runtime-db; a later elision declaration / classification flip can re-shape
+;; get-path is NOT precheck-eligible. Its app-db subtree read is
+;; post-processed by `elide-wire-value`, whose elision registry lives in
+;; runtime-db; an elision declaration / classification flip can re-shape
 ;; the egress of an UNCHANGED app-db subtree, which the `(hash app-db)`
 ;; precheck hash can't observe. So get-path falls through to the post-eval
 ;; result-hash cache (which hashes the actual post-elision text).
@@ -544,11 +542,11 @@
         "batch get-path is ineligible too — same elision-registry hazard")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3ljsa — END-TO-END staleness guard. A single-frame DEFAULT-include
-;; snapshot is the precise bug shape: precheck would have served a hit
-;; while :epochs/:traces moved. With the fix it is precheck-ineligible,
-;; so the second call re-dispatches (and any change in the result text is
-;; caught by the post-eval cache instead of being silently hidden).
+;; END-TO-END staleness guard. A single-frame DEFAULT-include snapshot is
+;; the hazard shape: a precheck would serve a hit while :epochs/:traces
+;; moved. It is precheck-ineligible, so the second call re-dispatches
+;; (and any change in the result text is caught by the post-eval cache
+;; instead of being silently hidden).
 ;; ---------------------------------------------------------------------------
 
 (deftest single-frame-default-snapshot-does-not-precheck-hit
@@ -580,9 +578,9 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3ljsa — NO over-invalidation. A single-frame APP-DB-ONLY snapshot
-;; is still precheck-eligible: an unchanged app-db hash serves the
-;; precheck hit (the optimisation is preserved for the sound case).
+;; NO over-invalidation. A single-frame APP-DB-ONLY snapshot is
+;; precheck-eligible: an unchanged app-db hash serves the precheck hit
+;; (the optimisation holds for the sound case).
 ;; ---------------------------------------------------------------------------
 
 (deftest single-frame-appdb-only-snapshot-still-precheck-hits
@@ -604,8 +602,8 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-olvr5 finding 3 — an operating-frame change FLUSHES the response
-;; cache. The cache key is `(tool, build, args)` and CANNOT include the
+;; An operating-frame change FLUSHES the response cache. The cache key
+;; is `(tool, build, args)` and CANNOT include the
 ;; resolved operating frame for an omitted-`:frame` call (it resolves
 ;; runtime-side). So a `get-path {path X}` cached against operating frame
 ;; A would be served against frame B after a frame switch if B shared A's
@@ -662,11 +660,10 @@
                        "an errored operating-frame call leaves the cache intact")
                    (done)))))))
 
-;; rf2-wdxyx3 finding 2 — the REAL set-operating-frame :no-such-frame path.
-;; The prior test stubbed an `:isError true` reset; this one runs the
-;; actual `set-operating-frame-tool` against a stubbed nREPL that answers
+;; The REAL set-operating-frame :no-such-frame path. This runs the actual
+;; `set-operating-frame-tool` against a stubbed nREPL that answers
 ;; :no-such-frame, then drives THAT real result through `invoke`'s
-;; chokepoint. It proves the failure now rides as `isError` (no silent
+;; chokepoint. It proves the failure rides as `isError` (no silent
 ;; ok-text) AND that the chokepoint's `(not (isError? result))` flush
 ;; guard therefore preserves the cache — the pin did NOT change, so a
 ;; no-`:frame` cached read stays valid.

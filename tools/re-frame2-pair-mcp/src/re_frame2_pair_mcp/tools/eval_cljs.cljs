@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.eval-cljs
   "Tool: eval-cljs — evaluate one CLJS form.
 
-  ## Launch-flag gate (rf2-a0z0h; inverts the prior rf2-cxx5s default)
+  ## Launch-flag gate
 
   The eval-cljs tool is the REPL primitive of a pair-debug session —
   arbitrary form evaluation against the live re-frame2 runtime is the
@@ -13,14 +13,15 @@
 
   ### Threat-model rationale
 
-  The prior rf2-cxx5s gate (default OFF) parallelled `--allow-writes`
-  in shape but not in effect. `--allow-writes` is load-bearing because
+  A default-OFF eval gate would parallel `--allow-writes` in shape but
+  not in effect. `--allow-writes` is load-bearing because
   pair-tool writes can confuse the debug audit trail (\"did my app
-  produce this state change, or did the pair tool?\"). `--allow-eval`
-  did NOT parallel that protection: eval-cljs can express any write
+  produce this state change, or did the pair tool?\"). An eval gate
+  does NOT parallel that protection: eval-cljs can express any write
   the writes-gate would block. The two gates are not independent —
   once eval is on, writes are de-facto on. So a default-OFF eval
-  surface added friction without adding a separable protection.
+  surface would add friction without adding a separable protection,
+  which is why this surface defaults ON.
 
   The real defence is **don't expose this MCP to untrusted callers**.
   Once an operator has installed re-frame2-pair-mcp and wired it into
@@ -34,16 +35,17 @@
   `--no-eval` flips it to `false`. Tests flip the atom directly via
   `set-eval-allowed!`.
 
-  ## Opt-in Promise awaiting (rf2-xn4f9)
+  ## Opt-in Promise awaiting
 
   `cljs-eval` captures the synchronous return value of the form and
   `pr-str`'s it. When the form returns a JS Promise — any async work
   (`fetch`, `.layout()`, `async` fns, anything chained with `.then`) —
   the synchronous return IS the Promise object; `pr-str` produces a
   `\"#object[Promise ...]\"` string that says \"I'm a Promise\" with no
-  access to the eventually-resolved value. The historical workaround
-  was a two-call mailbox dance (stash on `js/window`, return a sentinel,
-  read the global on a second call, repeat-poll until resolved).
+  access to the eventually-resolved value. Resolving such a value by
+  hand is a two-call mailbox dance (stash on `js/window`, return a
+  sentinel, read the global on a second call, repeat-poll until
+  resolved).
 
   When the caller passes `:await true`, the server automates that
   dance:
@@ -81,20 +83,19 @@
       `Promise.resolve` or a multi-second layout computation; the
       server shouldn't pick.
 
-  The default `:await false` preserves today's semantics — the form's
-  synchronous return is `pr-str`'d and returned verbatim. Callers
+  The default `:await false` keeps the synchronous semantics — the
+  form's synchronous return is `pr-str`'d and returned verbatim. Callers
   who DO want to wait on a Promise opt in explicitly and pick the
   deadline.
 
-  ## Frame targeting (rf2-ntuzf)
+  ## Frame targeting
 
-  Every other structured op (`dispatch`, `snapshot`, `get-path`,
-  `trace-window`, `watch-epochs`, `subscribe`, `replace-app-db`)
-  accepts an optional `:frame` arg targeting a named frame. Pre-
-  rf2-ntuzf `eval-cljs` did NOT — the form ran against whatever
-  ambient frame context existed at the call site.
+  `eval-cljs`, like every other structured op (`dispatch`, `snapshot`,
+  `get-path`, `trace-window`, `watch-epochs`, `subscribe`,
+  `replace-app-db`), accepts an optional `:frame` arg targeting a named
+  frame.
 
-  EP-0002 (rf2-bd4div) — with no `:frame` arg the form carries NO frame
+  EP-0002 — with no `:frame` arg the form carries NO frame
   stamp, so a frame-scoped op inside it (`rf/subscribe` / `rf/dispatch` /
   `rf/current-frame-id`) raises the always-on `:rf.error/no-frame-context`
   rather than silently targeting a synthesised `:rf/default` (`:rf/default`
@@ -119,12 +120,12 @@
   capture a `frame-handle` (or wrap via `frame-bound-fn` /
   `frame-bound-fn*`) so the captured ops survive the boundary).
 
-  ## Mailbox machinery extracted (rf2-gfu33)
+  ## Mailbox machinery
 
   The browser-side Promise mailbox dance (`wrap-form`, the read/poll
-  forms, the sentinel dispatcher) moved to
+  forms, the sentinel dispatcher) lives in
   `re-frame2-pair-mcp.tools.await-promise` so `dispatch :await-render`
-  can reuse the SAME proven plumbing. This ns now supplies only the
+  reuses the SAME proven plumbing. This ns supplies only the
   eval-cljs result vocabulary (`:value` / `:rf.error/eval-cljs-*`) via
   the callback seam `await-promise/handle-sentinel` exposes."
   (:require [clojure.string :as str]
@@ -153,8 +154,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Await mode — wrap the user's form to detect thenables + automate the
-;; mailbox dance (rf2-xn4f9). The mailbox plumbing lives in
-;; `await-promise` (rf2-gfu33); this ns supplies only the eval-cljs
+;; mailbox dance. The mailbox plumbing lives in
+;; `await-promise`; this ns supplies only the eval-cljs
 ;; result vocabulary via the callback seam.
 ;; ---------------------------------------------------------------------------
 
@@ -203,8 +204,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- wrap-in-frame
-  "Wrap `form-str` in `(re-frame.core/with-frame <frame-kw> <form>)`
-  per rf2-ntuzf. Returns the wrapped source verbatim — callers feed
+  "Wrap `form-str` in `(re-frame.core/with-frame <frame-kw> <form>)`.
+  Returns the wrapped source verbatim — callers feed
   this into the await wrapper or send it straight over nREPL.
 
   `frame-kw` is emitted as an EDN literal via `pr-str` so a kebab-case
@@ -223,7 +224,7 @@
         build-id   (wire/arg-build conn args)
         explicit?  (wire/arg-build-explicit? conn args)
         await?     (boolean (wire/arg args :await))
-        ;; rf2-wz66k7 — validate `:timeout-ms` as a positive-millisecond
+        ;; Validate `:timeout-ms` as a positive-millisecond
         ;; integer BEFORE it threads into `await-promise/poll-mailbox!`'s
         ;; `(>= elapsed timeout-ms)` deadline. A non-numeric value
         ;; (`"never"`) makes `(>= n NaN)` never true ⇒ the mailbox poll
@@ -231,7 +232,7 @@
         ;; times out immediately. Absent ⇒ the documented default.
         timeout-r  (args/parse-timeout-arg "timeout-ms" (wire/arg args :timeout-ms))
         timeout-ms (or (second timeout-r) await-promise/default-timeout-ms)
-        ;; rf2-ntuzf — optional `:frame` arg targets a named frame for
+        ;; Optional `:frame` arg targets a named frame for
         ;; the form's lexical scope. Same coercion as dispatch/
         ;; snapshot/get-path: bare names (\"rf/default\") and EDN-
         ;; shaped strings (\":rf/default\") both accepted.
@@ -255,11 +256,11 @@
                         :hint "usage: eval-cljs {form '<cljs-form>' [build :app] [await true] [timeout-ms 5000] [frame :rf/xray]}"}))
 
       :else
-      ;; rf2-ivlb3: resolve the build (auto-detect the single running one
+      ;; Resolve the build (auto-detect the single running one
       ;; when no explicit :build was passed) and confirm a live runtime
       ;; BEFORE eval'ing. Never emit `:ok? true :value nil` for a build
       ;; with no runtime — that's indistinguishable from a genuine nil.
-      (let [;; rf2-ntuzf: apply the with-frame wrap before await
+      (let [;; Apply the with-frame wrap before await
             ;; wrapping. The await wrap operates on whatever source
             ;; we send over the wire; with-frame is just additional
             ;; outer-CLJS so it composes orthogonally with await.
@@ -268,7 +269,7 @@
             (.then (fn [resolved-build]
                      (if-not await?
                        ;; Default path — wrap the form in the typed
-                       ;; result codec (rf2-qobqy) so a genuine nil, an
+                       ;; result codec so a genuine nil, an
                        ;; unresolved-symbol throw, and an unserializable
                        ;; value are DISTINCT tagged outcomes instead of
                        ;; collapsing to a bare nil. The runtime
@@ -295,10 +296,10 @@
                                    (if (renv/error? result)
                                      (wire/err-text result)
                                      (wire/ok-text result)))))))
-                       ;; Await path (rf2-xn4f9) — wrap the form, dispatch
+                       ;; Await path — wrap the form, dispatch
                        ;; on the sentinel, poll the mailbox if needed. The
-                       ;; mailbox plumbing lives in `await-promise`
-                       ;; (rf2-gfu33); we supply the eval-cljs result
+                       ;; mailbox plumbing lives in `await-promise`;
+                       ;; we supply the eval-cljs result
                        ;; vocabulary via the callback seam.
                        (let [mailbox-id (await-promise/mailbox-key)
                              wrapped    (await-promise/wrap-form user-form mailbox-id)]
@@ -309,7 +310,7 @@
                                         (sentinel-callbacks resolved-build timeout-ms)))))))))
             (.catch
               (fn [err]
-                ;; rf2-mvdwv — a compile warning/error (unresolved symbol,
+                ;; A compile warning/error (unresolved symbol,
                 ;; syntax/arity error) rejects with a structured
                 ;; `:rf.error/eval-cljs-compile-error` ex-info from
                 ;; `cljs-eval-value`. Surface it as a proper `:isError`

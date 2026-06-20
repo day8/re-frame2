@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.source-uri-test
-  "Unit tests for the source-URI decorator (rf2-cibp8).
+  "Unit tests for the source-URI decorator.
 
   Pins three properties:
 
@@ -162,13 +162,13 @@
       (is (= v (source-uri/decorate v :vscode))))))
 
 ;; ---------------------------------------------------------------------------
-;; decorate — flat-key carrier (handler-meta / frame-meta shape; rf2-87wee).
+;; decorate — flat-key carrier (handler-meta / frame-meta shape).
 ;;
 ;; `(rf/handler-meta kind id)` and `(rf/frame-meta id)` return registration-
 ;; metadata maps with flat `:ns` / `:line` / `:column` / `:file` keys (per
-;; Spec-Schemas `:rf/source-coord-meta` and rf2-4h8ny). The decorator must
-;; recognise this carrier shape and splice :rf.source/uri onto the map
-;; itself — distinct from the trace-event :source-coord sub-map carrier.
+;; Spec-Schemas `:rf/source-coord-meta`). The decorator must recognise this
+;; carrier shape and splice :rf.source/uri onto the map itself — distinct
+;; from the trace-event :source-coord sub-map carrier.
 ;; ---------------------------------------------------------------------------
 
 (deftest decorate-splices-uri-on-flat-coord-carrier-map

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.raw-state
-  "Raw-state boot-gate (rf2-c2dtu).
+  "Raw-state boot-gate.
 
   re-frame2-pair-mcp's direct-read surfaces (`snapshot`, `get-path`, `subscribe`
   on `:epoch`) can return verbatim slices of a live app's state. The
@@ -21,12 +21,11 @@
      nREPL round-trip issued before every state-emitting tool eval —
      re-signalled rather than cached-as-delivered, because the runtime's
      posture resets to its permissive default on every page/runtime
-     reload (rf2-olvr5 finding 2; see `signal-runtime!`).
+     reload (see `signal-runtime!`).
 
-  When `--allow-sensitive-reads` is ON, the per-call args win — the same
-  behaviour re-frame2-pair-mcp shipped pre-rf2-c2dtu.
+  When `--allow-sensitive-reads` is ON, the per-call args win.
 
-  ## Single intention-naming predicate (rf2-p1qli)
+  ## Single intention-naming predicate
 
   Call sites consume the gate state through ONE predicate:
 
@@ -46,24 +45,20 @@
 
   The predicate name asserts the operator's opt-in state directly —
   the truthy value means \"the operator opted in via --allow-sensitive-reads\".
-  This replaces the prior `force-redact?` / `force-elision?` pair which
-  returned `(not @allow-raw-state?)` and required three negations to
-  trace through (see rf2-p1qli / audit Finding #2).
+  Positive-sense and single-name, it answers \"did the operator opt
+  in?\" without negation gymnastics at the call site.
 
-  Symmetric with:
-    - rf2-uaymx (b) / rf2-g9fje `--allow-sensitive-reads` (story-mcp)
+  Symmetric with the story-mcp `--allow-sensitive-reads` flag.
 
-  Note: re-frame2-pair-mcp's `eval-cljs` gate was inverted in rf2-a0z0h
-  — eval-cljs now defaults ON, with `--no-eval` as the opt-out. The
-  raw-state gate keeps its default-OFF posture because privacy elision
-  IS a separable protection (eval-cljs surfaces what an operator asked
-  for; raw reads can pour the entire app-db into the wire log without
-  the operator ever typing the secret).
+  re-frame2-pair-mcp's `eval-cljs` gate defaults ON, with `--no-eval` as
+  the opt-out. The raw-state gate keeps a default-OFF posture because
+  privacy elision IS a separable protection (eval-cljs surfaces what an
+  operator asked for; raw reads can pour the entire app-db into the wire
+  log without the operator ever typing the secret).
 
-  Per rf2-2x3ql the pair-mcp CLI flag is `--allow-sensitive-reads`
-  (canonical cross-MCP name). The internal Clojure identifiers below
-  retain `raw-state` for legacy reasons; only the operator-facing flag
-  was renamed.
+  The pair-mcp CLI flag is `--allow-sensitive-reads` (the canonical
+  cross-MCP name). The internal Clojure identifiers below use
+  `raw-state`.
 
   The gate is a single atom (`allow-raw-state?`) set by `server.cljs/main`
   from `process.argv` before the dispatcher starts handling tools/call
@@ -88,7 +83,7 @@
   @allow-raw-state?)
 
 (defn raw-state-allowed?
-  "Single intention-naming predicate (rf2-p1qli).
+  "Single intention-naming predicate.
 
   Returns `true` when the operator opted in via `--allow-sensitive-reads`
   at server launch; `false` otherwise (the published-build default).
@@ -105,11 +100,9 @@
                  (args/parse-bool-arg raw-args :elision)
                  true)
 
-  Replaces the pre-rf2-p1qli `force-redact?` / `force-elision?`
-  predicate-pair, both of which returned `(not @allow-raw-state?)` and
-  required three negations at the call site to answer \"did the operator
-  opt in?\" The new predicate is positive-sense, single-name, and
-  matches its truth value to the operator's intent."
+  Positive-sense and single-name, this predicate matches its truth
+  value to the operator's intent, so a call site answers \"did the
+  operator opt in?\" with no negation gymnastics."
   []
   @allow-raw-state?)
 
@@ -122,19 +115,18 @@
 ;; consumer (10x, custom dev panels, the user's own `add-tap` call) sees
 ;; the full state. That bypasses re-frame2-pair-mcp's wire-boundary redaction.
 ;;
-;; The runtime exposes `configure-raw-state!` (rf2-c2dtu) which sets a
+;; The runtime exposes `configure-raw-state!` which sets a
 ;; per-runtime flag controlling whether `app-db-reset!` taps raw values or
 ;; redacts via `elide-wire-value`. The MCP server pushes its boot-gate
 ;; state into the runtime before every state-emitting eval — the
 ;; per-runtime flag resets to its permissive default on every page/runtime
-;; reload, so the posture is re-signalled rather than cached as delivered
-;; (rf2-olvr5 finding 2).
+;; reload, so the posture is re-signalled rather than cached as delivered.
 
 (defonce ^:private runtime-signalling
   ;; Per-build-id IN-FLIGHT configure-raw-state! Promise. A second
   ;; concurrent caller for the same build awaits the SAME Promise rather
   ;; than firing a duplicate signal OR racing ahead while the first
-  ;; signal is still in flight (rf2-z7roa). Cleared once resolved.
+  ;; signal is still in flight. Cleared once resolved.
   ;;
   ;; Build-keyed because re-frame2-pair-mcp can talk to multiple shadow-cljs
   ;; builds over the same nREPL connection; each build has its own
@@ -148,35 +140,34 @@
   through `tap>`.
 
   ## Why this re-signals on EVERY call rather than caching 'delivered'
-  per build (rf2-olvr5 finding 2)
+  per build
 
   The runtime's `raw-state-config` atom defaults to `:allow-raw-state?
   true` (the bare-CLJS-REPL posture) and is RE-MINTED on every full page
   reload / CLJS heap reset — a fresh preload evaluation re-`defonce`s it
-  back to the permissive default, and re-mints `session-id` too. The
-  pre-fix shape recorded the signal as DELIVERED once per `build-id` per
-  server lifetime and short-circuited thereafter. So after a reload, the
-  build-id was still in the resolved set, `signal-runtime!` returned a
-  no-op, the freshly-recreated runtime stayed at its permissive default,
-  and the next state-emitting tool (snapshot / get-path / subscribe /
-  replace-app-db / restore-epoch / dispatch-dry-run / record /
-  watch-until) could tap RAW prev/next app-db through `tap>` even with
-  `--allow-sensitive-reads` OFF.
+  back to the permissive default, and re-mints `session-id` too. Caching
+  the signal as DELIVERED once per `build-id` per server lifetime would
+  leave the build-id in the resolved set after a reload, so
+  `signal-runtime!` would no-op, the freshly-recreated runtime would stay
+  at its permissive default, and the next state-emitting tool (snapshot /
+  get-path / subscribe / replace-app-db / restore-epoch /
+  dispatch-dry-run / record / watch-until) could tap RAW prev/next app-db
+  through `tap>` even with `--allow-sensitive-reads` OFF.
 
   The server can't cheaply know the current `session-id` without a
   round-trip, and `configure-raw-state!` is idempotent + tiny (one
   bencode round-trip on the persistent socket — same shape every call).
-  So the correct fix is to NOT cache the posture across runtime identity:
-  always reconfigure before a tap-emitting write. The per-build IN-FLIGHT
-  `runtime-signalling` dedup is preserved — a burst of concurrent
-  state-emitting calls for the same build still share ONE configure
-  Promise (the rf2-z7roa race guard: no caller proceeds to its
-  state-emitting eval ahead of the posture landing) — but once that
-  Promise resolves the next call reconfigures afresh rather than skipping.
+  So the posture is NOT cached across runtime identity: always
+  reconfigure before a tap-emitting write. The per-build IN-FLIGHT
+  `runtime-signalling` dedup still applies — a burst of concurrent
+  state-emitting calls for the same build share ONE configure Promise
+  (the race guard: no caller proceeds to its state-emitting eval ahead of
+  the posture landing) — but once that Promise resolves the next call
+  reconfigures afresh rather than skipping.
 
-  Failure (a runtime predating rf2-c2dtu) is swallowed silently — the
-  wire-side enforcement still holds, so a degraded runtime just means
-  `tap>` consumers see raw values (the pre-rf2-c2dtu posture).
+  Failure (a runtime without `configure-raw-state!`) is swallowed
+  silently — the wire-side enforcement still holds, so a degraded runtime
+  just means `tap>` consumers see raw values.
 
   Called between `ensure-runtime!` and the first state-emitting eval in
   each tool body that taps / egresses app-db. Returns a Promise resolving
@@ -185,7 +176,7 @@
   (if (contains? @runtime-signalling build-id)
     ;; A configure is already in flight for this build — share it so a
     ;; concurrent caller never races ahead of the posture landing
-    ;; (rf2-z7roa) and we don't fire a duplicate round-trip in the burst.
+    ;; and we don't fire a duplicate round-trip in the burst.
     (get @runtime-signalling build-id)
     (let [form (ef/emit
                  (ef/rt-call 'configure-raw-state!
@@ -193,16 +184,16 @@
           ;; Drop the in-flight entry on BOTH the success and swallowed-
           ;; failure arms. We do NOT record a permanent 'delivered' flag:
           ;; the runtime's posture resets on reload, so a future call must
-          ;; reconfigure (rf2-olvr5 finding 2).
+          ;; reconfigure.
           finish! (fn []
                     (swap! runtime-signalling dissoc build-id)
                     nil)
           p       (-> (nrepl/cljs-eval-value conn build-id form)
                       (.then (fn [_] (finish!)))
                       (.catch (fn [_]
-                                ;; Degraded runtime — predates rf2-c2dtu.
-                                ;; Swallow; the wire-side gate still
-                                ;; enforces.
+                                ;; Degraded runtime — no
+                                ;; `configure-raw-state!`. Swallow; the
+                                ;; wire-side gate still enforces.
                                 (finish!))))]
       (swap! runtime-signalling assoc build-id p)
       p)))

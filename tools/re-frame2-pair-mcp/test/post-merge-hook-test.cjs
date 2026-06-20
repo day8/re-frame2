@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Unit + smoke tests for the post-merge stale-MCP-binary hook (rf2-6jj3r).
+ * Unit + smoke tests for the post-merge stale-MCP-binary hook.
  *
  * Two layers, both POSIX-portable so they run under Git Bash on Windows
  * and native sh on macOS / Linux:

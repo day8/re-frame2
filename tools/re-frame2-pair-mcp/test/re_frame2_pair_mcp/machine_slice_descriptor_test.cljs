@@ -1,23 +1,19 @@
 (ns re-frame2-pair-mcp.machine-slice-descriptor-test
-  "EP-0015 drift gate for the `snapshot` tool's `:machines`-slice description
-  (rf2-scgnoe / rf2-i1h7tk).
+  "EP-0015 drift gate for the `snapshot` tool's `:machines`-slice description.
 
-  THE DRIFT. The generated MCP catalogue is what clients and skills read. The
-  `snapshot` descriptor used to say the `:machines` slice \"passes through
-  unchanged — payload redaction there is the `redact-interceptor` interceptor's
-  job.\" EP-0015 RETIRED `redact-interceptor` from the public API, and the
-  implementation has since moved machine snapshots into the durable runtime-db
-  partition, which fails closed to `:rf/redacted` off-box by default
-  (snapshot.cljs `redact-runtime-db?`). Documenting raw pass-through pointing at
-  a retired interceptor trains clients/tests to treat machine `:data` (durable
-  sensitive runtime state) as OUTSIDE EP-0015 projection.
+  THE CONTRACT. The generated MCP catalogue is what clients and skills read.
+  Machine snapshots live in the durable runtime-db partition, which fails
+  closed to `:rf/redacted` off-box by default (snapshot.cljs
+  `redact-runtime-db?`). The descriptor must reflect that posture so
+  clients/tests treat machine `:data` (durable sensitive runtime state) as
+  INSIDE EP-0015 projection — not as a raw pass-through.
 
-  THE GATE. The published `snapshot` descriptor must (a) carry NO retired
+  THE GATE. The published `snapshot` descriptor must (a) carry NO
   `redact-interceptor` wording and NOT claim the `:machines` slice passes
   through unchanged, and (b) describe the EP-0015 posture: the runtime-db
   `:machines` slice fails closed to `:rf/redacted` off-box by default and the
-  trusted-local gate threads through projection rather than bypassing it. A
-  future edit that re-introduces the raw-pass-through claim trips this test.
+  trusted-local gate threads through projection rather than bypassing it. An
+  edit that re-introduces the raw-pass-through claim trips this test.
 
   Behavioural redaction of the `:machines` slice itself (the server-side eval
   form's `redact-runtime-db?`) is covered in `sensitive_filter_test`."

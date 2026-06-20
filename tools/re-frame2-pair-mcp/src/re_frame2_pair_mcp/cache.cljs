@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.cache
   "Per-session response cache keyed on a hash of the serialised wire
-  payload (rf2-3rt1f).
+  payload.
 
   ## What this is
 
@@ -30,31 +30,34 @@
 
   ## Why hash the result text, not app-db directly
 
-  The bead (rf2-3rt1f) proposes `(hash app-db)`. The framing here is
-  one step downstream: by the time the result is built, it has already
-  been path-sliced, summarised, diff-encoded, deduped, scrubbed, etc.
-  Two calls with the same args against an unchanged app-db produce the
-  same serialised text — so hashing the text catches the same hit and
-  is robust against every transform in the wire pipeline. It also lets
-  one cache cover every tool uniformly (snapshot, get-path,
-  trace-window, etc.) instead of needing per-tool hash strategies.
+  Hashing happens one step downstream of app-db: by the time the
+  result is built, it has already been path-sliced, summarised,
+  diff-encoded, deduped, scrubbed, etc. Two calls with the same args
+  against an unchanged app-db produce the same serialised text — so
+  hashing the text catches the same hit and is robust against every
+  transform in the wire pipeline. It also lets one cache cover every
+  tool uniformly (snapshot, get-path, trace-window, etc.) instead of
+  needing per-tool hash strategies.
 
-  The original (rf2-3rt1f) shape paid the full nREPL round-trip and
-  local transform pipeline; the cache only saved the *wire bytes*.
-  rf2-36xod added a **precheck** path on top: an entry can carry a
-  cheap `:precheck-hash` fetched via one bencode round-trip. rf2-9pe31
-  collapsed the precheck eval to `(re-frame2-pair.runtime/app-db-hash
-  frame)` — an O(1) accessor over a per-frame integer cache the
-  runtime keeps current via its epoch listener (every settled
-  mutation updates the cached hash). Before running the tool, the MCP
-  server fetches the current precheck-hash; if it matches the stored
-  `:precheck-hash` for `(tool, args)`, the server emits the
-  `:rf.mcp/cache-hit` marker WITHOUT running the tool. Saves both
-  wire bytes AND the heavyweight tool eval + transform pipeline.
+  Two paths can produce a hit:
+
+  - **Precheck** — an entry carries a cheap `:precheck-hash` fetched
+    via one bencode round-trip. The precheck eval is
+    `(re-frame2-pair.runtime/app-db-hash frame)` — an O(1) accessor
+    over a per-frame integer cache the runtime keeps current via its
+    epoch listener (every settled mutation updates the cached hash).
+    Before running the tool, the MCP server fetches the current
+    precheck-hash; if it matches the stored `:precheck-hash` for
+    `(tool, args)`, the server emits the `:rf.mcp/cache-hit` marker
+    WITHOUT running the tool. Saves both wire bytes AND the
+    heavyweight tool eval + transform pipeline.
+  - **Result-hash** — the match-after-eval backstop: run the tool,
+    hash the result text, and emit the marker only when it matches the
+    stored hash. Saves the wire bytes.
 
   See `precheck` (decide before running the tool) vs `apply-cache`
-  (decide after running the tool — the original behaviour, used as
-  the backstop for tools without a precheck wiring).
+  (decide after running the tool — the backstop for tools without a
+  precheck wiring).
 
   ## LRU policy
 
@@ -74,7 +77,7 @@
     arg) to opt in. Default-off keeps the contract simple for
     callers who haven't yet learned the `:rf.mcp/cache-hit` shape.
     The arg is parsed by the shared
-    `re-frame2-pair-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
+    `re-frame2-pair-mcp.tools.args/parse-bool-arg` table.
   - **Per-tool opt-out**: streaming / progress-bearing tools
     (`subscribe`, `dispatch` with `:trace`) bypass the cache. Their
     return value is the result of an action, not a read.
@@ -86,18 +89,18 @@
    {:hash             <integer>
     :unchanged-since  <ms-since-epoch>
     :tool             \"<tool-name>\"
-    :via              :precheck | :result-hash   ;; rf2-36xod
+    :via              :precheck | :result-hash
     :hint             \"<agent-host instruction string>\"}}
   ```
 
-  `:via :precheck` signals the hit short-circuited the full tool eval
-  (rf2-36xod path); `:via :result-hash` is the original rf2-3rt1f
-  match-after-eval path. Same wire vocabulary, different cost saved.
+  `:via :precheck` signals the hit short-circuited the full tool eval;
+  `:via :result-hash` is the match-after-eval path. Same wire
+  vocabulary, different cost saved.
 
   The `:rf.mcp/*` namespace matches the wire-vocabulary convention
-  used by `:rf.mcp/overflow` (rf2-rvyzy), `:rf.mcp/dedup-table`
-  (rf2-obpa9), `:rf.mcp/summary` (rf2-tygdv), `:rf.size/large-elided`
-  (rf2-urjnc). Agents that learned the family see one more slot."
+  used by `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, `:rf.mcp/summary`,
+  and `:rf.size/large-elided`. Agents that learned the family see one
+  more slot."
   (:require [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.wire :as wire]))
@@ -154,14 +157,14 @@
 (defn cache-key
   "Build the cache key tuple for a tool invocation.
 
-  rf2-olvr5 finding 3 — the key includes the resolved BUILD as well as
+  The key includes the resolved BUILD as well as
   `(tool, args-fingerprint)`. The same `(tool, args)` against two
   different shadow-cljs builds reachable over the one nREPL connection is
-  two distinct reads; keying on the build alone (the pre-fix shape)
-  meant a precheck-hash collision across builds could serve one build's
+  two distinct reads; folding the build into the key keeps a
+  precheck-hash collision across builds from serving one build's
   payload for the other. `build` is the resolved build-id keyword (from
-  `wire/arg-build`); a legacy call without one passes nil and keys on
-  `(tool, args)` exactly as before.
+  `wire/arg-build`); a call without one passes nil and keys on
+  `(tool, args)` alone.
 
   Note: the OPERATING FRAME for an omitted-`:frame` call is not knowable
   here (it resolves runtime-side), so it cannot be folded into the key.
@@ -256,8 +259,8 @@
 
 (defn cache-hit-payload
   "Build the structured wire marker that replaces a cached response.
-  `via` defaults to `:result-hash` (the rf2-3rt1f match-after-eval
-  path); pass `:precheck` for the rf2-36xod skip-the-tool-eval path."
+  `via` defaults to `:result-hash` (the match-after-eval path); pass
+  `:precheck` for the skip-the-tool-eval path."
   ([entry] (cache-hit-payload entry :result-hash))
   ([{:keys [tool hash sent-at]} via]
    {:rf.mcp/cache-hit {:hash            hash
@@ -268,16 +271,15 @@
 
 (defn cache-hit-result
   "Wrap `cache-hit-payload` in the MCP `{:content [{:type \"text\" ...}]}`
-  envelope plus the `:structuredContent` slot (rf2-hj3pi). `via`
-  annotates which cache path produced the hit (`:result-hash` =
-  rf2-3rt1f post-eval match; `:precheck` = rf2-36xod pre-eval
-  short-circuit)."
+  envelope plus the `:structuredContent` slot. `via` annotates which
+  cache path produced the hit (`:result-hash` = post-eval match;
+  `:precheck` = pre-eval short-circuit)."
   ([entry tool] (cache-hit-result entry tool :result-hash))
   ([entry tool via]
-   ;; rf2-or8s29 — route through `wire/result` so the cache-hit marker's
-   ;; structuredContent keeps its namespace: a raw `clj->js` truncated
+   ;; Route through `wire/result` so the cache-hit marker's
+   ;; structuredContent keeps its namespace: a raw `clj->js` truncates
    ;; the `:rf.mcp/cache-hit` marker key to `"cache-hit"`, so SDK-friendly
-   ;; hosts reading structuredContent missed the marker entirely.
+   ;; hosts reading structuredContent miss the marker entirely.
    (wire/result (cache-hit-payload (assoc entry :tool tool) via) false)))
 
 ;; ---------------------------------------------------------------------------
@@ -287,15 +289,15 @@
 (def cacheable?
   "Predicate — should this tool ever consult the cache?
 
-  Forwarded to `registry/cacheable?` (rf2-47g8l) — the cacheable-bool
-  is stored on each entry in the single-source-of-truth registry, so
-  cache.cljs doesn't redeclare the allowlist. Keeping the name here
-  preserves the call-site vocabulary (`cache/cacheable?`) for existing
-  tests and for the `apply-cache` / `precheck` use sites below."
+  Forwarded to `registry/cacheable?` — the cacheable-bool is stored on
+  each entry in the single-source-of-truth registry, so cache.cljs
+  doesn't redeclare the allowlist. Keeping the name here preserves the
+  call-site vocabulary (`cache/cacheable?`) for the tests and for the
+  `apply-cache` / `precheck` use sites below."
   registry/cacheable?)
 
 (defn apply-cache
-  "Wire-boundary cache check (rf2-3rt1f match-after-eval path). Returns
+  "Wire-boundary cache check (match-after-eval path). Returns
   either:
 
     - `result-js` unchanged (cache disabled, tool not cacheable,
@@ -309,9 +311,9 @@
   failure from masking a future successful read.
 
   If `:precheck-hash` is supplied (the value fetched from the runtime
-  via the rf2-36xod precheck wiring), it is stored alongside the
-  result hash so the NEXT call can short-circuit via `precheck`
-  without re-running the tool."
+  via the precheck wiring), it is stored alongside the result hash so
+  the NEXT call can short-circuit via `precheck` without re-running the
+  tool."
   [result-js {:keys [tool args enabled? precheck-hash build]}]
   (cond
     (not enabled?)               result-js
@@ -331,11 +333,11 @@
             result-js)))))
 
 ;; ---------------------------------------------------------------------------
-;; Precheck — rf2-36xod. Decide cache-hit BEFORE running the tool.
+;; Precheck — decide cache-hit BEFORE running the tool.
 ;; ---------------------------------------------------------------------------
 
 (defn precheck
-  "Pre-eval cache check (rf2-36xod). Returns either:
+  "Pre-eval cache check. Returns either:
 
     - `nil` — no decision; the caller proceeds with the full tool eval
       and feeds the result back through `apply-cache`.
@@ -349,12 +351,11 @@
   `current-precheck-hash` argument matches it.
 
   `current-precheck-hash` is the value the MCP server fetched in a
-  single bencode round-trip (today: `(re-frame2-pair.runtime/app-db-hash
+  single bencode round-trip: `(re-frame2-pair.runtime/app-db-hash
   frame)` — an O(1) accessor over the runtime's per-frame cached
-  hash, kept current by its epoch listener — see rf2-9pe31). When
-  the caller has no precheck wiring for this tool (yet), it passes
-  `nil` and this fn returns `nil`, leaving the legacy post-eval path
-  in charge.
+  hash, kept current by its epoch listener. When the caller has no
+  precheck wiring for this tool (yet), it passes `nil` and this fn
+  returns `nil`, leaving the post-eval path in charge.
 
   This fn does NOT mutate the cache on a miss — the subsequent
   `apply-cache` call records the new result+precheck-hash together

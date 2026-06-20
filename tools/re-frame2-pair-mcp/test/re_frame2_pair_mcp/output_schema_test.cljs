@@ -1,8 +1,8 @@
 (ns re-frame2-pair-mcp.output-schema-test
-  "Pin rf2-3l3be — every MCP tool descriptor MUST carry an
-  `:outputSchema` map describing its `structuredContent` payload
-  shape. mcp-builder canonical pattern: 'Define outputSchema wherever
-  possible for structured responses.'
+  "Pin: every MCP tool descriptor MUST carry an `:outputSchema` map
+  describing its `structuredContent` payload shape. mcp-builder
+  canonical pattern: 'Define outputSchema wherever possible for
+  structured responses.'
 
   The slot rides next to `:inputSchema` in the static descriptor
   data and projects to the wire via `tool-descriptors-js` (which is

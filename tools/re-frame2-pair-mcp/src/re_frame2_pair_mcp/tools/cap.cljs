@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.cap
-  "Wire-boundary token-budget cap (rf2-rvyzy / rf2-eyelu).
+  "Wire-boundary token-budget cap.
 
   Per `spec/Principles.md` §\"Tight token budget per response\", every
   MCP `tools/call` response is bounded at ~5,000 tokens by default.
@@ -12,7 +12,7 @@
   ## Pipeline ownership
 
   The cap-enforcement ALGORITHM lives in `re-frame.mcp-base.cap`
-  (rf2-eyelu) — token-summing across `:text` slots, comparing against
+  — token-summing across `:text` slots, comparing against
   the per-call cap, and building the overflow result. This ns supplies
   the per-server specialisation:
 
@@ -39,9 +39,8 @@
   - **Pluggable strategy**: `base-cap/apply-cap` dispatches on a
     strategy keyword. Today only `:truncate-with-marker` is
     implemented — replace the payload with the overflow marker.
-    Future strategies (path-slicing rf2-tygdv, lazy summary
-    rf2-u2029, diff encoding rf2-rl7y, etc.) compose in the base
-    without rebuilding the wrapper here.
+    Future strategies (path-slicing, lazy summary, diff encoding,
+    etc.) compose in the base without rebuilding the wrapper here.
   - **Centralised**: applied as the final step in `invoke`. Per-tool
     functions are untouched; they emit the same shapes they always
     did. The wire-cap is a property of the egress boundary, not of
@@ -53,10 +52,9 @@
 
 ;; `default-max-tokens` and the character→token approximation
 ;; (`base-overflow/token-estimate`) come from `re-frame.mcp-base.overflow`
-;; (rf2-vw4sq) — both are cross-MCP conventions pinned once in the base.
+;; — both are cross-MCP conventions pinned once in the base.
 ;; `default-max-tokens` is re-exported here because production call sites
-;; reference `cap/default-max-tokens`; the test-only `token-estimate`
-;; re-export moved to `test-utils` (rf2-ttspi7) — production code calls
+;; reference `cap/default-max-tokens`; production code calls
 ;; `base-overflow/token-estimate` directly.
 (def default-max-tokens base-overflow/default-max-tokens)
 
@@ -74,7 +72,7 @@
 
 (defn invalid-arg?
   "True when `max-tokens-arg` rejected the per-call `:max-tokens` arg
-  (rf2-5rdit) — a negative value resolves to a
+  — a negative value resolves to a
   `{:rf.mcp/invalid-arg {...}}` rejection rather than a cap. The
   `invoke` chokepoint tests this and short-circuits into an
   `isError: true` result via `wire/err-text` instead of threading the
@@ -99,8 +97,7 @@
 ;; cross-MCP marker presents identically. Production reads it via
 ;; `base-overflow/overflow-hint-fallback` (or, more usually, lets
 ;; `base-cap/apply-cap` apply the fallback when a tool has no specific
-;; hint). The test-only `overflow-hint-fallback` re-export moved to
-;; `test-utils` (rf2-ttspi7).
+;; hint).
 
 (def ^:private result-io
   "ResultIO reify over re-frame2-pair-mcp's `#js {:content #js [...]}` shape
@@ -108,7 +105,7 @@
   overflow result with the same JS shape so the SDK can serialise it
   as a `tools/call` reply unchanged.
 
-  HOT PATH (rf2-ycfu1; mirrors story-mcp's rf2-mzndx fix): `wire/ok-text`
+  HOT PATH (mirrors story-mcp's structured-slot accounting): `wire/ok-text`
   / `wire/err-text` write the SAME payload into BOTH `:content[*].text`
   (the pr-str EDN) AND `:structuredContent` (the `clj->js` JSON
   projection) on EVERY result. Both slots ride the wire — the
@@ -142,17 +139,17 @@
                (and (some? sc) (not (undefined? sc)))
                (conj! (js/JSON.stringify sc))))))))
     (build-overflow-result [_ marker _original]
-      ;; rf2-or8s29 — route through `wire/result` so the overflow marker's
-      ;; structuredContent keeps its namespace: a raw `clj->js` truncated
-      ;; the `:rf.mcp/overflow` marker key to `"overflow"`, so SDK-friendly
-      ;; hosts reading structuredContent missed the marker.
+      ;; Route through `wire/result` so the overflow marker's
+      ;; structuredContent keeps its namespace: a raw `clj->js` would
+      ;; truncate the `:rf.mcp/overflow` marker key to `"overflow"`, so
+      ;; SDK-friendly hosts reading structuredContent would miss the marker.
       (wire/result marker false))))
 
 (defn sum-payload-tokens
   "Sum `token-estimate` across every wire-bearing slot in the MCP
   `{:content [{:type \"text\" :text ...} ...] :structuredContent ...}`
   result — both the `:content[*].text` strings AND the
-  `:structuredContent` JSON projection (rf2-ycfu1). Both ride the wire
+  `:structuredContent` JSON projection. Both ride the wire
   as the serialised tool-result body; the bounded JSON envelope keys
   are ignored.
 
@@ -174,9 +171,9 @@
   `base-cap/apply-cap`.
 
   Short-circuits on a wire-bounded marker (`:rf.mcp/cache-hit`,
-  `:rf.mcp/overflow` — rf2-gktyn). Such envelopes are sub-cap by
+  `:rf.mcp/overflow`). Such envelopes are sub-cap by
   construction; the token-sum walk would be wasted work. The
-  `invoke` pipeline (rf2-3z0zi) already short-circuits before this
+  `invoke` pipeline already short-circuits before this
   fn runs in the orchestrated path, but the guard here makes the
   invariant local to `apply-cap` too — direct callers (tests, future
   consumers) get the same skip.
@@ -189,7 +186,7 @@
   result in `:rf.mcp/overflow` like any other payload. An error
   response can itself carry an oversize `:message` blob (e.g. a
   stack trace pretty-printed from a deep CLJS exception) and silent
-  over-budget egress would violate the rf2-rvyzy contract that
+  over-budget egress would violate the wire-cap contract that
   every response is the wire-cap-respecting marker OR a sub-cap
   payload — never a verbatim over-budget body. The cache only
   cares about identity; the cap cares about byte count, and an
@@ -205,8 +202,8 @@
                          :strategy strategy})))
 
 (defn cap-message
-  "Per-notification wire-cap for a single serialised EDN message string
-  (rf2-wz66k7). Returns `message` unchanged when under the cap (or the
+  "Per-notification wire-cap for a single serialised EDN message string.
+  Returns `message` unchanged when under the cap (or the
   cap is disabled via `nil`), else the `pr-str` of the same
   `{:rf.mcp/overflow {...}}` marker the result path emits.
 
@@ -221,8 +218,8 @@
   notification\"; §Subscribe streaming: progress frames apply the same
   wrap per-tick; `003-Tool-Catalogue.md` §Universal dedup: the per-tick
   `:events` vector participates in the wire-cap discipline). This is the
-  same cap-completeness class as rf2-ycfu1 (count `:structuredContent`
-  toward the cap) — a wire-bearing payload that bypassed the gate.
+  same cap-completeness class as counting `:structuredContent`
+  toward the cap — every wire-bearing payload passes through the gate.
 
   Uses the SAME two-stage gate (`base-cap/over-cap?` — token sum OR the
   secondary char gate) and the SAME `overflow/overflow-payload` shape as

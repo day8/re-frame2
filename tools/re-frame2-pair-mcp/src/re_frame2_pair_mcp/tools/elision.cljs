@@ -1,13 +1,13 @@
 (ns re-frame2-pair-mcp.tools.elision
-  "Size-elision wire markers (rf2-urjnc).
+  "Size-elision wire markers.
 
-  The sixth wire-protocol mechanism — alongside `:rf.mcp/summary`,
+  One of the wire-protocol mechanisms — alongside `:rf.mcp/summary`,
   `:rf.mcp/overflow`, `:rf.mcp/diff-from`, `:rf.mcp/dedup-table`, and
-  `:rf.mcp/cache-hit` (rf2-3rt1f). After diff-encoding (rf2-1wdzp)
-  collapses each `:db-after`, and dedup (rf2-obpa9) pools repeated
+  `:rf.mcp/cache-hit`. After diff-encoding
+  collapses each `:db-after`, and dedup pools repeated
   subtrees, a single large slot — say a 100KB uploaded PDF base64 on
   `[:user :uploaded-pdf]` — still rides the wire verbatim. The
-  framework's size-elision walker (`rf/elide-wire-value`, rf2-v9tw2)
+  framework's size-elision walker (`rf/elide-wire-value`)
   substitutes such slots with a `{:rf.size/large-elided {...}}` marker
   carrying a fetch handle (`[:rf.elision/at <path>]`). Agents drill
   back into the slot via `get-path` using the handle's path.
@@ -27,12 +27,11 @@
   - `snapshot` tool: each frame's `:app-db` AND `:sub-cache` slices are
     run through the walker before slice-app-db-in-snapshot sees them.
     The `:sub-cache` arm pins the Tool-Pair contract that direct reads
-    of `(rf/sub-cache frame-id)` MUST route through `elide-wire-value`
-    (rf2-vflrg).
+    of `(rf/sub-cache frame-id)` MUST route through `elide-wire-value`.
   - `get-path` tool: the value at the requested path is run through
     the walker before pr-str.
   - `list-subscriptions :include-values` tool: each sub-cache entry's
-    `:value` is run through the walker server-side (rf2-f1ose), mirroring
+    `:value` is run through the walker server-side, mirroring
     `snapshot`'s `:sub-cache` slice — the two read the same reactive
     cache source, so both MUST redact alike off-box.
 
@@ -45,9 +44,9 @@
   ## `:elision` MCP arg
 
   Boolean opt-out. Default `true`. The arg is parsed by the shared
-  `re-frame2-pair-mcp.tools.args/parse-bool-arg` table (rf2-c4fmh).
+  `re-frame2-pair-mcp.tools.args/parse-bool-arg` table.
 
-  ## `:include-sensitive` MCP arg (rf2-vflrg)
+  ## `:include-sensitive` MCP arg
 
   The same `:include-sensitive` flag that gates trace / epoch
   forwarding (spec/009 §Privacy) also gates whether the walker treats
@@ -56,12 +55,12 @@
   (`:rf.size/include-sensitive? false`, the default). Off-box default
   per Tool-Pair §`Direct-read privacy posture for sub-cache and
   get-path`: sensitive slots are dropped unless the caller opts in
-  explicitly. The MCP wire-key drops the trailing `?` per rf2-y710n +
-  rf2-ihq4d (Anthropic's tool-input-schema regex rejects `?`); the
+  explicitly. The MCP wire-key has no trailing `?` (Anthropic's
+  tool-input-schema regex rejects `?`); the
   walker-option keyword `:rf.size/include-sensitive?` is a namespaced
   framework key (not on the wire) and retains the predicate `?`.
 
-  ## Named `:rf.egress/*` profiles (EP-0015 §10, rf2-qus09h)
+  ## Named `:rf.egress/*` profiles (EP-0015 §10)
 
   The direct-read surfaces (`snapshot` / `get-path` / `subscribe` /
   `read-sub` / `list-subscriptions` / `record` / `watch-until`) are an
@@ -90,7 +89,7 @@
             [re-frame.mcp-base.egress :as base-egress]))
 
 ;; ---------------------------------------------------------------------------
-;; Named `:rf.egress/*` profile adoption (EP-0015 §10, rf2-qus09h).
+;; Named `:rf.egress/*` profile adoption (EP-0015 §10).
 ;;
 ;; The MCP posture (the `--allow-sensitive-reads` gate + the per-call
 ;; `:include-sensitive` opt-in, already collapsed to a single boolean
@@ -103,17 +102,17 @@
 (defn walk-required?
   "Decide whether an AI-facing read surface MUST run the per-slot egress
   walker (`re-frame.core/elide-wire-value`) over an app-db-rooted value
-  before it crosses the off-box MCP wire (EP-0015, rf2-t55hxg.13).
+  before it crosses the off-box MCP wire (EP-0015).
 
   The walker is the ONLY thing on the direct-read surfaces that redacts a
-  frame-declared-sensitive slot to `:rf/redacted`. Pre-rf2-t55hxg.13 every
-  call site gated the walker on `elision?` alone — the *large-slot* toggle
-  — so a caller under the trusted-local `--allow-sensitive-reads` gate
-  could pass `:elision false` WITHOUT the per-call `:include-sensitive
-  true` opt-in and still pull raw sensitive values off-box. That collapsed
-  EP-0015's two-key sensitive opt-in (`spec/015-Data-Classification.md`,
-  `spec/Tool-Pair.md`): the large toggle silently doubled as a sensitive
-  bypass.
+  frame-declared-sensitive slot to `:rf/redacted`. The walker decision is
+  gated on BOTH the large-slot toggle AND the sensitive opt-in — never on
+  `elision?` alone. That keeps EP-0015's two-key sensitive opt-in intact
+  (`spec/015-Data-Classification.md`, `spec/Tool-Pair.md`): the large
+  toggle never doubles as a sensitive bypass, so a caller under the
+  trusted-local `--allow-sensitive-reads` gate that passes `:elision
+  false` WITHOUT the per-call `:include-sensitive true` opt-in still
+  cannot pull raw sensitive values off-box.
 
   Fail-CLOSED invariant: the walker runs UNLESS the caller has explicitly
   opted into BOTH raw axes — large content (`:elision false`, so
@@ -142,7 +141,7 @@
 
 (defn posture->profile
   "Resolve the off-box egress POSTURE of a direct-read tool surface to a
-  named `:rf.egress/*` profile (EP-0015 §10, rf2-qus09h).
+  named `:rf.egress/*` profile (EP-0015 §10).
 
   `include-sensitive?` is the already-gated, already-opted-in boolean each
   tool computes (`(and (raw-state-allowed?) per-call-include-sensitive)`):
@@ -166,7 +165,7 @@
   "Render the elision opts map as an EDN string for inlining into a
   CLJS eval form sent over nREPL.
 
-  Resolution (EP-0015 §10, rf2-qus09h): the egress POSTURE
+  Resolution (EP-0015 §10): the egress POSTURE
   (`include-sensitive?`) names a `:rf.egress/*` profile via
   `posture->profile`; the framework's `re-frame.projection/profile-size-opts`
   resolves that profile to its `:rf.size/*` floor (the single source of
@@ -175,7 +174,7 @@
   it overlays `:rf.size/include-large? true` (a caller turning elision off
   keeps large content even under the off-box-tool floor).
 
-  Knobs (rf2-suoj2 — both follow the walker-opt polarity so the helper
+  Knobs (both follow the walker-opt polarity so the helper
   is symmetric across the two `:rf.size/*` opts):
 
   - `include-large?`      — when true, `:rf.size/include-large?` is
@@ -195,20 +194,17 @@
   switch (true = apply the walker = emit markers). The walker opt
   `:rf.size/include-large?` is the *walker-facing* pass-through switch
   (true = no marker). The two are inverse views of the same Boolean.
-  Pre-rf2-suoj2 the helper buried the inversion (`(not enabled?)`)
-  alongside the `include-sensitive?` arg's pass-through parsing —
-  sibling opts with opposite parsing rules. The helper now treats both
-  opts uniformly via the profile floor + the explicit `include-large?`
-  overlay; call sites compute `(not elision?)` once and pass
-  `include-large?` in directly.
+  The helper treats both opts uniformly via the profile floor + the
+  explicit `include-large?` overlay; call sites compute `(not elision?)`
+  once and pass `include-large?` in directly.
 
   Both knobs default off-box-safe per the Tool-Pair §Direct-read
   privacy posture contract — large slots elide, sensitive slots
   redact, unless the caller opts in explicitly.
 
-  Single-arity form retains the legacy default (`include-sensitive?`
-  false ⇒ `:rf.egress/off-box-tool`) so legacy call-sites don't need to
-  spell it out."
+  Single-arity form applies the off-box-safe default (`include-sensitive?`
+  false ⇒ `:rf.egress/off-box-tool`) so call-sites that don't reveal
+  sensitive data needn't spell it out."
   ([include-large?]
    (elision-opts-edn include-large? false))
   ([include-large? include-sensitive?]
@@ -225,7 +221,7 @@
 
 (defn elide-sub-value-src
   "CLJS source for a fn that walks ONE sub-cache entry's `:value` slot
-  through `re-frame.core/elide-wire-value` (rf2-f1ose).
+  through `re-frame.core/elide-wire-value`.
 
   Returns a source string for an anonymous fn `(fn [entry] ...)` that
   runs `entry`'s `:value` (the subscription's current deref) through the

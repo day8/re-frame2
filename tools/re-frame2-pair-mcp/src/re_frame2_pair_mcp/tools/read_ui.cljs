@@ -1,6 +1,5 @@
 (ns re-frame2-pair-mcp.tools.read-ui
-  "Tool: read-ui — the typed `ui/read` (a.k.a. `view/rendered`) op
-  (rf2-3bu3d.1).
+  "Tool: read-ui — the typed `ui/read` (a.k.a. `view/rendered`) op.
 
   ## The two DOM-read planes (read-ui vs read-dom)
 
@@ -31,11 +30,12 @@
   round-trip, return BOTH the rendered subtree AND the producing entity
   (view-id, source-coord, render-key, subs-read).
 
-  Before this op, that meant hand-rolling an `eval-cljs` querySelectorAll +
-  textContent slice with GUESSED selectors, then a SECOND round-trip to
-  map the node back to a view. `read-ui` first-classes the whole gesture.
+  `read-ui` first-classes the whole gesture, so there's no need to
+  hand-roll an `eval-cljs` querySelectorAll + textContent slice with
+  GUESSED selectors and then take a SECOND round-trip to map the node
+  back to a view.
 
-  ## One shared DOM-read core with read-dom (rf2-q0r7e)
+  ## One shared DOM-read core with read-dom
 
   Both planes route through the SAME runtime ns
   (`re-frame2-pair.runtime`): read-ui emits
@@ -45,9 +45,9 @@
   (`probe/eval-after-runtime!`). The per-node projection (tag + capped
   text + attribute map) lives ONCE, in the runtime's `node->content`; the
   view plane layers entity-resolution + privacy elision ON TOP of it. A
-  fix or a regression-guard on the shared form covers BOTH ops, so neither
-  can silently break alone (the rf2-w2mjm failure mode, where read-dom's
-  separately-inlined eval form nilled out while read-ui stayed green).
+  fix or a regression-guard on the shared form covers BOTH ops, so
+  neither can silently break alone — there is no separately-inlined eval
+  form for one op to rot apart from the other.
 
   ## Naming — the `ui/read` op, the `read-` verb
 
@@ -69,17 +69,18 @@
   works on ANY re-frame2 app with NO app-specific test ids — it never
   guesses a selector and never re-implements view discovery.
 
-  ## Privacy — value-redact derived content (rf2-p9scds)
+  ## Privacy — value-redact derived content
 
   The runtime value-redacts the WHOLE rendered `:content` (text AND attrs)
   through `re-frame.core/redact-derived-slots` against the frame's declared-
   `:sensitive?` app-db values, under the off-box egress posture (the
   published-build default). Rendered DOM text / attrs sit at a non-app-db
-  position the path-based `elide-wire-value` walker can never reach — a bare
-  `(elide-wire-value text {:frame …})` over the anonymous string was a no-op
-  for a secret copied INTO the DOM, and attrs were never touched. The value-
-  based dual catches both. A hard per-node `max-text` cap trims the common
-  large case first; raw content is the trusted-local read (launched with
+  position the path-based `elide-wire-value` walker can never reach — a path-
+  based `(elide-wire-value text {:frame …})` over an anonymous string is a
+  no-op for a secret copied INTO the DOM, and never touches attrs. The
+  value-based redaction catches both text and attrs. A hard per-node
+  `max-text` cap trims the common large case first; raw content is the
+  trusted-local read (launched with
   `--allow-sensitive-reads`); an unresolvable frame fails closed with
   `:ambiguous-frame`. The wire-boundary cap step (`tools.cljs` §`:apply-cap`)
   remains the backstop.
@@ -131,7 +132,7 @@
   "Per-node `textContent` character cap (default). Text longer than this
   is replaced with the `:rf.size/large-elided` marker carrying `:chars`
   — the same shape `get-path` / `snapshot` emit for over-threshold app-db
-  slots (rf2-urjnc), so the agent recognises an elision uniformly."
+  slots, so the agent recognises an elision uniformly."
   2000)
 
 (defn- frame-edn
@@ -143,7 +144,7 @@
 
 (defn- read-ui-form
   "Compose the single `(re-frame2-pair.runtime/ui-read {...})` form via the
-  shared `eval-form` DSL (rf2-q0r7e) — the SAME plumbing read-dom uses.
+  shared `eval-form` DSL — the SAME plumbing read-dom uses.
   Only present entry points / knobs ride (the runtime enforces the
   precedence view-id > point > selector). Pure form-builder, no
   connection: callable directly by the form-composition regression guard
@@ -199,12 +200,12 @@
                       (when (map? m) (select-keys m [:x :y]))))
             form  (read-ui-form vid pt selector max-text frame)]
         ;; The runtime's `ui-read` ALWAYS returns a map, so a non-map at
-        ;; `on-value` means a BLANK eval (rf2-r5erl, the sibling of
-        ;; read-dom's bug). The shared `probe/map-result-or-blank` projects
-        ;; a map → `ok-text` with the `:build` echo (rf2-8t3ct / rf2-fmho5),
-        ;; or a blank → a structured `:ok? false` error so `ok-text` never
-        ;; sees `nil` and emits the `null` structuredContent the SDK rejects.
-        ;; read-dom carries the identical projection.
+        ;; `on-value` means a BLANK eval. The shared
+        ;; `probe/map-result-or-blank` projects a map → `ok-text` with the
+        ;; `:build` echo, or a blank → a structured `:ok? false` error so
+        ;; `ok-text` never sees `nil` and emits the `null`
+        ;; structuredContent the SDK rejects. read-dom carries the
+        ;; identical projection.
         (probe/eval-after-runtime!
           conn build-id form :rf.error/read-ui-failed
           (probe/map-result-or-blank

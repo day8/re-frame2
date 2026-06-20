@@ -1,28 +1,27 @@
 (ns re-frame2-pair-mcp.build-id-resolver-test
   "Forgiving suffix→canonical build-id resolution + round-trippable
-  running-build guidance (rf2-qda59).
+  running-build guidance.
 
-  ## The bug (live-reproduced 2026-06-02 on the machine-epochs deck)
+  ## What this guards
 
   shadow build ids are namespaced keywords (`:examples/machine-epochs`).
-  `discover-app {:build \"examples/machine-epochs\"}` connected fine, but
-  the read ops were STRICT: `snapshot {:build \"machine-epochs\"}` (the
-  short tail an operator naturally reaches for) was rejected
-  `:build-not-running` — even though `machine-epochs` named the build
-  right there in the error's own `:running-builds` list. Four symptoms:
+  A short tail an operator naturally reaches for —
+  `snapshot {:build \"machine-epochs\"}` — must resolve to the unique
+  running build that ends in that tail rather than being rejected
+  `:build-not-running`. Four properties:
 
-    1. discover-app forgives but read ops are strict — a suffix form that
-       names a unique running build is rejected by the read/action ops.
-    2. The `:running-builds` error list was not round-trippable — it
-       named the valid set in a form the operator couldn't paste back.
-    3. Colon-prepend was non-idempotent (`:examples/…` ⇒ `::examples/…`).
-       (Fixed upstream by #2821's `fresh-keyword` colon-tolerance; pinned
-       here as a regression guard.)
-    4. The selected build did not stick — a discover-app'd build did not
-       transfer to the next read op. (Fixed by #2821's sticky
-       `:resolved-build-id`; pinned here.)
+    1. Read ops forgive a suffix the same way discover-app does — a
+       suffix form that names a unique running build resolves across the
+       read/action ops.
+    2. The `:running-builds` error list is round-trippable — it names the
+       valid set in a form the operator can paste straight back.
+    3. Colon-prepend is idempotent (`:examples/…` stays `:examples/…`,
+       never `::examples/…`). Carried by `fresh-keyword`'s
+       colon-tolerance; pinned here as a regression guard.
+    4. The selected build sticks — a discover-app'd build transfers to
+       the next read op via the sticky `:resolved-build-id`; pinned here.
 
-  The fix (rf2-qda59): ONE shared forgiving resolver
+  The mechanism: ONE shared forgiving resolver
   (`probe/canonicalize-build!` + `probe/match-running-build`) used across
   EVERY op via the conn `:build-alias` cache that `wire/arg-build`
   consults; a unique suffix match resolves to the canonical running id,
@@ -119,7 +118,7 @@
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Symptom 1 — arg-build applies the alias so EVERY op forgives the suffix.
+;; Property 1 — arg-build applies the alias so EVERY op forgives the suffix.
 ;; ---------------------------------------------------------------------------
 
 (deftest arg-build-applies-the-suffix-alias
@@ -148,7 +147,7 @@
         "no alias recorded → id passes through unchanged")))
 
 ;; ---------------------------------------------------------------------------
-;; Symptom 2 — round-trippable running-build guidance.
+;; Property 2 — round-trippable running-build guidance.
 ;; ---------------------------------------------------------------------------
 
 (deftest running-build-arg-forms-are-round-trippable
@@ -208,7 +207,7 @@
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Symptom 3 — colon idempotence (regression guard; fixed by #2821).
+;; Property 3 — colon idempotence (regression guard).
 ;; ---------------------------------------------------------------------------
 
 (deftest colon-prepend-is-idempotent
@@ -221,7 +220,7 @@
         "bare and colon forms are indistinguishable post-coercion")))
 
 ;; ---------------------------------------------------------------------------
-;; Symptom 4 — a stuck build transfers to subsequent ops (regression guard).
+;; Property 4 — a stuck build transfers to subsequent ops (regression guard).
 ;; ---------------------------------------------------------------------------
 
 (deftest stuck-build-transfers-to-subsequent-ops

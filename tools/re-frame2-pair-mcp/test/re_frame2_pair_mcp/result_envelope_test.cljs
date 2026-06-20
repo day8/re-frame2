@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.result-envelope-test
-  "Unit tests for the typed result codec (rf2-qobqy).
+  "Unit tests for the typed result codec.
 
   Two halves:
 
@@ -13,8 +13,8 @@
     2. `envelope->result` / `error?` — the server-side projection. This
        is the load-bearing logic: a tagged envelope MUST project onto
        the tool's `:ok?` vocabulary so nil / eval-error / unserializable
-       are DISTINCT, and a legacy untagged value MUST flow through
-       unchanged (additive codec)."
+       are DISTINCT, and an untagged value MUST flow through unchanged
+       (additive codec)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -51,7 +51,7 @@
         "an outer try guards the classifier itself so it never throws on the wire")))
 
 ;; ---------------------------------------------------------------------------
-;; REPL-special pass-through (rf2-cum40 CI repair).
+;; REPL-special pass-through.
 ;;
 ;; shadow only honours `require` / `ns` / etc. special compilation at the
 ;; top level; wrapping them in the classifier's expression context breaks
@@ -136,7 +136,7 @@
     (is (renv/error? r))))
 
 ;; ---------------------------------------------------------------------------
-;; The three outcomes are DISTINCT — the headline rf2-qobqy invariant.
+;; The three outcomes are DISTINCT — the headline codec invariant.
 ;; ---------------------------------------------------------------------------
 
 (deftest nil-eval-error-unserializable-are-distinct
@@ -156,7 +156,7 @@
         "the genuine-nil success carries no failure reason")))
 
 ;; ---------------------------------------------------------------------------
-;; Legacy / untagged values flow through unchanged (additive codec).
+;; Untagged values flow through unchanged (additive codec).
 ;; ---------------------------------------------------------------------------
 
 (deftest untagged-value-flows-through-on-value

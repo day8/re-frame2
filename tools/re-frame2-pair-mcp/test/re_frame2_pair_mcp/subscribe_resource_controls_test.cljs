@@ -1,6 +1,6 @@
 (ns re-frame2-pair-mcp.subscribe-resource-controls-test
   "Integration tests pinning the wiring between `subscribe.cljs` and
-  `resource-controls.cljs` (rf2-3ijbl). The unit tests in
+  `resource-controls.cljs`. The unit tests in
   `resource_controls_test.cljs` cover the primitives in isolation; this
   file pins the subscribe-side contract:
 
@@ -9,7 +9,7 @@
        discipline).
     2. The initial-state map carries the `:rate-dropped` slot at zero
        so a stream that hits no rate-drops emits a clean envelope.
-    3. The `:reason` keyword vocabulary admits the new abuse-detected
+    3. The `:reason` keyword vocabulary admits the abuse-detected
        sentinel.
 
   The full stream-controller behaviour (acquire-on-subscribe,
@@ -19,7 +19,7 @@
   neither of which the node-test harness can drive without a live
   nREPL socket. The contracts pinned here cover the wire-shape side
   of the integration; the runtime side rides the existing per-sub
-  queue-cap tests + the rf2-3ijbl bead's manual smoke."
+  queue-cap tests + a manual smoke."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -56,7 +56,7 @@
 (deftest abuse-detected-keyword-is-namespaced
   ;; The reason rides on the final-summary envelope. Pin the keyword
   ;; shape — `:rf.error/stream-abuse-detected` per the rf.error/*
-  ;; convention (rf2-3ijbl + Conventions §reserved-namespaces).
+  ;; convention (Conventions §reserved-namespaces).
   (let [kw :rf.error/stream-abuse-detected]
     (is (qualified-keyword? kw))
     (is (= "rf.error" (namespace kw)))
@@ -87,9 +87,9 @@
 ;;
 ;; `final-summary` is private to subscribe.cljs; we exercise the
 ;; suppress-when-zero rule via the merge-drain shape it consumes. A
-;; downstream test in `with_indicators_test.cljs` already pins the
-;; broader indicator-field discipline; this file pins the per-slot
-;; rule for the new `:rate-dropped` slot.
+;; downstream test in `with_indicators_test.cljs` pins the broader
+;; indicator-field discipline; this file pins the per-slot rule for the
+;; `:rate-dropped` slot.
 
 (deftest initial-state-has-rate-dropped-zero
   ;; The fresh state map MUST carry `:rate-dropped` at zero. A merge-
@@ -105,15 +105,13 @@
     (is (zero? (:rate-dropped s')))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-uvfph — rate gate is checked BEFORE the destructive drain.
+;; Rate gate is checked BEFORE the destructive drain.
 ;;
-;; The headline regression: pre-rf2-uvfph the poll loop drained the
-;; runtime queue (`drain-subscription!` pops + clears it) and ONLY THEN
-;; checked the rate limit; a denied tick threw the already-drained batch
-;; away — silent event loss, despite the spec promising "left in queue
-;; for later delivery". The fix gates the drain itself: a denied cycle
-;; MUST NOT call `drain-subscription!`, so the queue stays intact for a
-;; later cycle once a token refills.
+;; The poll loop checks the rate limit BEFORE draining the runtime queue
+;; (`drain-subscription!` pops + clears it). A denied cycle MUST NOT call
+;; `drain-subscription!`, so the queue stays intact for a later cycle
+;; once a token refills — no silent event loss, honouring the spec
+;; promise of "left in queue for later delivery".
 ;;
 ;; We drive ONE `poll` invocation through `make-stream-controller` with a
 ;; stubbed `nrepl/cljs-eval-value` that records every form it's asked to

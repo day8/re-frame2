@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.dx-papercuts-test
-  "Unit tests for the four re-frame2-pair DX papercuts (rf2-lbm21).
+  "Unit tests for four re-frame2-pair DX papercuts.
 
   1. Session-sticky operating build — an explicit `:build` on any
      non-discover tool call becomes the default for subsequent
@@ -11,7 +11,7 @@
      (`args/parse-paths-arg`) + the batch eval form
      (`get-path/batch-paths-form`) + the mutual-exclusion guard.
   4. Snapshot full-mode epoch overflow — `tree-summary`'s `:bytes`
-     hint now samples a representative entry so a slice of deep entries
+     hint samples a representative entry so a slice of deep entries
      (the `:epochs` slice) reports its full-expansion cost, and the
      `:epochs` slice is record-capped in full mode
      (`pipeline/cap-full-epochs-in-snapshot`).
@@ -210,8 +210,9 @@
 
 (deftest tree-summary-bytes-samples-deep-vector-entries
   ;; A vector of DEEP entries (each a fat map) must report a `:bytes`
-  ;; hint that reflects the per-entry depth — not the flat 8-per-entry
-  ;; constant that under-reported epoch slices ~1000x.
+  ;; hint that reflects the per-entry depth — sampling a representative
+  ;; entry, not a flat per-entry constant that would under-report epoch
+  ;; slices by orders of magnitude.
   (let [fat-entry (zipmap (map #(keyword (str "k" %)) (range 200)) (range 200))
         deep-vec  (vec (repeat 5 fat-entry))
         scalar-vec [1 2 3 4 5]

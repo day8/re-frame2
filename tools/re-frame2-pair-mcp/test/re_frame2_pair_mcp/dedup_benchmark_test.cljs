@@ -1,13 +1,11 @@
 (ns re-frame2-pair-mcp.dedup-benchmark-test
-  "Trace-burst structural-dedup compression benchmark (rf2-li2cw).
+  "Trace-burst structural-dedup compression benchmark.
 
   ## Why this benchmark
 
-  Earlier vibes-quoted claims that `day8/de-dupe` 'typically
-  compresses trace bursts 3-5× without semantic loss' were
-  approximate — no in-repo measurement bound them. The
-  catalogue-entry-contract that each tool declare its
-  typical-token hint would have inherited that imprecision.
+  The catalogue-entry-contract requires each tool to declare its
+  typical-token hint, and a `day8/de-dupe` compression claim needs an
+  in-repo measurement to bind it rather than an approximate figure.
 
   This benchmark exercises `day8/de-dupe` against a representative
   trace-event corpus at three scales (100 / 1,000 / 10,000 events)
@@ -35,10 +33,9 @@
   the path of least friction; the measured factors here are the
   in-repo source of truth.
 
-  ## Measured numbers (run 2026-05-14)
+  ## Measured numbers
 
-  The benchmark replaced an earlier vibes-only '3-5×' quote in
-  the spec. **Measured**:
+  The measured factors that bind the spec's compression figures:
 
   | Corpus                                | Reduction | Ratio  |
   |---------------------------------------|-----------|--------|
@@ -67,7 +64,7 @@
     benchmark): **5-10× compression** (80-90% reduction). The
     existing `dedup_test.cljs/reduction-ratio-shared-subtrees`
     pins 89.5% on a 10-epoch / 256-key shared-`:db-before`
-    payload — the load-bearing case for rf2-obpa9.
+    payload — the load-bearing structural-dedup case.
 
   The three regimes share the algorithm; their compression
   budgets differ because their shared-subtree cardinality differs.
@@ -227,8 +224,8 @@
        "  ratio=" (.toFixed (:ratio m) 2) "×"
        "  reduction=" (.toFixed (:reduction-pct m) 1) "%"))
 
-;; Silent-on-success (rf2-try1x): the benchmark prints its measured
-;; rows only when explicitly verbose. The row text is also folded into
+;; Silent-on-success: the benchmark prints its measured rows only when
+;; explicitly verbose. The row text is also folded into
 ;; each failing `is` message below, so triage still sees the numbers.
 ;; To surface the measurements on a green run for spec-tracking, flip
 ;; the goog-define `re-frame2-pair-mcp.dedup-benchmark-test/bench-verbose?`
@@ -240,11 +237,11 @@
     (println (row-str m))))
 
 ;; ---------------------------------------------------------------------------
-;; Benchmark fixtures — the three scales the bead names.
+;; Benchmark fixtures — the three scales on the measured scale axis.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private corpora
-  "Six corpora spanning the bead's stated scale axis (100 / 1k / 10k
+  "Six corpora spanning the scale axis (100 / 1k / 10k
   events) crossed with two structural-depth profiles (narrow cascade
   width = lower shared-subtree density; wide cascade width = higher
   density). These represent the **raw trace-burst regime** — events
@@ -265,8 +262,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest day8-de-dupe-trace-burst-compression-factor
-  ;; Pin the measured compression factor across the bead's stated scale
-  ;; axis. Floor is the **observed** lower bound minus a 5% slack margin
+  ;; Pin the measured compression factor across the scale axis. Floor is
+  ;; the **observed** lower bound minus a 5% slack margin
   ;; — currently 1.30× on raw trace bursts (observed range
   ;; 1.40-1.45×). The actual ratio prints to the test log only when
   ;; `bench-verbose?` is true (see goog-define above); on green the
@@ -323,9 +320,8 @@
 ;; A single handler firing repeatedly (polling tick, view-render, timer)
 ;; produces cascades whose body tags are identical across replays. The
 ;; deduper collapses the entire repeated cascade-body subtree, reaching
-;; the same compression neighbourhood the original '3-5×' vibes-quote
-;; was reaching for — but on a different corpus shape than the raw
-;; trace burst.
+;; a much higher compression factor than the raw trace burst — on a
+;; different corpus shape.
 ;; ---------------------------------------------------------------------------
 
 (deftest day8-de-dupe-high-share-burst-compression-factor
@@ -338,9 +334,9 @@
         m       (measure "high-share / 100 replays / cascade=24" (count payload) payload)]
     (print-row m)
     (testing "high-share burst exceeds the 8× pinned floor"
-      ;; The high-share corpus reaches the regime the original spec
-      ;; quote was reaching for. Observed ratio currently ~14×; the
-      ;; floor is set well below to surface only material regression.
+      ;; The high-share corpus reaches the upper-bound compression
+      ;; regime. Observed ratio currently ~14×; the floor is set well
+      ;; below to surface only material regression.
       (is (>= (:ratio m) 8.0)
           (str "high-share burst ratio " (.toFixed (:ratio m) 2)
                "× fell below the 8× pinned floor — re-measure and "

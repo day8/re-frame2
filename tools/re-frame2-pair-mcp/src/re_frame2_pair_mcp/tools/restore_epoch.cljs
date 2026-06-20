@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.tools.restore-epoch
-  "Tool: restore-epoch — time-travel undo (rf2-ee38b.18).
+  "Tool: restore-epoch — time-travel undo.
 
   The canonical pair-tool undo gesture per spec/Tool-Pair.md
   §Time-travel: rewind a frame's whole `frame-state` — BOTH the app-db
@@ -13,13 +13,13 @@
   primitive the server is the canonical consumer of (000-Vision /
   003-Tool-Catalogue).
 
-  ## Gate (rf2-ee38b.18)
+  ## Gate
 
   A write surface — gated behind `--allow-writes` (default OFF). When
   the gate is closed the tool returns `:rf.error/writes-disabled`
   without touching the nREPL socket. See `tools/writes.cljs`.
 
-  ## Sensitive-read posture (rf2-6nks4, finding-2)
+  ## Sensitive-read posture
 
   Restore's success envelope carries a `:cascade-summary` whose
   `:event-vector` slot copies the TARGET epoch's raw `:trigger-event`.
@@ -38,7 +38,7 @@
 
   The `epoch-id` arg is parsed as EDN, not assumed `string?` — the
   reference epoch runtime emits INTEGER epoch-ids (the same `:any`
-  contract that drives the cursor fix). A bare integer string (\"7\")
+  contract the cursor uses). A bare integer string (\"7\")
   reads as the integer 7; a keyword reads as a keyword; an unreadable
   value returns `:invalid-epoch-id`.
 
@@ -56,7 +56,7 @@
 
 ;; The `epoch-id` arg is parsed as EDN with NO shape constraint — any
 ;; readable value (integer / keyword / string; `:epoch-id` is `:any`) is
-;; accepted, exactly the shared `args/read-edn-arg` core (rf2-jkake.19).
+;; accepted, exactly the shared `args/read-edn-arg` core.
 
 (defn restore-epoch-tool [conn raw-args]
   (if-not (writes/writes-allowed?)
@@ -84,11 +84,11 @@
               form (ef/emit call)
               on-value
               (fn [v]
-                ;; Per rf2-6yqdl: the runtime now returns a structured
+                ;; The runtime returns a structured
                 ;; envelope on success carrying `:ok? :restored? :epoch-id
                 ;; :frame :cascade-summary :unreplayable-effects`. Failure
-                ;; remains the legacy `false` so older runtimes still
-                ;; surface as a clean reject envelope here.
+                ;; surfaces as a bare `false`, which we turn into a clean
+                ;; reject envelope here.
                 (let [result
                       (cond
                         (map? v)
@@ -110,9 +110,9 @@
                                          "ring, or a drain is in flight. Read the structured reason "
                                          "with (re-frame.trace.tooling/trace-buffer {:op-type :error}) "
                                          "filtered to :rf.epoch/*.")})]
-                  ;; rf2-or8s29 — a soft failure (the legacy `false` reject
-                  ;; OR a structured `{:ok? false ...}` envelope from a newer
-                  ;; runtime) is NOT a terminal-empty outcome: the write did
+                  ;; A soft failure (the bare `false` reject
+                  ;; OR a structured `{:ok? false ...}` envelope) is NOT a
+                  ;; terminal-empty outcome: the write did
                   ;; not land. It MUST ride as an `isError: true` result so
                   ;; the MCP host sees the failure + reason rather than a
                   ;; success-shaped envelope (003-Tool-Catalogue §"Every
@@ -121,7 +121,7 @@
                   (if (false? (:ok? result))
                     (wire/err-text result)
                     (wire/ok-text result))))]
-          ;; rf2-6nks4 (finding-2): the signalled prelude signals the
+          ;; The signalled prelude signals the
           ;; raw-state posture to the runtime BEFORE the restore eval, so
           ;; the cascade-summary it builds redacts a sensitive
           ;; `:event-vector` under the default gate-OFF posture. Mirrors
@@ -129,7 +129,7 @@
           ;; primitive internally drives) — the plain `eval-after-runtime!`
           ;; has no `signal-runtime!` step, so this uses the `-signalled!`
           ;; sibling. The signal reconfigures the posture before every
-          ;; state-emitting eval (rf2-olvr5 finding 2 — the runtime's
+          ;; state-emitting eval (the runtime's
           ;; posture resets on reload, so a cached-delivered flag would
           ;; leave a post-reload restore tapping raw values).
           (probe/eval-after-runtime-signalled!

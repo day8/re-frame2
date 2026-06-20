@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.read-ui-test
-  "Unit tests for the typed ui/read op — read-ui (rf2-3bu3d.1).
+  "Unit tests for the typed ui/read op — read-ui.
 
   Two layers:
 
@@ -183,11 +183,11 @@
                  (done))))))
 
 (deftest bad-selector-error-forwarded
-  ;; rf2-q7cavs — a genuine `:ok? false` runtime failure (a thrown
-  ;; malformed-selector) MUST ride as `:isError true`, per
-  ;; spec/003-Tool-Catalogue.md §381. Before the fix the shared
-  ;; `map-result-or-blank` routed every map through `ok-text`, so this
-  ;; failure shipped `isError:false` and was cache-eligible.
+  ;; A genuine `:ok? false` runtime failure (a thrown malformed-selector)
+  ;; MUST ride as `:isError true`, per spec/003-Tool-Catalogue.md §381.
+  ;; Routing every map through the shared `map-result-or-blank` /
+  ;; `ok-text` path would ship this failure as `isError:false` and make
+  ;; it cache-eligible.
   (async done
     (let [canned {:ok? false :reason :rf.error/ui-read-bad-selector
                   :message "bad selector"}]
@@ -205,8 +205,8 @@
                    (done)))))))
 
 (deftest blank-eval-result-becomes-structured-error-not-host-failure
-  ;; rf2-r5erl sibling: a blank eval result (nil) must not produce a null
-  ;; structuredContent that the SDK rejects at the transport layer.
+  ;; A blank eval result (nil) must not produce a null structuredContent
+  ;; that the SDK rejects at the transport layer.
   (async done
     (-> (tu/with-stubbed-eval! nil
           (fn []
@@ -222,7 +222,7 @@
                  (done))))))
 
 (deftest happy-result-echoes-canonical-build
-  ;; rf2-8t3ct / rf2-fmho5 — read-ui echoes the resolved :build.
+  ;; read-ui echoes the resolved :build.
   (async done
     (let [canned {:ok? true :via :selector
                   :entity {:view-id :my.app/x :source-coord nil :render-key 1 :subs-read []}

@@ -1,6 +1,5 @@
 (ns re-frame2-pair-mcp.dedup-test
-  "Unit tests for the structural-dedup wire-boundary transform
-  (rf2-obpa9).
+  "Unit tests for the structural-dedup wire-boundary transform.
 
   Per `tools/re-frame2-pair-mcp/spec/Principles.md` mechanism (Structural
   dedup), every `:rf/epoch-record` slice and each subscribe-tick
@@ -17,7 +16,7 @@
   contract drift.
 
   `:dedup` MCP-arg normalisation lives on the shared table-driven
-  parser (`re-frame2-pair-mcp.tools.args/parse-bool-arg`, rf2-c4fmh);
+  parser (`re-frame2-pair-mcp.tools.args/parse-bool-arg`);
   see `re-frame2-pair-mcp.args-test` for the coverage.
 
   Live end-to-end coverage runs against a real shadow-cljs build via
@@ -114,8 +113,8 @@
                           [(keyword (str "k" i))
                            {:v (str "value-" i)
                             :meta {:tags [:tag1 :tag2 :tag3]}}]))
-        ;; rf2-qeous: wire shape is sections-per-cluster. Each
-        ;; synthetic epoch carries a single-section :db-after.
+        ;; Wire shape is sections-per-cluster. Each synthetic epoch
+        ;; carries a single-section :db-after.
         epochs (vec (for [i (range 10)]
                       (let [path [(keyword (str "k" i)) :v]]
                         {:epoch-id (str "ep-" i)
@@ -149,23 +148,23 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Reduction-ratio sanity: 10-epoch window with shared map structure.
-;; The bead requires ≥50% reduction; we assert the actual value with
+;; The contract requires ≥50% reduction; we assert the actual value with
 ;; a generous floor because the precise ratio depends on subtree
 ;; cardinality + map layout.
 ;; ---------------------------------------------------------------------------
 
 (deftest reduction-ratio-shared-subtrees
-  ;; The load-bearing scenario rf2-obpa9 targets: a 10-epoch window
-  ;; whose records share their `:db-before` reference. The diff-
-  ;; encoder (rf2-1wdzp) already reduced :db-after to a tiny patch
-  ;; per record; the deduper now collapses the repeated :db-before.
+  ;; The load-bearing scenario: a 10-epoch window whose records share
+  ;; their `:db-before` reference. The diff-encoder reduces :db-after to
+  ;; a tiny patch per record; the deduper collapses the repeated
+  ;; :db-before.
   (let [;; Build a "big" app-db — 256 keys, each pointing at a 256-char
         ;; string value ⇒ ~80KB pr-str.
         big-db (into {} (for [i (range 256)]
                           [(keyword (str "k" i))
                            (apply str (repeat 256 \x))]))
         ;; 10 epochs, each sharing the same :db-before reference.
-        ;; rf2-qeous: sections-per-cluster wire shape.
+        ;; Sections-per-cluster wire shape.
         epochs (vec (for [i (range 10)]
                       (let [path [(keyword (str "k" i))]]
                         {:epoch-id (str "ep-" i)
@@ -179,13 +178,13 @@
         wrapped (dedup/dedup-value epochs true)
         wrapped-size (count (pr-str wrapped))]
     (testing "wrapped payload is much smaller than the raw vector"
-      ;; Silent-on-success (rf2-try1x): the measurement is folded into
-      ;; the failing-assertion messages below; agents reading green-run
+      ;; Silent-on-success: the measurement is folded into the
+      ;; failing-assertion messages below; agents reading green-run
       ;; output don't burn context on per-test diagnostics.
       (is (< wrapped-size raw-size)
           (str "wrapped >= raw — measurement: raw=" raw-size
                "chars deduped=" wrapped-size "chars"))
-      ;; Conservative: ≥50% reduction (the bead's floor). Actual
+      ;; Conservative: ≥50% reduction (the contract floor). Actual
       ;; should be much higher when the same :db-before reference
       ;; rides 10 times.
       (is (< wrapped-size (* 0.5 raw-size))
@@ -197,7 +196,7 @@
         (is (= epochs restored))))))
 
 ;; ---------------------------------------------------------------------------
-;; Edge cases per the bead.
+;; Edge cases.
 ;; ---------------------------------------------------------------------------
 
 (deftest edge-case-empty-payload-is-noop

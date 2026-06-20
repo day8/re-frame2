@@ -1,10 +1,10 @@
 (ns re-frame2-pair-mcp.discover-app-freshness-test
-  "discover-app attaches the freshness/liveness token (rf2-ertqw).
+  "discover-app attaches the freshness/liveness token.
 
   The token rides on every `:ok? true` discover-app payload so an agent
   sees 'this runtime is fresh / stale-build / disconnected' on the very
-  first call — the signal that would have killed the rf2-lo28u
-  stale-build false-alarm detour up front. These tests pin:
+  first call — the signal that heads off a stale-build false-alarm detour
+  up front. These tests pin:
 
     1. a healthy discover-app carries `:freshness` with `:liveness
        :fresh`;
@@ -27,7 +27,7 @@
 
 (def ^:private health-with-browser-half
   "A `(runtime/health)` payload carrying the browser-half freshness
-  fields the runtime preload now stamps (rf2-ertqw)."
+  fields the runtime preload stamps."
   {:ok?                        true
    :debug-enabled?             true
    :coord-annotation-enabled?  true

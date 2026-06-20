@@ -1,13 +1,13 @@
 (ns re-frame2-pair-mcp.dispatch-dry-run-test
-  "Unit tests for the dispatch-dry-run tool (rf2-17hvp + rf2-z7roa).
+  "Unit tests for the dispatch-dry-run tool.
 
   Simulate a re-frame2 cascade without committing — the framework's
-  existing `:fx-overrides` + `restore-epoch` primitives compose into a
-  true dry-run on the runtime side. The MCP tool is a thin wrapper
-  that parses the event-vector arg (same EDN-data posture as
-  `dispatch`, rf2-vflrg) and surfaces the structured runtime envelope.
+  `:fx-overrides` + `restore-epoch` primitives compose into a true
+  dry-run on the runtime side. The MCP tool is a thin wrapper that parses
+  the event-vector arg (same EDN-data posture as `dispatch`) and surfaces
+  the structured runtime envelope.
 
-  rf2-z7roa — dry-run is an AI-facing READ surface: its
+  Dry-run is an AI-facing READ surface: its
   `:db-state-after-simulation` (would-be app-db) and
   `:would-fire-effects[*].args` (fx-derived) slots are off-box egress.
   The tool runs them through the elision walker server-side BY DEFAULT
@@ -79,7 +79,7 @@
         (.finally (fn [] (raw-state/set-allow-raw-state! prev))))))
 
 ;; ---------------------------------------------------------------------------
-;; Arg parsing — mirrors dispatch's rf2-vflrg gate exactly.
+;; Arg parsing — mirrors dispatch's event-vector gate exactly.
 ;; ---------------------------------------------------------------------------
 
 (deftest rejects-arbitrary-cljs-source
@@ -148,8 +148,8 @@
 
 (deftest threads-fx-overrides-arg
   ;; User-supplied :fx-overrides ride into the runtime opts; the
-  ;; runtime merges them on top of the dry-run override set. rf2-hf7m9j —
-  ;; the documented colon-prefixed string target `":stub-http"` MUST
+  ;; runtime merges them on top of the dry-run override set. The
+  ;; documented colon-prefixed string target `":stub-http"` MUST
   ;; coerce to the KEYWORD `:stub-http` in the emitted opts, never the
   ;; raw string (which core silently falls through to the original fx,
   ;; defeating the no-fx-execute guarantee).
@@ -171,8 +171,8 @@
                    (done)))))))
 
 (deftest rejects-string-fx-overrides-target
-  ;; rf2-hf7m9j — a bare (non-colon) string override target can't redirect
-  ;; over the wire (core would silently fall it through to the real fx).
+  ;; A bare (non-colon) string override target can't redirect over the
+  ;; wire (core would silently fall it through to the real fx).
   ;; For dry-run that defeats the no-fx-execute guarantee, so reject it as
   ;; an :isError envelope BEFORE the eval rather than ship a broken stub.
   (async done
@@ -190,7 +190,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3q7gep · EP-0017 — scripted recordable coeffects. Identical posture
+;; EP-0017 — scripted recordable coeffects. Identical posture
 ;; to `dispatch`'s `cofx`: the agent supplies a `cofx "{:rf/time-ms …}"`
 ;; EDN map (the shared `args/parse-cofx` gate), threaded into the simulated
 ;; dispatch opts under the flat `:rf.cofx` key. The router preserves it
@@ -200,7 +200,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cofx-threaded-into-opts-under-flat-key
-  ;; The headline rf2-3q7gep case: `cofx "{:rf/time-ms 1781078400123}"`
+  ;; The headline case: `cofx "{:rf/time-ms 1781078400123}"`
   ;; must appear in the emitted runtime opts under the flat `:rf.cofx`
   ;; key, as DATA (the exact integer time), so the router preserves it
   ;; verbatim and the simulation is reproducible — NOT a freshly stamped
@@ -303,7 +303,7 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-z7roa — privacy gate. Gate OFF (default published posture) forces
+;; Privacy gate. Gate OFF (default published posture) forces
 ;; the elision walker on AND forces sensitive slots to redact; the form
 ;; must carry the walker call + the safe opts. The runtime envelope's
 ;; egress slots are walked server-side (the unit test stubs the runtime,
@@ -341,8 +341,8 @@
                    (done)))))))
 
 (deftest gate-off-signals-configure-raw-state-before-dispatch
-  ;; The raw-state tap posture (rf2-c2dtu) is signalled before the
-  ;; dispatch eval, so the dry-run's internal restore-epoch tap is gated.
+  ;; The raw-state tap posture is signalled before the dispatch eval, so
+  ;; the dry-run's internal restore-epoch tap is gated.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! false
@@ -364,12 +364,10 @@
                    (done)))))))
 
 (deftest gate-on-bare-elision-false-still-walks
-  ;; rf2-t55hxg.13 — fail-CLOSED. Pre-fix this asserted that gate-ON +
-  ;; `:elision false` shipped the db slot raw with NO walker — which let a
-  ;; declared-sensitive db slot leak off-box WITHOUT the per-call
-  ;; `:include-sensitive true` opt-in (the EP-0015 two-key gate collapse).
-  ;; A BARE `:elision false` now STILL walks: large content passes
-  ;; (`include-large? true`) but a declared-sensitive db slot redacts.
+  ;; Fail-CLOSED. A BARE `:elision false` (gate ON, no per-call
+  ;; `:include-sensitive true` opt-in) STILL walks: large content passes
+  ;; (`include-large? true`) but a declared-sensitive db slot redacts —
+  ;; never a raw off-box leak via the EP-0015 two-key gate.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! true
@@ -392,9 +390,9 @@
                    (done)))))))
 
 (deftest gate-on-full-raw-opt-in-skips-walker
-  ;; rf2-t55hxg.13 — the deliberate full-raw local opt-in (`:elision
-  ;; false` AND `:include-sensitive true`) is the ONLY combination that
-  ;; ships the db slot raw with no walker wrap.
+  ;; The deliberate full-raw local opt-in (`:elision false` AND
+  ;; `:include-sensitive true`) is the ONLY combination that ships the db
+  ;; slot raw with no walker wrap.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! true
@@ -432,7 +430,7 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-6to9xj — :would-fire-effects[*].args fail closed. The recorded fx
+;; :would-fire-effects[*].args fail closed. The recorded fx
 ;; args are RAW fx-handler arguments (HTTP bodies, dispatched event
 ;; vectors, payment maps) NOT rooted at app-db, so the schema-path
 ;; `elide-wire-value` walker cannot prove them safe — the same leak class
@@ -615,12 +613,12 @@
                    (done)))))))
 
 (deftest no-new-epoch-failure-rides-as-iserror
-  ;; rf2-wdxyx3 finding 2 — the reducer rejected the event or an
-  ;; interceptor early-returned, so the dry-run did NOT land. A known-tool
-  ;; runtime failure (`:ok? false`) MUST ride back as an isError envelope,
-  ;; matching the dispatch/read-sub no-silent-success parity model: the old
-  ;; ok-text shape let a non-landed dry-run read as green and be cache-
-  ;; eligible. The structured :reason/:hint rides through verbatim.
+  ;; The reducer rejected the event or an interceptor early-returned, so
+  ;; the dry-run did NOT land. A known-tool runtime failure (`:ok? false`)
+  ;; MUST ride back as an isError envelope, matching the
+  ;; dispatch/read-sub no-silent-success parity model (a non-landed
+  ;; dry-run must not read as green and become cache-eligible). The
+  ;; structured :reason/:hint rides through verbatim.
   (async done
     (let [env {:ok?    false
                :reason :no-new-epoch
@@ -638,10 +636,9 @@
                    (done)))))))
 
 (deftest non-map-runtime-result-surfaced-as-unexpected-shape
-  ;; A pre-rf2-17hvp runtime would not have `dispatch-dry-run` and the
-  ;; eval would return something other than the wrapped map. The tool
-  ;; surfaces that as a structured `:unexpected-shape` rather than
-  ;; silently returning the raw value.
+  ;; A runtime without `dispatch-dry-run` returns something other than
+  ;; the wrapped map. The tool surfaces that as a structured
+  ;; `:unexpected-shape` rather than silently returning the raw value.
   (async done
     (-> (with-captured-eval! (atom []) "not-a-map"
           (fn []

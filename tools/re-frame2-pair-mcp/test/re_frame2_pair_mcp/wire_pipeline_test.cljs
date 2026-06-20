@@ -1,23 +1,20 @@
 (ns re-frame2-pair-mcp.wire-pipeline-test
   "Correctness unit tests for `wire-pipeline/run-wire-pipeline`
-  indicator counting on the `:epoch-vector` arm (rf2-mb17rj).
+  indicator counting on the `:epoch-vector` arm.
 
   The `:epoch-vector` arm (trace-window / watch-epochs) walks the
   payload locally for the `:elided-large` indicator — the count is NOT
   pre-shipped from the runtime (unlike `:snapshot-map` / `:scalar-value`,
   which carry `:server-elided`).
 
-  THE BUG (rf2-mb17rj, LOW): the arm counted markers over the
-  POST-dedup payload. `day8/de-dupe` pools N identical
-  `:rf.size/large-elided` maps into ONE structural-sharing cache entry,
-  so a payload with N identical markers reported `:elided-large == 1`
-  instead of N. The markers themselves rode the wire intact (no
-  data-loss / leak) — only the scalar indicator undercounted.
-
-  THE FIX: count over the PRE-dedup (`encoded`) payload. The marker
-  SET is identical pre/post dedup (dedup only re-shapes structural
-  references; it never drops a marker), so the pre-dedup count is
-  exact.
+  THE CONTRACT: the arm counts markers over the PRE-dedup (`encoded`)
+  payload. `day8/de-dupe` pools N identical `:rf.size/large-elided` maps
+  into ONE structural-sharing cache entry, so counting over the
+  POST-dedup payload would report `:elided-large == 1` instead of N
+  (the markers themselves always ride the wire intact — only the scalar
+  indicator is at risk). The marker SET is identical pre/post dedup
+  (dedup only re-shapes structural references; it never drops a marker),
+  so the pre-dedup count is exact.
 
   These pin `run-wire-pipeline` directly — the pure transform — rather
   than through the live nREPL eval boundary (covered by the
@@ -50,7 +47,7 @@
    :db-after  {:slot marker}})
 
 ;; ---------------------------------------------------------------------------
-;; rf2-mb17rj — :elided-large counts EVERY marker, not the deduped count.
+;; :elided-large counts EVERY marker, not the deduped count.
 ;; ---------------------------------------------------------------------------
 
 (deftest epoch-vector-counts-all-elided-markers-pre-dedup
@@ -75,8 +72,8 @@
           epochs  (vec (for [n (range 3)] (epoch-with-marker n marker)))
           encoded (dedup/diff-encode-epochs epochs :diff)
           deduped (dedup/dedup-value encoded true)]
-      ;; The pre-fix code walked `deduped` and would have returned 1
-      ;; here; the fix walks `encoded` and returns 3.
+      ;; Walking `deduped` returns 1 here (the undercount); walking
+      ;; `encoded` — the pipeline's choice — returns the correct 3.
       (is (= 1 (base-elision/count-elided-markers deduped))
           "dedup pools the 3 equal markers → walking the deduped payload undercounts to 1 (the bug)")
       (is (= 3 (base-elision/count-elided-markers encoded))

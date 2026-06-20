@@ -1,12 +1,12 @@
 (ns re-frame2-pair-mcp.tools.await-promise
-  "Shared browser-side Promise-await machinery (rf2-gfu33).
+  "Shared browser-side Promise-await machinery.
 
   Two tools need the same capability: run a form over nREPL whose
   synchronous return is a JS Promise, then resolve to the Promise's
   eventual value rather than the `\"#object[Promise ...]\"` string a
-  raw `pr-str` would produce. `eval-cljs :await` (rf2-xn4f9) was the
-  first; `dispatch :await-render` (rf2-gfu33) is the second — it awaits
-  a render-settle Promise so `dispatch → observe` is a single
+  raw `pr-str` would produce. `eval-cljs :await` awaits a
+  caller-supplied async form; `dispatch :await-render` awaits a
+  render-settle Promise so `dispatch → observe` is a single
   deterministic step.
 
   The nREPL channel is request/response: the server sends a form and

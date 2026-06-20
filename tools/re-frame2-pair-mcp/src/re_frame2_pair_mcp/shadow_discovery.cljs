@@ -74,7 +74,7 @@
   keys prefixed by `~:`. We walk the parsed array looking for the
   `~:project-home` sentinel and return the next element as the value.
 
-  Public so the unit tests can pin the parser shape directly (rf2-umoz2)
+  Public so the unit tests can pin the parser shape directly
   without standing up a fake HTTP server. A defensive parser — every
   branch where the shape disagrees collapses to nil so the caller falls
   through cleanly."

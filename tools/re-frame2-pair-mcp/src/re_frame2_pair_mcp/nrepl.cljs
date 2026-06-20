@@ -1,16 +1,11 @@
 (ns re-frame2-pair-mcp.nrepl
   "Persistent nREPL client over a TCP socket.
 
-  This is what the bash-shim chain replaces. Each shim previously paid:
-    - bash startup       (~50ms on Windows, less elsewhere)
-    - babashka startup   (~50-100ms)
-    - fresh nREPL connect (~200-500ms cold)
-    - bencode round-trip
-    - process teardown
-
-  The MCP server pays the cold connect once at boot; every subsequent
-  call is just a bencode round-trip on the existing socket. Per-op
-  latency drops from ~700ms to ~5-50ms.
+  One socket lives for the whole session. The MCP server pays the cold
+  connect once at boot; every subsequent call is just a bencode
+  round-trip on the existing socket — per-op latency is ~5-50ms (a
+  per-call connect would instead pay process startup + a ~200-500ms
+  cold nREPL connect + teardown each time, ~700ms total).
 
   ## Reconnect protocol
 
@@ -25,8 +20,8 @@
   the next bundle load, so the runtime ns and its global marker
   reappear automatically. Every tool that needs the runtime probes
   the marker via `tools/ensure-runtime!`; missing marker surfaces a
-  structured `:reason :runtime-not-preloaded` error. No cljs-eval
-  inject fallback (rf2-7dvg).
+  structured `:reason :runtime-not-preloaded` error. There is no
+  cljs-eval inject fallback — the preload is the single load path.
 
   ## Concurrency
 
@@ -82,12 +77,12 @@
   platform-correct on Windows + POSIX without each call site building
   paths by string-concat.
 
-  rf2-ww877w — the result carries the WINNING candidate path, not just
-  the parsed port. The server caches that exact path so the per-tool-call
-  re-read (`ensure-connection!`) checks the file that actually won the
-  candidate scan, instead of server.cljs deriving a fixed
-  `.shadow-cljs/nrepl.port` that may not be the candidate that hit (which
-  then reads as 'file disappeared' and forces a needless reconnect)."
+  The result carries the WINNING candidate path, not just the parsed
+  port. The server caches that exact path so the per-tool-call re-read
+  (`ensure-connection!`) checks the file that actually won the candidate
+  scan, instead of deriving a fixed `.shadow-cljs/nrepl.port` that may
+  not be the candidate that hit (which would then read as 'file
+  disappeared' and force a needless reconnect)."
   [base]
   (when (and base (seq base))
     (some (fn [rel]
@@ -108,8 +103,8 @@
 
   ## Precedence (highest first)
 
-    1. `--port-file <path>`   explicit, cwd-independent escape hatch
-                              (rf2-3dbwh). Passed as `explicit-port-file`.
+    1. `--port-file <path>`   explicit, cwd-independent escape hatch.
+                              Passed as `explicit-port-file`.
     2. `$SHADOW_CLJS_NREPL_PORT` env var.
     3. `target/shadow-cljs/nrepl.port`  ┐
     4. `.shadow-cljs/nrepl.port`        ├ cwd-relative scan (steps 3-5).
@@ -133,17 +128,17 @@
   (`server.cljs`) consumes the richer shape to drive the elicitation
   branch on ambiguity.
 
-  ## Precedence (highest first; rf2-3grub adds step 3)
+  ## Precedence (highest first)
 
-    1. `--port-file <path>`   explicit, cwd-independent override
-                              (rf2-3dbwh). Wins outright WHEN READABLE;
+    1. `--port-file <path>`   explicit, cwd-independent override.
+                              Wins outright WHEN READABLE;
                               `:project-home` is the dirname of the port
                               file and `:port-file` is the EXACT path the
-                              caller named (rf2-ww877w — so the server
-                              caches it verbatim rather than deriving a
-                              `.shadow-cljs/nrepl.port` that may not exist).
+                              caller named — so the server caches it
+                              verbatim rather than deriving a
+                              `.shadow-cljs/nrepl.port` that may not exist.
                               An explicit-but-unreadable / non-numeric file
-                              falls through to steps 2-5 (rf2-olvr5) —
+                              falls through to steps 2-5 —
                               mirroring `read-port-from-fs` — so a stale
                               port file can't strand a live port reachable
                               via env / roots / HTTP / cwd.
@@ -151,7 +146,7 @@
                               (env-overridden discovery doesn't surface a
                               root); the per-tool-call port-file re-read
                               is skipped on this path.
-    3. **MCP `roots/list` walk** (rf2-3grub) — when `roots-discovery-fn`
+    3. **MCP `roots/list` walk** — when `roots-discovery-fn`
                               is supplied (post-MCP-init, lazy on first
                               tool call), ask the client for its
                               workspace roots, walk each one for
@@ -161,16 +156,16 @@
                               `:ambiguous` (caller drives elicitation).
                               `:workspace-discovery-unsupported` →
                               proceed to step 4.
-    4. **Shadow HTTP probe** (rf2-umoz2) — `shadow-probe-fn` returns the
+    4. **Shadow HTTP probe** — `shadow-probe-fn` returns the
                               consumer project's absolute `:project-home`;
                               we then read `port-file-candidates` resolved
                               against that root. The result surfaces the
                               WINNING candidate path as `:port-file`
-                              (rf2-ww877w) so the server caches the exact
+                              so the server caches the exact
                               file that hit, not a derived one. Cwd-robust
-                              legacy fallback for clients without
+                              fallback for clients without
                               `roots/list`.
-    5. CWD-relative scan of `port-file-candidates` — legacy fallback for
+    5. CWD-relative scan of `port-file-candidates` — final fallback for
                               environments without the shadow HTTP API. No
                               `:port-file` is surfaced (no project-home
                               anchor for a stable absolute path).
@@ -203,21 +198,20 @@
     ;; reads a port. An explicit-but-unreadable / non-numeric port file
     ;; (a stale leftover, a typo'd path) MUST fall through to env →
     ;; roots → HTTP → cwd — exactly the precedence `read-port-from-fs`
-    ;; (the sync slice) already implements via its leading `or`. The
-    ;; pre-fix shape hard-resolved `{:port nil}` here, so a stale
-    ;; `--port-file` short-circuited the whole cascade even when the env
-    ;; var / configured roots / shadow HTTP endpoint / cwd scan would
-    ;; have found a live port (rf2-olvr5 finding 4).
+    ;; (the sync slice) implements via its leading `or`. A stale
+    ;; `--port-file` must NOT short-circuit the whole cascade when the env
+    ;; var / configured roots / shadow HTTP endpoint / cwd scan could
+    ;; find a live port.
     (and explicit-port-file (seq explicit-port-file)
          (some? (read-port-file explicit-port-file)))
-    ;; rf2-ww877w — return the EXACT explicit port-file path the caller
-    ;; named, so the server caches it verbatim. The pre-fix shape omitted
-    ;; `:port-file`; server.cljs then DERIVED `<project-home>/.shadow-cljs/
-    ;; nrepl.port` (= dirname-of-explicit-file + .shadow-cljs/nrepl.port),
-    ;; which for an explicit `target/shadow-cljs/nrepl.port` resolves to a
-    ;; non-existent `target/shadow-cljs/.shadow-cljs/nrepl.port`. The next
-    ;; ensure-connection! read that derived path as missing and forced a
-    ;; needless reconnect + per-connection cache reset.
+    ;; Return the EXACT explicit port-file path the caller named, so the
+    ;; server caches it verbatim. Omitting `:port-file` would force
+    ;; server.cljs to DERIVE `<project-home>/.shadow-cljs/nrepl.port`
+    ;; (= dirname-of-explicit-file + .shadow-cljs/nrepl.port), which for an
+    ;; explicit `target/shadow-cljs/nrepl.port` resolves to a non-existent
+    ;; `target/shadow-cljs/.shadow-cljs/nrepl.port`; the next
+    ;; ensure-connection! would read that derived path as missing and force
+    ;; a needless reconnect + per-connection cache reset.
     (js/Promise.resolve {:port         (read-port-file explicit-port-file)
                          :project-home (node-path/dirname explicit-port-file)
                          :port-file    explicit-port-file})
@@ -235,11 +229,10 @@
         (.then
           (fn [r]
             (case (:status r)
-              ;; rf2-ww877w — the roots candidate carries its own
-              ;; `:port-file` (the `.shadow-cljs/nrepl.port` adjacent to
-              ;; the discovered `shadow-cljs.edn`); thread it through so the
-              ;; server caches the exact discovered file rather than
-              ;; re-deriving one.
+              ;; The roots candidate carries its own `:port-file` (the
+              ;; `.shadow-cljs/nrepl.port` adjacent to the discovered
+              ;; `shadow-cljs.edn`); thread it through so the server caches
+              ;; the exact discovered file rather than re-deriving one.
               :one  (let [c (:candidate r)]
                       {:port (:port c) :project-home (:project-home c)
                        :port-file (:port-file c)})
@@ -251,11 +244,11 @@
                     (or http-port shadow-discovery/default-http-port))
                   (.then (fn [project-home]
                            (if-let [{:keys [port port-file]} (read-port-at-base project-home)]
-                             ;; rf2-ww877w — thread the WINNING candidate
-                             ;; file through so the server caches the exact
-                             ;; path that hit (target/shadow-cljs/nrepl.port
-                             ;; vs .shadow-cljs/nrepl.port vs .nrepl-port),
-                             ;; not a derived one.
+                             ;; Thread the WINNING candidate file through so
+                             ;; the server caches the exact path that hit
+                             ;; (target/shadow-cljs/nrepl.port vs
+                             ;; .shadow-cljs/nrepl.port vs .nrepl-port), not
+                             ;; a derived one.
                              {:port port :project-home project-home :port-file port-file}
                              ;; Step 5 — cwd-relative scan, last resort. No
                              ;; project-home to anchor a stable port-file, so
@@ -272,9 +265,8 @@
   callers without an initialized MCP client omit it; post-init callers
   thread it in so step 3 (roots-list) is reachable.
 
-  Legacy 0-/2-arity wrappers preserve the prior boot path (rf2-umoz2 +
-  rf2-3dbwh). Net-new callers should use the 3-arity that takes the
-  roots fn."
+  The 0-/2-arity wrappers cover boot-time callers without an MCP client;
+  the 3-arity takes the roots fn for post-init discovery."
   ([] (discover-port nil nil nil))
   ([explicit-port-file http-port]
    (discover-port explicit-port-file http-port nil))
@@ -324,8 +316,8 @@
             ;; remain in this chunk — the alternative (recur on the
             ;; un-advanced `b`) is an infinite loop. This is a defensive
             ;; branch, not an observed path (`position` is reliable for
-            ;; the real frame shapes; see comment above). rf2-ee38b.18:
-            ;; if a multi-frame chunk ever DID hit this, the trailing
+            ;; the real frame shapes; see comment above). If a
+            ;; multi-frame chunk ever DID hit this, the trailing
             ;; complete frames would be silently lost and their pending
             ;; nREPL ids would hang until timeout — so we log to stderr
             ;; (never stdout — reserved for MCP) when the dropped trailer
@@ -358,24 +350,24 @@
   set when the socket terminates so subsequent calls re-open.
 
   `:probed-builds` is the set of build-ids for which the re-frame2-pair runtime
-  preload has been confirmed live on this socket generation (rf2-sjpx0).
+  preload has been confirmed live on this socket generation.
   Cleared by `close!` (operator-initiated teardown) and reborn empty
   whenever `ensure-connection!` builds a fresh conn for a new port — but
-  NOT on a same-port socket reopen (rf2-c3dsr; see `connect!`). The
+  NOT on a same-port socket reopen (see `connect!`). The
   `__re_frame2_pair_runtime` marker lives in the browser CLJS heap, which
   a JVM-side socket hiccup doesn't destroy, so the cache stays valid
   across a reopen; a page reload that DID destroy the marker leaves the
   JVM nREPL socket up, so a negative probe re-runs downstream anyway.
 
-  `:resolved-build-id` is the build-id `discover-app` last resolved
-  (rf2-l9ixp). Subsequent tool calls without an explicit `:build` arg
+  `:resolved-build-id` is the build-id `discover-app` last resolved.
+  Subsequent tool calls without an explicit `:build` arg
   default to it instead of the `SHADOW_CLJS_BUILD_ID` env-var fallback —
   removing the pair-debug friction of re-passing the build on every call.
   Same invalidation lifecycle as `:probed-builds`: cleared by `close!`
   and by a fresh `ensure-connection!` conn, PRESERVED across a transient
-  same-port reopen (rf2-c3dsr).
+  same-port reopen.
 
-  `:build-alias` is the forgiving-resolution cache (rf2-qda59):
+  `:build-alias` is the forgiving-resolution cache:
   `{requested-keyword canonical-keyword}`. A `:build` arg that names a
   running build by a unique SUFFIX (`:machine-epochs` ⇒
   `:examples/machine-epochs`) resolves to the canonical running id the
@@ -385,7 +377,7 @@
   cleared by `close!` and a fresh conn, preserved across a same-port
   reopen — a genuine build restart (which changes the running set) lands
   on a new port (fresh conn) or an operator `close!`, so a stale alias
-  never survives a real build change (rf2-c3dsr)."
+  never survives a real build change."
   [port host]
   (atom {:port              port
          :host              (or host "127.0.0.1")
@@ -413,7 +405,7 @@
   Public (not `defn-`) so `nrepl_test.cljs` can drive the data-folding
   + pending-id dispatch with a fake socket — feeding synthetic chunks
   and asserting pending handlers fire — without opening a real TCP
-  socket (rf2-wnrpi). The fake socket need only implement an `on`
+  socket. The fake socket need only implement an `on`
   method that records the callback per event name; see the test's
   `fake-socket` helper. This mirrors the `decode-all-frames`
   public-for-test precedent above."
@@ -452,7 +444,7 @@
   Idempotent — if a socket is already open and healthy, resolves
   immediately.
 
-  ## Why the reopen path does NOT touch the build-id caches (rf2-c3dsr)
+  ## Why the reopen path does NOT touch the build-id caches
 
   `connect!` is a pure *transport* concern: open the socket, reset the
   framing buffer, wire the handlers. It must NOT clear the session
@@ -462,8 +454,8 @@
   mere transient socket hiccup WITHOUT changing the target build. The
   next op's `connect!` would then reopen the SAME port and — if it also
   wiped the caches — silently drop a valid same-session sticky build,
-  so a follow-up no-`:build` call falls back to `:app` (the rf2-c3dsr
-  live symptom: `orient {}` mis-routing after a successful discover).
+  so a follow-up no-`:build` call would fall back to `:app` (e.g.
+  `orient {}` mis-routing after a successful discover).
 
   The caches' invalidation lives with the layer that actually knows the
   build *identity* changed:
@@ -471,8 +463,8 @@
     - `close!` (operator-initiated teardown) clears all three.
     - `server.cljs/ensure-connection!` builds a FRESH conn (empty caches)
       when shadow's nREPL port vanishes or changes — the common shape of
-      the rf2-l9ixp \"operator restarted shadow against a different
-      build\" case (a restart almost always grabs a new ephemeral port).
+      the \"operator restarted shadow against a different build\" case (a
+      restart almost always grabs a new ephemeral port).
 
   A same-port reopen of the SAME conn within one session is, by
   construction, a reconnect to the SAME build — so preserving the caches
@@ -494,8 +486,8 @@
                 ;; Transport-only: swap in the live socket, clear the
                 ;; closed flag, and reset the framing buffer. The build-id
                 ;; caches are deliberately PRESERVED across a same-port
-                ;; reopen (rf2-c3dsr) — see the fn docstring for why and
-                ;; for where the genuine-different-build reset lives.
+                ;; reopen — see the fn docstring for why and for where the
+                ;; genuine-different-build reset lives.
                 (swap! conn-atom assoc :socket sock :closed? false
                        :buf (js/Buffer.alloc 0))
                 (attach-handlers! conn-atom sock)
@@ -508,9 +500,9 @@
 (defn close!
   "Close the persistent socket. Idempotent. Drops the per-socket probe
   cache (`:probed-builds`) so a fresh connect re-probes the preload.
-  Also drops `:resolved-build-id` (rf2-l9ixp) — the cached default for
-  tool calls without an explicit `:build` arg — and `:build-alias`
-  (rf2-qda59), the forgiving suffix→canonical resolution cache — so a
+  Also drops `:resolved-build-id` — the cached default for
+  tool calls without an explicit `:build` arg — and `:build-alias`,
+  the forgiving suffix→canonical resolution cache — so a
   reconnect doesn't carry a stale build-id from the previous session."
   [conn-atom]
   (when-let [^js sock (:socket @conn-atom)]
@@ -539,10 +531,10 @@
 
   Auto-(re)connects if the socket has dropped. The runtime ships via the
   shadow-cljs `:devtools :preloads` mechanism, so no per-op reinjection is
-  needed (the per-session inject fallback was cut for rf2-7dvg; tools probe
-  the preload marker via `tools.probe/ensure-runtime!`).
+  needed; tools probe the preload marker via
+  `tools.probe/ensure-runtime!`.
 
-  ## Options (rf2-ambfv)
+  ## Options
 
   Optional second arg:
 
@@ -585,7 +577,7 @@
                             (resolve @state)))))]
                 (swap! conn-atom assoc-in [:pending id] on-frame)
                 (let [op (j/assoc! (clj->js op-map) "id" id)
-                      ;; rf2-av5kl: re-read `:socket` immediately before the
+                      ;; Re-read `:socket` immediately before the
                       ;; write. `connect!` guarantees a live socket at resolve
                       ;; time, but the close/error handlers (attach-handlers!)
                       ;; can fire in the window between resolve and this write —
@@ -655,7 +647,7 @@
   heavy forms (full-epoch-ring walks) can raise it past the 30s
   default.
 
-  ## Compile warnings/errors surface — never swallowed as nil (rf2-mvdwv)
+  ## Compile warnings/errors surface — never swallowed as nil
 
   shadow's `cljs-eval` returns its `{:results :err :out :ns}` map as the
   JVM eval value (the `outer` map below). A form with an UNRESOLVED
@@ -668,14 +660,13 @@
   genuine compile error (`:eval-compile-error`) takes the same shape:
   `:err` carries the report, `:results` carries `\"nil\"`.
 
-  The pre-rf2-mvdwv branch order peeked `:results` FIRST whenever it was
-  a vector, so the `\"nil\"` won and the populated `:err` was never read
-  — the form silently nil'd out as `{:ok? true :value nil}`, corrupting
-  debugging (the agent reads the nil as a real value). So a non-blank
-  `:err` on the shadow outer map now takes PRECEDENCE over the `:results`
-  peek: it rejects with a structured `:rf.error/eval-cljs-compile-error`
-  ex-info carrying the warning/error text, which `probe/err->result`
-  surfaces verbatim as `{:ok? false :reason ... :err ...}`."
+  A non-blank `:err` on the shadow outer map takes PRECEDENCE over the
+  `:results` peek (which would otherwise read the `\"nil\"` shadow pushes
+  and silently nil the form out as `{:ok? true :value nil}`, corrupting
+  debugging — the agent reads the nil as a real value). It rejects with a
+  structured `:rf.error/eval-cljs-compile-error` ex-info carrying the
+  warning/error text, which `probe/err->result` surfaces verbatim as
+  `{:ok? false :reason ... :err ...}`."
   ([conn-atom build-id form-str] (cljs-eval-value conn-atom build-id form-str nil))
   ([conn-atom build-id form-str opts]
   (-> (cljs-eval conn-atom build-id form-str opts)
@@ -693,8 +684,8 @@
             :else
             (let [outer (read-edn-safe (str (:value resp)))]
               (cond
-                ;; rf2-mvdwv — a populated :err on shadow's outer response
-                ;; is an analyzer warning (unresolved symbol) or a compile
+                ;; A populated :err on shadow's outer response is an
+                ;; analyzer warning (unresolved symbol) or a compile
                 ;; error. It MUST surface, even though shadow also pushed a
                 ;; \"nil\" into :results: peeking :results first would swallow
                 ;; the compile failure as a silent nil. Reject with a
