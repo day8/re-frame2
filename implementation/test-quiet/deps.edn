@@ -9,7 +9,11 @@
 ;;     0 failures, 0 errors.
 ;;
 ;; The cross-runtime quiet contract (rf2-nrk066) is pass-through stdout +
-;; central stderr buffering, SYMMETRIC across JVM / CLJS node / browser:
+;; red-replayed noise buffering. The buffering POLICY is symmetric across
+;; JVM / CLJS node / browser — buffer the noise channel, drop it on green,
+;; replay it on red — but the buffered SCOPE is runtime-specific: JVM
+;; buffers `*err*` / `System.err`; CLJS node buffers `console.warn` only;
+;; browser / Playwright diagnostics are owned by the browser harnesses:
 ;;
 ;;   - STDOUT is PASS-THROUGH, not summary-only. The reporter makes the
 ;;     reporter's OWN green output the canonical summary, but the runner
@@ -21,10 +25,13 @@
 ;;     to print", which under the repo's no-stray-println discipline is
 ;;     just the summary.
 ;;   - STDERR/WARNINGS are BUFFERED, replayed on red, dropped on green —
-;;     the JVM runner (`re-frame.test-quiet.runner`) and the CLJS node
-;;     runner (`re-frame.test-quiet.shadow-node`) both ring-buffer stderr
-;;     noise and replay it only when the run is RED, so warning-heavy
-;;     suites stay quiet on green WITHOUT ad-hoc local `*err*` sinks.
+;;     the JVM runner (`re-frame.test-quiet.runner`) buffers JVM stderr
+;;     (`*err*` / `System.err`) while the CLJS node runner
+;;     (`re-frame.test-quiet.shadow-node`) buffers `console.warn` warnings
+;;     ONLY (`console.error` / `process.stderr` pass straight through).
+;;     Both replay the buffer only when the run is RED, so warning-heavy
+;;     suites stay quiet on green WITHOUT ad-hoc local `*err*` sinks. The
+;;     narrower CLJS scope keeps real error channels visible even on green.
 ;;
 ;; Failures are unchanged — a failing namespace's banner + the failure
 ;; lines + the failure stack reach stdout exactly as before, and a red
