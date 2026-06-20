@@ -1,11 +1,10 @@
 (ns re-frame.flows.tooling
-  "Flows tooling sibling of `re-frame.flows` — carries the EP-0014 slice-3
+  "Flows tooling sibling of `re-frame.flows` — carries the
   derivation/process algebra view of registered flows (`flow-algebra-view`)
   that pair tools (Xray, re-frame2-pair-mcp) and the conformance fixtures
   query, but no production application code reads.
 
-  Mirrors the rf2-bmzq0 `re-frame.subs.tooling` split (and the rf2-qwm0a
-  `re-frame.trace.tooling` split before it):
+  Mirrors the `re-frame.subs.tooling` / `re-frame.trace.tooling` split:
     - CLJS consumers needing the surface call
       `re-frame.flows.tooling/<name>` directly. Apps that load the flows
       artefact but never attach a tool DCE the body wholesale (the sibling
@@ -19,22 +18,20 @@
       explicit sentinel at the foot of this ns additionally proves no
       stray `:require` ever pulled the body in.
 
-  READ-ONLY over the registry. Per the EP-0013 D1-impl in-flight work
-  (rf2-pnf7t5 / gkddyq) this ns touches NEITHER the core registrar
-  write-path NOR the flow registration signatures — exactly as slice-2's
-  subs.tooling read the sub registry without touching the registrar. It
-  reads the per-frame flow registry through the existing public accessor
-  `re-frame.flows.registry/flows-snapshot` (the rf2-4gvb4 read seam).
+  READ-ONLY over the registry: this ns touches NEITHER the core registrar
+  write-path NOR the flow registration signatures, reading the per-frame flow
+  registry through the public accessor
+  `re-frame.flows.registry/flows-snapshot`.
 
-  Per [Derivations.md](../../../../../../spec/Derivations.md) (graduated
-  from EP-0014) and the projected Malli shapes in [Spec-Schemas
+  Per [Derivations.md](../../../../../../spec/Derivations.md) and the
+  projected Malli shapes in [Spec-Schemas
   §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.flows.registry :as registry]
             [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- algebra views (EP-0014 slice-3) -------------------------------------
+;; ---- algebra views -------------------------------------------------------
 ;;
 ;; Per [Derivations.md] §Worked equivalence — the flow is the canonical
 ;; `:app-db` / `:after-event` / `:frame` MATERIALIZED member of the
@@ -48,12 +45,9 @@
 ;;
 ;; This is the *registrar-derived* slice (Derivations §The EP-0013
 ;; relocation seam): the algebra view is assembled from the flow-map
-;; metadata at the surface that registered it, NOT (yet) from an EP-0013
-;; app value. It feeds the later internal graph-inspection helper (EP-0014
-;; bead-plan item 7); slice-3 ships NO public accessor — these functions
-;; live in the bundle-isolated tooling sibling, consumed by Xray + the
-;; conformance fixtures (the two named first consumers). No
-;; `re-frame.core` facade export (EP-0014 issue-1 disposition).
+;; metadata at the surface that registered it. These functions live in the
+;; bundle-isolated tooling sibling, consumed by Xray + the conformance
+;; fixtures; there is no `re-frame.core` facade export.
 ;;
 ;; The five fixed classifications for EVERY flow node (Derivations §Worked
 ;; equivalence — the flow column):
@@ -80,8 +74,8 @@
 
   Routes the partition test and the key strip through the SHARED
   `registry/runtime-input?` / `registry/input-resolve-path` primitives
-  (rf2-4vreu8) so the projection, the value resolver, and the elision
-  declaration-path resolver all key on the one home for the rule."
+  so the projection, the value resolver, and the elision declaration-path
+  resolver all key on the one home for the rule."
   [path]
   (if (registry/runtime-input? path)
     [:runtime (registry/input-resolve-path path)]
@@ -100,8 +94,7 @@
   on `frame-id`, or `nil` when none apply. The per-frame `flows` registry
   stores the raw flow-map WITHOUT source coords — `reg-flow` runs the flow
   through `source-coords/merge-coords` only when stamping the `:flow`
-  registrar slot. So coords are read (READ-only — slice-2's subs.tooling
-  read sub metadata from the registrar the same way) from that slot.
+  registrar slot. So coords are read (READ-only) from that slot.
 
   The `:flow` registrar slot is keyed by flow-id ALONE and holds the
   MOST-RECENTLY-REGISTERED frame's metadata (Spec 013 §Frame-scoping), so it
@@ -165,12 +158,11 @@
 
 (defn flow-algebra-view
   "Return the STATIC derivation/process algebra view of every registered
-  flow (EP-0014 slice-3; [Derivations.md], [Spec-Schemas
-  §`:rf/derivation-node`]).
+  flow ([Derivations.md], [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the per-frame flow registry — read through the public
-  `re-frame.flows.registry/flows-snapshot` seam (rf2-4gvb4), never touching
-  the registrar write-path or the flow registration signatures. The algebra
+  `re-frame.flows.registry/flows-snapshot` seam, never touching the registrar
+  write-path or the flow registration signatures. The algebra
   view companion to `flows-snapshot`: where `flows-snapshot` returns the raw
   `{frame-id {flow-id flow-map}}` registry, this lowers every flow into the
   normalized `:rf/derivation-node` shape the derivation/process algebra
@@ -213,10 +205,9 @@
   single frame (`{}` when the frame has no flows). JVM-runnable — the flow
   registry is partition-agnostic registration metadata.
 
-  Slice-3 ships NO public accessor (EP-0014 issue-1 disposition): this lives
-  in the bundle-isolated tooling sibling and is consumed by Xray + the
-  conformance fixtures; the public name is deferred until a third consumer
-  needs it. There is no `re-frame.core/flow-algebra-view` facade export."
+  Lives in the bundle-isolated tooling sibling and is consumed by Xray + the
+  conformance fixtures. There is no `re-frame.core/flow-algebra-view` facade
+  export."
   ([]
    (let [snapshot (registry/flows-snapshot)]
      (reduce-kv
@@ -239,9 +230,9 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-bmzq0 / rf2-qwm0a (the subs.tooling + trace.tooling split
-;; pattern): `implementation/scripts/check-bundle-isolation.cjs` greps the
-;; counter bundle for this exact string. The string lives ONLY in this
+;; Per the subs.tooling + trace.tooling split pattern:
+;; `implementation/scripts/check-bundle-isolation.cjs` greps the counter
+;; bundle for this exact string. The string lives ONLY in this
 ;; file's source body — no other namespace, no docstring, no test fixture
 ;; references it — so its presence in the production counter bundle proves
 ;; the tooling sibling's body got pulled in (most likely via a stray
