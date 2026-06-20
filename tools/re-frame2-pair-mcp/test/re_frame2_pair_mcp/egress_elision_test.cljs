@@ -49,9 +49,12 @@
   framework conformance file `epoch_mcp_egress_conformance_test.clj`
   pins `projected-record`'s semantics directly."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
+            [cljs.reader :as reader]
             [clojure.string :as str]
+            [re-frame.mcp-base.egress :as base-egress]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame2-pair-mcp.tools.watch-epochs :as we]
@@ -146,16 +149,19 @@
                        (is (some? form) "the tool shipped a slice eval form")
                        (is (str/includes? form "re-frame.core/projected-record")
                            "gate-off MUST route the egress page through projected-record")
-                       (is (str/includes? form "mapv re-frame.core/projected-record")
-                           "every record in the page is projected")
+                       (is (str/includes? form "mapv (fn [r#] (re-frame.core/projected-record")
+                           "every record in the page is projected via a fn literal threading the egress opts")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — Pair-MCP is an off-box tool wire; the page projects under :rf.egress/off-box-tool")
                        (done)))))))))
 
 (deftest trace-window-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: STILL projected, threading {:include-sensitive? true} (rf2-m9duxl)"
+  (testing "gate ON + include-sensitive true: STILL projected, threading :include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
     ;; rf2-m9duxl — `:include-sensitive true` is NOT a raw bypass. It routes
-    ;; THROUGH `projected-record` as the `{:include-sensitive? true}` egress
-    ;; opt (app-db sensitive axis only). fx-args / runtime-db / large slots /
-    ;; `:redact-fn` stay fail-closed because we do NOT pass their opts.
+    ;; THROUGH `projected-record` as the `:include-sensitive? true` egress opt
+    ;; (app-db sensitive axis only), composed OVER the off-box-tool profile
+    ;; floor (rf2-nmjcll). fx-args / runtime-db / large slots / `:redact-fn`
+    ;; stay fail-closed because we do NOT pass their opts.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -165,8 +171,10 @@
                      (let [form (slice-form forms)]
                        (is (str/includes? form "re-frame.core/projected-record")
                            "include-sensitive STILL routes through projected-record — never a raw bypass")
-                       (is (str/includes? form "{:include-sensitive? true}")
-                           "the app-db sensitive axis is threaded INTO the projection")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — the off-box-tool boundary is named even on the sensitive opt-in path")
+                       (is (str/includes? form ":include-sensitive? true")
+                           "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
                        (is (not (str/includes? form ":include-fx-args?"))
                            "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
                        (is (not (str/includes? form ":include-runtime-db?"))
@@ -204,12 +212,14 @@
               (fn [] (we/watch-epochs-tool nil (tu/args->js {:pred {:event-id :auth/sign-in}}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form "mapv re-frame.core/projected-record")
-                           "gate-off MUST route the egress page through projected-record")
+                       (is (str/includes? form "mapv (fn [r#] (re-frame.core/projected-record")
+                           "gate-off MUST route the egress page through projected-record (fn literal threading opts)")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — watch-epochs is an off-box tool wire; the page projects under :rf.egress/off-box-tool")
                        (done)))))))))
 
 (deftest watch-epochs-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: STILL projected, threading {:include-sensitive? true} (rf2-m9duxl)"
+  (testing "gate ON + include-sensitive true: STILL projected, threading :include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -219,8 +229,10 @@
                      (let [form (slice-form forms)]
                        (is (str/includes? form "re-frame.core/projected-record")
                            "include-sensitive STILL routes through projected-record — never a raw bypass")
-                       (is (str/includes? form "{:include-sensitive? true}")
-                           "the app-db sensitive axis is threaded INTO the projection")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — the off-box-tool boundary is named even on the sensitive opt-in path")
+                       (is (str/includes? form ":include-sensitive? true")
+                           "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
                        (is (not (str/includes? form ":include-fx-args?"))
                            "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
                        (is (not (str/includes? form ":include-runtime-db?"))
@@ -253,8 +265,10 @@
               (fn [] (we/watch-epochs-tool nil (tu/args->js {}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                       (is (str/includes? form "mapv (fn [r#] (re-frame.core/projected-record")
                            "gate-on alone (no per-call opt-in) still projects — fail-safe default")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — still the off-box-tool boundary under the gate without the opt-in")
                        (done)))))))))
 
 ;; ===========================================================================
@@ -426,14 +440,16 @@
             (.then (fn [_]
                      (let [form (slice-form forms)]
                        (is (some? form) "the tool shipped a snapshot eval form")
-                       (is (str/includes? form "mapv re-frame.core/projected-record")
-                           "gate-off MUST route the :epochs slice through projected-record")
+                       (is (str/includes? form "mapv (fn [r#] (re-frame.core/projected-record")
+                           "gate-off MUST route the :epochs slice through projected-record (fn literal threading opts)")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — the snapshot :epochs slice projects under :rf.egress/off-box-tool")
                        (is (str/includes? form ":epochs")
                            "the :epochs slot is the projection target")
                        (done)))))))))
 
 (deftest snapshot-epochs-gate-on-include-sensitive-routes-through-projection
-  (testing "gate ON + include-sensitive true: :epochs STILL projected, threading {:include-sensitive? true} (rf2-m9duxl)"
+  (testing "gate ON + include-sensitive true: :epochs STILL projected, threading :include-sensitive? true under off-box-tool (rf2-m9duxl, rf2-nmjcll)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -446,8 +462,10 @@
                      (let [form (slice-form forms)]
                        (is (str/includes? form "re-frame.core/projected-record")
                            "include-sensitive STILL routes the :epochs slice through projected-record")
-                       (is (str/includes? form "{:include-sensitive? true}")
-                           "the app-db sensitive axis is threaded INTO the projection")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — the off-box-tool boundary is named even on the sensitive opt-in path")
+                       (is (str/includes? form ":include-sensitive? true")
+                           "the app-db sensitive axis is threaded INTO the projection (composed over the off-box-tool floor)")
                        (is (not (str/includes? form ":include-fx-args?"))
                            "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
                        (is (not (str/includes? form ":include-runtime-db?"))
@@ -467,8 +485,10 @@
                                                            :mode "full"}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                       (is (str/includes? form "mapv (fn [r#] (re-frame.core/projected-record")
                            "gate-on alone (no per-call opt-in) still projects :epochs — fail-safe default")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — still the off-box-tool boundary under the gate without the opt-in")
                        (done)))))))))
 
 (deftest snapshot-epochs-projection-independent-of-elision-toggle
@@ -492,8 +512,10 @@
                                                            :elision false}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                       (is (str/includes? form "mapv (fn [r#] (re-frame.core/projected-record")
                            "elision false (incl? still false) MUST still project :epochs")
+                       (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                           "rf2-nmjcll — :epochs still projects under the off-box-tool boundary with elision off")
                        (is (str/includes? form "re-frame.core/elide-wire-value")
                            "bare :elision false MUST still walk :app-db/:sub-cache — no sensitive bypass")
                        (is (str/includes? form ":rf.size/include-sensitive? false")
@@ -604,3 +626,95 @@
                        (is (str/includes? form ":rf.size/include-sensitive? true")
                            "gate-on + include-sensitive true ⇒ declared-sensitive :sample values pass raw")
                        (done)))))))))
+
+;; ===========================================================================
+;; rf2-nmjcll — epoch egress names the :rf.egress/off-box-tool profile
+;; ===========================================================================
+;;
+;; Pair-MCP is an OFF-BOX TOOL WIRE (epoch records cross to an external
+;; agent). Per Tool-Pair.md §Named-egress profile adoption (EP-0015 §10) the
+;; epoch egress MUST name `:rf.egress/off-box-tool`, NOT lean on
+;; `projected-record`'s `:rf.egress/off-box-observability` default (same
+;; redact/elide floor, but OMITS the structural `:rf.size/include-digests?`
+;; indicators a tool needs to reason about an elided slot's shape). The fix
+;; lives in `egress-opts-edn`, so every epoch egress caller that threads
+;; through it (trace-window / watch-epochs / snapshot :epochs / dispatch
+;; :trace / :settle / subscribe epoch-topic drain) inherits the profile.
+;;
+;; These unit tests pin the helper directly — they PARSE the emitted EDN
+;; (not just substring it) so the assertion is the actual data shape, and
+;; cross-check that the named off-box-tool boundary resolves (via the shared
+;; cross-MCP mirror) to the fail-closed-sensitive / digests-on floor the
+;; off-box wire requires.
+
+(defn- parse-opts
+  "Read `egress-opts-edn`'s rendered EDN string back into a data map."
+  [incl?]
+  (reader/read-string (egress/egress-opts-edn incl?)))
+
+(deftest egress-opts-default-path-names-off-box-tool
+  (testing "rf2-nmjcll — the DEFAULT (no sensitive opt-in) egress opts name :rf.egress/off-box-tool"
+    (let [opts (parse-opts false)]
+      (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
+          "the default epoch egress path names the off-box-tool boundary — NOT the projected-record observability default")
+      ;; The default path carries ONLY the profile — no app-db sensitive
+      ;; opt-in, and none of the orthogonal raw axes.
+      (is (= {:rf.egress/profile :rf.egress/off-box-tool} opts)
+          "default path = bare off-box-tool profile, no legacy :include-* overrides")
+      (is (not (contains? opts :include-sensitive?))
+          "the default path never opts the app-db sensitive axis back in"))))
+
+(deftest egress-opts-include-sensitive-composes-over-off-box-tool
+  (testing "rf2-nmjcll — the sensitive opt-in path STILL names off-box-tool, with :include-sensitive? true on top"
+    (let [opts (parse-opts true)]
+      (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
+          "the trusted-local sensitive opt-in is STILL the off-box-tool boundary (it is never the observability default)")
+      (is (true? (:include-sensitive? opts))
+          "the app-db sensitive axis is threaded as the legacy override ON TOP of the off-box-tool floor")
+      ;; ONLY the app-db sensitive axis is lifted — the orthogonal axes stay
+      ;; at the profile floor (fail-closed).
+      (is (not (contains? opts :include-large?))
+          "include-sensitive never lifts the large axis (orthogonal — stays at the off-box-tool floor)")
+      (is (not (contains? opts :include-fx-args?))
+          "include-sensitive never lifts fx-args (orthogonal)")
+      (is (not (contains? opts :include-runtime-db?))
+          "include-sensitive never lifts the runtime-db partition (orthogonal)"))))
+
+(deftest off-box-tool-floor-redacts-sensitive-and-carries-digests
+  ;; The behavioural pin: WHAT the named off-box-tool boundary buys at the
+  ;; wire. Resolved through the shared cross-MCP mirror (the same source the
+  ;; direct-read surfaces use), the off-box-tool profile keeps a
+  ;; declared-sensitive app-db slot REDACTED off-box (it does NOT ship raw)
+  ;; AND turns the structural digests ON — the contract the prior
+  ;; observability-default epoch egress silently dropped.
+  (testing "rf2-nmjcll — off-box-tool: sensitive stays redacted (fail-closed) + digests on"
+    (let [floor (base-egress/profile-size-opts :rf.egress/off-box-tool)]
+      (is (false? (:rf.size/include-sensitive? floor))
+          "off-box-tool fails closed on sensitive — a declared-sensitive epoch field redacts off-box, NOT shipped raw")
+      (is (false? (:rf.size/include-large? floor))
+          "off-box-tool elides large slots off-box")
+      (is (true? (:rf.size/include-digests? floor))
+          "off-box-tool turns structural digests ON — the indicator the prior observability default omitted")
+      ;; The difference the fix makes, spelled out: off-box-tool == the
+      ;; observability default PLUS the digests the tool wire needs.
+      (let [obs (base-egress/profile-size-opts :rf.egress/off-box-observability)]
+        (is (false? (:rf.size/include-digests? obs))
+            "the projected-record default (off-box-observability) OMITS digests — the gap rf2-nmjcll closes")
+        (is (= (dissoc floor :rf.size/include-digests?)
+               (dissoc obs :rf.size/include-digests?))
+            "off-box-tool and the observability default share the redact/elide floor; digests are the only delta")))))
+
+(deftest project-page-src-threads-off-box-tool-on-both-paths
+  (testing "rf2-nmjcll — project-page-src emits the off-box-tool profile in the page fn literal (both paths)"
+    (let [default-src   (egress/project-page-src "page" false)
+          sensitive-src (egress/project-page-src "page" true)]
+      (is (str/includes? default-src "mapv (fn [r#] (re-frame.core/projected-record")
+          "default path projects each record via a fn literal threading the opts")
+      (is (str/includes? default-src ":rf.egress/profile :rf.egress/off-box-tool")
+          "default page projection names off-box-tool")
+      (is (not (str/includes? default-src "mapv re-frame.core/projected-record page)"))
+          "the bare 1-arity reference (which could not name the profile) is gone")
+      (is (str/includes? sensitive-src ":rf.egress/profile :rf.egress/off-box-tool")
+          "sensitive page projection ALSO names off-box-tool")
+      (is (str/includes? sensitive-src ":include-sensitive? true")
+          "sensitive path threads the app-db sensitive axis over the off-box-tool floor"))))
