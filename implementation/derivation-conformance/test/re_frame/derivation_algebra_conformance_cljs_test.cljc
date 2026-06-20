@@ -15,7 +15,7 @@
   (`re-frame.derivation.graph`) stitches them; the per-artefact suites pin
   each projection in isolation and the composer test
   (`re-frame.derivation-graph-test`) pins the assembly MECHANICS. But until
-  this suite NO test proved the four EP-0014 conformance LAWS hold ACROSS
+  this suite NO test proved the EP-0014 conformance AXES hold ACROSS
   all families SIMULTANEOUSLY, through the composer, the way they will be
   read in anger.
 
@@ -28,8 +28,8 @@
 
   A registration of ONE source form of EACH family into a live frame, then
   one set of cross-family assertions over the assembled STATIC and LIVE
-  graphs proving the four laws (the EP-0014 §Validation / Conformance list,
-  restated as the slice-1 contract):
+  graphs proving the six conformance axes (the EP-0014 §Validation /
+  Conformance list, restated as the slice-1 contract):
 
     (a) LOWERING        — each source form lowers to the correct node KIND /
                           SUPERKIND. Every node's `:kind` is DIRECTLY a member

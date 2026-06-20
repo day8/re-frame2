@@ -176,11 +176,12 @@ implementation/
 
   derivation-conformance/    Cross-family derivation/process-algebra conformance tier
                              (EP-0014) — test-only, no shipped namespace. Holds the
-                             umbrella laws that sit above several artefacts: the
-                             EP-0014 algebra laws (lowering, classification, graph
-                             edges, whole-value) proven across all five families
-                             (subscriptions, flows, resources, route facts, machines)
-                             through the graph composer (`re-frame.derivation.graph`).
+                             umbrella axes that sit above several artefacts: the
+                             EP-0014 algebra axes (lowering, classification, graph
+                             edges, whole-value, lifecycle, evaluation) proven across
+                             all five families (subscriptions, flows, resources, route
+                             facts, machines) through the graph composer
+                             (`re-frame.derivation.graph`).
     test/re_frame/                 JVM + CLJS cross-family derivation conformance suites.
 
   event-conformance/         One-form event-MODEL conformance tier (EP-0018) —
