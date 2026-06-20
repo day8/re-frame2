@@ -894,7 +894,11 @@
    ;; `{path -> schema}` shape (the map value IS the schema — there is no
    ;; positional-vs-metadata ambiguity in a bulk map); each entry is delegated
    ;; by wrapping its schema into the metadata map alongside the shared :frame.
-   (let [frame-target opts-or-frame-id]
+   ;; `opts-or-frame-id` is coerced through the SAME `coerce-opts` contract the
+   ;; read surface uses (bare keyword / frame value / `{:frame …}` opts map all
+   ;; normalise to `{:frame <target>}`), so the per-entry `:frame` is the
+   ;; resolved target regardless of which opts shape the caller passed.
+   (let [frame-target (:frame (coerce-opts opts-or-frame-id))]
      (mapv (fn [[path schema]]
              (reg-app-schema path (cond-> {:schema schema}
                                     (some? frame-target) (assoc :frame frame-target))))
