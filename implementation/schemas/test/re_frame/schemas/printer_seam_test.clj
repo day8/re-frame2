@@ -89,7 +89,7 @@
             cross-port distinction Spec 010 §Locked rules line 491
             describes: 'two ports using *different* schema languages
             produce different digests by construction'."
-    (schemas/reg-app-schema [:n] :int)
+    (schemas/reg-app-schema [:n] {:schema :int})
     (let [default-digest (schemas/app-schemas-digest)]
       (schemas/set-schema-printer! (fn [_schema] "::DIFFERENT::"))
       (let [swapped-digest (schemas/app-schemas-digest)]
@@ -167,7 +167,7 @@
     (is (= "sha256:e3b0c44298fc1c14"
            (schemas/app-schemas-digest))
         "empty schema set still produces the canonical empty-string SHA")
-    (schemas/reg-app-schema [:n] :int)
+    (schemas/reg-app-schema [:n] {:schema :int})
     (let [d1 (schemas/app-schemas-digest)]
       (is (re-matches #"^sha256:[0-9a-f]{16}$" d1)
           "wire form is still '\"sha256:\" + 16-hex' regardless of printer"))))

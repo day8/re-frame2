@@ -367,7 +367,7 @@
       ;; app schema (root path) demanding :n be a non-negative int — scoped to
       ;; the frame via with-frame (reg-app-schema is current-frame-scoped).
       (rf/with-frame :pc/rb
-        (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
+        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
       (reg-fw-runtime-handler! :pc/bad
         (fn [_ _]
           {:db {:n -5}                                   ;; violates the schema

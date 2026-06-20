@@ -342,7 +342,7 @@
                                       ;; setup thunk would run it — bare, no
                                       ;; explicit `{:frame …}`.
                                       (reset! seen-frame (frame/current-frame))
-                                      (rf/reg-app-schema [:counter] :int))})]
+                                      (rf/reg-app-schema [:counter] {:schema :int}))})]
             (fixture (fn [] :ran)))
           (catch Throwable t (reset! threw t)))
         (is (nil? @threw)

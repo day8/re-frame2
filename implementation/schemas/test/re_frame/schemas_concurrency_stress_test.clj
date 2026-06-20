@@ -266,8 +266,8 @@
     ;; Seed the frame so the very first reader doesn't see the empty
     ;; map (the empty-set digest is a valid result but a degenerate
     ;; assertion); writer churns from m=0 onward.
-    (rf/reg-app-schema [:utdxg.digest/seed] [:int]
-                       {:frame stress-frame})
+    (rf/reg-app-schema [:utdxg.digest/seed] {:schema [:int]
+                                             :frame stress-frame})
 
     (let [latch       (CountDownLatch. 1)
           ;; Tight per-reader bound on iters — readers churn faster
@@ -289,7 +289,7 @@
               (let [path-idx (mod m 8)
                     path     [:utdxg.digest (keyword (str "p" path-idx))]
                     schema   [:enum (keyword (str "v" m))]]
-                (rf/reg-app-schema path schema {:frame stress-frame}))))
+                (rf/reg-app-schema path {:schema schema :frame stress-frame}))))
           readers
           (vec
             (for [r (range (dec n-threads))]
@@ -560,8 +560,8 @@
                 (.await latch)
                 (dotimes [m stress-iters]
                   (rf/reg-app-schema contested-path
-                                     (mk-schema t m)
-                                     {:frame stress-frame})))))]
+                                     {:schema (mk-schema t m)
+                                      :frame stress-frame})))))]
       (.countDown latch)
       (doseq [f futures]
         (let [v (deref f 120000 ::timeout)]
@@ -629,8 +629,8 @@
                   (.await latch)
                   (dotimes [m stress-iters]
                     (rf/reg-app-schema shared-path
-                                       (mk-schema t m)
-                                       {:frame (nth per-thread-frames t)})))))]
+                                       {:schema (mk-schema t m)
+                                        :frame (nth per-thread-frames t)})))))]
         (.countDown latch)
         (doseq [f futures]
           (let [v (deref f 120000 ::timeout)]

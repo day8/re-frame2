@@ -190,7 +190,7 @@
     ;; Source-coords introspection reads through `schemas/app-schema-
     ;; meta-at` which returns the full meta map (including the stamped
     ;; coords) for the `(frame-id, path)` entry.
-    (rf/reg-app-schema [:rf2-k84s/reg-app-schema-sample] :int)
+    (rf/reg-app-schema [:rf2-k84s/reg-app-schema-sample] {:schema :int})
     (assert-coords (schemas/app-schema-meta-at [:rf2-k84s/reg-app-schema-sample])
                    "app-schema" [:rf2-k84s/reg-app-schema-sample])))
 

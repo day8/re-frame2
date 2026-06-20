@@ -56,7 +56,7 @@
   (testing "reg-app-schema with a compiled m/schema-like map value
             (opaque to the walker) emits the warning exactly once"
     (let [recorded (record-traces! ::compiled-map)]
-      (rf/reg-app-schema [:cart] {:malli/schema :some-compiled-form})
+      (rf/reg-app-schema [:cart] {:schema {:malli/schema :some-compiled-form}})
       (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
         (is (= 1 (count warns))
             "exactly one warning fires on the first reg-app-schema call")
@@ -68,9 +68,9 @@
             schemas within the same process do NOT re-emit the warning
             (process-lifecycle one-shot)"
     (let [recorded (record-traces! ::dedup-rereg)]
-      (rf/reg-app-schema [:a] {:malli/schema :a})
-      (rf/reg-app-schema [:b] {:malli/schema :b})
-      (rf/reg-app-schema [:c] {:malli/schema :c})
+      (rf/reg-app-schema [:a] {:schema {:malli/schema :a}})
+      (rf/reg-app-schema [:b] {:schema {:malli/schema :b}})
+      (rf/reg-app-schema [:c] {:schema {:malli/schema :c}})
       (is (= 1 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque)))
           "three registrations -> exactly one warning"))))
@@ -90,7 +90,7 @@
             ONE supported shape (register the vector form) and does NOT
             recommend the REMOVED registration-meta `:sensitive?` fallback"
     (let [recorded (record-traces! ::reason)]
-      (rf/reg-app-schema [:user] {:malli/schema :user})
+      (rf/reg-app-schema [:user] {:schema {:malli/schema :user}})
       (let [warns  (warnings-of recorded :rf.warning/schema-walker-opaque)
             tags   (-> warns first :tags)
             reason (:reason tags)]
@@ -115,7 +115,7 @@
   (testing "reg-app-schema with a vector-form Malli schema (introspectable)
             does NOT emit the warning"
     (let [recorded (record-traces! ::vector-form)]
-      (rf/reg-app-schema [:user] [:map [:id :int] [:name :string]])
+      (rf/reg-app-schema [:user] {:schema [:map [:id :int] [:name :string]]})
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "vector-form schema -> no warning"))))
 
@@ -125,10 +125,10 @@
             carry per-slot props; the walker provably skips nothing, so
             registering one does NOT emit the false-positive warning"
     (let [recorded (record-traces! ::primitive-kw)]
-      (rf/reg-app-schema [:age]    :int)
-      (rf/reg-app-schema [:name]   :string)
-      (rf/reg-app-schema [:active] :boolean)
-      (rf/reg-app-schema [:misc]   :any)
+      (rf/reg-app-schema [:age]    {:schema :int})
+      (rf/reg-app-schema [:name]   {:schema :string})
+      (rf/reg-app-schema [:active] {:schema :boolean})
+      (rf/reg-app-schema [:misc]   {:schema :any})
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "primitive keyword schemas -> no spurious 'per-slot flags
            skipped' nudge"))))
@@ -141,7 +141,7 @@
             ref-hides-per-slot-flags shape is covered by the walker
             docstring's discoverability caveat (rf2-yaioz)"
     (let [recorded (record-traces! ::registry-ref)]
-      (rf/reg-app-schema [:user] :my/user-schema)
+      (rf/reg-app-schema [:user] {:schema :my/user-schema})
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "registry-ref keyword schema -> no warning"))))
 
@@ -152,11 +152,11 @@
             subsequent reg-app-schema fires the warning anew (test-fixture
             isolation)"
     (let [recorded (record-traces! ::clear-cache)]
-      (rf/reg-app-schema [:first] {:malli/schema :first})
+      (rf/reg-app-schema [:first] {:schema {:malli/schema :first}})
       (is (= 1 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque))))
       (schemas/clear-walker-opaque-warned!)
-      (rf/reg-app-schema [:second] {:malli/schema :second})
+      (rf/reg-app-schema [:second] {:schema {:malli/schema :second}})
       (is (= 2 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque)))
           "after cache clear the warning fires again"))))

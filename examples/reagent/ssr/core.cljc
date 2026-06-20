@@ -268,7 +268,7 @@
            ;; synchronously before returning, so the schema must be in place
            ;; first; we register it under the gensym `fid` and only then create
            ;; the frame.
-           _   (rf/reg-app-schema [:articles] ArticlesSchema {:frame fid})
+           _   (rf/reg-app-schema [:articles] {:schema ArticlesSchema :frame fid})
            f   (rf/reg-frame fid
                  {:doc       "ssr-example per-request frame"
                   :platform  :server
@@ -427,7 +427,7 @@
      ;; per-request registration in `handle-request`. `{:frame app-frame}` is
      ;; the explicit override; `reg-app-schema` is a no-op-safe re-registration
      ;; on hot-reload.
-     (rf/reg-app-schema [:articles] ArticlesSchema {:frame app-frame})
+     (rf/reg-app-schema [:articles] {:schema ArticlesSchema :frame app-frame})
      ;; `ssr/hydrate!` is the framework client-boot helper (Spec 011
      ;; §Client-side hydration boot helper). It READs the `__rf_payload`
      ;; script, dispatch-syncs `[:rf/hydrate payload]` to install the

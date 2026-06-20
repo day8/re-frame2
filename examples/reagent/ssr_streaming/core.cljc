@@ -143,7 +143,7 @@
            ;; actually validates, so the schema must bind here. `reg-frame` runs
            ;; the `:on-create` cascade synchronously before returning, so the
            ;; schema must be in place first; register under `fid`, then create.
-           _   (rf/reg-app-schema [:cards] CardsSchema {:frame fid})
+           _   (rf/reg-app-schema [:cards] {:schema CardsSchema :frame fid})
            _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"
                                   :platform :server
                                   :on-create [:rf/server-init]})
@@ -276,7 +276,7 @@
      ;; the client too — the symmetric counterpart of the per-request
      ;; registration in `handle-request`. `{:frame app-frame}` is the explicit
      ;; override; re-registration is a no-op-safe on hot-reload.
-     (rf/reg-app-schema [:cards] CardsSchema {:frame app-frame})
+     (rf/reg-app-schema [:cards] {:schema CardsSchema :frame app-frame})
      ;; Install the client-side streaming runtime BEFORE the first render
      ;; so it catches resolved-subtree chunks as they arrive (and sweeps
      ;; any already present). It swaps fallbacks + merges per-subtree

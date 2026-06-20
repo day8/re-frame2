@@ -189,12 +189,12 @@
   ;; action reads the staging slot and promotes each payload into the
   ;; canonical top-level slot below. Registered here so the staging
   ;; writes are schema-validated like every other slice.
-  (rf/reg-app-schema [:boot/staging] [:maybe BootStagingSlice])
+  (rf/reg-app-schema [:boot/staging] {:schema [:maybe BootStagingSlice]})
 
   ;; The boot machine writes its final payloads into top-level app-db
   ;; slices on entering `:hydrating`. These are the slices the main app
   ;; reads via subs once the boot reaches `:ready`.
-  (rf/reg-app-schema [:config] [:maybe Config])
-  (rf/reg-app-schema [:flags]  [:maybe Flags])
-  (rf/reg-app-schema [:user]   [:maybe User])
-  (rf/reg-app-schema [:routes] [:maybe Routes]))
+  (rf/reg-app-schema [:config] {:schema [:maybe Config]})
+  (rf/reg-app-schema [:flags]  {:schema [:maybe Flags]})
+  (rf/reg-app-schema [:user]   {:schema [:maybe User]})
+  (rf/reg-app-schema [:routes] {:schema [:maybe Routes]}))

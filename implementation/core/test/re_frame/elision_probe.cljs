@@ -87,7 +87,7 @@
 ;; ---- schemas surface ------------------------------------------------------
 
 (defn ^:export touch-schemas! []
-  (rf/reg-app-schema [:user :name] :string)
+  (rf/reg-app-schema [:user :name] {:schema :string})
   (schemas/validate-app-schema! {:user {:name "ok"}})
   (schemas/validate-app-schema! {:user {:name 42}}    :probe/event)
   (schemas/validate-event!  :probe/event [:probe/event 1] {:schema :int})

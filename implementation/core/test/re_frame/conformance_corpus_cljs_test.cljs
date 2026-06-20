@@ -612,7 +612,7 @@
   ;; schemas are NOT a registrar kind, the key names the data section
   ;; that maps `path → schema` for the runner's realisation step.
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
-    (rf/reg-app-schema path schema)))
+    (rf/reg-app-schema path {:schema schema})))
 
 (defn- realise-flows!
   "Register the fixture's static flows. Called AFTER `reg-frame` — per

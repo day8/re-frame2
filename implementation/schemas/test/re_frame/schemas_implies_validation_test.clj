@@ -82,7 +82,7 @@
             schema fires :rf.error/schema-validation-failure — without any
             explicit `re-frame.schemas.malli` require. Pre-fix this was a
             silent no-op (the default validator soft-passed)."
-    (rf/reg-app-schema [:count] [:int])
+    (rf/reg-app-schema [:count] {:schema [:int]})
     (let [recorded (record-traces! ::bad-write)]
       (with-redefs [interop/debug-enabled? true]
         (rf/reg-event :count/break (fn [{:keys [db]} _] {:db (assoc db :count "not-an-int")}))
@@ -102,7 +102,7 @@
   (testing "Per rf2-v96fh: a conforming commit fires no failure trace —
             the validation is real (it accepts good values), not a blanket
             reject."
-    (rf/reg-app-schema [:count] [:int])
+    (rf/reg-app-schema [:count] {:schema [:int]})
     (let [recorded (record-traces! ::good-write)]
       (with-redefs [interop/debug-enabled? true]
         (re-frame.schemas/validate-app-schema! {:count 7} :count/ok))

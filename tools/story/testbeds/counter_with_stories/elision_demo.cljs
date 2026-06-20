@@ -106,7 +106,7 @@
 ;; root provider is owned by the Story/tools bead rf2-bd4div.)
 (with-frame :rf/default
   (rf/reg-app-schema [:user/avatar-pdf]
-                     [:maybe :string]))
+                     {:schema [:maybe :string]}))
 
 ;; ============================================================================
 ;; EVENTS  (Spec 009 §`:sensitive?`)

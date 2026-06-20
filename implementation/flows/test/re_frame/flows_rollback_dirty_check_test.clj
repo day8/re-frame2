@@ -98,9 +98,9 @@
       ;; so the seeding dispatch (before :out exists / before the flow is
       ;; registered) is never rejected.
       (rf/reg-app-schema [:out]
-                         (fn [out]
-                           (or (nil? out) (not @reject-out?)))
-                         {:frame :rf/default})
+                         {:schema (fn [out]
+                                    (or (nil? out) (not @reject-out?)))
+                          :frame :rf/default})
 
       ;; Seed :n = 1 DURABLY (no flow registered yet, so :out is absent and
       ;; the schema passes). This is the pre-handler db the rollback below
@@ -171,7 +171,7 @@
                   :output (fn [n] (* 2 (or n 0)))
                   :path   [:out]})
     ;; Schema always accepts.
-    (rf/reg-app-schema [:out] (fn [_] true) {:frame :rf/default})
+    (rf/reg-app-schema [:out] {:schema (fn [_] true) :frame :rf/default})
     (rf/dispatch-sync [:seed])
     (is (= 6 (:out (rf/app-db-value :rf/default)))
         "the flow output committed durably")

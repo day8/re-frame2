@@ -137,7 +137,7 @@
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; :rf/default (see `run`/`reg-frame :rf/default`), so name it explicitly.
 (with-frame :rf/default
-  (rf/reg-app-schema [:new-todo] NewTodoSlice))
+  (rf/reg-app-schema [:new-todo] {:schema NewTodoSlice}))
 
 ;; ============================================================================
 ;; RECORDABLE COEFFECTS  (EP-0017)

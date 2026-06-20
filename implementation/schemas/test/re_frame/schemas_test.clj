@@ -68,7 +68,7 @@
 
 (deftest app-db-validation-fires-when-debug-enabled
   (testing "validate-app-schema! emits :rf.error/schema-validation-failure when debug-enabled? is true"
-    (rf/reg-app-schema [:count] [:int])
+    (rf/reg-app-schema [:count] {:schema [:int]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dev (fn [ev] (swap! traces conj ev)))
       ;; Dev mode is the JVM default; validate-app-schema! should walk the
@@ -89,7 +89,7 @@
 
 (deftest app-db-validation-elides-when-debug-disabled
   (testing "validate-app-schema! is a no-op when debug-enabled? is false (production)"
-    (rf/reg-app-schema [:count] [:int])
+    (rf/reg-app-schema [:count] {:schema [:int]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::prod (fn [ev] (swap! traces conj ev)))
       ;; Production mode — the validation site elides; even with a
@@ -104,7 +104,7 @@
 
 (deftest well-typed-value-passes-silently
   (testing "validate-app-schema! with a conforming value emits no trace"
-    (rf/reg-app-schema [:count] [:int])
+    (rf/reg-app-schema [:count] {:schema [:int]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::ok (fn [ev] (swap! traces conj ev)))
       (with-redefs [interop/debug-enabled? true]
@@ -117,7 +117,7 @@
 
 (deftest dispatch-fires-app-db-validation
   (testing "live dispatch through the runtime triggers app-db validation post-:db commit"
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [traces (atom [])]
@@ -142,7 +142,7 @@
             a post-handler app-db schema-validation failure rolls back
             :db to the pre-handler value. The dispatch is treated as
             failed; the bad commit does NOT stand."
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
     (rf/reg-event :n/ok    (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
@@ -164,7 +164,7 @@
             would have fired do not run."
     (let [fx-calls (atom [])]
       (rf/reg-fx :test/note (fn [v] (swap! fx-calls conj v)))
-      (rf/reg-app-schema [:n] [:int])
+      (rf/reg-app-schema [:n] {:schema [:int]})
       (rf/reg-event :n/init
         (fn [_ _] {:db {:n 0}}))
       (rf/reg-event :n/break-with-fx
@@ -183,7 +183,7 @@
             listeners observe the restored state without ambiguity.
             Trace ordering: forward db-changed → schema-failure error
             → rollback db-changed."
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [events (atom [])]
@@ -211,7 +211,7 @@
   (testing "Per rf2-wkxng / rf2-6m0se: validate-app-schema! returns true on
             conform (or no schemas / no validator), false on any
             failure. The router consumes this to decide rollback."
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (with-redefs [interop/debug-enabled? true]
       (is (true?  (schemas/validate-app-schema! {:n 42}))
           "conforming value returns true")
@@ -952,7 +952,7 @@
   (testing "Per Spec 010 §Per-frame schemas — reg-app-schema with no opts
             registers against (current-frame), which is :rf/default outside
             (with-frame ...)."
-    (rf/reg-app-schema [:user] [:map [:id :uuid]])
+    (rf/reg-app-schema [:user] {:schema [:map [:id :uuid]]})
     (is (= [:map [:id :uuid]] (schemas/app-schema-at [:user]))
         "schema is visible from the active frame's lookup")
     (is (= [:map [:id :uuid]] (schemas/app-schema-at [:user] :rf/default))
@@ -966,8 +966,8 @@
   (testing "Per Spec 010 §Per-frame schemas — :frame opt registers against
             a named frame; sibling frames don't see that schema."
     (rf/reg-frame :test/story {})
-    (rf/reg-app-schema [:user] [:map [:id :uuid]] {:frame :rf/default})
-    (rf/reg-app-schema [:user] [:map [:nick :string]] {:frame :test/story})
+    (rf/reg-app-schema [:user] {:schema [:map [:id :uuid]] :frame :rf/default})
+    (rf/reg-app-schema [:user] {:schema [:map [:nick :string]] :frame :test/story})
     (is (= [:map [:id :uuid]]   (schemas/app-schema-at [:user] :rf/default))
         "default frame keeps its own schema at [:user]")
     (is (= [:map [:nick :string]] (schemas/app-schema-at [:user] :test/story))
@@ -983,7 +983,7 @@
     (rf/reg-frame :test/main  {})
     (rf/reg-frame :test/other {})
     ;; Schema only on :test/other; commit happens on :test/main.
-    (rf/reg-app-schema [:n] [:int] {:frame :test/other})
+    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/other})
     (rf/reg-event :n/break-on-main (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::sib (fn [ev] (swap! traces conj ev)))
@@ -997,7 +997,7 @@
   (testing "Per Spec 010 §Per-frame schemas — a malformed commit on the same
             frame the schema is registered against DOES fire the failure trace."
     (rf/reg-frame :test/main {})
-    (rf/reg-app-schema [:n] [:int] {:frame :test/main})
+    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/main})
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::same (fn [ev] (swap! traces conj ev)))
@@ -1014,7 +1014,7 @@
   (testing "(app-schemas frame-id) is documented as sugar for
             (app-schemas {:frame frame-id}); both must return the same map."
     (rf/reg-frame :test/k {})
-    (rf/reg-app-schema [:k] [:int] {:frame :test/k})
+    (rf/reg-app-schema [:k] {:schema [:int] :frame :test/k})
     (is (= (schemas/app-schemas :test/k)
            (schemas/app-schemas {:frame :test/k}))
         "keyword form == opts-map form")))
@@ -1024,7 +1024,7 @@
 (deftest app-schemas-digest-is-canonical-wire-form
   (testing "Per Spec 010 §Digest algorithm — the digest is the literal
             prefix \"sha256:\" followed by 16 lowercase hex characters."
-    (rf/reg-app-schema [:user] [:map [:id :uuid]])
+    (rf/reg-app-schema [:user] {:schema [:map [:id :uuid]]})
     (let [d (schemas/app-schemas-digest)]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d)
@@ -1033,22 +1033,22 @@
 (deftest app-schemas-digest-is-stable
   (testing "Per Spec 010 §Digest algorithm — registering the same schema
             set produces the same digest (cross-runtime byte-stable)."
-    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
-    (rf/reg-app-schema [:todos] [:vector :string])
+    (rf/reg-app-schema [:user]  {:schema [:map [:id :uuid]]})
+    (rf/reg-app-schema [:todos] {:schema [:vector :string]})
     (let [d1 (schemas/app-schemas-digest)]
       ;; Re-register the SAME schemas — last-write-wins, but the map is
       ;; structurally identical, so the digest must not move.
-      (rf/reg-app-schema [:todos] [:vector :string])
-      (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+      (rf/reg-app-schema [:todos] {:schema [:vector :string]})
+      (rf/reg-app-schema [:user]  {:schema [:map [:id :uuid]]})
       (is (= d1 (schemas/app-schemas-digest))
           "byte-identical schema set → byte-identical digest"))))
 
 (deftest app-schemas-digest-changes-on-schema-change
   (testing "A schema-set change perturbs the digest. Two different schema
             sets must produce distinct digests."
-    (rf/reg-app-schema [:user] [:map [:id :uuid]])
+    (rf/reg-app-schema [:user] {:schema [:map [:id :uuid]]})
     (let [before (schemas/app-schemas-digest)]
-      (rf/reg-app-schema [:user] [:map [:id :string]])
+      (rf/reg-app-schema [:user] {:schema [:map [:id :string]]})
       (is (not= before (schemas/app-schemas-digest))
           "tightening / changing a schema flips the digest"))))
 
@@ -1059,7 +1059,7 @@
             frame's digest."
     (rf/reg-frame :test/a {})
     (rf/reg-frame :test/b {})
-    (rf/reg-app-schema [:user] [:map [:id :uuid]] {:frame :test/a})
+    (rf/reg-app-schema [:user] {:schema [:map [:id :uuid]] :frame :test/a})
     ;; :test/b has no schemas registered.
     (let [da (schemas/app-schemas-digest :test/a)
           db (schemas/app-schemas-digest :test/b)]
@@ -1075,7 +1075,7 @@
             (app-schemas-digest {:frame frame-id}); both must return the
             same string."
     (rf/reg-frame :test/d {})
-    (rf/reg-app-schema [:k] [:int] {:frame :test/d})
+    (rf/reg-app-schema [:k] {:schema [:int] :frame :test/d})
     (is (= (schemas/app-schemas-digest :test/d)
            (schemas/app-schemas-digest {:frame :test/d}))
         "keyword form == opts-map form")))
@@ -1101,10 +1101,10 @@
     (rf/reg-frame :test/o1 {})
     (rf/reg-frame :test/o2 {})
     ;; Same schemas, different registration order.
-    (rf/reg-app-schema [:user]  [:map [:id :uuid]]   {:frame :test/o1})
-    (rf/reg-app-schema [:todos] [:vector :string]    {:frame :test/o1})
-    (rf/reg-app-schema [:todos] [:vector :string]    {:frame :test/o2})
-    (rf/reg-app-schema [:user]  [:map [:id :uuid]]   {:frame :test/o2})
+    (rf/reg-app-schema [:user]  {:schema [:map [:id :uuid]]   :frame :test/o1})
+    (rf/reg-app-schema [:todos] {:schema [:vector :string]    :frame :test/o1})
+    (rf/reg-app-schema [:todos] {:schema [:vector :string]    :frame :test/o2})
+    (rf/reg-app-schema [:user]  {:schema [:map [:id :uuid]]   :frame :test/o2})
     (is (= (schemas/app-schemas-digest :test/o1)
            (schemas/app-schemas-digest :test/o2))
         "same schema set, different registration order → same digest")))
@@ -1122,7 +1122,7 @@
             validator delegates to Malli; apps that don't call
             set-schema-validator! get the same behaviour they had
             before the seam landed."
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::default-malli (fn [ev] (swap! traces conj ev)))
       ;; Malformed value triggers the default Malli validate to return
@@ -1146,7 +1146,7 @@
                    (swap! calls conj [schema value])
                    (not (and (string? value) (str/includes? value "bad"))))]
       (schemas/set-schema-validator! custom)
-      (rf/reg-app-schema [:label] :string)
+      (rf/reg-app-schema [:label] {:schema :string})
       (let [traces (atom [])]
         (rf/register-listener! :trace ::custom (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:label "hello"} :h/ok)        ;; passes
@@ -1170,7 +1170,7 @@
     (schemas/set-schema-validator! nil)
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nilv (fn [ev] (swap! traces conj ev)))
-      (rf/reg-app-schema [:n] [:int])
+      (rf/reg-app-schema [:n] {:schema [:int]})
       ;; Each malformed value would fire a trace under the default
       ;; (Malli) validator; with nil installed every call short-circuits
       ;; to true and emits nothing.
@@ -1218,7 +1218,7 @@
           v-fn (fn [_s v] (swap! validate-calls inc) (= v :good))
           e-fn (fn [s v]  (swap! explain-calls inc) {:my-explanation [s v]})]
       (schemas/set-schema-fns! {:validate v-fn :explain e-fn})
-      (rf/reg-app-schema [:k] :keyword)
+      (rf/reg-app-schema [:k] {:schema :keyword})
       (let [traces (atom [])]
         (rf/register-listener! :trace ::map (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:k :good}   :h/pass)
@@ -1272,7 +1272,7 @@
       ;; Validator stays at its default (Malli); only the explainer is
       ;; substituted.
       (schemas/set-schema-explainer! custom-e)
-      (rf/reg-app-schema [:n] [:int])
+      (rf/reg-app-schema [:n] {:schema [:int]})
       (let [traces (atom [])]
         (rf/register-listener! :trace ::eonly (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:n "broken"} :h/oops)
@@ -1299,7 +1299,7 @@
     ;; threads `nil` through `:explain` rather than a Malli explanation.
     (schemas/set-schema-validator! (fn [_ _] false))
     (schemas/set-schema-explainer! nil)
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nilexp (fn [ev] (swap! traces conj ev)))
       ;; app-db walk emit site.
@@ -1331,7 +1331,7 @@
     ;; Install a sabotage validator: passes everything (so a known-bad
     ;; value would slip past).
     (schemas/set-schema-validator! (fn [_ _] true))
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     ;; First confirm the sabotage is in effect.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::sab (fn [ev] (swap! traces conj ev)))
@@ -1408,7 +1408,7 @@
             exercise. Spec 010 §Schema digest line 491: 'two ports using
             different schema languages produce different digests by
             construction'."
-    (rf/reg-app-schema [:n] :int)
+    (rf/reg-app-schema [:n] {:schema :int})
     (let [default-digest (schemas/app-schemas-digest)]
       (schemas/set-schema-printer! (fn [_] "::CUSTOM-PORT::"))
       (let [custom-digest (schemas/app-schemas-digest)]
@@ -1522,7 +1522,7 @@
           p-fn (fn [_] "::COMPOSED::")]
       ;; Establish a known runtime: a custom bundle + a registered schema.
       (schemas/set-schema-fns! {:validate v-fn :print p-fn})
-      (rf/reg-app-schema [:n] [:int])
+      (rf/reg-app-schema [:n] {:schema [:int]})
       ;; Capture BOTH the bundle and the registry.
       (let [bundle-snap   (schemas/snapshot-schema-fns)
             registry-snap (schemas/snapshot-schemas-by-frame)]
@@ -1868,9 +1868,9 @@
     ;; Set up two frames and register a schema under each. Per-frame
     ;; isolation is the load-bearing contract.
     (rf/reg-frame :test.6lka/other {:doc "second frame for round-trip test"})
-    (rf/reg-app-schema [:n] [:int])
-    (rf/reg-app-schema [:label] [:string]
-                       {:frame :test.6lka/other})
+    (rf/reg-app-schema [:n] {:schema [:int]})
+    (rf/reg-app-schema [:label] {:schema [:string]
+                                 :frame :test.6lka/other})
 
     ;; 1. Snapshot.
     (let [snap (schemas/snapshot-schemas-by-frame)]
@@ -1913,8 +1913,8 @@
 
 (deftest clear-empties-and-leaves-schemas-by-frame-empty
   (testing "clear-schemas-by-frame! drops all per-frame entries"
-    (rf/reg-app-schema [:a] [:int])
-    (rf/reg-app-schema [:b] [:string])
+    (rf/reg-app-schema [:a] {:schema [:int]})
+    (rf/reg-app-schema [:b] {:schema [:string]})
     (is (seq @storage/schemas-by-frame)
         "pre-clear: registry is populated")
     (schemas/clear-schemas-by-frame!)
@@ -1929,7 +1929,7 @@
       (is (= {} empty-snap)
           "fresh atom is empty (make-reset-runtime-fixture cleared it)")
       ;; Now register some schemas.
-      (rf/reg-app-schema [:transient] [:int])
+      (rf/reg-app-schema [:transient] {:schema [:int]})
       (is (seq @storage/schemas-by-frame)
           "post-reg: schemas present")
       ;; Restore to the empty snapshot.
