@@ -30,11 +30,10 @@
 ;;;;
 ;;;; Naming surfaces — MCP vs runtime.
 ;;;;
-;;;;   re-frame2-pair-mcp deliberately carries TWO vocabularies for the
-;;;;   same logical surface: the MCP tool catalogue (operator-facing,
-;;;;   disciplined to the cross-MCP NAMING.md `list-<things>` verb
-;;;;   shape) and the runtime fn surface in THIS ns +
-;;;;   `re-frame.core` (historical names, kept as-is). Rename pairs:
+;;;;   re-frame2-pair-mcp carries TWO vocabularies for the same logical
+;;;;   surface: the MCP tool catalogue (operator-facing, disciplined to the
+;;;;   cross-MCP NAMING.md `list-<things>` verb shape) and the runtime fn
+;;;;   surface in THIS ns + `re-frame.core`. The pairs:
 ;;;;
 ;;;;     | MCP tool name           | Runtime fn name             |
 ;;;;     |-------------------------|-----------------------------|
@@ -44,25 +43,21 @@
 ;;;;     | `read-dom`              | `dom-read`                  |
 ;;;;     | `read-ui`               | `ui-read`                   |
 ;;;;
-;;;;   (rf2-q0r7e: `read-dom` and `read-ui` share one DOM-read core —
-;;;;   `node->content` — and both ship a thin `(…/dom-read …)` /
-;;;;   `(…/ui-read …)` call via the same eval-form plumbing, so neither
-;;;;   op's eval form can rot independently.)
-;;;;
-;;;;   (rf2-qicji: `list-subscriptions` reads the live reactive
-;;;;   sub-cache via `sub-cache-info`; the streaming-tap diagnostic it
-;;;;   formerly carried moved to `list-streams`, still wrapping
-;;;;   `subscription-info`.)
+;;;;   `read-dom` and `read-ui` share one DOM-read core (`node->content`),
+;;;;   and both ship a thin `(…/dom-read …)` / `(…/ui-read …)` call via the
+;;;;   same eval-form plumbing, so neither op's eval form can rot
+;;;;   independently. `list-subscriptions` reads the live reactive sub-cache
+;;;;   via `sub-cache-info`; `list-streams` carries the streaming-tap
+;;;;   diagnostic, wrapping `subscription-info`.
 ;;;;
 ;;;;   An agent generating an eval form via `eval-cljs` uses the
 ;;;;   right-hand column; the same agent calling the MCP tool surface
-;;;;   uses the left-hand column. The split is deliberate (the rename
-;;;;   stops at the MCP boundary — the runtime's audience
+;;;;   uses the left-hand column. The split is deliberate: the verb
+;;;;   discipline stops at the MCP boundary — the runtime's audience
 ;;;;   is smaller than the MCP surface, and a runtime rename ripples
-;;;;   into every eval-form caller). This paragraph documents the
-;;;;   asymmetry so it's discoverable rather than inherited-from-
-;;;;   history; see `spec/Principles.md` §"Tool verbs follow the
-;;;;   cross-MCP convention" for the policy rationale.
+;;;;   into every eval-form caller. This paragraph documents the
+;;;;   asymmetry so it's discoverable; see `spec/Principles.md` §"Tool
+;;;;   verbs follow the cross-MCP convention" for the policy rationale.
 
 (ns re-frame2-pair.runtime
   (:require [re-frame.core :as rf]
@@ -81,20 +76,20 @@
             ;; dev-only, so requiring the tooling ns directly here is
             ;; bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
-            ;; rf2-7737vq — the canonical RAW trace-event frame reader
+            ;; The canonical RAW trace-event frame reader
             ;; (`re-frame.trace/trace-event-frame`). Owned by the trace
             ;; contract ns; `re-frame.trace` is already loaded via
             ;; `re-frame.core` above, so this require adds no bundle weight
             ;; (dev-tier preload — bundle-isolation-safe).
             [re-frame.trace :as trace]
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
-            ;; Spec 006 §`flush-render!`, rf2-40a84) lives in
+            ;; Spec 006 §`flush-render!`) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
             ;; the INSTALLED adapter via `require-adapter!` and routes the
             ;; flush through that adapter's substrate-native impl (React
             ;; `flushSync` for the React-shaped substrates; `reagent.core/
             ;; flush` for the ratom family) — ZERO substrate hardcoding here.
-            ;; `dispatch-and-settle!` (rf2-vk79g) calls it to flush pending
+            ;; `dispatch-and-settle!` calls it to flush pending
             ;; renders/unmounts synchronously so their `:rf.view/render` /
             ;; `:rf.view/unmounted` traces land in (and re-fan back to the
             ;; causing) epoch before we re-read it. Dev-tier preload, so the
@@ -103,16 +98,15 @@
             [re-frame.interop :as interop]
             ;; `parse-source-coord` (the canonical inverse of
             ;; `format-source-coord`) is the source-coord contract owner's
-            ;; parser for the `data-rf2-source-coord` DOM attribute (rf2-nr7vf2).
-            ;; The pair preload used to carry a near-byte-for-byte copy of this
-            ;; parser; it now routes through the one canonical impl in core.
+            ;; parser for the `data-rf2-source-coord` DOM attribute. The pair
+            ;; preload routes through this one canonical impl in core.
             ;; Dev-tier preload, so the direct require is bundle-isolation-safe.
             [re-frame.source-coords :as source-coords]
             [clojure.data :as data]
             [clojure.set :as set]
             [clojure.string :as str]
             ;; cljs.reader is load-bearing for the eval-cljs typed result
-            ;; codec (rf2-qobqy): both `re-frame2-pair-mcp.tools.result-envelope/
+            ;; codec: both `re-frame2-pair-mcp.tools.result-envelope/
             ;; wrap-form` (the DEFAULT eval path) and `…tools.await-promise/
             ;; read-mailbox-form` (the `:await true` path) emit wrapper
             ;; source that calls `cljs.reader/read-string` to round-trip-
@@ -121,11 +115,9 @@
             ;; this require shadow's `cljs-eval` resolves the wrapper's
             ;; `cljs.reader/read-string` as an :undeclared-var, returns an
             ;; empty `:results`, and the server reads the blank value as a
-            ;; bare `nil` — collapsing EVERY wrapped eval to `:value nil`
-            ;; (the exact regression the typed codec exists to PREVENT; it
-            ;; turned the live-overflow conformance gate RED because the
-            ;; over-budget string came back as nil and the cap never tripped).
-            ;; The runtime preload is the codec's guaranteed-present
+            ;; bare `nil` — collapsing EVERY wrapped eval to `:value nil`.
+            ;; The require keeps the symbol resolvable so the codec round-
+            ;; trips correctly. The runtime preload is the codec's guaranteed-present
             ;; substrate (re-frame2-pair-mcp refuses every tool with
             ;; `:runtime-not-preloaded` when this ns is absent), so pinning
             ;; the require here makes the symbol resolvable in every app the
@@ -155,12 +147,12 @@
 ;; not a per-call `(js/Date.now)`), so it answers "when did the running
 ;; code actually load?" rather than "what time is it now?".
 ;;
-;; This is the browser half of the stale-BUILD detector (rf2-ertqw):
+;; This is the browser half of the stale-BUILD detector:
 ;; `discover-app` cross-checks it against the JVM-side build's last
 ;; compile/flush timestamp. If the build recompiled AFTER this stamp,
 ;; the browser tab is serving OLD code (a hot-reload didn't land, or a
-;; stale incremental build is being served) — the exact silent failure
-;; mode that drove the rf2-lo28u stale-build false-alarm detour. A full
+;; stale incremental build is being served) — a silent failure mode the
+;; detector catches before an agent reasons off stale code. A full
 ;; page refresh re-evaluates the namespace and re-mints both `session-id`
 ;; and this stamp, so a fresh load reads as fresh.
 (def loaded-at
@@ -190,7 +182,7 @@
    :installed  loaded-at})
 
 ;; ---------------------------------------------------------------------------
-;; Freshness / liveness token (rf2-ertqw)
+;; Freshness / liveness token
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A pair session is a THIN runtime-direct reader, not a stateful proxy.
@@ -219,7 +211,7 @@
 ;; the JVM holds the shadow-cljs worker state.
 
 (defn freshness
-  "The browser-runtime half of the freshness/liveness token (rf2-ertqw).
+  "The browser-runtime half of the freshness/liveness token.
    Cheap — three scalar reads, no app-db walk, no listener install. The
    MCP server merges this with the JVM-side build/heartbeat half.
 
@@ -241,7 +233,7 @@
 ;; Mutating ops refuse with :ambiguous-frame when more than one APP frame
 ;; is registered and the session hasn't selected one.
 ;;
-;; Reserved-frame-aware resolution (rf2-3bu3d.4)
+;; Reserved-frame-aware resolution
 ;; ---------------------------------------------
 ;;
 ;; A pairing session almost always runs against an app that ALSO carries
@@ -249,19 +241,19 @@
 ;; build, an SSR slot. Those frames live under the framework-reserved
 ;; `:rf/*` root (spec/Conventions.md §Reserved namespaces). They are NOT
 ;; the app the operator is pairing against; they are devtool surfaces the
-;; tooling itself mounted. Counting them toward ambiguity meant every
-;; Xray-instrumented app (the common case) was "ambiguous" on the first
+;; tooling itself mounted. Counting them toward ambiguity would make every
+;; Xray-instrumented app (the common case) "ambiguous" on the first
 ;; mutating op — forcing a `frames/select` + retry up front for no real
 ;; choice (there is exactly one APP frame; the other is a tool frame).
 ;;
 ;; So the resolver is RESERVED-FRAME-AWARE: a `:rf/*`-namespaced frame is
 ;; a tool frame and is EXCLUDED from the ambiguity count, with ONE
 ;; deliberate exception — `:rf/default`, which per Conventions.md §Reserved
-;; namespaces (EP-0002) is an ordinary app frame id with no framework
-;; privilege. It is an APP frame, not a tool frame, despite sharing the
-;; `:rf/*` root. We key off the reserved-namespace RULE (namespace = "rf",
-;; minus the `:rf/default` carve-out), never a literal `:rf/xray`, so the
-;; behaviour holds for any tool frame any project mounts under `:rf/*`.
+;; namespaces is an ordinary app frame id with no framework privilege. It
+;; is an APP frame, not a tool frame, despite sharing the `:rf/*` root. We
+;; key off the reserved-namespace RULE (namespace = "rf", minus the
+;; `:rf/default` carve-out), never a literal `:rf/xray`, so the behaviour
+;; holds for any tool frame any project mounts under `:rf/*`.
 ;;
 ;; When exactly one APP frame remains after excluding tool frames, tier 3
 ;; AUTO-SELECTS it: single-app + Xray is unambiguous with no `frames/
@@ -289,10 +281,9 @@
    §Reserved namespaces — framework-owned ids live under the single `:rf/*`
    root), NOT a hardcoded id, so it holds for every `:rf/*` tool frame any
    project mounts. The SOLE carve-out is `:rf/default`: per Conventions.md
-   §Reserved namespaces (EP-0002) it is an ordinary app frame id with no
-   framework privilege — it shares the `:rf/*` root but is a normal app
-   frame an app may explicitly register, so it is never treated as a tool
-   frame.
+   §Reserved namespaces it is an ordinary app frame id with no framework
+   privilege — it shares the `:rf/*` root but is a normal app frame an app
+   may explicitly register, so it is never treated as a tool frame.
 
    Non-keyword / un-namespaced ids (a user's `:stories`, `:sandbox`) are
    app frames and return false."
@@ -303,7 +294,7 @@
 
 (defn app-frame-ids
   "The registered APP frame ids — `(rf/frame-ids)` with `:rf/*` reserved TOOL
-   frames removed (rf2-3bu3d.4). `:rf/default` is retained (it is an app frame;
+   frames removed. `:rf/default` is retained (it is an app frame;
    see `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`."
   []
   (vec (remove reserved-tool-frame? (rf/frame-ids))))
@@ -312,7 +303,7 @@
   "Resolve the operating frame: explicit override -> session pin ->
    the sole registered APP frame -> nil (ambiguous).
 
-   Tier 3 is reserved-frame-aware (rf2-3bu3d.4): `:rf/*` TOOL frames (Xray's
+   Tier 3 is reserved-frame-aware: `:rf/*` TOOL frames (Xray's
    `:rf/xray`, SSR slots, …) are EXCLUDED, so a single-app session that ALSO
    carries an Xray frame resolves to the one app frame instead of refusing.
    `:rf/default` is an app frame and is retained (see `reserved-tool-frame?`).
@@ -331,9 +322,9 @@
 
 (defn frames-list
   "All registered, non-destroyed frame ids plus the operating frame (the
-   PUBLIC address — EP-0023's image -> frame -> event stream).
+   PUBLIC address — the image -> frame -> event stream model).
 
-   `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4): the
+   `:app-frames` exposes the reserved-frame-aware view: the
    registered frames with `:rf/*` tool frames removed. When it holds exactly
    one id while `:frames` holds more, the session is single-app-plus-tool-frame
    and `:operating` auto-resolved to that lone app frame (no `select-frame!`
@@ -356,15 +347,14 @@
       {:ok? false :reason :no-such-frame :frame-id id}))
 
 ;; ---------------------------------------------------------------------------
-;; Ambiguous-frame diagnostics (rf2-n58jxo)
+;; Ambiguous-frame diagnostics
 ;;
 ;; A read/mutate op that can't resolve a single operating frame in a
-;; multi-frame session used to refuse with a bare `{:ok? false :reason
-;; :ambiguous-frame :hint "..."}` — no operation name, no available-frame
-;; list, no current-frame context. An agent then had to round-trip
-;; `frames-list` (or `discover-app`) just to learn WHICH frames it could
-;; pick from and HOW to pin one. `ambiguous-frame-error` builds the
-;; enriched envelope once so every refusal site carries:
+;; multi-frame session refuses with an ENRICHED envelope so the agent can
+;; recover without a round-trip to `frames-list` / `discover-app` just to
+;; learn WHICH frames it can pick from and HOW to pin one.
+;; `ambiguous-frame-error` builds that envelope once so every refusal site
+;; carries:
 ;;
 ;;   :operation       the op that refused (`:dispatch`, `:read-sub`, …) —
 ;;                    the machine handle for the failing call.
@@ -377,13 +367,13 @@
 ;;   :hint             the human sentence + the concrete fix (pass `frame`
 ;;                    or pin via `select-frame!` / `set-operating-frame`).
 ;;
-;; `:reason :ambiguous-frame` stays the SOLE machine discriminator (the
-;; documented bare-dialect reason, Tool-Catalogue §307) — the new slots
-;; are additive context, never a discriminator change.
+;; `:reason :ambiguous-frame` is the SOLE machine discriminator (the
+;; documented bare-dialect reason, Tool-Catalogue §307) — the other slots
+;; are additive context only, not part of the discriminator.
 ;; ---------------------------------------------------------------------------
 
 (defn ambiguous-frame-error
-  "Build the enriched `:ambiguous-frame` refusal envelope (rf2-n58jxo).
+  "Build the enriched `:ambiguous-frame` refusal envelope.
    `operation` is the refusing op keyword; `extra` (optional) carries the
    op-specific context the caller knows — `:event`, `:query`, `:query-v`.
    The envelope always carries the available app frames, the current session
@@ -432,29 +422,28 @@
 ;; The MCP server (`tools/re-frame2-pair-mcp/`) carries a
 ;; `--allow-sensitive-reads` boot gate (default OFF; CLI flag name
 ;; aligned across MCP servers). The internal Clojure keyword
-;; `:allow-raw-state?` below is the implementation-side identifier and
-;; retains the legacy name. When OFF, the runtime MUST default-elide
-;; any verbatim app-db value before emitting it through `tap>` —
-;; otherwise an `app-db-reset!` log entry would surface the same raw
-;; payload that the wire path already redacts.
+;; `:allow-raw-state?` below is the implementation-side identifier. When
+;; OFF, the runtime MUST default-elide any verbatim app-db value before
+;; emitting it through `tap>` — otherwise an `app-db-reset!` log entry
+;; would surface the same raw payload that the wire path already redacts.
 ;;
 ;; The MCP server signals the runtime once per build per server lifetime
 ;; via `(configure-raw-state! {:allow-raw-state? bool})`. The flag is
-;; consulted by `app-db-reset!` (and any future raw-state tap site)
+;; consulted by `app-db-reset!` (and any other raw-state tap site)
 ;; before deciding whether to ship verbatim payloads or run them through
 ;; `re-frame.core/elide-wire-value`.
 ;;
-;; Default OFF — a runtime loaded into an app without a re-frame2-pair-mcp server
-;; sees the gate as "raw allowed", which preserves the original behaviour
-;; for direct CLJS callers (developer at the REPL invoking
-;; `app-db-reset!`). The re-frame2-pair-mcp server flips it on first tool use to
-;; "raw gated" when its own boot flag is OFF.
+;; Default raw-allowed — a runtime loaded into an app without a
+;; re-frame2-pair-mcp server sees the gate as "raw allowed", so a direct
+;; CLJS caller (developer at the REPL invoking `app-db-reset!`) gets
+;; verbatim payloads. When a re-frame2-pair-mcp server attaches with its
+;; own boot flag OFF, it flips the gate to "raw gated" on first tool use.
 
 (defonce ^:private raw-state-config
   ;; {:allow-raw-state? bool}
   ;; Default true — raw `tap>` payloads ride unmodified UNTIL the MCP
   ;; server signals otherwise. A bare CLJS REPL session (no re-frame2-pair-mcp
-  ;; attached) sees the legacy verbatim behaviour.
+  ;; attached) sees verbatim payloads.
   (atom {:allow-raw-state? true}))
 
 (defn configure-raw-state!
@@ -498,8 +487,7 @@
 
 (defn- maybe-redact-derived
   "Value-redact a DERIVED `tree` (rendered DOM text / an attribute map / a
-  focus descriptor) for off-box egress (rf2-i783h0, the rf2-p9scds DOM /
-  readback finding).
+  focus descriptor) for off-box egress.
 
   The path-based `elide-wire-value` walker redacts by DECLARED app-db path —
   but rendered DOM text / attribute values sit at a NON-app-db position the
@@ -542,8 +530,7 @@
    `tap>` so the human sees what the agent changed.
 
    Delegates to the canonical Tool-Pair write surface
-   `(rf/replace-app-db! frame-id v)` (Tool-Pair §Pair-tool writes;
-   renamed from `rf/reset-frame-db!`, EP-0001 rf2-tfepxu).
+   `(rf/replace-app-db! frame-id v)` (Tool-Pair §Pair-tool writes).
    That surface bypasses the dispatch loop (no event, no
    cascade) but DOES record a synthetic `:rf/epoch-record` with
    `:event-id :rf.epoch/db-replaced` so that `restore-epoch` can
@@ -558,7 +545,7 @@
    Operators who passed `--allow-sensitive-reads` see verbatim payloads.
 
    Returns `{:ok? true :frame frame-id :cascade-summary {...}}` on
-   success. The cascade-summary slot (rf2-6yqdl) projects the synthetic
+   success. The cascade-summary slot projects the synthetic
    `:rf.epoch/db-replaced` epoch the framework just recorded — the
    `:event-id` is `:rf.epoch/db-replaced`, `:db-diff` summarises the
    before-vs-after delta at depth 1, and `:fx-fired` is empty (state
@@ -579,10 +566,10 @@
           :t                  (js/Date.now)})
    (try
      (if (rf/replace-app-db! frame-id v)
-       ;; Per rf2-6yqdl: surface the synthetic `:rf.epoch/db-replaced`
-       ;; epoch the framework just appended (Tool-Pair §Pair-tool writes).
-       ;; The new head IS this epoch by construction; reading the
-       ;; history head is the canonical way to project it.
+       ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the
+       ;; framework just appended (Tool-Pair §Pair-tool writes). The new
+       ;; head IS this epoch by construction; reading the history head is
+       ;; the canonical way to project it.
        (let [head-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
          (attach-cascade {:ok? true :frame frame-id :epoch-id head-id}
                          frame-id head-id))
@@ -623,7 +610,7 @@
   (-> (rf/registrations kind) keys sort vec))
 
 ;; ---------------------------------------------------------------------------
-;; Call-time id validation (rf2-3bu3d.3)
+;; Call-time id validation
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The MCP wire boundary parses an event-vec / sub-vec / frame-id once,
@@ -633,8 +620,8 @@
 ;; principle, spec/Conventions.md, applied to the wire). The validation
 ;; is runtime-side because only the runtime holds the live registrar.
 ;;
-;; Complements rf2-sofwv (which generates/validates tool DESCRIPTORS from
-;; the registries at attach time) — this is the CALL-TIME VALUE check.
+;; This is the CALL-TIME VALUE check; it complements the attach-time pass
+;; that generates and validates tool DESCRIPTORS from the registries.
 
 (defn- levenshtein
   "Edit distance between two strings — the nearest-match ranking metric.
@@ -676,7 +663,7 @@
 
 (defn validate-registered
   "Validate that `id` is registered under registrar `kind` against the
-   LIVE registry (rf2-3bu3d.3). Returns:
+   LIVE registry. Returns:
 
      {:ok? true  :kind kind :id id}                         — registered
      {:ok? false :reason :unknown-id :kind kind :id id
@@ -706,8 +693,8 @@
                              "; nothing is registered under " kind "."))}))))
 
 (defn validate-event-id
-  "Validate the head of an event vector against the `:event` registrar
-   (rf2-3bu3d.3). `event-v` is the parsed event vector; the id is its
+  "Validate the head of an event vector against the `:event` registrar.
+   `event-v` is the parsed event vector; the id is its
    first element. Returns the `validate-registered` shape, plus echoes
    the `:event` vector so the wire result carries the resolved value."
   [event-v]
@@ -717,15 +704,15 @@
 
 (defn validate-sub-id
   "Validate the head of a subscription query-vector against the `:sub`
-   registrar (rf2-3bu3d.7). `query-v` is the parsed sub vector; the id is
+   registrar. `query-v` is the parsed sub vector; the id is
    its first element. Returns the `validate-registered` shape, plus echoes
    the `:query-v` so the wire result carries the resolved value.
 
    The read-side counterpart of `validate-event-id`: a typo'd sub-id
    (`[:current-userr]`) returns `:reason :unknown-id` with `:nearest`
    matches instead of silently subscribing to a non-existent sub and
-   handing back nil/garbage (the typo-silent-nil mistake class the raw
-   `eval-cljs` read invited)."
+   handing back nil/garbage (the typo-silent-nil mistake class a raw
+   `eval-cljs` read invites)."
   [query-v]
   (let [id (when (sequential? query-v) (first query-v))
         r  (validate-registered :sub id)]
@@ -740,9 +727,9 @@
 (def ^:private fn-slot-sentinel
   "Readable EDN placeholder substituted for a Function value anywhere in a
    handler-meta map. `pr-str` of a raw Function emits `#object[Function …]`
-   — unreadable EDN on the MCP wire (rf2-l7vnd), and the result-envelope
-   codec then tags the WHOLE response `:unserializable`, hiding the
-   serializable structure around it. Replacing each fn with this keyword
+   — unreadable EDN on the MCP wire, and the result-envelope codec then
+   tags the WHOLE response `:unserializable`, hiding the serializable
+   structure around it. Replacing each fn with this keyword
    keeps the map EDN-clean while still surfacing THAT a fn slot is declared
    — so an agent reads the shape (e.g. a resource-scope's `:inputs` map,
    `:whole-db?` flag, or a mutation's declared `:invalidates`/`:populates`)
@@ -758,7 +745,7 @@
 
    This is the general counterpart to the top-level `:handler-fn` dissoc:
    the resources-artefact kinds (`:resource` / `:mutation` /
-   `:resource-scope`, EP-0016) store their spec under `:rf/resource` /
+   `:resource-scope`) store their spec under `:rf/resource` /
    `:rf/mutation` / `:rf/resource-scope` with NESTED fns (`:request`,
    `:tags`, `:invalidates`, `:populates`, `:resolve`). The top-level dissoc
    alone leaves those nested handles in the map, so the response would still
@@ -783,24 +770,21 @@
 
    Augments with :handler-fn-hash for use as a probe over hot-reload.
 
-   rf2-l7vnd: the :handler-fn slot carries a raw Function. `pr-str` of a
-   Function emits `#object[Function ...]` — unreadable EDN on the MCP
-   wire, which made the tool's read-back fall to a string and the
-   handler-meta envelope misreport :unexpected-shape. The hash already
-   covers every hot-reload probing use; the raw fn ref had no surviving
-   on-the-wire consumer. Drop it before returning so the response is
-   EDN-clean by construction.
+   The raw :handler-fn slot is a Function, and `pr-str` of a Function
+   emits `#object[Function ...]` — unreadable EDN on the MCP wire that
+   would tag the whole handler-meta envelope :unexpected-shape. The hash
+   covers every hot-reload probing use, so the raw fn ref is dropped
+   before returning, leaving the response EDN-clean by construction.
 
-   rf2-f8s9g6 (EP-0016 prop-3): the resources-artefact kinds store their
-   spec under `:rf/resource` / `:rf/mutation` / `:rf/resource-scope` with
-   NESTED handler fns (`:request`, `:tags`, `:invalidates`, `:populates`,
-   `:resolve`). Dropping only the top-level `:handler-fn` leaves those
-   nested handles, so the response would still trip the wire codec's
+   The resources-artefact kinds store their spec under `:rf/resource` /
+   `:rf/mutation` / `:rf/resource-scope` with NESTED handler fns
+   (`:request`, `:tags`, `:invalidates`, `:populates`, `:resolve`).
+   Dropping only the top-level `:handler-fn` would leave those nested
+   handles, so the response would still trip the wire codec's
    `:unserializable` path. `strip-fns` replaces every fn at any depth with
    the readable `:rf/fn` sentinel, so the serializable structure (a
-   resource-scope's `:inputs` map + `:whole-db?` flag — the EP-0016
-   disposition-2 inspectability promise — a mutation's declared
-   consequences, a resource's scope policy) survives on the wire."
+   resource-scope's `:inputs` map + `:whole-db?` flag, a mutation's
+   declared consequences, a resource's scope policy) survives on the wire."
   [kind id]
   (if-let [m (rf/handler-meta kind id)]
     (-> m
@@ -817,22 +801,21 @@
   (handler-fn-hash (rf/handler-meta kind id)))
 
 ;; ---------------------------------------------------------------------------
-;; Frame-derived registrar introspection (EP-0023, rf2-srobm0)
+;; Frame-derived registrar introspection
 ;;
-;; The forward EP-0023 direction: a frame's inspectable registration set is its
-;; RESOLVED IMAGE GENERATION — the same `(kind, id)` can resolve DIFFERENTLY per
-;; frame (two frames running different images each resolve their own
-;; descriptor). The process-global registrar reads above answer "what is
-;; registered process-globally"; these answer "what does THIS FRAME's running
-;; image resolve `(kind, id)` to" — keyed off the frame's sealed generation,
-;; not the process-global registrar.
+;; A frame's inspectable registration set is its RESOLVED IMAGE GENERATION —
+;; the same `(kind, id)` can resolve DIFFERENTLY per frame (two frames running
+;; different images each resolve their own descriptor). The process-global
+;; registrar reads above answer "what is registered process-globally"; these
+;; answer "what does THIS FRAME's running image resolve `(kind, id)` to" —
+;; keyed off the frame's sealed generation, not the process-global registrar.
 ;;
-;; They consume ONLY the PUBLIC facade reads shipped by rf2-wkw8na — the
+;; They consume ONLY the PUBLIC facade reads — the
 ;; `{:frame f :kind k …}` arities of `rf/registrations` / `rf/handler-meta` /
-;; `rf/handler-ids`, and `rf/frame-generation`. EP-0023 forbids tools from
-;; consuming `re-frame.live-frame` / `re-frame.image-assembly` internals
-;; directly; the facade re-surfaces the BEHAVIOUR through these reads, so this
-;; preload stays on the public surface.
+;; `rf/handler-ids`, and `rf/frame-generation`. Tools must not consume
+;; `re-frame.live-frame` / `re-frame.image-assembly` internals directly; the
+;; facade re-surfaces the BEHAVIOUR through these reads, so this preload stays
+;; on the public surface.
 ;;
 ;; PROVENANCE: a resolved descriptor carries the source coordinate that
 ;; identifies where the winning registration came from — `:rf.provenance/ns`
@@ -848,7 +831,7 @@
 (defn- coordinate-summary
   "The provenance/standard coordinate facts a resolved descriptor carries,
    as a small EDN-clean map (or nil when the descriptor carries none — a
-   pre-EP-0023 / process-global meta map). Surfaces WHICH source won the
+   process-global meta map). Surfaces WHICH source won the
    `(kind, id)` resolution:
 
      {:source :registered :ns \"my.app.events\"}      a registered descriptor
@@ -876,8 +859,7 @@
   "Per-FRAME handler metadata for `(kind, id)` — the registration resolved
    through frame `frame-id`'s OWN sealed image generation (NOT the
    process-global registrar). Routes through the PUBLIC facade read
-   `(rf/handler-meta {:frame f :kind k :id id})` (rf2-wkw8na); EP-0023 §Frame-
-   derived live registration resolution.
+   `(rf/handler-meta {:frame f :kind k :id id})`.
 
    Surfaces the resolved descriptor's `:rf.provenance/ns` + inline/image +
    `:standard` facts the process-global reads can't — plus a normalized
@@ -904,7 +886,7 @@
   "Enumerate the ids registered under `kind` resolved through frame
    `frame-id`'s OWN image generation — only the ids that frame's image
    carries (NOT the process-global registrar). Routes through the PUBLIC facade
-   read `(rf/handler-ids {:frame f :kind k})` (rf2-wkw8na). Returns the sorted
+   read `(rf/handler-ids {:frame f :kind k})`. Returns the sorted
    id vector. FAILS LOUD up the eval boundary on an unresolvable frame."
   [frame-id kind]
   (-> (rf/handler-ids {:frame frame-id :kind kind}) sort vec))
@@ -912,8 +894,8 @@
 (defn frame-registrar-registrations
   "The `{id meta}` map for `kind` resolved through frame `frame-id`'s OWN image
    generation, each meta carrying its provenance/coordinate facts. Routes
-   through the PUBLIC facade read `(rf/registrations {:frame f :kind k})`
-   (rf2-wkw8na). Fns are stripped (the `:rf/fn` sentinel) so the map is
+   through the PUBLIC facade read `(rf/registrations {:frame f :kind k})`.
+   Fns are stripped (the `:rf/fn` sentinel) so the map is
    EDN-clean. FAILS LOUD up the eval boundary on an unresolvable frame."
   [frame-id kind]
   (reduce-kv
@@ -940,11 +922,10 @@
   (-> (rf/frame-generation frame-id) :rf.gen/requires sort vec))
 
 (defn describe-image
-  "Describe the IMAGE GENERATION a frame is running — the EP-0023 Use-Case 7
-   read (Ref-Plan item 17). Answers \"what behaviour does THIS frame run, and
-   where did each piece come from?\" in one round-trip, over the PUBLIC
-   `rf/frame-generation` read (rf2-wkw8na); EP-0023 forbids consuming the
-   `re-frame.image-assembly` internals directly.
+  "Describe the IMAGE GENERATION a frame is running. Answers \"what
+   behaviour does THIS frame run, and where did each piece come from?\" in
+   one round-trip, over the PUBLIC `rf/frame-generation` read; tools must
+   not consume the `re-frame.image-assembly` internals directly.
 
    Frame resolution mirrors every other read op: no-arg / `{:frame nil}` uses
    the OPERATING frame, an explicit `:frame` targets that frame. Returns
@@ -974,7 +955,7 @@
 
    `:include-ns?` (default false) gates the per-registration provenance map.
 
-   NO-GENERATION FRAME (post-EP-0024): only an EXPLICIT `:images` key triggers
+   NO-GENERATION FRAME: only an EXPLICIT `:images` key triggers
    image resolution, so a frame configured with NO `:images` is an ordinary
    frame on the shared registrar that carries no composed image — and the public
    `rf/frame-generation` read FAILS LOUD (`:rf.error/frame-no-generation`) for
@@ -998,7 +979,7 @@
                           (let [{err-id :rf.error/id
                                  live   :live-frame-ids} (ex-data e)]
                             ;; A live frame that carries no generation (an
-                            ;; imageless frame — EP-0024) is the graceful
+                            ;; imageless frame) is the graceful
                             ;; no-image case, NOT a read failure. Surface the
                             ;; sentinel and let the caller report it cleanly.
                             ;; Any other thrown error — including a :frame
