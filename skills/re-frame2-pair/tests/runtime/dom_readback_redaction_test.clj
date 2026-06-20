@@ -1,36 +1,29 @@
 ;;;; tests/runtime/dom_readback_redaction_test.clj
 ;;;;
 ;;;; Babashka-runnable verification of the DOM / readback derived-value
-;;;; egress redaction (rf2-p9scds) in
-;;;; `preload/re_frame2_pair/runtime.cljs`.
+;;;; egress redaction in `preload/re_frame2_pair/runtime.cljs`.
 ;;;;
-;;;; THE BUG (rf2-p9scds). EP-0015 / Spec 015 treat framework-known
-;;;; derivations from sensitive inputs as sensitive unless explicitly
-;;;; public, and Tool-Pair says rendered DOM text crossing off-box must not
-;;;; ride unconditionally. The pair runtime's DOM / readback surfaces did
-;;;; NOT apply that posture:
-;;;;
-;;;;   - `dom-read` (raw DOM plane) returned `node->content` nodes directly
-;;;;     with NO redaction at all.
-;;;;   - `ui-read` ran the path-based `elide-wire-value` over just the
-;;;;     anonymous `:text` string — but that walker redacts by app-db PATH,
-;;;;     and rendered text has none, so it never caught a secret copied INTO
-;;;;     the DOM; `:attrs` were returned untouched entirely.
-;;;;   - `sample-one-signal`'s `:dom` / `:focus` arms passed the rendered
-;;;;     textContent / attribute / focus descriptor through un-elided.
-;;;;
+;;;; THE CONTRACT. Spec 015 treats framework-known derivations from
+;;;; sensitive inputs as sensitive unless explicitly public, and Tool-Pair
+;;;; says rendered DOM text crossing off-box must not ride unconditionally.
 ;;;; A secret copied from a declared-sensitive app-db path (`[:auth :token]`
-;;;; -> "SECRET") into rendered DOM text / attrs / a focus descriptor then
-;;;; crossed the off-box MCP wire RAW.
+;;;; -> "SECRET") into rendered DOM text / attrs / a focus descriptor must
+;;;; NOT cross the off-box MCP wire RAW. The trap to avoid: `dom-read`
+;;;; returning `node->content` nodes with no redaction, `ui-read` running
+;;;; the path-based `elide-wire-value` over just the anonymous `:text`
+;;;; string (that walker redacts by app-db PATH, and rendered text has none,
+;;;; so it never catches a secret copied INTO the DOM, and never touches
+;;;; `:attrs`), or `sample-one-signal`'s `:dom` / `:focus` arms passing the
+;;;; rendered textContent / attribute / focus descriptor through un-elided.
 ;;;;
-;;;; THE FIX. `maybe-redact-derived` value-redacts a DERIVED tree (rendered
-;;;; text / attrs / focus descriptor) via `re-frame.core/redact-derived-
-;;;; values` against the frame's declared-`:sensitive?` app-db VALUES, under
-;;;; the off-box raw-state gate. `dom-read` / `ui-read` / the `:dom` /
-;;;; `:focus` sample arms now route their derived output through it. A
-;;;; surface that needs frame policy but cannot resolve a frame under the
-;;;; off-box gate FAILS CLOSED with `:ambiguous-frame`, never synthesising
-;;;; `:rf/default`.
+;;;; THE MECHANISM. `maybe-redact-derived` value-redacts a DERIVED tree
+;;;; (rendered text / attrs / focus descriptor) via
+;;;; `re-frame.core/redact-derived-values` against the frame's
+;;;; declared-`:sensitive?` app-db VALUES, under the off-box raw-state gate.
+;;;; `dom-read` / `ui-read` / the `:dom` / `:focus` sample arms route their
+;;;; derived output through it. A surface that needs frame policy but cannot
+;;;; resolve a frame under the off-box gate FAILS CLOSED with
+;;;; `:ambiguous-frame`, never synthesising `:rf/default`.
 ;;;;
 ;;;; Why a parallel implementation lives here. `runtime.cljs` is CLJS-only
 ;;;; (a shadow-cljs `:devtools :preloads` file) and depends on the live
@@ -184,8 +177,8 @@
 ;; regression in the cljs trips RED.
 ;; ---------------------------------------------------------------------------
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private defn-form rt/defn-named)
 
 (defn- mentions? [form needle]
@@ -215,8 +208,8 @@
     (is (some? f))
     (is (mentions? f 'maybe-redact-derived)
         "ui-read must value-redact the whole :content")
-    ;; The bug was a path-based elide over JUST the :text string. Assert that
-    ;; exact shape is gone — ui-read must not call elide-wire-value on :text.
+    ;; A path-based elide over JUST the :text string is the wrong shape.
+    ;; Assert it is absent — ui-read must not call elide-wire-value on :text.
     (is (not (str/includes? s "(rf/elide-wire-value (:text base)"))
         "ui-read must NOT path-elide only :text (the rf2-p9scds bug)")
     (is (mentions? f 'ambiguous-frame-error)
@@ -225,8 +218,7 @@
 (deftest dom-and-focus-sample-arms-redact
   (let [f (defn-form 'sample-one-signal)]
     (is (some? f))
-    ;; Both DERIVED arms must route through the value-redactor — the docstring
-    ;; previously (and wrongly) said they pass through un-elided.
+    ;; Both DERIVED arms must route through the value-redactor.
     (is (<= 2 (count (re-seq #"maybe-redact-derived" (pr-str f))))
         "both the :dom and :focus arms must value-redact their derived output")))
 
@@ -235,7 +227,7 @@
         samp  (defn-form 'sample-signals)]
     (is (mentions? start 'ambiguous-frame-error)
         "start-recording! must refuse an unresolvable frame")
-    ;; needs-frame? must now extend to :dom / :focus under the off-box gate.
+    ;; needs-frame? must extend to :dom / :focus under the off-box gate.
     (is (and (mentions? start :dom) (mentions? start :focus))
         "start-recording! needs-frame? must cover :dom / :focus (off-box gate)")
     (is (mentions? samp 'ambiguous-frame-error)

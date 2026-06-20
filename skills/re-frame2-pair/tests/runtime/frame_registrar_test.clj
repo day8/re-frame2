@@ -1,24 +1,23 @@
 ;;;; tests/runtime/frame_registrar_test.clj
 ;;;;
-;;;; Babashka-runnable structural pin (rf2-srobm0) for the EP-0023
-;;;; forward-direction preload fns: the per-frame registrar reads and the
-;;;; `describe-image` generation read.
+;;;; Babashka-runnable structural pin for the frame-derived preload fns:
+;;;; the per-frame registrar reads and the `describe-image` generation read.
 ;;;;
 ;;;; Why this test exists:
 ;;;;
 ;;;; The MCP `handler-meta` / `list-handlers` / `describe-image` tools
 ;;;; re-key registration resolution through the OPERATING FRAME's running
 ;;;; image generation (the same `(kind, id)` can resolve differently per
-;;;; frame). EP-0023 forbids tools from consuming `re-frame.live-frame` /
-;;;; `re-frame.image-assembly` internals directly — the preload must route
-;;;; through the PUBLIC facade reads shipped by rf2-wkw8na:
+;;;; frame). Tools must not consume `re-frame.live-frame` /
+;;;; `re-frame.image-assembly` internals directly — the preload routes
+;;;; through the PUBLIC facade reads:
 ;;;;
 ;;;;   (rf/handler-meta {:frame f :kind k :id id})
 ;;;;   (rf/handler-ids  {:frame f :kind k})
 ;;;;   (rf/registrations {:frame f :kind k})
 ;;;;   (rf/frame-generation f)
 ;;;;
-;;;; This pin asserts the four new preload fns exist and route through the
+;;;; This pin asserts the four preload fns exist and route through the
 ;;;; `:frame`-arity facade reads / `frame-generation` — NOT the internal
 ;;;; live-frame / image-assembly namespaces. A regression that reached into
 ;;;; the internals (or dropped the per-frame fns) turns this red.
@@ -32,8 +31,8 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [runtime-support :as rt]))
 
-;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj
-;; (rf2-yrpt90). Alias the vars the assertions below use.
+;; Shared locate+parse+walk scaffold lives in tests/runtime/_support.clj.
+;; Alias the vars the assertions below use.
 (def ^:private defn-form rt/defn-named)
 (def ^:private form-contains? rt/form-contains?)
 
@@ -94,14 +93,14 @@
         "frame-capability-requires reports the image-declared :rf.gen/requires set.")))
 
 ;; ---------------------------------------------------------------------------
-;; describe-image guards the no-generation fail-loud (EP-0024 contract).
+;; describe-image guards the no-generation fail-loud.
 ;;
-;; Post-EP-0024 only an EXPLICIT :images key triggers image resolution, so an
-;; imageless frame carries NO generation and the public rf/frame-generation
-;; read FAILS LOUD (:rf.error/frame-no-generation) for it. describe-image must
-;; GUARD that call — catch the no-generation fail-loud for a LIVE frame and
-;; report it gracefully (:no-generation?), rather than letting it escape up the
-;; eval boundary — while still failing loud on a genuinely unresolvable target.
+;; Only an EXPLICIT :images key triggers image resolution, so an imageless
+;; frame carries NO generation and the public rf/frame-generation read FAILS
+;; LOUD (:rf.error/frame-no-generation) for it. describe-image must GUARD that
+;; call — catch the no-generation fail-loud for a LIVE frame and report it
+;; gracefully (:no-generation?), rather than letting it escape up the eval
+;; boundary — while still failing loud on a genuinely unresolvable target.
 ;; ---------------------------------------------------------------------------
 
 (deftest describe-image-guards-no-generation-fail-loud
@@ -120,7 +119,7 @@
         "describe-image MUST re-`throw` any non-no-generation error so a genuinely unresolvable :frame target still fails loud up the eval boundary.")))
 
 ;; ---------------------------------------------------------------------------
-;; No internal-namespace leakage (EP-0023 forbids tools consuming these).
+;; No internal-namespace leakage (tools must not consume these).
 ;; ---------------------------------------------------------------------------
 
 (deftest no-live-frame-or-image-assembly-internals-in-frame-fns
