@@ -768,7 +768,9 @@
   (EP-0024 §One constructor, Spec 002 §Per-instance frames). It accepts BOTH
   image-selection options AND frame record-config options in one call.
 
-  `opts` is a map. The image-selection + value opts:
+  `opts` is a map (REQUIRED — a non-map `opts`, including `nil`, fails loud with
+  `:rf.error/make-frame-bad-opts`; the all-defaults frame is `(make-frame {})`).
+  The image-selection + value opts:
 
     :images        a VECTOR of image values (always a vector, even for a single
                    image). Resolved into one sealed image generation; a

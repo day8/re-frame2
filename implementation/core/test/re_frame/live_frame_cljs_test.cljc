@@ -28,6 +28,10 @@
       friendly (the old fail-loud `:rf.error/live-frame-id-conflict` is GONE);
     * a direct (no-id) frame value BYPASSES the public registry;
     * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`);
+    * a non-map `opts` ARGUMENT (nil / keyword / vector / string) is REJECTED at
+      the public boundary (`:rf.error/make-frame-bad-opts`, rf2-r6r2yi) BEFORE any
+      frame is registered; the empty map `{}` is accepted (the all-defaults
+      frame), and nil is rejected (no zero-arity / `{}` carries that meaning);
     * the capability frame-boundary check (rf2-32siq3.6): fails loud on a missing
       capability; an image with requirements but NO `:capabilities` map fails
       (the check is unconditional — EP-0013 fail-loud parity); an image with no
@@ -402,6 +406,45 @@
       (testing "a set is rejected"
         (is (= :rf.error/make-frame-bad-images
                (err-id #(lf/make-frame {:images #{img}} counter-pool))))))))
+
+;; ===========================================================================
+;; 5b. A non-map `opts` ARGUMENT is REJECTED (rf2-r6r2yi)
+;; ===========================================================================
+
+(deftest non-map-opts-rejected
+  (testing "the `make-frame` `opts` argument must be a MAP (EP-0024 §One
+            constructor); a non-map opts fails loud at the public boundary with
+            :rf.error/make-frame-bad-opts BEFORE any frame is registered, rather
+            than silently creating a garbage anonymous frame (nil) or failing by
+            an obscure host ClassCastException (other non-maps)"
+    (testing "nil opts is REJECTED — the all-defaults frame is (make-frame {}),
+              not (make-frame nil)"
+      (is (= :rf.error/make-frame-bad-opts
+             (err-id #(lf/make-frame nil counter-pool))))
+      (testing "and via the 1-arity (nil descriptors path) too"
+        (is (= :rf.error/make-frame-bad-opts
+               (err-id #(lf/make-frame nil))))))
+    (testing "a keyword opts is rejected"
+      (is (= :rf.error/make-frame-bad-opts
+             (err-id #(lf/make-frame :not-a-map counter-pool)))))
+    (testing "a vector opts is rejected"
+      (is (= :rf.error/make-frame-bad-opts
+             (err-id #(lf/make-frame [:images []] counter-pool)))))
+    (testing "a string opts is rejected"
+      (is (= :rf.error/make-frame-bad-opts
+             (err-id #(lf/make-frame "oops" counter-pool)))))
+    (testing "no frame was registered as a side effect of a rejected non-map opts"
+      (let [before (lf/live-frame-ids)]
+        (err-id #(lf/make-frame nil counter-pool))
+        (err-id #(lf/make-frame :not-a-map counter-pool))
+        (is (= before (lf/live-frame-ids))
+            "a rejected non-map opts leaves the live-frame registry untouched")))
+    (testing "the ex-data carries an EP-0015-safe :received shape summary, never
+              the raw value"
+      (is (= {:type :keyword :head ":not-a-map"}
+             (:received (err-data #(lf/make-frame :not-a-map counter-pool))))))
+    (testing "the EMPTY map is ACCEPTED — the explicit all-defaults frame"
+      (is (lf/frame-object? (lf/make-frame {} counter-pool))))))
 
 ;; ===========================================================================
 ;; 6. The capability frame-boundary check (EP-0023 §Public API)

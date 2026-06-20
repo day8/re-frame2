@@ -342,6 +342,36 @@
 ;; `:images` is rejected loud rather than coerced, so the one-spelling contract
 ;; the EP fixes does not erode into \"a map or a vector or a bare image\".
 
+(defn- validate-opts!
+  "Validate the `make-frame` `opts` ARGUMENT is a MAP at the public boundary
+  (EP-0024 §One constructor — `opts` is the map carrying `:images` / `:id` /
+  `:initial-db` / `:capabilities` / `:adapter` + record-config keys; Spec
+  API.md §`make-frame`). A non-map `opts` — `nil`, a keyword, a vector, a string
+  — throws `:rf.error/make-frame-bad-opts`, fail-loud, BEFORE any destructuring
+  or record-config construction, so a caller typo / plumbing failure cannot
+  silently create a garbage anonymous frame (nil currently registered a runnable
+  default frame) or fail by an obscure host `ClassCastException` (a non-map opts
+  reaching `(apply dissoc opts …)`).
+
+  `nil` is REJECTED too — `opts` is REQUIRED to be a map. The all-defaults frame
+  is spelled `(make-frame {})`, not `(make-frame nil)`: there is no zero-arity
+  constructor, `{}` already carries the explicit empty-opts meaning, so `nil`
+  names nothing legitimate the empty map does not — it is only ever a typo or a
+  plumbing failure. Returns the map unchanged."
+  [opts]
+  (when-not (map? opts)
+    (error/throw-error!
+      :rf.error/make-frame-bad-opts
+      'rf/make-frame
+      (str "rf/make-frame: opts must be a MAP — got "
+           (pr-str opts) ". Pass an opts map carrying the frame's :images / "
+           ":id / :initial-db / :capabilities / :adapter and record-config "
+           "keys, e.g. (rf/make-frame {:images [my-image]}); an all-defaults "
+           "frame is (rf/make-frame {}), never (rf/make-frame nil).")
+      {:recovery :pass-an-opts-map
+       :extra    {:received (error/diag-value-summary opts)}}))
+  opts)
+
 (defn- validate-images!
   "Validate the `:images` opt is a VECTOR of image values (EP-0023 §Image
   Composition / §Public API — `:images` is always a vector). A non-vector
@@ -449,7 +479,9 @@
   options AND frame record-config options in one call, and returns the frame
   value (the live lifecycle token).
 
-  `opts` is a map. The IMAGE-SELECTION + value opts the constructor consumes:
+  `opts` is a map (REQUIRED — a non-map `opts`, including `nil`, fails loud with
+  `:rf.error/make-frame-bad-opts`; the all-defaults frame is `(make-frame {})`).
+  The IMAGE-SELECTION + value opts the constructor consumes:
 
     :images        a VECTOR of image values (the ONLY spelling; always a vector,
                    even for a single image). Resolved into ONE sealed image
@@ -515,6 +547,12 @@
                                    matching `image-assembly/assemble`'s 2-arity."
   ([opts] (make-frame opts nil))
   ([opts descriptors]
+   ;; Public-boundary guard FIRST (EP-0024 §One constructor): `opts` MUST be a
+   ;; map. A non-map (nil / keyword / vector / string) fails loud here BEFORE any
+   ;; destructuring or `(apply dissoc opts …)`, so a typo / plumbing-failure
+   ;; argument cannot silently register a garbage default frame or fail by an
+   ;; obscure host ClassCastException.
+   (validate-opts! opts)
    (let [{:keys [images id initial-db capabilities adapter]} opts
          ;; The frame id the record is keyed by: the public `:id` when supplied
          ;; (so `(rf/dispatch [...] {:frame :counter/main})` finds the same
