@@ -1892,10 +1892,10 @@
   ;; a minimal counter that proves the adapter wires up — mount,
   ;; subscribe, dispatch, re-render — without depending on any example.
   ;;
-  ;; The orchestrator (examples/scripts/serve-and-run-examples-tests.cjs)
+  ;; The orchestrator (examples/scripts/serve-and-run-adapter-smokes.cjs)
   ;; stages each bundle into out/examples/adapter-testbeds/<name>/ next
   ;; to the testbed's hand-written index.html and the companion spec.cjs
-  ;; (discovered by the runner via SPEC_ROOTS).
+  ;; (discovered by the runner via ADAPTER_SMOKE_SPEC_ROOTS).
   ;; ============================================================================
 
   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
@@ -1932,8 +1932,8 @@
   ;; layer the rf2-xsgu8a review found uncovered (the slim example's prior
   ;; browser coverage was compile-only + the release-bundle sentinel grep).
   ;;
-  ;; Deliberately NOT in the shared examples adapter-smoke manifest
-  ;; (examples/scripts/examples-filter.cjs): it is the slim adapter's OWN
+  ;; Deliberately NOT in the shared adapter-smoke manifest
+  ;; (examples/scripts/adapter-smoke-filter.cjs): it is the slim adapter's OWN
   ;; gate, driven by scripts/serve-and-run-reagent-slim-smoke.cjs (npm
   ;; test:reagent-slim:smoke) — mirroring how the slim bundle-isolation
   ;; contract ships its own check-reagent-slim-bundle-isolation.cjs rather

@@ -6,14 +6,15 @@
  * and is paired with a hand-written index.html (staged into the same
  * directory by the orchestrator). This runner spins up a Chromium
  * browser and executes the spec.cjs files declared in the shared
- * EXAMPLES manifest (examples-filter.cjs) — the same manifest + the same
- * `selectEntries` the orchestrator used to compile/stage, so the selected
- * set is identical across both phases for any EXAMPLES_FILTER shape
- * (rf2-l72e2). Before running, the runner reconciles that manifest
- * against the spec.cjs files actually on disk under SPEC_ROOTS, failing
- * loudly on drift in either direction. Each spec navigates to the
- * surface's URL and asserts a user-visible behaviour (initial render +
- * an interaction + post-interaction state).
+ * ADAPTER_SMOKES manifest (adapter-smoke-filter.cjs) — the same manifest
+ * + the same `selectEntries` the orchestrator used to compile/stage, so
+ * the selected set is identical across both phases for any
+ * ADAPTER_SMOKE_FILTER shape (rf2-l72e2). Before running, the runner
+ * reconciles that manifest against the spec.cjs files actually on disk
+ * under ADAPTER_SMOKE_SPEC_ROOTS, failing loudly on drift in either
+ * direction. Each spec navigates to the surface's URL and asserts a
+ * user-visible behaviour (initial render + an interaction +
+ * post-interaction state).
  *
  * Test surface inventory (the `examples/` tree is TEST-FREE; framework-
  * testbed assertions live as CLJS/JVM unit tests):
@@ -42,8 +43,8 @@
  *   }
  *
  * There is no opt-out: every selected spec runs. Opting an example out of
- * the smoke surface means removing it from the EXAMPLES manifest
- * (examples-filter.cjs) / deleting its spec, not flagging the spec.
+ * the smoke surface means removing it from the ADAPTER_SMOKES manifest
+ * (adapter-smoke-filter.cjs) / deleting its spec, not flagging the spec.
  *
  * Exit code: 0 if every selected spec's `run` resolves; 1 if any spec
  * throws or a pageerror fires during a spec.
@@ -52,11 +53,11 @@
 const path = require('path');
 const fs = require('fs');
 const {
-  EXAMPLES,
-  SPEC_ROOTS,
+  ADAPTER_SMOKES,
+  ADAPTER_SMOKE_SPEC_ROOTS,
   parseFilterPatterns,
   selectEntries,
-} = require('./examples-filter.cjs');
+} = require('./adapter-smoke-filter.cjs');
 
 // playwright is a devDependency of implementation/package.json — there
 // is no examples/package.json by design. Resolve playwright
@@ -65,19 +66,20 @@ const {
 const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
-// EXAMPLES_BASE_URL is always set by the orchestrator
-// (serve-and-run-examples-tests.cjs) to the port it actually resolved.
+// ADAPTER_SMOKE_BASE_URL is always set by the orchestrator
+// (serve-and-run-adapter-smokes.cjs) to the port it actually resolved.
 // The fallback below only applies when this runner is invoked
 // standalone; it tracks the orchestrator's default port (8050 — in the
 // examples orchestrator's owned 805x band, clear of the top-level
 // :dev-http set; see examples-port.cjs and the OWNED-RANGE PORT MAP in
 // implementation/scripts/dev-testbed.cjs).
-const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8050';
-// `EXAMPLES_FILTER` narrows the spec set. When set, the runner executes
-// exactly the specs of the EXAMPLES entries the shared `selectEntries`
-// picks. Composes with the orchestrator's compile/stage filter — both
-// phases call the SAME `selectEntries` over the SAME EXAMPLES manifest,
-// so a narrow run exercises identical surfaces end-to-end regardless of
+const BASE_URL = process.env.ADAPTER_SMOKE_BASE_URL || 'http://127.0.0.1:8050';
+// `ADAPTER_SMOKE_FILTER` narrows the spec set. When set, the runner
+// executes exactly the specs of the ADAPTER_SMOKES entries the shared
+// `selectEntries` picks. Composes with the orchestrator's compile/stage
+// filter — both phases call the SAME `selectEntries` over the SAME
+// ADAPTER_SMOKES manifest, so a narrow run exercises identical surfaces
+// end-to-end regardless of
 // whether the filter is build-id-shaped (`adapters/reagent-testbed`,
 // `reagent-testbed`) or path-shaped (`adapters/reagent/testbed`,
 // `reagent/testbed`). Unset (or empty) = the full sweep.
@@ -96,7 +98,7 @@ const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8050';
 // against an entry's REPO-STABLE identities — its build id and its
 // repo-relative spec path — never the absolute spec path or any other
 // filesystem prefix (rf2-n4nc2o).
-const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
+const FILTER = (process.env.ADAPTER_SMOKE_FILTER || '').trim();
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 const { isVerboseTests } = require(path.join(
@@ -150,26 +152,27 @@ function withTimeout(promise, ms, label) {
 }
 
 (async () => {
-  // Reconcile the EXAMPLES manifest against the spec.cjs files actually
-  // on disk under SPEC_ROOTS. This catches drift in either direction —
-  // a renamed/removed example still listed in the manifest, or a new
-  // spec.cjs added under implementation/adapters/ without a matching
-  // manifest entry — instead of silently exercising the wrong set.
-  const discovered = listSpecFiles(SPEC_ROOTS).map((p) => path.resolve(p));
-  const declared = EXAMPLES.map((e) => path.resolve(e.specPath));
+  // Reconcile the ADAPTER_SMOKES manifest against the spec.cjs files
+  // actually on disk under ADAPTER_SMOKE_SPEC_ROOTS. This catches drift in
+  // either direction — a renamed/removed smoke still listed in the
+  // manifest, or a new spec.cjs added under implementation/adapters/
+  // without a matching manifest entry — instead of silently exercising the
+  // wrong set.
+  const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS).map((p) => path.resolve(p));
+  const declared = ADAPTER_SMOKES.map((e) => path.resolve(e.specPath));
   const missing = declared.filter((p) => !discovered.includes(p));
   const undeclared = discovered.filter((p) => !declared.includes(p));
   if (missing.length > 0) {
     console.error(
-      `EXAMPLES manifest references spec(s) not on disk:\n  ${missing.join('\n  ')}\n` +
-        `Fix examples/scripts/examples-filter.cjs (a renamed/removed example?).`,
+      `ADAPTER_SMOKES manifest references spec(s) not on disk:\n  ${missing.join('\n  ')}\n` +
+        `Fix examples/scripts/adapter-smoke-filter.cjs (a renamed/removed smoke?).`,
     );
     process.exit(1);
   }
   if (undeclared.length > 0) {
     console.error(
-      `Found spec(s) under ${SPEC_ROOTS.join(', ')} not declared in the EXAMPLES manifest:\n  ${undeclared.join('\n  ')}\n` +
-        `Add an entry to examples/scripts/examples-filter.cjs (or remove the stray spec).`,
+      `Found spec(s) under ${ADAPTER_SMOKE_SPEC_ROOTS.join(', ')} not declared in the ADAPTER_SMOKES manifest:\n  ${undeclared.join('\n  ')}\n` +
+        `Add an entry to examples/scripts/adapter-smoke-filter.cjs (or remove the stray spec).`,
     );
     process.exit(1);
   }
@@ -181,10 +184,10 @@ function withTimeout(promise, ms, label) {
   if (selected.length === 0) {
     if (FILTER) {
       console.error(
-        `EXAMPLES_FILTER='${FILTER}' matched zero examples (of ${EXAMPLES.length} declared).`,
+        `ADAPTER_SMOKE_FILTER='${FILTER}' matched zero smokes (of ${ADAPTER_SMOKES.length} declared).`,
       );
     } else {
-      console.error(`No examples declared in the EXAMPLES manifest.`);
+      console.error(`No smokes declared in the ADAPTER_SMOKES manifest.`);
     }
     process.exit(1);
   }
@@ -266,7 +269,7 @@ function withTimeout(promise, ms, label) {
     }
   }
   console.log(
-    `Ran ${results.length} example specs. ${failedCount} failures.`,
+    `Ran ${results.length} adapter-smoke specs. ${failedCount} failures.`,
   );
 
   process.exit(anyFailed ? 1 : 0);

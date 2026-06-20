@@ -45,7 +45,7 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:elision && \
   npm run test:bundle-isolation && \
   npm run test:reagent-slim:bundle-isolation && \
-  npm run test:examples && \
+  npm run test:adapter-smokes && \
   npm run test:examples-compile && \
   npm run test:story-feature-load && \
   npm run test:story-play-scripts && \

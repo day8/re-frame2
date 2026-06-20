@@ -54,12 +54,12 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/ssr-basic
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 Shadow-cljs build id is `testbeds/ssr-basic`; output lands in
 `implementation/out/testbeds/ssr-basic/`. The orchestrator
-(`examples/scripts/serve-and-run-examples-tests.cjs`) stages this
+(`examples/scripts/serve-and-run-adapter-smokes.cjs`) stages this
 testbed's `index.html` next to `main.js` and serves the directory
 at `/ssr-basic/`.
 

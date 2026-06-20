@@ -35,7 +35,7 @@
    Coverage lives in the CLJS substrate contract tests (`npm run
    test:cljs`, ns `re-frame.websocket-cljs-test`); the mock server keeps
    the app self-contained. The example tree is test-free, so
-   `npm run test:examples` does not build this example."
+   `npm run test:adapter-smokes` does not build this example."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]

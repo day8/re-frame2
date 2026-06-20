@@ -89,7 +89,7 @@ For local debugging, opt into the buffered green-path diagnostics:
 
 ```bash
 RF2_VERBOSE_TESTS=1 npm run test:browser
-RF2_VERBOSE_TESTS=1 npm run test:examples
+RF2_VERBOSE_TESTS=1 npm run test:adapter-smokes
 ```
 
 ## Opting Into Verbose JS Gate Diagnostics

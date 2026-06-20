@@ -137,7 +137,7 @@ for (const runner of [PLAY_SCRIPTS_RUNNER, FEATURE_LOAD_RUNNER]) {
       LOOPBACK_BIND_RE,
       `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
         `the http-server default is 0.0.0.0, and the runner only ever hits ` +
-        `127.0.0.1. Match serve-and-run-examples-tests.cjs.`,
+        `127.0.0.1. Match serve-and-run-adapter-smokes.cjs.`,
     );
   });
 }

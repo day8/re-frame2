@@ -124,7 +124,7 @@ The watch build emits `main.js` into `out/examples/linearlite/`. With the
 top-level `:dev-http` server wired (port **8044**), open
 [http://localhost:8044](http://localhost:8044) and the board loads (the source
 dir's hand-written [`index.html`](index.html) resolves at `/`, the compiled
-`main.js` falls through to `out/examples/linearlite/`). (`npm run test:examples`
+`main.js` falls through to `out/examples/linearlite/`). (`npm run test:adapter-smokes`
 does not build this example — it compiles and serves only the three adapter
 testbeds; see [`examples/reagent/README.md`](../README.md).)
 

@@ -52,7 +52,7 @@ counter_with_stories/
 ├── elision_demo.cljs                        ; :sensitive? + :large? + event-emit (rf2-vw0to)
 ├── stories_cljs_test.cljs                   ; integration tests (npm run test:cljs)
 ├── elision_demo_cljs_test.cljs              ; elision-pipeline tests (npm run test:cljs)
-├── counter_with_stories.spec.cjs            ; Playwright smoke (npm run test:examples)
+├── counter_with_stories.spec.cjs            ; Playwright smoke (npm run test:adapter-smokes)
 └── index.html                               ; the host page
 ```
 
@@ -113,11 +113,11 @@ under build id `examples/counter-with-stories`.
 
 ```bash
 # From implementation/
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The orchestrator at
-[`examples/scripts/serve-and-run-examples-tests.cjs`](../../../../examples/scripts/serve-and-run-examples-tests.cjs)
+[`examples/scripts/serve-and-run-adapter-smokes.cjs`](../../../../examples/scripts/serve-and-run-adapter-smokes.cjs)
 compiles every example, stages this directory's `index.html`,
 serves the output over HTTP on `127.0.0.1:8030`, and runs every
 `*.spec.cjs` under `examples/`. The spec navigates between

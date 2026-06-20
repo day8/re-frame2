@@ -58,7 +58,7 @@ From `implementation/`:
 shadow-cljs watch testbeds/deliberate-throw
 # Then open http://localhost:9630 to find the build's dev URL,
 # or run the full examples orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/deliberate-throw`; output lands

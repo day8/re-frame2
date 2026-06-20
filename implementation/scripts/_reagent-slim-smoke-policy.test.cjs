@@ -25,11 +25,11 @@
  *      value 5, click-driven inc AND dec.
  *   5. npm `test:reagent-slim:smoke` exists and runs the adapter-owned
  *      runner; `test:script-policy` runs THIS policy test.
- *   6. The slim smoke is a DISTINCT surface from the shared examples
- *      adapter-smoke manifest: its driver file is not named
- *      spec.cjs/*.spec.cjs (so the shared examples spec-walker never
+ *   6. The slim smoke is a DISTINCT surface from the shared adapter-smoke
+ *      manifest: its driver file is not named
+ *      spec.cjs/*.spec.cjs (so the shared adapter-smoke spec-walker never
  *      discovers it and its reconcile guard stays green) AND it is not an
- *      entry in examples/scripts/examples-filter.cjs (whose Reagent/UIx/
+ *      entry in examples/scripts/adapter-smoke-filter.cjs (whose Reagent/UIx/
  *      Helix set is its own surface). This is the two-way drift guard.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
@@ -51,7 +51,7 @@ const SMOKE = path.join(TESTBED_DIR, 'smoke.cjs');
 const RUNNER = path.join(IMPL_ROOT, 'scripts', 'serve-and-run-reagent-slim-smoke.cjs');
 const SHADOW_EDN = path.join(IMPL_ROOT, 'shadow-cljs.edn');
 const PKG_JSON = path.join(IMPL_ROOT, 'package.json');
-const EXAMPLES_FILTER = path.join(REPO_ROOT, 'examples', 'scripts', 'examples-filter.cjs');
+const ADAPTER_SMOKE_FILTER = path.join(REPO_ROOT, 'examples', 'scripts', 'adapter-smoke-filter.cjs');
 const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'test.yml');
 const CHANGED_SURFACES = path.join(
   REPO_ROOT,
@@ -273,25 +273,25 @@ it('the slim smoke driver is NOT named spec.cjs/*.spec.cjs (shared walker ignore
   const base = path.basename(SMOKE);
   assert.ok(
     base !== 'spec.cjs' && !base.endsWith('.spec.cjs'),
-    `the slim smoke driver is named ${base} — the shared examples ` +
-      `spec-walker (run-examples-tests.cjs / _examples-filter.test.cjs) ` +
+    `the slim smoke driver is named ${base} — the shared adapter-smoke ` +
+      `spec-walker (run-adapter-smokes.cjs / _adapter-smoke-filter.test.cjs) ` +
       `would discover it under implementation/adapters/ and fail its ` +
       `manifest-vs-disk reconcile. Keep it as smoke.cjs (a dedicated, ` +
       `adapter-owned gate).`,
   );
 });
 
-it('the shared examples adapter-smoke manifest stays Reagent/UIx/Helix-only (no slim entry)', () => {
+it('the shared adapter-smoke manifest stays Reagent/UIx/Helix-only (no slim entry)', () => {
   // The slim smoke is the slim adapter's OWN gate; it must NOT be folded
-  // into the shared three-adapter examples manifest. This pins both
+  // into the shared three-adapter adapter-smoke manifest. This pins both
   // directions of the drift: the shared set does not silently grow a slim
   // entry, and the slim gate does not silently vanish into it.
-  const { EXAMPLES } = require(EXAMPLES_FILTER);
-  const builds = EXAMPLES.map((e) => e.build).sort();
+  const { ADAPTER_SMOKES } = require(ADAPTER_SMOKE_FILTER);
+  const builds = ADAPTER_SMOKES.map((e) => e.build).sort();
   assert.deepStrictEqual(
     builds,
     ['adapters/helix-testbed', 'adapters/reagent-testbed', 'adapters/uix-testbed'],
-    'the shared examples adapter-smoke manifest drifted from the ' +
+    'the shared adapter-smoke manifest drifted from the ' +
       'Reagent/UIx/Helix set; the slim client-runtime smoke is a dedicated ' +
       'adapter-owned gate (test:reagent-slim:smoke), not a shared-manifest entry',
   );

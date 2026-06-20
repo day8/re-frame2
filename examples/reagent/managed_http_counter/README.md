@@ -81,7 +81,7 @@ folder's [`api/`](api/) directory to
 `GET api/inc.json` resolves (without it the headline success path 404s
 and the example demonstrates the failure branch instead). Then serve
 `out/examples/managed-http-counter/` over HTTP.
-(`npm run test:examples` does not build this example — it compiles and
+(`npm run test:adapter-smokes` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/reagent/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); managed-HTTP

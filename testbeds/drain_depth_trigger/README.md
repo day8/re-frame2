@@ -98,7 +98,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/drain-depth-trigger
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/drain-depth-trigger`; output

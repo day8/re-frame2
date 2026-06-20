@@ -12,9 +12,9 @@
  * Chromium. Exit 0 on PASS, 1 on FAIL (an uncaught browser pageerror is
  * fatal even when the visible assertions pass).
  *
- * WHY A DEDICATED RUNNER (not the shared examples adapter-smoke harness):
+ * WHY A DEDICATED RUNNER (not the shared adapter-smoke harness):
  * the slim substrate's behavioural smoke is the day8/reagent-slim adapter's
- * own gate. Folding it into examples/scripts/examples-filter.cjs would
+ * own gate. Folding it into examples/scripts/adapter-smoke-filter.cjs would
  * couple it to that shared Reagent/UIx/Helix manifest + reconcile guard;
  * instead — mirroring how the slim bundle-isolation contract ships its OWN
  * script (check-reagent-slim-bundle-isolation.cjs) rather than the shared

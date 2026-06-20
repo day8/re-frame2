@@ -645,8 +645,8 @@ test('Adapter source change fires adapter_testbed_smokes (rf2-t5slp regression g
   assert.equal(result.adapter_testbed_smokes, 'true');
 });
 
-test('examples/scripts/examples-filter.cjs (shared manifest) fires adapter_testbed_smokes (rf2-l72e2)', () => {
-  const result = classify('examples/scripts/examples-filter.cjs');
+test('examples/scripts/adapter-smoke-filter.cjs (shared manifest) fires adapter_testbed_smokes (rf2-l72e2)', () => {
+  const result = classify('examples/scripts/adapter-smoke-filter.cjs');
   assert.equal(result.adapter_testbed_smokes, 'true');
 });
 
@@ -662,10 +662,10 @@ test('examples/scripts/examples-filter.cjs (shared manifest) fires adapter_testb
 // test:script-policy and drive no browser gate.
 
 const ADAPTER_SMOKE_GATE_FILES = [
-  'examples/scripts/serve-and-run-examples-tests.cjs',
-  'examples/scripts/run-examples-tests.cjs',
+  'examples/scripts/serve-and-run-adapter-smokes.cjs',
+  'examples/scripts/run-adapter-smokes.cjs',
   'examples/scripts/spec-helpers.cjs',
-  'examples/scripts/examples-filter.cjs',
+  'examples/scripts/adapter-smoke-filter.cjs',
   'examples/scripts/examples-port.cjs',
 ];
 for (const file of ADAPTER_SMOKE_GATE_FILES) {
@@ -696,7 +696,7 @@ test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser ga
 
 // rf2-eqjxya — examples-staging.cjs is the SHARED staging/cleaning helper
 // (stageShared / cleanStageDirs / stageExample) require'd by the adapter-smoke
-// orchestrator (serve-and-run-examples-tests.cjs → adapter_testbed_smokes) AND
+// orchestrator (serve-and-run-adapter-smokes.cjs → adapter_testbed_smokes) AND
 // both Story launchers (serve-and-run-story-{feature-load-tests,play-scripts}.cjs
 // → story_xray_browser). Like the shared port-resolver.cjs above, it must fire
 // BOTH browser gates so a regression in the staging code can't ship green by
@@ -734,14 +734,14 @@ test('examples/scripts static-only scanners stay on the always-on JS harness pat
   }
 });
 
-test('adapter-testbed-smokes workflow remains scoped to EXAMPLES_FILTER=adapters/ (rf2-t5slp)', () => {
+test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=adapters/ (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   // Verify the adapter-testbed-smokes job still passes the narrow
   // adapters/ filter — adapter testbeds are the only Playwright surface
   // under the examples orchestrator.
   assert.match(
     workflow,
-    /adapter-testbed-smokes:[\s\S]*EXAMPLES_FILTER:\s*"adapters\/"/,
+    /adapter-testbed-smokes:[\s\S]*ADAPTER_SMOKE_FILTER:\s*"adapters\/"/,
   );
 });
 

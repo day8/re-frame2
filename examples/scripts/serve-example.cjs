@@ -35,8 +35,8 @@
  * shell-free spawning, process-tree teardown, port pre-flight); this script
  * is just the dev-ergonomics front door.
  *
- * Policy preserved: `npm run test:examples` stays the adapter-smoke runner,
- * and standalone examples keep their compile coverage via
+ * Policy preserved: `npm run test:adapter-smokes` stays the adapter-smoke
+ * runner, and standalone examples keep their compile coverage via
  * `test:examples-compile`. This is a DEV command, not a test gate — it adds
  * no `*.spec.cjs` under examples/ (the tree stays test-free, rf2-8cevm).
  *
@@ -53,7 +53,7 @@
  * SPAWN FORM: resolve shadow-cljs's / http-server's own JS entry-points and
  * run them under THIS node binary (process.execPath), shell-free — never
  * `npx`/`npx.cmd` under a shell (rf2-y9o5e3). Same hardened posture as
- * serve-and-run-examples-tests.cjs.
+ * serve-and-run-adapter-smokes.cjs.
  */
 
 'use strict';
@@ -76,7 +76,7 @@ const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 // (`:output-dir "out/examples/<name>"`). It is the clean-stage boundary's
 // owned root: cleanStageDirs path-guards each selected outDir to live strictly
 // under it, so a clean can never touch the shared root or a sibling output the
-// same root holds. Mirrors OUT_ROOT in serve-and-run-examples-tests.cjs.
+// same root holds. Mirrors OUT_ROOT in serve-and-run-adapter-smokes.cjs.
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const READY_TIMEOUT_MS = 30000;
 
@@ -188,7 +188,7 @@ async function main() {
   // Clean-stage boundary (rf2-bf4vdy / rf2-rg2tze): remove + recreate the
   // SELECTED build's output dir BEFORE any compile or staging, so every served
   // file is produced from the CURRENT source this run — exactly the contract
-  // the CI/Story orchestrators already honour (serve-and-run-examples-tests.cjs
+  // the CI/Story orchestrators already honour (serve-and-run-adapter-smokes.cjs
   // cleanSelectedOutDirs, the Story load/play runners). Without this the dev
   // runner overlaid index.html + _shared onto whatever a PRIOR run left behind,
   // so a stale main.js (or a retired asset the manifest no longer produces)

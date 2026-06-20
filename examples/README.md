@@ -12,8 +12,8 @@ Examples are organised under per-substrate top-level directories. Reagent is the
 ```
 examples/
   scripts/                              <-- orchestrator + Playwright helpers
-    serve-and-run-examples-tests.cjs    <-- compiles, stages, serves, runs (entry point of `npm run test:examples`)
-    run-examples-tests.cjs              <-- Playwright runner (runs the EXAMPLES manifest's specs; reconciles it against the spec.cjs on disk under SPEC_ROOTS)
+    serve-and-run-adapter-smokes.cjs    <-- compiles, stages, serves, runs (entry point of `npm run test:adapter-smokes`)
+    run-adapter-smokes.cjs              <-- Playwright runner (runs the ADAPTER_SMOKES manifest's specs; reconciles it against the spec.cjs on disk under ADAPTER_SMOKE_SPEC_ROOTS)
     spec-helpers.cjs                    <-- shared assertion helpers used by the adapter testbed + Story/Xray specs (examples/ is test-free)
   reagent/                              <-- canonical substrate (full set)
     counter/
@@ -158,7 +158,7 @@ If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix
 The `examples/` tree is **test-free** — no `*.spec.cjs` lives under `examples/`. Real-regression coverage lives in:
 
 - **`npm run test:cljs`** — substrate contract tests (events, subs, handlers, machines, schemas) across every artefact under `npm run test:cljs`'s node-runtime CLJS suite.
-- **`npm run test:examples`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`) and runs their paired `spec.cjs`. The framework + top-level testbeds do not carry Playwright specs; their assertions live as CLJS/JVM unit tests.
+- **`npm run test:adapter-smokes`** — adapter-level smokes only. Compiles + serves the 3 adapter testbeds (`implementation/adapters/<name>/testbed/`) and runs their paired `spec.cjs`. The framework + top-level testbeds do not carry Playwright specs; their assertions live as CLJS/JVM unit tests.
 - **`npm run test:xray-feature-gate`** — 14-scenario Xray feature-matrix gate. The canonical browser sweep for cross-cutting feature regressions.
 - **`npm run test:bundle-isolation`** — production bundle grep contract for the per-feature artefact split.
 - **`npm run test:perf-bundle`** — static perf-flag bundle-isolation grep (the live perf-API counterpart at `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` runs in the nightly CLJS suite).
@@ -174,7 +174,7 @@ If you want to iterate on one example:
 shadow-cljs watch examples/counter
 ```
 
-The build's `:output-dir` (see `implementation/shadow-cljs.edn`) is where `main.js` lands. Stage the example's hand-written `index.html` next to that `main.js`, copy the `examples/_shared/` tree alongside it so the `_shared/...` hrefs resolve, then serve that directory over HTTP. (The `npm run test:examples` smoke harness does this automatically for the three adapter testbeds, staging into `implementation/out/examples/adapter-testbeds/<name>/`; the per-build `:output-dir` for a standalone `:examples/*` build is whatever that build declares.)
+The build's `:output-dir` (see `implementation/shadow-cljs.edn`) is where `main.js` lands. Stage the example's hand-written `index.html` next to that `main.js`, copy the `examples/_shared/` tree alongside it so the `_shared/...` hrefs resolve, then serve that directory over HTTP. (The `npm run test:adapter-smokes` smoke harness does this automatically for the three adapter testbeds, staging into `implementation/out/examples/adapter-testbeds/<name>/`; the per-build `:output-dir` for a standalone `:examples/*` build is whatever that build declares.)
 
 For TodoMVC, also copy the two vendored CSS files next to `main.js` (its `index.html` links them flat instead of the shared stylesheet — see [`reagent/todomvc/README.md`](reagent/todomvc/README.md) §Official assets).
 

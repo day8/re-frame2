@@ -91,7 +91,7 @@ npm run test:elision                 # production elision probe
 npm run test:perf-bundle             # perf-budget bundle check
 npm run test:bundle-isolation        # tools must not leak into production bundles
 npm run test:reagent-slim:bundle-isolation # slim must not pull stock Reagent/react-dom/server
-npm run test:examples                # examples test runner
+npm run test:adapter-smokes          # adapter-smoke runner (Reagent/UIx/Helix mount+dispatch+assert)
 npm run story:build                  # build the story artefact
 ```
 

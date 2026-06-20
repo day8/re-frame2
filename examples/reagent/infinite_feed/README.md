@@ -120,7 +120,7 @@ shadow-cljs watch examples/infinite-feed
 The watch build emits `main.js` into `out/examples/infinite-feed/`; copy this
 folder's hand-written [`index.html`](index.html) (and the shared assets it
 references under [`../../_shared/`](../../_shared/)) alongside it, then serve
-`out/examples/infinite-feed/` over HTTP. (`npm run test:examples` does not build
+`out/examples/infinite-feed/` over HTTP. (`npm run test:adapter-smokes` does not build
 this example — it compiles and serves only the three adapter testbeds; see
 [`examples/reagent/README.md`](../README.md).)
 

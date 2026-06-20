@@ -4,7 +4,7 @@
  * Two scripts need to stage an example's hand-written `index.html` plus the
  * `examples/_shared/` design-system tree next to the compiled `main.js`:
  *
- *   - serve-and-run-examples-tests.cjs  (the adapter-smoke orchestrator)
+ *   - serve-and-run-adapter-smokes.cjs  (the adapter-smoke orchestrator)
  *   - serve-example.cjs                 (the standalone-example dev runner)
  *
  * The recursive copy + `_shared` fan-out logic used to live inline in the
@@ -31,7 +31,7 @@ const EXAMPLES_ROOT = path.join(REPO_ROOT, 'examples');
 const SHARED_SRC = path.join(EXAMPLES_ROOT, '_shared');
 
 // ---------------------------------------------------------------------------
-// Recursive copy + _shared staging (hoisted from serve-and-run-examples-tests).
+// Recursive copy + _shared staging (hoisted from serve-and-run-adapter-smokes).
 // ---------------------------------------------------------------------------
 
 // Minimal recursive copy. Each file overwrites the destination

@@ -752,7 +752,7 @@ async function main() {
   // only ever hits http://127.0.0.1:<port>, and resolveStoryFeatureLoadPort
   // pre-flights loopback — so exposing implementation/out/examples on
   // every interface is avoidable local-network surface. Matches the
-  // adapter-smoke orchestrator (serve-and-run-examples-tests.cjs).
+  // adapter-smoke orchestrator (serve-and-run-adapter-smokes.cjs).
   // rf2-wf5al(2).
   const server = cleanup.trackProcess(
     spawnHarnessProcess(

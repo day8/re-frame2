@@ -20,7 +20,7 @@
  *     regress to a vacuous pass.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
- * `_examples-filter.test.cjs` / `check-examples-compile.test.cjs`. Wired into
+ * `_adapter-smoke-filter.test.cjs` / `check-examples-compile.test.cjs`. Wired into
  * package.json via `test:script-policy`.
  */
 

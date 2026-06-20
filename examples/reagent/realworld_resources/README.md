@@ -170,7 +170,7 @@ Login / register / session-restore / logout are a Spec 005 state machine issuing
 
 ## How to run
 
-The example tree is **test-free** — `npm run test:examples` drives only the three adapter smokes and never builds this example. To view it in a browser, build it under shadow-cljs id `examples/realworld-resources` from `implementation/`:
+The example tree is **test-free** — `npm run test:adapter-smokes` drives only the three adapter smokes and never builds this example. To view it in a browser, build it under shadow-cljs id `examples/realworld-resources` from `implementation/`:
 
 ```bash
 shadow-cljs watch examples/realworld-resources

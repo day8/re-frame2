@@ -90,7 +90,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/multi-frame
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/multi-frame`; output lands in

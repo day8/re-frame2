@@ -41,7 +41,7 @@ The `examples/` tree carries no tests. Browser smoke coverage for the Helix subs
 From `implementation/`, the adapter smokes run via:
 
 ```bash
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 That compiles the three adapter testbeds (`adapters/reagent-testbed`, `adapters/uix-testbed`, `adapters/helix-testbed`), stages each `index.html`, serves them, and drives the three `spec.cjs` smokes; the example builds in this directory carry no `spec.cjs` (the `examples/` tree is test-free). They do, however, get **compile coverage**: `npm run test:examples-compile` (from `implementation/`) `shadow-cljs compile`s every declared standalone `:examples/*` build — all three Helix builds here (`examples/counter-helix`, `examples/login-helix`, `examples/process-monitor-helix`) — and fails on any compile error or warning, so a namespace / `:init-fn` / `:require` / Helix-form regression in these builds can no longer ship green. See [`examples/TESTING.md`](../TESTING.md#compile-coverage-gate-testexamples-compile). Bundle isolation is verified separately and is narrower: `npm run test:bundle-isolation` release-builds and greps the **counter triplet only** (`examples/counter`, `examples/counter-uix`, `examples/counter-helix`) to confirm a Helix counter bundle's `main.js` carries no Reagent code (and vice versa, and likewise for UIx ↔ Helix). The other Helix builds (`login-helix`, `process-monitor-helix`) are compile-covered, not bundle-isolation-grepped.

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /*
- * Tests for `examples/scripts/examples-filter.cjs` — the shared
- * example-set manifest + filter-selection logic used by BOTH the
- * orchestrator (serve-and-run-examples-tests.cjs) and the Playwright
- * runner (run-examples-tests.cjs).
+ * Tests for `examples/scripts/adapter-smoke-filter.cjs` — the shared
+ * adapter-smoke manifest + filter-selection logic used by BOTH the
+ * orchestrator (serve-and-run-adapter-smokes.cjs) and the Playwright
+ * runner (run-adapter-smokes.cjs).
  *
  * Regression for rf2-l72e2: the two scripts used to apply the same
- * EXAMPLES_FILTER value to two different string spaces (build ids vs
+ * ADAPTER_SMOKE_FILTER value to two different string spaces (build ids vs
  * absolute spec paths), so a build-id-shaped filter like
  * `reagent-testbed` staged a surface in the orchestrator but matched
  * ZERO specs in the runner. These tests pin that:
@@ -28,14 +28,14 @@ const fs = require('fs');
 const assert = require('assert');
 
 const {
-  EXAMPLES,
-  SPEC_ROOTS,
+  ADAPTER_SMOKES,
+  ADAPTER_SMOKE_SPEC_ROOTS,
   REPO_ROOT,
   selectEntries,
   parseFilterPatterns,
   normalizeForFilter,
   entryIdentities,
-} = require('../../examples/scripts/examples-filter.cjs');
+} = require('../../examples/scripts/adapter-smoke-filter.cjs');
 
 let failed = 0;
 
@@ -58,7 +58,7 @@ function selectBuildIds(filter) {
     .sort();
 }
 
-console.log('examples-filter selection tests (rf2-l72e2)');
+console.log('adapter-smoke-filter selection tests (rf2-l72e2)');
 
 const ADAPTERS = ['reagent', 'uix', 'helix'];
 
@@ -66,13 +66,13 @@ const ADAPTERS = ['reagent', 'uix', 'helix'];
 
 it('manifest declares exactly the three adapter smokes', () => {
   assert.deepStrictEqual(
-    EXAMPLES.map((e) => e.build).sort(),
+    ADAPTER_SMOKES.map((e) => e.build).sort(),
     ['adapters/helix-testbed', 'adapters/reagent-testbed', 'adapters/uix-testbed'],
   );
 });
 
 it('every manifest entry carries a specPath that exists on disk', () => {
-  for (const e of EXAMPLES) {
+  for (const e of ADAPTER_SMOKES) {
     assert.ok(e.specPath, `entry ${e.build} has no specPath`);
     assert.ok(
       fs.existsSync(e.specPath),
@@ -132,7 +132,7 @@ for (const name of ADAPTERS) {
 }
 
 // ---- orchestrator/runner equivalence is structural ----------------------
-// Both scripts call selectEntries over the same EXAMPLES manifest. This
+// Both scripts call selectEntries over the same ADAPTER_SMOKES manifest. This
 // test pins that, for every supported filter shape, the set the
 // orchestrator stages (build ids) and the set the runner runs (specPaths)
 // are one-to-one — i.e. no shape stages a surface the runner then can't
@@ -202,7 +202,7 @@ it('an unrelated substring selects nothing (no over-selection)', () => {
 //       (CI, a worktree, a path containing the filter term, …).
 
 it('entryIdentities excludes the absolute spec path (only build id + repo-relative path) (rf2-n4nc2o)', () => {
-  for (const e of EXAMPLES) {
+  for (const e of ADAPTER_SMOKES) {
     const ids = entryIdentities(e);
     assert.strictEqual(ids.length, 2, `entry ${e.build} should expose exactly two identities`);
     // The absolute spec path, normalized, must NOT be one of them.
@@ -228,7 +228,7 @@ it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4
   const segs = path.resolve(REPO_ROOT).split(/[\\/]/).filter(Boolean);
   // Prefer a segment that doesn't coincidentally appear in the stable
   // identities (e.g. avoid a hypothetical `adapters` dir).
-  const identityBlob = EXAMPLES.flatMap(entryIdentities).join('|');
+  const identityBlob = ADAPTER_SMOKES.flatMap(entryIdentities).join('|');
   const leakyTerms = segs.filter(
     (s) => s.length >= 2 && !identityBlob.includes(normalizeForFilter(s)),
   );
@@ -293,9 +293,9 @@ function listSpecFiles(roots) {
   return out.sort();
 }
 
-it('declared manifest spec set == spec.cjs files on disk under SPEC_ROOTS', () => {
-  const declared = EXAMPLES.map((e) => path.resolve(e.specPath)).sort();
-  const discovered = listSpecFiles(SPEC_ROOTS);
+it('declared manifest spec set == spec.cjs files on disk under ADAPTER_SMOKE_SPEC_ROOTS', () => {
+  const declared = ADAPTER_SMOKES.map((e) => path.resolve(e.specPath)).sort();
+  const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS);
   assert.deepStrictEqual(
     discovered,
     declared,
@@ -303,8 +303,8 @@ it('declared manifest spec set == spec.cjs files on disk under SPEC_ROOTS', () =
   );
 });
 
-it('SPEC_ROOTS resolve under the repo root', () => {
-  for (const root of SPEC_ROOTS) {
+it('ADAPTER_SMOKE_SPEC_ROOTS resolve under the repo root', () => {
+  for (const root of ADAPTER_SMOKE_SPEC_ROOTS) {
     assert.ok(
       path.resolve(root).startsWith(path.resolve(REPO_ROOT)),
       `SPEC_ROOT ${root} is outside REPO_ROOT ${REPO_ROOT}`,
@@ -312,28 +312,30 @@ it('SPEC_ROOTS resolve under the repo root', () => {
   }
 });
 
-// ---- root TESTING.md examples-gate drift guard (rf2-n4nc2o) --------------
-// Pin the human-facing gate map to reality: every example-gate script the
-// root testing guide names (the `test:examples*` family) must actually
-// exist in implementation/package.json, so a guide row pointing at a
-// nonexistent command fails loud rather than sending contributors to a
-// dead script. (`test:examples` is the three adapter testbed smokes only —
-// the `examples/` tree is itself test-free.)
+// ---- root TESTING.md example/adapter-smoke-gate drift guard (rf2-n4nc2o) ---
+// Pin the human-facing gate map to reality: every example/adapter-smoke gate
+// script the root testing guide names (the `test:examples*` family — e.g.
+// `test:examples-compile` — and the renamed `test:adapter-smokes` smoke
+// runner) must actually exist in implementation/package.json, so a guide row
+// pointing at a nonexistent command fails loud rather than sending
+// contributors to a dead script. (`test:adapter-smokes` drives the three
+// adapter testbed smokes only — the `examples/` tree is itself test-free.)
 
 const ROOT_TESTING_MD = path.join(REPO_ROOT, 'TESTING.md');
 const PKG_JSON = path.join(REPO_ROOT, 'implementation', 'package.json');
 
-it('every `test:examples*` command named in root TESTING.md exists in implementation/package.json (rf2-n4nc2o)', () => {
+it('every `test:examples*` / `test:adapter-smokes` command named in root TESTING.md exists in implementation/package.json (rf2-n4nc2o)', () => {
   const doc = fs.readFileSync(ROOT_TESTING_MD, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(PKG_JSON, 'utf8'));
   const scripts = new Set(Object.keys(pkg.scripts || {}));
 
-  // The examples gate lives in implementation/package.json; scope the
-  // existence check to the `test:examples`/`test:examples-*`/`:examples`
-  // family the root guide documents, so cross-package script names (e.g.
-  // tools/mcp-conformance's `test:re-frame2-pair*`) don't false-positive.
+  // The example/adapter-smoke gate lives in implementation/package.json;
+  // scope the existence check to the `test:examples`/`test:examples-*` family
+  // the root guide documents PLUS the renamed `test:adapter-smokes` runner, so
+  // cross-package script names (e.g. tools/mcp-conformance's
+  // `test:re-frame2-pair*`) don't false-positive.
   const named = new Set();
-  const re = /test:examples[A-Za-z0-9:_-]*/g;
+  const re = /test:(?:examples[A-Za-z0-9:_-]*|adapter-smokes)/g;
   let m;
   while ((m = re.exec(doc)) !== null) {
     named.add(m[0]);
@@ -348,7 +350,7 @@ it('every `test:examples*` command named in root TESTING.md exists in implementa
 });
 
 if (failed > 0) {
-  console.error(`\nexamples-filter tests: ${failed} failed.`);
+  console.error(`\nadapter-smoke-filter tests: ${failed} failed.`);
   process.exit(1);
 }
-console.log('\nexamples-filter tests: all passed.');
+console.log('\nadapter-smoke-filter tests: all passed.');

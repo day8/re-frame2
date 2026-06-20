@@ -119,7 +119,7 @@ folder's hand-written [`index.html`](index.html) alongside that
 `main.js`, stage the [`examples/_shared/`](../../_shared/) tree next to
 it so the page's `_shared/...` references resolve, then serve
 `out/examples/counter-slim-and-fast/` over HTTP.
-(`npm run test:examples` does not build this standalone example — it
+(`npm run test:adapter-smokes` does not build this standalone example — it
 compiles and serves only the three adapter testbeds; see
 [`examples/README.md`](../../README.md).)
 

@@ -181,7 +181,7 @@ function compileSurfaces() {
 // relative paths like `_shared/css/reagent.css`, so any staged surface
 // whose HTML lives under `examples/` gets the `_shared/` tree mirrored
 // alongside its main.js + index.html. Mirrors the equivalent
-// `stageShared` step in examples/scripts/serve-and-run-examples-tests.cjs
+// `stageShared` step in examples/scripts/serve-and-run-adapter-smokes.cjs
 // (rf2-sivlu — without this the counter index.html 404s on its
 // stylesheet under the Xray gate, the inline layout breaks, and the
 // `source coordinates and launch-mode availability` scenario fails on
@@ -593,7 +593,7 @@ async function main() {
   // token readiness probe and the headless browser only ever hit
   // loopback, so the staged Xray bundle must not be exposed on non-
   // loopback interfaces during the gate run (rf2-utvst; matches
-  // serve-and-run-examples-tests.cjs).
+  // serve-and-run-adapter-smokes.cjs).
   const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
