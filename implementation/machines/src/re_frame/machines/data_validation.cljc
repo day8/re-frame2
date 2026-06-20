@@ -1,6 +1,5 @@
 (ns re-frame.machines.data-validation
-  "Machine `:data` schema validation at the `:where :machine-data` boundary
-  (rf2-jbbp7).
+  "Machine `:data` schema validation at the `:where :machine-data` boundary.
 
   Per Spec 005 §Schema validation: a machine spec may declare a
   top-level `:data-schema` key whose value validates the machine's `:data`
@@ -46,18 +45,17 @@
 ;; return makes the caller SKIP the install, so there is nothing to roll
 ;; back (`:rollback? false`). `:spawn` is the spawn-install pre-check;
 ;; `:update-snapshot` is the snapshot-level escape-hatch pre-write check
-;; (rf2-wrrvs7) — the fx merges the patch onto the live snapshot, so the
-;; validator runs against the would-be-merged snapshot and the fx skips
-;; the `swap-runtime-db!` write on failure. `:macrostep` / `:bootstrap`
+;; — the fx merges the patch onto the live snapshot, so the validator runs
+;; against the would-be-merged snapshot and the fx skips the
+;; `swap-runtime-db!` write on failure. `:macrostep` / `:bootstrap`
 ;; validate the ALREADY-committed snapshot, so a `false` rolls the
 ;; cascade back (`:rollback? true`).
 (def ^:private pre-commit-phases #{:spawn :update-snapshot})
 
 (defn- emit-failure!
-  "Emit `:rf.error/schema-validation-failure` with `:where :machine-data`
-  per the bead's trace-event shape. `phase` is one of `:macrostep` /
-  `:spawn` / `:bootstrap` / `:update-snapshot` — surfaces the lifecycle
-  position to operators.
+  "Emit `:rf.error/schema-validation-failure` with `:where :machine-data`.
+  `phase` is one of `:macrostep` / `:spawn` / `:bootstrap` /
+  `:update-snapshot` — surfaces the lifecycle position to operators.
 
   The trace tag carries:
     :where           :machine-data
@@ -73,18 +71,18 @@
     :recovery        :no-recovery
     :reason          one-sentence diagnostic
 
-  Per Spec 009 / Spec 010 the emit reuses the existing
-  `:rf.error/schema-validation-failure` op; the new `:where` value is
-  the only schema-side extension.
+  Per Spec 009 / Spec 010 the emit reuses the
+  `:rf.error/schema-validation-failure` op; the `:where :machine-data`
+  value is the schema-side extension.
 
-  Per rf2-o69h5 the value-bearing slots (`:value` / `:received` /
-  `:explain`) are routed through the SHARED schema-aware redaction seam
+  The value-bearing slots (`:value` / `:received` / `:explain`) are routed
+  through the SHARED schema-aware redaction seam
   (`:schemas/redact-validation-tags`) BEFORE emit — the same redactor the
   dev-time `validate-*!` hot path and the production boundary interceptor
   use. A machine `:data` schema that marks any slot `:sensitive?` (e.g. an
   auth token in machine data) therefore scrubs those slots to `:rf/redacted`
-  and stamps `:sensitive? true`, closing the a5kzs#1 class on this surface.
-  The hook is unbound only when the schemas artefact is absent — but this
+  and stamps `:sensitive? true`, keeping classified slots out of the error
+  trace. The hook is unbound only when the schemas artefact is absent — but this
   fn is only reached when a schema is registered (validation ran), and the
   schemas artefact owns the validator that ran it, so the hook is bound
   whenever a failure can fire; the `(or redact ...)` fallthrough is
@@ -126,9 +124,9 @@
       router will restore the pre-handler db on a false return).
     - `:phase :spawn` → rollback? false (the snapshot has not yet
       installed; the spawn-fx caller skips the install on false).
-    - `:phase :update-snapshot` → rollback? false (rf2-wrrvs7 — the
-      escape-hatch fx validates the would-be-merged snapshot and skips
-      the `swap-runtime-db!` write on false; nothing was committed)."
+    - `:phase :update-snapshot` → rollback? false (the escape-hatch fx
+      validates the would-be-merged snapshot and skips the
+      `swap-runtime-db!` write on false; nothing was committed)."
   [machine-id snapshot schema phase]
   (if-let [validate-fn (late-bind/get-fn-cached
                          :schemas/validate-with-registered-fn)]
@@ -146,7 +144,7 @@
   resolves through the registered event handler (`:machines/machine-meta`);
   a SPAWNED actor has NO per-instance handler — its TYPE rides the snapshot's
   `:rf/machine-type` reserved slot, so it resolves through
-  `:machines/spec-from-snapshot` (rf2-a2sn1). Returns the schema or nil
+  `:machines/spec-from-snapshot`. Returns the schema or nil
   (no schema / unresolvable spec).
 
   Both resolvers are consumed through the late-bind table to keep this
@@ -170,17 +168,17 @@
   schema / no validator); false on first failure with the per-snapshot trace
   already emitted.
 
-  rf2-2t9xn3: schema resolution goes through `resolve-data-schema`, which
-  resolves a SINGLETON via `machine-meta` AND falls back to the snapshot's
+  Schema resolution goes through `resolve-data-schema`, which resolves a
+  SINGLETON via `machine-meta` AND falls back to the snapshot's
   `:rf/machine-type` (`:machines/spec-from-snapshot`) for a SPAWNED actor.
-  A spawned actor has no per-instance registration, so a `machine-meta`-only
-  lookup returned nil for it and its `:data` was never validated at the
-  macrostep boundary — a schema-violating action committed without rollback
+  A spawned actor has no per-instance registration, so the snapshot fallback
+  is what validates its `:data` at the macrostep boundary — without it a
+  schema-violating action on a spawned actor would commit without rollback
   (the spawn-time `validate-spawn-data!` only catches the INITIAL data).
 
-  EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
-  this validator runs against the new RUNTIME-DB value (the `:rf.db/runtime`
-  effect a machine macrostep commit produces) — NOT app-db. The router calls
+  Machine snapshots are durable runtime-db state, so this validator runs
+  against the new RUNTIME-DB value (the `:rf.db/runtime` effect a machine
+  macrostep commit produces) — NOT app-db. The router calls
   it after the partitioned commit whenever a runtime-db effect landed; on
   `false` the router rolls back the WHOLE transition (same mechanism as the
   `:where :app-db` rollback).
@@ -194,8 +192,8 @@
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
   ;; be invoked uniformly.
   (if interop/debug-enabled?
-    ;; Per the validate-app-schema! pattern (rf2-wkxng): validate EVERY
-    ;; snapshot (no short-circuit) so each failing machine surfaces its
+    ;; Per the validate-app-schema! pattern: validate EVERY snapshot (no
+    ;; short-circuit) so each failing machine surfaces its
     ;; own trace (consumers see the full set), AND-conjoining the per-
     ;; snapshot conform decision so the router decides rollback
     ;; deterministically. A snapshot whose machine declares no `:data-schema`
@@ -234,18 +232,17 @@
     true))
 
 (defn validate-update-snapshot-data!
-  "rf2-wrrvs7 — sibling validator for the `:rf.machine/update-snapshot`
-  escape-hatch fx. Validates the WOULD-BE-MERGED `snapshot`'s `:data`
-  against the actor's resolved `:data-schema` BEFORE the fx writes the
-  patch into runtime-db. Returns true on conform / no schema / no validator
-  (the fx proceeds with the write); false on failure (the fx SKIPS the
-  write so the invalid `:data` never installs).
+  "Sibling validator for the `:rf.machine/update-snapshot` escape-hatch fx.
+  Validates the WOULD-BE-MERGED `snapshot`'s `:data` against the actor's
+  resolved `:data-schema` BEFORE the fx writes the patch into runtime-db.
+  Returns true on conform / no schema / no validator (the fx proceeds with
+  the write); false on failure (the fx SKIPS the write so the invalid
+  `:data` never installs).
 
   Spec 005 §Snapshot-level escape hatch: user error/status state lives
   under `:data` *where `:data-schema` validation covers it* — so an
   escape-hatch `:data` patch is NOT exempt from the `:where :machine-data`
-  boundary. The prior code merged the patch directly via `swap-runtime-db!`
-  and bypassed this boundary, letting an invalid `:data` stick.
+  boundary; this validator gates the escape-hatch merge.
 
   This is a PRE-WRITE rejection (nothing committed → nothing to roll back):
   the failure emits `:where :machine-data :phase :update-snapshot

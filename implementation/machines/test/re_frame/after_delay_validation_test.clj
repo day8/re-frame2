@@ -1,18 +1,16 @@
 (ns re-frame.after-delay-validation-test
-  "Per rf2-apfait (Finding 2) — `:after` delay KEYS are validated at
-  registration. The schema (Spec-Schemas §`:rf/state-node` `:after`,
-  1699-1705) constrains an `:after` map key to one of three closed forms:
-  a positive integer (literal ms), a non-empty subscription vector
-  (`[sub-id & args]`), or a function. Before this fix, an invalid STATIC
-  key (`-1`, `0`, `\"soon\"`, `nil`, `[]`) passed `validate-machine!` and
-  degraded to a runtime `:rf.warning/no-clock-configured` no-op at fx time
-  — delaying authoring feedback and letting tools/conformance treat an
-  invalid machine as valid.
+  "`:after` delay KEYS are validated at registration. The schema
+  (Spec-Schemas §`:rf/state-node` `:after`, 1699-1705) constrains an
+  `:after` map key to one of three closed forms: a positive integer
+  (literal ms), a non-empty subscription vector (`[sub-id & args]`), or a
+  function. An invalid STATIC key (`-1`, `0`, `\"soon\"`, `nil`, `[]`) is
+  rejected by `validate-machine!` with `:rf.error/machine-bad-after-delay`,
+  giving authoring-time feedback rather than letting tools/conformance treat
+  an invalid machine as valid.
 
-  `validate-machine!` now rejects such keys with
-  `:rf.error/machine-bad-after-delay`. DYNAMIC delays (a subscription
-  vector / fn that RESOLVES to an invalid ms at runtime) keep their
-  fx-time warning — only the static key shape is gated here (covered by
+  DYNAMIC delays (a subscription vector / fn that RESOLVES to an invalid ms
+  at runtime) keep their fx-time `:rf.warning/no-clock-configured` warning —
+  only the static key shape is gated here (covered by
   `re-frame.after-test`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

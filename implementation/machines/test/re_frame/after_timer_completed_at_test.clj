@@ -1,23 +1,21 @@
 (ns re-frame.after-timer-completed-at-test
-  "rf2-hawtjr — the machine `:after` timer reply path carries the CAUSAL
-  `:completed-at` (EP-0011 §Timer Reply / Managed-Effects §Causal completion
-  metadata).
+  "The machine `:after` timer reply path carries the CAUSAL `:completed-at`
+  (EP-0011 §Timer Reply / Managed-Effects §Causal completion metadata).
 
-  The spawned-machine `:rf.machine/done` reply already threads the finishing
+  The spawned-machine `:rf.machine/done` reply threads the finishing
   dispatch's `:rf.cofx :rf/time-ms` into the reply + trace; the `:after`
-  timer reply path previously did NOT. The synthetic `:after`-elapsed
-  dispatch is itself a causal token carrying a fresh router-stamped
-  `:rf/time-ms` (the same fire-time token the firing guard / action read),
-  and a fired `:after` timer's transition can mutate machine snapshot
-  `:data` — so per Managed-Effects §Causal completion metadata the
-  completion time MUST ride the fired-timer reply, and §Tracing wants it on
-  the stale-timer suppression trace too.
+  timer reply path does the same. The synthetic `:after`-elapsed dispatch is
+  itself a causal token carrying a fresh router-stamped `:rf/time-ms` (the
+  same fire-time token the firing guard / action read), and a fired `:after`
+  timer's transition can mutate machine snapshot `:data` — so per
+  Managed-Effects §Causal completion metadata the completion time rides the
+  fired-timer reply, and §Tracing carries it on the stale-timer suppression
+  trace too.
 
-  These tests drive the REAL `interop/schedule-after!` fire boundary (the
-  rf2-hg39nf recipe) so the timer-fire dispatch is router-stamped with a
-  known fire-time clock value, then assert `:completed-at` /
-  `:rf.reply/completed-at` ride the `:rf.machine.timer/fired` and
-  `:rf.machine.timer/stale-after` traces."
+  These tests drive the REAL `interop/schedule-after!` fire boundary so the
+  timer-fire dispatch is router-stamped with a known fire-time clock value,
+  then assert `:completed-at` / `:rf.reply/completed-at` ride the
+  `:rf.machine.timer/fired` and `:rf.machine.timer/stale-after` traces."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]

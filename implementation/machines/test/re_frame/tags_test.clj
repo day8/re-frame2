@@ -1,5 +1,5 @@
 (ns re-frame.tags-test
-  "Per Spec 005 §State tags and rf2-ee0d (Nine States Stage 1).
+  "Per Spec 005 §State tags (Nine States Stage 1).
 
   State-tag semantics covered:
     - Flat machine: the snapshot's :tags is the active state's tag set.
@@ -16,8 +16,7 @@
 
   These JVM tests pair with the conformance fixtures
   spec/conformance/fixtures/tags-{flat,compound,empty,round-trip}.edn.
-  The CLJS surface is exercised by re-frame.machines-tags-cljs-test
-  (split out of the former monolithic re-frame.machines-cljs-test per rf2-3vps4)."
+  The CLJS surface is exercised by re-frame.machines-tags-cljs-test."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -29,7 +28,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 

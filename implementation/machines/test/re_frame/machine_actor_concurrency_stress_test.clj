@@ -1,14 +1,14 @@
 (ns re-frame.machine-actor-concurrency-stress-test
-  "Per rf2-1gpx8 — JVM concurrency stress coverage for the machine actor
-  spawn/destroy/invoke lifecycle. Mirrors rf2-35rgj's router concurrency
+  "JVM concurrency stress coverage for the machine actor
+  spawn/destroy/invoke lifecycle. Mirrors the router concurrency
   stress pattern (`concurrency_stress_test.clj`) but targets the actor
   surface instead of the router.
 
   The deterministic machine-test suite covers correctness single-shot;
   this namespace pins the actor surface under parallel
   `(rf/dispatch [machine-id ...] {:frame F})` from many threads. The
-  invariants are the same as rf2-35rgj's: **no event dropped** and **no
-  double-action**.
+  invariants are the same as the router stress test's: **no event dropped**
+  and **no double-action**.
 
   The shape — per Spec 005 §Declarative `:spawn` + Spec 002 §Rules
   rule 1 (frames are independent state machines, their drain-locks don't
@@ -29,7 +29,7 @@
       one shared `worker-mid` would only bind the last closure.
         1. `(rf/dispatch-sync [driver-mid [:go]]   {:frame F})` —
            drives the parent into `:working`, which spawns the worker
-           via `:rf.machine/spawn` fx (rf2-t07u — runtime tracks the
+           via `:rf.machine/spawn` fx (the runtime tracks the
            spawned id at `[:rf.runtime/machines :spawned <driver-mid> [:working]]`).
         2. `(rf/dispatch-sync [<actor-id> [:tick]] {:frame F})` —
            dispatches a `:tick` event AT THE SPAWNED ACTOR. The
@@ -57,20 +57,19 @@
     3. **Clean destroy lifecycle.** Every frame's
        `[:rf.runtime/machines :snapshots]` slot MUST be empty at
        quiescence — every worker spawned was destroyed, no actor
-       leaked. Per rf2-t07u Option A revised the
-       `[:rf.runtime/machines :spawned ...]` slot is lazy-allocation
-       pruned and MUST be absent.
+       leaked. The `[:rf.runtime/machines :spawned ...]` slot is
+       lazy-allocation pruned and MUST be absent.
 
     4. **Spawn-counter monotonicity.** Each frame's parent-snapshot
        slot `[:rf.runtime/machines :snapshots <driver-mid> :rf/spawn-counter <worker-mid>]`
        MUST equal `iters` at the end — every iter allocated exactly
-       one fresh worker id from the parent's in-snapshot counter
-       (rf2-gr8q), never colliding, never skipping.
+       one fresh worker id from the parent's in-snapshot counter,
+       never colliding, never skipping.
 
   Threads start in lockstep via `CountDownLatch.countDown` — the same
-  shape rf2-35rgj scenario 2 uses to maximise contention. Per-thread
-  iters default to 5000 (rf2-ynk7 / rf2-35rgj standard); env-overridable
-  via `RF2_1GPX8_STRESS_ITERS`.
+  shape the router stress test's scenario 2 uses to maximise contention.
+  Per-thread iters default to 5000; env-overridable via
+  `RF2_1GPX8_STRESS_ITERS`.
 
   CLJS is single-threaded; the JVM is the only runtime where the actor
   spawn/destroy lifecycle CAN race across threads. This test is
@@ -94,15 +93,15 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; Per-thread iteration count. Kept at the rf2-ynk7 / rf2-35rgj standard
-;; 5000 so CI stays under ~60s wall-clock with the default thread count.
+;; Per-thread iteration count. Kept at the standard 5000 so CI stays under
+;; ~60s wall-clock with the default thread count.
 ;; Operators dial up via the env override; CI dials down by lowering it
 ;; (e.g. `RF2_1GPX8_STRESS_ITERS=500` for a smoke-test pass).
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_1GPX8_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — matches rf2-ynk7's `concurrent-dispatch-stress`
+;; Eight parallel threads — matches the `concurrent-dispatch-stress`
 ;; (`n-submitters 8`). Higher contention than the typical 4-core CI box;
 ;; the per-frame partitioning means we're not over-saturating any one
 ;; drain-lock, we're driving N independent spawn/destroy cycles in
@@ -140,7 +139,7 @@
   entry to `:working` and destroys it on exit. Per Spec 005
   §Declarative `:spawn` the runtime tracks the spawned id at
   `[:rf.runtime/machines :spawned <driver-mid> [:working]]`; on exit back to `:idle` the
-  matched destroy fx fires automatically (rf2-t07u Option A revised)."
+  matched destroy fx fires automatically."
   [worker-mid]
   {:initial :idle
    :states  {:idle    {:on {:go :working}}
@@ -150,9 +149,9 @@
 ;; ---- the stress test ------------------------------------------------------
 
 (deftest ^:stress actor-spawn-dispatch-destroy-stress
-  ;; rf2-1gpx8 — mirrors rf2-35rgj's pattern for the machine actor surface.
+  ;; Mirrors the router stress test's pattern for the machine actor surface.
   ;;
-  ;; The two pinned invariants are the same as rf2-35rgj's: every
+  ;; The two pinned invariants are the same as the router stress test's: every
   ;; dispatched event ran exactly once (no drops) and every transition
   ;; fired exactly once per dispatch (no doubles). Two distinct counter
   ;; views (per-thread atom + global AtomicLong) detect them
@@ -201,9 +200,8 @@
                             (rf/dispatch-sync [driver-mid [:go]]
                                               {:frame frame-id})
                             ;; Resolve the spawned actor id from the
-                            ;; runtime-owned registry (rf2-t07u Option A
-                            ;; revised — the framework writes the slot
-                            ;; on every declarative-:spawn spawn).
+                            ;; runtime-owned registry (the framework writes
+                            ;; the slot on every declarative-:spawn spawn).
                             ;; Reading the frame's app-db is safe: frame
                             ;; state is independent (Spec 002 §Rules
                             ;; rule 1) and this thread holds the only
@@ -223,8 +221,8 @@
         ;; Bounded join — if the cycle ever hangs (e.g. a destroy fx
         ;; that doesn't fire under contention), we want a visible
         ;; failure rather than a stuck CI run. 120s gives ample
-        ;; headroom for 8 × 5000 cycles on a slow box; pre-fix races
-        ;; that drop events would surface as either a counter
+        ;; headroom for 8 × 5000 cycles on a slow box; a race
+        ;; that drops events surfaces as either a counter
         ;; mismatch OR a future hanging at a downstream dispatch.
         (doseq [f futures]
           (let [v (deref f 120000 ::timeout)]
@@ -279,15 +277,14 @@
                 (str "Frame " frame-id ": expected zero leaked worker "
                      "actor snapshots; got " (count worker-leaks)
                      " leaks: " (pr-str (mapv first worker-leaks))))
-            ;; Per rf2-t07u the empty `[:rf.runtime/machines :spawned]`
-            ;; slot is pruned to absent — all spawn-registry slots were
-            ;; cleared on destroy.
+            ;; The empty `[:rf.runtime/machines :spawned]` slot is pruned to
+            ;; absent — all spawn-registry slots were cleared on destroy.
             (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
                 (str "Frame " frame-id ": [:rf.runtime/machines :spawned] "
                      "slot must be lazy-allocation pruned (every spawn "
                      "was matched by a destroy); got "
                      (pr-str (get-in db [:rf.runtime/machines :spawned]))))
-            ;; Per rf2-gr8q the declarative-:spawn allocator lives in
+            ;; The declarative-:spawn allocator lives in
             ;; the parent's snapshot at
             ;; `[:rf.runtime/machines :snapshots <driver-mid> :rf/spawn-counter <worker-mid>]`
             ;; — the spawn-counter bumps inside the transition reducer

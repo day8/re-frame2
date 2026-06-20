@@ -18,9 +18,7 @@
   pure runtime bookkeeping, has no observer contract, and never
   participates in revertibility (destroyed actors stay destroyed). The
   same pattern is used for the `:after` timer table in
-  `re-frame.machines.timer/after-timers`.
-
-  Per rf2-vsigt — the frame-destroy machine-cascade fix.")
+  `re-frame.machines.timer/after-timers`.")
 
 #?(:clj (set! *warn-on-reflection* true))
 

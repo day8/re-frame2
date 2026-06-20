@@ -1,15 +1,14 @@
 (ns re-frame.cancellation-reply-envelope-test
-  "rf2-sfunt8 — machine cancellation terminal paths close the work attempt
-  the reply-envelope way (EP-0011 §Cancellation / Managed-Effects
-  §Cancellation: \"Cancellation is represented as data, not as the absence
-  of a reply\").
+  "Machine cancellation terminal paths close the work attempt the
+  reply-envelope way (EP-0011 §Cancellation / Managed-Effects §Cancellation:
+  \"Cancellation is represented as data, not as the absence of a reply\").
 
-  Previously a cancelled `:after` timer, a destroyed actor, and a
-  `:spawn-all` join-survivor cancellation completed by ABSENCE of a reply —
-  their traces carried reason / state / epoch but no canonical `:work/id`,
-  `:rf.reply/status :cancelled`, `:rf.reply/work-status`, or `:cancel/reason`.
-  A cancelled timer / actor could therefore have a scheduled / spawned START
-  but no terminal EP-0011 reply row.
+  A cancelled `:after` timer, a destroyed actor, and a `:spawn-all`
+  join-survivor cancellation each carry a canonical terminal reply: their
+  traces carry reason / state / epoch ALONGSIDE a canonical `:work/id`,
+  `:rf.reply/status :cancelled`, `:rf.reply/work-status`, and `:cancel/reason`
+  — so a cancelled timer / actor closes its scheduled / spawned START with a
+  terminal EP-0011 reply row.
 
   These tests pin the reply-envelope facts on the three cancellation traces:
    1. `:rf.machine.timer/cancelled` (on state exit) →

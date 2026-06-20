@@ -1,18 +1,18 @@
 (ns re-frame.spawn-on-spawn-throw-test
-  "Per rf2-km4bn4. A throwing `:on-spawn` advisory callback must route
-  through the documented machine action exception contract — exactly as a
-  throwing `:action` / `:data`-fn does (spawn_data_fn_form_test §4) — and
-  MUST NOT escape as a generic `:rf.error/handler-exception`.
+  "A throwing `:on-spawn` advisory callback routes through the documented
+  machine action exception contract — exactly as a throwing `:action` /
+  `:data`-fn does (spawn_data_fn_form_test §4) — and MUST NOT escape as a
+  generic `:rf.error/handler-exception`.
 
   `:on-spawn` is a machine action (resolved through `:on-spawn-actions`
-  with `:actions` fallback, Spec 005 §Declarative `:spawn`). Pre-fix the
-  callback was invoked raw (no try/catch, no Result conversion), so a
-  buggy observer aborted the whole event as an uncaught handler failure —
-  bypassing the machine-scoped `:rf.error/machine-action-exception`
-  diagnostic, the frame-tagged trace, and the atomic-rollback discipline.
+  with `:actions` fallback, Spec 005 §Declarative `:spawn`). The callback is
+  invoked inside the machine layer's try/catch with Result conversion, so a
+  throwing observer is caught and routed through the machine-scoped
+  `:rf.error/machine-action-exception` diagnostic, the frame-tagged trace,
+  and the atomic-rollback discipline — never aborting the whole event as an
+  uncaught handler failure.
 
-  The contract the fix establishes, verified here for BOTH single `:spawn`
-  and `:spawn-all`:
+  The contract, verified here for BOTH single `:spawn` and `:spawn-all`:
 
    1. A throwing `:on-spawn` emits EXACTLY ONE
       `:rf.error/machine-action-exception` (op-type `:error`) stamped with
@@ -34,7 +34,7 @@
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support
-;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+;; — no hardcoded `[:rf.runtime/machines …]` path.
 (def ^:private snapshot mtest/snapshot)
 (def ^:private frame-db mtest/runtime-db)
 
@@ -59,8 +59,8 @@
 
 (defn- handler-exceptions
   "The generic `:rf.error/handler-exception` envelopes among `traces` —
-  the contract violation this fix closes (the throw must NOT reach the
-  core dispatch boundary)."
+  the throw must NOT reach the core dispatch boundary, so this is expected
+  to be empty."
   [traces]
   (filter #(= :rf.error/handler-exception (:operation %)) traces))
 

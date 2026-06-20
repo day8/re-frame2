@@ -1,6 +1,6 @@
 (ns re-frame.birth-always-cljs-test
-  "Per rf2-505ic (xstate-v5 / SCXML parity) — the machine's INITIAL
-  MACROSTEP is initial-entry + the eventless (`:always`) + raise settle.
+  "xstate-v5 / SCXML parity — the machine's INITIAL MACROSTEP is
+  initial-entry + the eventless (`:always`) + raise settle.
   After the initial-entry cascade builds the birth snapshot, the SAME
   raise-drain + `:always` fixed-point loop the event macrostep uses runs
   BEFORE the birth commit, so a transient initial leaf whose `:always`
@@ -50,7 +50,7 @@
 ;; PURE — birth eventless settle via `apply-initial-entry-cascade`
 ;; ===========================================================================
 ;;
-;; `apply-initial-entry-cascade` is the machine's single birth site; it now
+;; `apply-initial-entry-cascade` is the machine's single birth site; it
 ;; composes the initial-entry cascade with `settle-birth` (the raise-drain +
 ;; `:always` fixed-point). `boot` builds the freshly-synthesised initial
 ;; snapshot via `build-initial-snapshot` (the same source-of-truth the
@@ -85,16 +85,16 @@
   [fx]
   (boolean (some (fn [[fx-id]] (= :raise fx-id)) fx)))
 
-;; ---- bz0ox.1 — birth-time `:entry` `:raise` drains INSIDE the macrostep ----
+;; ---- birth-time `:entry` `:raise` drains INSIDE the macrostep -------------
 ;;
 ;; XState v5 / SCXML §3.13: the initial macrostep runs initial-entry THEN
 ;; the internal-event-queue drain. A `raise` emitted by an initial `:entry`
 ;; enters the machine's ONE internal queue and is consumed before quiescence
-;; — it never surfaces as an outbound (reserved) effect. Before the fix
-;; `settle-birth` seeded the drain with an EMPTY fx vector, so an initial
-;; `:entry`'s `[:raise ...]` was concatenated onto the OUTBOUND fx instead of
-;; draining: the birth snapshot stuck at the pre-raise leaf and a reserved
-;; `:raise` fx escaped to the global layer (→ `:rf.error/no-such-fx`).
+;; — it never surfaces as an outbound (reserved) effect. `settle-birth`
+;; seeds the drain with the initial-entry's own fx, so an initial `:entry`'s
+;; `[:raise ...]` drains INSIDE the birth macrostep: the birth snapshot
+;; settles to the raised-event target and no reserved `:raise` fx escapes to
+;; the global layer.
 
 (deftest pure-birth-entry-raise-drains-flat
   (testing "(bz0ox.1) a flat machine whose initial `:entry` raises `[:go]`
@@ -293,7 +293,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 

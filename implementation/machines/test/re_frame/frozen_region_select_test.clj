@@ -1,7 +1,6 @@
 (ns re-frame.frozen-region-select-test
   "Per Spec 005 §Transition broadcast (select-then-apply) + §Cross-region
-  coordination (rf2-42mml — XState v5 / SCXML parity, verified vs
-  xstate@5.32.0).
+  coordination (XState v5 / SCXML parity, verified vs xstate@5.32.0).
 
   XState v5 selects the enabled transition set for a parallel macrostep
   against the PRE-EVENT configuration / context, THEN runs the selected
@@ -11,12 +10,11 @@
   accumulating — the one value that flows). The cross-region `:all-state` /
   `:tags` a guard OR action reads are frozen (statechart atomicity).
 
-  This REVERSES rf2-46ly6's evolving READ-TIMING but KEEPS its CAPABILITY:
-  a region guard / action still reads a sibling's state via `:all-state`
-  (precise) / `:tags` (coarse). Only the snapshot those keys resolve
-  against flips (frozen pre-event, not evolving same-event).
+  A region guard / action reads a sibling's state via `:all-state`
+  (precise) / `:tags` (coarse), resolved against the frozen pre-event
+  snapshot — not an evolving same-event view.
 
-  Acceptance fixtures (the bead's list):
+  Acceptance fixtures:
     (1) `:data` write in region A is NOT visible to region B's same-event
         GUARD (B sees the frozen pre-event `:data`); B fires only on a
         later event / raised rebroadcast.
@@ -42,7 +40,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
@@ -261,9 +259,9 @@
     (let [ab (:state (snapshot :frozen/order-ab))
           ba (:state (snapshot :frozen/order-ba))]
       ;; Under FROZEN selection, b's guard sees frozen :a=:idle in BOTH
-      ;; orderings → b stays :idle in both. (Under the OLD evolving model,
-      ;; a-then-b would have leaked a=:done to b and opened it — the
-      ;; declaration-order-dependent footgun this fix removes.)
+      ;; orderings → b stays :idle in both. An evolving same-event model
+      ;; would leak a=:done to b for a-then-b and open it — the
+      ;; declaration-order-dependent footgun frozen selection avoids.
       (is (= {:a :done :b :idle} ab)
           "a-then-b: b saw frozen :a=:idle → b blocked")
       (is (= {:a :done :b :idle} ba)

@@ -1,14 +1,13 @@
 (ns re-frame.machine-spawn-unregistered-type-test
-  "rf2-ywv74m — fail-closed spawn of an UNREGISTERED machine TYPE.
+  "Fail-closed spawn of an UNREGISTERED machine TYPE.
 
-  Mike ruling (2026-06-15): a `:rf.machine/spawn` (or a `:spawn-all`
-  per-child) whose `:machine-id` names no registered machine TYPE — and
-  which carries no inline `:definition` — is REJECTED fail-closed and emits
-  the NEW always-on `:rf.error/machine-spawn-unregistered-type`. The
-  implicit \"spec-less spawn\" lifecycle is REMOVED: a rejected spawn
-  installs NO snapshot, NO slot, NO system-id, allocates NO spawned-id,
-  records NO spawn-order entry, fires NO `:rf.machine.spawn/spawned` trace,
-  and dispatches NO `:start`.
+  A `:rf.machine/spawn` (or a `:spawn-all` per-child) whose `:machine-id`
+  names no registered machine TYPE — and which carries no inline
+  `:definition` — is REJECTED fail-closed and emits the always-on
+  `:rf.error/machine-spawn-unregistered-type`. There is no implicit
+  spec-less spawn lifecycle: a rejected spawn installs NO snapshot, NO slot,
+  NO system-id, allocates NO spawned-id, records NO spawn-order entry, fires
+  NO `:rf.machine.spawn/spawned` trace, and dispatches NO `:start`.
 
   Pinned here (the bead's required contract):
 

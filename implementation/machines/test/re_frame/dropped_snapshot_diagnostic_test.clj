@@ -1,23 +1,17 @@
 (ns re-frame.dropped-snapshot-diagnostic-test
   "Spec 005 / Conventions §The clobber footgun is eliminated structurally —
-  the `{:db fresh-map}` footgun is GONE under the two-partition frame
-  (EP-0001 rf2-vzld77).
+  the `{:db fresh-map}` footgun is structurally impossible under the
+  two-partition frame.
 
-  Pre-migration, machine snapshots sat under an `:rf/runtime` root INSIDE
-  app-db, so an event returning a from-scratch `:db` effect wholesale-replaced
-  app-db and silently dropped every live machine snapshot — the footgun the
-  `:rf.warning/runtime-state-dropped` diagnostic flagged. Under the
-  two-partition contract machine snapshots live in the **runtime-db**
-  partition at `[:rf.runtime/machines :snapshots <id>]`, and an ordinary `:db`
-  effect replaces ONLY app-db — runtime-db is a partition the handler never
-  holds. So a fresh-map `:db` return CANNOT touch a live machine snapshot:
-  the footgun is structurally impossible, not merely warned.
+  Machine snapshots live in the **runtime-db** partition at
+  `[:rf.runtime/machines :snapshots <id>]`, and an ordinary `:db` effect
+  replaces ONLY app-db — runtime-db is a partition the handler never holds.
+  So a fresh-map `:db` return CANNOT touch a live machine snapshot: the
+  footgun is structurally impossible, not merely warned.
 
   These machines-artefact integration tests prove that property end-to-end
   against a genuine registered machine: a from-scratch `:db` return leaves the
-  machine ALIVE and the snapshot intact. (The legacy `:rf/runtime`-root hard
-  error + the retirement of the now-vestigial `:rf.warning/runtime-state-dropped`
-  diagnostic are bead 9 — rf2-tfepxu.)
+  machine ALIVE and the snapshot intact.
 
   JVM-only by intent — the commit path is substrate-independent."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -39,9 +33,9 @@
   (reset! frame/frames {})
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; machine fxs require a carried frame stamp. Register `:rf/default`
-  ;; explicitly and pin it as the established scope for the body.
+  ;; `init!` does not synthesise `:rf/default`, and machine fxs require a
+  ;; carried frame stamp. Register `:rf/default` explicitly and pin it as the
+  ;; established scope for the body.
   (frame/ensure-default-frame!)
   (require 're-frame.machines :reload)
   (machines/reset-timers!)
@@ -57,7 +51,7 @@
    :states  {:off {:on {:flip :on}}
              :on  {:on {:flip :off}}}})
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4).
+;; snapshot lookup via the shared machines test-support.
 (defn- live-snapshot?
   [machine-id]
   (some? (mtest/snapshot machine-id)))
@@ -65,8 +59,7 @@
 (defn- with-recorder
   "Register a recorder, run `body-fn`, return captured
   :rf.warning/runtime-state-dropped events. Routed through the shared
-  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-  unregister in a `finally`."
+  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
   [body-fn]
   (mtest/with-trace-capture recorded
     (body-fn)
@@ -87,11 +80,10 @@
 (deftest fresh-db-return-cannot-drop-a-live-machine
   (testing "an event returning {:db fresh-map} leaves the live machine ALIVE — machine snapshots are runtime-db, an ordinary :db effect replaces ONLY app-db"
     (register-live-machine!)
-    ;; The former footgun: a handler (here a plain event, but the same shape a
-    ;; boot-machine action emits inside a cascade) rebuilds app-db from
-    ;; scratch. Pre-migration this dropped the `:rf/runtime` app-db root and
-    ;; with it the live :diag/m1 snapshot. Under the two-partition contract
-    ;; the snapshot lives in runtime-db, which `:db` never holds.
+    ;; A handler (here a plain event, but the same shape a boot-machine
+    ;; action emits inside a cascade) rebuilds app-db from scratch. Under the
+    ;; two-partition contract the live :diag/m1 snapshot lives in runtime-db,
+    ;; which `:db` never holds — so the from-scratch `:db` cannot drop it.
     (rf/reg-event :diag/reboot (fn [{:keys [db]} _] {:db {:fresh-app-state true}}))
     (let [warnings (with-recorder #(rf/dispatch-sync [:diag/reboot]))]
       (is (empty? warnings)

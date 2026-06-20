@@ -1,10 +1,8 @@
 (ns re-frame.machines-wildcard-fallthrough-cljs-test
-  "Per Spec 005 §Transition resolution / §Wildcard transitions and
-  rf2-icj9t. CORRECTNESS coverage for the CROSS-KEY explicit→`:*`
-  fallthrough rule (Mike ruled 2026-06-04: A = FALLTHROUGH, an engine
-  change).
+  "Per Spec 005 §Transition resolution / §Wildcard transitions.
+  CORRECTNESS coverage for the CROSS-KEY explicit→`:*` fallthrough rule.
 
-  The ruled invariant: `:*` is the LEAST-PRIORITY ENABLED transition at
+  The invariant: `:*` is the LEAST-PRIORITY ENABLED transition at
   its level — NOT a 'no explicit KEY exists' fallback. A guard-blocked
   explicit `:on` entry must fall through to the same-level `:*`, and if no
   same-level wildcard is enabled, resolution walks to the parent (whose own
@@ -27,8 +25,8 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- seed-snapshot!
@@ -38,7 +36,7 @@
   the whole machine."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; Machine snapshots are durable runtime-db state.
     (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots machine-id] snap)}))
@@ -64,10 +62,8 @@
       (rf/reg-machine :icj9t/same-level machine)
       (reset! log [])
       ;; :foo's explicit guard returns false ⇒ the explicit candidate is
-      ;; NOT enabled. Under the OLD behaviour the wildcard was consulted
-      ;; only when no explicit KEY existed, so :foo resolved to the no-op
-      ;; and :* never fired. Under the ruling the blocked explicit falls
-      ;; through to the same-level :* — :wildcard-action fires.
+      ;; NOT enabled. The blocked explicit falls through to the same-level
+      ;; :* — :wildcard-action fires.
       (rf/dispatch-sync [:icj9t/same-level [:foo]])
       (is (= [:wildcard] @log)
           "guard-blocked explicit :foo fell through to same-level :*")

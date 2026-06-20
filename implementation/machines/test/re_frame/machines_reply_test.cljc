@@ -1,7 +1,7 @@
 (ns re-frame.machines-reply-test
   "Pure unit tests for `re-frame.machines.reply` — the machine family's
   slice of the uniform reply envelope (EP-0011 §Machine Completion /
-  §Timer Reply; Managed-Effects §The uniform reply envelope, rf2-zqefg3.4).
+  §Timer Reply; Managed-Effects §The uniform reply envelope).
 
   These exercise the PURE reply-shaping helpers directly: the
   `:rf.work/machine` work-id construction (generation parsed off the
@@ -37,13 +37,12 @@
       (is (= wid (m-reply/spawn-work-id :a/b#3 [:x])))
       (is (= wid (read-string (pr-str wid)))))))
 
-;; ---- (rf2-ny0yrz C4) cross-platform actor-generation determinism ----------
-;; CLJS `js/parseInt "3abc" 10` leniently yields 3, while CLJ
-;; `Long/parseLong "3abc"` THROWS → falls through to generation 1. A
-;; `:fixed-actor-id` carrying a `#` followed by a non-fully-numeric suffix
-;; therefore minted DIFFERENT work-ids per platform — a determinism break.
-;; The CLJS branch now tests `#"\d+"` (fully numeric) before parseInt so
-;; both platforms default a malformed suffix to generation 1.
+;; ---- cross-platform actor-generation determinism --------------------------
+;; A `:fixed-actor-id` carrying a `#` followed by a non-fully-numeric suffix
+;; defaults to generation 1 on BOTH platforms. CLJS `js/parseInt "3abc" 10`
+;; leniently yields 3 while CLJ `Long/parseLong "3abc"` THROWS, so the CLJS
+;; branch tests `#"\d+"` (fully numeric) before parseInt — both platforms
+;; agree on generation 1 for a malformed suffix (no determinism break).
 
 (deftest actor-generation-numeric-suffix
   (testing "a fully-numeric #n suffix parses to n on both platforms"
@@ -58,7 +57,8 @@
 (deftest actor-generation-malformed-suffix-is-one-cross-platform
   (testing "C4: a # followed by a NON-fully-numeric suffix is generation 1 on
             BOTH CLJ and CLJS (no lenient js/parseInt divergence)"
-    ;; partially-numeric: CLJS js/parseInt used to yield 3 here; CLJ threw → 1
+    ;; partially-numeric: a lenient CLJS js/parseInt would yield 3 here, CLJ
+    ;; would throw — the `#"\d+"` pre-check defaults both to 1
     (is (= 1 (m-reply/actor-generation :weird/actor#3abc))
         "partially-numeric suffix defaults to generation 1 on both platforms")
     ;; non-numeric suffix: NaN (CLJS) / throw (CLJ) — both already → 1
@@ -189,7 +189,7 @@
                :frame           :rf/default})]
       (is (= :stale (:status r)))
       (is (= :timer (:work/kind r)) "machine :after is a specialized timer instance")
-      ;; rf2-niarhz — the canonical :work/id joins the uniform work/reply rows;
+      ;; the canonical :work/id joins the uniform work/reply rows;
       ;; the SCHEDULED epoch (the timer's attempt identity) keys it.
       (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
       (is (= :suppressed (:work/status r)))
@@ -225,7 +225,7 @@
         (is (true? (-> r :correlation :guard-suppressed?)))
         (is (reply/valid-reply? r))))))
 
-;; ---- terminal cancellation replies (rf2-sfunt8) ---------------------------
+;; ---- terminal cancellation replies ----------------------------------------
 
 (deftest cancelled-timer-reply-is-canonical
   (testing "rf2-sfunt8 — a cancelled :after timer is :status :cancelled DATA"

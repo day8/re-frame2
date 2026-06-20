@@ -1,10 +1,10 @@
 (ns re-frame.machine-source-coord-cljs-test
-  "CLJS coverage for co-located per-element source stamping (rf2-npvsx +
-  rf2-vqja2, supersedes rf2-8bp3). Per Spec 005 §Source-coord stamping the
-  `reg-machine` macro walks the literal spec form at expansion time and
-  CO-LOCATES per-element source onto each guard / action / on-spawn-action
-  entry, and CO-LOCATES a reference-site `:source-coords` onto each MAP node
-  inside the `:states` tree (state-node / transition map) at its spec-path.
+  "CLJS coverage for co-located per-element source stamping. Per Spec 005
+  §Source-coord stamping the `reg-machine` macro walks the literal spec form
+  at expansion time and CO-LOCATES per-element source onto each guard /
+  action / on-spawn-action entry, and CO-LOCATES a reference-site
+  `:source-coords` onto each MAP node inside the `:states` tree (state-node /
+  transition map) at its spec-path.
 
   The CLJS counterpart of machine_source_coord_test.clj. Per the keyword-
   reference rule the macro captures:
@@ -160,7 +160,7 @@
     (is (some? (node-coords :rf2-8bp3/hier [:states :outer :states :inner :on :go]))
         "transition map inside hierarchical inner state co-locates its coord")))
 
-;; ---- inline-fn :source-code co-location (rf2-se70xj) ----------------------
+;; ---- inline-fn :source-code co-location -----------------------------------
 
 ;; Read the inline-fn `:source-code` string for an inline slot off the
 ;; enclosing `:states`-tree map node.

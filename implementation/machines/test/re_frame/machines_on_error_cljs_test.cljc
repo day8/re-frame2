@@ -1,9 +1,9 @@
 (ns re-frame.machines-on-error-cljs-test
-  "Per rf2-5hlsh — first-class `:spawn :on-error` (XState v5 invoke `onError`).
+  "First-class `:spawn :on-error` (XState v5 invoke `onError`).
 
   When a `:spawn`-spawned child FAILS, the runtime routes the failure to the
   spawning parent's `:spawn :on-error` TRANSITION (control flow — a declarative
-  parent state change), SYMMETRIC with the existing `:spawn :on-done` teardown
+  parent state change), SYMMETRIC with the `:spawn :on-done` teardown
   hook. Two triggers:
 
     (1) the child reaches a designated ERROR `:final?` leaf (`:error? true`) —
@@ -11,12 +11,11 @@
         transition's `:event`;
     (2) an uncaught child action exception
         (`:rf.error/machine-action-exception`) — the exception envelope rides
-        into the `:on-error` transition's `:event` (this was formerly
-        observability-only).
+        into the `:on-error` transition's `:event`.
 
-  `:on-error` is ADDITIVE: the trace emission (observability) and the explicit
-  dispatch-back-to-parent escape hatch both keep working; `:on-error` is the
-  declarative invoke-site control-flow form.
+  `:on-error` works alongside both observability surfaces: the trace emission
+  and the explicit dispatch-back-to-parent escape hatch both keep working;
+  `:on-error` is the declarative invoke-site control-flow form.
 
   Tests:
     (a) child reaches error `:final?` leaf → parent `:on-error :target` fires
@@ -29,14 +28,14 @@
         unchanged (regression);
     (f) malformed `:on-error` / `:error?`-without-`:final?` rejected at
         registration;
-    (g) parallel-PARENT region `:spawn` (rf2-r09fc) — a `:spawn` declared
+    (g) parallel-PARENT region `:spawn` — a `:spawn` declared
         inside a parallel REGION keys its `:spawned` slot under the REAL
         parent (not `:rf/transition-pure`), so BOTH the region's `:spawn
         :on-done` and `:spawn :on-error` resolve REGION-SCOPED end-to-end
         (error `:final?` leaf AND uncaught child-action exception), with the
         sibling region untouched.
     (h) parallel-region explicit `:on {:rf.machine.spawn/error …}` escape
-        hatch is REGION-scoped (rf2-w84jv) — a sibling region's explicit
+        hatch is REGION-scoped — a sibling region's explicit
         handler must NOT catch another region's child failure.
 
   Named `*-cljs-test.cljc` so it runs under both cognitect.test-runner (JVM)
@@ -59,8 +58,8 @@
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- spawned-id-for
@@ -332,22 +331,21 @@
                                               :on-error {:target :errored}}}
                             :errored {:final? true :error? true}}})))))
 
-;; ---- (g) parallel-PARENT region :spawn :on-done / :on-error (rf2-r09fc) -----
+;; ---- (g) parallel-PARENT region :spawn :on-done / :on-error -----
 ;;
-;; Per rf2-r09fc — a declarative `:spawn` declared INSIDE a parallel REGION
-;; must key its `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot
-;; under the REAL parent machine-id (the parallel machine itself), NOT the
+;; A declarative `:spawn` declared INSIDE a parallel REGION keys its
+;; `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot under the REAL
+;; parent machine-id (the parallel machine itself), NOT the
 ;; `:rf/transition-pure` fallback. `parallel/reduce-regions` re-stamps the live
 ;; parent-id onto the synthetic region-spec, so both `:spawn :on-done` AND
-;; `:spawn :on-error` (rf2-5hlsh) resolve region-scoped end-to-end. The
+;; `:spawn :on-error` resolve region-scoped end-to-end. The
 ;; resolvers (`pick-spawn-done-transition` / `pick-spawn-error-transition`)
 ;; strip the region-name prefix off the invoke-id so the hook fires at the
 ;; region's own state level — exactly as `pick-after-transition` does.
 ;;
-;; The bead's quirk was that the region's child carried a bogus
-;; `:data :rf/parent-id` of `:rf/transition-pure`, so NEITHER hook could
-;; resolve the parent from the child's finalize. These tests assert the slot
-;; now keys under the real parent and both hooks fire region-scoped.
+;; The region's child carries its `:data :rf/parent-id` as the real parent so
+;; both hooks resolve the parent from the child's finalize. These tests assert
+;; the slot keys under the real parent and both hooks fire region-scoped.
 
 (deftest parallel-region-spawn-keys-slot-under-real-parent
   (testing "a :spawn declared inside a parallel region keys its :spawned slot under the REAL parent id (not :rf/transition-pure) and the child's :data :rf/parent-id is the real parent (rf2-r09fc)"
@@ -476,18 +474,17 @@
       (is (= :idle (get-in (snapshot :rf2-r09fc-g3/parent) [:state :other]))
           "the sibling :other region is untouched — :on-error is region-local"))))
 
-;; ---- (h) explicit :on {:rf.machine.spawn/error …} escape hatch is REGION-scoped (rf2-w84jv) ----
+;; ---- (h) explicit :on {:rf.machine.spawn/error …} escape hatch is REGION-scoped ----
 ;;
-;; Per rf2-w84jv — the spawn-error broadcast reaches EVERY region's resolver
+;; The spawn-error broadcast reaches EVERY region's resolver
 ;; (`drain-parent-queue`), so the explicit `:on {:rf.machine.spawn/error …}`
-;; escape-hatch arm of `pick-spawn-error-transition` must decline outright in a
+;; escape-hatch arm of `pick-spawn-error-transition` declines outright in a
 ;; FOREIGN region (a region whose name does not match the invoke-id head),
 ;; SYMMETRIC with the `:spawn :on-error` arm and with `pick-done-transition`'s
-;; region-identity `decline-region?` gate. Before the fix the foreign region
-;; nilled its invoke-id (correctly disabling the `:spawn :on-error` arm) but
-;; still fell through to the explicit-`:on` arm, letting a SIBLING region's
-;; explicit handler catch another region's child failure — violating XState v5
-;; `invoke onError` region scoping.
+;; region-identity `decline-region?` gate. A foreign region nils its invoke-id
+;; (disabling the `:spawn :on-error` arm) AND declines the explicit-`:on` arm,
+;; so a SIBLING region's explicit handler never catches another region's child
+;; failure — upholding XState v5 `invoke onError` region scoping.
 
 (deftest parallel-region-explicit-on-spawn-error-is-region-scoped
   (testing "an explicit :on {:rf.machine.spawn/error …} in a sibling region does NOT catch another region's child failure (rf2-w84jv)"
@@ -505,8 +502,8 @@
     ;; the event falls through to the explicit-`:on` walk). :loader's own
     ;; explicit `:on {:rf.machine.spawn/error :handled}` then catches it
     ;; in-region; the sibling :other declares a DECOY explicit handler that
-    ;; must NEVER fire — the failure belongs to :loader's region. Before the
-    ;; fix :other's decoy caught :loader's child failure (foreign-region leak).
+    ;; must NEVER fire — the failure belongs to :loader's region, and the
+    ;; explicit escape hatch is region-scoped.
     (rf/reg-machine :rf2-w84jv-h/parent
       {:type    :parallel
        :data    {}

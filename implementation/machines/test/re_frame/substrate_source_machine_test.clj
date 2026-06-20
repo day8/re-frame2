@@ -1,8 +1,8 @@
 (ns re-frame.substrate-source-machine-test
-  "Per rf2-ejtpd — substrate-internal `:source` values stamped at the
-  machine-substrate dispatch sites. JVM coverage; the substrate stamp
-  paths are platform-agnostic `.cljc` so the assertions hold uniformly
-  across CLJS reagent / plain-atom / JVM hosts.
+  "Substrate-internal `:source` values stamped at the machine-substrate
+  dispatch sites. JVM coverage; the substrate stamp paths are
+  platform-agnostic `.cljc` so the assertions hold uniformly across CLJS
+  reagent / plain-atom / JVM hosts.
 
   | new `:source` value | stamped by                            | when                                                    |
   |---------------------|---------------------------------------|---------------------------------------------------------|
@@ -84,11 +84,9 @@
           (is (= [:after-source/flow [:rf.machine.timer/after-elapsed 1000 1 [:loading]]]
                  (get-in timer-ev [:tags :rf.event/v]))
               "the dispatched event vector carries the machine id + synthetic trigger")
-          ;; Per rf2-1ve9h the prior `:rf/dispatch-origin :timer` axis
-          ;; was collapsed into `:source` — `:after-timer` is now the
-          ;; single functional-origin discriminator (Mike-approved
-          ;; Option A, 2026-05-28). No separate `:rf/dispatch-origin`
-          ;; tag rides alongside.
+          ;; `:source` is the single functional-origin discriminator —
+          ;; `:after-timer` carries the axis. No separate
+          ;; `:rf/dispatch-origin` tag rides alongside.
           (is (nil? (get-in timer-ev [:tags :rf/dispatch-origin]))
               ":rf/dispatch-origin retired per rf2-1ve9h — `:source` carries the axis"))
         (finally (trace-tooling/unregister-listener! ::after-src))))))
@@ -143,7 +141,7 @@
 (deftest machine-spawn-synthetic-spawned-stamps-source-machine-spawn
   (testing "machine spawn fx stamps :source :machine-spawn on the synthetic [:rf.machine.spawn/spawned] event"
     ;; When the spawn args omit :start, the runtime dispatches
-    ;; [<child-id> [:rf.machine.spawn/spawned]] (rf2-ijm7) — same stamp path.
+    ;; [<child-id> [:rf.machine.spawn/spawned]] — same stamp path.
     (let [parent-machine
           {:initial :idle
            :data    {}
@@ -182,13 +180,13 @@
 
 (deftest machine-action-dispatch-stamps-source-machine-action
   (testing ":dispatch fx from a machine handler stamps :source :machine-action (rf2-c3990)"
-    ;; Per rf2-c3990: when the parent envelope carries
-    ;; `:rf.machine/internal? true` (the router stamps this on every
-    ;; machine-handler invocation), the `:dispatch` fx handler stamps
-    ;; the child envelope with `:source :machine-action` instead of the
-    ;; ordinary `:fx-dispatch` — the actor-message path. This lets
-    ;; tools distinguish machine-emitted continuations from plain
-    ;; `:dispatch` fx cascades in a non-machine handler.
+    ;; When the parent envelope carries `:rf.machine/internal? true` (the
+    ;; router stamps this on every machine-handler invocation), the
+    ;; `:dispatch` fx handler stamps the child envelope with
+    ;; `:source :machine-action` instead of the ordinary `:fx-dispatch` —
+    ;; the actor-message path. This lets tools distinguish machine-emitted
+    ;; continuations from plain `:dispatch` fx cascades in a non-machine
+    ;; handler.
     (let [parent-machine
           {:initial :idle
            :actions {:emit-action
@@ -221,8 +219,8 @@
   (testing ":dispatch fx from a NON-machine event handler retains :source :fx-dispatch (rf2-c3990)"
     ;; The :machine-action stamp is conditional on the parent envelope
     ;; carrying `:rf.machine/internal? true`. Ordinary event handlers
-    ;; that emit `:dispatch` keep the pre-rf2-c3990 `:fx-dispatch`
-    ;; stamp — this regression-guards the discriminator.
+    ;; that emit `:dispatch` keep the `:fx-dispatch` stamp — this
+    ;; regression-guards the discriminator.
     (let [seen (atom [])]
       (rf/reg-event :ordinary/parent
         (fn [_ctx _]

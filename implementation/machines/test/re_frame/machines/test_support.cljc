@@ -1,17 +1,14 @@
 (ns re-frame.machines.test-support
   "Shared test-support helpers for the machines artefact's test suite.
-  Per rf2-3l8lqe finding #4.
 
-  Before this namespace existed, the machines tests hand-rolled the same
-  handful of fixtures and probes in dozens of small local copies: a
-  private `frame-db` (`rf/runtime-db-value`), a private `snapshot`
-  (`get-in db [:rf.runtime/machines :snapshots id]`) repeated ~30 times,
-  and a trace-capture register/unregister dance repeated ~15 times — each
-  copy a drift point when machine storage, frame handling, or trace
-  listener cleanup changes. A false green could hide where one copy was
-  updated and another still read the old shape.
+  This namespace is the suite's ONE home for the fixtures and probes the
+  machines tests share — a single `frame-db` (`rf/runtime-db-value`), a
+  single `snapshot` (`get-in db [:rf.runtime/machines :snapshots id]`), and a
+  single trace-capture register/unregister helper — so machine storage,
+  frame handling, and trace-listener cleanup have one place to track rather
+  than dozens of local copies that could drift out of sync.
 
-  This namespace gives the suite ONE home for:
+  It gives the suite ONE home for:
 
     - the **reset-runtime fixture** (re-exported from core's
       `re-frame.test-support`, so a test ns requires one support ns);

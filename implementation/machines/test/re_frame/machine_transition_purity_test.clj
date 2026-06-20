@@ -1,11 +1,11 @@
 (ns re-frame.machine-transition-purity-test
-  "Per rf2-gr8q. Locks in the contract that `machine-transition`'s
-  RETURNED VALUE is a deterministic function of its arguments —
-  identical (machine, snapshot, event) triples produce identical Result
-  values (snapshot + effects vector) INCLUDING the spawn-id sequencing
-  inside emitted `:rf.machine/spawn` fx maps.
+  "Locks in the contract that `machine-transition`'s RETURNED VALUE is a
+  deterministic function of its arguments — identical (machine, snapshot,
+  event) triples produce identical Result values (snapshot + effects vector)
+  INCLUDING the spawn-id sequencing inside emitted `:rf.machine/spawn` fx
+  maps.
 
-  ## What \"pure\" means here (rf2-3l8lqe finding #1)
+  ## What \"pure\" means here
 
   \"Pure\" is scoped to the REDUCTION: the Result depends only on the
   arguments, with no module-level mutable state and no `app-db` read. It
@@ -19,23 +19,13 @@
   the snapshot/fx value and never read back into the reduction. The
   determinism property below is therefore independent of whether any
   listener is registered — the test asserts the RETURNED Result, not the
-  absence of a trace side channel. (Decoupling trace into an
-  interpreter-owned sink is an open architectural ruling, not assumed
-  here.)
+  absence of a trace side channel.
 
-  Pre-rf2-gr8q the spawn-id allocator was a module-level
-  `(defonce spawn-counter (atom {}))` keyed on `[frame-id machine-id]`
-  in `re-frame.machines.transition`. The function's docstring promised
-  pure / deterministic but the allocator was a side effect: a second
-  identical call returned different spawn-ids (`:worker#2` vs the first
-  call's `:worker#1`). The conformance corpus only worked because the
-  per-fixture reset zeroed the atom between fixtures.
-
-  Post-rf2-gr8q the counter lives inside the snapshot at
+  The spawn-id allocator counter lives inside the snapshot at
   `:rf/spawn-counter` (a per-machine-id integer map); each spawn bumps
   the slot via `update-in` and the returned snapshot carries the bumped
-  value. The function is now deterministic from its arguments — the
-  property this test locks in.
+  value. The function is deterministic from its arguments — the property
+  this test locks in.
 
   Two flavours of the property:
 
@@ -79,11 +69,10 @@
           "two pure-call invocations from the same input produce the same next-snapshot")
       (is (= fx1 fx2)
           "two pure-call invocations from the same input produce the same effects vector")
-      ;; Per rf2-d0wem (informed by rf2-ra1he §TE1): assert only the
-      ;; load-bearing slots of the emitted spawn fx — the contract — and
-      ;; leave implementation-detail keys (`:id-prefix`, exact arg-map
-      ;; shape, the user-passed `:data` / `:start` echo) free to evolve
-      ;; without churning this test. The contract is:
+      ;; Assert only the load-bearing slots of the emitted spawn fx — the
+      ;; contract — and leave implementation-detail keys (`:id-prefix`, exact
+      ;; arg-map shape, the user-passed `:data` / `:start` echo) free to
+      ;; evolve without churning this test. The contract is:
       ;;   - the fx-id is `:rf.machine/spawn`
       ;;   - `:rf/spawned-id` is `:http/post#1` (allocator deterministic)
       ;;   - `:rf/parent-id` is `:rf/transition-pure` (sentinel for the
@@ -109,10 +98,10 @@
       ;; `get-in`.
       (is (= :authenticating (:state snap1))
           "snapshot's :state advances to :authenticating")
-      ;; Per rf2-rc8wci the pure transition now binds the spawned id into the
-      ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
-      ;; parity) — part of the pure-fn result, deterministic from the inputs.
-      ;; No USER-domain `:data` key was written; only the reserved capture.
+      ;; The pure transition binds the spawned id into the parent's own
+      ;; `:data` under `[:rf/spawned <invoke-id>]` (XState-context parity) —
+      ;; part of the pure-fn result, deterministic from the inputs. No
+      ;; USER-domain `:data` key was written; only the reserved capture.
       (is (= {:rf/spawned {[:authenticating] :http/post#1}} (:data snap1))
           "the spawned id is captured into the parent's :data under :rf/spawned (XState-context parity)")
       (is (empty? (dissoc (:data snap1) :rf/spawned))
@@ -122,8 +111,8 @@
 
   (testing "different input snapshots allocate independently — no shared module-level counter"
     ;; Two separate input snapshots, each starting at counter 0, both
-    ;; allocate `:http/post#1`. Pre-rf2-gr8q the second would have
-    ;; produced `:http/post#2` because the atom carried over.
+    ;; allocate `:http/post#1` — the allocator counter lives in the
+    ;; snapshot, so the two calls never share state.
     (let [snap-a {:state :idle :data {:tag :a}}
           snap-b {:state :idle :data {:tag :b}}
           {fx-a ::result/fx} (machines/machine-transition auth-flow-spec snap-a [:submit])
@@ -149,10 +138,9 @@
 
 ;; ---- trace is an observability side channel, not part of the reduction ----
 ;;
-;; Per rf2-3l8lqe finding #1 (honest-purity contract): the reducer emits
-;; `trace/emit!` diagnostic events inline, but those emits are pure
-;; OBSERVABILITY — they never feed back into the returned Result. This
-;; test pins both halves of the contract the bead asks for: (a) the
+;; The honest-purity contract: the reducer emits `trace/emit!` diagnostic
+;; events inline, but those emits are pure OBSERVABILITY — they never feed
+;; back into the returned Result. This test pins both halves: (a) the
 ;; RETURNED transition value is identical whether or not a listener is
 ;; registered (the reduction is independent of the trace side channel),
 ;; and (b) the engine DID emit the expected trace data when a listener
@@ -208,7 +196,7 @@
       (is (= {:worker 3} (:rf/spawn-counter snap'))
           "three :worker children bumped the slot to 3"))))
 
-;; ---- Pure transition smoke (relocated from core/smoke_test.clj, rf2-zqar3) ----
+;; ---- Pure transition smoke ----
 ;;
 ;; These pin baseline machine-transition behaviours — flat transitions,
 ;; :always microsteps, and pre-commit :raise routing. Co-located with the
@@ -244,15 +232,14 @@
           {s ::result/snap} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
       (is (= :authed (:state s))))))
 
-;; ---- depth-limit boundary parity (rf2-r26e2) ------------------------------
+;; ---- depth-limit boundary parity ------------------------------------------
 ;;
 ;; Per Spec 005 §Bounded depth (005:1276) the `:always` microstep loop and
 ;; the `:raise` drain share the same default (16) and the same intent: a
 ;; limit of N permits exactly N steps before the cascade aborts uncommitted.
-;; The `:always` loop bounds on `(>= depth limit)`; pre-rf2-r26e2 the
-;; `:raise` drain bounded on `(> depth limit)`, which silently permitted one
-;; extra recursion (N+1). These two tests pin the boundary to N on BOTH
-;; paths so the operators can never drift apart again.
+;; Both the `:always` loop and the `:raise` drain bound on `(>= depth limit)`,
+;; so a limit of N permits exactly N steps. These two tests pin the boundary
+;; to N on BOTH paths so the operators stay in lockstep.
 ;;
 ;; The boundary is a pure-engine property, observed here via the `:depth`
 ;; tag the depth-exceeded error trace carries: with the `>=` boundary the
@@ -263,8 +250,7 @@
   "Drive a pure `machine-transition` while a tooling listener records traces,
   returning the `:depth` tag of the first error trace whose `:operation`
   matches `error-op` (or nil if none fired). Routed through the shared
-  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed unregister
-  in a `finally`."
+  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
   [error-op definition snapshot event]
   (mtest/with-trace-capture seen
     (machines/machine-transition definition snapshot event)
@@ -301,8 +287,7 @@
     ;; the bound (same shape as raise-depth-exceeded-tag-carries-frame).
     ;; With :raise-depth-limit 4 and 6 raises in one batch the drain
     ;; processes raises at depths 0..3 then aborts at depth 4 — the SAME
-    ;; boundary the :always loop above hits at its limit. Pre-rf2-r26e2
-    ;; (`> depth limit`) the abort fired at depth 5 (N+1), one past parity.
+    ;; boundary the :always loop above hits at its limit (`>= depth limit`).
     (let [spec {:initial :idle
                 :data    {}
                 :raise-depth-limit 4
@@ -322,19 +307,17 @@
       (is (= 4 depth)
           ":raise aborts at depth == limit (4) — same boundary as :always (was 5 pre-fix)"))))
 
-;; ---- transitive self-chaining raise depth (rf2-b88nm) ---------------------
+;; ---- transitive self-chaining raise depth ---------------------------------
 ;;
 ;; The `raise-depth-boundary-matches-always-boundary` test above bounds
 ;; BREADTH — N raise siblings drained from a single `:fx` vector through
-;; one `drain-raises` queue. But a SELF-CHAINING single-raise (a state
-;; whose `:raise` re-targets a path that itself raises) recurses through
-;; nested `machine-transition-single` → `drain-raises` frames. Pre-fix
-;; each nested `drain-raises` restarted its depth counter at 0, so the
-;; transitive chain was UNBOUNDED: a runaway self-chain blew the JVM call
-;; stack (StackOverflowError) instead of firing the clean
-;; `:rf.error/machine-raise-depth-exceeded`. The fix threads the
-;; transitive raise-depth across the nested recursion so self-chaining
-;; raises accumulate against the same `:raise-depth-limit`.
+;; one `drain-raises` queue. A SELF-CHAINING single-raise (a state whose
+;; `:raise` re-targets a path that itself raises) recurses through nested
+;; `machine-transition-single` → `drain-raises` frames. The transitive
+;; raise-depth threads across the nested recursion so self-chaining raises
+;; accumulate against the same `:raise-depth-limit` — a runaway self-chain
+;; fires the clean `:rf.error/machine-raise-depth-exceeded` rather than
+;; blowing the JVM call stack.
 
 (deftest self-chaining-raise-bounded-transitively
   (testing "an infinitely self-chaining :raise hits :raise-depth-limit cleanly,

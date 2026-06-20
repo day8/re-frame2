@@ -1,6 +1,6 @@
 (ns re-frame.machine-schema-test
-  "Per rf2-jbbp7. Verifies the `:data-schema` key on `reg-machine` and the
-  new `:where :machine-data` validation boundary.
+  "Verifies the `:data-schema` key on `reg-machine` and the
+  `:where :machine-data` validation boundary.
 
   The contract under test:
 
@@ -27,8 +27,8 @@
       unaffected; the framework's existing behaviour is preserved.
 
    6. **Tag payload.** Failures carry `:machine-id`, `:phase`, `:value`,
-      `:explain`, `:rollback?`, `:recovery` so the Xray attachment bead
-      (rf2-xgeag) and other downstream consumers have the full surface.
+      `:explain`, `:rollback?`, `:recovery` so the Xray per-step attachment
+      and other downstream consumers have the full surface.
 
   Tests use Malli schemas (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -36,9 +36,9 @@
             [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             ;; The schemas artefact ships the registered-validator hot
-            ;; path the new `:where :machine-data` boundary routes
-            ;; through; the `.malli` adapter ns publishes Malli's
-            ;; validate/explain into the late-bind table.
+            ;; path the `:where :machine-data` boundary routes through;
+            ;; the `.malli` adapter ns publishes Malli's validate/explain
+            ;; into the late-bind table.
             [re-frame.machines.test-support :as mtest]
             [re-frame.schemas]
             [re-frame.schemas.malli]
@@ -50,8 +50,8 @@
 (defn- collect-traces!
   "Run `f` while collecting every `:rf.error/schema-validation-failure`
   trace event. Returns the captured trace events as a vector. Routed through
-  the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-  unregister in a `finally`."
+  the shared `mtest/with-trace-capture` — guaranteed unregister in a
+  `finally`."
   [f]
   (mtest/with-trace-capture traces
     (f)
@@ -111,8 +111,8 @@
             "tag carries the offending :data value")
         (is (true? (:rollback? tag))
             "tag declares :rollback? true (commit was rolled back)")
-        ;; `:recovery` is hoisted onto the trace envelope (per rf2-twt7m),
-        ;; not inside `:tags` — mirrors the `:where :app-db` projection.
+        ;; `:recovery` is hoisted onto the trace envelope, not inside
+        ;; `:tags` — mirrors the `:where :app-db` projection.
         (is (= :no-recovery (:recovery trace-ev))
             "trace envelope declares :no-recovery (consistent with :where :app-db)")
         ;; Rollback restores pre-handler app-db.
@@ -123,7 +123,7 @@
                        [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
             "the machine's snapshot returns to its pre-handler value")))))
 
-;; ---- (2b) macrostep boundary on a SPAWNED actor (rf2-2t9xn3) -------------
+;; ---- (2b) macrostep boundary on a SPAWNED actor -------------
 
 (deftest spawned-actor-macrostep-violation-rolls-back-and-emits
   (testing "a SPAWNED actor (no per-instance handler) whose transition action
@@ -178,8 +178,9 @@
         (is (true? (:rollback? tag))
             "tag declares :rollback? true (commit must be rolled back)")
         ;; The whole point: the macrostep ROLLS BACK — the violating :data
-        ;; does not commit. Pre-fix, machine-meta returns nil for the spawned
-        ;; actor → validation is skipped → {:n 0} commits and no rollback fires.
+        ;; does not commit. The schema resolves off the snapshot's
+        ;; :rf/machine-type (not via machine-meta, which returns nil for a
+        ;; spawned actor), so the validation runs and the rollback fires.
         (is (= snap-before
                (get-in (rf/runtime-db-value :rf/default)
                        [:rf.runtime/machines :snapshots
@@ -259,10 +260,9 @@
         (is (nil? (get-in (rf/runtime-db-value :rf/default)
                           [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
             "rejected spawn: snapshot is not in app-db")
-        ;; rf2-f3kp7 — atomic reject. The prior code called `reg-machine*`
-        ;; out of step with the install gate, leaking a registered event
-        ;; handler + a phantom `(rf/machines)` entry for the rejected actor.
-        ;; A schema-rejected spawn must register NOTHING.
+        ;; Atomic reject: a schema-rejected spawn registers NOTHING —
+        ;; no event handler, no `(rf/machines)` entry — the install gate
+        ;; and registration are in lockstep.
         (is (nil? (registrar/lookup :event :rf.machine-schema/spawned))
             "rejected spawn: NO event handler is registered (rf2-f3kp7)")
         (is (not (contains? (set (machines/machines)) :rf.machine-schema/spawned))
@@ -313,6 +313,6 @@
         (is (contains? tag :value)        ":value present (Xray reads the failing slot)")
         (is (contains? tag :explain)      ":explain present (Xray renders Malli explanation)")
         (is (contains? tag :rollback?)    ":rollback? present (Xray's blast-radius muting)")
-        ;; `:recovery` rides the trace envelope, not :tags (rf2-twt7m).
+        ;; `:recovery` rides the trace envelope, not :tags.
         (is (contains? trace-ev :recovery) ":recovery present on trace envelope")
         (is (string? (:reason tag))       ":reason is a human-readable string")))))

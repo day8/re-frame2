@@ -1,6 +1,6 @@
 (ns re-frame.machines.lifecycle-fx.spawn-error
   "Spawn `:on-error` routing — the child-failure → parent-transition wiring
-  (rf2-5hlsh; XState v5 `invoke onError`).
+  (XState v5 `invoke onError`).
 
   Per Spec 005 §Final states §`:on-error`, when a `:spawn`-spawned child
   FAILS, the runtime routes the failure to the spawning parent's
@@ -44,9 +44,9 @@
 
 (defn- resolve-parent-spec
   "Resolve the spawning parent's machine spec from `parent-id` against `db`.
-  Per rf2-a2sn1 — a singleton parent has a registrar entry; a NESTED spawn
-  whose parent is itself a spawned actor (no per-instance registration) is
-  resolved from its own snapshot's `:rf/machine-type`. Mirrors the resolution
+  A singleton parent has a registrar entry; a NESTED spawn whose parent is
+  itself a spawned actor (no per-instance registration) is resolved from its
+  own snapshot's `:rf/machine-type`. Mirrors the resolution
   `finalize-machine` does for `:on-done`."
   [db parent-id]
   (when parent-id
@@ -58,7 +58,7 @@
   "Walk `parent-spec`'s state tree to the `:spawn`-bearing node at `invoke-id`
   (the absolute prefix-path stamped at spawn time) and return its `:spawn`
   map. For a parallel-region parent the first element of `invoke-id` is the
-  region name (per rf2-l67o); strip and descend into that region's body.
+  region name; strip and descend into that region's body.
   Returns nil if the path doesn't resolve or the node declares no `:spawn`.
   (Same resolution as `finalize/find-spawn-spec-at` — duplicated here so this
   leaf namespace stays independent of `finalize`, which depends on it.)"
@@ -90,7 +90,7 @@
   "Dispatch the reserved parent-failure event
   `[<parent-id> [:rf.machine.spawn/error <invoke-id> <error>]]` into the
   spawning parent so its macrostep fires the declarative `:spawn :on-error`
-  transition (rf2-5hlsh). `error` is the failure payload that rides on the
+  transition. `error` is the failure payload that rides on the
   parent transition's `:event` (the child's `:output-key` slot for the
   error-leaf trigger, or the exception envelope for the action-exception
   trigger). No-op when the `:router/dispatch!` hook is absent (pure-fn /

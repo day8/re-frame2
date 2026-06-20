@@ -1,11 +1,9 @@
 (ns re-frame.machines-initial-cascade-cljs-test
-  "CLJS-side coverage for the initial-state cascade on first dispatch
-  (rf2-m1tv). Per Spec 005 §Initial-state cascading: when a machine is first
+  "CLJS-side coverage for the initial-state cascade on first dispatch.
+  Per Spec 005 §Initial-state cascading: when a machine is first
   instantiated and its declared `:initial` lands on a compound state, the
   runtime descends the `:initial` chain to a leaf path on snapshot synthesis.
-  Without this, the first event resolves against the wrong state-node level.
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  Without this, the first event resolves against the wrong state-node level."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -15,7 +13,7 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 

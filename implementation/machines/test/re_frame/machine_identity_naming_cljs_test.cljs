@@ -1,12 +1,10 @@
 (ns re-frame.machine-identity-naming-cljs-test
-  "Adversarial coverage for the machine-identity naming split
-  (rf2-0ggtr5 + rf2-ws5thu).
+  "Adversarial coverage for the machine-identity naming split.
 
-  Two formerly-overloaded names were split into three distinct identity
-  facts. These tests pin the distinctions so a future regression that
-  re-conflates them fails loudly:
+  Machine identity is carried as three distinct facts. These tests pin the
+  distinctions so a regression that re-conflates them fails loudly:
 
-   1. **TYPE vs live actor INSTANCE** (rf2-ws5thu). The live-actor lifecycle
+   1. **TYPE vs live actor INSTANCE**. The live-actor lifecycle
       traces (`:rf.machine/transition`, `:rf.machine/done`,
       `:rf.machine/system-id-bound` / `-released`, the `:rf.machine.timer/*`
       rows, `:rf.machine.lifecycle/destroyed`) carry the INSTANCE address
@@ -16,12 +14,11 @@
       `:rf.machine.lifecycle/created` spec-time-type rows). For a SPAWNED
       actor the two are provably different values (`<type>#<n>` ≠ `<type>`).
 
-   2. **Explicit actor-address INPUT vs declarative invocation PATH**
-      (rf2-0ggtr5). On one declarative `:spawn` the explicit-address input
-      key `:fixed-actor-id` (was `:spawn-id`) and the runtime-stamped
-      invocation-path key `:rf/invoke-id` (was `:rf/spawn-id`) are distinct
-      facts carrying distinct shapes (a bare keyword address vs a state-path
-      vector)."
+   2. **Explicit actor-address INPUT vs declarative invocation PATH**.
+      On one declarative `:spawn` the explicit-address input
+      key `:fixed-actor-id` and the runtime-stamped invocation-path key
+      `:rf/invoke-id` are distinct facts carrying distinct shapes (a bare
+      keyword address vs a state-path vector)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.trace.tooling :as trace-tooling]
@@ -135,7 +132,7 @@
                    :working
                    {:spawn {:machine-id     :idn3/child
                             ;; explicit actor-address INPUT — pins the id
-                            ;; instead of gensym (was the overloaded :spawn-id).
+                            ;; instead of gensym.
                             :fixed-actor-id :idn3/pinned}}}}]
       (rf/reg-machine :idn3/child child)
       (rf/reg-machine :idn3/parent parent)
@@ -158,7 +155,7 @@
             "the explicit-address identity and the invocation-path identity are NOT conflated")
         (is (keyword? (:rf/self-id child-data)))
         (is (vector?  (:rf/invoke-id child-data)))
-        ;; The retired overloaded keys MUST be absent.
+        ;; The overloaded `:rf/spawn-id` key is not a reserved key.
         (is (not (contains? child-data :rf/spawn-id))
             "the retired reserved key :rf/spawn-id is gone (now :rf/invoke-id)")))))
 

@@ -1,14 +1,13 @@
 (ns re-frame.machines.tooling
-  "Machines tooling sibling of `re-frame.machines` — carries the EP-0014
-  slice-6 derivation/process algebra view of registered machines, their live
+  "Machines tooling sibling of `re-frame.machines` — carries the
+  derivation/process algebra view of registered machines, their live
   snapshots, and their spawned actors (`machine-algebra-view`,
   `machine-instance-algebra-view`, `machine-selector?`) that pair tools
   (Xray, re-frame2-pair-mcp) and the conformance fixtures query, but no
   production application code reads.
 
-  Mirrors the rf2-s8w3nw `re-frame.flows.tooling` split (and the rf2-bmzq0
-  `re-frame.subs.tooling` / rf2-qwm0a `re-frame.trace.tooling` splits before
-  it):
+  Mirrors the `re-frame.flows.tooling` split (and the
+  `re-frame.subs.tooling` / `re-frame.trace.tooling` splits):
     - CLJS consumers needing the surface call
       `re-frame.machines.tooling/<name>` directly. Apps that load the
       machines artefact but never attach a tool DCE the body wholesale (the
@@ -39,7 +38,7 @@
       actor's TYPE spec through `re-frame.machines.lifecycle-fx.resolver`.
 
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Machines expose
-  algebra views (graduated from EP-0014) and the projected Malli shapes in
+  algebra views and the projected Malli shapes in
   [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -49,7 +48,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- algebra views (EP-0014 slice-6) -------------------------------------
+;; ---- algebra views --------------------------------------------------------
 ;;
 ;; Per [Derivations.md] §Machines expose algebra views — a machine is the
 ;; canonical `:process` member of the derivation/process algebra (a derivation
@@ -62,24 +61,21 @@
 ;; its `:machine-instance` lifecycle.
 ;;
 ;; A machine SELECTOR — an ordinary `reg-sub` over `[:rf/machine …]` — is NOT
-;; a member surfaced here: per EP-0014 issue-4 (no second subscription system)
-;; selectors stay ORDINARY subscription `:derivation` nodes, classified by
-;; slice-2's `re-frame.subs.tooling/sub-algebra-view` like any other sub. This
+;; a member surfaced here: selectors are not a second subscription system,
+;; they stay ORDINARY subscription `:derivation` nodes, classified by
+;; `re-frame.subs.tooling/sub-algebra-view` like any other sub. This
 ;; ns provides only the `machine-selector?` recognizer so a graph tool can
 ;; label a subscription node that reads a machine snapshot with the
 ;; `:machine-selector` refinement + the `:selector` edge role — the machine
 ;; itself remains the stateful `:process`, the selector an ephemeral
 ;; `:derivation` over its materialized snapshot.
 ;;
-;; This is the *registrar-derived* slice (Derivations §The EP-0013 relocation
-;; seam): the machine-process node is assembled from the machine spec metadata
-;; at the surface that registered it, NOT (yet) from an EP-0013 app value. The
-;; live INSTANCE view additionally reads the frame's runtime-db snapshots. It
-;; feeds the later internal graph-inspection helper (EP-0014 bead-plan item 7);
-;; slice-6 ships NO public accessor — these functions live in the
-;; bundle-isolated tooling sibling, consumed by Xray + the conformance fixtures
-;; (the two named first consumers). No `re-frame.core` facade export (EP-0014
-;; issue-1 disposition).
+;; This is the *registrar-derived* slice (Derivations §The relocation seam):
+;; the machine-process node is assembled from the machine spec metadata at
+;; the surface that registered it. The live INSTANCE view additionally reads
+;; the frame's runtime-db snapshots. These functions live in the
+;; bundle-isolated tooling sibling, consumed by Xray + the conformance
+;; fixtures; no `re-frame.core` facade export.
 ;;
 ;; The fixed classifications for EVERY machine-process node (Derivations
 ;; §Machines expose algebra views — the machine column):
@@ -93,9 +89,9 @@
 ;; `:scheduled` / `:on-reply` when the spec declares timers / async commands),
 ;; and the OUTPUT snapshot path.
 ;;
-;; A machine consumes the slice-1 vocabulary verbatim — it does NOT redefine
-;; the `:rf/storage-class` / `:rf/evaluation-policy` / `:rf/lifecycle` enums or
-;; the `:rf/derivation-node` shape (those are owned by Spec-Schemas /
+;; A machine consumes the shared derivation vocabulary verbatim — it does NOT
+;; redefine the `:rf/storage-class` / `:rf/evaluation-policy` / `:rf/lifecycle`
+;; enums or the `:rf/derivation-node` shape (those are owned by Spec-Schemas /
 ;; Derivations).
 
 (def ^:private reserved-event-ns
@@ -251,7 +247,7 @@
 
 (defn machine-algebra-view
   "Return the STATIC derivation/process algebra view of every registered
-  machine (EP-0014 slice-6; [Derivations.md] §Machines expose algebra views,
+  machine ([Derivations.md] §Machines expose algebra views,
   [Spec-Schemas §`:rf/derivation-node`]).
 
   Pure data over the machine registry — read through the public
@@ -281,8 +277,8 @@
                      not declared inputs.
   - `:output`      — `[:runtime [:rf.runtime/machines :snapshots <id>]]` — the
                      machine MATERIALIZES its snapshot into the runtime-db
-                     partition (machine snapshots are durable runtime-db state
-                     — EP-0001 rf2-vzld77).
+                     partition (machine snapshots are durable runtime-db
+                     state).
   - `:storage`     — `:runtime-db`.
   - `:evaluation`  — the policy SET: always `:on-transition`; plus `:scheduled`
                      when the spec declares `:after` timers, plus `:on-reply`
@@ -303,14 +299,14 @@
   `nil` if it is not registered as a machine. JVM-runnable — the machine spec
   is partition-agnostic registration metadata.
 
-  Machine SELECTORS (subs over `[:rf/machine …]`) are NOT surfaced here: per
-  EP-0014 issue-4 they remain ordinary subscription `:derivation` nodes
+  Machine SELECTORS (subs over `[:rf/machine …]`) are NOT surfaced here: they
+  remain ordinary subscription `:derivation` nodes
   (`re-frame.subs.tooling/sub-algebra-view`); use `machine-selector?` to label
   one with the `:machine-selector` refinement.
 
-  Slice-6 ships NO public accessor (EP-0014 issue-1 disposition): this lives in
-  the bundle-isolated tooling sibling and is consumed by Xray + the conformance
-  fixtures; the public name is deferred until a third consumer needs it."
+  This ships NO public accessor: it lives in the bundle-isolated tooling
+  sibling and is consumed by Xray + the conformance fixtures; the public
+  name is deferred until a third consumer needs it."
   ([]
    (reduce
      (fn [acc machine-id]
@@ -329,7 +325,7 @@
 (defn machine-instance-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's machine
   snapshots — one `:rf/derivation-node` per LIVE instance, singleton AND
-  spawned actor (EP-0014 slice-6; [Derivations.md] §Static and live graphs).
+  spawned actor ([Derivations.md] §Static and live graphs).
 
   The live counterpart to `machine-algebra-view`: where the static view
   reports one node per registered machine TYPE, the live view reports one node
@@ -337,7 +333,7 @@
   `[:rf.runtime/machines :snapshots <actor-id>]` in the frame's runtime-db —
   the realized machine instances the static graph cannot enumerate (a spawned
   actor has NO per-instance registration; its liveness IS the presence of its
-  snapshot — Spec 005 §Liveness is derived from runtime-db, rf2-a2sn1).
+  snapshot — Spec 005 §Liveness is derived from runtime-db).
 
   Per-instance node:
 
@@ -418,7 +414,7 @@
   "True iff the subscription registered under `sub-id` is a MACHINE SELECTOR —
   an ordinary `reg-sub` whose static `:<-` inputs include a `[:rf/machine …]`
   (or `[:rf/machine-has-tag? …]`) query vector (Derivations §Machine process
-  and selector; EP-0014 issue-4).
+  and selector).
 
   Machine selectors are NOT a second subscription system — they stay ORDINARY
   ephemeral `:derivation` subscription nodes (classified by
@@ -445,8 +441,8 @@
 
 (defn machine-selector-targets
   "The SET of machine ids the subscription registered under `sub-id` reads
-  as a machine selector (Derivations §Machine process and selector; EP-0014
-  issue-4). Where `machine-selector?` answers only the boolean \"is this a
+  as a machine selector (Derivations §Machine process and selector). Where
+  `machine-selector?` answers only the boolean \"is this a
   selector?\", this returns the actual TARGET machine ids — the second
   element of each accepted `[:rf/machine machine-id …]` /
   `[:rf/machine-has-tag? machine-id …]` static `:<-` input.
@@ -454,10 +450,10 @@
   A graph tool needs the target, not just the boolean: a machine selector
   draws a `:selector` edge from the SPECIFIC machine it reads, never from
   every registered machine. The boolean `machine-selector?` could only say
-  \"this sub is a selector\", forcing the graph composer to cross-product
-  every machine node against every selector — a false-edge bug in
-  multi-machine apps (rf2-4qmiij). This fn lets the composer draw the edge
-  from exactly the `[:machine target-id]` node(s) the selector names.
+  \"this sub is a selector\", which would force the graph composer to
+  cross-product every machine node against every selector — a false-edge in
+  multi-machine apps. This fn lets the composer draw the edge from exactly
+  the `[:machine target-id]` node(s) the selector names.
 
   Only the STATIC `:<-` form is mined: the machine-id MUST be a literal
   keyword in the static input vector. A `[:rf/machine-has-tag? machine-id
@@ -486,9 +482,9 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-s8w3nw / rf2-bmzq0 / rf2-qwm0a (the flows / subs / trace tooling
-;; split pattern): `implementation/scripts/check-bundle-isolation.cjs` greps
-;; the counter bundle for this exact string. The string lives ONLY in this
+;; Following the flows / subs / trace tooling split pattern:
+;; `implementation/scripts/check-bundle-isolation.cjs` greps the counter
+;; bundle for this exact string. The string lives ONLY in this
 ;; file's source body — no other namespace, no docstring, no test fixture
 ;; references it — so its presence in the production counter bundle proves the
 ;; tooling sibling's body got pulled in (most likely via a stray `:require`

@@ -1,5 +1,5 @@
 (ns re-frame.machine-front-of-queue-test
-  "Per rf2-j20a7 / Spec 005 §Level 4 — end-to-end coverage that a REAL
+  "Per Spec 005 §Level 4 — end-to-end coverage that a REAL
   machine's continuation dispatch (`:fx [[:dispatch …]]` emitted from an
   action) leap-frogs to the FRONT of the router queue, while an event
   that merely TARGETS a machine but originates externally stays FIFO.

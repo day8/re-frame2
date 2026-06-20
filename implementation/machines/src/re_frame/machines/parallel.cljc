@@ -1,6 +1,5 @@
 (ns re-frame.machines.parallel
-  "Parallel-region machines. Per Spec 005 §Parallel regions (rf2-l67o /
-  Stage 2).
+  "Parallel-region machines. Per Spec 005 §Parallel regions.
 
   A machine declaring `:type :parallel` carries a `:regions` map of
   region-name → state-tree (each region a full state-node body with its
@@ -27,7 +26,7 @@
   (single vs parallel) so the transition engine doesn't need to know
   the parallel layer exists.
 
-  `:raise` semantics (rf2-yi7ts / rf2-nr434 — XState v5 / SCXML gold
+  `:raise` semantics (XState v5 / SCXML gold
   standard). A flat / compound machine drains its own `:raise` queue FIFO
   inside `re-frame.machines.transition`. A PARALLEL machine owns the
   macrostep's single internal-event queue HERE: each region DEFERS its
@@ -35,7 +34,7 @@
   leaves `:raise` fx un-drained — `transition/drain-to-fixed-point` in
   `defer?` mode), and `parallel-machine-transition` re-broadcasts each
   surfaced raise across EVERY region, FIFO, until the queue settles — then
-  commits once. Each re-broadcast is its own microstep: per rf2-42mml it
+  commits once. Each re-broadcast is its own microstep: it
   re-selects against the config as of THAT microstep's start (a FRESH
   frozen `:all-state` / `:tags` view, reflecting prior-microstep region
   moves) while the in-flight `:data` flows through.
@@ -89,8 +88,8 @@
                 state)))))
 
 (defn all-regions-final?
-  "Per Spec 005 §Parallel regions + §Final states §The done-state signal
-  (rf2-bnjb3): a parallel-region machine has reached its done configuration
+  "Per Spec 005 §Parallel regions + §Final states §The done-state signal:
+  a parallel-region machine has reached its done configuration
   only when the snapshot is a VALID parallel configuration (every declared
   region present + occupiable — `parallel-state-valid?`) AND EVERY region's
   active leaf is `:final?`. Walk each region's body + active path and check
@@ -131,13 +130,13 @@
         (assoc :rf/parent-id      (:rf/parent-id parent-machine))
         (assoc :rf/platform       (:rf/platform parent-machine))
         (assoc :rf/frame          (:rf/frame parent-machine))
-        ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): the causal
+        ;; The causal
         ;; recordable-coeffect token is transition-local, NOT registration-time
         ;; data — `prepare-machine-ctx` stamps `:rf/cofx` per dispatch. The cache
         ;; is populated at registration time, so we must NOT bake a value (or even
         ;; the key) in here: a stale `:rf/cofx` cached from the priming dispatch
-        ;; would otherwise leak into a later transition whose parent carries none
-        ;; (rf2-gqr4vs). `region-spec-overlaid` is the single choke-point that
+        ;; would otherwise leak into a later transition whose parent carries none.
+        ;; `region-spec-overlaid` is the single choke-point that
         ;; overlays the LIVE `:rf/cofx` onto the cached spec — present iff the
         ;; current parent carries it, dissoc'd otherwise — so the absent path
         ;; leaves no stale slot for `callback-ctx`'s presence check to read.
@@ -153,7 +152,7 @@
   fxs the region emits carry the parent's identity (the region name is
   prepended onto the `:rf/invoke-id` separately).
 
-  Per round-2 P-r2-1 (rf2-s83iu): region-specs are registration-time
+  Region-specs are registration-time
   data, not transition-time data. The result is memoised in metadata
   on `parent-machine` itself — re-registration replaces the entire
   machine map, so the old cache becomes garbage automatically and no
@@ -185,9 +184,7 @@
   [region-body]
   (let [decl      (:initial region-body)
         ;; `region-body` already carries `:states` — `initial-cascade`
-        ;; reads it through `node-at`, so pass it directly (the prior
-        ;; `(assoc region-body :states (:states region-body))` re-assoc'd
-        ;; `:states` with the value it already held — a no-op layer).
+        ;; reads it through `node-at`, so pass it directly.
         full-path (transition/initial-cascade region-body (transition/state-path decl))]
     (transition/denormalise-state full-path decl)))
 
@@ -210,12 +207,12 @@
   (let [tags (if (parallel? machine)
                (compute-tags-parallel machine (:state snapshot))
                (transition/compute-tags machine (:state snapshot)))]
-    ;; Per rf2 clarity dedup: the empty→dissoc / else→assoc elision lives
+    ;; The empty→dissoc / else→assoc elision lives
     ;; once in `transition/stamp-tags`; both tag-commit fns delegate to it.
     (transition/stamp-tags snapshot tags)))
 
 (defn build-initial-snapshot
-  "Build the freshly-derived initial snapshot for `machine` (rf2-fgqs4).
+  "Build the freshly-derived initial snapshot for `machine`.
   The single source of truth used by both the singleton-registration path
   (`lifecycle-fx.registration/make-machine-handler`) and the spawn path
   (`lifecycle-fx.spawn/install-spawn!`). Steps:
@@ -225,7 +222,7 @@
       machines, the root `:initial` cascade denormalised to a leaf path.
       Per Spec 005 §Initial-state cascading and §Parallel regions.
    2. Seed `:data` — `(:data machine)` or `{}`.
-   3. Seed `:rf/spawn-counter {}` — per rf2-gr8q the in-snapshot
+   3. Seed `:rf/spawn-counter {}` — the in-snapshot
       allocator MUST be present on live snapshots so
       `:entry`-declared `:spawn`s allocate ids through the contract path
       (not `allocate-spawned-id`'s defensive `(fnil inc 0)` backstop).
@@ -234,9 +231,9 @@
       same `:meta` the spec declares. Spawned actors that declare `:meta`
       MUST carry it through to the snapshot.
    5. Stamp the initial tag union via `commit-tags-parallel` — per Spec
-      005 §State tags (rf2-ee0d) / §Tags compose across regions
-      (rf2-l67o); the slot is elided when the union is empty.
-   6. Optionally stamp `:rf/bootstrap-pending? true` (per rf2-0z73) when
+      005 §State tags / §Tags compose across regions;
+      the slot is elided when the union is empty.
+   6. Optionally stamp `:rf/bootstrap-pending? true` when
       `bootstrap-pending?` is truthy — the spawn path needs this so the
       actor's first dispatch fires the initial-entry cascade. The
       singleton-registration path stamps the marker lazily inside
@@ -262,8 +259,8 @@
 (defn- prefix-region-invoke-id
   "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region
-  carry an `:rf/invoke-id` (rf2-0ggtr5 — the declarative invocation path;
-  was `:rf/spawn-id`) that's the in-region prefix-path. To keep the
+  carry an `:rf/invoke-id` (the declarative invocation path) that's the
+  in-region prefix-path. To keep the
   runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
   regions), prepend the region name onto the `:rf/invoke-id`."
@@ -275,7 +272,7 @@
 
       :else fx)))
 
-;; ---- initial-state entry cascade (rf2-0z73) -------------------------------
+;; ---- initial-state entry cascade ------------------------------------------
 ;;
 ;; Per Spec 005 §Initial cascading and §Entry/exit cascading along the
 ;; LCA, every state's `:entry` action fires when its state is entered.
@@ -295,7 +292,7 @@
   a `result/ok` Result carrying the post-cascade snapshot + fx, or a
   `result/fail` Result if any `:entry` action threw.
 
-  Per rf2-82a0u: every initial-entry cascade action carries `:phase
+  Every initial-entry cascade action carries `:phase
   :initial-entry` on its `:rf.machine/action-ran` emit so the Handler
   section's LIFECYCLE rendering distinguishes the bootstrap entry
   burst from a later `:on`-driven entry-cascade."
@@ -312,7 +309,7 @@
        :decl-path []}
       :initial-entry)))
 
-;; ---- parallel-region broadcast invariant (rf2-vqubp) ----------------------
+;; ---- parallel-region broadcast invariant ----------------------------------
 ;;
 ;; Per Spec 005 §Parallel regions, every reducer that broadcasts ONE
 ;; per-region computation across a parallel-region machine MUST:
@@ -321,7 +318,7 @@
 ;;     key order when the spec has been mutated post-registration),
 ;;   - thread shared `:data` sequentially through regions so a later
 ;;     region's step sees earlier regions' writes,
-;;   - thread the in-snapshot `:rf/spawn-counter` (rf2-gr8q) so any
+;;   - thread the in-snapshot `:rf/spawn-counter` so any
 ;;     declarative `:spawn` fired in a region bumps the SAME shared
 ;;     counter,
 ;;   - run each region as a synthetic single-machine spec via
@@ -345,11 +342,11 @@
   `parent-machine` threaded into a broadcast DOES carry the current values, so
   overlay them here so region pure logic (`build-after-fx`'s server-skip gate,
   trace `:frame` attribution, declarative-`:spawn` parent attribution) always
-  runs against the live runtime context (rf2-z522n / rf2-r09fc).
+  runs against the live runtime context.
   `(:id parent-machine)` is the defensive `:rf/parent-id` fallback for pure-fn
   callers. The single overlay choke-point shared by the broadcast invariant
   (`reduce-regions`) and the root-parallel `:on` region-target apply
-  (`apply-root-parallel-transition` — rf2-tsq6g)."
+  (`apply-root-parallel-transition`)."
   [parent-machine rn]
   (let [parent-id (or (:rf/parent-id parent-machine) (:id parent-machine))]
     (cond-> (region-machine parent-machine rn)
@@ -359,14 +356,12 @@
       ;; runtime) and must replace any stale cached value.
       true (assoc :rf/platform (:rf/platform parent-machine)
                   :rf/frame    (:rf/frame parent-machine))
-      ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): overlay the live causal
+      ;; Overlay the live causal
       ;; recordable-coeffect token so a region guard / action reads the CURRENT
       ;; dispatch's `:rf.cofx`. `:rf/cofx` is transition-local — `callback-ctx`
       ;; keys off its PRESENCE — so the overlay must MATCH the live parent
-      ;; exactly: assoc when the parent carries it, DISSOC otherwise. A bare
-      ;; `(contains? parent-machine ...)`-gated assoc left a stale slot intact
-      ;; when the live parent carried none, leaking a cached coeffect into a
-      ;; later transition (rf2-gqr4vs). Dissoc on the absent path guarantees the
+      ;; exactly: assoc when the parent carries it, DISSOC otherwise. Dissoc on
+      ;; the absent path guarantees the
       ;; cached spec can never surface a coeffect the current caller did not
       ;; carry — even if the cache faulted in under a coeffect-carrying parent.
       (contains? parent-machine :rf/cofx)
@@ -375,10 +370,10 @@
       (not (contains? parent-machine :rf/cofx))
       (dissoc :rf/cofx)
 
-      ;; rf2-n0myjq — overlay the live effective cofx MINT POLICY the same way
+      ;; Overlay the live effective cofx MINT POLICY the same way
       ;; as `:rf/cofx` (match the parent's presence exactly: assoc when carried,
       ;; dissoc otherwise) so a region's in-engine raised-event ensure
-      ;; (rf2-xsdn5h) mints under the SAME `:strict` / `:live` policy the parent
+      ;; mints under the SAME `:strict` / `:live` policy the parent
       ;; dispatch resolved, never a stale cached one.
       (contains? parent-machine :rf/cofx-mint-policy)
       (assoc :rf/cofx-mint-policy (:rf/cofx-mint-policy parent-machine))
@@ -416,7 +411,7 @@
         ordered     (filterv #(contains? state-map %)
                              (or (vec (keys (:regions parent-machine)))
                                  (vec (keys state-map))))
-        ;; rf2-42mml — FROZEN pre-broadcast cross-region snapshot. The
+        ;; FROZEN pre-broadcast cross-region snapshot. The
         ;; `:all-state` / `:tags` a region's guard OR action reads are computed
         ;; ONCE here, from the pre-event `state-map`, and threaded UNCHANGED
         ;; into every region's step ctx — NOT rebuilt per region from the
@@ -431,7 +426,7 @@
         ;; after it) — exact XState v5 / SCXML parity (a parallel macrostep
         ;; selects against the pre-event configuration/context, then applies).
         ;;
-        ;; Per the rf2-42mml sharpening, the FROZEN view is threaded into the
+        ;; The FROZEN view is threaded into the
         ;; ACTION ctx too (not only guards): statechart atomicity — the
         ;; configuration changes atomically old->new, there is no intermediate
         ;; configuration some transitions observe and others do not; only
@@ -440,11 +435,10 @@
         ;; microstep loop, so the region's internal cascade also reads the
         ;; frozen view.)
         ;;
-        ;; This REVERSES rf2-46ly6's "evolving-snapshot" READ-TIMING but KEEPS
-        ;; 46ly6's CAPABILITY intact: a region guard / action still reads a
+        ;; A region guard / action reads a
         ;; sibling's state via `:all-state` (precise) and `:tags` (coarse
-        ;; stateIn substitute). Only the snapshot those keys resolve against
-        ;; flips (frozen pre-event, not evolving same-event). Same-event
+        ;; stateIn substitute), and those keys resolve against the frozen
+        ;; pre-event view. Same-event
         ;; cross-region coordination retimes to the NEXT microstep via the
         ;; statechart-idiomatic path (a region `:raise`s / writes `:data`; the
         ;; FIFO re-broadcast re-selects against the now-updated config — a
@@ -456,7 +450,7 @@
            cur-data     (:data snapshot)
            cur-counter  (:rf/spawn-counter snapshot)
            ;; Per Spec 005 §Composition with parallel regions — per-region
-           ;; history (rf2-mle6e.3): thread the shared `:rf/history` map
+           ;; history: thread the shared `:rf/history` map
            ;; through regions like `:data`. The slot's keys are REGION-
            ;; QUALIFIED (head = region name), so per-region recordings never
            ;; collide — a later region only writes its own qualified keys
@@ -481,19 +475,19 @@
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
           ;; only when EVERY region declined. Per §Trace events the
-          ;; macrostep `:microsteps` count is the sum across regions. Per
-          ;; rf2-n9f4z the structured `::cascade` is the per-region step
+          ;; macrostep `:microsteps` count is the sum across regions. The
+          ;; structured `::cascade` is the per-region step
           ;; sequences concatenated in declaration order — each step
           ;; already carries `:region` (stamped by the single-machine
           ;; engine from the synthetic region-spec's `:rf/region`), so the
           ;; flat concatenation stays per-region addressable for the
-          ;; consumer (rf2-52u5n).
+          ;; consumer.
           (-> (result/ok (commit-tags-parallel parent-machine merged) acc-fx)
               (result/with-handled any-handled?)
               (result/with-microsteps micro-total)
               (result/with-cascade cascade)))
         (let [rn          (first pending)
-              ;; Per rf2-r09fc: stamp the REAL parent machine-id onto the
+              ;; Stamp the REAL parent machine-id onto the
               ;; synthetic region-spec so any declarative `:spawn` / `:after`
               ;; the region fires keys its
               ;; `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot
@@ -525,11 +519,11 @@
               ;; `bootstrap-step`) funnel through, so region pure logic
               ;; (`build-after-fx`'s server-skip gate, trace `:frame`
               ;; attribution) always runs against the LIVE runtime context —
-              ;; never the cached snapshot (rf2-z522n / rf2-r09fc).
+              ;; never the cached snapshot.
               region-spec (region-spec-overlaid parent-machine rn)
               region-snap (cond-> {:state (get state-map rn)
                                    :data  cur-data
-                                   ;; Per rf2-46ly6 / rf2-69d1n: thread the
+                                   ;; Thread the
                                    ;; cross-region coordination context into
                                    ;; every region's guard/action ctx — the
                                    ;; XState v5 `stateIn` / SCXML `In()`
@@ -539,9 +533,9 @@
                                    ;; active-state map (the PRECISE sibling-
                                    ;; state read); `:tags` is the MACHINE-WIDE
                                    ;; tag union across every region (the coarse
-                                   ;; tag-as-stateIn substitute — rf2-69d1n).
+                                   ;; tag-as-stateIn substitute).
                                    ;;
-                                   ;; rf2-42mml: both resolve against the
+                                   ;; Both resolve against the
                                    ;; FROZEN pre-broadcast snapshot (`state-map`
                                    ;; → `frozen-all-state` / `frozen-tags`,
                                    ;; computed ONCE above), NOT the evolving
@@ -572,7 +566,7 @@
                             ;; Seed the region snapshot with the shared
                             ;; (region-qualified) `:rf/history` so a restore
                             ;; reads the prior recording and a record writes
-                            ;; the region's own key (rf2-mle6e.3).
+                            ;; the region's own key.
                             (some? cur-history)
                             (assoc :rf/history cur-history))
               step-result (step-fn region-spec region-snap)]
@@ -582,12 +576,11 @@
                   region-micro    (result/microsteps step-result)
                   region-cascade  (result/cascade step-result)]
               (result/with-ok [reg-snap reg-fx] step-result
-                ;; Per rf2-3h1pf: accumulate fx via `into` so the region
+                ;; Accumulate fx via `into` so the region
                 ;; loop doesn't rebuild the accumulator as a fresh vector
-                ;; on every region step (the old shape was
-                ;; `(vec (concat acc-fx prefixed-fx))` — O(N²·M) copying
-                ;; for N regions × M fx; `into` uses a transient
-                ;; internally — O(N·M) amortised). The prefix-fn is
+                ;; on every region step: `into` uses a transient
+                ;; internally — O(N·M) amortised for N regions × M fx. The
+                ;; prefix-fn is
                 ;; folded into the transducer position so we don't
                 ;; materialise the intermediate `prefixed-fx` vector.
                 (recur (rest pending)
@@ -595,7 +588,7 @@
                        (:rf/spawn-counter reg-snap)
                        ;; Carry forward this region's `:rf/history` writes
                        ;; (region-qualified keys) so later regions + the
-                       ;; merge see them (rf2-mle6e.3).
+                       ;; merge see them.
                        (:rf/history reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (into acc-fx
@@ -619,11 +612,11 @@
   compound machines, runs `bootstrap-step` directly — the broadcast
   invariant doesn't apply.
 
-  Per rf2-505ic the `:always` fixed-point + raise drain that settles the
+  The `:always` fixed-point + raise drain that settles the
   initial macrostep is a SEPARATE phase — `apply-initial-entry-cascade`
   composes this entry cascade with `settle-birth`.
 
-  Per Spec 005 §Root parallel `:after` (rf2-wox0vd): a `:type :parallel` root
+  Per Spec 005 §Root parallel `:after`: a `:type :parallel` root
   declaring `:after` is ROOT-OWNED — its timers are scheduled HERE, at machine
   birth (when the parallel root is entered), folded onto the per-region entry
   cascade's Result. `reduce-regions` walks each REGION's `:after`; the root's
@@ -648,7 +641,7 @@
 
 (declare machine-transition)
 
-;; ---- parallel macrostep internal-event queue (rf2-yi7ts) ------------------
+;; ---- parallel macrostep internal-event queue ------------------------------
 ;;
 ;; XState v5 / SCXML gold standard: `raise` enqueues on the machine's ONE
 ;; internal event queue; the macrostep pops the front and broadcasts that
@@ -698,7 +691,7 @@
                   (fn [region-spec region-snap]
                     (machine-transition region-spec region-snap event))))
 
-;; ---- root parallel `:on` — the ancestor fallback (rf2-tsq6g) --------------
+;; ---- root parallel `:on` — the ancestor fallback --------------------------
 ;;
 ;; XState v5 / SCXML gold standard: a transition declared on a `<parallel>`
 ;; node is the ANCESTOR FALLBACK for its regions — deepest-wins with parent
@@ -723,23 +716,20 @@
 ;;      targets `[[<region> …] [<region> …]]` (the XState `target ['.a.x',
 ;;      '.b.y']` analog).
 ;;
-;; Before this, a user-written root-level `:on` on a `:type :parallel` machine
-;; was NEITHER validated NOR executed — silently DROPPED (the broadcast only
-;; reached the synthetic region machines). rf2-tsq6g kills the silent-drop and
-;; honours the ancestor fallback.
+;; A user-written root-level `:on` on a `:type :parallel` machine is validated
+;; and executed as the ancestor fallback: when no region handles the event, the
+;; broadcast falls through to the root `:on`.
 ;;
-;; rf2-42mml COORDINATION: the root transition's GUARD is resolved against the
+;; COORDINATION: the root transition's GUARD is resolved against the
 ;; FROZEN pre-event `snapshot` (the value `parallel-machine-transition` was
 ;; called with) — NOT an evolving per-region snapshot — so root-parallel guard
-;; selection is already aligned to the two-phase frozen-selection model
-;; rf2-42mml installs for region guards. (rf2-42mml rebases on this merge and
-;; freezes the REGION-guard snapshot too; the root resolver here is already
-;; frozen-correct.)
+;; selection is aligned to the same two-phase frozen-selection model the
+;; region guards use.
 
 (defn- normalise-root-targets
   "Normalise a root parallel transition's `:target` into a vector of
   region-qualified absolute targets `[[<region> & <in-region-path>] …]`. Per
-  the grammar (rf2-tsq6g):
+  the grammar:
     - nil / absent  → `[]` (targetless / action-only).
     - a vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target
       (head = region name, rest = the in-region path). Wrapped to `[[:a :two]]`.
@@ -808,7 +798,7 @@
 
 (defn- apply-root-parallel-transition
   "Apply the parallel machine ROOT's selected `:on` transition as the
-  ancestor fallback (rf2-tsq6g): run the root `:action` ONCE against the
+  ancestor fallback: run the root `:action` ONCE against the
   shared `:data`, then atomically apply each region-qualified `:target` to
   its named region (leaving untargeted regions unchanged), and re-stamp the
   tag union. `transition` is the transition map `root-on-match` selected.
@@ -859,8 +849,7 @@
   Result. Shared by the parallel event MACROSTEP (`parallel-machine-
   transition`, seed = the external event's first broadcast) and the
   parallel BIRTH settle (`settle-birth`, seed = the post-initial-cascade
-  per-region `:always` settle) — rf2-505ic factored this out so birth
-  reuses the identical queue drain rather than duplicating it.
+  per-region `:always` settle) — both reuse the identical queue drain.
 
   `acc-fx` accumulates only the real (non-`:raise`) fx; `acc-micro` /
   `acc-cascade` roll up the totals across every (re-)broadcast.
@@ -884,7 +873,7 @@
       (result/with-ok [snap0 fx0] first-r
         (let [[raises0 real0] (split-raises fx0)
               external-handled? (result/handled? first-r)]
-          ;; rf2-xsdn5h — `m` is the live parent machine threaded through the
+          ;; `m` is the live parent machine threaded through the
           ;; re-broadcast loop. Each dequeued raise's `ensure-raised-cofx`
           ;; re-stamps it with an augmented `:rf/cofx` so the raised event's
           ;; region guards/actions read the ensured / generated facts (overlaid
@@ -916,8 +905,8 @@
                 ;; `transition/unhandled-event-no-op?` so reserved-`:rf/*`
                 ;; framework lifecycle traffic — the synthetic bootstrap,
                 ;; the spawn kick-off, the stories-runtime pings — is NOT
-                ;; classified as an unknown-user-event no-op (rf2-ugdas /
-                ;; rf2-t4582). On the BIRTH path `event` is `nil`, so the
+                ;; classified as an unknown-user-event no-op. On the BIRTH
+                ;; path `event` is `nil`, so the
                 ;; `unhandled-event-no-op?` gate is never reached — birth
                 ;; never emits the no-op. Mirrors the flat-machine emission
                 ;; in `transition/machine-transition-single`.
@@ -925,7 +914,7 @@
                            (some? event)
                            (transition/unhandled-event-no-op? event))
                   (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
-                               ;; rf2-yyvtk5 — a LIVE actor (every region
+                               ;; A LIVE actor (every region
                                ;; declined) received the unknown event; address
                                ;; it by `:actor-id`, not `:machine-id` (the
                                ;; registered TYPE). Mirrors the flat emission.
@@ -935,14 +924,14 @@
                                 :frame      (:rf/frame machine)}))
                 result)
 
-              ;; `>=` boundary parity with the flat drain (rf2-r26e2): the
+              ;; `>=` boundary parity with the flat drain: the
               ;; loop re-broadcasts internal events at depths 0..limit-1
               ;; then aborts at `depth == limit`. Atomic rollback — the
               ;; WHOLE macrostep is discarded; no partial snapshot / fx
               ;; survives (Spec 005 §Drain semantics: bounded depth halts
               ;; with the snapshot uncommitted, `:no-recovery`).
               (>= depth raise-limit)
-              ;; rf2-y3jv8q — a tripped re-broadcast `:raise` depth limit is a
+              ;; A tripped re-broadcast `:raise` depth limit is a
               ;; FAILED macrostep, not a benign no-op (parity with the flat
               ;; drain in `transition/drain-to-fixed-point`). Emit the precise
               ;; category, then return a `result/fail` carrying the
@@ -950,7 +939,7 @@
               ;; routes through the handler's failure path (atomic rollback
               ;; preserved — no snapshot write reaches runtime-db) instead of
               ;; surfacing as a silent no-op that swallows the triggering event.
-              (let [info {;; rf2-yyvtk5 — the aborting actor is a LIVE INSTANCE;
+              (let [info {;; The aborting actor is a LIVE INSTANCE;
                           ;; address it by `:actor-id` (mirrors the flat drain),
                           ;; not `:machine-id` (the registered TYPE).
                           :error-id   :rf.error/machine-raise-depth-exceeded
@@ -964,7 +953,7 @@
 
               :else
               (let [ev   (first pending)
-                    ;; rf2-xsdn5h — ensure THIS raised event's declared cofx
+                    ;; Ensure THIS raised event's declared cofx
                     ;; onto the parent BEFORE re-broadcasting it across the
                     ;; regions. `ensure-set-for` unions every region's scope (and
                     ;; the parallel root's own `:on` / `:after`), so a region
@@ -981,7 +970,7 @@
                     (let [[new-raises real-fx] (split-raises fx2)]
                       (recur snap2
                              m'
-                             ;; FIFO (rf2-nr434): drop the just-processed
+                             ;; FIFO: drop the just-processed
                              ;; front, APPEND this broadcast's own raises to
                              ;; the BACK — behind the still-pending queue.
                              (into (vec (rest pending)) new-raises)
@@ -990,7 +979,7 @@
                              (+ acc-micro (result/microsteps step))
                              (into acc-casc (result/cascade step))))))))))))))
 
-;; ---- parallel done-state / `:on-done` signal (rf2-bnjb3) ------------------
+;; ---- parallel done-state / `:on-done` signal ------------------------------
 ;;
 ;; Per Spec 005 §Final states §The done-state signal: when EVERY region of a
 ;; parallel machine reaches a `:final?` leaf, the parallel state is DONE —
@@ -1020,7 +1009,7 @@
 ;; signal — distinct hooks, distinct purposes.
 
 (defn fire-parallel-on-done
-  "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): if the
+  "Per Spec 005 §Final states §The done-state signal: if the
   parallel `machine`'s settled `result` snapshot has NEWLY reached its
   all-regions-final done configuration this macrostep AND the parallel root
   declares `:on-done`, run that `:on-done` transition's `:action` against
@@ -1039,10 +1028,11 @@
   all-final config — i.e. the after-snapshot is all-final AND the
   before-snapshot was NOT. On the BIRTH path it is always `true` (birth is the
   single macrostep that enters the initial configuration; a machine born
-  all-final crosses the edge at birth). Without this guard the `:on-done`
-  `:action` + `:fx` re-fired on every no-op event the regions decline while
-  resting all-final — a coordinator's continuation re-dispatched repeatedly,
-  any `:data` accumulation drifting upward."
+  all-final crosses the edge at birth). The guard ensures the `:on-done`
+  `:action` + `:fx` fire once and do NOT re-fire on every no-op event the
+  regions decline while resting all-final — so a coordinator's continuation
+  is dispatched exactly once and `:data` does not accumulate on resting
+  macrosteps."
   [machine result newly-reached?]
   (if (result/fail? result)
     result
@@ -1073,11 +1063,11 @@
 (declare settle-region-birth)
 
 (defn- root-fallback-seed
-  "Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g): when
+  "Per Spec 005 §Transition broadcast §Root parallel `:on`: when
   NO region handled `event` (the first broadcast `first-r` is not handled),
   consult the parallel ROOT's own `:on` as the ancestor fallback. The root
-  transition is resolved against the FROZEN pre-event `snapshot` (rf2-42mml
-  frozen-selection coordination — the root guard sees the pre-event config),
+  transition is resolved against the FROZEN pre-event `snapshot`
+  (frozen-selection coordination — the root guard sees the pre-event config),
   and only for a genuine UNKNOWN USER event (`unhandled-event-no-op?` —
   reserved `:rf/*` framework lifecycle traffic is NOT a candidate; its
   done / error / timer routing already runs through the region resolvers).
@@ -1122,7 +1112,7 @@
       first-r)))
 
 (defn- root-after-seed
-  "Per Spec 005 §Root parallel `:after` (rf2-wox0vd): resolve a parallel-ROOT
+  "Per Spec 005 §Root parallel `:after`: resolve a parallel-ROOT
   `:after` firing — the synthetic `[:rf.machine.timer/after-elapsed delay-key
   epoch []]` event whose decl-path is the empty root path (NOT region-name
   prefixed). The root `:after` is the timer-driven analog of the root `:on`
@@ -1148,7 +1138,7 @@
   (let [match (transition/root-after-match machine event snapshot)]
     ;; Trace the firing / staleness / guard-suppression BEFORE applying, so
     ;; listeners observe events in occurrence order (single-machine parity).
-    ;; rf2-hawtjr — thread the causal completion timestamp (the firing
+    ;; Thread the causal completion timestamp (the firing
     ;; dispatch's router-stamped `:rf/time-ms` off `:rf.cofx`) so the
     ;; parallel-root `:after` completion carries `:completed-at` like the
     ;; single-machine path.
@@ -1181,7 +1171,7 @@
   return the merged result. Returns a `result/ok` Result on success or a
   `result/fail` Result if any region's action threw.
 
-  Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g): when
+  Per Spec 005 §Transition broadcast §Root parallel `:on`: when
   NO region selects a transition for the event, the parallel ROOT's own `:on`
   is consulted as the ANCESTOR FALLBACK (deepest-wins with parent fallthrough
   — the parallel analog of the flat / compound machine-root `:on` fallback).
@@ -1191,9 +1181,9 @@
   more region-qualified targets, leaving untargeted regions unchanged; the
   moved regions then settle their `:always` + raises through the same parent
   internal-event queue. The root transition's GUARD is selected against the
-  frozen pre-event snapshot (rf2-42mml coordination).
+  frozen pre-event snapshot (frozen-selection coordination).
 
-  Per Spec 005 §Transition broadcast (rf2-42mml — select-then-apply): each
+  Per Spec 005 §Transition broadcast (select-then-apply): each
   region's enabled transition is SELECTED against ONE frozen pre-broadcast
   snapshot (its own deepest-wins lookup, reading siblings via the frozen
   `:all-state` / `:tags`), then the selected transitions are APPLIED in
@@ -1203,17 +1193,17 @@
   selected. The `:data` slot is the one value that flows — each region's
   actions see the prior region's `:data` writes in declaration order; the
   cross-region `:all-state` / `:tags` a guard OR action reads stay frozen
-  (statechart atomicity). Per rf2-vqubp the broadcast invariant lives in
+  (statechart atomicity). The broadcast invariant lives in
   `reduce-regions`.
 
-  Per Spec 005 §Parallel-region `:raise` broadcast (rf2-yi7ts — XState v5
+  Per Spec 005 §Parallel-region `:raise` broadcast (XState v5
   parity): a `:raise` emitted by ANY region is NOT region-local. It enters
   this macrostep's internal-event queue and is re-broadcast across EVERY
   region — exactly what an equivalent self-`[:dispatch [<self-id> …]]` would
   broadcast, but pre-commit and inside the one macrostep. Each re-broadcast
-  is its own microstep (rf2-42mml): it re-selects against the config as of
+  is its own microstep: it re-selects against the config as of
   that microstep's start (a fresh frozen `:all-state` / `:tags` view that
-  reflects prior-microstep region moves) while the in-flight `:data` flows. Raises are drained FIFO (rf2-nr434): a raise
+  reflects prior-microstep region moves) while the in-flight `:data` flows. Raises are drained FIFO: a raise
   surfaced earlier is re-broadcast before one surfaced later, and a raise
   emitted *while handling* a re-broadcast goes to the BACK of the queue.
   The whole macrostep — external event + every re-broadcast internal event
@@ -1226,13 +1216,13 @@
   For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
   delivery is region-scoped — the broadcast routes to the bearing region
   only, identified by the region-name prefix on the in-flight timer's
-  `:rf/invoke-id`. The exception is a ROOT-OWNED `:after` (rf2-wox0vd),
+  `:rf/invoke-id`. The exception is a ROOT-OWNED `:after`,
   whose carried decl-path is the empty root path `[]` (no region prefix):
   `root-after-elapsed?` detects it and routes it to `root-after-seed` (the
   timer-driven analog of the root `:on` ancestor fallback) instead of
   broadcasting it to the regions."
   [machine snapshot event]
-  (let [;; rf2-wox0vd — a parallel-ROOT `:after` timer (`[]` decl-path) is
+  (let [;; A parallel-ROOT `:after` timer (`[]` decl-path) is
         ;; root-owned, not region-scoped: resolve it through the root `:on`
         ;; apply path rather than broadcasting it to the regions (which key off
         ;; a region-name-prefixed decl-path and would all decline it).
@@ -1240,12 +1230,13 @@
         first-r       (if root-after?
                         (root-after-seed machine snapshot event)
                         (broadcast-once machine snapshot event))
-        ;; rf2-tsq6g — root parallel `:on` ancestor fallback. When no region
+        ;; Root parallel `:on` ancestor fallback. When no region
         ;; handled the event, consult the root `:on`; if it fires, its result
         ;; (handled, region targets moved) BECOMES the macrostep seed and is
         ;; settled through the same parent queue (so a moved region's `:always`
         ;; / `:raise` continue the macrostep). When no region handled AND the
-        ;; root declines, `seed` == `first-r` and the existing no-op path runs.
+        ;; root declines, `seed` == `first-r` and the all-regions-declined
+        ;; no-op path runs.
         ;; A root-`:after` firing already IS the root-owned seed, so the `:on`
         ;; fallback is skipped (the `:after` reserved-namespace event is not an
         ;; unhandled user event `root-fallback-seed` would consult `:on` for).
@@ -1253,7 +1244,7 @@
                         first-r
                         (root-fallback-seed machine snapshot event first-r))
         settled       (drain-parent-queue machine snapshot event seed)
-        ;; h3wca.1 — false→true EDGE guard. `:on-done` fires ONCE, on the
+        ;; false→true EDGE guard. `:on-done` fires ONCE, on the
         ;; macrostep that CROSSES into the all-regions-final done config
         ;; (XState v5 `onDone` / SCXML `done.state.<id>`), NOT on every later
         ;; event delivered while resting there. A no-op event to an already-
@@ -1263,7 +1254,7 @@
         newly-final?  (and (not was-final?)
                            (not (result/fail? settled))
                            (all-regions-final? machine (:state (result/snap settled))))]
-    ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): when this
+    ;; Per Spec 005 §Final states §The done-state signal: when this
     ;; macrostep NEWLY makes every region final and the parallel root declares
     ;; `:on-done`, fire it (run its action + emit its fx) WITHOUT auto-
     ;; destroying — the transitionable parallel completion signal. No
@@ -1289,22 +1280,21 @@
    3-5. Settle in the unified SCXML microstep loop — after the taken
       transition PREFER enabled :always (eventless) transitions and only
       dequeue the next raised internal event (FIFO) once :always is
-      quiescent; commit at the fixed point (rf2-uv8os ordering, rf2-nr434
-      FIFO).
+      quiescent; commit at the fixed point.
 
   Bounded by :raise-depth-limit and :always-depth-limit (both default 16).
   Parallel-region machines (`:type :parallel`) are dispatched into
   `parallel-machine-transition`, where the event is broadcast across
-  regions per Spec 005 §Parallel regions (rf2-l67o) and region-emitted
-  raises re-broadcast through the parent macrostep's internal-event queue
-  (rf2-yi7ts). Flat / compound machines drop straight into the
+  regions per Spec 005 §Parallel regions and region-emitted
+  raises re-broadcast through the parent macrostep's internal-event queue.
+  Flat / compound machines drop straight into the
   single-machine engine in `re-frame.machines.transition`."
   [machine snapshot event]
   (if (parallel? machine)
     (parallel-machine-transition machine snapshot event)
     (transition/machine-transition-single machine snapshot event)))
 
-;; ---- birth-time `:always` + raise settle (rf2-505ic) ----------------------
+;; ---- birth-time `:always` + raise settle ----------------------------------
 ;;
 ;; XState v5 / SCXML gold standard: the INITIAL macrostep is initial-entry
 ;; + the eventless (`always`) drain. `createActor(m).start()` evaluates
@@ -1334,8 +1324,8 @@
 
 (defn- settle-birth
   "Run the birth-time settle — raise drain + `:always` fixed-point loop —
-  against the POST-initial-cascade Result, BEFORE the machine is committed
-  (rf2-505ic). The shared settling tail of the macrostep, reused so a
+  against the POST-initial-cascade Result, BEFORE the machine is committed.
+  The shared settling tail of the macrostep, reused so a
   transient initial leaf whose `:always` guard already holds is settled
   past — unobserved — on start, exactly as XState v5 / SCXML do.
 
@@ -1391,7 +1381,7 @@
                                (result/cascade always-r))
                              (result/microsteps always-r))
                            (result/handled? always-r))))]
-        ;; Per rf2-bnjb3: a parallel machine BORN all-regions-final (each
+        ;; A parallel machine BORN all-regions-final (each
         ;; region's initial+`:always` settles onto a `:final?` leaf) fires the
         ;; parallel root's `:on-done` on birth too — same transitionable signal
         ;; as the event-driven macrostep (XState v5 treats such an actor as done
@@ -1414,7 +1404,7 @@
         false))))
 
 (defn apply-initial-entry-cascade
-  "The machine's INITIAL MACROSTEP (rf2-505ic — XState v5 / SCXML parity):
+  "The machine's INITIAL MACROSTEP (XState v5 / SCXML parity):
   the initial-entry cascade THEN the eventless (`:always`) + raise settle,
   composed and returned as ONE Result. The single birth site for BOTH
   paths (eager `[:rf.machine/start]` and lazy first-event); the lifecycle
@@ -1442,7 +1432,7 @@
   A no-`:always`, no-`:raise` machine settles in zero microsteps —
   `settle-birth` finds no matching `:always`, drains no raises, and returns
   the post-cascade snapshot + the entry fx verbatim with the tag union
-  re-stamped (identical to the pre-rf2-505ic birth)."
+  re-stamped."
   [machine initial-snapshot]
   (let [entry-r (run-initial-cascade machine initial-snapshot)]
     (if (result/fail? entry-r)
@@ -1455,7 +1445,7 @@
             ;; the initial-`:entry` raises drained internally (bz0ox.1).
             ;; Cascade: entry cascade ++ the `:always` microstep cascade.
             ;; `::microsteps` rides from the settle (the entry cascade ran no
-            ;; `:always`). Per rf2-bnjb3 the settle's `parallel-done-handled?`
+            ;; `:always`). The settle's `parallel-done-handled?`
             ;; flag (set when a parallel machine born all-final fired its root
             ;; `:on-done`) rides through so the birth finalize gate sees it.
             (cond-> (-> (result/ok settled-snap (vec settle-fx))
@@ -1465,7 +1455,7 @@
                         (result/with-microsteps (result/microsteps settle-r)))
               (result/parallel-done-handled? settle-r) (result/with-parallel-done))))))))
 
-;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
+;; ---- destroy-time exit cascade --------------------------------------------
 ;;
 ;; Per Spec 005 §Final states §Composition with `:entry` / `:exit` and
 ;; §Declarative `:spawn` §Composition: the active configuration's

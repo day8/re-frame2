@@ -3,9 +3,8 @@
 
   The machines runtime keeps four sibling maps under the reserved
   `:rf.runtime/machines` child of each frame's **runtime-db** partition
-  (EP-0001 rf2-vzld77; Conventions §Reserved runtime-db keys — machine
-  snapshots are durable framework state, so they live in runtime-db, NOT
-  in the retired app-db `:rf/runtime` root):
+  (Conventions §Reserved runtime-db keys — machine snapshots are durable
+  framework state, so they live in the runtime-db partition):
 
     - `:snapshots`     — actor-id → snapshot `{:state :data :tags …}`
     - `:system-ids`    — system-id → actor-id reverse index

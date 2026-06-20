@@ -13,7 +13,7 @@
    3. Verifies `<child-id>` (event[1]) is one of the parent's spawned
       children. Forged / unknown ids are rejected with the
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a
-      no-op fx (the join state is NOT mutated). See rf2-ns8ut.
+      no-op fx (the join state is NOT mutated).
    4. Adds `<child-id>` to `:done` or `:failed`.
    5. If `:resolved?` is already true, the event is silently dropped
       (post-resolution late-completion).
@@ -63,18 +63,19 @@
   `{:invoke-id <prefix-path> :spec <invoke-all-spec> :kind :done|:failed}`
   matches (empty when none).
 
-  Per Spec 005 §Parallel regions (rf2-l67o): for parallel-region machines,
-  iterates each region's active state-tree (prefixing the region name onto the
+  Per Spec 005 §Parallel regions: for parallel-region machines, iterates
+  each region's active state-tree (prefixing the region name onto the
   resolved `:invoke-id`, matching the per-region scoping
   `prefix-region-invoke-id` applies on the entry-side). A flat machine has at
   most one active match.
 
-  Per rf2-w84jv: returns ALL matches (not the first via `some`) so the
-  interceptor can disambiguate by join-state child-id OWNERSHIP. Two active
-  parallel regions may legitimately reuse the SAME generic `:on-child-done`
-  event id (e.g. `:done`, `:asset/loaded`); the first-match-wins `some`
-  mis-routed a later region's child completion to the first region's join,
-  flagged it as a forged child-id, and hung the correct region's join."
+  Returns ALL matches (not just the first) so the interceptor can
+  disambiguate by join-state child-id OWNERSHIP. Two active parallel regions
+  may legitimately reuse the SAME generic `:on-child-done` event id (e.g.
+  `:done`, `:asset/loaded`); returning every match lets the interceptor
+  route a child completion to the region whose join actually owns the
+  child-id, rather than first-match-wins mis-routing it to another region's
+  join."
   [machine snapshot inner-event-id]
   (cond
     (parallel/parallel? machine)
@@ -122,8 +123,8 @@
       :else false)))
 
 (defn- join-unsatisfiable?
-  "Per rf2-ny0yrz C5: decide whether `spec`'s join condition can NEVER be
-  met by the remaining undecided children, given `join-state`'s current
+  "Decide whether `spec`'s join condition can NEVER be met by the remaining
+  undecided children, given `join-state`'s current
   `:done` / `:failed` folds. The footgun this guards: a `{:n N}` / `{:fn}`
   (or `:any` / `:all`) join with NO `:on-any-failed` silently hangs FOREVER
   once enough children have FAILED that the success condition is
@@ -207,8 +208,8 @@
      :join-event-kw    join-event-kw}))
 
 (defn- decisive-child-reply-facts
-  "rf2-d63qtp — build the reply-envelope facts for the DECISIVE child
-  completion that drove a `:spawn-all` join resolution, ready to ride
+  "Build the reply-envelope facts for the DECISIVE child completion that
+  drove a `:spawn-all` join resolution, ready to ride
   ADDITIVELY on the resolution trace (Managed-Effects §Tracing /
   §Status taxonomy). The decisive child's completion IS the managed-async
   completion that resolved the join, so it lowers through the shared
@@ -246,14 +247,14 @@
   "Fire the post-resolution observability traces in order: any-failed,
   all-completed, or some-completed.
 
-  Per rf2-ko8jb the `:frame` tag is REQUIRED for epoch-capture admission
+  The `:frame` tag is REQUIRED for epoch-capture admission
   (`re-frame.epoch.capture/capture-event!` silently drops events whose
   tags lack `:frame`). The caller threads `frame-id` (resolved from
   `(:rf/frame machine)` at the interceptor's entry) so the join
   resolution traces reach the cascade's `:trace-events` slot.
 
-  rf2-d63qtp — the DECISIVE child completion that drove the resolution
-  lowers through the shared `join-child-reply`; its reply-envelope facts
+  The DECISIVE child completion that drove the resolution lowers through
+  the shared `join-child-reply`; its reply-envelope facts
   (`:work/id`, `:rf.reply/status`, `:rf.reply/work-status`, the causal
   `:completed-at`) ride ADDITIVELY on the resolution trace, so the
   join-resolving child completion classifies the same way the
@@ -303,7 +304,7 @@
 
       [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
 
-  Per rf2-ko8jb the `:frame` tag is REQUIRED for epoch-capture admission
+  The `:frame` tag is REQUIRED for epoch-capture admission
   (`re-frame.epoch.capture/capture-event!` silently drops events whose
   tags lack `:frame`). The caller threads `frame-id` (resolved from
   `(:rf/frame machine)` at the interceptor's entry) so the per-survivor
@@ -320,10 +321,10 @@
                                    (remove (fn [[cid _]]
                                              (contains? completed-ids cid))))]
             (doseq [[cid spawned-id] survivors]
-              ;; rf2-sfunt8 — a join-survivor cancellation closes the
-              ;; survivor's actor work attempt the reply-envelope way: a
-              ;; `:status :cancelled` reply (cancellation as DATA, Managed-
-              ;; Effects §Cancellation). The reply-envelope facts (`:work/id`
+              ;; A join-survivor cancellation closes the survivor's actor
+              ;; work attempt the reply-envelope way: a `:status :cancelled`
+              ;; reply (cancellation as DATA, Managed-Effects §Cancellation).
+              ;; The reply-envelope facts (`:work/id`
               ;; keyed on the survivor's spawned instance, `:rf.reply/status
               ;; :cancelled`, `:cancel/reason :on-join-resolution`) ride
               ;; ADDITIVELY so the survivor cancellation joins the same
@@ -367,7 +368,7 @@
     (vec (concat (or cancel-fx []) (or dispatch-fx [])))))
 
 (defn intercept-spawn-all-event
-  "Per Spec 005 §Child completion protocol (rf2-6vmw). When the parent's
+  "Per Spec 005 §Child completion protocol. When the parent's
   handler receives an event whose inner event-id matches the active
   `:spawn-all`-bearing state's `:on-child-done` / `:on-child-error`,
   the runtime updates the join state and (on resolution) cancels surviving
@@ -376,38 +377,35 @@
 
   Returns nil (NOT a child-event for any active `:spawn-all`) or a
   re-frame effect map with `:rf.db/runtime` (updated runtime-db — the join
-  state is durable machine runtime-db state, EP-0001 rf2-vzld77) and `:fx`
+  state is durable machine runtime-db state) and `:fx`
   (per-sibling destroys + the join-event dispatch). `runtime-db` is the
   frame's runtime-db partition value (the `:rf.db/runtime` coeffect)."
   [machine runtime-db _path snapshot parent-id inner-event]
   (let [inner-id (first inner-event)
         child-id (second inner-event)
         matches  (find-active-spawn-alls machine snapshot inner-id)
-        ;; Per rf2-w84jv: when more than one active spawn-all matches the
-        ;; event id (two parallel regions reusing the SAME `:on-child-done`),
-        ;; route to the join whose LIVE join-state `:children` OWNS the
-        ;; arriving child-id — ownership, not declaration order, decides. The
-        ;; first-match `some` mis-routed a later region's completion to the
-        ;; first region's join, flagged it as forged, and hung the correct
-        ;; region. The owning match is preferred; if none owns the child
-        ;; (genuinely forged), fall back to the first match so the
-        ;; bad-child-id error trace still fires against a real join.
+        ;; When more than one active spawn-all matches the event id (two
+        ;; parallel regions reusing the SAME `:on-child-done`), route to the
+        ;; join whose LIVE join-state `:children` OWNS the arriving child-id —
+        ;; ownership, not declaration order, decides. The owning match is
+        ;; preferred; if none owns the child (genuinely forged), fall back to
+        ;; the first match so the bad-child-id error trace still fires against
+        ;; a real join.
         owns?    (fn [{invoke-id :invoke-id}]
                    (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
                      (and (map? js) (contains? (:children js) child-id))))
         match    (or (some #(when (owns? %) %) matches)
                      (first matches))
-        ;; Per rf2-ko8jb: resolve the live frame from the runtime-stamped
-        ;; machine (registration.cljc/prepare-machine-ctx assoc'd
-        ;; `:rf/frame` before handing the machine to the interceptor).
-        ;; Threaded into `emit-resolution-traces!` / `build-resolution-fx`
-        ;; AND used inline for the late-completion + bad-child-id error
-        ;; traces — all of these are dropped by epoch-capture without
-        ;; `:frame`.
+        ;; Resolve the live frame from the runtime-stamped machine
+        ;; (registration.cljc/prepare-machine-ctx assoc'd `:rf/frame` before
+        ;; handing the machine to the interceptor). Threaded into
+        ;; `emit-resolution-traces!` / `build-resolution-fx` AND used inline
+        ;; for the late-completion + bad-child-id error traces — all of these
+        ;; are dropped by epoch-capture without `:frame`.
         frame-id (:rf/frame machine)
-        ;; rf2-d63qtp — the CAUSAL completion timestamp of the child's
-        ;; finishing dispatch (the router-stamped `:rf/time-ms` off the
-        ;; machine def's `:rf.cofx`, threaded by prepare-machine-ctx). Rides
+        ;; The CAUSAL completion timestamp of the child's finishing dispatch
+        ;; (the router-stamped `:rf/time-ms` off the machine def's
+        ;; `:rf.cofx`, threaded by prepare-machine-ctx). Rides
         ;; the reply-envelope join-child / late-completion facts the same way
         ;; the single-`:spawn` `:rf.machine/done` reply carries it
         ;; (Managed-Effects §Causal completion metadata). nil for a pure-fn /
@@ -438,9 +436,9 @@
           ;; Already resolved: ignore late-completion. Trace once for
           ;; observability so tools can correlate.
           ;;
-          ;; rf2-d63qtp — the post-resolution late completion is a STALE
-          ;; suppression the reply-envelope way (Managed-Effects §Stale
-          ;; suppression): the join is latched `:resolved?`, so the late
+          ;; The post-resolution late completion is a STALE suppression the
+          ;; reply-envelope way (Managed-Effects §Stale suppression): the
+          ;; join is latched `:resolved?`, so the late
           ;; child fold MUST NOT mutate it (no app effect) — exactly the
           ;; §Stale suppression contract. Build the canonical
           ;; `stale-join-child-reply` (`:status :stale` / `:work/status
@@ -489,7 +487,7 @@
           ;; collapsing the join early. Gate it: emit a structured error
           ;; trace and short-circuit with a no-op fx (do NOT mutate the
           ;; join state). Per Spec 005 §Spawn-and-join and the machines
-          ;; security-audit finding F1 (rf2-ns8ut / rf2-s9tf8).
+          ;; security-audit finding F1.
           (not (contains? (:children join-state) child-id))
           (do (trace/emit-error! :rf.error/machine-spawn-all-bad-child-id
                                  {:actor-id parent-id
@@ -509,7 +507,7 @@
                               :failed (update join-state :failed (fnil conj #{}) child-id))
                 resolution   (compute-resolution spec join-state' kind)
                 join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
-            ;; rf2-ny0yrz C5 — surface a join that just became UNSATISFIABLE.
+            ;; Surface a join that just became UNSATISFIABLE.
             ;; When a child FAILS and the spec has no `:on-any-failed`, the
             ;; failure folds into `:failed` without resolving; once enough
             ;; children have failed that the success condition is unreachable

@@ -1,5 +1,5 @@
 (ns re-frame.after-test
-  "Per Spec 005 §Delayed :after transitions and rf2-3y3y.
+  "Per Spec 005 §Delayed :after transitions.
 
   State-level :after timer semantics:
     - Flat map {<delay> <transition>} per state.
@@ -11,7 +11,7 @@
       the per-machine :rf/after-epoch counter.
     - No-invoke variant: a state with :after but no :spawn is a pure
       timed-transition state.
-    - :timeout-ms / :on-timeout on :spawn / :spawn-all is REMOVED;
+    - :timeout-ms / :on-timeout on :spawn / :spawn-all is rejected;
       registration throws :rf.error/spawn-timeout-ms-removed.
 
   These JVM tests dispatch the synthetic
@@ -31,8 +31,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; runtime-db / snapshot lookup via the shared machines test-support
-;; (rf2-3l8lqe finding #4).
+;; runtime-db / snapshot lookup via the shared machines test-support.
 (def ^:private frame-db mtest/runtime-db)
 (def ^:private snapshot mtest/snapshot)
 
@@ -135,7 +134,7 @@
 
 ;; ---- same-tick tie-break: first-fired advances epoch, slower drops stale --
 ;;
-;; rf2-3kvdb — xstate-parity STEP-ALGORITHM slice (determinism of
+;; xstate-parity STEP-ALGORITHM slice (determinism of
 ;; simultaneously-enabled transitions).
 ;;
 ;; XState v5 / SCXML §3.13 resolve simultaneously-enabled transitions by
@@ -152,8 +151,7 @@
 ;; same-tick timer's event then carries a now-stale epoch and drops
 ;; (:rf.machine.timer/stale-after). No double-transition.
 ;;
-;; This test PINS that contract (NO engine change — the behaviour already
-;; holds; we prove the deliberate non-guarantee externally). Two timers at
+;; This test PINS that deliberate non-guarantee externally. Two timers at
 ;; DIFFERENT delays (5000 + 30000) are scheduled at one entry (same epoch);
 ;; we capture that epoch, then dispatch BOTH synthetic events back-to-back
 ;; — the in-test analogue of two host callbacks landing in the same tick.
@@ -247,20 +245,17 @@
             "sibling :after timer continues and transitions on its own"))
       (rf/unregister-listener! :trace ::g))))
 
-;; ---- guarded candidate-vector :after (rf2-vvbdl) --------------------------
+;; ---- guarded candidate-vector :after --------------------------------------
 ;;
 ;; Per Spec 005 §Delayed :after transitions §Transition spec: the :after
 ;; value admits the SAME guarded candidate-vector form as an :on clause —
 ;; [{:guard g :target s} {:target s2 :action a}] — resolved first-guard-
-;; pass-wins. Pre-rf2-vvbdl pick-after-transition normalised only keyword /
-;; single-map values, so a guarded vector was passed whole into the single-
-;; guard resolver: the guard passed vacuously, the whole vector became the
-;; :transition, and the timer fired with NO transition + NO effects (the
-;; machine was silently stranded). This is the integration counterpart to
-;; the pure-engine sweep in re-frame.after-value-forms-test — driving the
-;; full runtime so the action's :data write and the cascade are exercised.
-;; The live repro was the step-deck :ws/connection machine stuck in
-;; [:active :authenticating].
+;; pass-wins. pick-after-transition normalises the guarded vector and
+;; resolves it through the candidate walk, so the firing timer fires the
+;; first guard-passing candidate's transition + effects. This is the
+;; integration counterpart to the pure-engine sweep in
+;; re-frame.after-value-forms-test — driving the full runtime so the
+;; action's :data write and the cascade are exercised.
 
 (deftest after-guarded-vector-first-pass-runtime
   (testing "guarded candidate-vector :after through the runtime — first guard
@@ -369,10 +364,9 @@
 ;; Per Spec 005 §Hierarchy interaction (the normative external contract at
 ;; 005:1638): "leaf-only sibling transitions inside the same parent MUST
 ;; NOT cause that parent's pending :after timer to fire as stale on its
-;; next match." A single per-machine epoch could not satisfy this — a
-;; child sibling transition that itself bumps the shared counter staled the
-;; still-active parent's in-flight timer. The per-decl-path epoch model
-;; bumps ONLY the exited/entered nodes, leaving the live parent untouched.
+;; next match." The per-decl-path epoch model satisfies this: it bumps ONLY
+;; the exited/entered nodes, leaving the live parent's in-flight timer
+;; untouched.
 
 (deftest after-parent-survives-child-sibling-transition
   (testing "a parent's :after stays live across a child-only sibling
@@ -481,8 +475,8 @@
   (testing "(fn [snap] ms) delay form: invoked once at state entry"
     (let [;; Per spec, fn delays use the ORIGINAL fn key for synthetic-event
           ;; lookup. This test exercises pick-after-transition's lookup
-          ;; with a fn delay-key. Per rf2-grw4i / rf2-v0rrr the delay-fn
-          ;; receives a single context-map arg `{:snapshot ...}`.
+          ;; with a fn delay-key. The delay-fn receives a single
+          ;; context-map arg `{:snapshot ...}`.
           delay-fn (fn [_ctx] 7000)
           m {:initial :idle
              :data    {}
@@ -509,8 +503,8 @@
           parent {:initial :idle
                   :data    {}
                   :on-spawn-actions
-                  ;; Advisory observation hook — returns nil (rf2-dtth6
-                  ;; warns on a non-nil dropped return).
+                  ;; Advisory observation hook — returns nil (a non-nil
+                  ;; dropped return would warn).
                   {:rec (fn [{:keys [id]}] (tap> [::spawned id]) nil)}
                   :states
                   {:idle {:on {:go :authenticating}}
@@ -535,17 +529,18 @@
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots child-id]))
             "child machine destroyed via standard exit cascade")))))
 
-;; ---- fn-form :after exception observability (rf2-c1tnr) -------------------
+;; ---- fn-form :after exception observability -------------------------------
 
 (deftest after-fn-form-throw-surfaces-trace
   (testing "fn-form :after that throws emits :rf.error/machine-after-fn-threw"
-    ;; Pre-rf2-c1tnr the throw was silently caught and the resolution
-    ;; returned [nil nil], surfacing only as :rf.warning/no-clock-
-    ;; configured downstream with no signal that the fn itself blew up.
+    ;; A fn-form :after delay that throws surfaces the failure: the error
+    ;; arm emits :rf.error/machine-after-fn-threw and recovers to
+    ;; :rf.warning/no-clock-configured downstream, so the blown-up fn is
+    ;; observable rather than silently swallowed.
     (let [delay-fn (fn [_ctx]
                      (throw (ex-info "fn-form delay blew up" {:where :test})))]
-      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-      ;; unregister in a `finally`, no hand-rolled register/try/finally.
+      ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`,
+      ;; no hand-rolled register/try/finally.
       (mtest/with-trace-capture captured
         (rf/reg-machine :a/throws
                         {:initial :idle
@@ -569,23 +564,22 @@
             (is (= :no-clock-configured (:recovery first-err))
                 ":recovery hoisted to the envelope top-level")))))))
 
-;; ---- sub-cache ref-count balance on bad-delay early-return (rf2-fva6c.1) ---
+;; ---- sub-cache ref-count balance on bad-delay early-return ----------------
 
 (defn- default-sub-cache []
   @(:sub-cache (frame/frame :rf/default)))
 
 (deftest after-sub-vec-bad-delay-does-not-leak-subscription
-  ;; rf2-fva6c.1: `schedule-after-timer!` resolves a subscription-vector
-  ;; `:after` delay by calling `subs/subscribe`, which bumps the sub-cache
-  ;; ref-count BEFORE we know whether the resolved value is positive. When
-  ;; the resolved value is nil / 0 / negative, the bad-delay branch
-  ;; previously emitted :rf.warning/no-clock-configured and short-circuited
-  ;; — without unsubscribing. No entry was stored in `after-timers`, so no
-  ;; future cancellation path would ever drop the ref. Long-running CLJS
-  ;; processes with repeated bad delays accumulated sub-cache slots.
+  ;; `schedule-after-timer!` resolves a subscription-vector `:after` delay
+  ;; by calling `subs/subscribe`, which bumps the sub-cache ref-count BEFORE
+  ;; we know whether the resolved value is positive. When the resolved value
+  ;; is nil / 0 / negative, the bad-delay branch emits
+  ;; :rf.warning/no-clock-configured AND unsubscribes, so no sub-cache slot
+  ;; leaks even though no entry is stored in `after-timers` (the only
+  ;; cancellation path that would otherwise drop the ref).
   ;;
-  ;; Per rf2-cmfln sub-cache disposal is synchronous on derefer-count → 0,
-  ;; so we observe the cache state without timing.
+  ;; Sub-cache disposal is synchronous on derefer-count → 0, so we observe
+  ;; the cache state without timing.
   (testing "sub-vec :after delay resolving to 0 unsubscribes (no sub-cache leak)"
     (rf/reg-event :a/seed-bad (fn [{:keys [db]} _] {:db (assoc db :timeout-config 0)}))
     (rf/reg-sub :a/timeout-config-0 (fn [db _] (:timeout-config db)))
@@ -639,9 +633,7 @@
       (is (not (contains? (default-sub-cache) [:a/timeout-config-neg]))
           "sub-cache remains clean after 5 bad-delay schedules"))))
 
-;; ---- sub-vec :after exception observability arms (rf2-t4uo0) --------------
-;;
-;; Per rf2-q1z1u F1 (HIGH) — follow-on for rf2-c1tnr.
+;; ---- sub-vec :after exception observability arms --------------------------
 ;;
 ;; `timer.cljc` has three error-emit arms in :after-delay resolution:
 ;; - :rf.error/machine-after-fn-threw     (fn-form throw on `(delay-key snapshot)`)
@@ -649,11 +641,11 @@
 ;; - :rf.error/machine-after-watch-failed (add-watch throw)
 ;;
 ;; The fn-form arm is pinned above by `after-fn-form-throw-surfaces-trace`.
-;; The other two arms are the SAFETY NET against the silent-swallow
-;; class of bug rf2-c1tnr fixed: pre-rf2-c1tnr a deref-throw or an
-;; add-watch-throw was silently caught and the resolution returned
-;; [nil nil], surfacing only as `:rf.warning/no-clock-configured`
-;; downstream with no signal the underlying reactive surface blew up.
+;; The other two arms are the SAFETY NET against silently swallowing a
+;; deref-throw or an add-watch-throw: each surfaces the failure as its own
+;; error trace rather than returning [nil nil] and showing up only as
+;; `:rf.warning/no-clock-configured` downstream with no signal the
+;; underlying reactive surface blew up.
 ;;
 ;; These tests pin those two cousin arms at the trace-emit boundary —
 ;; mirroring the fn-form test's shape exactly so a regression that
@@ -663,10 +655,9 @@
   (testing "rf2-t4uo0 — sub-vec :after whose @reaction throws emits
             :rf.error/machine-after-sub-threw with :rf.sub/id +
             :exception slots and :recovery :no-clock-configured"
-    ;; Pre-rf2-c1tnr the deref throw was silently caught and the
-    ;; resolution returned [nil nil], surfacing only as
-    ;; :rf.warning/no-clock-configured. The error arm makes the
-    ;; underlying sub failure observable.
+    ;; A deref throw on the reaction surfaces the underlying sub failure
+    ;; through the error arm rather than returning [nil nil] and showing up
+    ;; only as :rf.warning/no-clock-configured.
     ;;
     ;; A USER-SPACE sub body throw is caught by `validate-and-trace`
     ;; in re-frame.subs.memo BEFORE it reaches the timer's `try
@@ -684,7 +675,7 @@
           throwing-reaction (reify clojure.lang.IDeref
                               (deref [_]
                                 (throw (ex-info throw-msg {:where :test}))))]
-      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4).
+      ;; Shared `with-trace-capture`.
       (mtest/with-trace-capture captured
         (rf/reg-sub :s/well-formed (fn [_db _] 1000))
         (rf/reg-machine
@@ -723,10 +714,10 @@
   (testing "rf2-t4uo0 — sub-vec :after where add-watch on the reaction
             throws emits :rf.error/machine-after-watch-failed with
             :rf.sub/id + :exception slots and :recovery :static-delay"
-    ;; Pre-rf2-c1tnr an add-watch throw was silently swallowed; the
-    ;; sub-changed re-resolution watcher would not fire (so dynamic
-    ;; delays would silently stop re-resolving) without any signal.
-    ;; This arm makes the failure observable.
+    ;; An add-watch throw is made observable: without the error arm the
+    ;; sub-changed re-resolution watcher would not fire (so dynamic delays
+    ;; would silently stop re-resolving) without any signal. This arm
+    ;; surfaces the failure.
     ;;
     ;; To trigger the arm reliably we shadow `clojure.core/add-watch`
     ;; over the schedule path. The shadow throws once for the
@@ -743,7 +734,7 @@
                            (throw (ex-info "add-watch blew up on after-watch"
                                            {:where :test :key key}))
                            (real-add target key f)))]
-      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4).
+      ;; Shared `with-trace-capture`.
       (mtest/with-trace-capture captured
         ;; A well-behaved sub returning a positive delay — subscribe
         ;; succeeds, deref returns 1000 (so the bad-delay branch

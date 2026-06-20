@@ -1,6 +1,6 @@
 (ns re-frame.trace-enhancements-rf2-82a0u-test
-  "Per rf2-82a0u: three additive trace enhancements feed the Xray epoch
-  panel's Handler section. This test file pins the new emit shapes:
+  "Three trace enhancements feed the Xray epoch panel's Handler section.
+  This test file pins their emit shapes:
 
     1. `:rf.machine/action-ran` carries `:phase` from the closed set
        `:exit / :transition / :entry / :always / :after-action /
@@ -25,7 +25,7 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-;; Routed through the shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4)
+;; Routed through the shared `mtest/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces!
   [body-fn]

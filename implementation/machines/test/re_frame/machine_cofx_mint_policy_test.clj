@@ -1,24 +1,25 @@
 (ns re-frame.machine-cofx-mint-policy-test
-  "Regression coverage for three EP-0017 machine cofx-correctness fixes:
+  "Coverage for two machine cofx-correctness contracts:
 
-    1. rf2-n0myjq — the machine consumer-attachment ensure path must mint
-       under the EFFECTIVE mint policy (per-call opt ▸ frame config ▸ `:live`),
-       not the hard-wired `:live` default. Under `:strict` (replay / the `:test`
-       preset) a declared-absent generator-backed guard/action fact is
-       `:rf.error/missing-required-cofx`, NEVER freshly minted; `:explicit-live`
-       opts back into generation.
+    1. The machine consumer-attachment ensure path mints under the
+       EFFECTIVE mint policy (per-call opt ▸ frame config ▸ `:live`). Under
+       `:strict` (replay / the `:test` preset) a declared-absent
+       generator-backed guard/action fact is
+       `:rf.error/missing-required-cofx`, NEVER freshly minted;
+       `:explicit-live` opts back into generation.
 
-    2. rf2-xsdn5h — a same-macrostep RAISED internal event (`[:raise <event>]`,
-       including synthetic compound / parallel `:on-done` signals) must have its
+    2. A same-macrostep RAISED internal event (`[:raise <event>]`,
+       including synthetic compound / parallel `:on-done` signals) has its
        selected transition's named guard/action `:rf.cofx/requires` ensured
        BEFORE selection, under the same mint policy. The external event's
-       ensure-set (run once before the macrostep) never covered a guard/action a
-       raise can reach, so without the in-engine re-ensure a generator-backed
-       fact read nil and a provided fact skipped the missing-required error.
+       ensure-set runs once before the macrostep and does not cover a
+       guard/action a raise can reach, so the engine re-ensures in-drain — a
+       generator-backed fact is minted and a provided-but-absent fact raises
+       missing-required rather than being read as nil.
 
   These drive the REAL dispatch path (`rf/dispatch-sync` through the live
-  machine handler + transition engine), so a red→green proves the actual failing
-  path, not a routed-around green."
+  machine handler + transition engine), so the test hits the actual path,
+  not a routed-around green."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
@@ -33,7 +34,7 @@
 (def ^:private SCRIPTED-TIME-MS 1234500000)
 
 ;; ===========================================================================
-;; rf2-n0myjq — the ensure path honours the effective mint policy
+;; the ensure path honours the effective mint policy
 ;; ===========================================================================
 
 (deftest strict-ensure-refuses-to-mint-guard-fact-throws
@@ -171,7 +172,7 @@
           "default :live minted the birth :entry fact"))))
 
 ;; ===========================================================================
-;; rf2-xsdn5h — raised-event transitions get their cofx ensured
+;; raised-event transitions get their cofx ensured
 ;; ===========================================================================
 
 (deftest raised-user-event-guard-fact-ensured
@@ -296,7 +297,7 @@
           "both regions advanced: :left on :go, :right on the ensured :inner"))))
 
 ;; ===========================================================================
-;; rf2-x9haxl — wrote-db `:offending-value` redacted at egress
+;; wrote-db `:offending-value` redacted at egress
 ;; ===========================================================================
 
 (deftest wrote-db-offending-value-redacted-at-egress

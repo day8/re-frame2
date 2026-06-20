@@ -1,5 +1,5 @@
 (ns re-frame.done-signal-cljs-test
-  "Per rf2-bnjb3 (parallel onDone) + rf2-zlmz7 (compound onDone). Verifies the
+  "Parallel onDone + compound onDone. Verifies the
   TRANSITIONABLE done-state / `:on-done` completion signal at the LIVE handler
   boundary (not just the pure engine — the SCXML-conformance corpus covers the
   pure surface). XState v5 `onDone` / SCXML §3.7 `done.state.<id>`.
@@ -11,10 +11,9 @@
   a TOP-LEVEL `:final?` leaf (direct child of the machine root) STILL
   auto-destroys (the actor-done case); an embedded final signals-not-destroys.
 
-  The former substitute (`:raise` from the final leaf's `:entry`, which
-  collided with `:final?`-auto-destroys — the rf2-zlmz7 footgun) is gone: you
-  mark the sub-flow's terminal leaf `:final?` and declare `:on-done` on the
-  enclosing compound, and the machine keeps running.
+  To advance a completed sub-flow you mark the sub-flow's terminal leaf
+  `:final?` and declare `:on-done` on the enclosing compound, and the machine
+  keeps running.
 
   Named `*-cljs-test.cljc` so both cognitect.test-runner (JVM) and shadow-cljs
   (CLJS) discover it — the engine + lifecycle are identical across runtimes."
@@ -37,8 +36,8 @@
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- record-traces! [k]
@@ -50,7 +49,7 @@
   (filter #(= operation (:operation %)) @traces))
 
 ;; ===========================================================================
-;; rf2-zlmz7 — COMPOUND onDone (embedded :final? signals, does NOT destroy)
+;; COMPOUND onDone (embedded :final? signals, does NOT destroy)
 ;; ===========================================================================
 
 (deftest compound-done-advances-and-machine-survives
@@ -134,7 +133,7 @@
           "the whole-machine :rf.machine/done fired (actor finality)"))))
 
 ;; ===========================================================================
-;; rf2-bnjb3 — PARALLEL onDone (all-regions-final fires root :on-done)
+;; PARALLEL onDone (all-regions-final fires root :on-done)
 ;; ===========================================================================
 
 (deftest parallel-done-fires-root-on-done-and-survives
@@ -250,7 +249,7 @@
         "machine alive — :b still pending")))
 
 ;; ===========================================================================
-;; rf2-z522n — parallel-root :on-done honours the :db hard-disallow + phase
+;; parallel-root :on-done honours the :db hard-disallow + phase
 ;; ===========================================================================
 
 (deftest parallel-on-done-action-returning-db-emits-error-and-drops-db
@@ -276,7 +275,7 @@
             "exactly one wrote-db hard-disallow error from the parallel :on-done action")
         (is (= :complete (-> errs first :tags :action-id))
             "the diagnostic names the offending :on-done action")
-        ;; rf2-x9haxl — `:offending-value` (the whole app-db the :on-done action
+        ;; `:offending-value` (the whole app-db the :on-done action
         ;; wrongly returned) is summarized to `:rf/redacted` at the trace egress
         ;; chokepoint so it never leaks raw; `:action-id` still locates it.
         (is (= :rf/redacted (-> errs first :tags :offending-value))
@@ -356,12 +355,12 @@
              :on-done {:target :somewhere}
              :regions {:a {:initial :run :states {:run {} }}}})))))
 
-;; rf2-6srk5 — EVERY target-bearing :on-done value-form must be rejected
-;; LOUDLY at registration (not just the map form). Before the fix, a bare-
-;; keyword target and a vector-path target slipped past validation and then
-;; SILENTLY STALLED at runtime: apply-on-done-action normalised them to a
-;; target-only / action-less candidate, ran no action, marked the parallel
-;; done-signal handled (suppressing auto-destroy), and moved nowhere.
+;; EVERY target-bearing :on-done value-form is rejected LOUDLY at registration
+;; (not just the map form). A bare-keyword target and a vector-path target must
+;; not slip past validation: were one to reach runtime it would SILENTLY STALL —
+;; apply-on-done-action would normalise it to a target-only / action-less
+;; candidate, run no action, mark the parallel done-signal handled (suppressing
+;; auto-destroy), and move nowhere. Registration rejects them up front.
 (deftest parallel-on-done-bare-keyword-target-rejected
   (testing "rf2-6srk5: a parallel root's :on-done declaring a BARE-KEYWORD
             target (:on-done :next) is rejected at registration — it would

@@ -10,20 +10,18 @@
   Concerns covered:
     - `:after` schedules with current epoch on entry; fires on synthetic
       timer event with matching epoch; epoch advances on entry.
-    - Stale detection (rf2-7urp): real event beats timer; stale firing must
+    - Stale detection: real event beats timer; stale firing must
       not transition; `:rf.machine.timer/stale-after` trace emitted.
     - Multi-stage `:after` with guard suppression (sibling continues when
       one entry is guard-suppressed).
     - Subscription-vector dynamic delay (`:delay-source :sub` + `:rf.sub/id` + `:rf.sub/query-v`).
 
-  Per the bead: prefer dispatch-sync of the synthetic
-  `:rf.machine.timer/after-elapsed` event over wall-clock setTimeout waits,
-  so the test is deterministic under Node.
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  Prefer dispatch-sync of the synthetic `:rf.machine.timer/after-elapsed`
+  event over wall-clock setTimeout waits, so the test is deterministic under
+  Node."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.machines.test-support :as mtest]))
@@ -32,7 +30,7 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. Inline trace
 ;; captures below keep their raw trace.tooling register/unregister.
 (def ^:private snapshot mtest/snapshot)
@@ -107,7 +105,7 @@
       ;; detection: (a) the stale firing MUST NOT cause a transition, and
       ;; (b) the runtime emits :rf.machine.timer/stale-after as the
       ;; canonical signal so observers can distinguish "suppressed stale
-      ;; firing" from "no firing at all" (rf2-7urp).
+      ;; firing" from "no firing at all".
       (trace-tooling/register-listener! ::stale (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:http2/flow [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
       (trace-tooling/unregister-listener! ::stale)
@@ -115,8 +113,8 @@
           "stale timer must not fire its transition")
       (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch [:loading]]))
           "stale firing does not bump epoch")
-      ;; Per rf2-7urp: the stale-after trace must emit even though the
-      ;; current state (:ready) no longer carries an :after table.
+      ;; The stale-after trace must emit even though the current state
+      ;; (:ready) no longer carries an :after table.
       (is (some (fn [ev]
                   (and (= :rf.machine.timer/stale-after (:operation ev))
                        (= 5000 (:delay (:tags ev)))
@@ -171,15 +169,13 @@
             "sibling timer transitions on its own")
         (trace-tooling/unregister-listener! ::mg)))))
 
-;; ---- guarded candidate-vector :after (rf2-vvbdl) -------------------------
+;; ---- guarded candidate-vector :after -------------------------------------
 ;;
 ;; Per Spec 005 §Delayed :after transitions §Transition spec: the :after
 ;; value admits the SAME guarded candidate-vector form as an :on clause —
 ;; [{:guard g :target s} {:target s2 :action a}] — first-guard-pass-wins.
-;; Pre-rf2-vvbdl this silently no-op'd (the vector was passed whole into the
-;; single-guard resolver). The live repro was the step-deck :ws/connection
-;; machine stuck in [:active :authenticating]. This is the CLJS / reactive-
-;; substrate counterpart to the pure-engine sweep + JVM integration tests.
+;; This is the CLJS / reactive-substrate counterpart to the pure-engine sweep
+;; + JVM integration tests.
 
 (deftest machine-after-guarded-vector-cljs
   (testing "guarded candidate-vector :after under the reactive substrate —

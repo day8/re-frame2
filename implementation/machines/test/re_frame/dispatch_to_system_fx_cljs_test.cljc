@@ -1,5 +1,5 @@
 (ns re-frame.dispatch-to-system-fx-cljs-test
-  "Per rf2-xgj34 — regression for the `:rf.machine/dispatch-to-system` fx.
+  "Regression for the `:rf.machine/dispatch-to-system` fx.
 
   Spec 005 §Cross-machine messaging by name documents the action-side
   mechanism for a machine to send a message to its spawned child actor
@@ -9,12 +9,9 @@
   dropped, so the fx form — not a captured-id dispatch — is how an action
   reaches a NAMED child.)
 
-  The bug (rf2-xgj34): the machines artefact shipped only the
-  `dispatch-to-system` FN (`re-frame.core`), never the fx — so a machine
-  following the spec hit `:rf.error/no-such-fx`. The fix registers the fx
-  in `re-frame.machines`. The headline property here: a machine action
-  emits the fx and the spawned actor's snapshot shows the message landed —
-  i.e. the fx id is now handled and routes the dispatch.
+  The fx is registered in `re-frame.machines`. The headline property here:
+  a machine action emits the fx and the spawned actor's snapshot shows the
+  message landed — i.e. the fx id is handled and routes the dispatch.
 
   Args shape is the single 2-element pair `[<system-id> <event-vector>]`
   (the framework fx contract is a `[fx-id args]` pair; `do-fx` drops
@@ -46,7 +43,7 @@
     #?(:clj  {:adapter plain-atom/adapter}
        :cljs {:adapter reagent-adapter/adapter})))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 

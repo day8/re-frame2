@@ -1,7 +1,7 @@
 (ns re-frame.spawn-all-test
-  "Per rf2-6vmw and Spec 005 §Spawn-and-join via :spawn-all. Verifies
-  the first-class `:spawn-all` spawn-and-join surface that gives
-  parallel-region state-machines a single declarative shape.
+  "Per Spec 005 §Spawn-and-join via :spawn-all. Verifies the first-class
+  `:spawn-all` spawn-and-join surface that gives parallel-region
+  state-machines a single declarative shape.
 
   The test scenarios cover the four join-condition shapes
   (:all / :any / {:n N} / {:fn pred}) plus cancel-on-decision
@@ -26,7 +26,7 @@
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support
-;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+;; — no hardcoded `[:rf.runtime/machines …]` path.
 (def ^:private frame-db mtest/runtime-db)
 (def ^:private snapshot mtest/snapshot)
 
@@ -250,11 +250,11 @@
         ;; :c was cancelled.
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots (:c ids)])))))))
 
-;; ---- (rf2-ny0yrz C5) unsatisfiable join warning --------------------------
+;; ---- unsatisfiable join warning ------------------------------------------
 ;;
 ;; A {:n N} / {:fn} (or :all / :any) join with NO :on-any-failed silently
 ;; hangs forever once enough children fail that the success condition is
-;; unreachable. The runtime now emits a one-shot
+;; unreachable. The runtime emits a one-shot
 ;; :rf.warning/spawn-all-join-unsatisfiable on the fold that first makes the
 ;; join unsatisfiable.
 
@@ -411,9 +411,9 @@
                                              :join           {:n 3}
                                              :on-child-done  :done
                                              :on-child-error :failed}}}}))))
-  ;; rf2-vyjq3m: a :spawn-all child must declare EXACTLY ONE of :machine-id /
-  ;; :definition (XOR). Previously a child carrying BOTH slipped through
-  ;; `(or :machine-id :definition)`; now both-set is rejected too.
+  ;; A :spawn-all child must declare EXACTLY ONE of :machine-id /
+  ;; :definition (XOR): a child carrying BOTH is rejected, as is a child
+  ;; carrying NEITHER.
   (testing ":spawn-all child with BOTH :machine-id AND :definition — rejected (XOR)"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -441,15 +441,15 @@
                                              :on-all-complete [:done]}}}}))
         "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
 
-;; ---- single :spawn :machine-id xor :definition (rf2-vyjq3m) ---------------
+;; ---- single :spawn :machine-id xor :definition ---------------------------
 ;;
-;; `validate-machine!` previously had NO single-:spawn XOR check — a :spawn
-;; declaring BOTH :machine-id and :definition (ambiguous: inline init while
-;; :rf/machine-type stamps the registered id → type mismatch on restore) or
-;; NEITHER (nothing to instantiate → late actor-id allocation failure) slipped
-;; through registration. Now both fail-closed with :rf.error/machine-spawn-
-;; bad-shape. XState-v5 alignment: `invoke` takes exactly one source (a
-;; referenced/registered actor logic OR an inline one), never both/neither.
+;; `validate-machine!` enforces a single-:spawn XOR check at registration: a
+;; :spawn declaring BOTH :machine-id and :definition (ambiguous: inline init
+;; while :rf/machine-type stamps the registered id → type mismatch on
+;; restore) or NEITHER (nothing to instantiate → late actor-id allocation
+;; failure) fails-closed with :rf.error/machine-spawn-bad-shape. XState-v5
+;; alignment: `invoke` takes exactly one source (a referenced/registered
+;; actor logic OR an inline one), never both/neither.
 
 (deftest single-spawn-id-xor-definition-validated-at-registration
   (testing "a single :spawn declaring NEITHER :machine-id nor :definition — rejected"
@@ -502,7 +502,7 @@
                                      :done    {}}}))
         "an explicit :id-prefix alongside exactly-one source is fine")))
 
-;; ---- decisive-child payload forwarding (rf2-4aop8) -----------------------
+;; ---- decisive-child payload forwarding -----------------------------------
 
 (defn- mk-child-with-payload
   "Like mk-child but the terminal-state dispatch carries an extra payload
@@ -562,7 +562,7 @@
                (:join-event (:data snap)))
             "resolution event carries decisive child-id and forwarded payload")))))
 
-;; ---- late-completion safety net (rf2-1tt9q) -----------------------------
+;; ---- late-completion safety net ------------------------------------------
 ;;
 ;; intercept-spawn-all-event has a post-resolution branch (join.cljc:134-141)
 ;; that fires when a child-done event arrives AFTER the join already
@@ -626,7 +626,7 @@
         (finally
           (rf/unregister-listener! :trace ::late-cb))))))
 
-;; ---- forged child-id rejection (rf2-ns8ut) ------------------------------
+;; ---- forged child-id rejection -------------------------------------------
 ;;
 ;; intercept-spawn-all-event must verify the inbound `child-id` is one
 ;; of the parent's spawned children before mutating the join state.
@@ -844,15 +844,14 @@
         (is (= :ready (:state (snapshot :sup/gate-ok)))
             "legitimate :spawn-all resolution still fires :on-all-complete")))))
 
-;; ---- parallel regions reusing the SAME :on-child-done id (rf2-w84jv) -----
+;; ---- parallel regions reusing the SAME :on-child-done id -----------------
 ;;
 ;; Two active parallel regions may legitimately reuse a generic
 ;; `:on-child-done` event id (`:done`, `:asset/loaded`). `find-active-spawn-all`
-;; used `some`, returning the FIRST region whose active state matched — so a
-;; child completion from a LATER region was routed to the first region's join,
-;; failed its child-id OWNERSHIP check as forged, and the correct region's join
-;; never updated (it hung). The fix collects ALL active matches and routes by
-;; which join-state OWNS the arriving child-id.
+;; collects ALL active matches and routes each child completion by which
+;; join-state OWNS the arriving child-id, so a completion from one region is
+;; never misrouted to a sibling region's join (which would fail its child-id
+;; ownership check as forged and leave the correct region hung).
 
 (deftest parallel-regions-sharing-on-child-done-route-by-child-ownership
   (testing "two parallel regions reusing :on-child-done :done route each child completion to the region whose join OWNS it; no bad-child-id, neither region hangs (rf2-w84jv)"

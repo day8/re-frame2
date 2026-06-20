@@ -44,9 +44,9 @@
   (destroyed / not-yet-materialised) or when `:rf/machine-id` is absent.
   Per Spec 005 §Snapshot-level escape hatch.
 
-  Validation scope (rf2-ny0yrz CL1): the merged candidate's `:data` IS
-  validated against the actor's `:data-schema` (rf2-wrrvs7, below). A
-  `:state` / `:meta` patch is NOT occupiability-checked — the escape hatch
+  Validation scope: the merged candidate's `:data` IS validated against the
+  actor's `:data-schema` (below). A `:state` / `:meta` patch is NOT
+  occupiability-checked — the escape hatch
   trusts the caller to supply a `:state` that resolves to a real, occupiable
   state-node of the machine's definition. A `:state` patch naming a non-
   existent / non-occupiable node writes a snapshot the next transition will
@@ -57,9 +57,9 @@
   low-frequency \"I need to touch `:state` + something else atomically\"
   primitive, not a guarded `:on`-transition."
   [{frame-id :frame} args]
-  (let [;; EP-0002 carried invariant — the cascade envelope frame is the
-        ;; fx-context `:frame`; a nil stamp is an invariant failure
-        ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
+  (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
+        ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
+        ;; never a synthesised `:rf/default`.
         frame-id   (frame/require-frame-stamp!
                      frame-id :rf.machine/update-snapshot
                      {:where 'rf.machine/update-snapshot
@@ -71,10 +71,10 @@
       ;; (Spec 005:463). Canonical id / tags per Spec 009 §Error event
       ;; catalogue.
       ;;
-      ;; rf2-x9haxl — align the addressed-id tag shape with the action-effect
-      ;; path (`transition/enforce-db-disallow`) and Spec 009 §`:rf.machine/*`
-      ;; (rf2-yyvtk5): the offending write ran against a LIVE actor INSTANCE, so
-      ;; it rides under `:actor-id` — `:rf.machine/update-snapshot` carries the
+      ;; The addressed-id tag shape aligns with the action-effect path
+      ;; (`transition/enforce-db-disallow`) and Spec 009 §`:rf.machine/*`:
+      ;; the offending write ran against a LIVE actor INSTANCE, so it rides
+      ;; under `:actor-id` — `:rf.machine/update-snapshot` carries the
       ;; actor id under `:rf/machine-id`, which IS the running instance address
       ;; (a singleton's registration id, or a spawned actor's `<type>#<n>` /
       ;; fixed id). `:offending-value` (the whole app-db the patch wrongly
@@ -89,11 +89,11 @@
                             :recovery        :logged-and-skipped}))
       (let [clean-patch (select-keys patch permitted-patch-keys)]
         (when (seq clean-patch)
-          ;; Machine snapshots are durable runtime-db state (rf2-vzld77):
-          ;; the escape-hatch patch is a runtime-db partition write.
+          ;; Machine snapshots are durable runtime-db state: the
+          ;; escape-hatch patch is a runtime-db partition write.
           ;;
-          ;; rf2-wrrvs7 — the escape-hatch `:data` patch is NOT exempt
-          ;; from the `:where :machine-data` boundary. Spec 005 §Snapshot-
+          ;; The escape-hatch `:data` patch is NOT exempt from the
+          ;; `:where :machine-data` boundary. Spec 005 §Snapshot-
           ;; level escape hatch says user error/status state lives under
           ;; `:data` *where `:data-schema` validation covers it*. The fx
           ;; runs on the single drainer (Spec 002), so read-then-write is

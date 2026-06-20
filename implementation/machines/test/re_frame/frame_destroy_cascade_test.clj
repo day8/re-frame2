@@ -1,8 +1,7 @@
 (ns re-frame.frame-destroy-cascade-test
-  "Per rf2-vsigt — frame destroy must run the machine `:exit` /
-  disposal cascade in reverse-creation order BEFORE sub-cache /
-  adapter teardown. Spec 005 §Cross-Spec Interactions §1 enumerates
-  the contract:
+  "Frame destroy runs the machine `:exit` / disposal cascade in
+  reverse-creation order BEFORE sub-cache / adapter teardown. Spec 005
+  §Cross-Spec Interactions §1 enumerates the contract:
 
     `(rf/destroy-frame! :auth)` is called while the frame holds active
     machine instances mid-flight. Each active machine runs its `:exit`
@@ -10,11 +9,10 @@
     disposes first). After every machine has settled, sub-cache
     disposes / substrate releases / `:frame/destroyed` traces.
 
-  Pre-rf2-vsigt the implementation aborted in-flight HTTP and emitted
-  `:rf.machine.lifecycle/destroyed` but did not run the `:exit`
-  actions, did not unregister the spawned-actor handlers, did not
-  clear the `[:rf.runtime/machines :system-ids]` reverse index, and did not enforce any
-  ordering.
+  The cascade runs the `:exit` actions, unregisters the spawned-actor
+  handlers, clears the `[:rf.runtime/machines :system-ids]` reverse index,
+  and enforces the reverse-creation ordering — alongside aborting in-flight
+  HTTP and emitting `:rf.machine.lifecycle/destroyed`.
 
   These JVM-side tests run on the plain-atom substrate against the
   late-bound `:machines/teardown-on-frame-destroy!` hook that the
@@ -180,8 +178,7 @@
       (rf/reg-machine :lt/child child)
       (rf/reg-machine :lt/boot boot)
       (rf/dispatch-sync [:lt/boot [:start]] {:frame :lt/auth})
-      ;; Shared `with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-      ;; unregister in a `finally`.
+      ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`.
       (mtest/with-trace-capture traces
         (rf/destroy-frame! :lt/auth)
         (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
@@ -266,17 +263,17 @@
       ;; Each frame has its own spawn-order vector.
       (is (= [:iso/child-a#1] (spawn-order/frame-order :iso/frame-a)))
       (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b)))
-      ;; Per rf2-a2sn1 — a spawned actor carries NO per-instance registrar
-      ;; entry; its liveness IS its snapshot's presence in the frame's
-      ;; (revertible) app-db. Cross-frame isolation is therefore asserted
-      ;; on the snapshots, not the registrar.
+      ;; A spawned actor carries NO per-instance registrar entry; its
+      ;; liveness IS its snapshot's presence in the frame's (revertible)
+      ;; app-db. Cross-frame isolation is therefore asserted on the
+      ;; snapshots, not the registrar.
       (is (some? (get-in (rf/runtime-db-value :iso/frame-a)
                          [:rf.runtime/machines :snapshots :iso/child-a#1]))
           "frame A's spawned actor is live (snapshot present) before destroy")
       (is (some? (get-in (rf/runtime-db-value :iso/frame-b)
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor is live (snapshot present) before destroy")
-      ;; Spawned actors never register a per-instance handler (rf2-a2sn1).
+      ;; Spawned actors never register a per-instance handler.
       (is (nil? (registrar/lookup :event :iso/child-a#1))
           "frame A's spawned actor has no per-instance registrar entry")
       (is (nil? (registrar/lookup :event :iso/child-b#1))
@@ -298,18 +295,17 @@
 
 ;; ---- restore / hydration: spawned snapshots absent from spawn-order ------
 ;;
-;; Per rf2-apfait — restore / SSR hydration / `replace-runtime-db!` /
-;; `restore-epoch!` repopulate the DURABLE runtime-db snapshots WITHOUT
-;; repopulating the PROCESS-SIDE (transient) `spawn-order` atom (Spec 002
-;; §Durable vs transient: the atom is runtime bookkeeping, not durable
-;; state). Before the fix, `destroy-frame!` saw such snapshots only via the
-;; straggler pass and routed them through `run-singleton-exit-cascade!`,
-;; which runs the `:exit` cascade + HTTP abort ONLY — it does NOT dissoc
-;; the snapshot, release the system-id reverse index, clear schema marks,
-;; cancel `:after` timers, or unregister a handler. A restored SPAWNED
-;; actor (snapshot carries `:rf/machine-type`) must instead flow through
-;; the FULL `destroy-single-actor!` teardown, in reverse-creation order
-;; derived from the durable `<type>#<n>` actor-id.
+;; Restore / SSR hydration / `replace-runtime-db!` / `restore-epoch!`
+;; repopulate the DURABLE runtime-db snapshots WITHOUT repopulating the
+;; PROCESS-SIDE (transient) `spawn-order` atom (Spec 002 §Durable vs
+;; transient: the atom is runtime bookkeeping, not durable state). A restored
+;; SPAWNED actor (snapshot carries `:rf/machine-type`) flows through the FULL
+;; `destroy-single-actor!` teardown — dissoc the snapshot, release the
+;; system-id reverse index, clear schema marks, cancel `:after` timers,
+;; unregister a handler — in reverse-creation order derived from the durable
+;; `<type>#<n>` actor-id. (The straggler `run-singleton-exit-cascade!` path
+;; runs the `:exit` cascade + HTTP abort only and is reserved for restored
+;; SINGLETON snapshots that carry no `:rf/machine-type`.)
 ;;
 ;; These tests model restore by spawning normally, then wiping ONLY the
 ;; transient spawn-order atom (`spawn-order/reset-all!`) while leaving the

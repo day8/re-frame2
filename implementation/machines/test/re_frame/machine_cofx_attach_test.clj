@@ -1,7 +1,7 @@
 (ns re-frame.machine-cofx-attach-test
-  "Per EP-0017 slice-B.9 (rf2-mjmxgb) — machine consumer attachment.
+  "Machine consumer attachment.
 
-  Covers the three slice-B.9 pieces and their adversarial corners:
+  Covers the three pieces and their adversarial corners:
 
     1. INLINE-FN RESTRICTION — `:rf.cofx/requires` may live ONLY on a named
        `:guards` / `:actions` entry map. An inline declaration (on an `:on`
@@ -183,7 +183,7 @@
           "the ensure-set for [:go] at :idle includes the :always-closure
            fact reachable through the :pending target"))))
 
-;; ---- multi-hop :always chain (rf2-h9gwkx) ---------------------------------
+;; ---- multi-hop :always chain ---------------------------------------------
 ;;
 ;; The single-hop cases above reach an :always one hop from the candidate
 ;; target. The runtime, however, settles :always to a MULTI-HOP fixed point
@@ -191,9 +191,9 @@
 ;; runs ONCE before that macrostep (registration/ensure-ctx-cofx). A
 ;; :rf.cofx/requires declared on an :always guard/action reached at chain
 ;; depth >=2 (A --go--> B, B :always--> C, C :always {:guard g-requiring-cofx})
-;; must therefore be ensured up front; before rf2-h9gwkx the static closure
-;; chased only ONE :always hop, so the depth>=2 fact was silently un-ensured
-;; (the guard read nil with no missing-required throw — replay-nondeterminism).
+;; is ensured up front: the static closure chases the :always chain to a
+;; fixed point, so the depth>=2 fact is in the ensure-set (the guard reads
+;; the ensured value, never a silent nil) — preserving replay-determinism.
 
 (deftest ensure-set-for-follows-multi-hop-always-chain
   (testing "white-box: ensure-set-for chases :always targets to a FIXED POINT,
@@ -280,10 +280,9 @@
              (:rf.error/id (ex-data e)))
           "the depth>=2 :always-required provided fact, absent, throws
            missing-required (it WAS in the ensure-set) — not a silent nil")
-      ;; counter-check: before rf2-h9gwkx the depth>=2 fact was DROPPED from
-      ;; the ensure-set (one-hop closure), so this would have been an empty
-      ;; ensure-set → no-op → the guard later reads nil silently. Confirm the
-      ;; fact is now present in the derived set (the positive of the throw).
+      ;; counter-check: confirm the depth>=2 fact is present in the derived
+      ;; ensure-set (the positive of the throw) — the closure reaches it, so
+      ;; it is never dropped to a silent-nil read.
       (is (contains? (set (map :id (cofx-attach/ensure-set-for
                                      m {:state :a :data {}} [:go])))
                      :rf/time-ms)
@@ -385,16 +384,16 @@
           "the pure engine runs without a token and without an ensure error"))))
 
 ;; ===========================================================================
-;; PARALLEL ROOT :on / :after in the ensure-set (rf2-bu106a)
+;; PARALLEL ROOT :on / :after in the ensure-set
 ;; ===========================================================================
 ;;
-;; The parallel branch of `ensure-set-for` unioned each REGION's scope only —
-;; the parallel ROOT's own `:on` / `:after` (live ancestor-fallback transition
+;; The parallel branch of `ensure-set-for` unions each REGION's scope AND the
+;; parallel ROOT's own `:on` / `:after` (live ancestor-fallback transition
 ;; surfaces the runtime evaluates separately via `transition/root-on-match` /
-;; `root-after-match`) were dropped. A coeffect declared by a root `:on` /
-;; root `:after` guard/action was therefore never ensured before selection, so
-;; the guard/action silently read nil (or skipped the missing-required throw).
-;; These tests prove the root surfaces now contribute to the ensure-set.
+;; `root-after-match`). A coeffect declared by a root `:on` / root `:after`
+;; guard/action is therefore ensured before selection, so the guard/action
+;; reads the ensured value (or surfaces the missing-required throw).
+;; These tests prove the root surfaces contribute to the ensure-set.
 ;;
 ;; XState-v5 alignment: a transition (`on`) or delayed transition (`after`)
 ;; declared on a `<parallel>` node is a first-class ancestor fallback (Spec 005

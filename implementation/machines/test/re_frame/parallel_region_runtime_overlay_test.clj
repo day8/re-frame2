@@ -1,31 +1,28 @@
 (ns re-frame.parallel-region-runtime-overlay-test
-  "Per rf2-z522n (finding 1). Regression for the STALE region frame/platform
-  bug.
+  "Region frame/platform runtime overlay.
 
   `re-frame.machines.parallel/region-machine` MEMOISES the synthetic
   single-machine spec for each region in metadata on the parent machine, at
   REGISTRATION time. The cached spec captures `:rf/platform` / `:rf/frame`
   from whatever the parent machine held when the cache was first populated —
   which can be the UNSTAMPED registration-time machine (before
-  `prepare-machine-ctx` stamps the live runtime values). On a later
-  transition, `reduce-regions` re-stamped only `:rf/parent-id` onto the
-  cached spec, so the region's pure logic ran with the STALE/missing
-  `:rf/platform` / `:rf/frame`.
+  `prepare-machine-ctx` stamps the live runtime values).
+
+  `reduce-regions` overlays the LIVE `:rf/platform` / `:rf/frame` (alongside
+  `:rf/parent-id`) from the parent machine onto the cached region spec before
+  EVERY region step, at the `reduce-regions` choke-point — so the region's
+  pure logic always runs with the live runtime values, never a stale/missing
+  cached `:rf/platform` / `:rf/frame`.
 
   Consequences this test guards:
-    - A parallel-region `:after` ran `build-after-fx` against the stale
-      `:rf/platform`. Under SSR (`:platform :server`) the region timer was
-      treated as a CLIENT timer (`:scheduled` + a host-clock
-      `:after-schedule` fx) instead of being skipped
-      (`:skipped-on-server`).
-    - Region timer/action traces carried the stale (missing) `:rf/frame`,
-      so epoch-capture / frame-isolation attribution dropped or
-      mis-attributed them.
+    - A parallel-region `:after` runs `build-after-fx` against the LIVE
+      `:rf/platform`. Under SSR (`:platform :server`) the region timer is
+      skipped (`:skipped-on-server`), not treated as a CLIENT timer
+      (`:scheduled` + a host-clock `:after-schedule` fx).
+    - Region timer/action traces carry the LIVE `:rf/frame`, so
+      epoch-capture / frame-isolation attribution is correct.
 
-  The fix overlays the LIVE `:rf/platform` / `:rf/frame` (alongside
-  `:rf/parent-id`) from the parent machine onto the cached region spec
-  before EVERY region step, at the `reduce-regions` choke-point. These
-  tests drive `parallel/machine-transition` directly (pure) with an
+  These tests drive `parallel/machine-transition` directly (pure) with an
   explicitly-stamped parent so the assertion does not depend on a live SSR
   frame."
   (:require [clojure.test :refer [deftest is testing]]
@@ -40,8 +37,8 @@
   "Register a trace listener for the duration of `body-fn`; return the
   captured trace vec. (`trace/emit!` delivers to listeners synchronously,
   so a PURE `machine-transition` call surfaces its traces here without a
-  dispatch cycle.) Routed through the shared `mtest/with-trace-capture`
-  (rf2-3l8lqe finding #4) — guaranteed unregister in a `finally`."
+  dispatch cycle.) Routed through the shared `mtest/with-trace-capture` —
+  guaranteed unregister in a `finally`."
   [body-fn]
   (mtest/with-trace-capture seen
     (body-fn)
@@ -150,7 +147,7 @@
         (is (empty? (of-op cli-tr :rf.machine.timer/skipped-on-server))
             "no stale server-skip leaked from the prior run")))))
 
-;; ---- rf2-gqr4vs: transition-local `:rf/cofx` must not survive the cache ----
+;; ---- transition-local `:rf/cofx` must not survive the cache ----------------
 
 ;; A parallel machine whose region action captures the causal `:rf.cofx`
 ;; coeffect threaded onto the action ctx. The `:capture` action records what it

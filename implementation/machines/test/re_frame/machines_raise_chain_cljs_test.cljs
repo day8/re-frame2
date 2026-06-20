@@ -1,19 +1,17 @@
 (ns re-frame.machines-raise-chain-cljs-test
-  "CLJS-side coverage for the `:raise` chain (rf2-c0nt) under the Reagent
-  reactive substrate.
+  "CLJS-side coverage for the `:raise` chain under the Reagent reactive
+  substrate.
 
   Per Spec 005 §`:raise`: an `:action` may return `{:fx [[:raise <event-vec>]]}`
   to re-enter the same machine pre-commit. The handler in `drain-raises`
   recurses through `machine-transition`, so a chain of raises threads through
   multiple transitions before the macrostep commits.
 
-  Pre-fix `drain-raises` looked up `machine-transition` with `(resolve …)`.
-  The fix (rf2-c0nt) drops that indirection in favour of a direct call backed
-  by an explicit `(declare machine-transition)` forward reference. This test
-  pins regression coverage for the :raise-chain path on CLJS so that future
-  refactors of `drain-raises` cannot silently break the recursive entry point.
-
-  Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
+  `drain-raises` calls `machine-transition` directly, backed by an explicit
+  `(declare machine-transition)` forward reference. This test pins
+  regression coverage for the :raise-chain path on CLJS so that future
+  refactors of `drain-raises` cannot silently break the recursive entry
+  point."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -23,7 +21,7 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 

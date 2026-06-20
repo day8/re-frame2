@@ -13,7 +13,7 @@
   post-transition snapshot + the emitted fx vector, including the
   `:rf.machine/spawn` allocator's id sequencing) depends ONLY on the
   arguments. There is no module-level mutable state and no `app-db` read
-  — per rf2-gr8q the declarative-`:spawn` spawn-id allocator lives
+  — the declarative-`:spawn` spawn-id allocator lives
   INSIDE the snapshot under `:rf/spawn-counter` (a per-machine-id integer
   map), so identical triples produce identical Results and the reducer
   threads the bumped counter through the returned snapshot. That is the
@@ -66,15 +66,15 @@
 
   Two roles, both `:entry`-only (it NEVER reaches an `:on` map):
     1. As an EAGER kick (`[:machine-id [:rf.machine/start]]`) it brings a
-       machine to life now rather than on its first real event. Per F‴
-       (rf2-gl588) it is a PURE init-kick — the lifecycle handler runs the
+       machine to life now rather than on its first real event. It is a
+       PURE init-kick — the lifecycle handler runs the
        initial-entry cascade then STOPS; the marker is never fed into the
        transition step as a trigger.
     2. As the placeholder `:event` value threaded through the initial-entry
        cascade so `:entry` actions reading `(fn [{:keys [event]}] …)` see a
        non-nil, reserved-namespace discriminator on the BIRTH call.
 
-  Renamed from `:rf.machine/bootstrap` (pre-alpha, no back-compat shim).
+  The reserved creation marker is `:rf.machine/start`.
   The canonical definition lives here in the leaf engine namespace so both
   `parallel` (the cascade) and `lifecycle-fx.registration` (the handler)
   reference one source of truth without a require cycle."
@@ -91,13 +91,13 @@
   here (above the resolution helpers) so `pick-transition` /
   `pick-done-transition` can special-case it. See §The done-state signal
   helpers (`compound-done-paths` / `done-raise-fx` / `apply-on-done-action`)
-  below for the full mechanism (rf2-bnjb3 / rf2-zlmz7)."
+  below for the full mechanism."
   :rf.machine/done)
 
 (def spawn-error-event-id
   "The reserved inner event-id dispatched into a PARENT machine when one of
   its `:spawn`-spawned children FAILS — re-frame2's spelling of XState v5
-  `invoke onError` (control flow, not just observability — rf2-5hlsh). Two
+  `invoke onError` (control flow, not just observability). Two
   triggers raise it (both fired from the child's finalize / action-exception
   path in `lifecycle-fx.finalize` / `lifecycle-fx.registration`):
 
@@ -123,7 +123,7 @@
   map until it hits a fn (or fails). Tolerates one level of indirection
   like {:short-name :registered-id} where :registered-id resolves to a fn.
 
-  Per rf2-npvsx every `:guards` / `:actions` / `:on-spawn-actions` entry
+  Every `:guards` / `:actions` / `:on-spawn-actions` entry
   is the co-located `{:fn <fn> ...}` map (the `:source-*` slots are
   dev-only). A registry VALUE may therefore be that entry map, a bare fn
   (programmatic `reg-machine*` with raw fns, or a `(constantly …)`
@@ -140,12 +140,12 @@
                                       nil)
       :else                         nil)))
 
-;; ---- the canonical thrown-error shape for transition failures (rf2-yl39ub) --
+;; ---- the canonical thrown-error shape for transition failures --------------
 ;;
-;; Runtime transition failures historically threw a bare-keyword `ex-info`
-;; with minimal data and no canonical `:rf.error/id` / `:where` / `:recovery` /
-;; `:reason`. `machine-error` routes every transition throw through the central
-;; builder (`re-frame.error/thrown-ex-info`, Spec 009 §The thrown-error shape):
+;; `machine-error` routes every transition throw through the central
+;; builder (`re-frame.error/thrown-ex-info`, Spec 009 §The thrown-error shape),
+;; so every transition failure carries a canonical `:rf.error/id` / `:where` /
+;; `:recovery` / `:reason`:
 ;; the human sentence rides `:reason` and leads the derived message (+ the
 ;; `[:rf.error/<id>]` token), `:where` names the machine grammar surface, and
 ;; the surface-specific context (machine id, offending slot + value, known
@@ -153,7 +153,7 @@
 ;; REGISTRATION shape errors, so the default recovery is `:fix-registration`.
 
 (defn- machine-error
-  "Build the canonical machine-transition thrown-error `ex-info` (rf2-yl39ub).
+  "Build the canonical machine-transition thrown-error `ex-info`.
   `category` is the `:rf.error/machine-*` discriminator (lands in
   `:rf.error/id`); `reason` is the human sentence; `extras` merge on top.
   `:recovery` defaults to `:fix-registration` (these are caller-fixable
@@ -221,7 +221,7 @@
 
 ;; ---- guard/action contract --------------------------------------------------
 ;;
-;; Per Spec 005 §Guards / §Actions (rf2-grw4i / rf2-v0rrr), the canonical
+;; Per Spec 005 §Guards / §Actions, the canonical
 ;; signature for every machine callback is a SINGLE context-map argument:
 ;;
 ;;   (fn [{:keys [data event state meta]}] ...)
@@ -248,7 +248,7 @@
 ;; makes meaningful keys explicit; the runtime delivers them in a single
 ;; map.
 ;;
-;; ---- cross-region guard/action context (rf2-46ly6 / rf2-69d1n) ------------
+;; ---- cross-region guard/action context ------------------------------------
 ;;
 ;; XState v5 / SCXML gold standard: a parallel region's guard can predicate
 ;; on a SIBLING region's active state via `stateIn(stateValue)` (XState v5
@@ -256,8 +256,8 @@
 ;; the canonical orthogonal-region coordination primitive — region A's
 ;; `:submit` guarded by "region B is in `:valid`".
 ;;
-;; re-frame2 expresses this WITHOUT a separate `stateIn` primitive (per
-;; rf2-69d1n — behavioural parity, not API mimicry). When `call-guard` /
+;; re-frame2 expresses this WITHOUT a separate `stateIn` primitive
+;; (behavioural parity, not API mimicry). When `call-guard` /
 ;; `call-action` run for a REGION of a parallel machine, the context map
 ;; gains two cross-region keys, threaded in by `parallel/reduce-regions`:
 ;;
@@ -283,16 +283,16 @@
 
 (defn- callback-ctx
   "Build the unified context-map handed to a `:guard` / `:action` / `:entry`
-  / `:exit` callback. Per Spec 005 §Guards / §Actions (rf2-grw4i /
-  rf2-v0rrr) the base shape is `{:data :event :state :meta}`.
-  Per rf2-46ly6 / rf2-69d1n, a parallel REGION's snapshot additionally
+  / `:exit` callback. Per Spec 005 §Guards / §Actions
+  the base shape is `{:data :event :state :meta}`.
+  A parallel REGION's snapshot additionally
   carries the machine-wide `:tags` union and the full `:all-state` region
   map (threaded by `parallel/reduce-regions`) — the cross-region
   coordination keys (XState v5 `stateIn` / SCXML `In()`). `:all-state` is
   the parallel-region marker: present iff this is a region snapshot, so
   flat / compound machines surface neither key and their ctx is unchanged.
 
-  Per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): when the event handler's
+  When the event handler's
   causal recordable-coeffect token (the router's `:rf.cofx` coeffect — Spec
   002 §Event Context And Coeffects) has been threaded onto the machine def
   under `:rf/cofx` (stamped by `prepare-machine-ctx` alongside `:rf/frame` /
@@ -317,9 +317,8 @@
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] boolean)`.
-  Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr); a parallel region's guard
-  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n), and —
-  per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf) — the causal `:rf.cofx`
+  Per Spec 005 §Guards; a parallel region's guard
+  additionally receives `:tags` + `:all-state`, and the causal `:rf.cofx`
   token when the handler threaded it onto the machine def."
   [machine g snapshot event]
   (g (callback-ctx machine snapshot event)))
@@ -327,16 +326,15 @@
 (defn- call-action
   "Invoke a resolved action fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] effects)`.
-  Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr); a parallel region's action
-  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n), and —
-  per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf) — the causal `:rf.cofx`
+  Per Spec 005 §Actions; a parallel region's action
+  additionally receives `:tags` + `:all-state`, and the causal `:rf.cofx`
   token when the handler threaded it onto the machine def."
   [machine f snapshot event]
   (f (callback-ctx machine snapshot event)))
 
 ;; ---- guard / action evaluation traces -------------------------------------
 ;;
-;; Per Spec 009 §Instrumentation and rf2-2nwfd: every user-declared guard
+;; Per Spec 009 §Instrumentation: every user-declared guard
 ;; evaluation emits `:rf.machine/guard-evaluated`; every user-declared
 ;; action invocation emits `:rf.machine/action-ran`. Both traces ride
 ;; through the standard trace bus, so `*handler-scope*` auto-stamps
@@ -357,13 +355,12 @@
   synthesised always-true — skip the trace (it is not a user-declared
   evaluation) and return true.
 
-  Per rf2-82a0u: when the guard fn throws, emit
+  When the guard fn throws, emit
   `:rf.machine/guard-evaluated` with `:outcome :threw` and the
   `:exception` slot, then treat the guard as failed (return `false`)
-  so the candidate-walk continues evaluating siblings — Spec 005
-  §Guards is silent on throw semantics; the engine's existing
-  implicit behaviour (let it propagate) hides the failure entirely
-  from the trace stream. Treating throw as `:fail` matches the
+  so the candidate-walk continues evaluating siblings. This surfaces the
+  failure on the trace stream rather than letting it propagate silently.
+  Treating throw as `:fail` matches the
   documented `:action`-threw convention (the action that throws emits
   one trace and the cascade halts; for guards the cascade should walk
   past the throwing candidate to the next one, which is the
@@ -373,26 +370,26 @@
   (if (nil? guard-ref)
     true
     (let [g          (resolve-guard machine guard-ref)
-          ;; rf2-yyvtk5 — a guard is evaluated against a LIVE actor's
+          ;; A guard is evaluated against a LIVE actor's
           ;; snapshot, so the addressed id is the running INSTANCE
           ;; (`:rf/parent-id` is the live actor address stamped by
           ;; `prepare-machine-ctx`; `:id` is the singleton's registration
           ;; id, which IS its live address). It rides under `:actor-id` —
           ;; `:machine-id` is reserved for the registered TYPE.
           actor-id   (or (:rf/parent-id machine) (:id machine))
-          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+          ;; Epoch-capture admission requires `:frame`.
           ;; `(:rf/frame machine)` is stamped by `prepare-machine-ctx`
           ;; (registration.cljc) before the engine is invoked; nil-safe
           ;; for pure-function callers (conformance corpus, JVM fixtures).
           frame-id   (:rf/frame machine)
-          ;; rf2-tjm3u2 — the ACTIVE state the guard was evaluated against
+          ;; The ACTIVE state the guard was evaluated against
           ;; (the snapshot's `:state`: a keyword, a vector path, or — for a
           ;; parallel region's snapshot — a region value). Stamped on the
           ;; trace so a downstream consumer can disambiguate WHICH state's
           ;; edge a guard-block belongs to. Without it, two states that
           ;; declare the SAME event + SAME guard id are indistinguishable by
-          ;; `(event, guard)` alone, and a single guard failure paints BOTH
-          ;; edges (the bug). The guard runs during the active-configuration
+          ;; `(event, guard)` alone, and a single guard failure would paint BOTH
+          ;; edges. The guard runs during the active-configuration
           ;; resolution, so the active `:state` is the discriminator: the
           ;; consumer (`panels.machines.trace-state/extract-guard-blocked-
           ;; edge-ids`) matches only edges whose declaring `:from-path` is on
@@ -422,7 +419,7 @@
 
 ;; ---- spawn-id allocator (in-snapshot) -------------------------------------
 ;;
-;; Per Spec 005 §Declarative :spawn (sugar over spawn) and rf2-gr8q: on
+;; Per Spec 005 §Declarative :spawn (sugar over spawn): on
 ;; entry to a :spawn-bearing state the runtime emits a :rf.machine/spawn
 ;; fx and assigns the spawned actor a deterministic id of the form
 ;; `<machine-id>#<n>`. The counter lives inside the snapshot under the
@@ -433,8 +430,8 @@
 ;; the snapshot's counter via update-in and the bumped value is the
 ;; allocated id.
 ;;
-;; `build-initial-snapshot` (in re-frame.machines.parallel — unified per
-;; rf2-fgqs4 across the singleton-registration and spawn paths) stamps
+;; `build-initial-snapshot` (in re-frame.machines.parallel — unified
+;; across the singleton-registration and spawn paths) stamps
 ;; `{:rf/spawn-counter {}}` on every freshly-registered machine's
 ;; initial snapshot so the slot is always present for live runtime
 ;; spawns. Hand-built snapshots (the conformance fixtures) may omit the
@@ -451,7 +448,7 @@
   "Pure allocator. Given a snapshot and the spawned actor's machine-id,
   return `[snap' spawned-id]` where snap' carries the bumped counter at
   `[:rf/spawn-counter <machine-id>]` and spawned-id is
-  `<machine-id>#<bumped-n>`. Per rf2-gr8q the counter lives in-snapshot
+  `<machine-id>#<bumped-n>`. The counter lives in-snapshot
   so machine-transition is deterministic from its arguments."
   [snap machine-id]
   (let [snap' (update-in snap [:rf/spawn-counter machine-id] (fnil inc 0))
@@ -459,7 +456,7 @@
     [snap' (format-spawn-id machine-id n)]))
 
 (defn- bind-spawned-id-into-parent-data
-  "Per rf2-rc8wci — bind a declaratively-`:spawn`'d actor's assigned id into
+  "Bind a declaratively-`:spawn`'d actor's assigned id into
   the SPAWNING (parent) machine's own `:data`, at spawn-time, under the
   reserved per-invoke map `:rf/spawned`: `{:rf/spawned {<invoke-id> <spawned-id>}}`.
 
@@ -587,7 +584,7 @@
 
 ;; ---- :fsm/tags — active-configuration tag union ---------------------------
 ;;
-;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1). A state node
+;; Per Spec 005 §State tags. A state node
 ;; may declare `:tags <set-of-keywords>`. The runtime maintains a derived
 ;; `:tags` slot on the snapshot — the union of every currently-active
 ;; state's tag set.
@@ -652,7 +649,7 @@
   {:target s2 :action a}]`) resolves identically whether it is reached
   through an `:on` clause or an `:after` delay entry.
 
-  rf2-16gxd — the FORBIDDEN-TRANSITION value form. A nil VALUE (the key is
+  The FORBIDDEN-TRANSITION value form. A nil VALUE (the key is
   PRESENT in the table with value nil — `{:on {:logout nil}}`) normalises to
   a single unguarded INTERNAL candidate `[{}]`, exactly as the empty map
   `{:on {:logout {}}}` does. Both are enabled, targetless (internal) no-ops
@@ -679,7 +676,7 @@
   [v bad-value-id]
   (case (grammar/transition-value-form v)
     ;; A nil VALUE (the key is present with value nil) is the
-    ;; forbidden-transition / internal no-op form (rf2-16gxd) — unify
+    ;; forbidden-transition / internal no-op form — unify
     ;; with the empty-map single-candidate `[{}]`.
     :nil              [{}]
     :keyword          [{:target v}]
@@ -703,7 +700,7 @@
   only value-form the inline-source macro keys per-INDEX (single-map /
   keyword / vector-target forms are keyed at the bare slot path). Used to
   decide whether the selected candidate's index is meaningful for the
-  spec-path discriminator (rf2-lai1qv): for the index-free forms the
+  spec-path discriminator: for the index-free forms the
   carried `:candidate-idx` is nil so `cascade-row-source-key` emits the
   bare-slot shape that matches the macro's keying. Delegates to the
   shared `grammar/candidate-vector-form?` so the per-index decision and
@@ -712,7 +709,7 @@
   (grammar/candidate-vector-form? v))
 
 (defn- transition-slot
-  "Build the structured spec-path DISCRIMINATOR (rf2-lai1qv) carried on a
+  "Build the structured spec-path DISCRIMINATOR carried on a
   selected transition under `:rf/transition-slot`, so the Xray cascade
   rows can address the EXACT inline-source spec-path slot rather than
   reconstructing it from `source-state` / `event` / `phase` (which loses
@@ -742,7 +739,7 @@
      :root?         (empty? decl-path)}))
 
 (defn- finalize-on-transition-slot
-  "rf2-lai1qv — complete the PARTIAL `:on` `:rf/transition-slot`
+  "Complete the PARTIAL `:on` `:rf/transition-slot`
   `match-on-clause` stamped (slot / matched event-key / candidate-idx /
   raw-value, but no decl-path) by folding in the `decl-path` the pick
   site owns and running it through `transition-slot` (which computes
@@ -762,7 +759,7 @@
   0-based index of the first guard-passing candidate alongside the
   candidate map — or nil when none pass. The index is what the inline
   source lookup needs to address a multi-candidate `:on` / `:after` /
-  `:always` vector's exact spec-path slot (rf2-lai1qv); the bare
+  `:always` vector's exact spec-path slot; the bare
   `select-passing-candidate` wrapper drops it for callers that only need
   the candidate."
   [machine candidates snapshot event]
@@ -798,8 +795,8 @@
   stale on next firing.
 
   For flat / compound machines the map lives at `[:data :rf/after-epoch]`.
-  Per Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping
-  (rf2-l67o / Stage 2): when `machine` is a region of a parallel-region
+  Per Spec 005 §Per-region `:always` / `:after` / `:spawn` scoping:
+  when `machine` is a region of a parallel-region
   parent (signalled by `:rf/region`), the map is region-scoped —
   `[:data :rf/after-epoch-by-region <region-name>]` — so a sibling
   region's transition doesn't invalidate this region's in-flight timers
@@ -839,10 +836,10 @@
   2202) the node's epoch AND its declaring path travel with EVERY timer:
   the synthetic event is the 4-element `[delay-key epoch decl-path]`
   shape the runtime always emits, so a `nil` `carried-decl-path` is a
-  malformed event (a hand-rolled / pre-decl-path dispatch). It resolves
-  to nil — no transition, the benign unhandled-no-op signal. There is no
-  legacy 3-element leaf→root fallback (rf2-wtw3rw): the decl-path is
-  contractual, not optional.
+  malformed event (a hand-rolled dispatch). It resolves
+  to nil — no transition, the benign unhandled-no-op signal. The decl-path
+  is contractual, not optional: the synthetic event always routes to its
+  scheduling node by the carried path.
 
   A timer is **live** iff its scheduling node is still on the active path
   (its `carried-decl-path` is a prefix of the current path) AND the
@@ -867,14 +864,14 @@
   [machine path event snapshot]
   (let [[_ delay-key carried-epoch raw-carried-decl-path] event
         region        (:rf/region machine)
-        ;; rf2-yyvtk5 — the timer's owning actor is a LIVE INSTANCE
+        ;; The timer's owning actor is a LIVE INSTANCE
         ;; (`:rf/parent-id` is the live actor address stamped by
         ;; `prepare-machine-ctx`; `:id` is a singleton's registration id,
         ;; which IS its live address). The match carries it under
         ;; `:actor-id` so `emit-pick-traces!` can stamp the
         ;; `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` rows
         ;; with the owning actor (spec/009 §machine `:after` timer
-        ;; lifecycle) — previously these rows carried `:actor-id nil`.
+        ;; lifecycle).
         actor-id      (or (:rf/parent-id machine) (:id machine))
         ;; Per Spec 005 §Per-region :after scoping: the runtime carries a
         ;; region-name-prefixed decl-path (`prefix-region-invoke-id`) for
@@ -905,7 +902,7 @@
           (let [cands     (normalise-candidates t :rf.error/machine-bad-after-spec)
                 [idx tspec] (select-passing-candidate-indexed machine cands snapshot event)]
             (if tspec
-              {;; rf2-lai1qv — stamp the `:after` spec-path discriminator
+              {;; Stamp the `:after` spec-path discriminator
                ;; (decl-path prefix + the delay-key + the matched candidate
                ;; index) so the Xray cascade row addresses the exact
                ;; `[:states … :after <delay>]` inline-source slot.
@@ -927,7 +924,7 @@
               {:guard-suppressed? true
                :actor-id          actor-id
                :state             (last prefix)
-               ;; rf2-ze13fg — carry the declaring path so `after-fired-reply`
+               ;; Carry the declaring path so `after-fired-reply`
                ;; (via `timer-work-id`) yields the canonical
                ;; `[:rf.work/timer [<actor> <decl-path>] epoch]` work-id. The
                ;; live (`resolve-hit`) and stale branches both set `:decl-path`;
@@ -961,7 +958,7 @@
           ;; Likewise when the node has been exited (no longer on the
           ;; active path) → stale.
           ;;
-          ;; Per EP-0011 §Timer Reply / Managed-Effects §Stale suppression,
+          ;; Per Managed-Effects §Stale suppression,
           ;; the declaring path + per-path epoch ARE the data-only
           ;; suppression gate. Carry `:decl-path` so the lifecycle's
           ;; `:rf.machine.timer/stale-after` trace can express the
@@ -975,17 +972,16 @@
            :scheduled-epoch carried-epoch
            :current-epoch   cur-epoch}))
 
-      ;; A malformed event with no carried decl-path (rf2-wtw3rw): the
+      ;; A malformed event with no carried decl-path: the
       ;; runtime always emits the 4-element `[delay-key epoch decl-path]`
       ;; shape (Spec 005 §Hierarchy interaction), so a nil decl-path can
-      ;; only be a hand-rolled / pre-decl-path dispatch. There is no
-      ;; legacy leaf→root fallback — resolve to nil (no transition, the
+      ;; only be a hand-rolled dispatch. Resolve to nil (no transition, the
       ;; benign unhandled-no-op).
       :else nil)))
 
 (defn ns-wildcard-key
   "Per Spec 005 §Wildcard transitions §Namespaced (partial) event
-  descriptors (rf2-z4t2v). The namespace-wildcard descriptor for an
+  descriptors. The namespace-wildcard descriptor for an
   event-id is its KEYWORD NAMESPACE paired with the `*` name — `:foo/bar`
   → `:foo/*`, `:mouse/down` → `:mouse/*`. This is re-frame2's spelling of
   XState v5's partial (prefix) event descriptor `mouse.*` (SCXML §3.12.1
@@ -1011,7 +1007,7 @@
   §Transition resolution / §Wildcard transitions — the per-level matching
   rule applied identically at every state-node and at the machine root.
 
-  rf2-z4t2v — three descriptor tiers, in PRIORITY order at each level:
+  Three descriptor tiers, in PRIORITY order at each level:
     1. EXACT `event-id` candidates;
     2. the NAMESPACE-WILDCARD `:ns/*` (`ns-wildcard-key` — `:mouse/*`
        catches any `:mouse/...` event; re-frame2's spelling of XState v5's
@@ -1019,7 +1015,7 @@
     3. the TOTAL `:*` wildcard.
   Most-specific wins: exact > namespace-wildcard > total.
 
-  rf2-icj9t — each tier is the LEAST-PRIORITY ENABLED transition relative
+  Each tier is the LEAST-PRIORITY ENABLED transition relative
   to the tiers above it, NOT a 'no more specific KEY exists' fallback. A
   tier is consulted whenever NO higher tier yielded an ENABLED candidate —
   the higher key is absent, OR every one of its guarded candidates returned
@@ -1033,7 +1029,7 @@
   a guard-failed transition is simply not selected, leaving lower-priority
   ones eligible).
 
-  rf2-e7yhv — when the returned match came from EITHER wildcard tier (the
+  When the returned match came from EITHER wildcard tier (the
   more specific tiers were absent or all guard-blocked, and a wildcard's
   candidate fired) the transition is stamped `:rf/via-wildcard? true`.
   This rides the `:transition` slot through `apply-transition-once` into a
@@ -1044,7 +1040,7 @@
   [machine node event-id event snapshot]
   (let [on            (:on node)
         select        (fn [k]
-                        ;; rf2-16gxd — gate on PRESENCE. An ABSENT key yields
+                        ;; Gate on PRESENCE. An ABSENT key yields
                         ;; no candidates (this tier is not enabled → fall
                         ;; through to the next tier, then to the parent). A
                         ;; PRESENT key normalises its value, where a nil value
@@ -1056,7 +1052,7 @@
                         ;; is the whole point of the forbidden idiom: absence ≠
                         ;; block.
                         ;;
-                        ;; rf2-lai1qv — on a hit, stamp the PARTIAL spec-path
+                        ;; On a hit, stamp the PARTIAL spec-path
                         ;; discriminator `:rf/transition-slot` (`:slot :on`, the
                         ;; MATCHED key `k`, the candidate index, and the raw
                         ;; value form). `decl-path` / `:root?` are filled by the
@@ -1081,7 +1077,7 @@
         ;; non-namespaced event-id; `ns-key` is nil and `select` is never
         ;; called). Tier 3 — total `:*`. Most-specific wins; each tier is
         ;; consulted only when the tiers above yielded no ENABLED candidate
-        ;; (absent key OR every guarded candidate guard-blocked) — rf2-icj9t.
+        ;; (absent key OR every guarded candidate guard-blocked).
         ns-key        (ns-wildcard-key event-id)]
     (if-let [exact-hit (select event-id)]
       exact-hit
@@ -1092,7 +1088,7 @@
 
 (defn root-on-match
   "Per Spec 005 §Transition broadcast §Root parallel `:on` — the ancestor
-  fallback (rf2-tsq6g): resolve the PARALLEL ROOT's own `:on` for `event`
+  fallback: resolve the PARALLEL ROOT's own `:on` for `event`
   against the frozen pre-event `snapshot`, most-specific-tier-first
   (exact → `:ns/*` → `:*`), via `match-on-clause` with the machine map itself
   as the matching node. Returns the matched transition map (carrying
@@ -1113,7 +1109,7 @@
   (match-on-clause machine machine (first event) event snapshot))
 
 (defn- pick-done-transition
-  "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3 / rf2-zlmz7):
+  "Per Spec 005 §Final states §The done-state signal:
   resolve the synthetic completion event `[:rf.machine/done <node-path>]` —
   raised when the compound / parallel node at `<node-path>` reached its done
   configuration — to a transition. Two resolution arms, in priority order:
@@ -1134,8 +1130,8 @@
       `:event` (`(= <path> (second event))`) to disambiguate which node is
       done when several could raise it.
 
-  **Parallel-region scoping — by region IDENTITY, not state-name shape
-  (rf2-12ekv, superseding the rf2-m3arq shape-match).** A region-local
+  **Parallel-region scoping — by region IDENTITY, not state-name shape.**
+  A region-local
   compound's done signal is re-broadcast across EVERY sibling region by the
   parent internal-event queue (`parallel/drain-parent-queue` — the correct
   XState v5 / SCXML `:raise` rule), so the raised done reaches every region's
@@ -1144,19 +1140,15 @@
   even one whose compound shares the leading state-name (a common shape:
   per-region `:flow` sub-flows, `:loading`/`:loaded` axes).
 
-  The earlier rf2-m3arq gate compared two REGION-RELATIVE paths with
-  `prefix-of?` — a state-name SHAPE match, not a region-identity test — so it
-  leaked whenever the sibling shared the leading state-name, and it only guarded
-  arm 2 (arm 1 was ungated). The root-cause fix (rf2-12ekv) makes the done-raise
-  carry a REGION-NAME HEAD (`done-raise-fx` stamps `:rf/region` onto the raised
-  path — the same region-name-prefixing discipline `:after` / `:spawn`
-  `:on-error` already use). Here we strip that head and decline a FOREIGN
-  region's done by region NAME, mirroring `pick-after-transition`
+  The done-raise carries a REGION-NAME HEAD (`done-raise-fx` stamps
+  `:rf/region` onto the raised path — the same region-name-prefixing discipline
+  `:after` / `:spawn` `:on-error` use). Here we strip that head and decline a
+  FOREIGN region's done by region NAME, mirroring `pick-after-transition`
   (`decline-region?` = `(not= region (first carried-path))`) and
   `pick-spawn-error-transition`. The region-stripped path is then region-
   relative again for BOTH arms — arm 1 resolves the done node via the stripped
   `done-path`, arm 2 walks `:on` for the stripped event — so a sibling sharing
-  the path-SHAPE no longer matches: identity (the region-name head), not shape,
+  the path-SHAPE does not match: identity (the region-name head), not shape,
   decides. Flat / compound machines carry no `:rf/region` and the done-raise
   carries no head, so the strip / decline is inert — an unguarded
   `:on {:rf.machine/done …}` stays unambiguous (only the one machine raises into
@@ -1170,7 +1162,7 @@
   [machine path event snapshot]
   (let [[_ raw-done-path] event
         region        (:rf/region machine)
-        ;; rf2-12ekv — region-identity scoping. The done-raise carries a
+        ;; Region-identity scoping. The done-raise carries a
         ;; region-name HEAD when raised from a parallel region (`done-raise-fx`
         ;; stamps `:rf/region`). Within a region's resolution `machine` is the
         ;; region body (region-relative `node-at`) and `path` is in-region, so
@@ -1193,7 +1185,7 @@
                         (assoc (vec event) 1 done-path)
                         event)
         done-node     (when (vector? done-path) (node-at machine done-path))
-        ;; rf2-16gxd — gate on PRESENCE of `:on-done`. The forbidden-transition
+        ;; Gate on PRESENCE of `:on-done`. The forbidden-transition
         ;; nil→`[{}]` rule in `normalise-candidates` is for a PRESENT value;
         ;; an ABSENT `:on-done` must yield no candidates so resolution falls
         ;; through to the enclosing explicit `:on {:rf.machine/done …}` walk
@@ -1219,7 +1211,7 @@
 
 (defn- pick-spawn-error-transition
   "Per Spec 005 §Final states §`:on-error` — child-failure control flow
-  (rf2-5hlsh; XState v5 `invoke onError`): resolve the synthetic parent event
+  (XState v5 `invoke onError`): resolve the synthetic parent event
   `[:rf.machine.spawn/error <invoke-id> <error>]` — dispatched into the PARENT
   when one of its `:spawn`-spawned children failed — to a transition.
 
@@ -1257,21 +1249,19 @@
   [machine path event snapshot]
   (let [[_ raw-invoke-id] event
         region         (:rf/region machine)
-        ;; rf2-w84jv — region-identity scoping, symmetric with
-        ;; `pick-done-transition`'s `decline-region?` (rf2-12ekv). A `:spawn`
+        ;; Region-identity scoping, symmetric with
+        ;; `pick-done-transition`'s `decline-region?`. A `:spawn`
         ;; declared inside a parallel region carries a region-name-prefixed
         ;; invoke-id (`prefix-region-invoke-id`), so `(first raw-invoke-id)` is
         ;; the OWNING region's name. The spawn-error broadcast reaches every
         ;; region's resolver (`drain-parent-queue`), so a region whose name
-        ;; does NOT match the invoke-id head must decline OUTRIGHT — for BOTH
+        ;; does NOT match the invoke-id head declines OUTRIGHT — for BOTH
         ;; the `:spawn :on-error` arm and the explicit `:on
-        ;; {:rf.machine.spawn/error …}` escape-hatch arm. Before this gate the
-        ;; foreign region nilled `invoke-id` (correctly disabling arm 1) but
-        ;; still fell through to arm 2, letting a sibling region's explicit
-        ;; handler catch another region's child failure — violating
-        ;; XState v5 `invoke onError` region scoping. Mirrors the done-side
-        ;; identity test: a head naming a DIFFERENT region is not this
-        ;; region's spawn error.
+        ;; {:rf.machine.spawn/error …}` escape-hatch arm. This honours
+        ;; XState v5 `invoke onError` region scoping: a sibling region's
+        ;; explicit handler never catches another region's child failure.
+        ;; Mirrors the done-side identity test: a head naming a DIFFERENT
+        ;; region is not this region's spawn error.
         decline-region? (and region
                              (vector? raw-invoke-id)
                              (not= region (first raw-invoke-id)))
@@ -1330,7 +1320,7 @@
 
   Special-cases the synthetic :rf.machine.timer/after-elapsed event by
   delegating to pick-after-transition, and the synthetic
-  `[:rf.machine/done <node-path>]` completion event (rf2-bnjb3 / rf2-zlmz7)
+  `[:rf.machine/done <node-path>]` completion event
   by delegating to `pick-done-transition` (the done node's `:on-done`, then
   an enclosing explicit `:on {:rf.machine/done …}`)."
   [machine path event snapshot]
@@ -1364,7 +1354,7 @@
   §Transition resolution the no-op marks an UNKNOWN USER event a machine
   declined (xstate-v5 parity — ignored, never thrown).
 
-  Carve-out (rf2-t4582 — a conscious refinement of rf2-ugdas): the no-op
+  Carve-out: the no-op
   classifies an unknown USER / domain event, NOT framework lifecycle
   traffic. Per [Conventions.md §The single-root reserved set] the
   framework reserves the `:rf/*` root namespace for every framework-owned
@@ -1378,10 +1368,10 @@
      §Synthetic creation marker) is a placeholder threaded into the
      initial-entry actions so they carry an `:event` key — the start RAN
      the entry cascade and INSTALLED the state; it is the machine's BIRTH,
-     not a no-op. (Per F‴ / rf2-gl588 an eager `[:machine-id
-     [:rf.machine/start]]` kick is a PURE init that STOPS — it never
-     reaches this no-op site as a trigger; the rule subsumes the marker
-     only as the cascade-threaded `:event` placeholder.);
+     not a no-op. (An eager `[:machine-id [:rf.machine/start]]` kick is a
+     PURE init that STOPS — it never reaches this no-op site as a trigger;
+     the rule subsumes the marker only as the cascade-threaded `:event`
+     placeholder.);
    - the spawn kick-off `[:rf.machine.spawn/spawned]` (Spec 005 §spawn
      kick-off) is dispatched into every spawned actor so generic children
      may declare a first transition — an actor that declines it simply
@@ -1391,17 +1381,15 @@
      `:rf.story.lifecycle/events-complete` at a machine already resting in
      `:ready`) ride the same root.
 
-  This re-SEPARATES the spawn-kickoff exemption rf2-ugdas folded into the
-  general rule, and ALIGNS with xstate: xstate's own init (`xstate.init`)
+  This ALIGNS with xstate: xstate's own init (`xstate.init`)
   runs the initial-entry and is NOT reported as an unhandled event — only
   unknown user events are silently ignored. Distinguishing re-frame2's
-  bootstrap / spawn-kickoff makes us MORE like xstate, not a v5-parity
-  violation. SEVERITY is unchanged from rf2-ugdas (benign — nothing
-  throws); only the SEMANTIC classification is restored, so reserved-
-  `:rf/*` framework init does not read as an unknown-user-event no-op.
+  bootstrap / spawn-kickoff keeps us aligned with xstate. The classification
+  is benign — nothing throws; reserved-`:rf/*` framework init simply does not
+  read as an unknown-user-event no-op.
 
   (`:rf.machine.timer/after-elapsed` is special-cased in `pick-transition`
-  and `:rf.machine/start` is `:entry`-only — and, per F‴ (rf2-gl588), the
+  and `:rf.machine/start` is `:entry`-only — and the
   eager start kick STOPS after initial-entry without ever running the
   transition step — so neither reaches the no-op site as a trigger; both
   are reserved-namespace, so the rule subsumes them regardless.)
@@ -1423,7 +1411,7 @@
      parent so the state appears in both the exit and entry cascades — is
      `compute-cascade-paths`' job; here `:same-state` simply names the
      declaring state as the target. Per Spec 005 §Self-transitions +
-     Spec-Schemas TransitionTarget (rf2-46ban).
+     Spec-Schemas TransitionTarget.
    - keyword target → sibling at decl-path's level (replace last element).
      A keyword that names the declaring state's OWN key resolves to
      `decl-path` too, so it is the same external self-transition as
@@ -1433,9 +1421,8 @@
    - nil target (internal transition) → nil; the caller wraps the call
      in `some->>` so the nil short-circuits the initial-cascade descent.
 
-  Per rf2-adwxh the explicit `(nil? target) nil` arm is dropped — when
-  target is neither vector nor keyword, the `cond` falls through to
-  nil, which is the documented internal-transition contract."
+  When target is neither vector nor keyword, the `cond` falls through to
+  nil, which is the internal-transition contract."
   [decl-path target]
   (cond
     (= :same-state target) (vec decl-path)
@@ -1447,7 +1434,7 @@
 (defn- common-prefix-length [a b]
   (count (take-while true? (map = a b))))
 
-;; ---- history pseudo-states (rf2-mle6e.3) ----------------------------------
+;; ---- history pseudo-states ------------------------------------------------
 ;;
 ;; Per Spec 005 §History states (`:type :history` — shallow / deep /
 ;; default-target). A `:type :history` node under a compound's `:states` is
@@ -1456,8 +1443,8 @@
 ;;
 ;;   - RESTORES on re-entry — `compute-cascade-paths` swaps the pseudo-state
 ;;     target for the resolved leaf BEFORE the LCA geometry, so the standard
-;;     exit/action/entry cascade applies unchanged (46ban's external-self-
-;;     transition LCA fix is the precedent: resolve the real path first,
+;;     exit/action/entry cascade applies unchanged (the external-self-
+;;     transition LCA rule is the precedent: resolve the real path first,
 ;;     then let the geometry run on it);
 ;;   - RECORDS on exit — `apply-transition-once` writes the exited compound's
 ;;     last-active configuration into the snapshot `:rf/history` slot as part
@@ -1483,8 +1470,8 @@
   `:type :history` pseudo-state. Per Spec-Schemas §`:type :history`: a
   history node is TARGETABLE (a transition may aim at it) but is NEVER an
   occupied active state — a snapshot whose active leaf IS a history node is
-  malformed and must reset, not be driven through the engine (bz0ox.2 /
-  x4s9t.2). A malformed `:state` shape (`state-path` throws) is treated as
+  malformed and must reset, not be driven through the engine. A malformed
+  `:state` shape (`state-path` throws) is treated as
   not-occupiable so the caller's reset path covers shape-error AND
   missing-state AND occupied-history alike."
   [machine state]
@@ -1518,7 +1505,7 @@
 (defn- valid-leaf-path?
   "True iff `path` resolves to a real (non-history) state-node in the
   current definition. Used to detect a DANGLING recorded path after hot
-  reload (rf2-wgfv0): a recorded config referencing a removed substate."
+  reload: a recorded config referencing a removed substate."
   [machine path]
   (let [n (node-at machine path)]
     (and (some? n) (not (history-node? n)))))
@@ -1538,7 +1525,7 @@
      `:rf.machine.history/restored` `:restored-config` tag).
    - `:default` — no (valid) recording: the owning compound was never
      entered, or the recorded config is a DANGLING path a hot-reloaded
-     definition removed (rf2-wgfv0). Falls back to the pseudo-state's
+     definition removed. Falls back to the pseudo-state's
      `:default-target` (initial-cascaded), or — when absent — the owning
      compound's `:initial` cascade, exactly as a first-ever entry would.
      Additionally carries `:fallback` — `:default-target` when the
@@ -1622,8 +1609,8 @@
   compound must actually be left. A transition that merely moves between
   two children of `C` (LCA = C, so `C` SURVIVES as the LCCA) records
   NOTHING for `C` — `C` was never exited, so there is no last-active
-  configuration to remember (rf2-9eidiv: ruled ALIGN to the exit-set rule,
-  retiring the prior `<=` active-child-subtree-teardown trigger).
+  configuration to remember (the exit-set rule: history captures only when
+  the compound is actually left).
 
   Returns `[snapshot recorded]` where `recorded` is the seq of
   `{:compound-path :recorded-config :kind :prev-config}` maps (for the
@@ -1643,7 +1630,7 @@
     ;; EXIT SET — its node (index `depth - 1` along `src-path`) lies strictly
     ;; below the surviving LCA boundary: `lca-len < depth`. (A move BETWEEN
     ;; `C`'s children leaves `lca-len = depth`, so `C` survives as the LCCA
-    ;; and records nothing — the XState v5 / SCXML exit-set rule, rf2-9eidiv.)
+    ;; and records nothing — the XState v5 / SCXML exit-set rule.)
     (reduce
       (fn [[snap recs] depth]
         (let [compound-path (subvec src-path 0 depth)
@@ -1667,7 +1654,7 @@
       [snapshot []]
       (range 0 n))))
 
-;; ---- history trace events (rf2-mle6e.3; spec/009 contract: rf2-mle6e.2) ----
+;; ---- history trace events (spec/009 contract) -----------------------------
 ;;
 ;; Per Spec 005 §History states + Spec 009 §Trace events. The engine emits
 ;; observability traces under the machine-activity family `:rf.machine.
@@ -1689,7 +1676,7 @@
 ;;     deep leaf path / shallow child keyword), `:prev-config` (the value
 ;;     overwritten; ABSENT on the first-ever recording), `:frame`.
 ;;
-;; Shapes match spec/009 §History trace events EXACTLY (rf2-mle6e.2).
+;; Shapes match spec/009 §History trace events EXACTLY.
 
 (defn- emit-history-restored!
   "Per spec/009 §`:rf.machine.history/restored`. `source` is `:recorded` |
@@ -1700,7 +1687,7 @@
   value."
   [machine compound-path resolved-leaf source kind restored-config fallback]
   (trace/emit! :rf.machine :rf.machine.history/restored
-               ;; rf2-yyvtk5 — the actor whose live transition restored
+               ;; The actor whose live transition restored
                ;; history is a running INSTANCE; address it by `:actor-id`
                ;; (`:machine-id` is the registered TYPE).
                (cond-> {:actor-id      (or (:rf/parent-id machine) (:id machine))
@@ -1719,7 +1706,7 @@
   `:prev-config`."
   [machine recorded]
   (trace/emit! :rf.machine :rf.machine.history/recorded
-               ;; rf2-yyvtk5 — the actor whose live exit recorded history is
+               ;; The actor whose live exit recorded history is
                ;; a running INSTANCE; address it by `:actor-id`
                ;; (`:machine-id` is the registered TYPE).
                (merge {:actor-id (or (:rf/parent-id machine) (:id machine))
@@ -1739,20 +1726,20 @@
   `result/fail` Result (the action threw). Successful actions may return
   `nil` (treated as `{}`).
 
-  Per rf2-2nwfd: every user-declared action invocation emits
+  Every user-declared action invocation emits
   `:rf.machine/action-ran` with the action-ref, the canonical input
   `{:data :event}`, and an outcome — the action's return value on
   success (or `:ok` when the action returned nil), or
   `:rf.error/action-threw` on the exceptional path. The synthesised
   no-op for `nil` action-ref is not user-declared — skip the trace.
 
-  Per rf2-82a0u every emit also carries `:phase` from the closed set
+  Every emit also carries `:phase` from the closed set
   `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit` so the Xray Handler section's
   LIFECYCLE rendering can group rows by phase without spec-walking
   at render time.
 
-  Per rf2-lai1qv the optional `transition-slot` — the selected
+  The optional `transition-slot` — the selected
   transition's EXACT spec-path discriminator (`transition-slot`) — is
   stamped on the emit under `:transition-slot` when present (only the
   transition `:action` carries one; `:exit` / `:entry` boundary actions
@@ -1764,11 +1751,11 @@
   ([machine snap action-ref event phase transition-slot]
   (if action-ref
     (let [f         (resolve-action machine action-ref)
-          ;; rf2-yyvtk5 — an action runs against a LIVE actor's snapshot, so
+          ;; An action runs against a LIVE actor's snapshot, so
           ;; the addressed id is the running INSTANCE. It rides under
           ;; `:actor-id`; `:machine-id` is reserved for the registered TYPE.
           actor-id  (or (:rf/parent-id machine) (:id machine))
-          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+          ;; Epoch-capture admission requires `:frame`.
           frame-id  (:rf/frame machine)
           base-tags (cond-> {:actor-id   actor-id
                              :action-id  action-ref
@@ -1796,8 +1783,8 @@
   map MUST NOT carry `:db`. This is the SINGLE enforcement choke-point so
   the invariant holds UNIFORMLY across every phase that runs an action —
   the cascade collector (`collect-actions`) and the parallel-root
-  `:on-done` path (`apply-on-done-action`) both funnel through here
-  (rf2-z522n). When `:db` is present, emit the structured error and return
+  `:on-done` path (`apply-on-done-action`) both funnel through here.
+  When `:db` is present, emit the structured error and return
   the effects map with `:db` STRIPPED — the remaining `:data` / `:fx`
   effects flow through. Canonical id / op-type / tags / recovery per Spec
   009 §Error event catalogue (Ownership.md:48):
@@ -1813,7 +1800,7 @@
   (if (and (map? r) (contains? r :db))
     (do
       (trace/emit-error! :rf.error/machine-action-wrote-db
-                         ;; rf2-yyvtk5 — the offending action ran against a
+                         ;; The offending action ran against a
                          ;; LIVE actor; address it by `:actor-id` (the
                          ;; running INSTANCE), not `:machine-id` (the TYPE).
                          {:actor-id        (or (:rf/parent-id machine)
@@ -1821,17 +1808,17 @@
                           :action-id       action-ref
                           :state-path      state-path
                           :offending-value (:db r)
-                          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+                          ;; Epoch-capture admission requires `:frame`.
                           :frame           (:rf/frame machine)
                           :recovery        :logged-and-skipped})
       (dissoc r :db))
     r))
 
-;; ---- structured cascade steps (rf2-n9f4z) ---------------------------------
+;; ---- structured cascade steps ---------------------------------------------
 ;;
 ;; Per Spec 005 §Transition cascade instrumentation: each cascade phase the
 ;; engine runs is recorded as one self-describing STEP map so tooling
-;; (Xray's epoch panel — rf2-52u5n) can explain HOW a transition reached
+;; (Xray's epoch panel) can explain HOW a transition reached
 ;; its after-state without re-deriving the LCA geometry. A step carries:
 ;;
 ;;   {:kind   :exit | :action | :entry        ;; which cascade boundary
@@ -1850,7 +1837,7 @@
 ;;                                             ;;   291), matching the
 ;;                                             ;;   :rf.machine.history/restored
 ;;                                             ;;   event's :source; ABSENT on every
-;;                                             ;;   non-history step (rf2-mle6e.3)
+;;                                             ;;   non-history step
 ;;
 ;; The step vector is built in `compute-cascade-paths` (which owns the
 ;; ordered prefix paths + action refs) and the per-step `:data-delta` is
@@ -1879,14 +1866,14 @@
   throwing action produced — per Spec 005 §Errors, the cascade halts on
   the first throw and the snapshot does not commit.
 
-  Per rf2-82a0u + rf2-n9f4z each input `step` is a map
+  Each input `step` is a map
   `{:kind <structural> :phase <driver> :action <ref> :state <path>
     :region <name>}`:
    - `:kind` is the STRUCTURAL boundary recorded on the cascade step —
-     `:exit` / `:action` / `:entry` (the rf2-52u5n consumer contract); the
+     `:exit` / `:action` / `:entry` (the consumer contract); the
      destroy path passes `:exit`.
    - `:phase` is the DRIVER phase stamped on the `:rf.machine/action-ran`
-     emit (rf2-82a0u) — `:exit` / `:entry` for cascade boundaries, the
+     emit — `:exit` / `:entry` for cascade boundaries, the
      transition-phase (`:transition` / `:always` / `:after-action` /
      `:initial-entry`) for the action step, `:destroy-exit` for the
      destroy path. Defaults to `:kind` when absent.
@@ -1894,7 +1881,7 @@
      entered/exited WITHOUT an `:entry`/`:exit` action still shows in the
      cascade), but runs no action and contributes an empty `:data-delta`.
 
-  Per rf2-n9f4z the `:data-delta` of each step is computed against the
+  The `:data-delta` of each step is computed against the
   snapshot's `:data` immediately before the step's action ran, so the
   cascade explains the per-step `:data` contribution. The recorded step
   carries the STRUCTURAL fields only (`:kind` / `:state` / `:region` /
@@ -1930,8 +1917,7 @@
                           ;; Per Spec 005 §Hard-disallow `:db`: strip any `:db`
                           ;; write (emitting the structured error) through the
                           ;; shared enforcement choke-point, then thread the
-                          ;; cleaned effects map's `:data` / `:fx` forward
-                          ;; (rf2-z522n).
+                          ;; cleaned effects map's `:data` / `:fx` forward.
                           (let [r        (enforce-db-disallow machine r0 action (:state snap))
                                 new-data (cond-> before-data
                                            (contains? r :data) (merge (:data r)))
@@ -1950,7 +1936,7 @@
         [final-r cascade] acc]
     (result/with-cascade final-r cascade)))
 
-;; ---- apply-transition-once helpers (extracted per rf2-g1s1) ---------------
+;; ---- apply-transition-once helpers ----------------------------------------
 ;;
 ;; Each helper builds one fx-vector slice that flows out of apply-transition-
 ;; once. The slices compose in order (after-cancel, destroy, spawn, after-
@@ -1960,10 +1946,10 @@
 ;; what's stamped on them).
 
 (defn- materialise-data
-  "Resolve a :spawn spec's `:data` slot. Per Spec 005 §Declarative `:spawn`
-  and rf2-h131, `:data` admits a fn form `(fn [{:keys [snapshot event]}]
+  "Resolve a :spawn spec's `:data` slot. Per Spec 005 §Declarative `:spawn`,
+  `:data` admits a fn form `(fn [{:keys [snapshot event]}]
   data)` so the spawn's initial data can depend on the parent snapshot at
-  the moment of entry. Per rf2-grw4i / rf2-v0rrr the fn is invoked with
+  the moment of entry. The fn is invoked with
   the unified context-map shape. The fn runs against the post-action
   snapshot (any :action :data writes are visible). Returns
   `[::ok-data <materialised-data>]` on success, or a `result/fail` Result
@@ -1980,7 +1966,7 @@
 
 (defn- build-after-fx
   "Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR):
-  `:after` is a no-op under `:platform :server`. Per rf2-3y3y: emit the
+  `:after` is a no-op under `:platform :server`. Emit the
   canonical `:rf.machine.timer/scheduled` (or /skipped-on-server) trace
   synchronously here AND emit `:rf.machine/after-schedule` fx; the fx
   handler resolves the delay (literal / sub-vec / fn) and installs the
@@ -1993,7 +1979,7 @@
   (when-not internal?
     (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
           server?   (= :server (:rf/platform machine))
-          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+          ;; Epoch-capture admission requires `:frame`.
           frame-id  (:rf/frame machine)]
       (vec
         (mapcat
@@ -2016,7 +2002,7 @@
                           ms-tag       delay-key]
                       (if server?
                         (trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
-                                     (cond-> {;; rf2-ws5thu — owning actor INSTANCE
+                                     (cond-> {;; Owning actor INSTANCE.
                                               :actor-id     parent-id
                                               :state        leaf-state
                                               :delay        ms-tag
@@ -2025,20 +2011,20 @@
                                               :platform     :server
                                               :frame        frame-id
                                               :recovery     :skipped}
-                                       ;; rf2-1b6uh5 — canonical subscription
+                                       ;; Canonical subscription
                                        ;; identity, not the bare `:sub-id`.
                                        (= :sub delay-source)
                                        (assoc :rf.sub/id      (first delay-key)
                                               :rf.sub/query-v (vec delay-key))))
                         (trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                     (cond-> {;; rf2-ws5thu — owning actor INSTANCE
+                                     (cond-> {;; Owning actor INSTANCE.
                                               :actor-id     parent-id
                                               :state        leaf-state
                                               :delay        ms-tag
                                               :delay-source delay-source
                                               :epoch        epoch
                                               :frame        frame-id}
-                                       ;; rf2-1b6uh5 — canonical subscription
+                                       ;; Canonical subscription
                                        ;; identity, not the bare `:sub-id`.
                                        (= :sub delay-source)
                                        (assoc :rf.sub/id      (first delay-key)
@@ -2054,7 +2040,7 @@
           entered-pairs)))))
 
 (defn- build-after-cancel-fx
-  "Per rf2-3y3y: when exiting an `:after`-bearing state node, emit
+  "When exiting an `:after`-bearing state node, emit
   `:rf.machine/after-cancel` fx so the runtime tears down any pending
   wall-clock timer (and watcher, for sub-vec delays). The epoch advance
   backstops correctness; explicit cancellation releases the timer handle
@@ -2068,7 +2054,7 @@
          {:rf/parent-id parent-id
           :rf/invoke-id (vec prefix)}]))))
 
-;; ---- root-level `:after` for parallel machines (rf2-wox0vd) ----------------
+;; ---- root-level `:after` for parallel machines ----------------------------
 ;;
 ;; XState v5 gold standard: `after` may be declared at ANY level, including a
 ;; `<parallel>` node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled when
@@ -2088,7 +2074,7 @@
 ;; transition`).
 
 (defn root-after-match
-  "Per Spec 005 §Root parallel `:after` (rf2-wox0vd): resolve the synthetic
+  "Per Spec 005 §Root parallel `:after`: resolve the synthetic
   `[:rf.machine.timer/after-elapsed delay-key carried-epoch []]` event for a
   parallel ROOT's `:after` (decl-path `[]`). Returns the SAME shape
   `pick-after-transition` returns — `{:transition … :decl-path [] :delay
@@ -2137,7 +2123,7 @@
               {:guard-suppressed? true
                :actor-id          actor-id
                :state             :rf/parallel-root
-               ;; rf2-ze13fg — the parallel-ROOT timer's declaring path is the
+               ;; The parallel-ROOT timer's declaring path is the
                ;; empty path `[]` (the root `:after` lives on the machine map,
                ;; decl-path `[]`). Carry it so `after-fired-reply` builds the
                ;; canonical work-id `[:rf.work/timer [<actor>] epoch]` and the
@@ -2160,7 +2146,7 @@
 
 (defn root-after-elapsed?
   "True iff `event` is a synthetic `:after`-elapsed timer carrying the ROOT
-  decl-path `[]` (rf2-wox0vd) — a parallel-root-owned `:after` firing, as
+  decl-path `[]` — a parallel-root-owned `:after` firing, as
   opposed to a region-scoped timer (whose carried decl-path is region-name
   prefixed). Lets the parallel macrostep route a root timer to the root
   resolver instead of broadcasting it to the regions."
@@ -2170,13 +2156,12 @@
        (= [] (vec (nth event 3 nil)))))
 
 (defn- build-destroy-fx
-  "Per Spec 005 §Declarative `:spawn` and rf2-t07u
-  (Option A revised): nodes being EXITED with `:spawn` emit
+  "Per Spec 005 §Declarative `:spawn`: nodes being EXITED with `:spawn` emit
   `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/invoke-id ...}`
   so the destroy-machine fx handler resolves the live actor id from the
   runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot in runtime-db.
 
-  Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): on exit, tear
+  Per Spec 005 §Spawn-and-join via `:spawn-all`: on exit, tear
   down EVERY child the parent spawned plus the join-state slot. The
   destroy-fx handler reads the map at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`
   and iterates `:children` to destroy each, then clears the slot."
@@ -2207,9 +2192,9 @@
 
 (defn- allocate-one
   "Allocate one spawned-id from `spawn-spec`'s `:machine-id` (the registered
-  machine TYPE) against `snap`'s in-snapshot counter (rf2-gr8q). When
+  machine TYPE) against `snap`'s in-snapshot counter. When
   `spawn-spec` carries an explicit `:fixed-actor-id` literal (the explicit
-  actor-address input — per-state singleton; rf2-0ggtr5) the counter is NOT
+  actor-address input — per-state singleton) the counter is NOT
   bumped and that fixed address is used verbatim. Returns
   `[snap' spawned-id]`."
   [snap spawn-spec]
@@ -2219,9 +2204,9 @@
 
 (defn- apply-on-spawn
   "Run `spawn-spec`'s `:on-spawn` advisory callback against `snap`'s `:data`.
-  Per Spec 005 §Declarative `:spawn` (rf2-grw4i / rf2-v0rrr), the signature
+  Per Spec 005 §Declarative `:spawn`, the signature
   is `(fn [{:keys [data id]}] _)` — context-map input, advisory return
-  (any return value is DROPPED). Per rf2-t07u (Option A revised) the
+  (any return value is DROPPED). The
   runtime tracks the spawn-id at `[:rf.runtime/machines :spawned parent-id invoke-id]`;
   `:on-spawn` is purely observational — callers needing snapshot-level
   side effects emit `[:rf.machine/update-snapshot {:rf/machine-id <id>
@@ -2229,7 +2214,7 @@
   fx is registered in `re-frame.machines` and handled by
   `re-frame.machines.lifecycle-fx.update-snapshot`).
 
-  No-silent-swallow (rf2-dtth6): the snapshot is returned UNCHANGED — a
+  No-silent-swallow: the snapshot is returned UNCHANGED — a
   callback that returns a non-nil value (e.g. the canonical-looking
   `(assoc data :pending id)`) has that value silently dropped, which is the
   exact trap the advisory contract sets. Surface it: emit a dev-only
@@ -2239,7 +2224,7 @@
   free and adds no module-level mutable state — the engine stays a pure
   function of `[machine snapshot event]`.
 
-  Error contract (rf2-km4bn4): the `:on-spawn` callback is a machine
+  Error contract: the `:on-spawn` callback is a machine
   action like any other, so a THROW must route through the documented
   machine action exception contract — NOT escape as a generic
   `:rf.error/handler-exception`. Mirroring `run-action` / `materialise-data`,
@@ -2251,8 +2236,8 @@
   (`registration/trace-action-failure!`) then emits exactly one
   `:rf.error/machine-action-exception` and drops the accumulated effects —
   so a throwing observer never commits the parent/child snapshot or the
-  spawned registry slot. On SUCCESS the snapshot is returned UNCHANGED, as
-  before. (No `:rf.machine/action-ran` activity trace fires here on either
+  spawned registry slot. On SUCCESS the snapshot is returned UNCHANGED.
+  (No `:rf.machine/action-ran` activity trace fires here on either
   path: `:on-spawn` is an advisory observer, not a cascade action — adding
   it would introduce a novel `:phase` outside the documented closed set,
   Spec-Schemas.md §`action-ran`.)"
@@ -2265,7 +2250,7 @@
       (let [ret (f {:data (:data snap) :id spawned-id})]
         (when (some? ret)
           (trace/emit! :warning :rf.warning/on-spawn-return-ignored
-                       ;; rf2-yyvtk5 — the spawning parent is a LIVE actor
+                       ;; The spawning parent is a LIVE actor
                        ;; INSTANCE; address it by `:actor-id`. `:spawned-id`
                        ;; is the freshly-spawned child's instance address.
                        {:actor-id   (or (:rf/parent-id machine) (:id machine))
@@ -2284,7 +2269,7 @@
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
   Materialises any `:data` fn-form against `mat-snap` + `event` (Spec 005
-  §Spec-spec keys / rf2-h131); on failure returns a `result/fail` Result
+  §Spec-spec keys); on failure returns a `result/fail` Result
   stamped with `failure-extra`. On success builds the spawn-args via
   `args-builder` (mode-specific wiring of `:rf/parent-id` /
   `:rf/invoke-id` / `:rf/spawn-all-id` keys) and returns a `result/ok`
@@ -2317,7 +2302,7 @@
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `result/fail` Result on failure. The failure is stamped
   `:action-ref :rf.spawn/data-fn` + `:invoke-id` for a `:data`-fn throw,
-  or — per rf2-km4bn4 — `:action-ref :rf.spawn/on-spawn` + `:invoke-id`
+  or `:action-ref :rf.spawn/on-spawn` + `:invoke-id`
   (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
   so the lifecycle boundary routes BOTH through the machine action
   exception contract rather than letting an `:on-spawn` throw escape as a
@@ -2338,27 +2323,27 @@
     (if (result/fail? spawn-r)
       (reduced spawn-r)
       (let [spawn-fx (result/fx spawn-r)
-            ;; Per rf2-km4bn4: a throwing `:on-spawn` callback returns a
+            ;; A throwing `:on-spawn` callback returns a
             ;; `result/fail` (not a snapshot) — short-circuit the spawn
             ;; reducer so no parent/child snapshot or registry slot commits
             ;; and the accumulated fx is dropped at the lifecycle boundary.
             s'       (apply-on-spawn machine s-alloc spawn-spec id)]
         (if (result/fail? s')
           (reduced (result/fail-with s' {:invoke-id invoke-id}))
-          ;; Per rf2-rc8wci — bind the assigned actor id into the parent's
+          ;; Bind the assigned actor id into the parent's
           ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
           ;; parity). Threaded onto the parent snapshot AFTER the advisory
           ;; `:on-spawn` ran (the bind never depends on `:on-spawn`, which
-          ;; cannot carry the id back — its return is dropped, rf2-grw4i /
-          ;; rf2-v0rrr) so a later action can read the id and imperatively
+          ;; cannot carry the id back — its return is dropped) so a later
+          ;; action can read the id and imperatively
           ;; `[:rf.machine/destroy <id>]` with no external-atom side-channel.
           [(bind-spawned-id-into-parent-data s' invoke-id id)
            (into acc-fx spawn-fx)])))))
 
 (defn- handle-spawn-all-decl
   "Handle the `:spawn-all` branch of the spawn reducer in
-  `apply-transition-once`. Per Spec 005 §Spawn-and-join via `:spawn-all`
-  (rf2-6vmw), `:spawn-all` is spawn-and-join sugar over N parallel
+  `apply-transition-once`. Per Spec 005 §Spawn-and-join via `:spawn-all`,
+  `:spawn-all` is spawn-and-join sugar over N parallel
   `:spawn`'s plus a join condition. The implementation mirrors the
   concept:
 
@@ -2427,7 +2412,7 @@
     (if (result/fail? spawn-fxs-r)
       (reduced spawn-fxs-r)
       ;; (4) Thread :on-spawn advisory callbacks across siblings. Per
-      ;; rf2-km4bn4 a throwing child `:on-spawn` returns a `result/fail`
+      ;; A throwing child `:on-spawn` returns a `result/fail`
       ;; (not the threaded snapshot); short-circuit the sibling reduce on
       ;; the FIRST throw — stamping the failing `:child-id` + `:invoke-id`
       ;; onto the failure — so the reducer never terminates mid-spawn
@@ -2444,7 +2429,7 @@
                  children-with-ids)]
         (if (result/fail? s')
           (reduced s')
-          ;; Per rf2-rc8wci — bind the `:spawn-all`'s children id-map into the
+          ;; Bind the `:spawn-all`'s children id-map into the
           ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
           ;; `{<child-id> <spawned-id>}` map, mirroring the join-state's
           ;; `:children`), so an action can read it without an external atom.
@@ -2452,7 +2437,7 @@
            (-> acc-fx (conj init-fx) (into spawn-fxs-r))])))))
 
 (defn final-state-node?
-  "Per Spec 005 §Final states (rf2-gn80): true iff the state-node declares
+  "Per Spec 005 §Final states: true iff the state-node declares
   `:final? true`. The marker is a first-class state-spec key (D1) — NOT
   stashed under `:meta` — so authors and AI agents see it at the state
   level."
@@ -2460,7 +2445,7 @@
   (true? (:final? node)))
 
 (defn final-on-leaf?
-  "Per Spec 005 §Final states (rf2-gn80): true iff the state at the LEAF
+  "Per Spec 005 §Final states: true iff the state at the LEAF
   of `state` declares `:final? true`. Finality is a pure recompute from
   the post-transition `:state` — it is NOT stamped onto the snapshot
   (there is no `:rf/finished?` slot; per Spec 005 §Persistence posture the
@@ -2468,7 +2453,7 @@
   bookkeeping).
 
   This answers \"is the active leaf final?\" — NOT \"does the whole machine
-  finish?\". Per rf2-bnjb3 / rf2-zlmz7 (the done-state / `:on-done` signal)
+  finish?\". Per the done-state / `:on-done` signal
   the two questions diverge: a `:final?` leaf that is a DIRECT CHILD of the
   machine root is whole-machine finality (auto-destroy / spawning parent's
   `:on-done`); a `:final?` leaf EMBEDDED inside a compound signals only that
@@ -2487,7 +2472,7 @@
     (final-state-node? node)))
 
 (defn top-level-final?
-  "Per Spec 005 §Final states §Embedded vs top-level (rf2-bnjb3 / rf2-zlmz7):
+  "Per Spec 005 §Final states §Embedded vs top-level:
   true iff `state`'s active leaf is `:final?` AND it is a DIRECT CHILD of the
   machine root — i.e. a length-1 state path. This is the WHOLE-MACHINE
   finality the lifecycle-handler boundary gates auto-destroy / spawning-
@@ -2507,7 +2492,7 @@
     (and (= 1 (count path))
          (final-state-node? (node-at machine path)))))
 
-;; ---- done-state / :on-done completion signal (rf2-bnjb3 / rf2-zlmz7) -------
+;; ---- done-state / :on-done completion signal ------------------------------
 ;;
 ;; Per Spec 005 §Final states §The done-state signal. XState v5 `onDone` /
 ;; SCXML §3.7 `done.state.<id>`: when a COMPOUND state reaches a `<final>`
@@ -2518,9 +2503,9 @@
 ;; flow WHILE the machine keeps running — the canonical "do these sub-flows,
 ;; then continue" pattern.
 ;;
-;; re-frame2 ships this as a first-class transitionable signal (replacing the
-;; former `:raise`-from-the-final-leaf's-`:entry` substitute, which collided
-;; with the `:final?`-auto-destroys rule — the rf2-zlmz7 footgun):
+;; re-frame2 ships this as a first-class transitionable signal, distinct from
+;; the `:final?`-auto-destroys rule (an embedded compound's done does not tear
+;; the machine down — it signals completion the enclosing flow can act on):
 ;;
 ;;   - The reserved event-id is `:rf.machine/done`; the completed node's
 ;;     declaration PATH rides as the event's single arg —
@@ -2554,7 +2539,7 @@
          (final-state-node? (node-at machine child-path)))))
 
 (defn compound-done-paths
-  "Per Spec 005 §Final states §The done-state signal (rf2-zlmz7): given the
+  "Per Spec 005 §Final states §The done-state signal: given the
   POST-transition leaf path `leaf-path`, return the vector of EMBEDDED
   compound declaration-paths that are NEWLY done — each compound whose active
   direct child is a `:final?` leaf, EXCLUDING the machine root (a `:final?`
@@ -2596,12 +2581,12 @@
   macrostep's FIFO `:raise` queue (verbatim `:raise` fx, drained by the
   unified `drain-to-fixed-point` microstep loop / the parallel parent queue)
   so the enclosing `:on-done` transition fires in the SAME macrostep — after
-  the committing transition's `:always` has settled (rf2-uv8os). Returns `[]`
+  the committing transition's `:always` has settled. Returns `[]`
   when no
   compound is newly done (the common case — most transitions land on an
   ordinary leaf). `machine` is the flat / compound machine or a region body.
 
-  **Region-identity scoping (rf2-12ekv).** When `machine` is a parallel region
+  **Region-identity scoping.** When `machine` is a parallel region
   (`:rf/region` present), `compound-done-paths` returns a REGION-RELATIVE path
   (region-body `node-at`). The parent internal-event queue re-broadcasts the
   raise across EVERY sibling region (the correct XState v5 / SCXML `:raise`
@@ -2625,7 +2610,7 @@
           (compound-done-paths machine leaf-path))))
 
 (defn apply-on-done-action
-  "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): run a
+  "Per Spec 005 §Final states §The done-state signal: run a
   PARALLEL ROOT's `:on-done` transition's `:action` against `snap`'s `:data`,
   threading the standard `{:data :fx}` effects-map contract. The parallel
   root's `:on-done` carries no in-machine `:target` (root-only parallel has no
@@ -2640,7 +2625,7 @@
   `[:rf.machine/done []]` event so a 3-arity action introspecting `:event`
   sees the reserved done discriminator.
 
-  Per rf2-z522n the action runs under phase `:transition` — the parallel
+  The action runs under phase `:transition` — the parallel
   root's `:on-done` IS a transition (the XState v5 `onDone` is a transition;
   an EMBEDDED compound's `:on-done` already runs through
   `apply-transition-once` at phase `:transition` via `pick-done-transition`).
@@ -2666,7 +2651,7 @@
             (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
 
 (defn run-root-transition-action
-  "Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g): run a
+  "Per Spec 005 §Transition broadcast §Root parallel `:on`: run a
   PARALLEL ROOT's selected `:on` transition's `:action` ONCE against the
   parallel `snap`'s shared `:data`, threading the standard `{:data :fx}`
   effects-map contract. Unlike the per-region apply, the root transition's
@@ -2685,7 +2670,7 @@
   merged, `:fx` collected), or a `result/fail` if the action threw. A
   targetless / action-less transition returns `(ok snap [])`."
   [machine snap transition event]
-  (let [;; rf2-lai1qv — the root `:on` lives OUTSIDE `:states` (decl-path
+  (let [;; The root `:on` lives OUTSIDE `:states` (decl-path
         ;; `[]`). `root-on-match` → `match-on-clause` stamped the partial
         ;; `:on` discriminator; finalize it with the empty decl-path so the
         ;; Xray cascade row addresses `[:on <event-key>]` (root-relative, no
@@ -2700,7 +2685,7 @@
                        (contains? r :data) (merge (:data r)))]
         (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))
 
-;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
+;; ---- destroy-time exit cascade --------------------------------------------
 ;;
 ;; Per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
 ;; / `:exit` and §Final states §Composition with `:entry` / `:exit`: when
@@ -2745,10 +2730,10 @@
         ;; Leaf→root: exit cascade reverses `nodes-along-path` (which
         ;; returns shallowest-first), matching `compute-cascade-paths`'s
         ;; `(map ... (reverse exited-pairs))` ordering.
-        ;; Per rf2-82a0u every action-ran emit carries `:phase`; destroy-
+        ;; Every action-ran emit carries `:phase`; destroy-
         ;; time exit cascades stamp `:destroy-exit` so the Xray Handler
         ;; section can attribute the action to the actor-teardown cause.
-        ;; Per rf2-n9f4z `collect-actions` walks cascade STEP maps. The
+        ;; `collect-actions` walks cascade STEP maps. The
         ;; destroy-time exit cascade records one `:exit` step per active
         ;; node carrying an `:exit` action (deepest-first), so an actor
         ;; teardown surfaces the same structured cascade shape as a
@@ -2763,7 +2748,7 @@
                                    ;; Structural `:kind :exit` (the cascade
                                    ;; step's shape); driver `:phase
                                    ;; :destroy-exit` (the `action-ran` emit
-                                   ;; phase, rf2-82a0u).
+                                   ;; phase).
                                    {:kind :exit :phase :destroy-exit
                                     :state (vec prefix) :region region
                                     :action (:exit n)})))
@@ -2774,7 +2759,7 @@
 ;;
 ;; Per Spec 005 §Entry/exit cascading along the LCA, one transition flows
 ;; through four named phases. Each phase is a pure helper; `apply-transition-
-;; once` composes them. The decomposition is per rf2-8sz7f / audit §T6.
+;; once` composes them.
 ;;
 ;;   compute-cascade-paths  — derive src/target paths, LCA, exit/entry/action
 ;;                            refs, the `[prefix node]` pair vectors, and
@@ -2798,9 +2783,9 @@
   "Phase 1 — derive the transition's geometry. Returns a map with:
     :src-path       — source state path (vector).
     :target-leaf    — initial-cascaded target path (nil for internal).
-    :internal?      — the EFFECTIVE internal flag (rf2-gt1pu): true iff the
+    :internal?      — the EFFECTIVE internal flag: true iff the
                       transition has NO `:target` (a targetless internal
-                      no-op). Per XState v5 (rf2-gt1pu) any EXPLICIT target —
+                      no-op). Per XState v5 any EXPLICIT target —
                       even self / ancestor / current-compound on the active
                       path — re-resolves the active descendants below the
                       target (children reset to `:initial`), so it is NOT a
@@ -2808,15 +2793,15 @@
                       `lca-len` for the four active-path geometries
                       (self/ancestor ± `:reenter?`, descendant ± `:reenter?`).
     :lca-len        — common-prefix length of src and target.
-    :cascade-steps  — per rf2-n9f4z, the vec of cascade STEP maps in
+    :cascade-steps  — the vec of cascade STEP maps in
                       execution order (`:exit` × N deepest-first → the
                       transition `:action` @ LCA → `:entry` × N
                       shallowest-first + initial-descent) — the input to
                       `collect-actions`. Each step is
                       `{:kind <phase> :state <path> :region <name-or-nil>
                         :action <ref-or-nil>}`; `:kind` doubles as the
-                      `action-ran` `:phase` (rf2-82a0u) AND the structured
-                      cascade step's kind (rf2-52u5n consumer contract).
+                      `action-ran` `:phase` AND the structured
+                      cascade step's kind (the consumer contract).
                       The caller (`apply-transition-once`) supplies the
                       transition-phase per cascade-driver (`:transition` /
                       `:always` / `:after-action` / `:initial-entry`); a
@@ -2840,7 +2825,7 @@
                       thus its live timer). Per Spec 005 §Hierarchy
                       interaction (the per-level tracking the normative
                       external contract requires).
-    :history-restore — per Spec 005 §Restoring (rf2-mle6e.3): present iff
+    :history-restore — per Spec 005 §Restoring: present iff
                       this transition resolved to a `:type :history`
                       pseudo-state — the spec/009 `:rf.machine.history/
                       restored` tag bag `{:compound-path :resolved-leaf
@@ -2853,7 +2838,7 @@
                       `:rf.machine.history/restored` trace from it."
   [machine snapshot transition transition-phase]
   (let [src-path      (state-path (:state snapshot))
-        ;; rf2-h16qii — the transition's DECLARATION path: the absolute path
+        ;; The transition's DECLARATION path: the absolute path
         ;; of the state node whose `:on` / `:always` / `:after` table this
         ;; transition was declared in. It anchors the LCA geometry below —
         ;; `target-path` resolves a keyword target as a SIBLING at this level
@@ -2867,10 +2852,7 @@
         ;; on the machine ROOT — `target-path` then resolves a keyword target
         ;; to a top-level sibling (`[target]`) and `:same-state` to the root,
         ;; which is the correct geometry for a root-declared targetless /
-        ;; self transition. The pre-fix default `(take 1 src-path)` GUESSED
-        ;; depth-1 (the first element of the active leaf's path) — wrong for a
-        ;; root-declared transition (its decl-path is `[]`, not `[<top>]`), so
-        ;; the LCA / exit / entry cascade diverged. (A transition declared
+        ;; self transition. (A transition declared
         ;; DEEPER than root without a stamped `:decl-path` is not a reachable
         ;; in-tree case; the root default is the principled, geometry-correct
         ;; choice for the only caller that hits it.)
@@ -2878,7 +2860,7 @@
         raw-target    (:target transition)
         ;; `targetless?` is the structural "no `:target` declared" predicate.
         ;; It is NOT the same as the effective `internal?` flag computed
-        ;; below: under the XState-v5 model (rf2-eicq0) a TARGETED transition
+        ;; below: under the XState-v5 model a TARGETED transition
         ;; whose target lands on the ACTIVE PATH (self or proper ancestor) is
         ;; ALSO internal by default — it only becomes external when the
         ;; transition opts in with `:reenter? true`. So `internal?` = no
@@ -2903,8 +2885,9 @@
         ;; recorded (or default / dangling-fallback) leaf BEFORE the LCA
         ;; geometry. The resolved leaf is what the entry cascade enters and
         ;; what the snapshot's `:state` records — the pseudo-state is never a
-        ;; configuration member (the 46ban precedent: resolve the real path,
-        ;; then run the standard geometry on it). `:history-restore` rides
+        ;; configuration member (the external-self-transition precedent:
+        ;; resolve the real path, then run the standard geometry on it).
+        ;; `:history-restore` rides
         ;; the result so `apply-transition-once` can emit the
         ;; `:rf.machine.history/restored` trace.
         hist-node     (when (and (not targetless?) target-base0)
@@ -2930,7 +2913,7 @@
         ;; declared target.
         target-base   (if history-restore (:resolved-leaf history-restore) target-base0)
         target-leaf   (some->> target-base (initial-cascade machine))
-        ;; ---- Exit-set boundary: the true LCCA (rf2-emz8l) ----------------
+        ;; ---- Exit-set boundary: the true LCCA ----------------------------
         ;; Per Spec 005 §Entry/exit cascading and SCXML §3.13: the exit set
         ;; of an EXTERNAL transition is bounded by the LEAST COMMON COMPOUND
         ;; ANCESTOR — the deepest compound state that is a PROPER ancestor of
@@ -2947,7 +2930,7 @@
         ;;
         ;;  (1) TARGET ON THE ACTIVE PATH — `target-base` is a prefix of
         ;;      `src-path` (the target is the source itself, OR a proper
-        ;;      ANCESTOR of the source). Per the XState-v5 model (rf2-eicq0)
+        ;;      ANCESTOR of the source). Per the XState-v5 model
         ;;      this is INTERNAL BY DEFAULT — the source neither exits nor
         ;;      re-enters; the transition's `:action` fires and the
         ;;      configuration is unchanged (same shape as a targetless
@@ -2964,7 +2947,7 @@
         ;;      flipped — see Spec 005 §Self-transitions). Without the pull-up
         ;;      a re-entering active-path target would have its plain
         ;;      common-prefix LCA equal the full target depth and the
-        ;;      transition would be a SILENT NO-OP (rf2-emz8l). `max 0` keeps
+        ;;      transition would be a SILENT NO-OP. `max 0` keeps
         ;;      a root-level target (`target-base == []`) sane: with
         ;;      `:reenter?` the whole machine exits + re-enters from the root.
         ;;
@@ -2991,7 +2974,7 @@
         ;; independent of the `:reenter?` opt-in. An explicit active-path
         ;; target is NEVER a configuration no-op — XState v5 RE-RESOLVES the
         ;; active descendants below the target (children reset to `:initial`)
-        ;; even without `:reenter?` (rf2-gt1pu). Only a TARGETLESS transition
+        ;; even without `:reenter?`. Only a TARGETLESS transition
         ;; preserves the configuration unchanged.
         target-on-active-path? (and (not targetless?)
                                     (= (count target-base)
@@ -3002,10 +2985,10 @@
         ;; compound D whose target T is a PROPER DESCENDANT of D re-enters the
         ;; targeted descendant T (and exits/re-enters the active descendants
         ;; between D and the resolved leaf), while D itself and the prefix
-        ;; above survive — UNLESS `:reenter?` forces D's own restart
-        ;; (rf2-127ff). Note T need NOT be on the active branch: D may target a
-        ;; DISJOINT descendant (e.g. a sibling of the active child) — exactly
-        ;; the rf2-127ff `:editor`→`[:editor :preview]` shape while `:draft` is
+        ;; above survive — UNLESS `:reenter?` forces D's own restart.
+        ;; Note T need NOT be on the active branch: D may target a
+        ;; DISJOINT descendant (e.g. a sibling of the active child) — the
+        ;; `:editor`→`[:editor :preview]` shape while `:draft` is
         ;; active. So this is gated on T-vs-D, NOT on `target-on-active-path?`.
         ;;
         ;; THREE structural conditions (all over ABSOLUTE paths):
@@ -3018,7 +3001,6 @@
         ;;       leaf→root walk that selected the transition guarantees it for a
         ;;       real `:on` match;
         ;;   (c) T is a PROPER DESCENDANT of D (D is a strict prefix of T).
-        ;; (rf2-gt1pu / rf2-127ff.)
         target-descendant-of-decl? (and (not targetless?)
                                         (pos? (count decl-path))
                                         (= (count decl-path)
@@ -3028,7 +3010,7 @@
                                            (common-prefix-length decl-path target-base)))
         ;; A HISTORY restore is an external re-entry BY NATURE — it resolves
         ;; the pseudo-state to a concrete config and re-enters the compound,
-        ;; recording the outgoing config on the way (rf2-mle6e). It must NOT
+        ;; recording the outgoing config on the way. It must NOT
         ;; be folded into the internal-default even when the resolved leaf
         ;; happens to coincide with the source (the never-entered fall-back to
         ;; the compound's `:initial` can land back on the current leaf). So a
@@ -3039,16 +3021,15 @@
         ;; (cascade-steps, `commit-snapshot` state preservation, after-fx /
         ;; after-cancel / destroy / done-raise / history-record). ONLY a
         ;; targetless transition is internal (true configuration no-op).
-        ;; XState v5 (rf2-gt1pu): any EXPLICIT target — even self / ancestor /
+        ;; XState v5: any EXPLICIT target — even self / ancestor /
         ;; current-compound on the active path — re-resolves the active
-        ;; descendants below the target, so it is NOT a no-op. (Pre-rf2-gt1pu
-        ;; this also folded a no-`:reenter?` active-path target into
-        ;; `internal?`, collapsing the middle "re-resolve descendants" case to
-        ;; a targetless no-op — the bug.)
+        ;; descendants below the target, so it is NOT a no-op. A no-`:reenter?`
+        ;; active-path target is the middle "re-resolve descendants" case, NOT
+        ;; a targetless no-op.
         internal?     targetless?
         ;; The exit/entry boundary (LCCA depth) — the count of the common
-        ;; prefix that SURVIVES (is neither exited nor entered). The geometries
-        ;; (rf2-gt1pu / rf2-127ff), all grounded in xstate@5.32.0, are
+        ;; prefix that SURVIVES (is neither exited nor entered). The geometries,
+        ;; all grounded in xstate@5.32.0, are
         ;; discriminated by the TARGET ↔ DECLARING-state (`decl-path`)
         ;; relationship, NOT by the active leaf:
         ;;
@@ -3063,7 +3044,7 @@
         ;;          e.g. declared on :parent, target [:parent :child] while at
         ;;          [:parent :child :a] → exit a + child, re-enter child/a;
         ;;          :parent not exited.
-        ;;      WITH `:reenter?` (rf2-127ff) — the DECLARING compound D exits +
+        ;;      WITH `:reenter?` — the DECLARING compound D exits +
         ;;        re-enters (run D's :exit/:entry, restart D's :after, re-spawn),
         ;;        then descends to the NAMED descendant T (NOT D's :initial —
         ;;        `target-leaf` already cascades from T).
@@ -3078,7 +3059,7 @@
         ;;        target-BASE so re-resolution is not a no-op).
         ;;          e.g. at [:process :step3], target :process → exit step3,
         ;;          re-enter :initial (step1); :process not exited.
-        ;;      WITH `:reenter?` (eicq0) — T is exited + re-entered (restart
+        ;;      WITH `:reenter?` — T is exited + re-entered (restart
         ;;        timers/spawns) then re-descends. boundary = (count target-base) - 1.
         ;;  • DISJOINT-subtree target (not a descendant of D, not on the active
         ;;    path) — the LCCA is the plain common-prefix node; `:reenter?` is a
@@ -3102,34 +3083,32 @@
                         (common-prefix-length src-path target-leaf))
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
-        ;; emission downstream (per audit §T6 #2 — eliminate the double
-        ;; nodes-along-path call). `nodes-along-path` returns a vector, so
-        ;; `subvec` is one zero-copy slice — the prior `(vec (drop ...))`
-        ;; built a lazy seq, then realised it, then `vec`'d (three
-        ;; allocations). Per rf2-ijbg2.
+        ;; emission downstream (one `nodes-along-path` call serves both).
+        ;; `nodes-along-path` returns a vector, so `subvec` is one zero-copy
+        ;; slice rather than a realised-then-`vec`'d lazy seq.
         exited-pairs  (when-not internal?
                         (let [pairs (nodes-along-path machine src-path)]
                           (subvec pairs (min lca-len (count pairs)))))
         entered-pairs (when-not internal?
                         (let [pairs (nodes-along-path machine target-leaf)]
                           (subvec pairs (min lca-len (count pairs)))))
-        ;; Per rf2-82a0u: phase per cascade-slot per `transition-phase`.
-        ;; Bootstrap entries collapse to `:initial-entry` — the bead's
-        ;; closed set distinguishes "entry from the bootstrap cascade"
+        ;; Phase per cascade-slot per `transition-phase`.
+        ;; Bootstrap entries collapse to `:initial-entry` — the closed
+        ;; phase set distinguishes "entry from the bootstrap cascade"
         ;; from "entry from a regular `:on`-driven transition".
         entry-phase   (if (= :initial-entry transition-phase) :initial-entry :entry)
-        ;; Per rf2-n9f4z: the cascade STEP maps `collect-actions` walks —
+        ;; The cascade STEP maps `collect-actions` walks —
         ;; one per boundary, in exit (deepest-first) → action @ LCA → entry
         ;; (shallowest-first + initial-descent) order. Each carries the
         ;; state path it fires at + the region (for parallel machines) so
-        ;; tooling can render the structured cascade (rf2-52u5n) without
+        ;; tooling can render the structured cascade without
         ;; re-deriving the LCA geometry.
         ;;
         ;; Two ORTHOGONAL dimensions ride each step:
         ;;   :kind  — the STRUCTURAL boundary: `:exit` / `:action` / `:entry`
         ;;            (closed set; `:microstep` is appended by the `:always`
-        ;;            loop). This is the consumer (rf2-52u5n) contract.
-        ;;   :phase — the action-ran DRIVER phase (rf2-82a0u): `:exit` /
+        ;;            loop). This is the consumer contract.
+        ;;   :phase — the action-ran DRIVER phase: `:exit` /
         ;;            `:entry` for cascade boundaries, but the transition
         ;;            `:action` carries the caller-supplied `transition-phase`
         ;;            (`:transition` / `:always` / `:after-action` /
@@ -3152,7 +3131,7 @@
         action-steps  (when (:action transition)
                         [(cond-> {:kind :action :phase transition-phase :state (vec decl-path)
                                   :region region :action (:action transition)}
-                           ;; rf2-lai1qv — carry the selected transition's
+                           ;; Carry the selected transition's
                            ;; EXACT spec-path discriminator onto the action
                            ;; step so `run-action` can stamp it on the
                            ;; `:rf.machine/action-ran` trace; the Xray cascade
@@ -3195,7 +3174,7 @@
      :entered-pairs entered-pairs
      :cascade-steps cascade-steps
      :after-bump-paths after-bump-paths
-     ;; Per Spec 005 §Restoring (rf2-mle6e.3): present iff this transition
+     ;; Per Spec 005 §Restoring: present iff this transition
      ;; resolved to a history pseudo-state — the spec/009 `:rf.machine.
      ;; history/restored` tag bag `{:compound-path :resolved-leaf :source
      ;; :kind (+:restored-config|+:fallback)}`. `apply-transition-once`
@@ -3207,7 +3186,7 @@
   at LCA → `entry` shallowest-first) via `collect-actions`. Returns the
   Result from `collect-actions` — either `result/ok` with the post-cascade
   snapshot + accumulated fx (and the structured `::cascade` step vector
-  via `result/with-cascade` — rf2-n9f4z), or a `result/fail` carrying the
+  via `result/with-cascade`), or a `result/fail` carrying the
   throwing action's diagnostic map."
   [machine snapshot event cascade]
   (collect-actions machine snapshot event (:cascade-steps cascade)))
@@ -3228,7 +3207,7 @@
             bump-paths)))
 
 (defn schedule-root-after-fx
-  "Per Spec 005 §Root parallel `:after` (rf2-wox0vd): schedule a parallel
+  "Per Spec 005 §Root parallel `:after`: schedule a parallel
   ROOT's `:after` timers at machine birth. Bumps the root's per-path epoch
   (decl-path `[]`) on `snap-final` so a later machine-teardown / explicit
   epoch advance makes the in-flight timer stale, then emits the SAME
@@ -3265,11 +3244,11 @@
   interaction. Internal transitions preserve the input snapshot's
   `:state` unchanged."
   [machine snapshot snap-after cascade]
-  ;; Per rf2-adwxh: the `cond` has three arms — `internal?` (raw-target
+  ;; The `cond` has three arms — `internal?` (raw-target
   ;; is nil; preserve current state), vector target (use the cascade-
   ;; descended leaf as a vector), keyword target (collapse a single-
-  ;; element leaf to a keyword, else vectorise). A pre-rf2-adwxh `:else`
-  ;; arm was dead: `internal?` already covers the nil-raw-target case,
+  ;; element leaf to a keyword, else vectorise). No `:else` arm is needed:
+  ;; `internal?` already covers the nil-raw-target case,
   ;; and `:target` validation upstream rejects anything other than
   ;; keyword/vector/nil.
   (let [{:keys [internal? raw-target target-leaf after-bump-paths]} cascade
@@ -3334,19 +3313,19 @@
   the change becomes stale). A target leaf that declares :after schedules
   a fresh timer at the new epoch via a :rf.machine.timer/scheduled trace.
 
-  Per Spec 005 §Final states (rf2-gn80): the returned snapshot is NOT
+  Per Spec 005 §Final states: the returned snapshot is NOT
   tagged with `:rf/finished?` here — that flag is recomputed at the
   lifecycle-handler boundary so the pure-call surface (conformance corpus,
   JVM pure-fn tests) stays free of transient runtime metadata.
 
-  Per rf2-8sz7f / audit §T6 the body composes four named phases:
+  The body composes four named phases:
   `compute-cascade-paths` → `run-cascade` → `commit-snapshot` →
   `run-spawn-phase`. Each phase is a pure helper above.
 
   `transition` is the transition map with a synthetic :decl-path key
   recording where in the state-path tree the transition was declared.
 
-  Per rf2-82a0u `transition-phase` is the closed-set keyword stamped
+  `transition-phase` is the closed-set keyword stamped
   on the transition's `:action` `action-ran` emit — one of
   `:transition` (regular `:on` match), `:always` (eventless step),
   `:after-action` (timer-driven), `:initial-entry` (bootstrap cascade).
@@ -3364,15 +3343,15 @@
                                    :transition transition
                                    :state-path (:src-path cascade)})
       (result/with-ok [snap-after fx] cascade-r
-        (let [;; Per rf2-n9f4z: the structured cascade steps `collect-actions`
+        (let [;; The structured cascade steps `collect-actions`
               ;; recorded ride `cascade-r` via `::cascade`; re-stamp them onto
               ;; the final Result (the `result/ok` below builds a fresh Result
               ;; that would otherwise drop them) so `machine-transition-single`
               ;; can accumulate the macrostep's full step sequence.
               cascade-steps   (result/cascade cascade-r)
               snap-committed  (commit-snapshot machine snapshot snap-after cascade)
-              ;; Per Spec 005 §Recording — on compound-state exit
-              ;; (rf2-mle6e.3): as part of the exit-cascade commit, write
+              ;; Per Spec 005 §Recording — on compound-state exit:
+              ;; as part of the exit-cascade commit, write
               ;; each history-bearing exited compound's last-active config
               ;; into `:rf/history`, keyed by the (region-qualified)
               ;; declaration path. The active config recorded is the
@@ -3407,15 +3386,15 @@
                                        :transition transition
                                        :state-path (:src-path cascade)})
             (result/with-ok [snap-after-spawns spawn-fx] spawn-r
-              (let [;; Per Spec 005 §Final states §The done-state signal
-                    ;; (rf2-bnjb3 / rf2-zlmz7): if the committed configuration
+              (let [;; Per Spec 005 §Final states §The done-state signal:
+                    ;; if the committed configuration
                     ;; makes an EMBEDDED compound newly done (its active direct
                     ;; child is a `:final?` leaf), raise `[:rf.machine/done
                     ;; <compound-path>]` into the macrostep's FIFO `:raise`
                     ;; queue so the enclosing `:on-done` transition fires in
                     ;; the SAME macrostep (drained by the unified
                     ;; `drain-to-fixed-point` loop / the parallel parent
-                    ;; queue, after `:always` settles — rf2-uv8os). Only an
+                    ;; queue, after `:always` settles). Only an
                     ;; EXTERNAL transition
                     ;; (a new configuration was entered) can newly satisfy a
                     ;; compound's done condition — an internal transition keeps
@@ -3456,7 +3435,7 @@
                                  [i t]))
                              (map-indexed vector always))]
         (when hit
-          ;; rf2-lai1qv — stamp the `:always` spec-path discriminator
+          ;; Stamp the `:always` spec-path discriminator
           ;; (decl-path prefix + the matched candidate index for the
           ;; vector form; index-free for the single-map form, matching the
           ;; macro's bare-`:always` keying) so the Xray cascade row
@@ -3485,14 +3464,14 @@
   ;; Overridable per machine via `:raise-depth-limit`.
   ;;
   ;; Public (not `^:private`) so the parallel layer's parent-owned
-  ;; internal-event-queue drain (`parallel.cljc`, rf2-yi7ts) bounds its
+  ;; internal-event-queue drain (`parallel.cljc`) bounds its
   ;; re-broadcast loop on the SAME default, keeping one source of truth
   ;; for the limit rather than duplicating the magic 16.
   16)
 
 ;; Forward-declared so `drain-to-fixed-point` can call
 ;; `machine-transition-single` directly when it dequeues a raised internal
-;; event (the unified SCXML microstep loop, rf2-uv8os). The recursive
+;; event (the unified SCXML microstep loop). The recursive
 ;; `:raise` step is always against an already-resolved single (flat /
 ;; compound) machine context — for a parallel parent,
 ;; `parallel-machine-transition` (in `re-frame.machines.parallel`) owns the
@@ -3512,7 +3491,7 @@
   preserving source order. Used by `drain-to-fixed-point` to peel a deferred
   nested macrostep's surfaced raises (and an `:always` step's own raises) off
   its real (do-fx-bound) fx so the raises append to the BACK of the FIFO
-  queue while the real fx accumulate (rf2-nr434 FIFO, rf2-uv8os ordering)."
+  queue while the real fx accumulate (FIFO + SCXML microstep ordering)."
   [fx-vec]
   (reduce (fn [acc [fx-id :as entry]]
             (if (= :raise fx-id)
@@ -3530,13 +3509,13 @@
   match shape lights up more than one. No-op when `match` is nil or
   carries no relevant marker.
 
-  Per rf2-ko8jb the `:frame` tag is REQUIRED for epoch-capture
+  The `:frame` tag is REQUIRED for epoch-capture
   admission (`re-frame.epoch.capture/capture-event!` silently drops
   events whose tags lack `:frame`). The caller threads `frame-id`
   resolved from `(:rf/frame machine)` so timer-firing observability
   reaches the cascade's `:trace-events` slot.
 
-  rf2-hawtjr — the caller also threads `completed-at`, the CAUSAL
+  The caller also threads `completed-at`, the CAUSAL
   completion timestamp of the timer-firing dispatch (the router-stamped
   `:rf/time-ms` off `(get-in machine [:rf/cofx :rf/time-ms])` — the SAME
   fresh fire-time token the firing `:after` guard / action read, NOT an
@@ -3550,18 +3529,18 @@
   ([frame-id match completed-at]
   (when match
     (when (:stale? match)
-      ;; Per EP-0011 §Timer Reply / Managed-Effects §Stale suppression:
-      ;; the machine `:after` timer is the existing specialized stale-gated
-      ;; instance of the uniform reply envelope. Express the existing
-      ;; epoch-mismatch drop in the shared reply vocabulary — the declaring
-      ;; path + per-path epoch ARE the data-only suppression gate — and ride
-      ;; the reply-shaped facts (`:rf.reply/status :stale`,
-      ;; `:rf.reply/work-status :suppressed`, the carried/current gate)
+      ;; Per Managed-Effects §Stale suppression:
+      ;; the machine `:after` timer is a specialized stale-gated
+      ;; instance of the uniform reply envelope. The
+      ;; epoch-mismatch drop is expressed in the shared reply vocabulary — the
+      ;; declaring path + per-path epoch ARE the data-only suppression gate —
+      ;; and the reply-shaped facts (`:rf.reply/status :stale`,
+      ;; `:rf.reply/work-status :suppressed`, the carried/current gate) ride
       ;; ADDITIVELY on the trace, preserving its public shape (`:state` /
       ;; `:delay` / `:scheduled-epoch` / `:current-epoch` / `:recovery`)
-      ;; while the trace stream now classifies the drop the same way HTTP /
-      ;; resources / routing do (m-reply). The behaviour is unchanged: the
-      ;; timer's transition still does not fire.
+      ;; so the trace stream classifies the drop the same way HTTP /
+      ;; resources / routing do (m-reply). The timer's transition does not
+      ;; fire.
       (let [stale-reply (m-reply/after-stale-reply
                           {:actor-id        (:actor-id match)
                            :state           (:state match)
@@ -3574,7 +3553,7 @@
             summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/stale-after
                      (cond->
-                     {;; rf2-yyvtk5 / rf2-ws5thu — the timer's owning actor
+                     {;; The timer's owning actor
                       ;; INSTANCE (spec/009 §`:rf.machine.timer/*`);
                       ;; `:machine-id` is reserved for the registered TYPE.
                       :actor-id           (:actor-id match)
@@ -3585,10 +3564,10 @@
                       :frame              frame-id
                       :recovery           :replaced-with-default
                       ;; reply-envelope vocabulary (Managed-Effects §9)
-                      ;; rf2-niarhz — `:work/id` (canonical) joins this stale
+                      ;; `:work/id` (canonical) joins this stale
                       ;; `:after` completion into the uniform work/reply rows
                       ;; the same way every other managed async family does;
-                      ;; `:rf.reply/work-id` retained for back-compat readers.
+                      ;; `:rf.reply/work-id` is the alias readers may also key on.
                       :work/id              (:work/id summary)
                       :work/kind            (:work/kind summary)
                       :rf.reply/status      (:status summary)
@@ -3596,7 +3575,7 @@
                       :rf.reply/work-status (:work/status summary)
                       :rf.reply/stale-reason (:stale/reason summary)
                       :rf.reply/correlation (:correlation summary)}
-                       ;; rf2-hawtjr — the CAUSAL completion timestamp of the
+                       ;; The CAUSAL completion timestamp of the
                        ;; firing dispatch (router-stamped `:rf/time-ms`), under
                        ;; both the canonical `:completed-at` and the reply-
                        ;; envelope `:rf.reply/completed-at` (mirroring the
@@ -3605,13 +3584,12 @@
                        (some? (:completed-at summary))
                        (assoc :completed-at          (:completed-at summary)
                               :rf.reply/completed-at (:completed-at summary))))))
-    ;; rf2-niarhz — a FIRED (live) `:after` timer is a CLOSED `:after`
+    ;; A FIRED (live) `:after` timer is a CLOSED `:after`
     ;; completion (`:status :ok` / `:work/status :completed`). Build the
     ;; canonical fired reply and stamp the reply-envelope facts (`:work/id`,
     ;; `:work/kind :timer`, status, work-status) onto the
     ;; `:rf.machine.timer/fired` trace so it joins the uniform work/reply rows
-    ;; (Managed-Effects §Tracing). Was previously a bespoke epoch trace with
-    ;; no reply vocabulary at all.
+    ;; (Managed-Effects §Tracing).
     (when (:guard-suppressed? match)
       (let [fired-reply (m-reply/after-fired-reply
                           {:actor-id          (:actor-id match)
@@ -3625,7 +3603,7 @@
             summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/fired
                      (cond->
-                     {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
+                     {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
                       :state  (:state match)
                       :delay  (:delay match)
@@ -3639,14 +3617,14 @@
                       :rf.reply/work-id     (:work/id summary)
                       :rf.reply/work-status (:work/status summary)
                       :rf.reply/correlation (:correlation summary)}
-                       ;; rf2-hawtjr — causal completion time (see stale branch).
+                       ;; Causal completion time (see stale branch).
                        (some? (:completed-at summary))
                        (assoc :completed-at          (:completed-at summary)
                               :rf.reply/completed-at (:completed-at summary))))))
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
-      ;; rf2-wox0vd — a parallel-ROOT `:after` carries the empty decl-path
+      ;; A parallel-ROOT `:after` carries the empty decl-path
       ;; `[]`, so `(last decl-path)` is nil; mark the firing state with the
       ;; root sentinel `:rf/parallel-root` (matching the stale / guard-
       ;; suppressed branches' root marker) rather than emitting `:state nil`.
@@ -3663,7 +3641,7 @@
             summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/fired
                      (cond->
-                     {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
+                     {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
                       :state  fired-state
                       :delay  (:delay match)
@@ -3677,13 +3655,13 @@
                       :rf.reply/work-id     (:work/id summary)
                       :rf.reply/work-status (:work/status summary)
                       :rf.reply/correlation (:correlation summary)}
-                       ;; rf2-hawtjr — causal completion time (see stale branch).
+                       ;; Causal completion time (see stale branch).
                        (some? (:completed-at summary))
                        (assoc :completed-at          (:completed-at summary)
                               :rf.reply/completed-at (:completed-at summary)))))))))
 
 (defn ensure-raised-cofx
-  "Per EP-0017 / rf2-xsdn5h — re-run the consumer-attachment ensure step for a
+  "Re-run the consumer-attachment ensure step for a
   RAISED internal event `event` against the active `snap` BEFORE its transition
   is selected, returning the (possibly `:rf/cofx`-augmented) `machine`.
 
@@ -3701,7 +3679,7 @@
   `:rf.cofx/requires` that the external event's ensure-set never covered. Without
   re-ensuring here, a generator-backed recordable fact reads nil (instead of
   being minted or strict-missing), and a provided fact absent from the token
-  skips the required-cofx error — the rf2-xsdn5h hole.
+  would skip the required-cofx error. Re-ensuring here closes that gap.
 
   This is a no-op (returns `machine` unchanged) for the pure-fn engine callers
   (conformance corpus / SSR / JVM fixtures): they carry no `:rf/cofx`, so
@@ -3709,7 +3687,7 @@
   preserved, and the reduction stays a pure function of its arguments. When a
   router dispatch DID thread the token (`:rf/cofx` present), the ensure mints
   under the resolved effective mint policy stamped on the machine def
-  (`:rf/cofx-mint-policy` — rf2-n0myjq) — `:strict` replay / `:test` refuse to
+  (`:rf/cofx-mint-policy`) — `:strict` replay / `:test` refuse to
   mint and surface `:rf.error/missing-required-cofx`. The augmented record is
   written back onto the machine def so `callback-ctx` surfaces every ensured /
   generated fact to the raised event's guards / actions, and so a subsequent
@@ -3731,11 +3709,11 @@
 (defn drain-to-fixed-point
   "Shared settling tail of the single-machine macrostep — steps 3-5 of
   Spec 005 §Drain semantics §Level 3, factored out of
-  `machine-transition-single` (rf2-505ic) so the machine-BIRTH cascade
+  `machine-transition-single` so the machine-BIRTH cascade
   reuses the SAME `:always` + raise settle the event-driven macrostep uses,
   rather than duplicating it.
 
-  **XState v5 / SCXML microstep order (rf2-uv8os).** The macrostep is the
+  **XState v5 / SCXML microstep order.** The macrostep is the
   fixed point of ONE unified loop that, after every taken transition,
   PREFERS enabled `:always` (eventless) transitions and only dequeues the
   next raised internal event once `:always` is quiescent:
@@ -3745,11 +3723,8 @@
      NO eventless transition is enabled does the processor pop one internal
      event. XState v5 matches this — a transition that raises `R` while
      entering a state with an `:always` takes the `:always` FIRST, then
-     handles `R` in the post-`:always` state. (An earlier engine drained the
-     ENTIRE raise queue before checking `:always`; that was an unblessed
-     divergence — the spec's claim of XState/SCXML parity for it was false —
-     now aligned to v5.)
-   - **FIFO among raised events once dequeued (rf2-nr434).** A taken step's
+     handles `R` in the post-`:always` state.
+   - **FIFO among raised events once dequeued.** A taken step's
      own raises append to the BACK of the one internal-event queue, behind
      the still-pending siblings; the queue is drained breadth-first.
 
@@ -3762,8 +3737,7 @@
   loop; (3) otherwise quiescent — commit.
 
   3-5 of Spec 005 §Drain semantics §Level 3 thus interleave into this single
-  loop, replacing the old `drain-raise-queue → then `:always`-loop` two-phase
-  structure. The fixed point is stamped with the active-configuration tag
+  loop. The fixed point is stamped with the active-configuration tag
   union (`commit-tags`), `::microsteps` (the count of `:always` iterations),
   and `::cascade` (the structured step vector).
 
@@ -3775,7 +3749,7 @@
   step per eventless iteration.
 
   Atomic rollback on a tripped `:always-depth-limit` / `:raise-depth-limit`
-  (Spec 005 §Bounded depth) is enforced by the FAILURE SURFACE (rf2-y3jv8q):
+  (Spec 005 §Bounded depth) is enforced by the FAILURE SURFACE:
   the abort returns a `result/depth-abort` `:fail`, which threads NO snapshot
   / fx, and the lifecycle handler short-circuits to `{}` — so neither a
   partially-advanced snapshot nor accumulated fx reaches runtime-db, and the
@@ -3784,10 +3758,10 @@
   explicit rollback-target argument is threaded — the `:fail` carrying no
   payload IS the rollback.
 
-  `raise-depth` seeds the transitive `:raise` depth counter (rf2-b88nm);
+  `raise-depth` seeds the transitive `:raise` depth counter;
   `defer?` is the effective region-defer flag. When `defer?` is true (a
-  nested raise-handling call — `drain-raises`' role is now inlined here — or
-  a parallel region whose raises lift to the parent macrostep, rf2-yi7ts),
+  nested raise-handling call, or
+  a parallel region whose raises lift to the parent macrostep),
   the loop still settles `:always` locally but SURFACES the internal-event
   queue back un-drained as `:raise` fx for the queue-owner above to harvest.
   When `defer?` is false (the queue-owning flat / compound drain) the loop
@@ -3805,23 +3779,23 @@
         ;; (the seed of the FIFO internal-event queue) and its real
         ;; (do-fx-bound) fx. Per Spec 005 §Drain semantics the raises are
         ;; held in the queue and only handled AFTER the seed state's
-        ;; `:always` has settled (rf2-uv8os).
+        ;; `:always` has settled.
         (let [{seed-raises :raises seed-real :rest} (split-raise-fx fx-after-event)
-              ;; Per rf2-n9f4z: seed the macrostep cascade with the seeding
+              ;; Seed the macrostep cascade with the seeding
               ;; transition's (event-driven exit/action/entry, OR birth
               ;; initial-entry) steps; the `:always` loop appends one
               ;; `:microstep` step per eventless iteration (carrying that
               ;; microstep's own nested cascade). The accumulated vector is
               ;; the structured explanation the outer `:rf.machine/
-              ;; transition` trace carries (rf2-52u5n).
+              ;; transition` trace carries.
               base-cascade (result/cascade start-result)]
           ;; The unified SCXML microstep loop. `always-depth` counts the
           ;; `:always` iterations (→ `::microsteps`); `raise-depth` counts
           ;; internal events dequeued (→ `:raise-depth-limit`, seeded from the
-          ;; transitive inbound count per rf2-b88nm). `pending` is the FIFO
+          ;; transitive inbound count). `pending` is the FIFO
           ;; internal-event queue — `[:raise <event-vec>]` entries kept
           ;; verbatim. `visited` tracks state-paths for the depth-abort path.
-          ;; rf2-xsdn5h — `m` is the live machine def threaded through the loop.
+          ;; `m` is the live machine def threaded through the loop.
           ;; It starts as `machine` and is re-stamped with an augmented `:rf/cofx`
           ;; whenever a dequeued raise's `ensure-raised-cofx` mints / delivers a
           ;; fact, so a subsequent raise / `:always` re-presents the generated
@@ -3842,7 +3816,7 @@
                 ;; ---- (1) PREFER `:always` — settle eventless first --------
                 (some? always-m)
                 (if (>= always-depth always-limit)
-                  ;; rf2-y3jv8q — a tripped `:always` depth limit is a FAILED
+                  ;; A tripped `:always` depth limit is a FAILED
                   ;; macrostep, not a benign no-op. XState v5 THROWS on such a
                   ;; runaway eventless cycle. Emit the precise error category
                   ;; (the single trace for the trip) and return a `result/fail`
@@ -3850,12 +3824,11 @@
                   ;; the handler's failure path (`trace-action-failure!`
                   ;; short-circuits to `{}` — no snapshot write reaches
                   ;; runtime-db, so the rollback to the pre-event snapshot is
-                  ;; preserved). The pre-fix `(result/ok rollback-snapshot [])`
-                  ;; surfaced as `next == snapshot` ⇒ a no-op (no
-                  ;; `:rf.machine/transition`, no error to the return),
-                  ;; indistinguishable from a guard-blocked no-op and silently
-                  ;; swallowing the triggering event.
-                  (let [info {;; rf2-yyvtk5 — the aborting actor is a LIVE
+                  ;; preserved). Routing the trip through the failure surface
+                  ;; keeps it distinct from a guard-blocked no-op, so the
+                  ;; triggering event is surfaced as an error rather than
+                  ;; silently swallowed.
+                  (let [info {;; The aborting actor is a LIVE
                               ;; INSTANCE. Its address is `:rf/parent-id`
                               ;; (stamped by `prepare-machine-ctx`; the spec map
                               ;; forbids `:id`), or `:id` for a singleton (whose
@@ -3867,7 +3840,7 @@
                                               (:id m))
                               :depth      always-depth
                               :path       visited
-                              ;; Per rf2-ko8jb: epoch-capture admission requires
+                              ;; Epoch-capture admission requires
                               ;; `:frame`.
                               :frame      (:rf/frame m)
                               :recovery   :no-recovery}]
@@ -3875,7 +3848,7 @@
                     ;; Macrostep rolls back atomically — no cascade survives the
                     ;; abort; the `result/fail` carries no `::snap`/`::fx`.
                     (result/depth-abort info))
-                  ;; Per rf2-82a0u: `:always` microstep's transition `:action`
+                  ;; `:always` microstep's transition `:action`
                   ;; `action-ran` emit carries `:phase :always` so the Handler
                   ;; section can group eventless cascades distinctly from
                   ;; `:on`-driven transitions.
@@ -3890,7 +3863,7 @@
                         ;; carrying the from/to states and the 0-based
                         ;; microstep index, so visualisers/debuggers see the
                         ;; inner `:always` cascade the outer trace hides.
-                        ;; Per rf2-ejtpd: stamp `:source :always` so the
+                        ;; Stamp `:source :always` so the
                         ;; trigger-kind classifier is uniform with the
                         ;; dispatch-envelope vocabulary (Spec-Schemas
                         ;; §`:rf/dispatch-envelope`). `:always` microsteps
@@ -3898,7 +3871,7 @@
                         ;; macrostep); the trace is the surface where the
                         ;; closed-set value is observable.
                         (trace/emit! :rf.machine :rf.machine.microstep/transition
-                                     {;; rf2-yyvtk5 — a microstep belongs to a
+                                     {;; A microstep belongs to a
                                       ;; LIVE actor's macrostep; address it by
                                       ;; `:actor-id` (the running INSTANCE),
                                       ;; not `:machine-id` (the TYPE).
@@ -3908,10 +3881,10 @@
                                       :to              (:state snap2)
                                       :microstep-index always-depth
                                       :source          :always
-                                      ;; Per rf2-ko8jb: epoch-capture
+                                      ;; Epoch-capture
                                       ;; admission requires `:frame`.
                                       :frame           (:rf/frame m)})
-                        ;; Per rf2-n9f4z: append a `:microstep` cascade step
+                        ;; Append a `:microstep` cascade step
                         ;; carrying the microstep's own nested exit/action/entry
                         ;; `:steps` (from the eventless transition's
                         ;; `apply-transition-once` cascade) so the eventless
@@ -3923,7 +3896,7 @@
                                           :from            (:state snap)
                                           :to              (:state snap2)
                                           :steps           (result/cascade step-result)}
-                              ;; Per rf2-uv8os: an `:always` step's OWN raises
+                              ;; An `:always` step's OWN raises
                               ;; go to the BACK of the internal-event queue —
                               ;; NOT drained immediately. The loop re-checks
                               ;; `:always` first (SCXML prefers eventless), so
@@ -3943,7 +3916,7 @@
                 ;;
                 ;; The seed state (and every state reached since) has no
                 ;; enabled `:always`. Now — and only now — handle the FRONT
-                ;; raised internal event (FIFO, rf2-nr434). In `defer?` mode
+                ;; raised internal event (FIFO). In `defer?` mode
                 ;; we DON'T drain: the queue belongs to the parent macrostep
                 ;; (a nested raise-handling frame or a parallel region), so we
                 ;; surface the whole queue back as `:raise` fx and return.
@@ -3957,14 +3930,14 @@
                       (result/with-microsteps always-depth)
                       (result/with-cascade cascade))
                   (if (>= raise-depth raise-limit)
-                    ;; rf2-y3jv8q — a tripped `:raise` depth limit is a FAILED
+                    ;; A tripped `:raise` depth limit is a FAILED
                     ;; macrostep, not a benign no-op (mirrors the `:always`
                     ;; abort above). Emit the precise category, then return a
                     ;; `result/fail` carrying the `::depth-abort?` sentinel so
                     ;; the runaway raise cycle routes through the handler's
-                    ;; failure path and the triggering event is no longer
-                    ;; silently swallowed.
-                    (let [info {;; rf2-yyvtk5 — the aborting actor is a LIVE
+                    ;; failure path and the triggering event is surfaced as an
+                    ;; error rather than silently swallowed.
+                    (let [info {;; The aborting actor is a LIVE
                                 ;; INSTANCE; its address is `:rf/parent-id`
                                 ;; (stamped by `prepare-machine-ctx`; the spec
                                 ;; map forbids `:id`), or `:id` for a singleton.
@@ -3974,7 +3947,7 @@
                                 :actor-id   (or (:rf/parent-id m)
                                                 (:id m))
                                 :depth      raise-depth
-                                ;; Per rf2-ko8jb: epoch-capture admission
+                                ;; Epoch-capture admission
                                 ;; requires `:frame`.
                                 :frame      (:rf/frame m)
                                 :recovery   :no-recovery}]
@@ -3985,7 +3958,7 @@
                       (result/depth-abort info))
                     (let [[_ ev]       (first pending)
                           rest-pending (subvec pending 1)
-                          ;; rf2-xsdn5h — re-run the consumer-attachment ensure
+                          ;; Re-run the consumer-attachment ensure
                           ;; step for THIS raised event BEFORE its transition is
                           ;; selected. The external event's ensure-set (run once
                           ;; before the macrostep by `ensure-ctx-cofx`) never
@@ -4007,7 +3980,7 @@
                           ;; self-draining recursion would be depth-first). Pass
                           ;; `(inc raise-depth)` as the transitive seed so the
                           ;; nested call's depth bound continues from this
-                          ;; drain's count (rf2-b88nm).
+                          ;; drain's count.
                           step-result  (machine-transition-single
                                          m' snap ev (inc raise-depth) true)]
                       (if (result/fail? step-result)
@@ -4041,7 +4014,7 @@
                 ;; the outer handler's `:rf.machine/transition` trace carries
                 ;; the new tag set). `always-depth` is the count of `:always`
                 ;; microsteps taken — stamped via `::microsteps` (Spec 005
-                ;; §Trace events). Per rf2-n9f4z the `cascade` rides via
+                ;; §Trace events). The `cascade` rides via
                 ;; `::cascade`.
                 :else
                 (-> (result/ok (commit-tags m snap) fx)
@@ -4058,12 +4031,12 @@
    3-5. Settle the macrostep in the unified SCXML microstep loop — after the
       taken transition, PREFER enabled `:always` (eventless) transitions and
       only dequeue the next raised internal event (FIFO) once `:always` is
-      quiescent; commit at the fixed point (rf2-uv8os aligns this ordering to
+      quiescent; commit at the fixed point (this ordering matches
       XState v5 / SCXML — `:always` settles BEFORE the next raise is handled;
-      rf2-nr434 keeps raised events FIFO once dequeued).
+      raised events stay FIFO once dequeued).
 
   Steps 3-5 (the unified `:always`/raise settle + tag commit) live in the
-  shared `drain-to-fixed-point` (rf2-505ic) so machine BIRTH reuses the
+  shared `drain-to-fixed-point` so machine BIRTH reuses the
   identical settling tail — see `re-frame.machines.parallel`'s
   `settle-birth` / `apply-initial-entry-cascade`.
 
@@ -4081,12 +4054,12 @@
   faithful FIFO queue:
 
    - `drain-to-fixed-point` re-enters this fn with `defer-raises? true` when
-     it dequeues a raise (rf2-nr434), so the popped raise's OWN raises
+     it dequeues a raise, so the popped raise's OWN raises
      surface back un-drained and the queue-owning loop appends them to the
      BACK of its FIFO queue (true breadth-first; a self-draining recursion
      would be depth-first).
-   - A REGION of a parallel parent (`:rf/region` present) ALWAYS defers
-     (rf2-yi7ts): its raises belong to the PARENT macrostep's one
+   - A REGION of a parallel parent (`:rf/region` present) ALWAYS defers:
+     its raises belong to the PARENT macrostep's one
      internal-event queue, which re-broadcasts each across EVERY region
      against the full evolving snapshot (XState v5 / SCXML: `raise` targets
      the machine's single internal queue, never a per-region one).
@@ -4100,7 +4073,7 @@
   before reaching this call. The public entry passes 0; the queue-owning
   `drain-to-fixed-point` passes its running count so a self-chaining
   single-raise accumulates transitive depth against the SAME
-  `:raise-depth-limit` rather than resetting per nested call (rf2-b88nm).
+  `:raise-depth-limit` rather than resetting per nested call.
   It seeds the settle loop below so raises emitted anywhere in this
   macrostep continue counting from the inbound transitive depth."
   ([machine snapshot event]
@@ -4125,7 +4098,7 @@
                                        (not (:guard-suppressed? match))))
         ;; Trace timer firing / staleness / guard-suppression BEFORE
         ;; running the transition, so listeners see events in the order
-        ;; they occurred. rf2-hawtjr — thread the CAUSAL completion
+        ;; they occurred. Thread the CAUSAL completion
         ;; timestamp (the router-stamped `:rf/time-ms` off the firing
         ;; dispatch's `:rf.cofx`, the SAME fresh fire-time token the
         ;; timer-fired guard / action read) so a fired or stale `:after`
@@ -4144,7 +4117,7 @@
           (result/ok snapshot [])
 
           match
-          ;; Per rf2-82a0u: the transition's `:action` `action-ran` emit
+          ;; The transition's `:action` `action-ran` emit
           ;; carries `:phase :after-action` when the match came from a
           ;; firing `:after` timer (the synthetic `:rf.machine.timer/
           ;; after-elapsed` event), `:transition` otherwise.
@@ -4152,7 +4125,7 @@
             machine snapshot event
             (-> (:transition match)
                 (assoc :decl-path (:decl-path match))
-                ;; rf2-lai1qv — finalize the `:on` spec-path discriminator:
+                ;; Finalize the `:on` spec-path discriminator:
                 ;; `match-on-clause` stamped the PARTIAL `:rf/transition-slot`
                 ;; (slot / matched key / candidate-idx / raw value); the
                 ;; pick site owns the decl-path prefix (`[]` for a root /
@@ -4180,10 +4153,11 @@
             ;; Because the op-type is `:rf.machine` (not a severity
             ;; discriminator), the Xray issue-projection predicate does not
             ;; classify it as an issue — no pink wash, no ribbon entry, for
-            ;; free. (rf2-ugdas; retires `:rf.error/machine-unhandled-event`.)
+            ;; free. An unhandled user event is a benign no-op trace, never an
+            ;; error.
             ;;
-            ;; rf2-t4582 — reserved-`:rf/*` lifecycle carve-out (a conscious
-            ;; refinement of rf2-ugdas). The no-op classifies an unknown
+            ;; Reserved-`:rf/*` lifecycle carve-out. The no-op classifies an
+            ;; unknown
             ;; USER event; framework lifecycle traffic — the synthetic
             ;; creation marker `[:rf.machine/start]` (cascade-threaded
             ;; `:event` placeholder), the spawn kick-off
@@ -4204,21 +4178,21 @@
             (when (and (nil? (:rf/region machine))
                        (unhandled-event-no-op? event))
               (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
-                           {;; rf2-yyvtk5 — a LIVE actor received the unknown
+                           {;; A LIVE actor received the unknown
                             ;; event; address it by `:actor-id` (the running
                             ;; INSTANCE), not `:machine-id` (the TYPE).
                             :actor-id   (or (:rf/parent-id machine) (:id machine))
                             :event      event
                             :state      (:state snapshot)
-                            ;; Per rf2-ko8jb: epoch-capture admission
+                            ;; Epoch-capture admission
                             ;; requires `:frame`.
                             :frame      (:rf/frame machine)}))
             (result/ok snapshot [])))]
     ;; Steps 3-5: hand the post-event seed Result to the shared
     ;; `drain-to-fixed-point` — raise-drain FIFO, `:always` fixed-point
-    ;; loop, tag commit (rf2-505ic factored this out so machine birth
-    ;; reuses the identical settling tail). On a depth-abort the drain returns
-    ;; a `result/depth-abort` `:fail` (rf2-y3jv8q) — the whole macrostep
+    ;; loop, tag commit (this shared tail lets machine birth
+    ;; reuse the identical settling). On a depth-abort the drain returns
+    ;; a `result/depth-abort` `:fail` — the whole macrostep
     ;; unwinds via the failure surface (no snapshot threaded), leaving the
     ;; PRE-event `snapshot` committed. `handled?` rides the Result for the
     ;; parallel parent's all-regions-declined no-op aggregation.

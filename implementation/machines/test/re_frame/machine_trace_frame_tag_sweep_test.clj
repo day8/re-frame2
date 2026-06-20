@@ -1,34 +1,32 @@
 (ns re-frame.machine-trace-frame-tag-sweep-test
-  "Per rf2-ko8jb: every `:rf.machine/*` and `:rf.error/machine-*` trace
-  event MUST carry the `:frame` tag so `re-frame.epoch.capture/capture-event!`
-  admits it into the cascade's `:trace-events` buffer. Without the tag
-  the trace is dropped silently — fans out to direct listeners but
-  never reaches the epoch-history slot the Xray Machine Inspector
-  reads from.
+  "Every `:rf.machine/*` and `:rf.error/machine-*` trace event MUST carry
+  the `:frame` tag so `re-frame.epoch.capture/capture-event!` admits it into
+  the cascade's `:trace-events` buffer. Without the tag the trace is dropped
+  silently — fans out to direct listeners but never reaches the
+  epoch-history slot the Xray Machine Inspector reads from.
 
   This test file is the sister to `re_frame.transition_frame_tag_test`
-  (rf2-hwuki, which locks `:rf.machine/transition` at registration.cljc).
-  rf2-ko8jb sweeps the remaining ~13 emit sites across:
+  (which locks `:rf.machine/transition` at registration.cljc) and sweeps the
+  remaining ~13 emit sites across:
 
     - finalize.cljc — :on-done callback throw (machine-action-exception)
     - join.cljc — invoke-all resolution traces (any-failed, all-completed,
       some-completed, cancelled-on-join-resolution, late-completion,
       bad-child-id)
     - timer.cljc — wall-clock fx-layer traces (no-clock-configured,
-      cancelled (rf2-82a0u — unified cancellation event with :reason
-      closed set), scheduled-from-watcher, after-fn-threw,
-      after-sub-threw, after-watch-failed)
+      cancelled (the unified cancellation event with its :reason closed
+      set), scheduled-from-watcher, after-fn-threw, after-sub-threw,
+      after-watch-failed)
     - transition.cljc — pure-engine traces (guard-evaluated, action-ran
       success+error, timer/scheduled, timer/skipped-on-server,
       timer/fired, timer/stale-after, raise-depth-exceeded,
       always-depth-exceeded)
 
-  The test rationale mirrors the rf2-hwuki test's: this lives in the
-  machines artefact (which doesn't depend on epoch) so the contract is
-  exercised even when the epoch artefact isn't on the test classpath.
-  A future regression that drops `:frame` from any of these sites fails
-  here first (clear cause) before the upstack epoch / Xray gates
-  notice the absent trace events."
+  The test rationale mirrors the sister test's: this lives in the machines
+  artefact (which doesn't depend on epoch) so the contract is exercised even
+  when the epoch artefact isn't on the test classpath. A future regression
+  that drops `:frame` from any of these sites fails here first (clear cause)
+  before the upstack epoch / Xray gates notice the absent trace events."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]
@@ -42,8 +40,7 @@
 (defn- record-traces!
   "Register a trace listener for the duration of `body-fn`, returning
   the captured trace vec. Routed through the shared
-  `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed unregister
-  in a `finally`."
+  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
   [body-fn]
   (mtest/with-trace-capture seen
     (body-fn)

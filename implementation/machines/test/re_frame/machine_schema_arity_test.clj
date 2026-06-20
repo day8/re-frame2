@@ -1,6 +1,6 @@
 (ns re-frame.machine-schema-arity-test
-  "rf2-genufr + rf2-wgmipl — the single registration home, the fail-loud
-  guard, and the public `reg-machine` event-vector `:schema` arity.
+  "The single registration home, the fail-loud guard, and the public
+  `reg-machine` event-vector `:schema` arity.
 
   Background. A machine carrying a `:data-schema` must flow through the single
   registration home so the `:rf/machine?` / `:rf/machine` registration-metadata
@@ -8,26 +8,22 @@
   `:data-schema` THROUGH `(machine-meta id)`, so without the stamp the schema
   validates nothing.
 
-  Before rf2-genufr, the direct `(reg-event id meta (make-machine-handler
-  spec))` path did not stamp it — the author had to hand-stamp the meta.
-  `make-machine-handler` is now the fail-loud guard: a `:data-schema`-bearing
-  spec reaching it outside the single registration home raises. The single home
-  (`reg-machine*` and its event-`:schema` arity) stamps the meta.
+  The single home (`reg-machine*` and its event-`:schema` arity) stamps the
+  meta. `make-machine-handler` is the fail-loud guard: a `:data-schema`-bearing
+  spec reaching it outside the single registration home raises.
 
-  EP-0025 (rf2-398kql): the home formerly ran a SECOND `:data-schema` side-
-  effect — `register-data-schema-marks!`, the schema→marks redaction bridge.
-  That bridge is REMOVED; durable machine `:data` egress classification is
-  frame-owned (`reg-frame` `:sensitive` / `:large {:app-db …}`). The privacy-
-  redaction tests that pinned the bridge are removed with it — the frame-owned
-  redaction surface is pinned by `machine-data-schema-redaction-test`.
+  A `:data-schema` is validation-only; it does not run a second
+  egress-classification side-effect. Durable machine `:data` egress
+  classification is frame-owned (`reg-frame` `:sensitive` / `:large {:app-db
+  …}`), and that frame-owned redaction surface is pinned by
+  `machine-data-schema-redaction-test`.
 
   Contract under test:
 
    1. **Auto-stamp / live validation via the event-:schema arity.** A machine
       registered via `(reg-machine* id {:schema EventSchema} machine)` — the
-      blessed replacement for the hand-stamped direct path; per rf2-wvh95f F2
-      the opts metadata map is the canonical MIDDLE slot — validates its
-      `:data-schema` (it was inert under the bare direct path).
+      opts metadata map is the canonical MIDDLE slot — validates its
+      `:data-schema`.
 
    2. **Event-vector :schema arity.** The `:schema` on the opts map validates
       the dispatched OUTER event vector at the `:where :event` boundary
@@ -35,7 +31,7 @@
       `:data-schema` validates the machine's `:data`. Both live together.
 
    3. **Fail-loud guard.** The bare `(reg-event id meta
-      (make-machine-handler spec))` path on a `:data-schema`-bearing spec now
+      (make-machine-handler spec))` path on a `:data-schema`-bearing spec
       RAISES `:rf.error/machine-schema-requires-reg-machine` rather than
       silently no-opping. A schema-LESS spec stays legal on the bare path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -92,20 +88,20 @@
   ad-hoc inner sub-events (`[:noop]`, `[:auth.login/break]`) to exercise the
   registration-arity + redaction machinery, so the fixture must admit them. The
   login examples' SHIPPED schema is STRICTER (no `[:vector :any]` fallback) —
-  that corrected shape and its malformed-submit rejection are pinned separately
-  by `login-example-event-schema-rejects-malformed-submit` below (rf2-thhp91)."
+  that shape and its malformed-submit rejection are pinned separately
+  by `login-example-event-schema-rejects-malformed-submit` below."
   [:cat [:= :auth.login/flow]
    [:or
     [:cat [:= :auth.login/submit] Credentials]
     [:vector :any]]
    [:? :any]])
 
-;; The login examples' SHIPPED outer-event schema (rf2-thhp91). This is the
-;; corrected shape now registered on the :auth.login/flow machine in all three
-;; login examples (examples/reagent/login, examples/uix/login_uix,
-;; examples/helix/login_helix). Kept here as the executable spec of that shape
-;; so its malformed-submit rejection is a real regression gate (the examples
-;; tree is test-free, so the schema contract is pinned in the framework suite).
+;; The login examples' SHIPPED outer-event schema. This is the shape
+;; registered on the :auth.login/flow machine in all three login examples
+;; (examples/reagent/login, examples/uix/login_uix, examples/helix/login_helix).
+;; Kept here as the executable spec of that shape so its malformed-submit
+;; rejection is a real regression gate (the examples tree is test-free, so the
+;; schema contract is pinned in the framework suite).
 (def ^:private LoginExampleEvent
   [:cat [:= :auth.login/flow]
    [:or
@@ -139,7 +135,7 @@
                 :states      {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
       (machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
       ;; The machine meta is stamped — machine-meta reads the spec + :data-schema
-      ;; back (the inert-schema bug: machine-meta returned nil on the old path).
+      ;; back (so the schema is live, not inert).
       (let [meta (machines/machine-meta flow-id)]
         (is (some? meta) "machine-meta is non-nil (meta WAS stamped)")
         (is (= AuthLoginData (:data-schema meta))
@@ -153,12 +149,9 @@
             "exactly one :where :machine-data trace fired — the schema is LIVE")
         (is (= flow-id (-> traces first :tags :machine-id)))))))
 
-;; NOTE (EP-0025, rf2-398kql): the two privacy-redaction tests that pinned the
-;; schema→marks bridge — `event-schema-arity-registers-redaction-marks` (a
-;; `:sensitive?` `:data-schema` slot is bridged into the marks table) and
-;; `event-schema-arity-sensitive-slot-redacted-at-egress` (it redacts at trace
-;; egress) — are REMOVED. The bridge is gone; durable machine `:data` egress
-;; classification is frame-owned, and the redaction surface is pinned by
+;; NOTE: a `:data-schema` is validation-only — it carries no schema→marks
+;; redaction bridge. Durable machine `:data` egress classification is
+;; frame-owned, and the redaction surface is pinned by
 ;; `re-frame.machine-data-schema-redaction-test` (frame-declared snapshot paths).
 
 ;; ---- (3) the event-vector :schema validates the outer vector ---------------
@@ -199,15 +192,13 @@
 
 ;; ---- (3b) the login examples' SHIPPED event schema rejects malformed submit -
 ;;
-;; Regression gate for rf2-thhp91: the login examples (reagent / uix / helix)
-;; previously registered `AuthLoginEvent` with a permissive `[:vector :any]`
-;; fallback that re-admitted a `:submit` whose Credentials failed, so a
-;; malformed submit (short password / bad email) passed the `:where :event`
-;; boundary and drove the transition + login HTTP effect. This pins the
-;; corrected `LoginExampleEvent` shape end-to-end: malformed submit is rejected
-;; at the boundary and does NOT transition; valid submit + the framework reply
-;; sub-events still pass. The examples tree is test-free, so this is where the
-;; shipped schema's contract is enforced.
+;; Regression gate for the login examples (reagent / uix / helix): the shipped
+;; `LoginExampleEvent` has no permissive `[:vector :any]` fallback, so a
+;; `:submit` whose Credentials fail is rejected at the `:where :event` boundary
+;; and does NOT transition + does NOT drive the login HTTP effect. This pins the
+;; shape end-to-end: malformed submit is rejected at the boundary; valid submit +
+;; the framework reply sub-events still pass. The examples tree is test-free, so
+;; this is where the shipped schema's contract is enforced.
 
 (deftest login-example-event-schema-rejects-malformed-submit
   (testing "the login examples' shipped LoginExampleEvent rejects a malformed
@@ -303,12 +294,12 @@
              (:rf.error/id (ex-data ex)))))))
 
 (deftest reg-machine-rejects-non-map-opts
-  ;; rf2-t65lqt — the 3-arity MIDDLE opts slot (rf2-wvh95f F2) must be a map
-  ;; BEFORE the reserved-key `contains?` / `assoc` runs. A non-map opts (vector
-  ;; / string / number) must surface the canonical :rf.error/invalid-machine-
-  ;; opts naming the machine, NOT a raw host IllegalArgumentException ("Key must
-  ;; be integer"). Mirrors reg-route's non-map metadata guard + the
-  ;; reg-resource / reg-mutation metadata-slot map gate.
+  ;; The 3-arity MIDDLE opts slot must be a map BEFORE the reserved-key
+  ;; `contains?` / `assoc` runs. A non-map opts (vector / string / number)
+  ;; must surface the canonical :rf.error/invalid-machine-opts naming the
+  ;; machine, NOT a raw host IllegalArgumentException ("Key must be integer").
+  ;; Mirrors reg-route's non-map metadata guard + the reg-resource /
+  ;; reg-mutation metadata-slot map gate.
   (testing "a vector opts slot is rejected with the canonical error id"
     (let [ex (try
                (machines/reg-machine* :rf.machine-arity/bad-vec

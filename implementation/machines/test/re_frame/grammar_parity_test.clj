@@ -1,7 +1,7 @@
 (ns re-frame.grammar-parity-test
-  "Per rf2-3l8lqe finding #2 — registration validation and the runtime
-  transition engine must agree on the machine grammar BY CONSTRUCTION,
-  not by a hand-kept comment that one mirrors the other.
+  "Registration validation and the runtime transition engine must agree on
+  the machine grammar BY CONSTRUCTION, not by a hand-kept comment that one
+  mirrors the other.
 
   Both layers now consume `re-frame.machines.grammar` (the shared
   state-tree descent + transition-value-form recogniser):

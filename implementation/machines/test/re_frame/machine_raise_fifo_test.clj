@@ -1,14 +1,13 @@
 (ns re-frame.machine-raise-fifo-test
-  "Per rf2-nr434 — `:raise` drains FIFO (XState v5 / SCXML internal-event
-  queue), NOT depth-first.
+  "`:raise` drains FIFO (XState v5 / SCXML internal-event queue), NOT
+  depth-first.
 
   XState v5 / SCXML gold standard: `raise` / `<raise>` enqueues on the
   machine's ONE internal event queue, drained breadth-first within the
   macrostep. A transition that raises `[B]` then `[C]`, where B's handler
   itself raises `[D]`, processes them `B, C, D` — D goes to the BACK of the
-  queue, BEHIND the still-pending sibling C. The engine previously prepended
-  the nested raise (`(concat fx2 rest-pending)` in `drain-raises`), giving a
-  depth-first `B, D, C`; that was an unblessed divergence, now aligned.
+  queue, BEHIND the still-pending sibling C (a depth-first drain would give
+  `B, D, C`).
 
   These are pure-engine tests — they call `machine-transition` directly and
   read processing order off the post-macrostep snapshot's `:data` log (the
@@ -149,13 +148,13 @@
                                         (get-in ev [:tags :rf/op-type-id]
                                                 (:op-type-id ev)))
                                 (swap! seen conj ev)))]
-        ;; rf2-y3jv8q — a depth-bound abort is now a FAILED macrostep, not an
-        ;; :ok rollback no-op (XState v5 throws on such a runaway). The pure
-        ;; surface returns a `result/fail` carrying the `::depth-abort?`
-        ;; sentinel; atomic rollback is still guaranteed — a `:fail` threads
-        ;; NO snapshot / fx, so nothing intermediate escapes the abort. (The
-        ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
-        ;; snapshot committed in runtime-db.)
+        ;; A depth-bound abort is a FAILED macrostep, not an :ok rollback
+        ;; no-op (XState v5 throws on such a runaway). The pure surface
+        ;; returns a `result/fail` carrying the `::depth-abort?` sentinel;
+        ;; atomic rollback is guaranteed — a `:fail` threads NO snapshot / fx,
+        ;; so nothing intermediate escapes the abort. (The lifecycle handler
+        ;; short-circuits to `{}`, leaving the pre-event snapshot committed in
+        ;; runtime-db.)
         (let [r (machines/machine-transition spec {:state :idle :data {}} [:start])]
           (is (result/fail? r)
               "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
@@ -166,17 +165,16 @@
           (is (nil? (result/fx r))
               "a :fail threads no fx — no accumulated side-effect leaks the abort"))))))
 
-;; ---- 6. depth-bound rollback is TRULY atomic (x4s9t.1) --------------------
+;; ---- 6. depth-bound rollback is TRULY atomic ------------------------------
 ;;
-;; The earlier rollback test fans out identical `[:noop]` self-loops that
+;; The plain rollback test (§5) fans out identical `[:noop]` self-loops that
 ;; neither mutate :data nor emit non-raise fx, so the partially-advanced
 ;; snapshot HAPPENS to equal the original even without a real rollback — it
-;; cannot distinguish the buggy `(result/ok snap accum)` from the correct
-;; `(result/ok rollback-snapshot [])`. These fixtures make every intermediate
-;; raise MUTATE state + :data AND emit a non-raise side-effect fx BEFORE the
-;; limit trips, so a non-atomic abort would commit a drifted snapshot and leak
-;; the accumulated effects. The contract: the WHOLE macrostep is discarded —
-;; original snapshot, empty fx.
+;; cannot distinguish a non-atomic abort from a true one. These fixtures make
+;; every intermediate raise MUTATE state + :data AND emit a non-raise
+;; side-effect fx BEFORE the limit trips, so a non-atomic abort would commit a
+;; drifted snapshot and leak the accumulated effects. The contract: the WHOLE
+;; macrostep is discarded — original snapshot, empty fx.
 
 (deftest depth-bound-rollback-discards-intermediate-mutations-and-fx
   (testing "(x4s9t.1) a :raise depth-limit abort rolls back the ENTIRE
@@ -200,10 +198,10 @@
                              :on {:to-a :a}}}}
           original {:state :idle :data {:n 0}}
           r        (machines/machine-transition spec original [:start])]
-      ;; rf2-y3jv8q — the abort is a FAILED macrostep. Atomic rollback is
-      ;; enforced by the `:fail` threading NO snapshot / fx: every intermediate
-      ;; :a/:b state, bumped :n, and accumulated :side-effect fx is discarded
-      ;; with the macrostep (there is nothing to commit on a `:fail`).
+      ;; The abort is a FAILED macrostep. Atomic rollback is enforced by the
+      ;; `:fail` threading NO snapshot / fx: every intermediate :a/:b state,
+      ;; bumped :n, and accumulated :side-effect fx is discarded with the
+      ;; macrostep (there is nothing to commit on a `:fail`).
       (is (result/fail? r)
           "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
       (is (result/depth-abort? r)

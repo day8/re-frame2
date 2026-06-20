@@ -21,9 +21,9 @@
   per-region reduce). This file is the side-effect wrapper that:
     1. resolves the actor's snapshot from the frame's runtime-db,
     2. resolves the actor's machine spec — a spawned actor's TYPE rides
-       its snapshot under `:rf/machine-type` (per rf2-a2sn1, spawned
-       actors carry no per-instance registrar entry); a singleton's spec
-       comes from its registered handler,
+       its snapshot under `:rf/machine-type` (spawned actors carry no
+       per-instance registrar entry); a singleton's spec comes from its
+       registered handler,
     3. runs the pure cascade,
     4. writes the post-cascade snapshot back to runtime-db so any caller
        reading the snapshot AFTER `:exit` (e.g. `finalize-machine`'s
@@ -53,7 +53,7 @@
 (defn- resolve-machine-spec
   "Resolve `actor-id`'s machine spec for the `:exit` cascade. Prefer the
   `snapshot`'s `:rf/machine-type` TYPE reference (the home for spawned
-  actors, which carry no per-instance registrar entry per rf2-a2sn1);
+  actors, which carry no per-instance registrar entry);
   fall back to a registered handler under `actor-id` itself (the
   singleton case — a `reg-machine`'d machine reaching `:final?`). Returns
   nil when neither resolves — the actor was already torn down, or the
@@ -100,7 +100,7 @@
               ;; `:exit` and teardown see the `:exit`-time `:data`
               ;; writes; the production-runtime cost is one extra
               ;; swap-runtime-db! per destroy. Machine snapshots are
-              ;; durable runtime-db state (rf2-vzld77).
+              ;; durable runtime-db state.
               (when (not= snapshot new-snap)
                 (frame/swap-runtime-db! frame-id
                                         (fn [rt] (assoc-in rt (paths/snapshot-path actor-id) new-snap))))

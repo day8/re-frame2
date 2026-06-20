@@ -1,17 +1,16 @@
 (ns re-frame.machines-ns-wildcard-cljs-test
   "Per Spec 005 §Wildcard transitions §Namespaced (partial) event
-  descriptors and rf2-z4t2v. CORRECTNESS coverage for the NAMESPACE-WILDCARD
-  event-descriptor tier (Mike ruled 2026-06-04: ADD `:ns/*`).
+  descriptors. CORRECTNESS coverage for the NAMESPACE-WILDCARD
+  event-descriptor tier `:ns/*`.
 
-  The ruled invariant: `:on` resolves THREE descriptor tiers most-specific
-  first — EXACT `:foo/bar` > NAMESPACE-WILDCARD `:foo/*` > TOTAL `:*` — at
-  each level, before walking to the parent. `:foo/*` is re-frame2's spelling
-  of XState v5's partial (prefix) event descriptor `mouse.*` (SCXML §3.12.1
+  The invariant: `:on` resolves THREE descriptor tiers most-specific first —
+  EXACT `:foo/bar` > NAMESPACE-WILDCARD `:foo/*` > TOTAL `:*` — at each
+  level, before walking to the parent. `:foo/*` is re-frame2's spelling of
+  XState v5's partial (prefix) event descriptor `mouse.*` (SCXML §3.12.1
   dot-prefix tokens): re-frame2 events are namespaced keywords, so the
   keyword namespace is the natural prefix tier. The `:ns/*` tier integrates
-  with the rf2-icj9t wildcard-fallthrough: a guard-blocked exact key falls
-  through to `:ns/*`, a guard-blocked `:ns/*` falls through to `:*`, then to
-  the parent.
+  with the wildcard-fallthrough: a guard-blocked exact key falls through to
+  `:ns/*`, a guard-blocked `:ns/*` falls through to `:*`, then to the parent.
 
   Exercised through `reg-machine` / `dispatch-sync` — the same runtime
   surface real apps use."
@@ -24,8 +23,8 @@
   (mtest/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
+;; snapshot lookup via the shared machines test-support — no hardcoded
+;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
 (defn- seed-snapshot!
@@ -35,7 +34,7 @@
   the whole machine."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
-    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    ;; Machine snapshots are durable runtime-db state.
     (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots machine-id] snap)}))
@@ -136,7 +135,7 @@
       (rf/reg-machine :z4t2v/blocked-exact->ns machine)
       (reset! log [])
       ;; Exact :mouse/down's guard returns false ⇒ not enabled ⇒ fall through
-      ;; to the same-level :mouse/* (rf2-icj9t fallthrough across tiers).
+      ;; to the same-level :mouse/* (fallthrough across tiers).
       (rf/dispatch-sync [:z4t2v/blocked-exact->ns [:mouse/down]])
       (is (= [:ns-any] @log)
           "guard-blocked exact :mouse/down fell through to :mouse/*")

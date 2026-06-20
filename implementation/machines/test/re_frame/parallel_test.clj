@@ -1,5 +1,5 @@
 (ns re-frame.parallel-test
-  "Per Spec 005 §Parallel regions and rf2-l67o (Nine States Stage 2).
+  "Per Spec 005 §Parallel regions (Nine States Stage 2).
 
   Parallel-region semantics covered:
     - A `:type :parallel` machine's initial snapshot has `:state` as a
@@ -38,7 +38,7 @@
 (use-fixtures :each
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-;; snapshot lookup via the shared machines test-support (rf2-3l8lqe finding #4)
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot mtest/snapshot)
 
@@ -306,7 +306,7 @@
       (is (some? (snapshot :par/storage))
           "snapshot synthesised at [:rf.runtime/machines :snapshots :par/storage]"))))
 
-;; ---- 13. region-machine memoization (rf2-s83iu) ---------------------------
+;; ---- 13. region-machine memoization ---------------------------------------
 
 (deftest region-machine-result-is-memoised-per-machine
   (testing "region-machine returns identical-equal results across repeat calls for the same parent-machine"

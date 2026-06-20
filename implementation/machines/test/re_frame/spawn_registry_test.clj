@@ -1,10 +1,9 @@
 (ns re-frame.spawn-registry-test
-  "Per rf2-t07u (Option A revised). Verifies the runtime-tracked
-  declarative-`:spawn` spawn registry at `[:rf.runtime/machines :spawned <parent-id>
-  <invoke-id>]` — the slot the framework writes on every declarative
-  `:spawn` spawn so the matching destroy cascade can locate the
-  spawned id WITHOUT reading the user's `:data :pending` (the v1
-  pre-rf2-t07u magic).
+  "Verifies the runtime-tracked declarative-`:spawn` spawn registry at
+  `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` — the slot the
+  framework writes on every declarative `:spawn` spawn so the matching
+  destroy cascade can locate the spawned id WITHOUT reading the user's
+  `:data :pending`.
 
   The four invariants under test:
 
@@ -20,11 +19,11 @@
       pruned and the empty `[:rf.runtime/machines :spawned]` slot is
       dissoc'd entirely.
 
-   3. **Auth-flow scenario without `:data :pending` magic.** A spec
+   3. **Auth-flow scenario without `:data :pending` bookkeeping.** A spec
       whose `:on-spawn` does NOT record the id in any `:data` slot
       still has the spawned actor cleanly destroyed on state exit —
-      the runtime no longer reads `:data` to find the id. (Pre-rf2-t07u
-      this scenario silently leaked the actor.)
+      the runtime tracks the id internally rather than reading `:data`
+      to find it.
 
    4. **Multi-child independent tracking.** A parent that has two
       different `:spawn`-bearing states (different invoke-ids) tracks
@@ -45,7 +44,7 @@
   (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support
-;; (rf2-3l8lqe finding #4) — no hardcoded `[:rf.runtime/machines …]` path.
+;; — no hardcoded `[:rf.runtime/machines …]` path.
 (def ^:private snapshot mtest/snapshot)
 (def ^:private frame-db mtest/runtime-db)
 
@@ -53,10 +52,10 @@
 
 (deftest spawn-writes-runtime-registry-slot
   (testing "entering a :spawn-bearing state binds [:rf.runtime/machines :spawned <parent> <invoke-id>] to the spawned-id"
-    (let [;; Per rf2-grw4i / rf2-v0rrr the :on-spawn callback is purely
-          ;; advisory — its return value is ignored. We capture the id
-          ;; via a side-effect atom to verify the callback fires; the
-          ;; runtime tracks the id at [:rf.runtime/machines :spawned ...] regardless.
+    (let [;; The :on-spawn callback is purely advisory — its return value
+          ;; is ignored. We capture the id via a side-effect atom to verify
+          ;; the callback fires; the runtime tracks the id at
+          ;; [:rf.runtime/machines :spawned ...] regardless.
           observed (atom nil)
           child  {:initial :running
                   :data    {}
@@ -65,7 +64,7 @@
                   :on-spawn-actions
                   ;; Observational body — side-effect into an atom, returns
                   ;; nil (the advisory contract drops the return; returning
-                  ;; nil keeps the dev-warn quiet, rf2-dtth6).
+                  ;; nil keeps the dev-warn quiet).
                   {:record (fn [{:keys [id]}] (reset! observed id) nil)}
                   :states
                   {:idle      {:on {:start :working}}
@@ -121,11 +120,10 @@
 
 ;; ---- (3) auth-flow scenario WITHOUT user-side :on-spawn bookkeeping -------
 ;;
-;; The scenario the rf2-t07u DESIGN section calls out: a :spawn whose
-;; user-supplied :on-spawn doesn't write the id under any :data slot.
-;; Pre-rf2-t07u the runtime silently leaked the spawned actor on state-exit
-;; (it had no `:data :pending` to read). With Option A revised, the runtime
-;; tracks the id internally and the destroy cascade works correctly.
+;; A :spawn whose user-supplied :on-spawn doesn't write the id under any
+;; :data slot still has the spawned actor cleanly destroyed on state-exit:
+;; the runtime tracks the id internally, so the destroy cascade works
+;; correctly without any `:data :pending` to read.
 
 (deftest auth-flow-without-data-pending-magic
   (testing "a :spawn without any :on-spawn :data write still has the actor destroyed on state-exit"
@@ -148,10 +146,10 @@
             spawned-id (get-in db [:rf.runtime/machines :spawned :auth/main [:authenticating]])]
         (is (= :http/post#1 spawned-id))
         (is (some? (get-in db [:rf.runtime/machines :snapshots spawned-id])))
-        ;; Per rf2-rc8wci the runtime now binds the spawned id into the
-        ;; parent's `:data` under `[:rf/spawned <invoke-id>]` (XState-context
-        ;; parity) — so the user's domain `:data` keys are still untouched,
-        ;; but the reserved `:rf/spawned` capture is present.
+        ;; The runtime binds the spawned id into the parent's `:data` under
+        ;; `[:rf/spawned <invoke-id>]` (XState-context parity) — so the
+        ;; user's domain `:data` keys are untouched, but the reserved
+        ;; `:rf/spawned` capture is present.
         (is (= {:rf/spawned {[:authenticating] :http/post#1}}
                (get-in (snapshot :auth/main) [:data]))
             "user domain :data untouched; runtime stamps only the reserved :rf/spawned id capture")
@@ -204,7 +202,7 @@
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "with both invokes torn down, the lazy-allocation slot is dissoc'd")))))
 
-;; ---- (rf2-rc8wci) spawned-id bound into the parent's own :data -----------
+;; ---- spawned-id bound into the parent's own :data -----------
 ;;
 ;; The declarative `:spawn` binds the assigned actor id into the SPAWNING
 ;; (parent) machine's own `:data` under the reserved per-invoke map
@@ -365,9 +363,9 @@
     (let [child  {:initial :running :data {} :states {:running {}}}
           ;; This test pins the keyword-form imperative destroy MECHANISM
           ;; in isolation, so it feeds the id via a test-local atom. NOTE:
-          ;; the atom is NOT the idiomatic way to obtain the id — per
-          ;; rf2-rc8wci the first-class path is to read it from the parent's
-          ;; own `:data` under `[:rf/spawned <invoke-id>]` (see
+          ;; the atom is NOT the idiomatic way to obtain the id — the
+          ;; first-class path is to read it from the parent's own `:data`
+          ;; under `[:rf/spawned <invoke-id>]` (see
           ;; `action-reads-parent-data-id-and-destroys-no-atom` above for
           ;; the no-atom round-trip). The atom here only isolates the
           ;; `[:rf.machine/destroy <id>]` keyword-arg shape under test.
@@ -380,7 +378,7 @@
                                 {:fx [[:rf.machine/destroy @recorded]]})}
                   :on-spawn-actions
                   ;; Sidechannel-atom capture — returns nil (advisory; the
-                  ;; runtime drops the return, rf2-dtth6).
+                  ;; runtime drops the return).
                   {:record (fn [{:keys [id]}] (reset! recorded id) nil)}
                   :states
                   {:idle    {:on {:start :working}}
@@ -403,12 +401,11 @@
 
 ;; ---- (5) spawned actor's snapshot carries :rf/spawn-counter + :meta -------
 ;;
-;; Per rf2-fgqs4 the unified build-initial-snapshot helper seeds
-;; :rf/spawn-counter {} and propagates :meta on every snapshot it
-;; builds — including spawned actors. Before rf2-fgqs4 the spawn path
-;; called a stripped-down builder that omitted both keys; the runtime
-;; then fell back to the defensive (fnil inc 0) backstop and the
-;; spawned child's :meta was dropped.
+;; The unified build-initial-snapshot helper seeds :rf/spawn-counter {} and
+;; propagates :meta on every snapshot it builds — including spawned actors.
+;; A spawned child's grandchild id therefore allocates from the child's own
+;; :rf/spawn-counter, and the child's spec-declared :meta flows through to
+;; its snapshot.
 
 (deftest spawned-actor-snapshot-carries-spawn-counter
   (testing "a spawned actor's initial snapshot has :rf/spawn-counter {}"
@@ -441,7 +438,7 @@
         (is (= {:foo :bar :version 7} (:meta snap))
             "spec-declared :meta is propagated to the spawned actor's snapshot")))))
 
-;; ---- (rf2-dtth6) dev-warn when :on-spawn returns a dropped value ---------
+;; ---- dev-warn when :on-spawn returns a dropped value ---------
 ;;
 ;; `:on-spawn` is advisory: its return is DROPPED. A callback that returns a
 ;; non-nil value (the canonical-looking `(assoc data :pending id)` trap) has
@@ -455,9 +452,8 @@
 (defn- capture-warn-ops!
   "Run `thunk` while a trace listener records every emitted `:operation`.
   Returns the vector of operations seen during the body. Routed through the
-  shared `mtest/with-trace-capture` (rf2-3l8lqe finding #4) — guaranteed
-  unregister in a `finally` — then projects each envelope to its
-  `:operation`."
+  shared `mtest/with-trace-capture` — guaranteed unregister in a `finally`
+  — then projects each envelope to its `:operation`."
   [thunk]
   (mtest/with-trace-capture seen
     (thunk)

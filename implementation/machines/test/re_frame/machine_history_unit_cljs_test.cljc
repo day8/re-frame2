@@ -1,6 +1,6 @@
 (ns re-frame.machine-history-unit-cljs-test
-  "Comprehensive UNIT matrix for the first-class history ENGINE (rf2-mle6e.3,
-  merged). The COMPLEMENT of `machine_history_smoke_test` — the smoke proved
+  "Comprehensive UNIT matrix for the first-class history ENGINE. The
+  COMPLEMENT of `machine_history_smoke_test` — the smoke proves
   record/restore is wired end-to-end; this suite pins the corners the spec
   (005 §History states + 009 §History trace events) enumerates and that the
   smoke leaves uncovered:
@@ -17,8 +17,8 @@
     - DEFAULT-TARGET fallback (no recording) — both with `:default-target`
       declared AND with it absent (the compound's `:initial`).
     - `:initial`-fallback when neither a recording nor a `:default-target`.
-    - DANGLING recorded path after hot-reload (rf2-wgfv0) falls back, never
-      enters the dead path, no `:rf.error/*`.
+    - DANGLING recorded path after hot-reload falls back, never enters the
+      dead path, no `:rf.error/*`.
     - PER-REGION parallel history at STRUCTURALLY-IDENTICAL region paths —
       region-qualified keys never collide; restoring one region is isolated.
     - SNAPSHOT REVERT (Goal 2) — the `:rf/history` slot is part of the
@@ -49,7 +49,7 @@
    [re-frame.machines.test-support :as mtest]))
 
 ;; ===========================================================================
-;; Harness — pure engine + trace capture (shared, rf2-3l8lqe finding #4)
+;; Harness — pure engine + trace capture (shared)
 ;; ===========================================================================
 ;;
 ;; Trace capture (register + guaranteed unregister, CLJ/CLJS-compatible) is
@@ -90,7 +90,7 @@
 ;;
 ;; The contrast intentionally records `:playing` as `:player`'s SHALLOW direct
 ;; child, so the owning compound (`:player`) must be GENUINELY EXITED for the
-;; shallow recording to fire (the XState v5 / SCXML exit-set rule, rf2-9eidiv).
+;; shallow recording to fire (the XState v5 / SCXML exit-set rule).
 ;; This uses the external-sibling shape (mirroring SCXML test388 `:s0 -> :away`):
 ;; `:leave` exits the whole `:player` subtree to a top-level sibling `:away`;
 ;; `:resume` re-enters via `[:player :hist]`.
@@ -253,7 +253,7 @@
           "missing :deep? records the direct child (shallow)"))))
 
 ;; ===========================================================================
-;; §5. DANGLING recorded path after hot-reload (rf2-wgfv0)
+;; §5. DANGLING recorded path after hot-reload
 ;;
 ;; A recorded config the (hot-reloaded) definition no longer declares is
 ;; discarded on restore — the runtime falls back, never enters the dead path.
@@ -444,16 +444,15 @@
             ":recorded-config = the value written by this exit")))))
 
 ;; ===========================================================================
-;; §9. EXIT-SET BOUNDARY (rf2-9eidiv) — the surviving-LCCA owner records NOTHING
+;; §9. EXIT-SET BOUNDARY — the surviving-LCCA owner records NOTHING
 ;;
-;; The decisive regression for the XState v5 / SCXML alignment: a history-
-;; owning compound records ONLY when it is itself in the EXIT SET. A pure
-;; WITHIN-compound sibling move — where the owner SURVIVES as the LCCA — is
-;; the OLD `<=` (active-child-subtree-teardown) trigger that the strict `<`
-;; gate retires. These pin the new boundary on BOTH a flat single-machine
-;; chart AND a nested chart (where the surviving OUTER owner records nothing
-;; while a genuinely-exited INNER owner still does), so it can never silently
-;; slip back to `<=`.
+;; The decisive case for the XState v5 / SCXML alignment: a history-owning
+;; compound records ONLY when it is itself in the EXIT SET (the strict `<`
+;; gate). A pure WITHIN-compound sibling move — where the owner SURVIVES as
+;; the LCCA — records nothing. These pin the boundary on BOTH a flat
+;; single-machine chart AND a nested chart (where the surviving OUTER owner
+;; records nothing while a genuinely-exited INNER owner still does), so it can
+;; never silently slip to an active-child-subtree-teardown (`<=`) trigger.
 ;; ===========================================================================
 
 ;; `:player` owns deep history; `:swap` moves between its two children

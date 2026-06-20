@@ -1,6 +1,6 @@
 (ns re-frame.machine-source-coord-test
   "Per-element source-coord stamping for machine specs. Per Spec 005
-  §Source-coord stamping (rf2-npvsx + rf2-vqja2, supersedes rf2-8bp3) — the
+  §Source-coord stamping — the
   `reg-machine` macro walks the literal spec form at expansion time and
   CO-LOCATES per-element source onto each guard / action / on-spawn-action
   entry (`:guards {<id> {:fn .. :source-coords {...} :source-code \"..\"}}`),
@@ -18,7 +18,7 @@
   `:submit` transition map. Inline-fn / keyword slots (`:entry` / `:exit`
   / `:guard` / `:action` / `:on-spawn`) hold a value, not a map, so they
   carry no coord of their own; a tool reads the nearest enclosing map's
-  coord (per rf2-vqja2, mirroring the keyword-reference rule).
+  coord (mirroring the keyword-reference rule).
 
   This test runs on JVM only because the source-coord-walking macro is
   Clojure-side. CLJS tests in machine_source_coord_cljs_test.cljs cover
@@ -50,7 +50,7 @@
 
 ;; Helper: read a co-located reference-site `:source-coords` off the MAP
 ;; node (state-node / transition map) at `spec-path` inside the registered
-;; spec's `:states` tree (rf2-vqja2).
+;; spec's `:states` tree.
 (defn- node-coords [machine-id spec-path]
   (get-in (machines/machine-meta machine-id) (conj (vec spec-path) :source-coords)))
 
@@ -115,11 +115,11 @@
     (is (some? (element-coords :rf2-8bp3/on-spawn-defs :on-spawn-actions :capture-id))
         "the :capture-id on-spawn-action fn-form carries co-located :source-coords")))
 
-;; ---- inline-fn :source-code co-location (rf2-se70xj) ----------------------
+;; ---- inline-fn :source-code co-location ----------------------
 ;;
 ;; Inline `:entry` / `:exit` / `:guard` / `:action` fn LITERALS inside the
 ;; `:states` tree hold a fn VALUE, not a map, so they cannot carry a
-;; `:source-code` of their own (per rf2-vqja2 the same reason `:source-coords`
+;; `:source-code` of their own (the same reason `:source-coords`
 ;; lives on the enclosing node). The reg-machine macro co-locates each inline
 ;; fn's `pr-str` source onto the ENCLOSING `:states`-tree map node under a
 ;; `{<slot> <source-string>}` map keyed `:source-code` — so Xray's Epoch-panel
@@ -153,8 +153,8 @@
     (is (string? (get-in (machines/machine-meta :rf2-se70xj/inline-action)
                          [:guards :ok? :source-code]))
         "named guard carries :source-code (parity baseline)")
-    ;; The inline transition :action now carries :source-code on the
-    ;; enclosing transition map (the rf2-se70xj fix).
+    ;; The inline transition :action carries :source-code on the
+    ;; enclosing transition map.
     (let [src (inline-source :rf2-se70xj/inline-action [:states :idle :on :cancel] :action)]
       (is (string? src)
           "inline transition :action carries :source-code on the enclosing transition map")
@@ -455,7 +455,7 @@
            (machines/machine-meta :rf2-8bp3/plain))
         "spec round-trips verbatim")))
 
-;; ---- defmachine: value-registered per-element source capture (rf2-gwj8l) --
+;; ---- defmachine: value-registered per-element source capture --
 ;;
 ;; The common app shape is `(def m {…}) … (reg-machine :id m)`. `reg-machine`
 ;; sees only the `m` symbol at its call site, so its literal-walk captures
@@ -500,7 +500,7 @@
       (is (fn? (get-in meta [:guards :may-close?]))
           "plain (def) machine carries bare fns, not co-located entry maps")
       ;; No reference-site `:source-coords` co-located on any state-node
-      ;; (the macro saw only the symbol, so no literal walk; rf2-vqja2).
+      ;; (the macro saw only the symbol, so no literal walk).
       (is (not (contains? (get-in meta [:states :locked]) :source-coords)))
       (is (not (contains? (get-in meta [:states :open]) :source-coords)))
       (is (nil? (rf/handler-meta :machine-action [:rf2-gwj8l/plain-door :clear-hold])))

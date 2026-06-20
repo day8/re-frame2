@@ -11,7 +11,7 @@
        enforced by `:rf.machine/destroy` — leaf-to-root exit, side
        effects fire against the live snapshot).
     3. Abort that actor's in-flight `:rf.http/managed` requests
-       (preserves the rf2-wvkn `:http/abort-on-actor-destroy` contract
+       (the `:http/abort-on-actor-destroy` contract holds
        across every destroy trigger including frame destroy).
     4. Apply the unified app-db teardown projection — dissoc
        `[:rf.runtime/machines :snapshots <id>]`, release `[:rf.runtime/machines :system-ids <sid>]` when the
@@ -40,7 +40,7 @@
   runtime-db — the walker covers them as a stragglers pass after the
   recorded vector drains.
 
-  Per rf2-apfait — restore/hydration/full-runtime-db-replacement repopulate
+  Restore/hydration/full-runtime-db-replacement repopulate
   durable runtime-db snapshots WITHOUT repopulating the process-side
   spawn-order atom (the atom is transient bookkeeping, not durable state per
   Spec 002 §Durable vs transient). A restored SPAWNED actor's snapshot
@@ -48,8 +48,8 @@
   SINGLETON snapshot never carries it — actor_liveness_test:213). The
   straggler pass therefore SPLITS on that durable discriminator: spawned
   stragglers run the FULL `destroy/destroy-single-actor!` teardown (handler
-  unregister, schema-mark clear, system-id release, timer cancel, snapshot
-  dissoc) in reverse-creation order DERIVED from the durable actor-id (the
+  unregister, system-id release, timer cancel, snapshot dissoc) in
+  reverse-creation order DERIVED from the durable actor-id (the
   `#<n>` suffix), not the singleton straggler path that skips all of that.
   True singletons keep the exit-cascade-only straggler path."
   (:require [clojure.string :as str]
@@ -69,14 +69,14 @@
   RUNTIME-DB (a map of actor-id → snapshot), or an empty map. Read at the
   start of the walk so we have a stable view of which actors were live; the
   walk itself swaps the container and these reads are not re-evaluated.
-  EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state."
+  EP-0001: machine snapshots are durable runtime-db state."
   [frame-id]
   (let [container (frame/runtime-db-container frame-id)
         rt        (when container (adapter/read-container container))]
     (or (get-in rt (paths/snapshot-path)) {})))
 
 (defn- spawned-snapshot?
-  "Per rf2-apfait — true iff `snapshot` is a SPAWNED actor's snapshot, not
+  "True iff `snapshot` is a SPAWNED actor's snapshot, not
   a singleton's. The durable, app-db-derived discriminator is the presence
   of `:rf/machine-type` at the snapshot root: `install-spawn!` stamps it on
   every spawned actor (keyword TYPE or inline `:definition`), and a
@@ -89,7 +89,7 @@
   (some? (:rf/machine-type snapshot)))
 
 (defn- creation-rank
-  "Per rf2-apfait — derive a best-effort creation-order rank for a restored
+  "Derive a best-effort creation-order rank for a restored
   spawned `actor-id` whose process-side spawn-order entry was lost across
   restore/hydration. Spawned ids are allocated as `<type>#<n>` with a
   monotonic per-type counter (`allocate-actor-id-in-runtime-db`), so the
@@ -101,8 +101,7 @@
 
   Ordering the spawned-straggler walk by DESCENDING rank reconstructs the
   newest-first exit order Spec 005 §Cross-Spec Interactions §1 requires,
-  derived purely from durable runtime-db (per the bead's acceptance
-  criterion)."
+  derived purely from durable runtime-db."
   [actor-id]
   (let [s (name actor-id)
         i (str/last-index-of s "#")]
@@ -132,7 +131,7 @@
   [frame-id actor-id snapshot]
   (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                {:frame      frame-id
-                ;; rf2-ws5thu — the reaped actor's live INSTANCE address;
+                ;; The reaped actor's live INSTANCE address;
                 ;; `:machine-id` is reserved for the registered TYPE.
                 :actor-id   actor-id
                 :last-state (:state snapshot)
@@ -150,13 +149,11 @@
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
   late-bind hook via `finalize/abort-actor-in-flight-http!` — the same
   best-effort, idempotent helper the spawn-destroy + final-state
-  teardowns use, so the rf2-wvkn contract has one home.
+  teardowns use, so the abort contract has one home.
 
-  EP-0025 (rf2-398kql): this path formerly noted it deliberately did NOT clear
-  `:data-schema` marks (rf2-egvm4t). The whole machine `:data-schema`→marks
-  bridge is now removed (schema-field classification killed in favour of
-  frame-declared paths), so there are no schema marks for any teardown path —
-  singleton or spawned — to clear or preserve."
+  A machine's `:data-schema` is validation-only; it does not produce a
+  per-instance marks table. There are therefore no schema marks for any
+  teardown path — singleton or spawned — to clear or preserve."
   [frame-id actor-id]
   (exit-cascade/run-child-exit! frame-id actor-id)
   (finalize/abort-actor-in-flight-http! actor-id)
@@ -166,14 +163,14 @@
   "Run the full machine-cascade teardown for `frame-id`. Idempotent
   against double-invocation, fail-soft against missing artefacts.
 
-  Per rf2-vsigt + rf2-apfait the orchestration is:
+  The orchestration is:
    1. Snapshot `[:rf.runtime/machines :snapshots]` once.
    2. Build the disposal order in three segments:
       a. Recorded spawn-order reversed (newest first) — the live-process
          spawned actors, walked in true reverse-creation order.
       b. SPAWNED stragglers — snapshots that carry `:rf/machine-type` but
          are absent from the (transient) spawn-order atom. This is the
-         restore / hydration / `replace-runtime-db!` case (rf2-apfait):
+         restore / hydration / `replace-runtime-db!` case:
          durable runtime-db carries the snapshot, the transient atom does
          not. Walked newest-first by `creation-rank` derived from the
          durable `<type>#<n>` actor-id, so reverse-creation order is
@@ -188,7 +185,7 @@
          cascade D6.
       b. Spawned actors (recorded OR restored straggler): run the full
          single-actor destroy — exit-cascade → http-abort →
-         schema-mark clear → timer cancel → unified teardown projection →
+         timer cancel → unified teardown projection →
          system-id-release trace → handler-unregister → spawn-order forget.
       c. Singletons (registered via `reg-machine`, snapshot present but no
          `:rf/machine-type`): run the `:exit` cascade + HTTP abort, but
@@ -209,7 +206,7 @@
           ;; payloads, restored runtime-db, and test fixtures that seed
           ;; snapshots directly.
           stragglers   (remove recorded-set (keys snapshots))
-          ;; rf2-apfait — partition stragglers on the durable
+          ;; Partition stragglers on the durable
           ;; `:rf/machine-type` discriminator. Spawned stragglers (restore
           ;; / hydration / replace-runtime-db! repopulated the durable
           ;; snapshot but not the transient spawn-order atom) MUST get the
@@ -231,10 +228,9 @@
         (try (destroy/destroy-single-actor! frame-id actor-id)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
       ;; (b') Restored spawned stragglers: SAME full destroy, newest-first
-      ;; by durable creation rank. rf2-apfait — before this fix these
-      ;; flowed through the singleton straggler path and skipped handler
-      ;; unregister / schema-mark clear / system-id release / timer cancel
-      ;; / snapshot dissoc.
+      ;; by durable creation rank. These get the complete spawned teardown
+      ;; (handler unregister / system-id release / timer cancel / snapshot
+      ;; dissoc), not the exit-only singleton straggler path.
       (doseq [actor-id spawned-stragglers']
         (let [snapshot (get snapshots actor-id)]
           (emit-lifecycle-destroyed! frame-id actor-id snapshot))
