@@ -169,6 +169,18 @@
  "The output does NOT include a removed tab (Issues, Event, Chrome A11y, or a standalone Dynamic Machines-Canvas) in the Dynamic inventory."
  ]
  },
+ {
+ "id": 30,
+ "name": "graph-projection-vs-static-mode",
+ "should_trigger": true,
+ "prompt": "To see the Graph tab's static graph, do I switch Xray into Static mode?",
+ "expected_output": "The agent says NO — the Graph tab is a Dynamic-mode tab, and its registration-derived view is reached by the Graph tab's OWN per-panel projection toggle (the skill calls it Declared/Realized; the shipped UI labels it static/live), NOT by the L1 Dynamic/Static mode pill. Switching Xray to Static mode does NOT show the Graph tab at all (Graph is one of the 9 Dynamic tabs; Static mode shows the 5 registry catalogues). It must not conflate the Graph-local projection axis with the top-level Static mode.",
+ "expectations": [
+ "The output answers NO — top-level Static mode is NOT how you reach the Graph tab's registration-derived view.",
+ "The output names the Graph tab's OWN per-panel control (a Declared/Realized projection toggle, shipped-labelled static/live) as distinct from the L1 Dynamic/Static mode pill.",
+ "The output states the Graph tab is a Dynamic tab (one of the 9 Dynamic tabs) — switching to Static mode shows the 5 registry catalogues, not Graph."
+ ]
+ },
  {"id": 13, "name": "neg-drive-xray", "should_trigger": false, "prompt": "Use Xray to dispatch [:cart/apply-coupon \"SPRING25\"] and tell me what happens.", "rationale": "Driving Xray from a REPL is re-frame2-pair's surface, not the read-only tour."},
  {"id": 14, "name": "neg-implement-panel", "should_trigger": false, "prompt": "I want to add a new Xray panel for WebSocket connection lifecycle — walk me through the panel-facade/leaf split.", "rationale": "Implementing Xray is out of scope; route to tools/xray/spec/."},
  {"id": 15, "name": "neg-author-app", "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form and dispatches :login-success / :login-failure.", "rationale": "Authoring application code is re-frame2's job."},
