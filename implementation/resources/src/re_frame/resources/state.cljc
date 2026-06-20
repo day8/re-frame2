@@ -240,8 +240,8 @@
   in another.
 
   The 2-arity stamps the entry's own `:resource/key` — the scoped-key VECTOR
-  `[canonical-scope resource-id canonical-params]` (rf2-9e0tyq). Since the
-  `:entries` map is now keyed on the CEDN-1 byte `key-id` (a string), the
+  `[canonical-scope resource-id canonical-params]` (rf2-9e0tyq). Because the
+  `:entries` map is keyed on the CEDN-1 byte `key-id` (a string), the
   kind-preserving scoped-key vector is carried INSIDE the entry so every
   consumer that needs the `[scope rid params]` shape (the prior-sibling scan,
   the scope-mismatch heuristic, the clear-scope filter, the Xray live-node
@@ -263,16 +263,16 @@
 ;; canonicalization / domain validation to `identity/canonical` (rf2-wgutc2,
 ;; EP-0012 correctness review item 1).
 ;;
-;; This closes three divergences the prior resource-local canonicalizer
-;; carried against CEDN-1:
-;;   - it accepted broad `number?` values (floats, ratios, decimals,
-;;     out-of-safe-range integers) — CEDN-1 admits only portable integers in
-;;     the ECMAScript safe range, and rejects the rest fail-closed;
-;;   - it collapsed lists to vectors (`(sequential? x) (mapv …)`), erasing
-;;     the list-vs-vector EDN distinction CEDN-1 preserves (Conventions
-;;     §Sequences and sets: "Vectors and lists … are distinct EDN facts");
-;;   - it sorted map keys under a bespoke `total-edn-compare`, a second
-;;     ordering definition the shared CEDN-1 byte order subsumes.
+;; Delegating to the shared algebra means resource identities get exactly
+;; the CEDN-1 guarantees:
+;;   - only portable integers in the ECMAScript safe range are admitted as
+;;     numbers; floats, ratios, decimals, and out-of-safe-range integers
+;;     are rejected fail-closed;
+;;   - lists and vectors stay distinct EDN facts (Conventions §Sequences
+;;     and sets: "Vectors and lists … are distinct EDN facts"), never
+;;     collapsed together;
+;;   - map-key ordering is the one shared CEDN-1 byte order, with no
+;;     bespoke second ordering definition.
 ;;
 ;; `identity/canonical` also fails closed on DUPLICATE canonical map keys
 ;; (two distinct host keys whose CEDN-1 bytes collide), so a colliding cache
@@ -612,7 +612,7 @@
   here is pure overhead on a per-reaction path (rf2-rplgkw).
 
   The returned vector is the kind-PRESERVING canonical identity (a list value
-  stays a list, distinct from a vector — rf2-wgutc2). It is NO LONGER used
+  stays a list, distinct from a vector — rf2-wgutc2). It is NOT used
   directly as a Clojure map key: the `:entries` map, the reverse indexes, and
   the work-ledger map are keyed on its CEDN-1 byte `key-id` (`state/key-id`,
   rf2-9e0tyq) so the map-key comparison is EXACTLY the CEDN-1 byte identity
@@ -636,7 +636,7 @@
   first-loads with no placeholder). A pure selection — the projection pointer
   it returns never inserts data into the new entry.
 
-  rf2-9e0tyq: `entries` is now keyed on the CEDN-1 byte `key-id`, so the
+  rf2-9e0tyq: `entries` is keyed on the CEDN-1 byte `key-id`, so the
   scope/params comparison reads each candidate entry's stored `:resource/key`
   vector — NOT the map key (which is the opaque bytes string)."
   [entries new-key]
