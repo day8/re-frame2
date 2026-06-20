@@ -1847,7 +1847,7 @@
    trace-like topics, matches, enqueues. Cheap when no subs exist (the
    common path).
 
-   rf2-mscih channel split:
+   Channel split:
    - Cascade-bundle topics (`:trace`/`:fx`/`:error`) receive events
      carrying a `:rf.trace/dispatch-id` tag. The bundling happens at
      drain time; the queue stays per-event for the byte+event budget.
@@ -3704,7 +3704,7 @@
   30000)
 
 (defn- maybe-elide-sample
-  "Elide a sampled `:app-db` / `:sub` value for off-box egress (rf2-8fin7.2).
+  "Elide a sampled `:app-db` / `:sub` value for off-box egress.
 
    The signal recorder (`record` / `read-recording`) and the blocking watch
    (`watch-until`) ship the sampled VALUES of `{:app-db [path]}` and
@@ -3716,8 +3716,7 @@
    value through the SAME walker, server-side (app-side, where the
    `[:rf.runtime/elision]` registry in runtime-db is reachable).
 
-   Gate posture mirrors `maybe-elide-for-tap` + the MCP read surfaces
-   (rf2-c2dtu):
+   Gate posture mirrors `maybe-elide-for-tap` + the MCP read surfaces:
 
    - Gate OFF (`:allow-raw-state? false`, the published-build default the
      MCP server signals via `configure-raw-state!`): the value is walked
@@ -3754,15 +3753,14 @@
      {:focus true}               — a stable descriptor of
                                     `document.activeElement` (tag + id +
                                     a short data-/aria- attr digest) — the
-                                    focus-slot the hand-built recorder
-                                    tracked.
+                                    focus-slot.
 
    `frame-id` resolves the operating frame for :app-db / :sub signals.
    Returns the sampled value (any EDN-able shape) or nil. Errors degrade
    to `{:rf.recording/error <message>}` so one bad signal never collapses
    the whole sampler tick.
 
-   rf2-8fin7.2 — the value-bearing `:app-db` / `:sub` arms route the
+   The value-bearing `:app-db` / `:sub` arms route the
    sampled value through `maybe-elide-sample` (the off-box-egress walker)
    so a declared-sensitive app-db slot (or a sub deriving from one) is
    redacted before it crosses the MCP boundary, under the default
@@ -3770,10 +3768,10 @@
    per-call posture (gate-ON `:include-sensitive` opt-in); `nil` ⇒
    fail-closed defaults.
 
-   rf2-p9scds — the `:dom` / `:focus` arms are DERIVED reads: a node's
+   The `:dom` / `:focus` arms are DERIVED reads: a node's
    textContent / attribute / focus descriptor can carry a secret copied out
    of a declared-sensitive app-db slot, a NON-app-db position the path-based
-   elider can't reach. They are now value-redacted via `maybe-redact-derived`
+   elider can't reach. They are value-redacted via `maybe-redact-derived`
    (`re-frame.core/redact-derived-slots`) against the frame's secrets under
    the off-box gate — the value-based dual of the `:app-db` / `:sub` elision.
    `start-recording!` / `watch-until` refuse a `:dom` / `:focus` signal under
@@ -3827,13 +3825,13 @@
    `:sample` are the signals' positional indices so the predicate can
    address `(get sample 0)` regardless of signal shape.
 
-   rf2-8fin7.2 — `elide-opts` (the optional 3rd arg) carries the off-box
+   `elide-opts` (the optional 3rd arg) carries the off-box
    egress posture for `:app-db` / `:sub` value sampling (gate-ON
    `:include-sensitive` opt-in). `watch-until` threads it from the MCP
    gate + per-call args; absent ⇒ fail-closed defaults via
    `sample-one-signal`.
 
-   rf2-p9scds — FAIL CLOSED: under the off-box gate a signal that needs
+   FAIL CLOSED: under the off-box gate a signal that needs
    frame policy (`:app-db` / `:sub` always; `:dom` / `:focus` because their
    derived values are value-redacted against the frame's secrets) cannot be
    sampled when `frame-id` is nil (ambiguous frame). Rather than sample
@@ -3870,7 +3868,7 @@
       (let [{:keys [signals frame-id last-values frame-count started-at
                     stop max-entries elide-opts]} rec
             now      (js/Date.now)
-            ;; rf2-8fin7.2 — each `:app-db` / `:sub` sample is elided for
+            ;; Each `:app-db` / `:sub` sample is elided for
             ;; off-box egress before it lands in the change-log (which
             ;; `read-recording` ships to the model). `elide-opts` carries
             ;; the gate-ON `:include-sensitive` opt-in; absent ⇒ the
@@ -3962,7 +3960,7 @@
      :frame    operating frame for :app-db / :sub signals. Defaults to the
                session's operating frame.
      :max-entries  drop-oldest ring cap on the change-log (default 2000).
-     :elide-opts  (rf2-8fin7.2) off-box-egress walker opts threaded into
+     :elide-opts  off-box-egress walker opts threaded into
                   every `:app-db` / `:sub` sample so a declared-sensitive
                   slot is redacted before it lands in the change-log
                   `read-recording` ships to the model. The MCP `record`
@@ -3975,7 +3973,7 @@
    frame policy but no frame can be resolved (multi-frame session, no
    selection) — read ops must not silently fall back to :rf/default.
    `:app-db` / `:sub` always need a frame (they read it); `:dom` / `:focus`
-   need one under the off-box gate (rf2-p9scds — their derived values are
+   need one under the off-box gate (their derived values are
    value-redacted against the frame's secrets, so the secret source must be
    pickable). Under the trusted-local gate (`--allow-sensitive-reads`) a
    `:dom` / `:focus`-only recording needs no frame (it ships raw)."
@@ -3983,9 +3981,9 @@
   (let [signals  (vec signals)
         gate-on? (:allow-raw-state? @raw-state-config)
         needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)
-                                ;; rf2-p9scds — :dom / :focus are value-
-                                ;; redacted under the off-box gate, so they
-                                ;; need a frame to source the secret set.
+                                ;; :dom / :focus are value-redacted under the
+                                ;; off-box gate, so they need a frame to
+                                ;; source the secret set.
                                 (and (not gate-on?)
                                      (or (contains? % :dom) (contains? % :focus))))
                            signals)
@@ -4011,7 +4009,7 @@
                   :frame-id    frame-id
                   :stop        stop'
                   :max-entries (or max-entries default-recording-max-entries)
-                  ;; rf2-8fin7.2 — carried through each tick so `:app-db` /
+                  ;; Carried through each tick so `:app-db` /
                   ;; `:sub` samples are elided for off-box egress before
                   ;; landing in the change-log.
                   :elide-opts  elide-opts
@@ -4106,7 +4104,7 @@
 ;; Watch predicate matching
 ;; ---------------------------------------------------------------------------
 ;;
-;; Translated for re-frame2's :rf/epoch-record shape — :event-id and
+;; Matches against re-frame2's :rf/epoch-record shape — :event-id and
 ;; :trigger-event are top-level slots; :sub-runs / :renders / :effects
 ;; are pre-projected; the trace-events vector carries everything else.
 
@@ -4235,8 +4233,8 @@
    time this call returns.
 
    The response carries BOTH the full `:epoch` (the verbatim assembled
-   record — the trace mode's historical payload) AND a `:cascade-summary`
-   slot per rf2-6yqdl. Callers that only need the headline 'what
+   record — the trace mode's full payload) AND a `:cascade-summary`
+   slot. Callers that only need the headline 'what
    happened' read the compact summary; callers that need the raw
    trace-events / db-before / db-after pair read `:epoch`."
   ([event-v] (dispatch-and-collect event-v {}))
@@ -4248,7 +4246,7 @@
        result))))
 
 ;; ---------------------------------------------------------------------------
-;; Dispatch-and-settle (rf2-vk79g)
+;; Dispatch-and-settle
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Closes the observe→drive loop SYNCHRONOUSLY in ONE call: dispatch →
@@ -4267,14 +4265,14 @@
 ;;     those land a tick later and re-fan into the record. Reading once,
 ;;     immediately, misses them.
 ;;
-;;   - The `:await-render` path (rf2-gfu33) flushes via
+;;   - The `:await-render` path flushes via
 ;;     `interop/after-render` — the rAF-scheduled, post-commit /
 ;;     pre-paint hook. It is ASYNC (returns a Promise the server awaits
 ;;     through the mailbox), and on a backgrounded / unfocused tab the
 ;;     underlying React lane commit is rAF-throttled, so it can stall.
 ;;
 ;;   - `dispatch-and-settle!` flushes via the substrate adapter's
-;;     `flush-render!` (rf2-40a84): React `flushSync` for the React-shaped
+;;     `flush-render!`: React `flushSync` for the React-shaped
 ;;     substrates, `reagent.core/flush` for the ratom family. NOT
 ;;     rAF-scheduled, so it commits even headless / backgrounded and is
 ;;     fully SYNCHRONOUS — no Promise, no mailbox. ZERO substrate
@@ -4308,8 +4306,8 @@
 
 (defn dispatch-and-settle!
   "Dispatch (origin :pair) and SYNCHRONOUSLY settle the view layer, then
-   return the assembled epoch INCLUDING the view-lifecycle signal
-   (rf2-vk79g). ONE call = dispatch → render → complete epoch.
+   return the assembled epoch INCLUDING the view-lifecycle signal.
+   ONE call = dispatch → render → complete epoch.
 
    Steps:
      1. `dispatch-sync` — run the cascade; the epoch records its db-diff,
@@ -4334,11 +4332,11 @@
                              when nothing mounted/unmounted (e.g. a no-op
                              dispatch or a state change no view reads).
      :cascade-summary      — the compact projection (its `:renders` count
-                             now reflects the flushed renders).
+                             reflects the flushed renders).
 
    On a frame-untargetable / no-epoch dispatch the `pair-dispatch-sync!`
-   `:ok? false` envelope rides through verbatim (the rf2-ldfnx invariant)
-   — NO flush is attempted (nothing settled).
+   `:ok? false` envelope rides through verbatim — NO flush is attempted
+   (nothing settled).
 
    The `flush-render!` call is a no-op-safe contract fn: under the
    plain-atom / SSR adapters (no live React commit) it returns nil and
@@ -4372,7 +4370,7 @@
 ;; Coarse-grained snapshot — one round-trip per investigate-X workflow.
 ;; ---------------------------------------------------------------------------
 ;;
-;; Many investigate-X tasks chain 5-10 reads — each currently a fresh nREPL
+;; Many investigate-X tasks chain 5-10 reads — each one a fresh nREPL
 ;; round-trip plus Claude-think latency. The runtime-side composer below
 ;; assembles every per-frame slice (:app-db, :sub-cache, :machines, :epochs,
 ;; :traces) in one CLJS eval, so the MCP `snapshot` op is a single bencode
@@ -4388,8 +4386,8 @@
 ;; is replaced with a `{:rf.mcp/summary {:type :map :keys [...] :count
 ;; ... :bytes ~...}}` marker carrying the top-level shape only. Callers
 ;; pass `:path [...]` to receive `(get-in db path)` (`:mode
-;; :path-sliced`); root `:path []` opts back into the full slice
-;; (equivalent to the legacy default). Out-of-range paths surface
+;; :path-sliced`); root `:path []` opts back into the full slice.
+;; Out-of-range paths surface
 ;; per-frame in a `:path-not-found` map with `:deepest-valid-prefix`
 ;; so the agent can re-aim. The `get-path` tool exposes the same
 ;; targeted-read primitive directly — `:exists?` distinguishes a path
@@ -4406,11 +4404,10 @@
     :app-db     (rf/app-db-value frame-id)
     :sub-cache  (subs-tooling/sub-cache-snapshot frame-id)
     ;; The global machine-id list is registrar-level (not per-frame).
-    ;; Per Spec 005 + rf2-eguy4 each frame holds its own machine
+    ;; Per Spec 005 each frame holds its own machine
     ;; snapshots at [:rf.runtime/machines :snapshots machine-id] in the
-    ;; RUNTIME-DB partition (EP-0001 rf2-vzld77 moved machine snapshots out
-    ;; of app-db :rf/runtime into the durable runtime-db partition — read
-    ;; via `rf/runtime-db-value`, NOT `rf/app-db-value`), so the per-frame
+    ;; durable RUNTIME-DB partition (read via `rf/runtime-db-value`, NOT
+    ;; `rf/app-db-value`), so the per-frame
     ;; slice returns {:ids [...] :state {machine-id snapshot}}.
     :machines   (let [ids (vec (machines/machines))
                       state (or (get-in (rf/runtime-db-value frame-id)
@@ -4418,12 +4415,10 @@
                                 {})]
                   {:ids ids :state state})
     :epochs     (vec (rf/epoch-history frame-id))
-    ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame and
-    ;; cascade-bundle-shaped by default; rf2-mscih shifts this slot
-    ;; to deliver bundles (the storage unit) rather than the legacy
-    ;; flat-event stream, matching the cascade-bundle wire format
-    ;; emitted by the streaming subscribe surface (Tool-Pair §Reading
-    ;; the per-frame trace ring + Tool-Pair §`watch-epochs` /
+    ;; The trace ring is per-frame and cascade-bundle-shaped: this slot
+    ;; delivers bundles (the storage unit), matching the cascade-bundle
+    ;; wire format emitted by the streaming subscribe surface (Tool-Pair
+    ;; §Reading the per-frame trace ring + Tool-Pair §`watch-epochs` /
     ;; `trace-window` consumer shape).
     :traces     (vec (trace-tooling/trace-buffer frame-id))
     nil))
@@ -4443,8 +4438,8 @@
    Opts:
      :frames    Which frames to snapshot. One of:
                   :app  — the APP frames only (default): every registered
-                          frame with reserved `:rf/*` TOOL frames removed
-                          (rf2-3bu3d.6). `:rf/default` is an app frame and
+                          frame with reserved `:rf/*` TOOL frames removed.
+                          `:rf/default` is an app frame and
                           is retained (see `reserved-tool-frame?`). This is
                           the first-read default so a snapshot doesn't
                           OVERFLOW on Xray / Story / SSR tool-frame state.
@@ -4482,9 +4477,9 @@
    (ensure-trace-listener!)
    (ensure-epoch-listener!)
    (let [fids       (cond
-                      ;; rf2-3bu3d.6 — the DEFAULT scope is the APP frames
-                      ;; (reserved `:rf/*` tool frames excluded). `:all` is
-                      ;; the explicit opt-in to tool-frame state.
+                      ;; The DEFAULT scope is the APP frames (reserved
+                      ;; `:rf/*` tool frames excluded). `:all` is the
+                      ;; explicit opt-in to tool-frame state.
                       (= :app frames)      (app-frame-ids)
                       (= :all frames)      (vec (rf/frame-ids))
                       (sequential? frames) (vec frames)
@@ -4519,10 +4514,10 @@
         app-fids (app-frame-ids)]
     {:ok?                       true
      :session-id                session-id
-     ;; rf2-ertqw — the browser half of the freshness token rides on
+     ;; The browser half of the freshness token rides on
      ;; `health` so `discover-app` surfaces liveness in its very first
-     ;; call. `:runtime-instance-id` mirrors `:session-id` (kept under
-     ;; both names: `:session-id` is the historical sentinel slot, the
+     ;; call. `:runtime-instance-id` mirrors `:session-id` (carried under
+     ;; both names: `:session-id` is the sentinel slot, the
      ;; freshness vocabulary names it `:runtime-instance-id`);
      ;; `:runtime-loaded-at` is the stale-build cross-check input.
      :runtime-instance-id       session-id
@@ -4532,7 +4527,7 @@
      :coord-annotation-enabled? (coord-annotation-enabled?)
      :last-click-capture?       true
      :frames                    (vec fids)
-     ;; rf2-3bu3d.4 — the reserved-frame-aware view: registered frames
+     ;; The reserved-frame-aware view: registered frames
      ;; with `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR slots, …)
      ;; removed. `:rf/default` is retained (it is an app frame). When this
      ;; holds exactly one id while `:frames` holds more, the session is
@@ -4541,7 +4536,7 @@
      :app-frames                app-fids
      :selected-frame            @selected-frame
      :operating-frame           (current-frame)
-     ;; rf2-3bu3d.4 — ambiguity counts APP frames, not raw frames. A
+     ;; Ambiguity counts APP frames, not raw frames. A
      ;; single-app session that ALSO carries an Xray (or other `:rf/*`
      ;; tool) frame has exactly one app frame, so it is NOT ambiguous and
      ;; pays no `frames/select` tax. Genuinely multi-app sessions (two-plus
@@ -4558,18 +4553,18 @@
      :pair-epoch-count          (count @pair-epoch-ids)}))
 
 ;; ---------------------------------------------------------------------------
-;; App-shape orientation summary (rf2-3bu3d.8)
+;; App-shape orientation summary
 ;; ---------------------------------------------------------------------------
 
 (def ^:private orient-registrar-kinds
   "The registrar kinds whose COUNTS the orientation summary reports — the
-   closed v1 registrar set (mirrors `handler-meta`'s `registrar-kinds`),
+   closed registrar set (mirrors `handler-meta`'s `registrar-kinds`),
    including `:interceptor` (the registered-interceptor kind — `reg-interceptor`
    stores a `{:before}` / `{:after}` / `{:factory}` descriptor under it; event/
-   frame `:interceptors` chains carry REFERENCES into this kind, EP-0022) so an
+   frame `:interceptors` chains carry REFERENCES into this kind) so an
    app using `reg-interceptor` surfaces its registered-interceptor count on
    first contact, and the three resources-artefact kinds (`:resource` /
-   `:mutation` / `:resource-scope`, EP-0016 / rf2-f8s9g6) so a resources-heavy
+   `:mutation` / `:resource-scope`) so a resources-heavy
    app's orientation summary names its cached-read / write / scope-resolver
    counts (zero on an app that uses none — `registrar-count` is defensively
    zero on an empty registrar). `:event` / `:sub` / `:fx` additionally
@@ -4587,12 +4582,12 @@
   (count (try (keys (rf/registrations kind)) (catch :default _ nil))))
 
 (defn- process-registry-view
-  "The PROCESS-WIDE registry view — counts for every v1 kind plus the full
-   sorted id vectors for the three most navigable kinds, off the process-global
-   registrar. The fallback orient uses when no single operating frame resolves
-   (a multi-frame ambiguous session, or a core that predates the EP-0023
-   frame-image-generation reads). `:basis :process` labels which registrar
-   these counts came from."
+  "The PROCESS-WIDE registry view — counts for every registrar kind plus the
+   full sorted id vectors for the three most navigable kinds, off the
+   process-global registrar. The fallback orient uses when no single operating
+   frame resolves (a multi-frame ambiguous session, or a core whose operating
+   frame carries no sealed image generation). `:basis :process` labels which
+   registrar these counts came from."
   []
   {:basis  :process
    :counts (into {} (map (fn [k] [k (registrar-count k)])) orient-registrar-kinds)
@@ -4603,12 +4598,12 @@
 (defn- frame-registry-view
   "The OPERATING-FRAME registry view — counts + the high-value id vectors
    resolved through `frame-id`'s OWN sealed image generation rather than the
-   process-wide registrar (rf2-srobm0). The same `(kind, id)` can resolve
+   process-wide registrar. The same `(kind, id)` can resolve
    differently per frame, so the SELECTED universe a frame actually runs is
    the registry an agent driving that frame should see — not the union of
    every namespace's registrations the flat registrar holds.
 
-   Routes through the PUBLIC `rf/frame-generation` read (rf2-wkw8na): the
+   Routes through the PUBLIC `rf/frame-generation` read: the
    resolver's `[kind id]` keys give the per-kind counts and the navigable id
    vectors directly off the generation. `:basis :frame` + `:frame` label
    which frame these counts resolved through. Returns nil when the frame does
@@ -4631,13 +4626,12 @@
          :subs   (ids-of :sub)
          :fx     (ids-of :fx)})
       ;; A frame that does not carry a generation (`:rf.error/frame-no-
-      ;; generation`) means this core predates the EP-0023 reads, or the
-      ;; operating frame has no sealed image. Fall back to the process view
-      ;; rather than fail the whole orientation.
+      ;; generation`) is an imageless frame with no sealed image. Fall back
+      ;; to the process view rather than fail the whole orientation.
       (catch :default _ nil))))
 
 (defn orient
-  "App-shape orientation summary (rf2-3bu3d.8) — answer 'what is this app
+  "App-shape orientation summary — answer 'what is this app
    and what can I drive?' in ONE round-trip.
 
    When an agent connects to an UNFAMILIAR app, orienting otherwise takes
@@ -4654,29 +4648,29 @@
                       `frames-list` view (reserved `:rf/*` tool frames
                       split out via `app-frame-ids`). `:all` / `:app` /
                       `:operating` are the PUBLIC frame addressing surface
-                      (EP-0023 image -> frame -> event stream).
+                      (the image -> frame -> event stream model).
      :app-db-top-keys {<app-frame-id> [<top-level key> ...]} — the
                       top-level app-db keys per APP frame (the cheap
                       'what state shape is this' read; drill with
                       `get-path` / `snapshot`). Tool frames are excluded
-                      (rf2-3bu3d.6 posture) so the summary doesn't
+                      so the summary doesn't
                       overflow on Xray/SSR inspection state.
      :registry        {:basis :frame|:process :frame <id>?
                        :counts {<kind> N ...}
                        :events [...] :subs [...] :fx [...]} — registrar
-                      COUNTS for every v1 kind, plus the full sorted id
+                      COUNTS for every kind, plus the full sorted id
                       vectors for the three most navigable kinds. Drill
                       any other kind via `list-handlers {kind ...}`.
                       RE-BASED on the OPERATING FRAME's resolved image
-                      generation when a single operating frame resolves
-                      (rf2-srobm0, EP-0023) — the SELECTED universe that
+                      generation when a single operating frame resolves —
+                      the SELECTED universe that
                       frame actually runs, not the process-wide registrar
                       union (the same `(kind, id)` can resolve differently
                       per frame). `:basis :frame` + `:frame <id>` name the
                       resolution; falls back to `:basis :process` (the
                       process-wide registrar counts) in a multi-frame
-                      ambiguous session or against a core predating the
-                      EP-0023 frame-image-generation reads.
+                      ambiguous session or against an operating frame that
+                      carries no sealed image generation.
      :machines        the registered machine ids (`rf/machines`).
 
    Compact + summarized by design (respect the wire cap): counts + the
@@ -4689,10 +4683,10 @@
   (let [h        (health)
         app-fids (app-frame-ids)
         op-frame (:operating-frame h)
-        ;; rf2-srobm0 — re-base the registry on the OPERATING FRAME's resolved
+        ;; Re-base the registry on the OPERATING FRAME's resolved
         ;; image generation when one resolves; fall back to the process-wide
-        ;; registrar counts otherwise (ambiguous multi-frame session, or a core
-        ;; predating the EP-0023 frame-image-generation reads).
+        ;; registrar counts otherwise (ambiguous multi-frame session, or an
+        ;; operating frame with no sealed image generation).
         registry (or (frame-registry-view op-frame) (process-registry-view))]
     {:ok?      true
      :liveness {:debug-enabled?      (:debug-enabled? h)
