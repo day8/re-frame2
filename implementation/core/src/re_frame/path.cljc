@@ -68,15 +68,19 @@
 ;; ---- path shape / normalization ------------------------------------------
 
 (defn- bad-path!
-  "Throw the canonical `:rf.error/bad-path` error. `where` names the source
-  helper; `reason` is the human-facing message; `extras` names the offending
-  slot (`:bad-path`, `:bad-segment`)."
+  "Throw the canonical `:rf.error/bad-path` error via the central
+  `error/throw-error!` builder (Spec 009 §The thrown-error shape) so the
+  message LEADS with the human `reason` sentence and TRAILS with the
+  `[:rf.error/bad-path]` greppability token. `where` names the source
+  helper; `reason` is the human-facing sentence; `extras` names the
+  offending slot (`:bad-path`, `:bad-segment`)."
   [where reason extras]
-  (throw (ex-info (str "rf.path: " reason)
-                  (merge {:rf.error/id :rf.error/bad-path
-                          :where       where
-                          :recovery    :fix-path}
-                         extras))))
+  (error/throw-error!
+    :rf.error/bad-path
+    where
+    (str "rf.path: " reason)
+    {:recovery :fix-path
+     :extra    extras}))
 
 (defn normalize
   "Coerce a path input's CONTAINER SHAPE to the canonical vector form. The

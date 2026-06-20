@@ -1024,12 +1024,12 @@
   [profile]
   (let [profile (or profile default-egress-profile)]
     (when-not (contains? projection/profiles profile)
-      (throw (ex-info (str "unknown :rf.egress/profile " profile)
-                      {:rf.error/id :rf.error/unknown-egress-profile
-                       :where       'epoch/projected-record
-                       :recovery    :use-a-known-profile
-                       :profile     profile
-                       :valid       projection/profiles})))
+      ;; ONE shared builder for both closed-enum guards (rf2-krrv87) — the
+      ;; in-file `re-frame.projection/resolve-elision-opts` guard and this
+      ;; epoch-boundary guard route through `unknown-egress-profile-ex`, so
+      ;; the human sentence + the `[:rf.error/unknown-egress-profile]` token
+      ;; cannot drift. This site passes its own `:where 'epoch/projected-record`.
+      (throw (projection/unknown-egress-profile-ex 'epoch/projected-record profile)))
     profile))
 
 (defn- egress-opts
