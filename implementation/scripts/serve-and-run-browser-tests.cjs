@@ -45,7 +45,7 @@ const DEFAULT_PORT = 8021;
 // `out/browser-test/`.
 //
 // Per rf2-o38lb (security audit): the override MUST land inside
-// `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1` is
+// `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is
 // set in the environment. The orchestrator writes `${ROOT}/index.html`
 // and `${ROOT}/.rf-harness-token`; an unconstrained env-var override
 // would otherwise become an arbitrary file-write primitive in CI or

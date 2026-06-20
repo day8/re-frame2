@@ -25,10 +25,15 @@
  *     `<repo>/examples` (the canonical staging source) and
  *     `<repo>/implementation` (per-feature index.html templates).
  *   - Out-of-tree paths require explicit opt-in via the environment
- *     variable `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1`. The flag is
+ *     variable `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`. This one knob covers
+ *     EVERY out-of-tree path `enforcePolicy` gates — whether the candidate
+ *     is a write target (an output dir) or a read source (a custom
+ *     `STORY_BUILD_INDEX_HTML` template) — because `enforcePolicy` is one
+ *     generic allowed-root check applied to both. The flag is
  *     intentionally noisy to discourage accidental enablement;
  *     downstream consumers publishing into a sibling staging area
- *     (docs-site preview, etc.) set it explicitly.
+ *     (docs-site preview, etc.) or reading an out-of-tree HTML template
+ *     set it explicitly.
  *
  * `enforcePolicy(label, candidate, opts)` returns the absolute,
  * normalised path if approved; throws (with a clear, actionable
@@ -52,7 +57,7 @@ const DEFAULT_HTML_ROOTS = [
   IMPL_ROOT,
 ];
 
-const OPT_IN_VAR = 'RE_FRAME_ALLOW_OUT_OF_TREE_WRITES';
+const OPT_IN_VAR = 'RE_FRAME_ALLOW_OUT_OF_TREE_PATHS';
 
 function isOptInEnabled() {
   const raw = process.env[OPT_IN_VAR];

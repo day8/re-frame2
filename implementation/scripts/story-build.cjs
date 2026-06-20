@@ -68,7 +68,7 @@ const BUILD_TARGET = BUILD_TARGET_RAW;
 // target maps to a custom output directory automatically.
 //
 // Per rf2-o38lb: the resolved output dir MUST land inside
-// `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_WRITES=1` is
+// `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is
 // set. Downstream consumers publishing to a non-repo location (e.g. a
 // docs-site staging area) set the opt-in flag explicitly.
 const OUTPUT_DIR = enforcePolicy(
@@ -84,8 +84,9 @@ const OUTPUT_DIR = enforcePolicy(
 //
 // Per rf2-o38lb: STORY_BUILD_INDEX_HTML must point at a file under
 // `<repo>/examples` or `<repo>/implementation` (the two locations
-// where per-feature index.html templates legitimately live). Out-of-
-// tree paths require the opt-in flag.
+// where per-feature index.html templates legitimately live). An
+// out-of-tree HTML source requires the same `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`
+// opt-in — the knob gates read sources as well as write targets.
 const HTML_SRC = enforcePolicy(
   'STORY_BUILD_INDEX_HTML',
   process.env.STORY_BUILD_INDEX_HTML ||

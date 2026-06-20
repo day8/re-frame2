@@ -238,13 +238,39 @@ it('rejects empty path', () => {
   );
 });
 
-it('the opt-in env var lets an out-of-tree path through', () => {
+it('the opt-in env var lets an out-of-tree WRITE TARGET through', () => {
   process.env[OPT_IN_VAR] = '1';
   try {
     const elsewhere =
       process.platform === 'win32' ? 'C:\\tmp\\downstream-out' : '/tmp/downstream-out';
     const result = enforcePolicy('STORY_BUILD_OUTPUT_DIR', elsewhere, {
       allowedRoots: [DEFAULT_OUT_ROOT],
+    });
+    assert.strictEqual(result, path.resolve(elsewhere));
+  } finally {
+    delete process.env[OPT_IN_VAR];
+  }
+});
+
+it('the SAME opt-in env var lets an out-of-tree READ SOURCE through', () => {
+  // The knob is named for paths, not writes: it must also broaden the
+  // read-source roots (STORY_BUILD_INDEX_HTML), not just write targets.
+  // Without the opt-in an out-of-tree HTML template is refused; with it
+  // set, the same candidate (against the HTML allowed-roots) passes.
+  const elsewhere =
+    process.platform === 'win32' ? 'C:\\tmp\\downstream\\index.html' : '/tmp/downstream/index.html';
+  assert.throws(
+    () =>
+      enforcePolicy('STORY_BUILD_INDEX_HTML', elsewhere, {
+        allowedRoots: DEFAULT_HTML_ROOTS,
+      }),
+    /outside the approved roots/,
+    'an out-of-tree HTML read source must be refused without the opt-in',
+  );
+  process.env[OPT_IN_VAR] = '1';
+  try {
+    const result = enforcePolicy('STORY_BUILD_INDEX_HTML', elsewhere, {
+      allowedRoots: DEFAULT_HTML_ROOTS,
     });
     assert.strictEqual(result, path.resolve(elsewhere));
   } finally {
