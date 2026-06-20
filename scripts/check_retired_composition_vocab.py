@@ -204,13 +204,11 @@ _ALLOWLIST: tuple[tuple[str, str], ...] = (
     # the spec meta-docs that MAP the removal carry the retired symbols as the
     # thing-being-removed. Inventory §Implementation lists these as the scrub's
     # spec surface; they discuss the retired terms historically.
-    ("spec/Ownership.md",
-     "spec meta-doc — maps every contract surface to its owner; references the "
-     "retained-internal realm substrate historically (inventory §Observed use 6)."),
-    ("spec/Runtime-Subsystems.md",
-     "spec meta-doc — grades the retained-internal substrate (realm/dispose) "
-     "that EP-0023 keeps off the facade but alive for SSR routing (inventory "
-     "§Proposed cleanup: 'realm machinery stays as internal substrate')."),
+    #
+    # (spec/Ownership.md and spec/Runtime-Subsystems.md were de-allowlisted under
+    # rf2-w37qlu — the realm-container substrate they used to grade is retired,
+    # and their remaining realm mentions are removed-context PROSE only, which the
+    # guard never scans. They are now protected like any other teaching surface.)
     ("spec/Conventions.md",
      "spec meta-doc — the normative naming/vocabulary catalogue; discusses the "
      "retired composition nouns to record that they are retired."),
