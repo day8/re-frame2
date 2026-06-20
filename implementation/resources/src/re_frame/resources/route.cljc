@@ -51,7 +51,8 @@
   nav-token is a no-op (the blocking slot for that token is gone).
 
   Per Spec 016 §Route integration."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
@@ -251,15 +252,27 @@
 ;; empty-param / fallback-scope read.
 
 (defn- planning-error
-  "Throw the canonical route-resource PLANNING ex-info (the fail-closed
-  boundary `route-resource-plan` catches and surfaces on the route slice +
-  Xray, never a silent cache miss). `reason` explains; `extra` carries the
-  structured ex-data. Per Spec 016 §Route integration (a failed params /
-  scope resolution is a planning error, NOT a silent fallback)."
+  "Build the canonical route-resource PLANNING ex-info via the central
+  `error/thrown-ex-info` builder (Spec 009 §The thrown-error shape) — the
+  same shape its intra-artefact sibling `registry/registration-error`
+  follows. The fail-closed boundary `route-resource-plan` catches the throw
+  and surfaces it on the route slice + Xray (never a silent cache miss).
+
+  `reason` is the human sentence; the builder LEADS the message with it and
+  TRAILS the `[:rf.error/resource-route-plan]` greppability token (rule 4),
+  and stamps the canonical `:where` / `:recovery` slots. `extra` carries the
+  surface-specific ex-data (`:resource-id`, `:from-db`, `:missing-after`,
+  `:cycle`, …); a `:recovery` key inside it overrides the `:fix-params`
+  default (each fail-closed site names its own `:fix-scope` / `:fix-after` /
+  `:fix-route-integration`). Per Spec 016 §Route integration (a failed
+  params / scope resolution is a planning error, NOT a silent fallback)."
   [reason extra]
-  (ex-info reason (merge {:rf.error/id :rf.error/resource-route-plan
-                          :reason      reason}
-                         extra)))
+  (error/thrown-ex-info
+    :rf.error/resource-route-plan
+    'rf/route-resource-plan
+    reason
+    {:recovery (get extra :recovery :fix-params)
+     :extra    (dissoc extra :recovery)}))
 
 (defn- when-passes?
   "Evaluate a route-resource entry's `:when` predicate. Absent `:when`
@@ -453,11 +466,20 @@
   When the caught ex carries a route-side `planning-error` ex-data, its
   specific `:reason` / `:recovery` are surfaced (so a nil-scope vs
   nil-params vs invalid-params failure stays self-explaining); otherwise
-  the generic params/scope-did-not-resolve message stands."
+  the generic params/scope-did-not-resolve message stands.
+
+  rf2-9g3qzi: this map carries NO `:operation` slot. The canonical
+  thrown-error shape (frame.cljc `no-frame-context-payload`) reserves
+  `:operation` for the DISTINCT runtime op (`:dispatch` / `:subscribe`) —
+  here the only op is the planning step itself, already named by
+  `:rf.error/id :rf.error/resource-route-plan`. The error trace's
+  `:operation` / `:category` come from the EXPLICIT `:rf.error/resource-
+  route-plan` arg `emit-error!` is called with (route.cljc), not this map,
+  so a duplicated `:operation` shadowing `:rf.error/id` carried no
+  information."
   [route-id nav-token resource-id ex]
   (let [data (ex-data ex)]
     {:rf.error/id :rf.error/resource-route-plan
-     :operation   :rf.error/resource-route-plan
      :route-id    route-id
      :resource-id resource-id
      :nav-token   nav-token
