@@ -321,9 +321,32 @@
 
 ;; ---- frame I/O (stdio line-delimited) ------------------------------------
 
+(defn- utf8-byte-len
+  "UTF-8 byte length of the Unicode code point `cp` (an int).
+
+  The stdio frame cap (rf2-sibl4f) is a WIRE-BYTE budget, but the reader
+  hands us UTF-8-decoded Java code points, so we re-derive each code
+  point's encoded byte width:
+
+    - `<= 0x7F`    → 1 byte   (ASCII)
+    - `<= 0x7FF`   → 2 bytes
+    - `<= 0xFFFF`  → 3 bytes  (rest of the BMP)
+    - else         → 4 bytes  (supplementary planes / surrogate pairs)
+
+  Counting decoded *characters* instead (the pre-fix behaviour)
+  under-measured multibyte input, so a non-ASCII frame could exceed the
+  promised byte ceiling before being rejected — weakening the DoS bound
+  the spec + error message advertise."
+  [^long cp]
+  (cond
+    (<= cp 0x7F)   1
+    (<= cp 0x7FF)  2
+    (<= cp 0xFFFF) 3
+    :else          4))
+
 (defn- read-bounded-line
   "Read characters from `^java.io.BufferedReader reader` until newline,
-  EOF, or `max-bytes` is reached. Returns:
+  EOF, or the accumulated UTF-8 BYTE count reaches `max-bytes`. Returns:
 
     - `nil`               — EOF before any character was read.
     - bounded string      — happy path: the read line, without its
@@ -334,6 +357,15 @@
                             so the next `read-bounded-line` call
                             starts on a fresh frame boundary.
 
+  The cap is measured in UTF-8 BYTES — the actual unit of the stdio
+  frame budget (rf2-sibl4f). The `BufferedReader` has already decoded
+  the wire bytes into Java `char` code units, so we re-derive each code
+  point's UTF-8 byte width via `utf8-byte-len` and bound on the running
+  byte total. Code points above the BMP arrive as a surrogate PAIR (two
+  `.read` calls); we recombine them before charging the (4-byte) width
+  so the count matches the real wire-byte length exactly rather than
+  over- or under-charging the two surrogate halves.
+
   Unlike `BufferedReader.readLine`, which will happily allocate
   unbounded memory for a `readLine` that never sees a newline, this
   helper enforces a hard ceiling — the rf2-g9fje DoS bound for the
@@ -341,29 +373,54 @@
   [^java.io.BufferedReader reader max-bytes]
   (let [sb (StringBuilder.)]
     (loop [n 0]
-      (let [c (.read reader)]
-        (cond
-          (neg? c)
-          (if (zero? n) nil (.toString sb))
+      (if (>= n max-bytes)
+        ;; Drain the rest of this frame so the next call lands on a
+        ;; fresh boundary. We don't bound this drain (the bytes have
+        ;; already been allocated on the wire); we just don't keep
+        ;; them in the StringBuilder.
+        (do (loop []
+              (let [d (.read reader)]
+                (when (and (not (neg? d))
+                           (not= d (int \newline)))
+                  (recur))))
+            ::frame-too-large)
+        (let [c (.read reader)]
+          (cond
+            (neg? c)
+            (if (zero? n) nil (.toString sb))
 
-          (= c (int \newline))
-          (.toString sb)
+            (= c (int \newline))
+            (.toString sb)
 
-          (>= n max-bytes)
-          ;; Drain the rest of this frame so the next call lands on a
-          ;; fresh boundary. We don't bound this drain (the bytes have
-          ;; already been allocated on the wire); we just don't keep
-          ;; them in the StringBuilder.
-          (do (loop []
-                (let [d (.read reader)]
-                  (when (and (not (neg? d))
-                             (not= d (int \newline)))
-                    (recur))))
-              ::frame-too-large)
+            ;; High surrogate: pull the paired low surrogate so we count
+            ;; the supplementary code point as a single 4-byte unit. A
+            ;; lone/unpaired high surrogate (EOF, newline, or a non-low
+            ;; follower) is charged its own width and the follower is
+            ;; re-handled on the next iteration.
+            (and (>= c 0xD800) (<= c 0xDBFF))
+            (let [d (.read reader)]
+              (cond
+                (and (>= d 0xDC00) (<= d 0xDFFF))
+                (let [cp (+ 0x10000
+                            (bit-shift-left (- c 0xD800) 10)
+                            (- d 0xDC00))]
+                  (.appendCodePoint sb cp)
+                  (recur (+ n (utf8-byte-len cp))))
 
-          :else
-          (do (.append sb (char c))
-              (recur (inc n))))))))
+                (neg? d)
+                (do (.append sb (char c)) (.toString sb))
+
+                (= d (int \newline))
+                (do (.append sb (char c)) (.toString sb))
+
+                :else
+                (do (.append sb (char c))
+                    (.append sb (char d))
+                    (recur (+ n (utf8-byte-len c) (utf8-byte-len d))))))
+
+            :else
+            (do (.append sb (char c))
+                (recur (+ n (utf8-byte-len c))))))))))
 
 (defn read-frame
   "Read one newline-delimited JSON frame from `^java.io.BufferedReader reader`.

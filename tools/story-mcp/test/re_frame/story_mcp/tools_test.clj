@@ -4393,6 +4393,96 @@
           "post-cap recovery: stdio loop continues on the next frame"))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-sibl4f — the frame cap is a UTF-8 BYTE budget, not a char count.
+;;
+;; The pre-fix `read-bounded-line` incremented its counter once per
+;; decoded Java char and bounded on (>= chars max-bytes). For multibyte
+;; UTF-8 input, decoded-char-count < wire-byte-count, so a frame whose
+;; UTF-8 byte length exceeded max-frame-bytes could slip under the cap
+;; while still being a multi-MB-over-budget wire payload — weakening the
+;; DoS bound the spec + error message promise. The fix re-derives each
+;; code point's UTF-8 byte width and bounds on the running byte total.
+;;
+;; The earlier oversize tests use only ASCII \x (char count == byte
+;; count), so they could not catch this drift.
+;; ---------------------------------------------------------------------------
+
+;; Multibyte fixtures are built from `\uXXXX` / code-point escapes (pure
+;; ASCII in the source) so the test is independent of the source file's
+;; on-disk charset and the JVM's default charset.
+
+(def ^:private cjk-3byte
+  "U+4E2D — a CJK BMP code point that encodes to 3 UTF-8 bytes.
+  Built from the code point (not a literal) so the source file's on-disk
+  charset can't corrupt the fixture."
+  (String. (Character/toChars 0x4E2D)))
+
+(def ^:private emoji-4byte
+  "U+1F600 (grinning face) — a supplementary code point: 2 Java chars
+  (a surrogate pair) but 4 UTF-8 bytes on the wire."
+  (String. (Character/toChars 0x1F600)))
+
+(deftest read-frame-cap-counts-utf8-bytes-not-chars
+  (testing "a multibyte frame UNDER the char count but OVER the byte cap is rejected"
+    ;; The 3-byte CJK char lets us pick a CHARACTER count comfortably
+    ;; BELOW max-frame-bytes (so a char counter would accept the frame)
+    ;; yet whose UTF-8 BYTE length is ABOVE the cap (so the byte counter
+    ;; rejects it). With a 3-byte char, half the cap in chars is ~1.5x
+    ;; the cap in bytes.
+    (let [char-count (+ (quot proto/max-frame-bytes 2) 1000)
+          byte-count (* 3 char-count)]
+      (is (< char-count proto/max-frame-bytes)
+          "precondition: a char counter would ACCEPT this frame")
+      (is (> byte-count proto/max-frame-bytes)
+          "precondition: the frame's UTF-8 byte length EXCEEDS the cap")
+      (let [multibyte (str (apply str (repeat char-count cjk-3byte)) "\n")
+            reader    (java.io.BufferedReader. (java.io.StringReader. multibyte))]
+        (try
+          (proto/read-frame reader)
+          (is false "should have thrown — the cap must fire on bytes, not chars")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
+                "multibyte over-byte-budget frame rejected on the UTF-8 byte count")))))))
+
+(deftest read-frame-cap-accepts-multibyte-frame-under-byte-budget
+  (testing "a multibyte frame UNDER the byte cap parses normally"
+    ;; A small valid JSON-RPC frame whose `:method` value carries
+    ;; multibyte content: well under the cap on both chars and bytes, so
+    ;; it must round-trip verbatim (proving the byte counter doesn't
+    ;; over-reject legitimate non-ASCII frames). `:method` is an
+    ;; allowlisted envelope key, so the value survives normalisation.
+    (let [method (str "ping-" cjk-3byte cjk-3byte emoji-4byte)
+          good   (proto/write-json {:jsonrpc "2.0" :method method :id 42})
+          reader (java.io.BufferedReader. (java.io.StringReader. (str good "\n")))]
+      (is (= {:jsonrpc "2.0" :method method :id 42}
+             (proto/read-frame reader))
+          "a legitimate multibyte frame under the byte budget is read verbatim"))))
+
+(deftest read-frame-cap-counts-supplementary-code-points
+  (testing "a frame of supplementary (surrogate-pair) code points caps on UTF-8 bytes"
+    ;; U+1F600 is a supplementary code point: 2 Java chars (a surrogate
+    ;; pair) but 4 UTF-8 bytes on the wire. A char counter sees 2 units
+    ;; per emoji; a byte counter sees 4. We pick a count whose char
+    ;; length is under the cap but whose UTF-8 byte length is over it,
+    ;; proving the surrogate-pair recombination charges the full 4-byte
+    ;; code-point width (not 2x the per-surrogate width).
+    (let [emoji-cnt (+ (quot proto/max-frame-bytes 4) 1000)
+          char-len  (* 2 emoji-cnt)
+          byte-len  (* 4 emoji-cnt)]
+      (is (< char-len proto/max-frame-bytes)
+          "precondition: a char counter would ACCEPT this frame")
+      (is (> byte-len proto/max-frame-bytes)
+          "precondition: the frame's UTF-8 byte length EXCEEDS the cap")
+      (let [frame  (str (apply str (repeat emoji-cnt emoji-4byte)) "\n")
+            reader (java.io.BufferedReader. (java.io.StringReader. frame))]
+        (try
+          (proto/read-frame reader)
+          (is false "should have thrown — supplementary code points count 4 bytes each")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
+                "supplementary-plane over-byte-budget frame rejected on the UTF-8 byte count")))))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-lqjbk — parse-keyword → safe-keyword sweep
 ;;
 ;; Caller-supplied keyword ids on the read surface MUST resolve through
