@@ -1305,6 +1305,15 @@
               (when (contains? ctx :rf/flow-last-inputs-before)
                 (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
                   (restore-li frame (:rf/flow-last-inputs-before ctx))))
+              ;; rf2-z980k8: re-record the IN-DRAIN abandoned output paths the
+              ;; flow transform drained-and-cleared. The pending `:db` (which
+              ;; carried the vacated state) was just discarded by the rollback,
+              ;; so the `:path` move must re-attempt next drain rather than be
+              ;; silently lost — the exact mirror of the `last-inputs` restore
+              ;; above, at the post-commit boundary `run-flows-on-db` can't see.
+              (when (contains? ctx :rf/flow-abandoned-paths-before)
+                (when-let [restore-ap (late-bind/get-fn-cached :flows/restore-abandoned-paths!)]
+                  (restore-ap frame (:rf/flow-abandoned-paths-before ctx))))
               (when (contains? rb-changed frame/app-partition-key)
                 (emit-db-event! :rf.event/db-changed event-id emit-event frame :rollback))
               (emit-frame-state-changed! event-id emit-event frame rb-changed :rollback))
@@ -1478,6 +1487,14 @@
                   ;; which case there are no rows and nothing to restore.
                   snapshot-li (late-bind/get-fn-cached :flows/snapshot-last-inputs)
                   li-before   (when snapshot-li (snapshot-li frame))
+                  ;; rf2-z980k8: snapshot the frame's pending abandoned-output-
+                  ;; paths BEFORE the transform (it DRAINS/clears them and
+                  ;; dissocs them from the pending `:db`). On a POST-commit
+                  ;; rollback `commit-frame-effects!` re-records this snapshot —
+                  ;; the exact mirror of the `last-inputs` snapshot above, for
+                  ;; the boundary `run-flows-on-db`'s own throw arm cannot see.
+                  snapshot-ap (late-bind/get-fn-cached :flows/snapshot-abandoned-paths)
+                  ap-before   (when snapshot-ap (snapshot-ap frame))
                   ;; EP-0001 §535-551 (rf2-4eisfr): hand the flow transform
                   ;; BOTH partitions of the pending frame-state. Bare `:inputs`
                   ;; resolve against `pending-db` (app-db); `[:rf.db/runtime …]`
@@ -1515,7 +1532,12 @@
               ;; commit/rollback boundary, and needs no snapshot.
               (if (or has-db? (not (identical? new-db pending-db)))
                 (cond-> (interceptor/assoc-effect ctx :db new-db)
-                  snapshot-li (assoc :rf/flow-last-inputs-before li-before))
+                  snapshot-li (assoc :rf/flow-last-inputs-before li-before)
+                  ;; rf2-z980k8: stash the pre-drain abandoned-paths snapshot so
+                  ;; a post-commit rollback can re-record the drained-but-not-
+                  ;; durably-vacated path moves. Only when a `:db` is published
+                  ;; (a no-`:db` event hits no commit/rollback boundary).
+                  snapshot-ap (assoc :rf/flow-abandoned-paths-before ap-before))
                 ctx))
             (catch #?(:clj Throwable :cljs :default) e
               ;; Atomicity contract (Spec 013 §Failure semantics, Mike
