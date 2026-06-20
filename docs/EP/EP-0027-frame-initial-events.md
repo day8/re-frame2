@@ -108,6 +108,9 @@ Non-goals:
 ## Specification
 
 This section is proposed normative text. It binds only if the EP is accepted.
+The open issues at the end are graduation blockers unless the operator records
+that a question is intentionally deferred from the first `:initial-events`
+contract.
 
 ### Frame construction keys
 
@@ -123,6 +126,10 @@ Frame construction supports:
 `:initial-db` directly seeds the frame's app-db. `:initial-events` is an
 ordered vector of setup steps dispatched synchronously to the newly created
 frame.
+
+Omitting `:initial-events` and supplying an empty vector both mean "no setup
+events." A bare event vector is not a valid top-level `:initial-events` value;
+one boot event is represented as a one-step script.
 
 One boot event is a one-step script:
 
@@ -165,6 +172,12 @@ the normal cascade/epoch boundary for that event, and records the event in the
 frame's event stream. Child dispatches emitted by a setup event follow the same
 queue/drain semantics as child dispatches emitted by any other event.
 
+Setup steps run in vector order. The next step starts only after the previous
+step's synchronous event cascade has completed. If a step fails, no later setup
+steps run. Effects already committed by earlier successful synchronous steps
+are not rolled back; the cleanup guarantee applies to the partially constructed
+frame registration/lifecycle, not to arbitrary external effects.
+
 If a synchronous setup step fails, construction fails loud. If the frame was
 registered before the failure, the implementation must tear it down or unregister
 it so failed construction does not leave a live half-created frame.
@@ -201,6 +214,10 @@ User-supplied `:frame` inside step opts fails loud. The frame target is implicit
 and is always the frame under construction. This prevents setup scripts from
 accidentally mutating a sibling frame.
 
+The event value must be a non-empty event vector. The `:opts` value must be a
+map. Unknown step-map keys are not part of the public grammar and must fail
+loudly unless a later EP extends the setup step shape.
+
 Per-event opts are ordinary dispatch opts, subject to the accepted dispatch
 grammar. They are still per-cascade data: they do not mutate the frame's
 recorded construction script, resolved image generation, or durable state except
@@ -224,7 +241,7 @@ When `make-frame` is re-evaluated for an existing live frame id under the
 EP-0024 idempotent replacement policy, the new `:initial-events` value is
 recorded as the frame's construction script, but it is not automatically replayed
 into existing app-db. Replaying setup into a live frame can duplicate work and
-should happen only through an explicit reset or explicit event dispatch.
+must happen only through an explicit reset or explicit event dispatch.
 
 Hot reload may update the resolved image generation and the recorded setup
 script. It must not silently replay the setup script into durable state.
@@ -295,7 +312,10 @@ the first explicit segment of the frame's event stream.
 
 ## Backwards Compatibility
 
-re-frame2 is pre-alpha. No compatibility shim is required.
+re-frame2 is pre-alpha. No compatibility shim is required, but this is a
+breaking source migration for any existing examples or callers using
+`:on-create`. Implementations must reject `:on-create` in public frame specs
+rather than allowing two event-based initialization spellings to coexist.
 
 Migration is direct:
 
@@ -344,6 +364,8 @@ Expected implementation slices:
 9. Add conformance tests for construction order, per-event `:rf.cofx`, failure
    cleanup, reset replay, hot reload non-replay, provider creation, and Story
    setup alignment.
+10. Update diagnostics so invalid top-level shapes, bad step maps, user-supplied
+    `:frame` opts, and setup failures identify the setup step index and event.
 
 Guide-impact assessment:
 
@@ -356,12 +378,17 @@ Guide-impact assessment:
 
 ## Open Issues
 
+These issues require recorded dispositions before this standards-track EP can
+graduate. If any answer is deferred, the final EP should narrow the first
+`:initial-events` contract and name the follow-on EP or bead that owns the
+deferred question.
+
 1. **Should the event-script runner be public?** The recommended first step is
    internal or tool-tier. Make it public only if examples, Story, and tests need
    a reusable name outside frame construction.
 
 2. **What should the exact failure value be when a setup step fails?** The
-   contract should fail loud and identify the step index and event. The final
+   contract must fail loud and identify the step index and event. The final
    error id belongs in the implementation bead.
 
 3. **Should setup steps support labels?** A future map shape could allow
