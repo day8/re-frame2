@@ -27,15 +27,15 @@ different substrate.
 
 ## Why this shape
 
-This example is the counter half of the UIx **smoke-test subset** —
+This example is the counter half of the UIx **curated example subset** —
 counter + login — per [Spec 006 §Adapter shipping convention Decision
-7](../../../spec/006-ReactiveSubstrate.md). That pair is the curated
-subset chosen to exercise the substrate contract; inside this tree it
-carries compile coverage only (the runtime substrate-contract smoke is
-the adapter testbed at
+7](../../../spec/006-ReactiveSubstrate.md) ("Curated example set"). That
+pair is the curated subset chosen to exercise the substrate contract;
+inside this tree it carries compile coverage only (the runtime
+substrate-contract smoke is the adapter testbed at
 [`implementation/adapters/uix/testbed/spec.cjs`](../../../implementation/adapters/uix/testbed/spec.cjs)).
 `dashboard_uix` is a documented design-led example alongside it, not part
-of the Decision-7 smoke subset. Pair with
+of the Decision-7 curated example subset. Pair with
 [`examples/reagent/counter/`](../../reagent/counter/) and
 [`examples/helix/counter_helix/`](../../helix/counter_helix/) to see the
 substrate boundary cleanly.
