@@ -36,14 +36,14 @@ That sentence is the whole model. You register the read once:
 (rf/reg-resource :realworld/article
   {:params-schema  [:map [:slug :string]]
    :scope          :rf.scope/global     ;; REQUIRED — an explicit, auditable claim
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get
-                                :url    (str "/api/articles/" slug)}
-                      :decode  :json})
    :stale-after-ms 60000                ;; fresh for a minute; then refetch on next ensure
    :gc-after-ms    (* 5 60 1000)        ;; reclaim after 5 min with no owner
    :tags           (fn [{:keys [slug]} _data]
-                     #{[:article slug] [:article-list]})})
+                     #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get
+               :url    (str "/api/articles/" slug)}
+     :decode  :json}))
 ```
 
 Four keys carry the model. `:params-schema` defines the read's identity, so every variable that changes the server's answer — the slug, the page number, the filter — must live in params. `:scope` declares whose cache this is (next section). `:tags` name the facts the data contains, so a later write can invalidate exactly the reads it broke. And `:stale-after-ms` and `:gc-after-ms` are the freshness and lifetime policy — without them, an entry stays fresh until you explicitly invalidate it.
@@ -89,14 +89,14 @@ The cleanest cause is the page itself, because a page already knows what data it
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
 (rf/reg-route :realworld/article
-  {:path      "/articles/:slug"
-   :params    [:map [:slug :string]]
+  {:params    [:map [:slug :string]]
    :resources [{:resource  :realworld/article
                 :params    (fn [route] {:slug (get-in route [:params :slug])})
                 :blocking? true}
                {:resource  :realworld/comments
                 :params    (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking? false}]})
+                :blocking? false}]}
+  "/articles/:slug")
 ```
 
 On entry, the runtime ensures each resource with the route as its **owner** — the thing keeping the entry alive. On leave, or on a superseding navigation, it releases them. `:blocking? true` holds the route transition until that read settles, which also gives server-side rendering a natural wait point. A non-blocking resource fetches in the background instead. And `:keep-previous? true` on a paginated list keeps the prior page visible while the next one loads, so paging never flashes a skeleton ([Paginate a feed](../how-to/paginate-a-feed.md) is the recipe).
@@ -127,12 +127,12 @@ A genuinely public read declares `:scope :rf.scope/global` — an explicit, audi
 (rf/reg-resource :realworld/feed
   {:params-schema [:map [:page {:optional true} [:maybe :int]]]
    :scope         {:from-db :realworld/session}   ;; whose feed? resolved from app-db
-   :request       (fn [{:keys [page]} _ctx]
-                    {:request {:method :get
-                               :url    "/api/articles/feed"
-                               :params {:limit 10 :offset (* 10 (dec (or page 1)))}}
-                     :decode  :json})
-   :tags          (fn [_params _data] #{[:feed]})})
+   :tags          (fn [_params _data] #{[:feed]})}
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get
+               :url    "/api/articles/feed"
+               :params {:limit 10 :offset (* 10 (dec (or page 1)))}}
+     :decode  :json}))
 ```
 
 The resolver is pure, and its declared `:inputs` are the app-db facts that decide the scope. That buys two structural properties:
@@ -183,9 +183,9 @@ For a dashboard, a build-status badge, a notification count, or a "is this long 
   {:scope            :rf.scope/global
    :params-schema    [:map [:repo :string]]
    :poll-interval-ms 5000          ;; re-read every 5s while actively owned + the tab is visible
-   :request (fn [{:keys [repo]} _ctx]
-              {:request {:method :get :url (str "/repos/" repo "/build")} :decode :json})
-   :tags    (fn [_ _] #{[:build]})})
+   :tags    (fn [_ _] #{[:build]})}
+  (fn [{:keys [repo]} _ctx]
+    {:request {:method :get :url (str "/repos/" repo "/build")} :decode :json}))
 ```
 
 Polling is **owner-driven**: it runs only while the entry has an active owner (a route, a machine, or an app-minted `[:lease …]`) and pauses automatically while the tab is hidden — so it stops the instant nothing is looking at it. A poll tick refetches *unconditionally by the interval* (cause `:poll`, never an owner), coalesces with any in-flight work (a slow endpoint never stacks overlapping requests), and a failed poll keeps the prior data and keeps polling.
@@ -207,15 +207,15 @@ In TanStack Query, keeping reads honest after a write is a call you remember to 
 (rf/reg-mutation :realworld/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :post
-                               :url    (str "/api/articles/" slug "/favorite")}
-                     :decode  :json})
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])})
+                      :tags  #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post
+               :url    (str "/api/articles/" slug "/favorite")}
+     :decode  :json}))
 ```
 
 Entries with live owners refetch; unowned entries are marked stale and refetch when next ensured. Invalidation is **scoped by default**, so a write can't accidentally stale another tenant's cache. The operational details — instance-keyed pending state, `:reply-to` continuations, seeding the cache from the reply — live in [Part 4](../tutorial/04-mutations-and-invalidation.md) and [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md).
@@ -230,10 +230,6 @@ You declare the forward change; the runtime records the inverse for you, so a ro
 (rf/reg-mutation :realworld/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :post
-                               :url    (str "/api/articles/" slug "/favorite")}
-                     :decode  :json})
    ;; Patch every cached entry carrying these tags, in its scope, before the
    ;; request leaves — the detail, every list, and the session feed flip at once.
    :optimistic-tags (fn [{:keys [slug]}]
@@ -245,7 +241,11 @@ You declare the forward change; the runtime records the inverse for you, so a ro
                     {{:resource :realworld/article :params {:slug slug}} result})
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :realworld/session} :tags #{[:feed]}}])})
+                     {:scope {:from-db :realworld/session} :tags #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post
+               :url    (str "/api/articles/" slug "/favorite")}
+     :decode  :json}))
 ```
 
 Two forward forms exist: `:optimistic` patches **exact** cache targets (the twin of `:populates`/`:patches`), and `:optimistic-tags` patches **every** entry carrying a tag in its scope (the twin of tag-addressed `:invalidates`) — the cross-view-consistency case the author can't enumerate by key. Both are exact-key or tag-within-named-scope only, and **fail closed**: a `{:from-db …}` scope that resolves to `nil` drops that target rather than writing globally, so an optimistic write can never leak across viewers.

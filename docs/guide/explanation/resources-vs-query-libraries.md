@@ -75,8 +75,8 @@ re-frame2 makes scope the **first, required segment of the cache key** and refus
 (rf/reg-resource :realworld/feed
   {:params-schema [:map [:page {:optional true} [:maybe :int]]]
    :scope         {:from-db :realworld/session}   ;; REQUIRED — no default
-   :request       (fn [{:keys [page]} _ctx] ...)
-   :tags          (fn [_ _] #{[:feed]})})
+   :tags          (fn [_ _] #{[:feed]})}
+  (fn [{:keys [page]} _ctx] ...))
 ```
 
 - A `reg-resource` with **no** `:scope` is a loud registration error (`:rf.error/resource-missing-scope-policy`) — "I forgot this read is user-scoped" is unrepresentable.
@@ -114,10 +114,10 @@ The cleanest *cause* is the page itself, declared as route metadata:
 
 ```clojure
 (rf/reg-route :realworld/article
-  {:path "/articles/:slug"
-   :resources [{:resource :realworld/article
+  {:resources [{:resource :realworld/article
                 :params   (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking? true}]})
+                :blocking? true}]}
+  "/articles/:slug")
 ```
 
 This is not a missing feature (the data still loads on navigation); it is the inversion that lets SSR get a natural wait point (`:blocking? true`), lets a route own and release the resource deterministically, and keeps views pure. If you find yourself wanting "fetch when this component appears," the re-frame2 answer is "make the route or an event the cause" — see [Routes declare what a page needs](../concepts/server-state.md#routes-declare-what-a-page-needs).
@@ -142,12 +142,12 @@ In TanStack and SWR, keeping reads honest after a write is an imperative call yo
 (rf/reg-mutation :realworld/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx] ...)
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global         ;; global facts
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :realworld/session}  ;; this viewer's feed
-                      :tags  #{[:feed]}}])})
+                      :tags  #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx] ...))
 ```
 
 The fail-closed floor matters: a bare `:rf.resource/invalidate-tags` with no scope is a loud error, not a silent global blast across every tenant. "Invalidate this tag wherever it lives" is possible — `:cross-scope? true` — but it is an *audited* operation that must carry a `:cause` and is a privacy-relevant trace event. See [Writes invalidate by tag — causally](../concepts/server-state.md#writes-invalidate-by-tag--causally) and [Spec 016 §Scoped invalidation descriptors](../../../spec/016-Resources.md#scoped-invalidation-descriptors-per-target).
@@ -165,7 +165,6 @@ A mutation declares an **optimistic plan** applied *before* the request leaves, 
 (rf/reg-mutation :realworld/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx] ...)
    :optimistic-tags (fn [{:keys [slug]}]
                       [{:scope :rf.scope/global
                         :tags  #{[:article slug]}
@@ -174,7 +173,8 @@ A mutation declares an **optimistic plan** applied *before* the request leaves, 
                     {{:resource :realworld/article :params {:slug slug}} result})
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :realworld/session} :tags #{[:feed]}}])})
+                     {:scope {:from-db :realworld/session} :tags #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx] ...))
 ```
 
 Three properties are worth holding onto, because they are where re-frame2 differs from a hand-rolled `onMutate` snapshot:

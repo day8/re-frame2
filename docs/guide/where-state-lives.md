@@ -67,10 +67,10 @@ The cart so far is *local*. The user built it, so it's true by construction. But
 ;; Register once: identity (params), leak boundary (scope), request.
 (rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   :request (fn [{:keys [slug]} _ctx]
-              {:request {:method :get :url (str "/api/articles/" slug)}
-               :decode  :json})})
+   :scope         :rf.scope/global}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
 
 ;; A CAUSE fires the fetch — an event handler's :fx here (declaring it
 ;; on the route is the most common cause of all).
