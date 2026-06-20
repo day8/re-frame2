@@ -36,7 +36,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
    [:loaded-at {:default nil} [:maybe :int]]
    [:attempt   {:default 0}   :int]])
 
-(rf/reg-app-schema [:articles] RequestSlice)
+(rf/reg-app-schema [:articles] {:schema RequestSlice})
 
 (rf/reg-event :articles/load
   (fn [{:keys [db]} _]

@@ -29,8 +29,8 @@ Wire the route to it via `:head` route metadata — **one `:head` per route in v
 
 ```clojure
 (rf/reg-route :route/article
-  {:path "/articles/:id"
-   :head :head/article})
+  {:head :head/article}
+  "/articles/:id")
 ```
 
 Standard head-model keys (per `:rf/head-model` in Spec-Schemas): `:title`, `:meta`, `:link`, `:script`, `:json-ld`, `:html-attrs`, `:body-attrs`. The SSR pipeline emits in canonical order — `<title>` first, then `<meta>` in declaration order, then `<link>`, `<script>`, JSON-LD; `:html-attrs` populate `<html>`, `:body-attrs` populate `<body>`.

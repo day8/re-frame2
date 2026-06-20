@@ -16,7 +16,7 @@ Do **not** load this leaf to learn what routing is — that is training knowledg
 The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing :as routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. The `reg-route` **registration macro** stays on the `re-frame.core` façade (`rf/`); the **URL-codec query helpers** `route-url` / `match-url` (and `current-url` / `clear-route`) live on the owning `re-frame.routing` namespace — they are no longer re-exported from `re-frame.core` (front-porch shrink).
 
 ```clojure
-(rf/reg-route id metadata)                                  ;; metadata keys below
+(rf/reg-route id metadata path)                             ;; path is the 3rd positional arg; metadata keys below
 (routing/route-url route-id path-params)                    ;; pure; build URL from id + params
 (routing/route-url route-id path-params query-params)
 (routing/route-url route-id path-params query-params fragment)  ;; 4-arity adds #fragment
@@ -25,7 +25,7 @@ The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.cor
 
 The 4-arity `route-url` appends the `#fragment` part. A `nil` (or empty-string) fragment is **omitted** from the URL — `route-url` percent-encodes a present fragment, `match-url` decodes it back and normalises absence to `nil`, so the fragment round-trips lawfully (EP-0012 route-prism law). Build fragment links through this arity; do **not** hand-concatenate `(str url "#" frag)`.
 
-Reserved **routing-owned** `metadata` keys on `reg-route` (twelve total, all optional except `:path`): `:doc :path :params :query :query-defaults :query-retain :tags :parent :on-match :on-error :scroll :can-leave`. Bare keys outside this set throw `:rf.error/invalid-route-metadata` at registration — **except** the late-bound cross-feature keys other framework artefacts publish:
+The path is the **third positional arg** to `reg-route` (no longer a `:path` metadata key). Reserved **routing-owned** `metadata` keys on `reg-route` (eleven total, all optional): `:doc :params :query :query-defaults :query-retain :tags :parent :on-match :on-error :scroll :can-leave`. Bare keys outside this set throw `:rf.error/invalid-route-metadata` at registration — **except** the late-bound cross-feature keys other framework artefacts publish:
 
 - `:resources` — owned by the Resources artefact (route-owned server-state; see [`../../patterns/resources.md`](../../patterns/resources.md)). Accepted only when the Resources artefact is loaded.
 - `:head` — owned by SSR (names which head/meta block the route uses).
@@ -68,19 +68,19 @@ Distilled from `examples/reagent/routing/core.cljs`.
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (rf/reg-route :route/home
-  {:doc "Landing." :path "/"})
+  {:doc "Landing."} "/")
 
 (rf/reg-route :route/articles
-  {:doc "Articles list." :path "/articles"})
+  {:doc "Articles list."} "/articles")
 
 (rf/reg-route :route/article-detail
   {:doc "One article."
-   :path "/articles/:id"
    :params [:map [:id :string]]
-   :on-match [[:article/load]]})            ;; runs after every match; sets :transition :loading
+   :on-match [[:article/load]]}            ;; runs after every match; sets :transition :loading
+  "/articles/:id")
 
 (rf/reg-route :rf.route/not-found              ;; canonical fallback id
-  {:doc "404." :path "/_404"})
+  {:doc "404."} "/_404")
 
 ;; Anchor that routes through the framework (not a full page reload).
 ;; `rf/route-link` is the framework-shipped link view — it builds the href via
@@ -121,8 +121,8 @@ A route may declare a leave-guard sub. The sub returns `true` when leaving is OK
 
 ```clojure
 (rf/reg-route :editor/article
-  {:path      "/editor/articles/:id"
-   :can-leave [:editor/can-leave?]})         ;; sub-id; (subscribe [sub-id]) => boolean
+  {:can-leave [:editor/can-leave?]}          ;; sub-id; (subscribe [sub-id]) => boolean
+  "/editor/articles/:id")
 
 (rf/reg-sub :editor/can-leave?
   :<- [:editor/dirty?]
