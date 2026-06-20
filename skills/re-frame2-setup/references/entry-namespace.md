@@ -65,7 +65,7 @@ If you render *without* the provider (or before `reg-frame`), every `subscribe` 
 
 ## Why `rf/init!` exists (and why it's explicit)
 
-re-frame2 splits **the registry** (the handler / sub / fx map) from **the substrate** (Reagent / UIx / Helix / plain atom). Both live in a **realm** (EP-0013) — the container that holds a program's registrar and its installed adapter + capabilities. Single-realm apps never spell a realm: every app boots into the implicit **default realm**, so "process-global registry" is a fair shorthand for the single-realm case, not the underlying model (the registrar is realm-owned; a second realm holds its own). The substrate is supplied at boot via an *adapter map*; `rf/init!` is the moment that adapter map and the runtime capabilities are **seated into the default realm** (it does not create a frame).
+re-frame2 splits **the registry** (the handler / sub / fx map) from **the substrate** (Reagent / UIx / Helix / plain atom). The registry is the process-wide registration source your `reg-*` forms write to; the substrate is supplied at boot via an *adapter map*. `rf/init!` is the moment that adapter map and the runtime capabilities are **installed**, before any frame exists (it does not create a frame). A frame, once registered, resolves registrations through its *image* — the selected registration set it runs (the public model is `image -> frame -> event stream`; see the `re-frame2` skill's `references/fundamentals/frames.md`) — but a single-frame app never spells an image: the ordinary `reg-*` path writes the default registration source and your one frame resolves the default image over it.
 
 Three consequences:
 
