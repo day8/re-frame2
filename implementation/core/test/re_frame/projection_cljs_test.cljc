@@ -22,6 +22,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.projection :as projection]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -324,12 +325,47 @@
 
 (deftest unknown-profile-throws
   (testing "an unknown :rf.egress/profile throws — the enum is closed"
-    (let [data (try (rf/project-egress {} {:rf.egress/profile :rf.egress/bogus})
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
-                      (ex-data e)))]
+    (let [thrown (try (rf/project-egress {} {:rf.egress/profile :rf.egress/bogus})
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))
+          data   (ex-data thrown)
+          msg    (ex-message thrown)]
       (is (= :rf.error/unknown-egress-profile (:rf.error/id data)))
-      (is (= :rf.egress/bogus (:profile data))))))
+      (is (= :rf.egress/bogus (:profile data)))
+      ;; rf2-krrv87: the throw routes through the shared canonical builder, so
+      ;; the message LEADS with a human sentence and TRAILS with the
+      ;; [:rf.error/unknown-egress-profile] greppability token, and the ex-data
+      ;; carries :where / :recovery / :valid.
+      (is (error/message-has-id-token? msg)
+          "the message carries the trailing greppability token (rule 4)")
+      (is (not (error/keyword-only-message? msg))
+          "the message is a human sentence, not a bare keyword (rule 1)")
+      (is (= 'rf/project-egress (:where data))
+          ":where names the in-file boundary helper")
+      (is (= :use-a-known-profile (:recovery data)))
+      (is (= projection/profiles (:valid data))
+          "the closed valid-profile enum rides in ex-data"))))
+
+(deftest unknown-egress-profile-ex-shared-across-call-sites
+  (testing "rf2-krrv87: the shared `unknown-egress-profile-ex` builder yields an
+            IDENTICAL canonical shape from both closed-enum guards — the only
+            difference is the per-site :where symbol (the in-file
+            `resolve-elision-opts` guard vs the epoch
+            `resolve-egress-profile` guard). The duplicated hand-rolled
+            ex-info that could silently drift is gone."
+    (let [a    (projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
+          b    (projection/unknown-egress-profile-ex 'epoch/projected-record :rf.egress/bogus)
+          da   (ex-data a)
+          db   (ex-data b)]
+      ;; message + every ex-data slot EXCEPT :where are identical across sites
+      (is (= (ex-message a) (ex-message b))
+          "the human message + token are byte-identical across call sites")
+      (is (= (dissoc da :where) (dissoc db :where))
+          "every ex-data slot but :where is identical")
+      (is (= 'rf/project-egress (:where da)))
+      (is (= 'epoch/projected-record (:where db)))
+      (is (= :rf.error/unknown-egress-profile (:rf.error/id da) (:rf.error/id db)))
+      (is (error/message-has-id-token? (ex-message a))))))
 
 (deftest fails-closed-with-no-frame
   (testing "no known frame + no opt-out → the delegated walker fails closed"

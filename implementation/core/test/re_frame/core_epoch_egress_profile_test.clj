@@ -21,7 +21,9 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.frame-classification :as frame-class]
+            [re-frame.projection :as projection]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             ;; Side-effect requires: loading the epoch artefact publishes the
@@ -110,13 +112,35 @@
     (rf/reg-frame :ep/main {})
     (rf/reg-event :store (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (rf/dispatch-sync [:store 1] {:frame :ep/main})
-    (let [raw (last-record :ep/main)
-          ex  (try (rf/projected-record raw {:rf.egress/profile :rf.egress/not-real})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
+    (let [raw  (last-record :ep/main)
+          ex   (try (rf/projected-record raw {:rf.egress/profile :rf.egress/not-real})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data ex)
+          msg  (ex-message ex)]
       (is (some? ex) "an unknown profile throws through the wrapper")
-      (is (= :rf.error/unknown-egress-profile (:rf.error/id (ex-data ex)))
-          "the throw carries the closed-enum rejection id"))))
+      (is (= :rf.error/unknown-egress-profile (:rf.error/id data))
+          "the throw carries the closed-enum rejection id")
+      ;; rf2-krrv87: the epoch-boundary guard routes through the SAME shared
+      ;; `re-frame.projection/unknown-egress-profile-ex` builder as the in-file
+      ;; guard, so the message carries the [:rf.error/unknown-egress-profile]
+      ;; greppability token and the canonical :where / :recovery slots — only
+      ;; :where differs (it names the epoch boundary helper).
+      (is (error/message-has-id-token? msg)
+          "the message carries the trailing greppability token (rule 4)")
+      (is (not (error/keyword-only-message? msg))
+          "the message is a human sentence, not a bare keyword (rule 1)")
+      (is (= 'epoch/projected-record (:where data))
+          ":where names the epoch boundary helper")
+      (is (= :use-a-known-profile (:recovery data)))
+      ;; The epoch site's thrown shape is IDENTICAL (but for :where) to the
+      ;; shared builder's — proving the dedup: one reason, two call sites.
+      (let [canonical (projection/unknown-egress-profile-ex
+                        'epoch/projected-record :rf.egress/not-real)]
+        (is (= (ex-message canonical) msg)
+            "the epoch throw's message == the shared builder's")
+        (is (= (ex-data canonical) data)
+            "the epoch throw's ex-data == the shared builder's")))))
 
 (deftest core-projected-history-threads-egress-profile
   (testing "rf2-ylvp4m — `rf/projected-history` threads the named

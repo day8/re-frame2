@@ -74,6 +74,7 @@
   owner under EP-0015). Sentinels the registration pass writes survive the
   subsequent frame-policy walk (a redacted leaf is inert)."
   (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -94,6 +95,31 @@
     :rf.egress/local-raw
     :rf.egress/ssr-hydration
     :rf.egress/public-error})
+
+(defn unknown-egress-profile-ex
+  "Build the canonical `:rf.error/unknown-egress-profile` thrown-error
+  (Spec 009 §The thrown-error shape) for a `:rf.egress/profile` value
+  outside the closed `profiles` enum. ONE source of truth for BOTH closed-
+  enum guards — the in-file `resolve-elision-opts` guard
+  (`:where 'rf/project-egress`) and the epoch boundary guard
+  (`re-frame.epoch.tool-pair/resolve-egress-profile`,
+  `:where 'epoch/projected-record`) — so the human sentence + the
+  `[:rf.error/unknown-egress-profile]` token never drift between the two
+  sites (rf2-krrv87). Each caller passes its own `where-sym`; the bad
+  `profile` value + the valid `profiles` enum land in ex-data. Routes
+  through `error/thrown-ex-info`, so the message LEADS with the human
+  sentence and TRAILS with the greppability token. Returns the `ex-info`;
+  the caller throws."
+  [where-sym profile]
+  (error/thrown-ex-info
+    :rf.error/unknown-egress-profile
+    where-sym
+    (str "unknown :rf.egress/profile " profile
+         " — the egress profile enum is closed; pass one of "
+         (pr-str profiles) ".")
+    {:recovery :use-a-known-profile
+     :extra    {:profile profile
+                :valid   profiles}}))
 
 (def ^:private profile->size-opts
   "Resolve each profile to its default `:rf.size/*` opt-set (the §10
@@ -192,12 +218,7 @@
             (merge explicit)))
 
       :else
-      (throw (ex-info (str "unknown :rf.egress/profile " profile)
-                      {:rf.error/id :rf.error/unknown-egress-profile
-                       :where       'rf/project-egress
-                       :recovery    :use-a-known-profile
-                       :profile     profile
-                       :valid       profiles})))))
+      (throw (unknown-egress-profile-ex 'rf/project-egress profile)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-record-kind slot classification (EP-0015 §11) — PRIVATE.

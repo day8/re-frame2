@@ -17,6 +17,7 @@
   (:refer-clojure :exclude [])
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
+            [re-frame.error :as error]
             [re-frame.identity :as identity]
             [re-frame.path :as path]))
 
@@ -491,3 +492,42 @@
            (try (identity/canonical-bytes 9007199254740992) nil
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
                   (:rf.error/id (ex-data e))))))))
+
+;; ---- thrown-error shape conformance for bad-path! (rf2-krrv87) ------------
+;;
+;; `bad-path!` routes through `error/throw-error!` rather than hand-rolling
+;; the ex-info, so its message LEADS with the human sentence and TRAILS with
+;; the `[:rf.error/bad-path]` greppability token (Spec 009 §The thrown-error
+;; shape, rules 1+4) and its ex-data carries the canonical `:where` /
+;; `:recovery` slots. A bare-keyword message (the retired shape) regressing
+;; back in would fail these.
+
+(deftest bad-path-thrown-error-shape
+  (testing "a nil path throw carries the canonical thrown-error shape"
+    (let [thrown (try (path/normalize nil) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e e))
+          msg    (ex-message thrown)
+          data   (ex-data thrown)]
+      (is (some? thrown) "a nil path throws")
+      (is (= :rf.error/bad-path (:rf.error/id data))
+          ":rf.error/id is the machine discriminator")
+      (is (error/message-has-id-token? msg)
+          "the message carries the trailing [:rf.error/bad-path] token (rule 4)")
+      (is (not (error/keyword-only-message? msg))
+          "the message is a human sentence, NOT a bare keyword (rule 1)")
+      (is (= 'rf.path/normalize (:where data))
+          ":where names the throwing helper")
+      (is (= :fix-path (:recovery data))
+          ":recovery carries the canonical disposition")
+      (is (= nil (:bad-path data))
+          "the offending slot rides in ex-data")))
+  (testing "a non-sequential path throw is equally conformant"
+    (let [thrown (try (path/normalize 42) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e e))
+          data   (ex-data thrown)]
+      (is (error/message-has-id-token? (ex-message thrown)))
+      (is (= :rf.error/bad-path (:rf.error/id data)))
+      (is (= :fix-path (:recovery data)))
+      (is (= 42 (:bad-path data))))))
