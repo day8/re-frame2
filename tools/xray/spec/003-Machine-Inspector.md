@@ -978,12 +978,12 @@ shape carries no value-redaction concern.
 > **machines-viz chart defends the live-value path independently
 > (rf2-27e38h · EP-0015).** Xray feeds the value-free SHAPE, but the
 > machines-viz `MachineChart` contract also accepts **live `:data`
-> values** (`:machine-data-inferred? false`), and that band is serialised
+> values** (`:context-band-inferred? false`), and that band is serialised
 > into the chart's SVG/PNG/clipboard export. The chart therefore applies
 > a **local-redacted projection to the Context band by default**, keyed
-> on host-declared `:machine-data-sensitive` / `:machine-data-large`
+> on host-declared `:context-band-sensitive` / `:context-band-large`
 > sets (derived from the machine's `:data-schema` slot props) with an
-> explicit `:machine-data-raw?` trusted-local opt-in — see
+> explicit `:context-band-raw?` trusted-local opt-in — see
 > [machines-viz API §Context-band egress contract](../../machines-viz/spec/API.md#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015).
 > Xray's value-free type-caption shape is a redaction no-op, so this
 > does not change the Machine Inspector surface.

@@ -641,7 +641,7 @@
 (deftest sim-chart-forwards-inferred-context-shape-to-canvas
   (testing "rf2-eao0s0 — an inferred (:data, no schema) machine: the Static
             Sim chart hands the canvas the {key → type-caption} shape with
-            :machine-data-inferred? TRUE (the inferred-from-:data badge)."
+            :context-band-inferred? TRUE (the inferred-from-:data badge)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -651,15 +651,15 @@
                          {:machine-id :auth/login
                           :definition inferred-fixture-definition}])
       (let [props (sim-chart-props inferred-fixture-definition)]
-        (is (= {:counter "number" :label "string"} (:machine-data props))
-            "the static context SHAPE reaches the chart's :machine-data")
-        (is (true? (:machine-data-inferred? props))
-            "inferred sample → :machine-data-inferred? TRUE reaches the chart")))))
+        (is (= {:counter "number" :label "string"} (:context-band props))
+            "the static context SHAPE reaches the chart's :context-band")
+        (is (true? (:context-band-inferred? props))
+            "inferred sample → :context-band-inferred? TRUE reaches the chart")))))
 
 (deftest sim-chart-forwards-declared-context-shape-to-canvas
   (testing "rf2-eao0s0 — a declared (:data-schema) machine: the Static Sim
             chart hands the canvas the AUTHORITATIVE schema shape with
-            :machine-data-inferred? FALSE (badge dropped)."
+            :context-band-inferred? FALSE (badge dropped)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -669,10 +669,10 @@
                          {:machine-id :auth/login
                           :definition declared-fixture-definition}])
       (let [props (sim-chart-props declared-fixture-definition)]
-        (is (= {:counter "number" :label "string"} (:machine-data props))
-            "the declared schema SHAPE reaches the chart's :machine-data")
-        (is (false? (:machine-data-inferred? props))
-            "declared schema → :machine-data-inferred? FALSE reaches the chart")))))
+        (is (= {:counter "number" :label "string"} (:context-band props))
+            "the declared schema SHAPE reaches the chart's :context-band")
+        (is (false? (:context-band-inferred? props))
+            "declared schema → :context-band-inferred? FALSE reaches the chart")))))
 
 (deftest sim-body-renders-chart-and-rail-panes
   (testing "rf2-u422r — the sim body is a two-pane split: the on-chart sim

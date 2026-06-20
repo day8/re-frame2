@@ -566,7 +566,7 @@
 (deftest chart-renders-root-container-context-band-from-static-shape
   (testing "rf2-q129z8 — when a machine declares `:data`, the chart paints
             the Context BAND inside the ROOT-CONTAINER frame header from the
-            supplied `:machine-data` (the static context shape the Xray
+            supplied `:context-band` (the static context shape the Xray
             topology path derives). This replaces the old corner-pinned
             Context panel — the Context now rides INSIDE the frame that hugs
             the topology."
@@ -574,7 +574,7 @@
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition machine-level-on-machine
-         :machine-data {:hits "number" :seen "vector"}}
+         :context-band {:hits "number" :seen "vector"}}
         (fn [_root node]
           (let [band (.querySelector node
                        "[data-testid^=\"rf-mv-chart-root-container-context-\"]")]
@@ -592,7 +592,7 @@
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition machine-level-on-machine
-         :machine-data {:hits "number" :seen "vector"}}
+         :context-band {:hits "number" :seen "vector"}}
         (fn [_root node]
           (let [badge (.querySelector node
                         "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]")]
@@ -602,33 +602,33 @@
 
 (deftest chart-context-band-suppresses-inferred-badge-when-live
   (testing "rf2-q129z8 / rf2-5tz9p — a host feeding LIVE :data values passes
-            `:machine-data-inferred? false`; the inferred badge is then
+            `:context-band-inferred? false`; the inferred badge is then
             omitted (the band still renders the values)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition machine-level-on-machine
-         :machine-data {:hits 3 :seen [:a :b]}
-         :machine-data-inferred? false}
+         :context-band {:hits 3 :seen [:a :b]}
+         :context-band-inferred? false}
         (fn [_root node]
           (is (some? (.querySelector node
                        "[data-testid^=\"rf-mv-chart-root-container-context-\"]"))
               "the Context band still renders for live values")
           (is (nil? (.querySelector node
                       "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]"))
-              "no inferred badge when machine-data-inferred? is false"))))))
+              "no inferred badge when context-band-inferred? is false"))))))
 
 (deftest chart-context-band-shows-declared-badge-when-authoritative
   (testing "rf2-3q4k5b (EP-0005) — a host feeding a DECLARED context shape
-            (off a machine's `:data-schema`) passes `:machine-data-inferred?
+            (off a machine's `:data-schema`) passes `:context-band-inferred?
             false`; the chart then drops the `inferred from :data` badge and
             shows a positive `declared` badge marking the shape AUTHORITATIVE."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition machine-level-on-machine
-         :machine-data {:hits "number" :seen "vector"}
-         :machine-data-inferred? false}
+         :context-band {:hits "number" :seen "vector"}
+         :context-band-inferred? false}
         (fn [_root node]
           (is (nil? (.querySelector node
                       "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]"))
@@ -674,7 +674,7 @@
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition context-rich-machine
-         :machine-data {:hits "number" :seen "vector" :note "string"}}
+         :context-band {:hits "number" :seen "vector" :note "string"}}
         (fn [_root node]
           (let [frame  (.querySelector node "[data-root-container=\"true\"]")
                 header (.querySelector node
@@ -713,7 +713,7 @@
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/ctx :definition context-rich-machine
-         :machine-data {:hits "number" :seen "vector" :note "string"}}
+         :context-band {:hits "number" :seen "vector" :note "string"}}
         (fn [_root node]
           (let [header (.querySelector node
                          "[data-testid^=\"rf-mv-chart-root-container-header-\"]")

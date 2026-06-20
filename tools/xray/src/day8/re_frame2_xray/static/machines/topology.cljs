@@ -126,8 +126,8 @@
        ;; Context band renders without a live snapshot (the Dynamic
        ;; topology + focused-event charts already do this). Shape +
        ;; provenance come from the shared machines-viz-backed helpers.
-       :machine-data           (topology-view/static-context-shape definition)
-       :machine-data-inferred? (topology-view/static-context-inferred? definition)
+       :context-band           (topology-view/static-context-shape definition)
+       :context-band-inferred? (topology-view/static-context-inferred? definition)
        :show-after-rings?      false
        ;; rf2-6tw7t — fit-on-entry nonce so entering the Static Machines
        ;; tab re-frames the topology (xyflow's one-shot `:fitView` +

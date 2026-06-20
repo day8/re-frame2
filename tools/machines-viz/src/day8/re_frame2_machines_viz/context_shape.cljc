@@ -2,7 +2,7 @@
   "Pure derivation of a machine's static Context SHAPE — the
   `{key → type-caption}` map the chart's root Context band renders so the
   operator sees the machine's `:data` keys + their type shape even with no
-  live snapshot in hand (`chart.cljs` `:machine-data`).
+  live snapshot in hand (`chart.cljs` `:context-band`).
 
   ## Declared over inferred (rf2-3q4k5b · EP-0005)
 
@@ -20,8 +20,8 @@
        `inferred from :data` because a partial initial `:data` can mislead.
 
   `static-context-shape` returns `{:shape {k caption} :inferred? bool}` — the
-  shape plus the flag the host threads into the chart's `:machine-data` +
-  `:machine-data-inferred?` props. Returns nil when the machine declares
+  shape plus the flag the host threads into the chart's `:context-band` +
+  `:context-band-inferred?` props. Returns nil when the machine declares
   neither a `:data-schema` nor a map `:data`, so the panel stays hidden.
 
   ## Dependency-free, JVM-portable

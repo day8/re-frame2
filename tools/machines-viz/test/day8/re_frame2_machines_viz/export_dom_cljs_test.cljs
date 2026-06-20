@@ -417,7 +417,7 @@
 ;; ---- 5. EP-0015 — live Context band redacts before export (rf2-27e38h) --
 
 (deftest svg-export-redacts-sensitive-live-context
-  (testing "rf2-27e38h — chart-as-svg of a chart fed LIVE :machine-data with
+  (testing "rf2-27e38h — chart-as-svg of a chart fed LIVE :context-band with
             a schema-marked sensitive slot does NOT carry the raw secret in
             the serialised SVG (the band is local-redacted by default); the
             :rf/redacted sentinel appears instead and a non-sensitive slot
@@ -430,9 +430,9 @@
            :current-state :loading
            ;; A host feeding LIVE values (inferred? false) declares which
            ;; slots are sensitive (derived from the machine's :data-schema).
-           :machine-data {:card secret :count 7}
-           :machine-data-inferred? false
-           :machine-data-sensitive #{:card}}
+           :context-band {:card secret :count 7}
+           :context-band-inferred? false
+           :context-band-sensitive #{:card}}
           (fn [node]
             (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
               (is (string? svg))
@@ -444,7 +444,7 @@
                   "the non-sensitive :count slot still renders"))))))))
 
 (deftest svg-export-passes-live-context-when-raw-opted-in
-  (testing "rf2-27e38h — :machine-data-raw? true is the explicit
+  (testing "rf2-27e38h — :context-band-raw? true is the explicit
             trusted-local opt-in: the raw value IS serialised (local-raw)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
@@ -452,10 +452,10 @@
         (with-mounted-chart
           {:machine-id :test/flow :definition idle-loading-done
            :current-state :loading
-           :machine-data {:dbg value}
-           :machine-data-inferred? false
-           :machine-data-sensitive #{:dbg}   ;; would redact by default…
-           :machine-data-raw? true}           ;; …but raw opt-in overrides
+           :context-band {:dbg value}
+           :context-band-inferred? false
+           :context-band-sensitive #{:dbg}   ;; would redact by default…
+           :context-band-raw? true}           ;; …but raw opt-in overrides
           (fn [node]
             (let [svg (export/chart-as-svg (chart-root-of node "rf-mv-chart"))]
               (is (str/includes? svg value)

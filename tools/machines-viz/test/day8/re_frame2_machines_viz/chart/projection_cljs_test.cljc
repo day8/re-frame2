@@ -1465,7 +1465,7 @@
 ;; non-trivial context the first child laid out at the reserved content edge
 ;; sat UNDER the painted band. The fix adds `context-band-height` (derived
 ;; from the row count + the density divider) to the FRAME's TOP padding,
-;; threaded from `:machine-data`'s row count.
+;; threaded from `:context-band`'s row count.
 
 (defn- elk-padding-top
   "rf2-8z1rca — parse the `top=` integer out of an `elk.padding` string

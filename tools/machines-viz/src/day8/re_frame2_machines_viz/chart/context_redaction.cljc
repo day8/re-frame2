@@ -5,10 +5,10 @@
   ## Why this exists
 
   The Context band paints a `(key, value)` map the host feeds as
-  `:machine-data`. The SOLE production feeder today is the static context
+  `:context-band`. The SOLE production feeder today is the static context
   SHAPE (key → type-caption — value-free; see `context-shape`). But the
   contract also lets a host feed the LIVE machine `:data` VALUES
-  (`:machine-data-inferred? false`). Those values land in the rendered
+  (`:context-band-inferred? false`). Those values land in the rendered
   DOM (`chart.nodes/root-container-node`), and the SVG / PNG / clipboard
   exporters serialise that DOM (`export/chart-as-svg` clones the live
   `.react-flow__viewport`). So a host that feeds live `:data` carrying a
@@ -168,11 +168,11 @@
   `{:sensitive #{k} :large #{k} :large-char-cap N?}`. Order-preserving.
 
   Returns the redacted map; `nil` / empty in → `nil` out (band hidden)."
-  [machine-data classification]
-  (when (seq machine-data)
-    (into (empty machine-data)
+  [context-band classification]
+  (when (seq context-band)
+    (into (empty context-band)
           (map (fn [[k v]] [k (redact-value k v classification)]))
-          machine-data)))
+          context-band)))
 
 ;; ---------------------------------------------------------------------------
 ;; Display rendering — what the band paints for a (possibly redacted) value

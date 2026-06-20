@@ -684,11 +684,11 @@
   "True iff `m` is the `MachineChart` props map. `reg-view` wraps the
   component as a MetaFn, so the rendered head is NOT the bare
   `mv-chart/MachineChart` var — match by the props SHAPE instead (the
-  unique `:machine-data-inferred?` + `:definition` + `:machine-id`
+  unique `:context-band-inferred?` + `:definition` + `:machine-id`
   triple the canvas threads only into the MachineChart mount)."
   [m]
   (and (map? m)
-       (contains? m :machine-data-inferred?)
+       (contains? m :context-band-inferred?)
        (contains? m :definition)
        (contains? m :machine-id)))
 
@@ -722,7 +722,7 @@
             `:data-schema`, the focused-event chart's Context band shows
             the AUTHORITATIVE declared shape (off the schema's :map
             entries, NOT the misleading `:data` sample) and
-            `:machine-data-inferred?` reaches the chart FALSE (so the
+            `:context-band-inferred?` reaches the chart FALSE (so the
             `inferred from :data` badge drops + `declared` shows)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -741,18 +741,18 @@
             props (find-machine-chart-props tree)]
         (is (some? props) "the focused-event chart mounts MachineChart")
         (is (= {:retries "number" :token "string?"}
-               (:machine-data props))
+               (:context-band props))
             "the Context shape is the AUTHORITATIVE declared schema shape,
              not the one-sample inference")
-        (is (false? (:machine-data-inferred? props))
-            "declared schema → :machine-data-inferred? false reaches the
+        (is (false? (:context-band-inferred? props))
+            "declared schema → :context-band-inferred? false reaches the
              chart (the `inferred from :data` badge drops, `declared`
              shows — consistent with the Static Topology view)")))))
 
 (deftest focused-event-chart-infers-shape-when-no-schema-rf2-kq8nac
   (testing "rf2-kq8nac (EP-0005): absent a `:data-schema` the focused-event
             chart falls back to the one-sample inference and
-            `:machine-data-inferred?` reaches the chart TRUE (rf2-5tz9p's
+            `:context-band-inferred?` reaches the chart TRUE (rf2-5tz9p's
             `inferred from :data` badge stays)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -773,10 +773,10 @@
       (let [tree  (machine-inspector/Panel)
             props (find-machine-chart-props tree)]
         (is (some? props))
-        (is (= {:hits "number" :trail "vector"} (:machine-data props))
+        (is (= {:hits "number" :trail "vector"} (:context-band props))
             "no schema → shape inferred from one sample of initial :data")
-        (is (true? (:machine-data-inferred? props))
-            "no schema → :machine-data-inferred? true (badge stays)")))))
+        (is (true? (:context-band-inferred? props))
+            "no schema → :context-band-inferred? true (badge stays)")))))
 
 ;; ---- (4d) live `:data` view renders redacted (rf2-kq8nac · EP-0005) ------
 ;;

@@ -118,7 +118,7 @@
 (deftest topology-threads-inferred-flag-to-chart
   (testing "rf2-3q4k5b (EP-0005) — the `Topology` mount forwards the
             declared-over-inferred provenance to `machine-canvas/Chart`'s
-            `:machine-data-inferred?` prop: false for a declared schema, true
+            `:context-band-inferred?` prop: false for a declared schema, true
             for an inferred sample."
     (let [declared-def {:initial     :anon
                         :data-schema [:map [:retries :int]]
@@ -130,10 +130,10 @@
                            (tv/Topology {:machine-id :m :definition declared-def}))
           inferred-props (find-chart-props
                            (tv/Topology {:machine-id :m :definition inferred-def}))]
-      (is (false? (:machine-data-inferred? declared-props))
-          "declared schema → :machine-data-inferred? false reaches the chart")
-      (is (true? (:machine-data-inferred? inferred-props))
-          "inferred sample → :machine-data-inferred? true reaches the chart"))))
+      (is (false? (:context-band-inferred? declared-props))
+          "declared schema → :context-band-inferred? false reaches the chart")
+      (is (true? (:context-band-inferred? inferred-props))
+          "inferred sample → :context-band-inferred? true reaches the chart"))))
 
 ;; ---- Topology → Chart fired-edge prop boundary (rf2-xf5on) --------------
 
