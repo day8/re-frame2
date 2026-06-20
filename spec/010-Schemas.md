@@ -73,18 +73,18 @@ Concretely:
 - A user-registered app schema whose path's **first segment** reaches into runtime-db (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the retired legacy `:rf/runtime` root) is a **category error**, not a warnable misuse, and is **hard-rejected at registration** with `:rf.error/app-schema-runtime-path` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). `reg-app-schema` validates only app-db (`(get-in app-db path)`), so a runtime path either detonates every dev commit (a normal `[:map …]` schema over the `nil` app-db slot) or silently installs a validator the author falsely believes guards runtime-db — there is no behaviour to soft-land, and no legitimate caller. `reg-app-schemas` rejects the whole batch atomically before any entry lands; the migration agent flags it. **Warn-vs-reject principle:** warn-and-proceed belongs on shared surfaces where misuse still executes as the caller intends (the `:rf.db/runtime` *effect* seam, whose warning teaches legitimate users); hard-reject belongs on category errors where the API cannot do what the caller intends and no legitimate caller exists — this is the latter. `reg-runtime-schema` is the correct surface for validating runtime-db state.
 - The framework registers a separate **runtime-db** validator (`reg-runtime-schema` — `:rf/runtime-db`, per [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db)) over the runtime-db partition. That is a framework-owned validator, NOT an application-owned app schema. The old "`reg-app-schema [:rf/runtime]`" registration is gone — runtime-db is validated as a partition, not as an app-db slice.
 - Because app-db now holds nothing but app data, `(rf/app-schema)` describes a **pure application contract** an AI agent can read without framework noise — the AI-legibility payoff of the partition (per [Principles.md](Principles.md)).
-- The whole-`app-db` root schema `(rf/reg-app-schema [] …)` validates the whole **app-db partition** — never frame-state, never runtime-db.
+- The whole-`app-db` root schema `(rf/reg-app-schema [] {:schema …})` validates the whole **app-db partition** — never frame-state, never runtime-db.
 
 The validation timing, rollback, and per-step recovery rules below apply unchanged; they operate over the app-db partition.
 
 ### `app-db` schemas — path-based
 
-Rather than one giant schema for the whole `app-db`, schemas are registered **at paths**:
+Rather than one giant schema for the whole `app-db`, schemas are registered **at paths**. The schema rides under `:schema` in the metadata map (rf2-wvh95f F2 — `:schema`-in-metadata, uniform with every other `reg-*` surface; the path is the registration id):
 
 ```clojure
-(rf/reg-app-schema [:user]   UserSchema)
-(rf/reg-app-schema [:todos]  TodosSchema)
-(rf/reg-app-schema [:auth]   AuthSchema)
+(rf/reg-app-schema [:user]   {:schema UserSchema})
+(rf/reg-app-schema [:todos]  {:schema TodosSchema})
+(rf/reg-app-schema [:auth]   {:schema AuthSchema})
 ```
 
 This fits re-frame's grain — code already accesses `app-db` via paths; schemas are similarly path-anchored. Composable. Hot-reload-friendly per slice. Tooling and agents can ask "what's the schema at path P?" and get a precise local answer.
@@ -119,7 +119,7 @@ The singular `reg-app-schema` remains available — use it when a feature spans 
 The empty path `[]` means "the whole `app-db`" — same convention as `get-in`/`assoc-in`. Use it to register a root schema:
 
 ```clojure
-(rf/reg-app-schema [] WholeAppDbSchema)
+(rf/reg-app-schema [] {:schema WholeAppDbSchema})
 ```
 
 The root schema validates against the entire `app-db` after every handler. It composes with sub-path schemas: both validate; either failing reports a violation.
@@ -318,7 +318,7 @@ The `:large?` flag may live in two structural positions inside the schema:
 
 2. **Container-level props** — the schema's own properties map when the schema is registered at the path directly:
    ```clojure
-   (rf/reg-app-schema [:user :uploaded-pdf] [:string {:large? true}])
+   (rf/reg-app-schema [:user :uploaded-pdf] {:schema [:string {:large? true}]})
    ```
    Path is the `reg-app-schema` path itself.
 
@@ -361,7 +361,7 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 
 ;; (b) container-level — the schema's own props when the schema is
 ;;     registered at the path directly
-(rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+(rf/reg-app-schema [:auth :token] {:schema [:string {:sensitive? true}]})
 ;; ⇒ [:auth :token] sensitive
 ```
 
@@ -384,7 +384,7 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 ```clojure
 ;; Failing app-db at a sensitive slot:
 (rf/reg-app-schema [:auth]
-  [:map [:token {:sensitive? true} :string]])
+  {:schema [:map [:token {:sensitive? true} :string]]})
 
 (rf/dispatch [:auth/init-bad])   ;; commits {:auth {:token 42}} — int, not string
 
@@ -421,15 +421,16 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 `reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id`; without one they resolve the carried active frame and raise `:rf.error/no-frame-context` outside any established scope (EP-0002).
 
-**Frame TARGETS, not just keyword ids (EP-0024, rf2-7pllal).** Wherever a schema surface names a frame — the `frame-id` / `{:frame …}` arg of `app-schemas` / `app-schema-at` / `app-schema-meta-at` / `app-schemas-digest` and the `opts` `:frame` of `reg-app-schema` / `reg-app-schemas` — the target is a **frame-id keyword OR a frame value** (`rf/make-frame`'s return token), the same target shapes the registrar query API accepts. A frame value is normalized to its frame id (its routing address) before it keys the per-frame schema store, so a schema registered against a frame value is found by a later read-by-id (and vice versa); a bare frame value passed as the opts argument routes to **its own** frame, never the ambient one. An explicit `:frame` resolving to a non-keyword target (a string, a non-frame map, a vector) **fails loud** with `:rf.error/bad-app-schemas-arg` rather than silently becoming an unreachable registry key (no silent swallow).
+**Frame TARGETS, not just keyword ids (EP-0024, rf2-7pllal).** Wherever a schema surface names a frame — the `frame-id` / `{:frame …}` arg of `app-schemas` / `app-schema-at` / `app-schema-meta-at` / `app-schemas-digest`, the `:frame` key of `reg-app-schema`'s metadata map (rf2-wvh95f F2 — `:schema` and `:frame` ride the one metadata map), and the `opts` `:frame` of `reg-app-schemas` — the target is a **frame-id keyword OR a frame value** (`rf/make-frame`'s return token), the same target shapes the registrar query API accepts. A frame value is normalized to its frame id (its routing address) before it keys the per-frame schema store, so a schema registered against a frame value is found by a later read-by-id (and vice versa); a bare frame value passed as the opts argument routes to **its own** frame, never the ambient one. An explicit `:frame` resolving to a non-keyword target (a string, a non-frame map, a vector) **fails loud** with `:rf.error/bad-app-schemas-arg` rather than silently becoming an unreachable registry key (no silent swallow).
 
 ```clojure
 ;; Registers against the carried active frame; raises outside any frame scope.
-(rf/reg-app-schema [:user] UserSchema)
+(rf/reg-app-schema [:user] {:schema UserSchema})
 
-;; Registers explicitly against a named frame.
+;; Registers explicitly against a named frame (the :frame target rides in the
+;; metadata map; the with-frame scope also resolves it).
 (rf/with-frame :story.auth.login-form/empty
-  (rf/reg-app-schema [:user] StoryUserSchema))
+  (rf/reg-app-schema [:user] {:schema StoryUserSchema}))
 
 ;; Public query API takes an optional frame-id.
 (rf/app-schema-at [:user])                                ;; → schema in the active frame
@@ -489,8 +490,8 @@ The **boot-once invariant** makes this memo safe without eviction: **app schemas
 **Test vector.** A frame with two registrations:
 
 ```clojure
-(rf/reg-app-schema [:user]   [:map [:id :uuid]])
-(rf/reg-app-schema [:todos]  [:vector :string])
+(rf/reg-app-schema [:user]   {:schema [:map [:id :uuid]]})
+(rf/reg-app-schema [:todos]  {:schema [:vector :string]})
 ```
 
 After the procedure above (using the CLJS reference's `pr-str` serialisation for Malli forms; a port substituting a different validator will produce a different digest for the same `{path → schema-value}` map iff its `schema-print` produces different bytes — that's the intended cross-port distinction), the digest is deterministic. Conformance fixtures pin a small number of schema sets to expected digest values so port implementations can self-check their digest pipeline.
@@ -655,7 +656,7 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
 ;; Schemas attach as usual — they're inert data the framework still
 ;; surfaces via app-schemas / app-schemas-digest, but no validate
 ;; call ever runs against them.
-(rf/reg-app-schema [:user] [:map [:id :uuid]])
+(rf/reg-app-schema [:user] {:schema [:map [:id :uuid]]})
 (rf/reg-event :auth/login
   {:schema [:cat [:= :auth/login] [:map [:email :string]]]}
   ...)
@@ -744,7 +745,7 @@ Most schema libraries ship generators that produce values matching a schema (Mal
 
 ### Schema versioning (post-v1)
 
-Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1.
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] {:schema UserSchema :version 3})`) for schema-aware migration tooling is post-v1.
 
 #### Post-v1 Tracking
 
