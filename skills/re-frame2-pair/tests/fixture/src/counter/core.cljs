@@ -29,7 +29,7 @@
 (rf/reg-event :counter/dec
  (fn [{:keys [db]} _event] {:db (update db :count dec)}))
 
-;; EP-0017 reproducible-coeffects fixture (rf2-jyxmtq). Declares
+;; Reproducible-coeffects fixture. Declares
 ;; `:rf.cofx/requires [:rf/time-ms]` so its `handler-meta` surfaces the
 ;; authored declaration, and folds the recorded wall-clock fact (read FLAT as
 ;; `time-ms`) into durable state under `:stamped-at`. The MCP conformance
@@ -70,9 +70,9 @@
  ;; Spec 006 §Source-coord annotation) — re-frame2 stamps registered-view roots
  ;; with data-rf2-source-coord, so re-frame2-pair's DOM bridge has something to
  ;; find with no configure! call needed.
- ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
- ;; absence — `:rf/default` is this fixture's app frame, registered
- ;; explicitly here (init! installs only the adapter). The boot dispatch
+ ;; The runtime never synthesises a frame from absence — `:rf/default`
+ ;; is this fixture's app frame, registered explicitly here (init!
+ ;; installs only the adapter). The boot dispatch
  ;; runs under the frame scope and the render is wrapped in
  ;; `frame-provider-existing` (scope-only — the frame already exists from
  ;; reg-frame) so the reg-view-injected dispatch/subscribe resolve to it.

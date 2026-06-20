@@ -136,8 +136,8 @@
 (def healthy-cases
   {:default "nil"
    :matches
-   {;; running-build enumeration (rf2-ivlb3) — JVM-side eval; exactly
-    ;; one build running so eval auto-detects it without --build.
+   {;; running-build enumeration — JVM-side eval; exactly one build
+    ;; running so eval auto-detects it without --build.
     "active-builds" "[:app]"
     ;; sentinel probe
     "(some? (and (exists? js/globalThis)" "true"
@@ -179,15 +179,15 @@
              "(some? (and (exists? js/globalThis)" "false"}})
 
 (def no-running-build-cases
-  ;; rf2-ivlb3: zero shadow builds running. eval can't auto-detect a
-  ;; build → :no-runtime-for-build with empty :running-builds.
+  ;; Zero shadow builds running. eval can't auto-detect a build →
+  ;; :no-runtime-for-build with empty :running-builds.
   {:default "nil"
    :matches {"active-builds" "[]"
              "(some? (and (exists? js/globalThis)" "false"}})
 
 (def multi-build-cases
-  ;; rf2-ivlb3: two builds running, none passed via --build → eval can't
-  ;; pick one → :no-runtime-for-build enumerating both.
+  ;; Two builds running, none passed via --build → eval can't pick one →
+  ;; :no-runtime-for-build enumerating both.
   {:default "nil"
    :matches {"active-builds" "[:app :examples/step-deck]"
              "(some? (and (exists? js/globalThis)" "true"}})
@@ -219,10 +219,10 @@
 
 (deftest eval-cljs-no-runtime-for-build
   (testing "ops eval against a build with no live runtime → :no-runtime-for-build (NOT :ok? true :value nil)"
-    ;; rf2-ivlb3: the original bug returned {:ok? true :value nil} for
-    ;; EVERY form (including (count ...), which can never be nil) when
-    ;; the resolved build had no live re-frame2-pair runtime. The fix
-    ;; must fail loud instead.
+    ;; A build with no live re-frame2-pair runtime must FAIL LOUD, not
+    ;; return {:ok? true :value nil} for EVERY form (including (count ...),
+    ;; which can never be nil) — a nil result there is indistinguishable
+    ;; from a genuine nil.
     (with-stub missing-preload-cases
       (fn [cwd]
         (let [r   (run-shim cwd "eval" "(count [1 2 3])")

@@ -4,8 +4,8 @@
 ;;;; Per `docs/TESTING.md` §4 the goal of prompt regression is to catch
 ;;;; SILENT DRIFT in the skill's recipes as the skill itself evolves.
 ;;;; A conversation-driving harness (Claude in the loop) is the *fidelity-
-;;;; ideal* version of this surface; the v1 here is the structural
-;;;; substrate that catches the cheapest class of drift:
+;;;; ideal* version of this surface; the structural substrate here catches
+;;;; the cheapest class of drift:
 ;;;;
 ;;;; - The canonical prompt's *recipe* still lives in `references/recipes.md`
 ;;;; under the expected heading.
@@ -47,7 +47,7 @@
 (def ^:private hot-reload (delay (slurp-rel "references/ops.md")))
 
 ;; User-facing docs + the streaming + variant leaves the MCP-surface
-;; conformance drift guards (rf2-ojo3z) assert against.
+;; conformance drift guards assert against.
 (def ^:private readme-md (delay (slurp-rel "README.md")))
 (def ^:private capabilities-md (delay (slurp-rel "docs/capabilities.md")))
 (def ^:private local-dev-md (delay (slurp-rel "docs/LOCAL_DEV.md")))
@@ -56,7 +56,7 @@
 (def ^:private variant-md (delay (slurp-rel "references/variant-as-frame.md")))
 (def ^:private wire-size-md (delay (slurp-rel "references/wire-size-budget.md")))
 
-;; Live Pair-MCP catalogue cardinality (rf2-sdudwy). The generated descriptor
+;; Live Pair-MCP catalogue cardinality. The generated descriptor
 ;; manifest is the single source of truth for the tool count; read its
 ;; `:meta :tool-count` directly rather than hard-coding a number here, so this
 ;; guard tracks the catalogue automatically. The manifest sits two levels up
@@ -220,7 +220,7 @@
  (is (str/includes? @hot-reload "tail-build"))))
 
 ;; ---------------------------------------------------------------------------
-;; Privacy-contract drift (rf2-k2off)
+;; Privacy-contract drift
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The skill-facing privacy guarantee MUST match what the pair-mcp tools
@@ -230,11 +230,10 @@
 ;;     un-walked, regardless of --allow-sensitive-reads).
 ;;   - Epoch egress (trace-window / watch-epochs / the :epoch streaming
 ;;     topic) is REDACTED/ELIDED by default via projected-record /
-;;     elide-wire-value (rf2-6wvh5 / rf2-vr2hn) — not shipped raw.
-;; These assertions fail if the docs drift back to the over-broad
-;; "sensitive data does not cross the LLM boundary by default" claim or
-;; the stale "epoch records are not dropped / carry no sensitive stamp"
-;; wording the rf2-k2off review caught.
+;;     elide-wire-value — not shipped raw.
+;; These assertions fail if the docs drift to the over-broad "sensitive
+;; data does not cross the LLM boundary by default" claim or the "epoch
+;; records are not dropped / carry no sensitive stamp" wording.
 
 (defn- includes-ci? [text needle]
   (str/includes? (str/lower-case text) (str/lower-case needle)))
@@ -291,22 +290,21 @@
         "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs.")))
 
 ;; ---------------------------------------------------------------------------
-;; MCP-surface conformance drift (rf2-ojo3z)
+;; MCP-surface conformance drift
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The skill-facing docs MUST describe the MCP-primary tool surface at its
-;; LIVE cardinality, NOT the retired bash/Babashka shim world or v1-style op
-;; names. These guards assert the current surface IS named and the specific
-;; retired-as-primary phrasings the rf2-ojo3z review caught do NOT come back.
-;; They are scoped to the user-facing prose docs (README / capabilities /
-;; LOCAL_DEV / TESTING) — the legitimate harness appendix in references/ops.md
-;; is out of scope here. The count is the live catalogue cardinality
-;; (rf2-sdudwy): the descriptor manifest
-;; tools/re-frame2-pair-mcp/tool-descriptors.edn carries :meta :tool-count
-;; (30 after describe-image landed, rf2-srobm0). This assertion reads that
-;; live `@tool-count` rather than a hardcoded literal so the README pin stays
-;; in lockstep with the catalogue; the `catalogue-count-matches-live-manifest`
-;; guard below is the fuller cross-doc sweep.
+;; LIVE cardinality, NOT the bash/Babashka shim world or v1-style op names.
+;; These guards assert the current surface IS named and the shim-/v1-as-primary
+;; phrasings do NOT appear. They are scoped to the user-facing prose docs
+;; (README / capabilities / LOCAL_DEV / TESTING) — the legitimate harness
+;; appendix in references/ops.md is out of scope here. The count is the live
+;; catalogue cardinality: the descriptor manifest
+;; tools/re-frame2-pair-mcp/tool-descriptors.edn carries :meta :tool-count.
+;; This assertion reads that live `@tool-count` rather than a hardcoded literal
+;; so the README pin stays in lockstep with the catalogue; the
+;; `catalogue-count-matches-live-manifest` guard below is the fuller cross-doc
+;; sweep.
 
 (deftest readme-names-mcp-primary-tool-surface
   (testing "README names the live-cardinality MCP-primary surface, not 'fourteen ops'"
@@ -388,10 +386,10 @@
              "(rf2-ojo3z)."))))
 
 ;; ---------------------------------------------------------------------------
-;; Independent-review findings (rf2-a85bb2)
+;; Wire-size-budget + recipes drift
 ;; ---------------------------------------------------------------------------
 ;;
-;; Finding 2 — wire-size-budget.md must describe the SAME topic-dependent
+;; wire-size-budget.md must describe the SAME topic-dependent
 ;; subscribe payload slot as streaming-subscriptions.md: `:events` for the
 ;; flat topics (epoch/frameless) and `:cascades` for the cascade-bundle
 ;; topics (trace/fx/error). A host decoding subscribe dedup off the
@@ -437,18 +435,17 @@
              "coord resolution, matching recipes.md (rf2-a85bb2)."))))
 
 ;; ---------------------------------------------------------------------------
-;; Restore / hot-reload teaching drift (rf2-7a1mkv)
+;; Restore / hot-reload teaching drift
 ;; ---------------------------------------------------------------------------
 ;;
-;; Finding 1 — restore-epoch reinstalls the whole frame-state (both app-db
-;; AND runtime-db partitions via replace-frame-state!), NOT app-db only. The
-;; pair skill used to teach "restore rewinds app-db only" / "app-db is back".
-;; These assertions fail if that stale framing returns and assert the
-;; positive frame-state framing.
-;; Finding 2 — tail-build returns probe diagnostics (:probe-values / :reason
-;; / :note); a timeout is NOT always a compile error. The "read the tail
-;; output / treat a timeout as a compile error" framing must not return.
-;; Finding 3 — the subscribe topic catalogue in ops.md must list :frameless.
+;; - restore-epoch reinstalls the whole frame-state (both app-db AND
+;;   runtime-db partitions via replace-frame-state!), NOT app-db only. These
+;;   assertions fail if an "app-db only" / "app-db is back" framing appears and
+;;   assert the positive frame-state framing.
+;; - tail-build returns probe diagnostics (:probe-values / :reason / :note); a
+;;   timeout is NOT always a compile error. The "read the tail output / treat a
+;;   timeout as a compile error" framing must not appear.
+;; - the subscribe topic catalogue in ops.md must list :frameless.
 
 (deftest restore-not-taught-as-app-db-only
   (testing "pair skill no longer teaches restore as app-db-only (rf2-7a1mkv finding 1)"
@@ -504,16 +501,16 @@
              "rf2-7a1mkv finding 3)."))))
 
 ;; ---------------------------------------------------------------------------
-;; snapshot uses plural `frames`, not singular `frame` (rf2-hf7m9j finding 2)
+;; snapshot uses plural `frames`, not singular `frame`
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The `snapshot` MCP tool reads only the plural `:frames` arg
 ;; (snapshot.cljs parses `(args/parse-frames-arg (wire/arg ... :frames))`)
 ;; — it has NO singular `frame` arg, unlike dispatch / get-path / read-sub.
-;; The variant-diff recipe used to call `snapshot {frame: ...}` (singular),
-;; which the tool ignores: it would snapshot the operating frame twice and
-;; produce a false comparison. These guards fail if a snapshot recipe
-;; regresses to the singular form.
+;; A variant-diff recipe calling `snapshot {frame: ...}` (singular) would be
+;; ignored by the tool: it would snapshot the operating frame twice and
+;; produce a false comparison. These guards fail if a snapshot recipe uses the
+;; singular form.
 
 (deftest snapshot-recipe-uses-plural-frames-not-singular-frame
   (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame` (rf2-hf7m9j)"
@@ -534,7 +531,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Named state-rewrite writes route through the dedicated gated tools
-;; (rf2-230ekq)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The two write-authority tools `restore-epoch` + `replace-app-db` are the
@@ -542,8 +538,8 @@
 ;; allow-listed (the server's `--allow-writes` gate, not the allow-list, is
 ;; the write boundary). The raw eval forms (`(rf/restore-epoch! …)` /
 ;; `app-db-reset!`) are the BACKSTOP only. These guards fail if the skill
-;; regresses to teaching the eval form as the default-reachable write path,
-;; or drops the two tools from the allow-list.
+;; teaches the eval form as the default-reachable write path, or drops the two
+;; tools from the allow-list.
 
 (deftest write-tools-are-allow-listed
   (testing "SKILL.md allow-lists both dedicated write tools (rf2-230ekq)"
@@ -585,16 +581,16 @@
              "framed as the fallback, not the default (rf2-230ekq)."))))
 
 ;; ---------------------------------------------------------------------------
-;; Catalogue-cardinality drift (rf2-sdudwy)
+;; Catalogue-cardinality drift
 ;; ---------------------------------------------------------------------------
 ;;
-;; The existing name-level gate (scripts/check_skill_mcp_drift.py) compares the
+;; The name-level gate (scripts/check_skill_mcp_drift.py) compares the
 ;; SKILL.md allow-list against the server descriptor SET — it does NOT read the
-;; PROSE cardinality, so the skill/re-authoring docs kept teaching a stale
-;; 28-tool catalogue after the surface grew to 29. These guards anchor every
-;; doc that states a count to the LIVE manifest `:tool-count` (read from
-;; tools/re-frame2-pair-mcp/tool-descriptors.edn) and fail when a doc still
-;; carries a stale number. Add a doc to `count-docs` if it states the count.
+;; PROSE cardinality, so a doc can carry a stale tool count even when the
+;; allow-list is correct. These guards anchor every doc that states a count to
+;; the LIVE manifest `:tool-count` (read from
+;; tools/re-frame2-pair-mcp/tool-descriptors.edn) and fail when a doc carries a
+;; stale number. Add a doc to `count-docs` if it states the count.
 
 (def ^:private count-docs
   ;; [label deref] for every skill/re-authoring doc that states the tool count
@@ -634,16 +630,16 @@
                    "the live surface is " live " tools (rf2-sdudwy).")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gated-write allow-list policy drift (rf2-sdudwy)
+;; Gated-write allow-list policy drift
 ;; ---------------------------------------------------------------------------
 ;;
-;; Current policy (scripts/check_skill_mcp_drift.py: `intentional_server_only`
+;; The policy (scripts/check_skill_mcp_drift.py: `intentional_server_only`
 ;; is empty for the re-frame2-pair mapping): EVERY server tool — including a
-;; new `--allow-writes`-gated write tool — is allow-listed and fenced at the
-;; SERVER. The re-authoring docs once told a future author to keep gated write
-;; tools OFF the allow-list and put them in `intentional_server_only`; that
-;; contradicts the live gate and would regenerate stale guidance. This guard
-;; fails if the contradictory policy reappears in the re-authoring/meta docs.
+;; `--allow-writes`-gated write tool — is allow-listed and fenced at the
+;; SERVER. Re-authoring docs telling a future author to keep gated write tools
+;; OFF the allow-list and put them in `intentional_server_only` would
+;; contradict the live gate and regenerate wrong guidance. This guard fails if
+;; that contradictory policy appears in the re-authoring/meta docs.
 
 (deftest gated-write-tools-stay-allow-listed-in-reauthoring-docs
   (testing "re-authoring docs do NOT route gated write tools into intentional_server_only / off the allow-list"

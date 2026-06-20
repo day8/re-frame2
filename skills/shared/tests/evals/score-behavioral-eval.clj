@@ -1,12 +1,11 @@
 #!/usr/bin/env bb
 ;;;; score-behavioral-eval.clj — scorer for the shared-protocol behavioral
-;;;; eval (rf2-1inyqr finding 2).
+;;;; eval.
 ;;;;
 ;;;; The three security-critical fixtures under `tests/fixtures/` lock agent
 ;;;; RUNTIME BEHAVIOUR (does the agent refuse `gh issue create`? does it leak a
-;;;; raw JWT? does it gate an evidence-shaped Edit?). The fixtures were
-;;;; document-runnable only — a maintainer replayed them by hand and eyeballed
-;;;; the result. That is too easy to skip and too hard to compare across
+;;;; raw JWT? does it gate an evidence-shaped Edit?). Replaying them by hand and
+;;;; eyeballing the result is too easy to skip and too hard to compare across
 ;;;; model/tooling changes for a shared SECURITY boundary.
 ;;;;
 ;;;; This scorer makes the behavioural contract EXECUTABLE. The agent-execution

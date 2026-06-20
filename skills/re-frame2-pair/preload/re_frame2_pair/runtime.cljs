@@ -1277,9 +1277,8 @@
 ;; absent (no epoch has fired yet for this frame), we compute it lazily
 ;; from `(rf/app-db-value frame-id)` and stash it.
 ;;
-;; Pre-alpha: no back-compat surface to keep — `app-db-hash` is the
-;; only accessor; callers needing a path-scoped hash hash the slice
-;; themselves until a sub-tree accessor is filed.
+;; `app-db-hash` is the only accessor; callers needing a path-scoped
+;; hash hash the slice themselves until a sub-tree accessor is filed.
 
 (defonce ^:private frame-db-hashes
   ;; frame-id -> cached `(hash app-db)` integer
