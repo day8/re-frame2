@@ -64,8 +64,8 @@ const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 // already computed to a stable path so the browser-gate workflow can
 // upload it as a downloadable post-mortem (spec/017
 // §Failed-run artifacts in CI). The substrate guarantees the low-level
-// `:rf.test/run-artifact` (seed / event-program / epoch tape) EXISTS and
-// is canonicalizable, but the play-scripts CI hook surfaces only the
+// `:rf.test/run-artifact` (seed / scripted event stream / epoch tape)
+// EXISTS and is canonicalizable, but the play-scripts CI hook surfaces only the
 // projected run-state (status + per-step results) — that projection is
 // the failure record this gate genuinely holds, and serialising the
 // full replayable artifact is a substrate change, not CI mechanics.
@@ -416,11 +416,11 @@ function summariseResults(results) {
  * This is the projected run-state evidence the runner already computed:
  * per-row expected/actual status plus the per-step diagnostics
  * (idx / type / message / expected / actual). It is NOT the full
- * low-level `:rf.test/run-artifact` (seed / event-program / epoch tape) —
- * the play-scripts CI hook surfaces only the projected state, and
- * serialising the replayable artifact is a substrate change, not CI
- * mechanics. The play's `:script` (the event program) lives in the
- * variant body, so a maintainer can pair this report with the named
+ * low-level `:rf.test/run-artifact` (seed / scripted event stream /
+ * epoch tape) — the play-scripts CI hook surfaces only the projected
+ * state, and serialising the replayable artifact is a substrate change,
+ * not CI mechanics. The play's `:script` (the scripted event stream)
+ * lives in the variant body, so a maintainer can pair this report with the named
  * variant/play to reproduce off-CI.
  *
  * Best-effort: a write failure here must never mask the real gate verdict,
