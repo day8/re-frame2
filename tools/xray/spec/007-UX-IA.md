@@ -443,21 +443,20 @@ present, and where it does it reads as the internal installation realm.**
   single default realm, so the grouping never branched away from the flat option
   list — it was dead ceremony. The picker now renders the flat option list
   directly; the public partition is image -> frame (EP-0023), not realm.
-- **Trace rows — surface the internal installation realm where present**
-  (disposition 2, rf2-7vqpwa). The public execution context an event runs
-  in is the FRAME; the realm `:rf.realm/id` stamp is the internal
-  installation substrate. `trace_helpers.cljc` projects the row's `:realm`
-  from `[:tags :rf.realm/id]` (`realm-of`), and the feed carries
-  `:multi-realm?` (`multi-realm-feed?`). `panels/trace.cljs` renders a
-  compact realm chip (`data-testid rf-xray-trace-row-<id>-realm`,
-  **titled `Internal installation realm (EP-0013 substrate): <realm>`**)
-  at the end of the target column ONLY when the arc spans >1 realm AND the
-  row carries a stamp — a single-realm (or unstamped) arc renders
-  unchanged.
-  The framework's trace emit does not stamp `:rf.realm/id` yet (the slot
-  is reserved per disposition 2; the emit is a later core slice), so in a
-  single-realm process every row's `:realm` is nil and the surface is
-  inert — exactly the zero-ceremony posture.
+- **Trace rows — realm chip REMOVED** (rf2-tfiutq). The Trace rows once
+  surfaced an internal-installation-realm chip (`trace_helpers/realm-of`
+  projecting `[:tags :rf.realm/id]` onto a `:realm` row slot, the feed's
+  `:multi-realm?` / `multi-realm-feed?` gate, the
+  `rf-xray-trace-row-<id>-realm` chip in `panels/trace.cljs`). The realm
+  substrate is fully retired (image -> frame -> event stream is canonical;
+  the `re-frame.realm` namespace is gone and the framework's trace emit no
+  longer stamps `:rf.realm/id`), so the projection was dead — every row's
+  `:realm` was always nil. The realm row state, feed flag, and chip were
+  removed; the **frame** is the event's scoping context and is already
+  carried per row (`trace_helpers/frame-of` from `[:tags :frame]`) and
+  shown on the EPOCH row (§9). Any legacy tag still riding a raw event
+  remains visible only in the expanded raw-EDN payload (§3), not the
+  primary row model.
 - **Static-registry browse + handler-resolution — qualify by realm**
   (disposition-1/2, rf2-dfaey7). The static browse panels read
   registrations via `(rf/registrations :kind)` — the DEFAULT realm only —
