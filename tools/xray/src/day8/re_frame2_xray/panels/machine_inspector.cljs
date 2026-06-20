@@ -401,7 +401,7 @@
            ;; Context shape (keys + type captions) in the focused-event
            ;; chart's root Context band, with the declared-vs-inferred
            ;; indicator. When the machine declares a `:data-schema` the
-           ;; shape is read off the schema and `:machine-data-inferred?`
+           ;; shape is read off the schema and `:context-band-inferred?`
            ;; is FALSE (the chart drops the `inferred from :data` badge and
            ;; shows `declared` — consistent with the Static Topology view
            ;; from rf2-3q4k5b); absent a schema it falls back to the
@@ -409,8 +409,8 @@
            ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
            ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
            ;; cascade rows above, never raw here.
-           :machine-data       (topology-view/static-context-shape definition)
-           :machine-data-inferred? (topology-view/static-context-inferred? definition)
+           :context-band       (topology-view/static-context-shape definition)
+           :context-band-inferred? (topology-view/static-context-inferred? definition)
            ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
            ;; from/to highlight grammar and surface the CURRENT state via
            ;; `:current-state` instead.

@@ -802,7 +802,7 @@
       from the host's `:machine-id`), with a subtle `∥` glyph for a parallel
       root (`:parallel`);
     - an optional CONTEXT band UNDER the title (`:context` — the key→type-
-      caption shape the host feeds via `:machine-data`), with a provenance
+      caption shape the host feeds via `:context-band`), with a provenance
       badge: a quiet `inferred from :data` badge when `:contextInferred` is
       true (the one-sample inference, rf2-5tz9p), or a positive `declared`
       badge when false (the authoritative `:data-schema` shape, rf2-3q4k5b /

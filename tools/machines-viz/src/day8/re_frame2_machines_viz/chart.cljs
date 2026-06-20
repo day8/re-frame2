@@ -343,7 +343,7 @@
   the regular density inside the projection.
 
   rf2-8z1rca — `context-rows` (the count of context rows the root-container
-  Context band paints, derived from `:machine-data`) is forwarded to
+  Context band paints, derived from `:context-band`) is forwarded to
   `projection/->elk-children` so the ROOT-CONTAINER frame's TOP padding
   reserves the variable-height Context band (children laid out below the
   title strip would otherwise sit UNDER the band). 0 ⇒ no band, no extra
@@ -673,7 +673,7 @@
   pass nil → the projection falls back to the regular density.
 
   rf2-8z1rca — the longest arity also takes `context-rows` (the count of
-  Context-band rows the root-container frame paints, from `:machine-data`),
+  Context-band rows the root-container frame paints, from `:context-band`),
   fed into `->elk-input` so the ROOT-CONTAINER top padding reserves the
   variable-height Context band. The shorter arities pass 0 → no band, no
   extra reservation."
@@ -765,7 +765,7 @@
 ;; What did NOT fold (stays on the trunk): `:fired-edge-ids` (a simple
 ;; set, core to active-edge styling, not a spec+tick+callbacks overlay),
 ;; `:current-state` / `:from-highlight` / `:to-highlight` (runtime
-;; highlight, not host-fed overlay specs), `:machine-data` (a corner
+;; highlight, not host-fed overlay specs), `:context-band` (a corner
 ;; panel rendered inline, not a positioned DOM-walking overlay), and all
 ;; structural props (`:definition`, `:direction`, `:layout-options`,
 ;; parallel handling).
@@ -1015,7 +1015,7 @@
                              `chart.overlays.cancellation-cascade` waterfall
                              beneath the parent state. nil / no steps →
                              dormant.
-    :machine-data      — rf2-qo5xy; rf2-q129z8. Optional CLJS map fed into
+    :context-band      — rf2-qo5xy; rf2-q129z8. Optional CLJS map fed into
                          the Context BAND in the ROOT-CONTAINER frame header
                          (pre-q129z8 a top-LEFT corner panel; now folded into
                          the named frame that hugs the topology). Two host
@@ -1028,7 +1028,7 @@
                          Purely presentation — the host owns the projection;
                          `chart.projection/xyflow-graph` threads it onto the
                          frame node's `:data {:context}`.
-    :machine-data-inferred? — rf2-5tz9p. Optional boolean (DEFAULT true).
+    :context-band-inferred? — rf2-5tz9p. Optional boolean (DEFAULT true).
                          When true the Context band shows a subtle
                          \"inferred from :data\" badge marking its
                          contents as a type shape INFERRED from one sample
@@ -1231,11 +1231,11 @@
                  direction layout-options density theme
                  height show-minimap? show-controls? show-background?
                  overlays
-                 machine-data
-                 machine-data-inferred?
-                 machine-data-sensitive
-                 machine-data-large
-                 machine-data-raw?
+                 context-band
+                 context-band-inferred?
+                 context-band-sensitive
+                 context-band-large
+                 context-band-raw?
                  fit-signal
                  testid]
           :or   {direction         :tb
@@ -1250,15 +1250,15 @@
                  ;; sets. A host feeding live `:data` declares the
                  ;; sensitive/large slots; the value-free type-caption
                  ;; production feeder is a redaction no-op.
-                 machine-data-sensitive #{}
-                 machine-data-large     #{}
-                 machine-data-raw?      false
+                 context-band-sensitive #{}
+                 context-band-large     #{}
+                 context-band-raw?      false
                  ;; rf2-5tz9p — the Context panel's sole production feeder is
                  ;; the static INFERRED shape (Xray's `static-context-shape`,
                  ;; key→type-caption). Default the inferred badge ON so the
                  ;; panel reads honestly today; a host wiring live `:data`
-                 ;; values passes `:machine-data-inferred? false`.
-                 machine-data-inferred? true
+                 ;; values passes `:context-band-inferred? false`.
+                 context-band-inferred? true
                  testid            "rf-mv-chart"}}]
       (let [;; rf2-jl72i — route the SINGLE topology parse through the
             ;; per-chart parse-cache (keyed only on `:definition`). A
@@ -1315,13 +1315,13 @@
             ;; machines) so an `:auto` machine whose heuristic verdict is
             ;; stable does not re-lay needlessly.
             ;; rf2-8z1rca — the count of Context-band rows the root-container
-            ;; frame paints (one per `:machine-data` key). The band renders
-            ;; only when `:machine-data` is non-empty (mirroring
+            ;; frame paints (one per `:context-band` key). The band renders
+            ;; only when `:context-band` is non-empty (mirroring
             ;; `root-container-node`'s `(when (seq context) …)`), so an empty /
             ;; absent map is 0 rows — no band, no extra root top padding. Fed
             ;; into `compute-layout!` so the root frame reserves the band's
             ;; variable height ABOVE its title strip.
-            context-rows (if (seq machine-data) (count machine-data) 0)
+            context-rows (if (seq context-band) (count context-band) 0)
             ;; rf2-8z1rca — `context-rows` joins the layout key so adding /
             ;; removing context (which changes the reserved root top padding)
             ;; re-runs ELK rather than rendering against the prior band height.
@@ -1554,8 +1554,8 @@
                 ;; `theme`, so the cheaper keywords stand in for them in
                 ;; the key. The resolved (read-only-gated) callbacks are
                 ;; keyed directly so a changed handler identity rebuilds.
-                ;; rf2-q129z8 — `machine-id` / `machine-data` /
-                ;; `machine-data-inferred?` now feed the ROOT-CONTAINER frame
+                ;; rf2-q129z8 — `machine-id` / `context-band` /
+                ;; `context-band-inferred?` now feed the ROOT-CONTAINER frame
                 ;; header (the named box's machine name + Context band), so a
                 ;; change in any of them must rebuild the projected graph.
                 cache-key  [parsed positions edge-points edge-labels
@@ -1563,12 +1563,12 @@
                             fired-edge-id-set guard-blocked-edge-id-set
                             sim? callback edge-callback
                             density theme
-                            machine-id machine-data machine-data-inferred?
+                            machine-id context-band context-band-inferred?
                             ;; rf2-27e38h — a change in the Context-band
                             ;; egress classification / raw opt-in must
                             ;; rebuild the projected band display.
-                            machine-data-sensitive machine-data-large
-                            machine-data-raw?]
+                            context-band-sensitive context-band-large
+                            context-band-raw?]
                 {:keys [js-nodes js-edges]}
                 (project+convert!
                   cache-key
@@ -1614,18 +1614,18 @@
                                ;; frame header + Context band (absorbing the old
                                ;; corner-pinned title strip + Context overlay).
                                :machine-id        machine-id
-                               :machine-data      machine-data
-                               :machine-data-inferred? machine-data-inferred?
+                               :context-band      context-band
+                               :context-band-inferred? context-band-inferred?
                                ;; rf2-27e38h (EP-0015) — local-redacted
                                ;; Context-band egress contract. The band is
                                ;; serialised into SVG/PNG/clipboard, so live
                                ;; `:data` values are redacted by default; the
                                ;; host declares which slots are sensitive/large
                                ;; (from the machine's `:data-schema`) and may
-                               ;; opt into raw via `:machine-data-raw?`.
-                               :machine-data-sensitive machine-data-sensitive
-                               :machine-data-large machine-data-large
-                               :machine-data-raw? machine-data-raw?})))
+                               ;; opt into raw via `:context-band-raw?`.
+                               :context-band-sensitive context-band-sensitive
+                               :context-band-large context-band-large
+                               :context-band-raw? context-band-raw?})))
                 aria-label (str "State machine"
                                 (when machine-id
                                   (str ": " (name machine-id)))
@@ -1844,7 +1844,7 @@
                              (pr-str (:id descriptor)))}
                  [render-overlay descriptor])
                overlay-descriptors)
-             ;; rf2-q129z8 — the `:machine-data` Context shape no longer
+             ;; rf2-q129z8 — the `:context-band` Context shape no longer
              ;; renders as a corner-pinned overlay panel here; it is now the
              ;; Context BAND in the synthetic ROOT-CONTAINER frame header
              ;; (`chart.nodes/root-container-node`), threaded onto the frame

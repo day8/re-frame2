@@ -674,7 +674,7 @@
       AMBER (distinct from the live cyan highlight on the Dynamic
       surface).
     - **Context band** — the machine's STATIC context shape (keys +
-      type captions, rf2-eao0s0) drives the chart's `:machine-data`
+      type captions, rf2-eao0s0) drives the chart's `:context-band`
       so the root Context band renders here too (the Dynamic + Static
       Topology charts already pass it). Shape + declared-over-inferred
       provenance come from the shared `topology-view/static-context-
@@ -725,8 +725,8 @@
      ;; topology + focused-event + Static Topology charts already do).
      ;; Shape + provenance come from the shared machines-viz-backed
      ;; helpers; nil shape → the chart hides the panel.
-     :machine-data           (topology-view/static-context-shape definition)
-     :machine-data-inferred? (topology-view/static-context-inferred? definition)
+     :context-band           (topology-view/static-context-shape definition)
+     :context-band-inferred? (topology-view/static-context-inferred? definition)
      :from-highlight         (:from last-trans)
      :to-highlight           (:to last-trans)
      :sim?                   true

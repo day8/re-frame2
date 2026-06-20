@@ -79,7 +79,7 @@
   `:data-schema`, the shape is read AUTHORITATIVELY off the schema; otherwise
   it is INFERRED from one sample of the initial `:data`. The provenance is
   reported by `static-context-inferred?` (drives the chart's
-  `:machine-data-inferred?` badge gate). Delegates to the machines-viz
+  `:context-band-inferred?` badge gate). Delegates to the machines-viz
   `context-shape` helper so the derivation lives with the chart it feeds.
 
   Pure fn — testable in isolation."
@@ -91,7 +91,7 @@
   is INFERRED from one sample of `:data` (rf2-5tz9p's caveat applies — the
   chart shows the `inferred from :data` badge); false when it is AUTHORITATIVE
   from a declared `:data-schema` (the chart drops the inferred badge and shows
-  a `declared` badge). Feeds the chart's `:machine-data-inferred?` prop.
+  a `declared` badge). Feeds the chart's `:context-band-inferred?` prop.
 
   Defaults to true when there is no shape at all, so a host that threads it
   unconditionally keeps the historical inferred-by-default posture. Pure."
@@ -292,14 +292,14 @@
          ;; captions) so the root Context chrome renders on the blank-state
          ;; topology. nil when the machine declares neither a `:data-schema`
          ;; nor a map `:data` (panel stays hidden).
-         :machine-data           (static-context-shape definition)
+         :context-band           (static-context-shape definition)
          ;; rf2-3q4k5b (EP-0005) — declared over inferred. False when the
          ;; shape came from a declared `:data-schema` (authoritative — the
          ;; chart drops the `inferred from :data` badge); true when inferred
          ;; from one sample of `:data` (rf2-5tz9p's badge stays). The chart's
          ;; prop already defaults true, but threading it explicitly keeps the
          ;; declared path correct.
-         :machine-data-inferred? (static-context-inferred? definition)
+         :context-band-inferred? (static-context-inferred? definition)
          :show-after-rings?      false
          :show-controls?         show-controls?
          ;; rf2-6tw7t — fit-on-entry nonce pass-through; hosts that mount

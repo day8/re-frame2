@@ -231,7 +231,7 @@
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
                           highlight.
-    :machine-data       — rf2-vcnvj. Optional CLJS map surfaced in the
+    :context-band       — rf2-vcnvj. Optional CLJS map surfaced in the
                           chart's top-left Context panel. The Static
                           topology path passes the machine's STATIC
                           context shape (keys of the definition's `:data`)
@@ -239,8 +239,8 @@
                           live snapshot; the live runtime `:data` overlay
                           stays a separate (future) diagnostic. nil → no
                           panel. Forwarded verbatim to
-                          `mv-chart/MachineChart`'s `:machine-data`.
-    :machine-data-inferred? — rf2-3q4k5b (EP-0005). Optional boolean
+                          `mv-chart/MachineChart`'s `:context-band`.
+    :context-band-inferred? — rf2-3q4k5b (EP-0005). Optional boolean
                           (default true). True → the Context band's shape is
                           INFERRED from one sample of `:data` (the `inferred
                           from :data` badge, rf2-5tz9p). False → the shape is
@@ -299,13 +299,13 @@
   internally — no host-side viewport machinery is needed
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
-           fired-edge-ids guard-blocked-edge-ids machine-data
-           machine-data-inferred?
+           fired-edge-ids guard-blocked-edge-ids context-band
+           context-band-inferred?
            sim? on-state-click on-edge-click
            show-after-rings?
            show-controls? theme testid inner-testid
            fit-signal]
-    :or   {machine-data-inferred?  true
+    :or   {context-band-inferred?  true
            show-after-rings?       true
            show-controls?          true
            ;; rf2-az6e2 — Xray's surface is dark; the chart `:theme`
@@ -338,12 +338,12 @@
     [mv-chart/MachineChart
      {:definition      definition
       :machine-id      machine-id
-      :machine-data    machine-data
+      :context-band    context-band
       ;; rf2-3q4k5b (EP-0005) — declared-over-inferred provenance for the
       ;; Context band badge. Forwarded so the Static topology path can mark a
       ;; `:data-schema`-declared shape AUTHORITATIVE (false → no inferred
       ;; badge). Defaults true (rf2-5tz9p's inferred-by-default posture).
-      :machine-data-inferred? machine-data-inferred?
+      :context-band-inferred? context-band-inferred?
       :from-highlight  from-highlight
       :to-highlight    to-highlight
       :current-state   current-state

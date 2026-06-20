@@ -7,8 +7,8 @@
   band renders without a live snapshot. The Static Topology chart
   wrapper had been mounting only definition / machine-id, so the root
   Context band was missing there. These tests pin that the wrapper now
-  forwards `:machine-data` (the {key → type-caption} shape) +
-  `:machine-data-inferred?` for BOTH an inferred (`:data`-sample) and a
+  forwards `:context-band` (the {key → type-caption} shape) +
+  `:context-band-inferred?` for BOTH an inferred (`:data`-sample) and a
   declared (`:data-schema`) definition.
 
   The chart wrapper is the private `topology/chart` fn; we invoke it via
@@ -71,31 +71,31 @@
 (deftest topology-forwards-inferred-context-shape-to-chart
   (testing "rf2-eao0s0 — an inferred (:data, no schema) machine: the Static
             Topology chart forwards the {key → type-caption} shape with
-            :machine-data-inferred? TRUE."
+            :context-band-inferred? TRUE."
     (let [props (chart-props inferred-definition)]
       (is (some? props) "the chart wrapper mounts machine-canvas/Chart")
       (is (= {:opened-count "number" :held-open? "boolean" :trail "vector"}
-             (:machine-data props))
-          "the static context SHAPE reaches the chart's :machine-data")
-      (is (true? (:machine-data-inferred? props))
-          "inferred sample → :machine-data-inferred? TRUE reaches the chart"))))
+             (:context-band props))
+          "the static context SHAPE reaches the chart's :context-band")
+      (is (true? (:context-band-inferred? props))
+          "inferred sample → :context-band-inferred? TRUE reaches the chart"))))
 
 (deftest topology-forwards-declared-context-shape-to-chart
   (testing "rf2-eao0s0 — a declared (:data-schema) machine: the Static
             Topology chart forwards the AUTHORITATIVE schema shape with
-            :machine-data-inferred? FALSE."
+            :context-band-inferred? FALSE."
     (let [props (chart-props declared-definition)]
       (is (= {:opened-count "number" :held-open? "boolean"}
-             (:machine-data props))
-          "the declared schema SHAPE reaches the chart's :machine-data")
-      (is (false? (:machine-data-inferred? props))
-          "declared schema → :machine-data-inferred? FALSE reaches the chart"))))
+             (:context-band props))
+          "the declared schema SHAPE reaches the chart's :context-band")
+      (is (false? (:context-band-inferred? props))
+          "declared schema → :context-band-inferred? FALSE reaches the chart"))))
 
 (deftest topology-hides-context-panel-when-no-shape
   (testing "rf2-eao0s0 — a machine that declares neither :data nor a
-            :data-schema forwards a nil :machine-data so the chart hides
+            :data-schema forwards a nil :context-band so the chart hides
             the Context panel (the existing chart contract)."
     (let [props (chart-props no-data-definition)]
       (is (some? props) "the chart wrapper still mounts machine-canvas/Chart")
-      (is (nil? (:machine-data props))
-          "no shape → :machine-data is nil (Context panel stays hidden)"))))
+      (is (nil? (:context-band props))
+          "no shape → :context-band is nil (Context panel stays hidden)"))))
