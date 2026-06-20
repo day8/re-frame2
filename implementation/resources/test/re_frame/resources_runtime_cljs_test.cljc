@@ -753,10 +753,11 @@
 ;; start-new-work). Its basis MUST be the ensure token's causal
 ;; `(:time-ms (:rf.cofx cofx))`, NOT an ambient host-clock read — so a
 ;; replayed ensure under a LATER live clock takes the SAME branch the recorded
-;; `:time-ms` dictated. Pre-fix the gate read `(now-ms)` (= the live host
-;; clock, ~1.78e12 epoch-ms / `System/currentTimeMillis`), which dwarfs any
-;; scripted `:stale-at`, so a replay always re-read the live clock and could
-;; flip serve-cache → refetch, minting a DIVERGENT work-ledger row.
+;; `:time-ms` dictated. Reading `(now-ms)` instead (= the live host clock,
+;; ~1.78e12 epoch-ms / `System/currentTimeMillis`) would dwarf any scripted
+;; `:stale-at`, so a replay would re-read the live clock and could flip
+;; serve-cache → refetch, minting a DIVERGENT work-ledger row — which this
+;; pins against.
 (deftest fresh-skip-decision-reads-causal-time-ms-not-ambient-clock
   (rf/reg-resource :fsd/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scoped-key  (state/scoped-resource-key :rf.scope/global :fsd/article {:slug "w"})
