@@ -479,16 +479,16 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
 > **Owner:** [010-Schemas §The four normative claims](010-Schemas.md#the-four-normative-claims)
 > **Status:** v1-required
 
-The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); app-db schemas are NOT a registrar kind — the schemas artefact's per-frame side-table is the single source of truth). The `:path` and `:schema` fields are runtime-stamped from the positional args — user code passes `(rf/reg-app-schema path schema)` rather than `(rf/reg-app-schema id {:path ... :schema ...})`.
+The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); app-db schemas are NOT a registrar kind — the schemas artefact's per-frame side-table is the single source of truth). Per rf2-wvh95f F2 the schema is `:schema`-in-metadata: user code passes `(rf/reg-app-schema path {:schema S :frame F})` — the `path` is the 1st positional (the registration id), and `:schema` / `:frame` / `:doc` ride the metadata map. The stamped `:path` field is the registration path (1st positional arg); `:schema` / `:frame` are read from the metadata map.
 
 ```clojure
 (def AppSchemaMeta
   [:merge
    RegistrationMetadata
    [:map
-    [:path         [:vector :any]]                                           ;; runtime-stamped from positional arg; the app-db path the schema validates
-    [:schema       :any]                                                     ;; runtime-stamped; the Malli (or equivalent) schema value
-    [:frame        :keyword]                                                 ;; runtime-stamped; the frame the schema registers against (`(or (:frame opts) (current-frame-id))`)
+    [:path         [:vector :any]]                                           ;; runtime-stamped from the 1st positional arg; the app-db path the schema validates
+    [:schema       :any]                                                     ;; from the metadata map's :schema key (rf2-wvh95f F2); the Malli (or equivalent) schema value
+    [:frame        :keyword]                                                 ;; from the metadata map's :frame key (or the carried scope frame)
     ]])
 ```
 
@@ -3165,13 +3165,13 @@ Open shape — implementations may add `:rf.route/...`-namespaced keys (e.g., th
 > **Owner:** [012-Routing §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys)
 > **Status:** v1-required
 
-The shape of the metadata map passed to `reg-route`. Reserved keys per [012 §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys).
+The shape of the **stored / effective** route-meta. Reserved keys per [012 §Reserved route-metadata keys](012-Routing.md#reserved-route-metadata-keys). Per rf2-wvh95f F1 the canonical 3-slot grammar is `(reg-route id metadata path)` — the **`:path` pattern is the third VALUE slot**, not a key in the metadata map the author passes. The registrar merges that value into the stored metadata under `:path`, so this stored shape still carries `:path` (and `validate-route-metadata!` runs against the post-merge map); the AUTHORING input map (the middle slot) omits `:path` — declaring `:path` inside it is a loud `:rf.error/invalid-route-metadata`.
 
 ```clojure
 (def RouteMetadata
   [:map
    [:doc             {:optional true} :string]
-   [:path            :string]                                              ;; conforms to :rf/route-pattern
+   [:path            :string]                                              ;; the VALUE slot (rf2-wvh95f F1), merged into stored meta; conforms to :rf/route-pattern
    [:params          {:optional true} :any]                                ;; Malli schema for path params
    [:query           {:optional true} :any]                                ;; Malli schema for query/search params
    [:query-defaults  {:optional true} [:map-of :keyword :any]]             ;; defaults for absent query keys
