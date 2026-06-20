@@ -12,7 +12,8 @@ back-compat, but new sessions should prefer the MCP server.
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
 via shadow-cljs to a single `.js` file) that exposes the twenty-nine
-re-frame2-pair ops as MCP tools (the read/inspect/action ops —
+re-frame2-pair ops listed in `registry/tools` as MCP tools (the
+read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
 `reset-operating-frame` / `get-operating-frame` (rf2-zomfq) — plus the
 two write tools `restore-epoch` / `replace-app-db`, which are gated behind
