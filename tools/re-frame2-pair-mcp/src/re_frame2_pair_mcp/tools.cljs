@@ -167,6 +167,33 @@
     (js/Promise.resolve
       (wire/err-text (unknown-tool-envelope name)))))
 
+(defn refuse-unknown-tool
+  "Server-boundary pre-dispatch guard for unknown tool names (rf2-4mc6q1).
+  Returns the recovery-shaped `:unknown-tool` `wire/err-text` envelope
+  when `name` is NOT a registered tool, so `server.cljs/handle-call` can
+  reject a typo or removed alias LOCALLY — BEFORE `ensure-connection!`
+  runs any nREPL discovery. Returns `nil` for a registered name (it must
+  proceed to normal dispatch).
+
+  Mirrors `writes/refuse-pre-connection` (rf2-wz66k7): the server runs
+  `ensure-connection!` for EVERY tool before the dispatcher is reached,
+  so on a stock / misconfigured install with no nREPL port the discovery
+  step REJECTS with `:nrepl-port-not-found` and an unknown name never
+  reaches `dispatch-tool*`'s `:unknown-tool` branch — the recovery
+  affordances (`:hint` → tools/list, `:available-tools`, `:did-you-mean`)
+  are masked behind a confusing transport error. A typo such as
+  `registry-list` should be diagnosable without a live app/nREPL.
+
+  The envelope is the SAME `unknown-tool-envelope` the dispatch path
+  emits, routed through `wire/err-text` so the dual-slot wire shape
+  (pr-str EDN text + namespace-preserving `:structuredContent`,
+  `isError: true`) is identical at either entry point. The
+  `dispatch-tool*` branch STAYS as defence in depth (direct
+  `tools/invoke` callers + the conformance corpus)."
+  [name]
+  (when-not (contains? registry/handler-for name)
+    (wire/err-text (unknown-tool-envelope name))))
+
 ;; ---------------------------------------------------------------------------
 ;; Wire-boundary pipeline (rf2-3z0zi).
 ;;

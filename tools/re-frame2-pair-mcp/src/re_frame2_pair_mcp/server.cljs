@@ -419,16 +419,28 @@
   (let [params (j/get req :params)
         name   (j/get params :name)
         args   (or (j/get params :arguments) #js {})]
-    (if-let [refusal (writes/refuse-pre-connection name)]
-      ;; rf2-wz66k7 — a gated write tool (restore-epoch / replace-app-db)
-      ;; with `--allow-writes` OFF is refused HERE, before `ensure-
-      ;; connection!`. Otherwise a stock install with no nREPL port returns
-      ;; a misleading `:nrepl-port-not-found` (or runs discovery /
-      ;; elicitation) for a request that should be refused locally — the
-      ;; default-safe write posture would be observably false at the real
-      ;; MCP boundary. The tool body's own gate stays as defence in depth.
-      (js/Promise.resolve refusal)
-      (handle-call* launch-flags name args extra))))
+    (if-let [unknown (tools/refuse-unknown-tool name)]
+      ;; rf2-4mc6q1 — a name absent from the registry (a typo or a removed
+      ;; alias such as `registry-list`) is rejected HERE, before `ensure-
+      ;; connection!`. Otherwise a stock install with no nREPL port runs
+      ;; discovery, REJECTS with `:nrepl-port-not-found`, and the request
+      ;; never reaches `dispatch-tool*` — so the `:unknown-tool` recovery
+      ;; affordances (`:hint` → tools/list, `:available-tools`,
+      ;; `:did-you-mean`) are masked behind a confusing transport error.
+      ;; "Does this tool exist?" must be diagnosable without a live app.
+      ;; The dispatcher's own `:unknown-tool` branch stays as defence in
+      ;; depth (direct `tools/invoke` callers + the conformance corpus).
+      (js/Promise.resolve unknown)
+      (if-let [refusal (writes/refuse-pre-connection name)]
+        ;; rf2-wz66k7 — a gated write tool (restore-epoch / replace-app-db)
+        ;; with `--allow-writes` OFF is refused HERE, before `ensure-
+        ;; connection!`. Otherwise a stock install with no nREPL port returns
+        ;; a misleading `:nrepl-port-not-found` (or runs discovery /
+        ;; elicitation) for a request that should be refused locally — the
+        ;; default-safe write posture would be observably false at the real
+        ;; MCP boundary. The tool body's own gate stays as defence in depth.
+        (js/Promise.resolve refusal)
+        (handle-call* launch-flags name args extra)))))
 
 (defn handle-call-for-tests
   "Test seam onto the private `handle-call` (rf2-wz66k7). Lets the

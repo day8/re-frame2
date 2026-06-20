@@ -428,6 +428,16 @@ only when the bad name is within a small edit distance of a real tool.
 A model that typo'd a name self-corrects from the envelope without a
 `tools/list` round-trip.
 
+The registry-membership check is a **pre-connection** guard (rf2-4mc6q1):
+the server rejects an unregistered name with this envelope BEFORE it runs
+nREPL port discovery — symmetric with the gated-write pre-connection
+refusal (rf2-wz66k7). "Does this tool exist?" is a pure function of the
+static registry, so a typo or removed alias is diagnosable on a fresh or
+misconfigured session with no live app. Without this guard the lazy
+discovery step rejects first (`:nrepl-port-not-found`) and masks the
+unknown name behind a transport error, hiding the recovery affordances
+above for exactly the case they were built for.
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the

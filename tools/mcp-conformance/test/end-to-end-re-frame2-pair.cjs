@@ -404,6 +404,57 @@ runWithWatchdog(
       );
     }
 
+    // 3c-quater. Unknown tool name — pre-connection refusal (rf2-4mc6q1).
+    // Symmetric with the gated-write pre-connection guard above: a name
+    // absent from the registry (a typo or a removed alias) is rejected by
+    // `tools/refuse-unknown-tool` in `server.cljs/handle-call` BEFORE
+    // `ensure-connection!` runs discovery. So in degraded mode (no nREPL)
+    // an unknown tool returns the recovery-shaped `:unknown-tool` envelope,
+    // NOT `:nrepl-port-not-found`. Before this guard the discovery step
+    // rejected first and masked the unknown name behind a transport error,
+    // hiding the recovery affordances (`tools/list` hint + `:available-
+    // tools` catalogue) for exactly the fresh/misconfigured-session case
+    // they were built for — and the conformance harness, which drives the
+    // compiled server WITHOUT a live nREPL, would have shipped that drift
+    // green. A regression that drops the guard or re-orders it after
+    // discovery surfaces RED here.
+    {
+      const resp = await client.callTool({
+        name: 'no-such-tool-xyz',
+        arguments: {},
+      });
+      degradedResp['no-such-tool-xyz'] = resp;
+      if (!resp.isError) {
+        throw new Error(
+          'unknown tool MUST isError; got: ' + JSON.stringify(resp),
+        );
+      }
+      const text = resp.content?.[0]?.text || '';
+      if (!text.includes('unknown-tool')) {
+        throw new Error(
+          'unknown tool MUST diagnose as :unknown-tool even in degraded ' +
+            'mode (rf2-4mc6q1 — refused PRE-connection); got: ' + text.slice(0, 200),
+        );
+      }
+      if (text.includes('nrepl-port-not-found')) {
+        throw new Error(
+          'unknown tool refusal MUST NOT mention :nrepl-port-not-found — ' +
+            'registry membership is a pure function of the static catalogue, ' +
+            'refused before discovery (rf2-4mc6q1); got: ' + text.slice(0, 200),
+        );
+      }
+      if (!text.includes('tools/list')) {
+        throw new Error(
+          'unknown-tool envelope MUST carry the tools/list recovery hint ' +
+            '(rf2-tkmik); got: ' + text.slice(0, 200),
+        );
+      }
+      console.log(
+        'OK   tools/call no-such-tool-xyz (degraded) -> isError + ' +
+          ':unknown-tool (pre-connection refusal, recovery hint intact)',
+      );
+    }
+
     // 3c-ter. EP-0017 reproducible-dispatch `cofx` argument — degraded
     // accept (rf2-jyxmtq). The `dispatch` tool advertises a `cofx`
     // input-key (an EDN map of scripted recordable coeffects, e.g.
