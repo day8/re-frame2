@@ -329,11 +329,16 @@
 
 (deftest resolve-frame-rejects-non-keyword-frame-target-loud
   (testing "rf2-7pllal — tightening: an explicit `:frame` that resolves to a
-            NON-keyword target (a string, a non-frame map, a vector) fails
+            NON-keyword target (a string, a vector, a number) fails
             loud with :rf.error/bad-app-schemas-arg rather than silently
             becoming a registry key no keyword-id read can reach (no
-            silent swallow)"
-    (doseq [bad-frame ["stringframe" {:not :a-frame} [:a :b] 42]]
+            silent swallow). Per rf2-wvh95f F2 the `:frame` target now rides
+            FLAT in the metadata map (`{:schema … :frame <target>}`); a
+            non-frame MAP `:frame` value is no longer a distinguishable
+            bad-target case (coerce-opts reads a map as an opts map, the
+            documented passthrough), so the bad-target set here is the
+            non-map scalars/vectors that still fail loud."
+    (doseq [bad-frame ["stringframe" [:a :b] 42]]
       (let [before (schemas/snapshot-schemas-by-frame)
             thrown (try (rf/reg-app-schema [:user] {:schema [:map] :frame bad-frame})
                         (catch clojure.lang.ExceptionInfo e e))]
