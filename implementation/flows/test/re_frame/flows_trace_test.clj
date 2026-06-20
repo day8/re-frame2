@@ -8,8 +8,8 @@
   directly so a regression surfaces as a plain unit-test failure rather
   than only through the data-driven gate.
 
-  Per rf2-2s1o: `:flow` op-type and `:rf.flow/*` operation vocabulary
-  added for re-frame-10x v2's flow panel."
+  The `:flow` op-type and `:rf.flow/*` operation vocabulary back
+  re-frame-10x v2's flow panel."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]

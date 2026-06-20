@@ -1,5 +1,5 @@
 (ns re-frame.flows-t2-trace-test
-  "Per rf2-ta0y7: the framework stamps `:rf.event/db-pending-post-flow`
+  "The framework stamps `:rf.event/db-pending-post-flow`
   (t2) when one or more flows transformed the pending `:db` between
   the handler's return and the deferred commit. The flows artefact is
   loaded here so the `:flows/run-flows-on-db` late-bind hook is wired
