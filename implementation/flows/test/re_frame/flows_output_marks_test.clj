@@ -16,7 +16,7 @@
   The fix (rf2-ouemt) makes flow output marks FIRST-CLASS through the SAME
   per-frame app-db elision registry the schema-first wire walker
   (`elision/elide-wire-value`) already reads: `reg-flow` translates the
-  output-rooted marks into absolute declarations rooted at `(:path flow)`
+  output-rooted marks into absolute declarations rooted at `(:output-path flow)`
   and installs them frame-aware. ONE walker then redacts BOTH the flow
   trace `:result` / `:before` slots AND the app-db destination slot.
 
@@ -108,12 +108,12 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id        :creds
                   :inputs    [[:n]]
-                  :output    (fn [_] {:secret :S :public :P})
-                  :path      [:derived :creds]
+                  :derive    (fn [_] {:secret :S :public :P})
+                  :output-path      [:derived :creds]
                   :sensitive [[:secret]]})
-    ;; The absolute declaration was installed rooted at the flow's :path.
+    ;; The absolute declaration was installed rooted at the flow's :output-path.
     (is (contains? (sensitive-decls :rf/default) [:derived :creds :secret])
-        "an absolute sensitive declaration is installed at :path ++ [:secret]")
+        "an absolute sensitive declaration is installed at :output-path ++ [:secret]")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/computed)))]
@@ -143,11 +143,11 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
-                  :output     (fn [_] {:jwt "header.payload.sig"})
-                  :path       [:auth :token]
+                  :derive     (fn [_] {:jwt "header.payload.sig"})
+                  :output-path       [:auth :token]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:auth :token])
-        "the whole-output sensitive declaration is installed at :path itself")
+        "the whole-output sensitive declaration is installed at :output-path itself")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/computed)))]
@@ -169,11 +169,11 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id     :blob
                   :inputs [[:n]]
-                  :output (fn [_] {:bytes "BIG"})
-                  :path   [:derived :blob]
+                  :derive (fn [_] {:bytes "BIG"})
+                  :output-path   [:derived :blob]
                   :large? true})
     (is (contains? (large-decls :rf/default) [:derived :blob])
-        "the whole-output large declaration is installed at :path itself")
+        "the whole-output large declaration is installed at :output-path itself")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/computed)))]
@@ -200,11 +200,11 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
-                  :output (fn [_] {:big {:k "BIG"} :small 1})
-                  :path   [:out]
+                  :derive (fn [_] {:big {:k "BIG"} :small 1})
+                  :output-path   [:out]
                   :large  [[:big]]})
     (is (contains? (large-decls :rf/default) [:out :big])
-        "the large declaration is installed at :path ++ [:big]")
+        "the large declaration is installed at :output-path ++ [:big]")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/computed)))]
@@ -231,13 +231,13 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id         :mixed
                   :inputs     [[:n]]
-                  :output     (fn [_] {:hashed :H :raw :R})
-                  :path       [:safe]
+                  :derive     (fn [_] {:hashed :H :raw :R})
+                  :output-path       [:safe]
                   :rf.egress/output-sensitivity :rf.egress/public
                   :sensitive  [[:hashed]]})
-    ;; No whole-output declaration at :path itself.
+    ;; No whole-output declaration at :output-path itself.
     (is (not (contains? (sensitive-decls :rf/default) [:safe]))
-        ":rf.egress/output-sensitivity :rf.egress/public installs no whole-output declaration at :path")
+        ":rf.egress/output-sensitivity :rf.egress/public installs no whole-output declaration at :output-path")
     ;; The per-path declaration still applies.
     (is (contains? (sensitive-decls :rf/default) [:safe :hashed])
         "the per-path :sensitive [[:hashed]] declaration is still installed")
@@ -257,8 +257,8 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id     :plain
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:doubled]})
     (is (empty? (sensitive-decls :rf/default))
         "no sensitive declarations for a no-marks flow")
     (is (empty? (large-decls :rf/default))
@@ -282,15 +282,15 @@
     ;; :left — whole output sensitive.
     (rf/reg-flow {:id         :shared
                   :inputs     [[:n]]
-                  :output     (fn [_] {:v :LEFT})
-                  :path       [:out]
+                  :derive     (fn [_] {:v :LEFT})
+                  :output-path       [:out]
                   :rf.egress/output-sensitivity :rf.egress/sensitive}
                  {:frame :left})
     ;; :right — same id, NO marks (rides raw).
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
-                  :output (fn [_] {:v :RIGHT})
-                  :path   [:out]}
+                  :derive (fn [_] {:v :RIGHT})
+                  :output-path   [:out]}
                  {:frame :right})
     ;; Registry isolation: :left carries the declaration, :right does not.
     (is (contains? (sensitive-decls :left) [:out])
@@ -320,8 +320,8 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
-                  :output     (fn [_] {:jwt "x"})
-                  :path       [:auth :token]
+                  :derive     (fn [_] {:jwt "x"})
+                  :output-path       [:auth :token]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:auth :token])
         "declaration present after reg-flow")
@@ -337,8 +337,8 @@
     (marks/add-marks :rf/default {[:user :ssn] :sensitive})
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
-                  :output     (fn [_] {:jwt "x"})
-                  :path       [:auth :token]
+                  :derive     (fn [_] {:jwt "x"})
+                  :output-path       [:auth :token]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (flows/clear-flow :token)
     (is (not (contains? (sensitive-decls :rf/default) [:auth :token]))
@@ -347,25 +347,25 @@
         "the add-marks-sourced declaration survives clear-flow")))
 
 ;; ---------------------------------------------------------------------------
-;; 7. Lifecycle: re-registration that changes :path moves the declaration
+;; 7. Lifecycle: re-registration that changes :output-path moves the declaration
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-path-change-moves-output-marks
-  (testing "re-registering a flow with a NEW :path drops the OLD path's
+  (testing "re-registering a flow with a NEW :output-path drops the OLD path's
             flow-sourced declaration and installs it at the new path"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
-                  :output     (fn [_] {:jwt "x"})
-                  :path       [:old :token]
+                  :derive     (fn [_] {:jwt "x"})
+                  :output-path       [:old :token]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:old :token])
         "declaration at the original path")
     ;; Re-register the SAME id on the SAME frame with a NEW path.
     (rf/reg-flow {:id         :token
                   :inputs     [[:n]]
-                  :output     (fn [_] {:jwt "x"})
-                  :path       [:new :token]
+                  :derive     (fn [_] {:jwt "x"})
+                  :output-path       [:new :token]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (not (contains? (sensitive-decls :rf/default) [:old :token]))
         "the OLD path's flow declaration is dropped on path-change")
@@ -378,16 +378,16 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1})}))
     (rf/reg-flow {:id        :creds
                   :inputs    [[:n]]
-                  :output    (fn [_] {:a 1 :b 2})
-                  :path      [:out]
+                  :derive    (fn [_] {:a 1 :b 2})
+                  :output-path      [:out]
                   :sensitive [[:a] [:b]]})
     (is (contains? (sensitive-decls :rf/default) [:out :a]))
     (is (contains? (sensitive-decls :rf/default) [:out :b]))
     ;; Re-register dropping :b from the sensitive set.
     (rf/reg-flow {:id        :creds
                   :inputs    [[:n]]
-                  :output    (fn [_] {:a 1 :b 2})
-                  :path      [:out]
+                  :derive    (fn [_] {:a 1 :b 2})
+                  :output-path      [:out]
                   :sensitive [[:a]]})
     (is (contains? (sensitive-decls :rf/default) [:out :a])
         ":a's declaration survives the re-registration")
@@ -409,7 +409,7 @@
 ;;     propagates, :large does NOT);
 ;;   - runtime-db-qualified `[:rf.db/runtime …]` inputs (compose with
 ;;     rf2-4eisfr — partition-aware);
-;;   - flow→flow DAG propagation (a flow reading an upstream flow's :path);
+;;   - flow→flow DAG propagation (a flow reading an upstream flow's :output-path);
 ;;   - the t2 `:rf.event/db-pending-post-flow` redaction (Spec 015:568).
 ;; ===========================================================================
 
@@ -444,19 +444,19 @@
   (testing "a flow reading a SENSITIVE input path emits a SENSITIVE output by
             default (no explicit classification key) — Spec 015:313's
             :computed/full-name shape. The propagated whole-output sensitive
-            declaration is installed at the flow's :path, and the
+            declaration is installed at the flow's :output-path, and the
             :rf.flow/computed :result is wholesale-redacted."
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:user {:first "Ada" :last "Lovelace"}})}))
     ;; Mark the input slot sensitive BEFORE reg-flow (the realistic ordering).
     (marks/add-marks :rf/default {[:user :first] :sensitive})
     (rf/reg-flow {:id     :computed/full-name
                   :inputs [[:user :first] [:user :last]]
-                  :output (fn [first last] (str first " " last))
-                  :path   [:computed :full-name]})
+                  :derive (fn [first last] (str first " " last))
+                  :output-path   [:computed :full-name]})
     ;; The propagated whole-output declaration is installed at reg-flow time
     ;; because the input already overlaps a sensitive declaration.
     (is (contains? (sensitive-decls :rf/default) [:computed :full-name])
-        "the flow output :path inherits a propagated whole-output sensitive mark")
+        "the flow output :output-path inherits a propagated whole-output sensitive mark")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (is (= privacy/redacted-sentinel (computed-result :computed/full-name))
@@ -469,8 +469,8 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:secret-in "S"})}))
     (rf/reg-flow {:id     :derive
                   :inputs [[:secret-in]]
-                  :output (fn [s] (str s "-derived"))
-                  :path   [:derived]})
+                  :derive (fn [s] (str s "-derived"))
+                  :output-path   [:derived]})
     ;; No mark yet — nothing inherited at reg-flow time.
     (is (not (contains? (sensitive-decls :rf/default) [:derived]))
         "no propagated mark before the input is marked")
@@ -490,8 +490,8 @@
     (marks/add-marks :rf/default {[:tok] :sensitive})
     (rf/reg-flow {:id         :wrap
                   :inputs     [[:tok]]
-                  :output     (fn [t] {:wrapped t})
-                  :path       [:wrapped-tok]
+                  :derive     (fn [t] {:wrapped t})
+                  :output-path       [:wrapped-tok]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:wrapped-tok]))
     (reset! *captured* [])
@@ -508,8 +508,8 @@
     (marks/add-marks :rf/default {[:tok] :sensitive})
     (rf/reg-flow {:id         :computed/hashed-token
                   :inputs     [[:tok]]
-                  :output     (fn [t] (hash t))      ; safe — author de-sensitised
-                  :path       [:computed :token-hash]
+                  :derive     (fn [t] (hash t))      ; safe — author de-sensitised
+                  :output-path       [:computed :token-hash]
                   :rf.egress/output-sensitivity :rf.egress/public})
     (is (not (contains? (sensitive-decls :rf/default) [:computed :token-hash]))
         ":rf.egress/output-sensitivity :rf.egress/public suppresses the propagated whole-output mark")
@@ -528,8 +528,8 @@
     (marks/add-marks :rf/default {[:out] :sensitive})
     (rf/reg-flow {:id         :passthrough
                   :inputs     [[:in]]
-                  :output     (fn [v] (str v "!"))
-                  :path       [:out]
+                  :derive     (fn [v] (str v "!"))
+                  :output-path       [:out]
                   :rf.egress/output-sensitivity :rf.egress/public})
     ;; The add-marks-sourced declaration on [:out] survives — the flow's
     ;; opt-out only governs its OWN :source :flow contribution.
@@ -547,8 +547,8 @@
     (marks/add-marks :rf/default {[:in] :sensitive})
     (rf/reg-flow {:id        :combine
                   :inputs    [[:in]]
-                  :output    (fn [v] {:body v :extra :E})
-                  :path      [:combined]
+                  :derive    (fn [v] {:body v :extra :E})
+                  :output-path      [:combined]
                   :sensitive [[:extra]]})
     (is (contains? (sensitive-decls :rf/default) [:combined])
         "propagated whole-output mark present")
@@ -564,8 +564,8 @@
     (marks/add-marks :rf/default {[:blob] :large})
     (rf/reg-flow {:id     :summarise
                   :inputs [[:blob]]
-                  :output (fn [b] (count b))      ; shrinks — derived-from-large is small
-                  :path   [:blob-size]})
+                  :derive (fn [b] (count b))      ; shrinks — derived-from-large is small
+                  :output-path   [:blob-size]})
     (is (not (contains? (large-decls :rf/default) [:blob-size]))
         ":large is NOT auto-propagated to the (shrunk) flow output")
     (is (not (contains? (sensitive-decls :rf/default) [:blob-size]))
@@ -578,8 +578,8 @@
     (marks/add-marks :rf/default {[:s] :sensitive [:big] :large})
     (rf/reg-flow {:id     :mix
                   :inputs [[:s] [:big]]
-                  :output (fn [s big] {:s s :n (count big)})
-                  :path   [:mixed]})
+                  :derive (fn [s big] {:s s :n (count big)})
+                  :output-path   [:mixed]})
     (is (contains? (sensitive-decls :rf/default) [:mixed])
         ":sensitive propagated from the sensitive input")
     (is (not (contains? (large-decls :rf/default) [:mixed]))
@@ -600,8 +600,8 @@
     (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
     (rf/reg-flow {:id     :route-token-echo
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
-                  :output (fn [t] {:echo t})
-                  :path   [:derived :route-token]})
+                  :derive (fn [t] {:echo t})
+                  :output-path   [:derived :route-token]})
     (is (contains? (sensitive-decls :rf/default) [:derived :route-token])
         "the runtime-db-qualified sensitive input propagates to the app-db output")
     (reset! *captured* [])
@@ -633,8 +633,8 @@
                   ;; non-redacted result — isolating the INPUT-VALUE leg from
                   ;; the (separately-tested) output propagation.
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
-                  :output (fn [t] {:echo t})
-                  :path   [:derived :route-token]
+                  :derive (fn [t] {:echo t})
+                  :output-path   [:derived :route-token]
                   :rf.egress/output-sensitivity :rf.egress/public})
     (reset! *captured* [])
     (rf/dispatch-sync [:seed-rt])
@@ -648,7 +648,7 @@
 
 (deftest runtime-db-qualified-input-value-is-elided-on-failed-trace
   ;; rf2-p44r3u — the SAME normalization must apply on the FAILURE path. A
-  ;; flow reading a sensitive runtime-db-qualified input whose `:output`
+  ;; flow reading a sensitive runtime-db-qualified input whose `:derive`
   ;; THROWS must not leak the raw input value on the `:rf.flow/failed`
   ;; `:inputs` slot either (the trace bus is the wire boundary on both the
   ;; success and the failure paths — `elide-inputs` is shared).
@@ -659,8 +659,8 @@
     (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
     (rf/reg-flow {:id     :route-token-boom
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
-                  :output (fn [_] (throw (ex-info "boom" {})))
-                  :path   [:derived :route-token]})
+                  :derive (fn [_] (throw (ex-info "boom" {})))
+                  :output-path   [:derived :route-token]})
     (reset! *captured* [])
     (rf/dispatch-sync [:seed-rt])
     (let [failures (by-op :rf.flow/failed)
@@ -694,8 +694,8 @@
     (marks/add-marks :rf/default {[:rf.runtime/routing :current :token] :sensitive})
     (rf/reg-flow {:id     :route-token-echo
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :token]]
-                  :output (fn [t] {:echo t})
-                  :path   [:derived :route-token]})
+                  :derive (fn [t] {:echo t})
+                  :output-path   [:derived :route-token]})
     ;; Pre-dispatch: BOTH the directly-marked runtime input slot and the
     ;; propagated flow output declaration are present.
     (is (contains? (sensitive-decls :rf/default) [:rf.runtime/routing :current :token])
@@ -760,8 +760,8 @@
          :rf.db/runtime {:rf.runtime/routing {:current {:page :home}}}}))
     (rf/reg-flow {:id     :derive
                   :inputs [[:secret-in]]
-                  :output (fn [s] {:copy s})
-                  :path   [:derived]})
+                  :derive (fn [s] {:copy s})
+                  :output-path   [:derived]})
     ;; Mark the input AFTER reg-flow — so the propagated [:derived] output
     ;; declaration is ABSENT at reg-flow time and materialises ONLY at the
     ;; drain-time topo refresh (the chain-start runtime-before snapshot's
@@ -821,20 +821,20 @@
 
 (deftest propagation-flow-dag-upstream-to-downstream
   (testing "flow→flow DAG propagation: flow B reading flow A's sensitive
-            output :path inherits A's propagated mark. The topo-ordered drain
+            output :output-path inherits A's propagated mark. The topo-ordered drain
             refresh resolves A before B so B sees A's freshly-installed mark."
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:raw "secret"})}))
     (marks/add-marks :rf/default {[:raw] :sensitive})
     ;; A: reads sensitive [:raw], writes [:step-a] (inherits sensitive).
     (rf/reg-flow {:id     :flow-a
                   :inputs [[:raw]]
-                  :output (fn [r] (str r "-a"))
-                  :path   [:step-a]})
+                  :derive (fn [r] (str r "-a"))
+                  :output-path   [:step-a]})
     ;; B: reads A's output [:step-a], writes [:step-b] (must inherit too).
     (rf/reg-flow {:id     :flow-b
                   :inputs [[:step-a]]
-                  :output (fn [a] (str a "-b"))
-                  :path   [:step-b]})
+                  :derive (fn [a] (str a "-b"))
+                  :output-path   [:step-b]})
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (is (contains? (sensitive-decls :rf/default) [:step-a])
@@ -846,7 +846,7 @@
 
 (deftest propagation-t2-pending-post-flow-redacts-output
   (testing "Spec 015:568 conformance shape — a flow whose :inputs include a
-            sensitive app-db path produces a flow :path write that is marked
+            sensitive app-db path produces a flow :output-path write that is marked
             sensitive in the SAME event's t2 `:rf.event/db-pending-post-flow`
             snapshot. Flows transform the pending :db before the single
             deferred install, so the output rides the t2 snapshot of that one
@@ -855,8 +855,8 @@
     (marks/add-marks :rf/default {[:user :ssn] :sensitive})
     (rf/reg-flow {:id     :ssn-echo
                   :inputs [[:user :ssn]]
-                  :output (fn [ssn] {:copy ssn})
-                  :path   [:derived :ssn-copy]})
+                  :derive (fn [ssn] {:copy ssn})
+                  :output-path   [:derived :ssn-copy]})
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [t2 (last (filterv #(= :rf.event/db-pending-post-flow (:operation %))
@@ -878,8 +878,8 @@
     (marks/add-marks :rf/default {[:in] :sensitive})
     (rf/reg-flow {:id     :echo
                   :inputs [[:in]]
-                  :output (fn [v] (str v "-out"))
-                  :path   [:echoed]})
+                  :derive (fn [v] (str v "-out"))
+                  :output-path   [:echoed]})
     (rf/dispatch-sync [:init])
     (is (contains? (sensitive-decls :rf/default) [:echoed])
         "propagated while the input is marked")
@@ -926,8 +926,8 @@
   (testing ":sensitive [:token] (bare keywords, not vector-of-subpaths) is rejected"
     (let [ex   (try (rf/reg-flow {:id        :bad/sens
                                   :inputs    [[:n]]
-                                  :output    identity
-                                  :path      [:out]
+                                  :derive    identity
+                                  :output-path      [:out]
                                   :sensitive [:token]})    ; should be [[:token]]
                     (catch Throwable t t))
           data (ex-data ex)]
@@ -947,8 +947,8 @@
   (testing ":sensitive \"blob\" (non-vector whole value) is rejected with :bad-value"
     (let [ex   (try (rf/reg-flow {:id        :bad/sens2
                                   :inputs    [[:n]]
-                                  :output    identity
-                                  :path      [:out]
+                                  :derive    identity
+                                  :output-path      [:out]
                                   :sensitive "blob"})
                     (catch Throwable t t))
           data (ex-data ex)]
@@ -962,8 +962,8 @@
   (testing ":large \"blob\" (a string, not a vector) is rejected"
     (let [ex   (try (rf/reg-flow {:id     :bad/large
                                   :inputs [[:n]]
-                                  :output identity
-                                  :path   [:out]
+                                  :derive identity
+                                  :output-path   [:out]
                                   :large  "blob"})
                     (catch Throwable t t))
           data (ex-data ex)]
@@ -977,8 +977,8 @@
   (testing ":large [42] (a scalar entry, not a subpath vector) is rejected"
     (let [ex   (try (rf/reg-flow {:id     :bad/large2
                                   :inputs [[:n]]
-                                  :output identity
-                                  :path   [:out]
+                                  :derive identity
+                                  :output-path   [:out]
                                   :large  [42]})
                     (catch Throwable t t))
           data (ex-data ex)]
@@ -992,8 +992,8 @@
   (testing ":sensitive? :yes (not a boolean) is rejected"
     (let [ex   (try (rf/reg-flow {:id         :bad/sensq
                                   :inputs     [[:n]]
-                                  :output     identity
-                                  :path       [:out]
+                                  :derive     identity
+                                  :output-path       [:out]
                                   :sensitive? :yes})
                     (catch Throwable t t))
           data (ex-data ex)]
@@ -1007,8 +1007,8 @@
   (testing ":sensitive? nil (present-but-nil) is rejected (not a literal false opt-out)"
     (let [ex (try (rf/reg-flow {:id         :bad/sensq-nil
                                 :inputs     [[:n]]
-                                :output     identity
-                                :path       [:out]
+                                :derive     identity
+                                :output-path       [:out]
                                 :sensitive? nil})
                   (catch Throwable t t))]
       (is (= :rf.error/flow-bad-marks (:rf.error/id (ex-data ex)))
@@ -1019,8 +1019,8 @@
   (testing ":large? 1 (not a boolean) is rejected"
     (let [ex   (try (rf/reg-flow {:id     :bad/largeq
                                   :inputs [[:n]]
-                                  :output identity
-                                  :path   [:out]
+                                  :derive identity
+                                  :output-path   [:out]
                                   :large? 1})
                     (catch Throwable t t))
           data (ex-data ex)]
@@ -1040,12 +1040,12 @@
     (is (= :ok/whole
            (rf/reg-flow {:id        :ok/whole
                          :inputs    [[:n]]
-                         :output    (fn [_] {:v 1})
-                         :path      [:derived :whole]
+                         :derive    (fn [_] {:v 1})
+                         :output-path      [:derived :whole]
                          :sensitive [[]]}))
         "a `:sensitive [[]]` whole-output mark registers cleanly")
     (is (contains? (sensitive-decls :rf/default) [:derived :whole])
-        "the whole-output declaration is installed at :path itself")))
+        "the whole-output declaration is installed at :output-path itself")))
 
 (deftest fx-reg-flow-rejects-malformed-marks-no-state-installed
   ;; The runtime `:rf.fx/reg-flow` effect routes through the SAME
@@ -1060,8 +1060,8 @@
       (fn [_ _]
         {:fx [[:rf.fx/reg-flow {:id        :fx/bad-sens
                                 :inputs    [[:n]]
-                                :output    identity
-                                :path      [:out]
+                                :derive    identity
+                                :output-path      [:out]
                                 :sensitive [:token]}]]}))   ; malformed
     (try (rf/dispatch-sync [:enter-bad-sens]) (catch Throwable _ nil))
     (is (not (flow-row? :fx/bad-sens))
@@ -1073,8 +1073,8 @@
       (fn [_ _]
         {:fx [[:rf.fx/reg-flow {:id         :fx/bad-sensq
                                 :inputs     [[:n]]
-                                :output     identity
-                                :path       [:out]
+                                :derive     identity
+                                :output-path       [:out]
                                 :sensitive? :yes}]]}))      ; malformed
     (try (rf/dispatch-sync [:enter-bad-sensq]) (catch Throwable _ nil))
     (is (not (flow-row? :fx/bad-sensq))

@@ -10,9 +10,9 @@
   Gating contract: each `:rf.flow/*` emit site sits inside `(when
   interop/debug-enabled? ...)` AND the body of `trace/emit!` itself is
   gated. Under prod-mode both gates constant-fold to false. The flow's
-  `:output` fn still runs (recomputation is not gated; only the trace
+  `:derive` fn still runs (recomputation is not gated; only the trace
   fan-out and the `elision/elide-wire-value` walker that builds the tag
-  map are); the app-db slot at `:path` is still populated; only the
+  map are); the app-db slot at `:output-path` is still populated; only the
   trace emission elides.
 
   Surfaces exercised:
@@ -20,7 +20,7 @@
   - `:rf.flow/registered`  (emitted by `reg-flow` on first-time register)
   - `:rf.flow/computed`    (emitted by `evaluate-flow!` on successful run)
   - `:rf.flow/skip`        (emitted by `evaluate-flow!` on value-equal inputs)
-  - `:rf.flow/failed`      (emitted by `evaluate-flow!` when :output throws)
+  - `:rf.flow/failed`      (emitted by `evaluate-flow!` when :derive throws)
   - `:rf.flow/cleared`     (emitted by `clear-flow`)
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
@@ -31,7 +31,7 @@
 
   Note: the cascade-level `:rf.error/flow-eval-exception` carried by
   the always-on error-emit substrate is the production observability
-  signal for `:output` failures per rf2-gmrks; the per-flow
+  signal for `:derive` failures per rf2-gmrks; the per-flow
   `:rf.flow/failed` trace is detail-grain only and DCEs in prod. The
   prod-survival of the error-emit substrate is pinned by
   `re-frame.flow-eval-exception-elision-prod-test`."
@@ -87,8 +87,8 @@
                    (rf/reg-flow
                      {:id     :prod-elision/area
                       :inputs [[:w] [:h]]
-                      :output (fn [w h] (* (or w 0) (or h 0)))
-                      :path   [:rect :area]})))]
+                      :derive (fn [w h] (* (or w 0) (or h 0)))
+                      :output-path   [:rect :area]})))]
       (is (empty? seen)
           "no trace events delivered under :advanced + goog.DEBUG=false"))
     ;; Cross-check: the flow IS registered — the registrar mutation
@@ -103,7 +103,7 @@
 
 (deftest flow-computed-emits-no-trace-under-prod
   (testing "Per Spec 009 §Production-elision: a successful flow
-            recompute runs the `:output` fn and writes the result into
+            recompute runs the `:derive` fn and writes the result into
             the app-db slot but emits NO `:rf.flow/computed` trace
             under prod. The wire-value elision walker is also gated,
             so the result/input-values payload construction elides too."
@@ -114,8 +114,8 @@
                    (rf/reg-flow
                      {:id     :prod-elision/area
                       :inputs [[:w] [:h]]
-                      :output (fn [w h] (* (or w 0) (or h 0)))
-                      :path   [:rect :area]})
+                      :derive (fn [w h] (* (or w 0) (or h 0)))
+                      :output-path   [:rect :area]})
                    ;; Seed inputs; the drain runs the flow.
                    (rf/dispatch-sync [:prod-elision/seed-rect])))]
       (is (empty? seen)
@@ -128,7 +128,7 @@
 ;; ---- :rf.flow/failed elides under prod ------------------------------------
 
 (deftest flow-failed-emits-no-trace-under-prod
-  (testing "Per Spec 009 §Production-elision: when a flow's `:output`
+  (testing "Per Spec 009 §Production-elision: when a flow's `:derive`
             fn throws, the per-flow `:rf.flow/failed` trace elides
             under prod. The cascade-level `:rf.error/flow-eval-exception`
             still flows through the always-on error-emit substrate
@@ -143,10 +143,10 @@
                    (rf/reg-flow
                      {:id     :prod-elision/throwing
                       :inputs [[:trigger?]]
-                      :output (fn [t?]
+                      :derive (fn [t?]
                                 (when t?
                                   (throw (ex-info "prod-elision throw" {}))))
-                      :path   [:prod-elision/result]})
+                      :output-path   [:prod-elision/result]})
                    (rf/dispatch-sync [:prod-elision/seed-throw-input])))]
       (is (empty? seen)
           "no :rf.flow/failed (or any other) trace events under prod"))))
@@ -167,8 +167,8 @@
     (rf/reg-flow
       {:id     :prod-elision/skipper
        :inputs [[:a]]
-       :output (fn [a] (* (or a 0) 2))
-       :path   [:prod-elision/double]})
+       :derive (fn [a] (* (or a 0) 2))
+       :output-path   [:prod-elision/double]})
     (rf/dispatch-sync [:prod-elision/seed-skip])
     ;; Second dispatch leaves :a unchanged → inputs value-equal → skip.
     (let [seen (listener-fixture
@@ -187,8 +187,8 @@
     (rf/reg-flow
       {:id     :prod-elision/clearable
        :inputs [[:w]]
-       :output (fn [w] (or w 0))
-       :path   [:prod-elision/copy]})
+       :derive (fn [w] (or w 0))
+       :output-path   [:prod-elision/copy]})
     (let [seen (listener-fixture
                  (fn []
                    (flows/clear-flow :prod-elision/clearable)))]
@@ -201,7 +201,7 @@
 
 (deftest flow-output-schema-validation-elides-under-prod
   (testing "Per Spec 009 §Production-elision (rf2-ee38b.9): a flow whose
-            computed `:output` VIOLATES its `:schema` emits NO
+            computed `:derive` output VIOLATES its `:schema` emits NO
             `:rf.error/schema-validation-failure :where :flow-output`
             trace under `:advanced` + `goog.DEBUG=false`. A predicate
             validator is registered so the seam is fully wired — the
@@ -216,8 +216,8 @@
     (rf/reg-flow
       {:id     :prod-elision/validated
        :inputs [[:w] [:h]]
-       :output (fn [w h] (* (or w 0) (or h 0)))
-       :path   [:prod-elision/area]
+       :derive (fn [w h] (* (or w 0) (or h 0)))
+       :output-path   [:prod-elision/area]
        :schema (fn [_] false)})
     (let [seen (listener-fixture
                  (fn []

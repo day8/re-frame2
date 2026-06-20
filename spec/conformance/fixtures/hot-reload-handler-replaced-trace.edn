@@ -65,12 +65,12 @@
                          {:id     :doubled/value
                           :inputs [[:n]]
                           :body   [[:fn :* [:event-arg 0] 2]]
-                          :path   [:doubled]}]]
+                          :output-path [:doubled]}]]
           :flow/reg-v2 [[:fx :rf.fx/reg-flow
                          {:id     :doubled/value
                           :inputs [[:n]]
                           :body   [[:fn :+ [:event-arg 0] [:event-arg 0]]]
-                          :path   [:doubled]}]]
+                          :output-path [:doubled]}]]
           :flow/poke   [[:set [:tick] [:event-arg 1]]]}}
 
  :fixture/frame-config

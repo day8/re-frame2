@@ -5,7 +5,7 @@
   replacement-hook that invalidates the dirty-check on hot reload.
 
   Per Spec 013 flows are FRAME-SCOPED: same flow-id can register against
-  two frames with different `:inputs` / `:output` / `:path`, and
+  two frames with different `:inputs` / `:derive` / `:output-path`, and
   undo / time-travel semantics belong to one frame's history. The
   registry shape is `{frame-id {flow-id flow-map}}`.
 
@@ -204,8 +204,8 @@
 
 ;; ---- pending abandoned output paths (rf2-z980k8) -------------------------
 ;;
-;; A same-frame `reg-flow` REPLACEMENT that MOVES the output to a new `:path`
-;; must vacate the OLD path from the frame's app-db (Spec 013
+;; A same-frame `reg-flow` REPLACEMENT that MOVES the output to a new
+;; `:output-path` must vacate the OLD path from the frame's app-db (Spec 013
 ;; §Re-registration — otherwise the previous definition's last write lingers
 ;; at the abandoned slot as stale derived state). `vacate-output-path!`
 ;; (below) does that with a DIRECT app-db write, which is correct for an
@@ -230,7 +230,7 @@
 (defonce
   ^{:doc     "frame-id → (atom #{abandoned-output-path ...}). Per-frame set
               of OLD output paths recorded by an IN-DRAIN same-frame
-              `reg-flow` `:path` move, pending vacate by the current drain's
+              `reg-flow` `:output-path` move, pending vacate by the current drain's
               `run-flows-on-db` pending-`:db` transform (rf2-z980k8)."
     :private true}
   frame-abandoned-output-paths
@@ -253,8 +253,8 @@
 (defn ^:no-doc record-abandoned-output-path!
   "Record `path` as a pending abandoned output path for `frame-id` — to be
   vacated from the pending `:db` by the current drain's `run-flows-on-db`
-  (rf2-z980k8). Called by `reg-flow`'s in-drain `:path`-move branch instead
-  of the direct app-db write the OUT-of-drain branch uses. Frame-local."
+  (rf2-z980k8). Called by `reg-flow`'s in-drain `:output-path`-move branch
+  instead of the direct app-db write the OUT-of-drain branch uses. Frame-local."
   [frame-id path]
   (swap! (ensure-frame-abandoned-paths-atom! frame-id) conj path))
 
@@ -329,17 +329,18 @@
 
 ;; ---- validation ----------------------------------------------------------
 ;;
-;; Per Spec 013 §Flow shape: `:inputs` is a vector of app-db paths, `:path`
-;; is an app-db path. A path is a non-empty vector of scalar map keys. The
-;; prior validator only enforced `vector?` on each, so three classes of
-;; malformed input slipped through (per audit rf2-o3hok findings Q5 / TE4):
+;; Per Spec 013 §Flow shape: `:inputs` is a vector of app-db paths,
+;; `:output-path` is an app-db path. A path is a non-empty vector of scalar
+;; map keys. The prior validator only enforced `vector?` on each, so three
+;; classes of malformed input slipped through (per audit rf2-o3hok findings
+;; Q5 / TE4):
 ;;
 ;;   - `:inputs [:foo :bar]` (vector of bare keywords) — passed; then
 ;;     topo's `prefix?` threw on `(count :foo)`.
 ;;   - `:inputs [[:foo] :bar]` (mixed) — same path, same delayed boom.
-;;   - `:path []` — passed; `(prefix? [] anything)` is true, so the empty-
-;;     path flow silently became a depends-on prerequisite of EVERY other
-;;     flow in the frame (per Spec 013 §Dependency rule).
+;;   - `:output-path []` — passed; `(prefix? [] anything)` is true, so the
+;;     empty-path flow silently became a depends-on prerequisite of EVERY
+;;     other flow in the frame (per Spec 013 §Dependency rule).
 ;;
 ;; The tightened validator rejects each malformation up front with a stable
 ;; error id and ex-data that names the offending entries / elements so
@@ -369,7 +370,7 @@
   the prior flows enumeration (keyword / string / integer / symbol / boolean)
   to also admit UUID, instant, and nil segments — all valid associative keys
   the shared `:rf/path` algebra already focuses through. The flows-SPECIFIC
-  restriction (a `:path` / `:inputs` path must be NON-EMPTY — an empty path is
+  restriction (a `:output-path` / `:inputs` path must be NON-EMPTY — an empty path is
   a root-output footgun that makes the flow a depends-on prerequisite of every
   other flow, Spec 013 §Dependency rule) is layered ON TOP in `valid-path?`
   below, NOT folded into the shared segment domain."
@@ -377,9 +378,9 @@
   (path/segment? x))
 
 (defn- valid-path?
-  "A flow `:inputs` path or the flow `:path` is a NON-EMPTY vector of valid
-  path segments. The non-emptiness is the flows-specific root-output policy
-  (Spec 013 §Dependency rule — an empty path overlaps every path); the
+  "A flow `:inputs` path or the flow `:output-path` is a NON-EMPTY vector of
+  valid path segments. The non-emptiness is the flows-specific root-output
+  policy (Spec 013 §Dependency rule — an empty path overlaps every path); the
   per-element domain is the shared EP-0012 segment policy (`valid-path-element?`
   → `re-frame.path/segment?`, rf2-t3cfil)."
   [x]
@@ -388,7 +389,7 @@
 (defn- valid-output-subpath?
   "A flow output classification subpath (an entry of `:sensitive` / `:large`)
   is a vector of valid path segments, AND — unlike a flow `:inputs` path or
-  the flow `:path` — the EMPTY vector `[]` is legal: it marks the whole
+  the flow `:output-path` — the EMPTY vector `[]` is legal: it marks the whole
   output value (the `[[]]` whole-value convention, Spec 015:81). So this is
   `valid-path?` minus the non-empty requirement: a vector whose every element
   (if any) is a shared-domain segment (`valid-path-element?`)."
@@ -475,22 +476,22 @@
     :reason   ":inputs entries must each be a non-empty vector of path segments (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
     :extras   (fn [flow] {:bad-entries (vec (remove valid-path? (:inputs flow)))})}
 
-   {:pred     (fn [flow] (fn? (:output flow)))
+   {:pred     (fn [flow] (fn? (:derive flow)))
     :error-kw :rf.error/flow-bad-output
-    :reason   ":output must be a fn"}
+    :reason   ":derive must be a fn"}
 
-   {:pred     (fn [flow] (vector? (:path flow)))
+   {:pred     (fn [flow] (vector? (:output-path flow)))
     :error-kw :rf.error/flow-bad-path
-    :reason   ":path must be a vector"}
+    :reason   ":output-path must be a vector"}
 
-   {:pred     (fn [flow] (seq (:path flow)))
+   {:pred     (fn [flow] (seq (:output-path flow)))
     :error-kw :rf.error/flow-bad-path
-    :reason   ":path must be non-empty (an empty :path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"}
+    :reason   ":output-path must be non-empty (an empty :output-path would make this flow a depends-on prerequisite of every other flow per Spec 013 §Dependency rule)"}
 
-   {:pred     (fn [flow] (every? valid-path-element? (:path flow)))
+   {:pred     (fn [flow] (every? valid-path-element? (:output-path flow)))
     :error-kw :rf.error/flow-bad-path
-    :reason   ":path elements must each be a path segment (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
-    :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:path flow)))})}
+    :reason   ":output-path elements must each be a path segment (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
+    :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:output-path flow)))})}
 
    ;; rf2-cgk0wb issue 2: the OPTIONAL output data-classification keys
    ;; (`:sensitive` / `:large` per-path vectors; `:sensitive?` / `:large?`
@@ -504,7 +505,7 @@
    ;; a slot is protected and it is not. Reject at the API boundary instead —
    ;; same fail-FAST posture the core flow-path validation already takes, and
    ;; the same `:rf.error/flow-bad-*` family. These rules fire AFTER the core
-   ;; `:id` / `:inputs` / `:output` / `:path` rules (a flow with a broken
+   ;; `:id` / `:inputs` / `:derive` / `:output-path` rules (a flow with a broken
    ;; required shape reports that first), but BEFORE any registry / app-db /
    ;; elision-declaration state mutates (validate-flow is the first call in
    ;; `reg-flow`, before `frame-id` / the `swap!`), so a rejected registration
@@ -624,7 +625,7 @@
 ;; (`:large? true` / `:large [paths]`); :sensitive marks come from explicit
 ;; declarations UNION propagated input marks.
 ;;
-;; The flow's output lands in app-db at `(:path flow)`, so a sensitive /
+;; The flow's output lands in app-db at `(:output-path flow)`, so a sensitive /
 ;; large output value egresses through TWO observation channels:
 ;;   1. the `:rf.flow/computed` `:result` / `:before` trace slots (and the
 ;;      `:rf.flow/failed` failure path), and
@@ -639,13 +640,13 @@
 ;; we make the marks FIRST-CLASS through the SAME per-frame elision registry
 ;; the schema-first wire walker (`elision/elide-wire-value`) already reads.
 ;; We translate the registration's output-rooted marks (explicit + propagated)
-;; into ABSOLUTE app-db declarations rooted at `(:path flow)` and write them
+;; into ABSOLUTE app-db declarations rooted at `(:output-path flow)` and write them
 ;; into the frame's `[:rf.runtime/elision :sensitive-declarations]` /
 ;; `:declarations` slots.
 ;;
 ;; ONE walker then covers BOTH channels:
 ;;   - the flow trace `:result` / `:before` already ride
-;;     `elide-wire-value` rooted at `(:path flow)` (see `re-frame.flows`),
+;;     `elide-wire-value` rooted at `(:output-path flow)` (see `re-frame.flows`),
 ;;     so they pick the declarations up with no emit-site change; and
 ;;   - `project-db-tags` / `project-view-rendered-tags` (re-frame.marks)
 ;;     elide the app-db destination slot through the SAME registry, so the
@@ -661,7 +662,7 @@
 ;;   2. at the START of every `run-flows-on-db` drain, walking the frame's
 ;;      flows in dependency order and re-deriving each flow's `:source :flow`
 ;;      output declarations (covers marks added after registration AND the
-;;      flow-DAG case — flow B reading flow A's `:path` inherits A's already-
+;;      flow-DAG case — flow B reading flow A's `:output-path` inherits A's already-
 ;;      refreshed propagated mark because A is refreshed first in topo order).
 ;; The drain refresh is the flows analogue of subs' per-compute re-resolution;
 ;; it stays within the flows artefact (no add-marks/set-marks hook into core).
@@ -681,21 +682,21 @@
 
 (defn- explicit-flow-output-mark-paths
   "Translate a flow's EXPLICIT output-rooted classification keys into
-  ABSOLUTE app-db declaration paths rooted at the flow's `:path`. Returns
+  ABSOLUTE app-db declaration paths rooted at the flow's `:output-path`. Returns
   `[sensitive-paths large-paths]` (each a vector of absolute path vectors).
   This is the author's hand-declared set; the PROPAGATED whole-output
   sensitive mark (input-inherited) is layered on by the resolver below.
 
   - `:rf.egress/output-sensitivity :rf.egress/sensitive` ⇒ the flow's
-    `:path` itself (force-mark the whole output sensitive); `:large? true`
-    ⇒ the `:path` itself (force-mark large);
-  - per-path `:sensitive` / `:large` entries ⇒ `(:path flow)` ++ sub-path
-    (`[[]]` whole-value mark ⇒ the `:path` itself);
+    `:output-path` itself (force-mark the whole output sensitive); `:large? true`
+    ⇒ the `:output-path` itself (force-mark large);
+  - per-path `:sensitive` / `:large` entries ⇒ `(:output-path flow)` ++ sub-path
+    (`[[]]` whole-value mark ⇒ the `:output-path` itself);
   - `:rf.egress/output-sensitivity :rf.egress/public` / `:large? false` ⇒ NO
     whole-output mark here (the `:public` declassify suppresses propagation
     too — see the resolver); per-path entries, if any, still apply."
   [flow]
-  (let [base       (:path flow)
+  (let [base       (:output-path flow)
         abs        (fn [sub] (into (vec base) sub))
         per-sens   (->> (:sensitive flow) (filter vector?) (map abs))
         per-large  (->> (:large flow)     (filter vector?) (map abs))
@@ -847,12 +848,12 @@
   path — those entries are never `:source :flow`, so they survive the
   `drop-flow-sourced` carry and re-union at read time (Spec 015:295)."
   [flow reg]
-  (let [base        (vec (:path flow))
+  (let [base        (vec (:output-path flow))
         [explicit-s _] (explicit-flow-output-mark-paths flow)
         opted-out?  (= :rf.egress/public (:rf.egress/output-sensitivity flow))
         ;; Propagate against the carried (non-flow) declarations PLUS any
         ;; OTHER flow's already-resolved sensitive declarations — so a flow
-        ;; reading an upstream flow's sensitive `:path` inherits it (the
+        ;; reading an upstream flow's sensitive `:output-path` inherits it (the
         ;; topo-ordered drain refresh guarantees the upstream is resolved
         ;; first). The carried map here already excludes THIS flow.
         propagate?  (and (not opted-out?)
@@ -871,7 +872,7 @@
   propagated — the asymmetry settled in this PR). Resolving the propagation
   against the CARRY (this-flow-dropped) registry means a flow never inherits
   from its own prior mark (idempotence + no self-loop), and — because the
-  caller folds flows in topo order — a flow reading an upstream flow's `:path`
+  caller folds flows in topo order — a flow reading an upstream flow's `:output-path`
   resolves against the upstream's already-folded propagated mark."
   [reg flow]
   (let [flow-id        (:id flow)
@@ -899,7 +900,7 @@
 (defn refresh-flow-output-declarations!
   "Re-derive EVERY flow's `:source :flow` output declarations for `frame-id`,
   walking the frame's flows in TOPOLOGICAL (dependency) order so a flow that
-  reads an upstream flow's `:path` inherits the upstream's just-refreshed
+  reads an upstream flow's `:output-path` inherits the upstream's just-refreshed
   propagated mark (rf2-ihfz9o). Frame-scoped. Called at the START of
   `re-frame.flows/run-flows-on-db` (before any flow computes, so the refreshed
   declaration is in the registry when the t2 `:rf.event/db-pending-post-flow`
@@ -1027,7 +1028,7 @@
 
 ;; ---- registration --------------------------------------------------------
 
-;; `reg-flow`'s same-frame `:path`-change branch (rf2-73pi1) vacates the
+;; `reg-flow`'s same-frame `:output-path`-change branch (rf2-73pi1) vacates the
 ;; OLD output path via `vacate-output-path!`, which is defined alongside
 ;; `clear-flow` further down (both share the app-db dissoc semantics).
 ;; Forward-declare it so the registration path can reference it without
@@ -1040,7 +1041,7 @@
   scoped: their lifecycle, evaluation, undo / time-travel semantics
   all belong to one frame.
 
-  Required keys on the flow map: :id :inputs :output :path.
+  Required keys on the flow map: :id :inputs :derive :output-path.
   Optional: :doc :schema.
 
   EP-0002 — flows are CONTEXT-REQUIRED FRAME-LOCAL registration. The
@@ -1128,7 +1129,7 @@
      ;; whose return value commits — leaves the authoritative value). It
      ;; drives two decisions below: (rf2-mb9vq) per-frame first-vs-
      ;; replacement for the `:rf.flow/registered` trace, and (rf2-73pi1)
-     ;; the same-frame `:path`-change vacate. `nil` ⇒ first-time
+     ;; the same-frame `:output-path`-change vacate. `nil` ⇒ first-time
      ;; registration of `flow-id` on THIS frame (even if a SIBLING frame
      ;; already holds the global registrar slot).
      (let [prior-on-frame (volatile! nil)]
@@ -1181,11 +1182,11 @@
                         (topo/topo-sort prospective)
                         (assoc m frame-id prospective)))))
            ;; rf2-73pi1 finding 2: a same-frame re-registration that MOVES the
-           ;; output to a new `:path` must vacate the OLD path from this
+           ;; output to a new `:output-path` must vacate the OLD path from this
            ;; frame's app-db — otherwise the previous definition's last write
            ;; lingers and downstream reads see stale derived state at the
            ;; abandoned slot. Only fires on a real same-frame replacement
-           ;; (`prior-on-frame` non-nil) whose `:path` actually changed; the
+           ;; (`prior-on-frame` non-nil) whose `:output-path` actually changed; the
            ;; commit above already installed the new definition, so the new
            ;; path recomputes on the next drain. First-time registration and
            ;; same-path hot-reload leave app-db untouched.
@@ -1206,8 +1207,8 @@
            ;;    thunk reentrantly when in-drain, so `frame/in-drain?` here is
            ;;    the matching discriminator.)
            (when-let [prior @prior-on-frame]
-             (let [old-path (:path prior)]
-               (when (not= old-path (:path flow))
+             (let [old-path (:output-path prior)]
+               (when (not= old-path (:output-path flow))
                  (if (frame/in-drain? frame-id)
                    (record-abandoned-output-path! frame-id old-path)
                    (vacate-output-path! frame-id old-path)))))
@@ -1216,7 +1217,7 @@
            ;; into the frame's app-db elision registry, rooted at `(:path
            ;; flow)`. `write-flow-output-marks!` drops THIS flow's prior
            ;; `:source :flow` entries first, so a re-registration that changed
-           ;; `:path` or the mark set replaces cleanly (covering the old-path
+           ;; `:output-path` or the mark set replaces cleanly (covering the old-path
            ;; declarations the value-vacate above does not touch). Inside the
            ;; serialized region so a concurrent drain's `elide-wire-value` read
            ;; cannot observe a half-updated registry.
@@ -1249,10 +1250,10 @@
            ;; body change from an idempotent reload. The registrar reads
            ;; `:handler-fn` uniformly across kinds; events / subs / fx all
            ;; populate it at their registration sites, but flows historically
-           ;; stored the body under `:output` only — so `(not= nil nil)` was
+           ;; stored the body under `:derive` only — so `(not= nil nil)` was
            ;; the answer for every flow re-registration and `:different-fn?`
            ;; was always `false` (re-frame-10x's flow panel / Xray / re-frame2-pair
-           ;; missed every real body swap). The `:output` slot is preserved
+           ;; missed every real body swap). The `:derive` slot is preserved
            ;; for the flow-eval site that reads it; the additional
            ;; `:handler-fn` stamp aligns the cross-kind hot-reload trace
            ;; surface Spec 001 standardises.
@@ -1267,7 +1268,7 @@
              (source-coords/merge-coords
                (assoc flow
                       :frame      frame-id
-                      :handler-fn (:output flow))))))
+                      :handler-fn (:derive flow))))))
        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires
        ;; on FIRST-TIME registration AGAINST THIS FRAME. Pre-rf2-mb9vq
        ;; this gated on the GLOBAL registrar `:was` (flow-id-scoped, not
@@ -1293,7 +1294,7 @@
          (trace/emit! :flow :rf.flow/registered
                       {:flow-id flow-id
                        :inputs  (:inputs flow)
-                       :path    (:path flow)
+                       :path    (:output-path flow)
                        :frame   frame-id})))
      ;; Spec 015 §7. Flows — the output data-classification marks are
      ;; installed FRAME-AWARE into the app-db elision registry via
@@ -1320,7 +1321,7 @@
   - **Non-map intermediate.** When an intermediate path step holds a
     non-map value (a scalar already wrote past the flow's planned path),
     the naïve `update-in` calls `(dissoc 1 :result)` and throws
-    `ClassCastException`. Treat this as a no-op — the flow's `:path`
+    `ClassCastException`. Treat this as a no-op — the flow's `:output-path`
     never materialised, so there's nothing to clear.
 
   Single-element paths and non-vector paths are handled by the caller's
@@ -1343,7 +1344,7 @@
       :else (update-in db parent-path dissoc leaf))))
 
 (defn ^:no-doc vacate-path-in-db
-  "Pure `db → db` removal of a flow output `:path`'s LEAF — the value
+  "Pure `db → db` removal of a flow output `:output-path`'s LEAF — the value
   transform shared by `vacate-output-path!` (which writes the result to the
   live app-db) and `run-flows-on-db`'s in-drain pending-`:db` vacate
   (rf2-z980k8, which dissocs abandoned paths from the PENDING value the
@@ -1351,8 +1352,8 @@
   when the dissoc is a no-op (missing key, unmaterialised parent, non-map
   intermediate).
 
-  `validate-flow` guarantees `:path` is a non-empty vector at registration,
-  so a `:path` read back out of the registry always carries one. rf2-aqt7:
+  `validate-flow` guarantees `:output-path` is a non-empty vector at registration,
+  so a `:output-path` read back out of the registry always carries one. rf2-aqt7:
   a single-element vector `[:k]` is dissoc'd directly (`(update-in db []
   dissoc :k)` would write `{... nil nil}`); a `(>= 2)` path routes through
   `dissoc-in-safe` (unmaterialised-parent / non-map-intermediate safe, per
@@ -1363,15 +1364,15 @@
     (dissoc-in-safe db path)))
 
 (defn- vacate-output-path!
-  "Dissoc a flow's output `:path` from `frame-id`'s app-db (only that
+  "Dissoc a flow's output `:output-path` from `frame-id`'s app-db (only that
   frame's container). Shared by `clear-flow` (full deregistration) and
-  the same-frame `:path`-change branch of `reg-flow` (rf2-73pi1 finding
+  the same-frame `:output-path`-change branch of `reg-flow` (rf2-73pi1 finding
   2 — moving a flow's output to a new path must vacate the OLD path so
   downstream reads don't see stale derived state at the abandoned slot).
 
-  `validate-flow` guarantees `:path` is a non-empty vector at
+  `validate-flow` guarantees `:output-path` is a non-empty vector at
   registration (rejects non-vector and empty via :rf.error/flow-bad-path),
-  so a `:path` read back out of the registry always carries one — no
+  so a `:output-path` read back out of the registry always carries one — no
   non-vector / empty-path arms are reachable here.
 
   rf2-aqt7: when :path is a single-element vector [:k], (butlast [:k])
@@ -1447,7 +1448,7 @@
               (source-coords/merge-coords
                 (assoc flow
                        :frame      survivor
-                       :handler-fn (:output flow))))))))))
+                       :handler-fn (:derive flow))))))))))
 
 (defn clear-flow
   "Deregister a flow from a frame; dissoc its output path from that
@@ -1483,12 +1484,12 @@
                         :clear-flow
                         {:where    'rf/clear-flow
                          :event-id id}))
-         ;; rf2-4wqu6 finding 2: the flow lookup + `:path` capture MUST
+         ;; rf2-4wqu6 finding 2: the flow lookup + `:output-path` capture MUST
          ;; happen INSIDE the drain-lock, not before it. Pre-fix this
          ;; read the flow and captured `path` ahead of
          ;; `call-serialized-with-drain!`; on the JVM a competing same-frame
          ;; same-id `reg-flow` replacement could win the lock after that
-         ;; stale read, install a NEW `:path`, a drain could materialise the
+         ;; stale read, install a NEW `:output-path`, a drain could materialise the
          ;; replacement's new output, and this clear-flow would then run
          ;; under the lock using the OLD path — vacating a now-empty old
          ;; path (a no-op) while removing the live registry row and leaving
@@ -1512,7 +1513,7 @@
            frame-id
            (fn []
              (when-let [flow (get-in @flows [frame-id id])]
-               (let [path (:path flow)]
+               (let [path (:output-path flow)]
                  (vacate-output-path! frame-id path)
                  ;; Spec 015 §7 / rf2-ouemt: drop this flow's output data-
                  ;; classification declarations from the frame's app-db elision
@@ -1645,7 +1646,7 @@
 ;; Per Spec 001 §Hot-reload semantics: when a flow re-registers, the
 ;; per-frame :last-inputs entry MUST clear so the new flow re-evaluates
 ;; on the next drain regardless of whether inputs changed. Without this,
-;; a hot-reloaded flow with a different :output fn but identical recent
+;; a hot-reloaded flow with a different :derive fn but identical recent
 ;; inputs would silently keep serving the previous result.
 
 (defn- invalidate-flow-on-replace!

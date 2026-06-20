@@ -443,8 +443,8 @@ The clearest illustration of the algebra: the *same* whole-value function, expre
 (rf/reg-flow
   {:id :cart/materialized-total
    :inputs [[:cart :items] [:pricing :discounts]]
-   :output (fn [items discounts] (sum-cart items discounts))
-   :path   [:cart :total]})
+   :derive (fn [items discounts] (sum-cart items discounts))
+   :output-path [:cart :total]})
 ```
 
 Their algebra views differ only in output, storage, evaluation, and lifecycle:
@@ -541,9 +541,9 @@ The same ephemeral-derivation classifications as an ordinary subscription; the o
   {:id     :cart/materialized-total           :kind        :derivation
    :inputs [[:cart :items]                    :source-form {:kind :reg-flow
             [:pricing :discounts]]                          :id   :cart/materialized-total}
-   :output (fn [items discounts]              :inputs      [[:db [:cart :items]]
+   :derive (fn [items discounts]              :inputs      [[:db [:cart :items]]
              (sum-cart items discounts))                    [:db [:pricing :discounts]]]
-   :path   [:cart :total]})                   :output      [:db [:cart :total]]
+   :output-path [:cart :total]})              :output      [:db [:cart :total]]
                                               :storage     :app-db
                                               :evaluation  :after-event
                                               :lifecycle   :frame
@@ -551,7 +551,7 @@ The same ephemeral-derivation classifications as an ordinary subscription; the o
                                               :derive      #'app.cart/sum-cart}
 ```
 
-The subscription's exact policy twin — same whole-value function, materialized instead of ephemeral ([§Worked equivalence](#worked-equivalence--one-function-two-policies)). Each `:inputs` path lowers to a `[:db path]` edge (a partition-qualified `[:rf.db/runtime …]` input lowers to `[:runtime …]`); the `:path` lowers to the `[:db …]` output address.
+The subscription's exact policy twin — same whole-value function, materialized instead of ephemeral ([§Worked equivalence](#worked-equivalence--one-function-two-policies)). Each `:inputs` path lowers to a `[:db path]` edge (a partition-qualified `[:rf.db/runtime …]` input lowers to `[:runtime …]`); the `:output-path` lowers to the `[:db …]` output address.
 
 ### Resource → process (static, then live)
 
@@ -705,7 +705,7 @@ This exposure is *internal registration metadata*, consistent with the slice sco
 
 ## Flows expose algebra views
 
-Flows are the second concrete algebra member to expose its view, and the subscription's exact policy twin: the *same* whole-value function, materialized instead of ephemeral (the [§Worked equivalence](#worked-equivalence--one-function-two-policies) above). Every `reg-flow` registration projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)): [013](013-Flows.md) keeps the per-frame registry, the topological-sort engine, the dirty-check, and the drain-integration semantics; the algebra view is assembled from the flow-map metadata that already exists, never from re-running the `:output` function.
+Flows are the second concrete algebra member to expose its view, and the subscription's exact policy twin: the *same* whole-value function, materialized instead of ephemeral (the [§Worked equivalence](#worked-equivalence--one-function-two-policies) above). Every `reg-flow` registration projects to the [node shape](#the-node-shape). The projection is **registrar-derived** (see [§The EP-0013 relocation seam](#the-ep-0013-relocation-seam)): [013](013-Flows.md) keeps the per-frame registry, the topological-sort engine, the dirty-check, and the drain-integration semantics; the algebra view is assembled from the flow-map metadata that already exists, never from re-running the `:derive` function.
 
 A flow is always a **`:derivation`** (never a process — [§Derivation](#derivation)), and every flow node carries the same five fixed classifications, because a flow is the canonical *materialized* member of the algebra:
 
@@ -719,14 +719,14 @@ A flow is always a **`:derivation`** (never a process — [§Derivation](#deriva
 
 The two axes that **vary** per flow are the declared **inputs** and the **output** path:
 
-- **`:output`** is `[:db <:path>]` — the flow's `:path`, the app-db address its whole value materializes into.
+- **`:output`** is `[:db <:output-path>]` — the flow's `:output-path`, the app-db address its whole value materializes into.
 - **`:inputs`** lowers each declared `:inputs` path ([§Declared input](#declared-input)), in declaration order:
   - a bare path is an app-db read — `[:db path]`;
   - a partition-qualified `[:rf.db/runtime …rest]` path is a runtime-db read — `[:runtime …rest]` (the binary input syntax — any flow may *read* runtime-db, only the *write* side is reserved to app-db; [EP-0001 §535-551](013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)).
 
   Flow inputs are always concrete paths — never `:sub` edges and never the `:parametric` marker — because a flow declares its dependency graph statically as paths, not as an input-producer over a query vector.
 
-Because flows are frame-scoped — the same flow-id may register against two frames with different `:inputs` / `:output` / `:path` — the flow view preserves the frame dimension: it is keyed `{frame-id {flow-id <node>}}`, the same shape as the flow registry it reads. Each node additionally records its owning frame under `:owner` `[:frame <frame-id>]` (the lifecycle owner, distinct from the cause of any one evaluation — [§Lifecycle and owner](#lifecycle-and-owner)), the opaque `:derive` body token (the `:output` fn, never serialized), the `:source-form` `{:kind :reg-flow :id <id>}`, and the `:source` coordinates / `:schema` / doc when the registration carried them.
+Because flows are frame-scoped — the same flow-id may register against two frames with different `:inputs` / `:derive` / `:output-path` — the flow view preserves the frame dimension: it is keyed `{frame-id {flow-id <node>}}`, the same shape as the flow registry it reads. Each node additionally records its owning frame under `:owner` `[:frame <frame-id>]` (the lifecycle owner, distinct from the cause of any one evaluation — [§Lifecycle and owner](#lifecycle-and-owner)), the opaque `:derive` body token (the `:derive` fn, never serialized), the `:source-form` `{:kind :reg-flow :id <id>}`, and the `:source` coordinates / `:schema` / doc when the registration carried them.
 
 This exposure is *internal registration metadata*, consistent with the slice scope: it ships **no public accessor**. The flow view lives in the bundle-isolated flows tooling sibling (`re-frame.flows.tooling/flow-algebra-view` in the reference implementation; a CLJS app that loads the flows artefact but attaches no tool DCEs the body, and the whole flows artefact is already absent from a no-flows app's bundle), consumed by [Xray](../tools/xray/spec/README.md) and the conformance fixtures — the two named first consumers. It reads the per-frame flow registry through the existing public `flows-snapshot` seam and touches neither the registrar write-path nor the flow registration signatures. It feeds the later internal graph-inspection helper ([EP-0014 §Reference Implementation / Bead Plan](../docs/EP/EP-0014-derivation-and-process-algebra.md#reference-implementation--bead-plan) item 7); the public name is deferred until a third consumer needs it (the [graduation gate](#one-accessor-two-projections-ep-0014-issue-1-disposition)).
 

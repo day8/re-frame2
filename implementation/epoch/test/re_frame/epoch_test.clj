@@ -2037,7 +2037,7 @@
 ;; above: pins the epoch-record observability shape of a flow-throw event.
 ;;
 ;; Per the confirmed atomicity contract (Spec 013 §Failure semantics;
-;; `bd remember --key event-pipeline-atomicity`) a flow's `:output` throw is
+;; `bd remember --key event-pipeline-atomicity`) a flow's `:derive` throw is
 ;; a PRE-INSTALL failure — the router's `flows-after-interceptor` dissoc-s
 ;; the pending `:db` so the single deferred install installs NOTHING. The
 ;; cascade-level `:rf.error/flow-eval-exception` is emitted by
@@ -2064,7 +2064,7 @@
 ;; invariants live in `ssr/test/re_frame/flows_integration_test.clj`.
 
 (deftest flow-throw-epoch-shape
-  (testing "a flow whose :output throws aborts the event pre-install: the
+  (testing "a flow whose :derive throws aborts the event pre-install: the
             epoch settles with :db-before == :db-after (the pending :db was
             discarded — no handler write and no flow write landed), :outcome
             is :ok (current intentional behaviour — flow-throw rides
@@ -2074,7 +2074,7 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     ;; Handler returns a :db effect (so the normal flow path would
-    ;; transform it). The flow's :output throws, so the router DISCARDS
+    ;; transform it). The flow's :derive throws, so the router DISCARDS
     ;; the pending :db wholesale.
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; Seed a clean baseline FIRST, then register the throwing flow — the
@@ -2083,8 +2083,8 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/reg-flow {:id     :boom
                   :inputs [[:n]]
-                  :output (fn [_] (throw (ex-info "flow boom" {:why :test})))
-                  :path   [:derived :doomed]}
+                  :derive (fn [_] (throw (ex-info "flow boom" {:why :test})))
+                  :output-path   [:derived :doomed]}
                  {:frame :test/main})
     (rf/dispatch-sync [:bump] {:frame :test/main})
 
@@ -2119,7 +2119,7 @@
   (testing "contrast (sibling of flow-throw-epoch-shape above): a clean
             flow eval produces an epoch whose :db-after CARRIES the flow's
             output value — :db-before != :db-after when the flow installs
-            its computed value at :path. Names the success-path counterpart
+            its computed value at :output-path. Names the success-path counterpart
             so a future regression that left :db-after equal to :db-before
             for clean flow evals is caught alongside the throw-path pin."
     (rf/reg-frame :test/main {})
@@ -2127,8 +2127,8 @@
     (rf/reg-event :bump-w (fn [{:keys [db]} _] {:db (update db :w inc)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]}
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]}
                  {:frame :test/main})
 
     (rf/dispatch-sync [:seed]   {:frame :test/main})  ;; area=6
@@ -2142,7 +2142,7 @@
           ":db-before != :db-after — a clean flow eval installs its
            augmented value into the post-cascade db")
       (is (= 9 (get-in (:db-after bump-r) [:rect :area]))
-          "the flow's computed output landed at :path in :db-after")
+          "the flow's computed output landed at :output-path in :db-after")
       (is (not (has-error-op? (:trace-events bump-r)
                               :rf.error/flow-eval-exception))
           "no :rf.error/flow-eval-exception on a clean flow eval"))))
@@ -2421,7 +2421,7 @@
 ;; cache pins invalidation to :replace-container! — and restore-epoch! goes
 ;; through the same adapter/replace-container! choke point used by the drain
 ;; loop's :db commit. The two together imply: every reactive surface that
-;; observes app-db (subscriptions, flows materialised at :path, route slice
+;; observes app-db (subscriptions, flows materialised at :output-path, route slice
 ;; reads) must reflect the rewound value after restore-epoch! returns true,
 ;; without a separate cache-invalidation call.
 ;;
@@ -2541,7 +2541,7 @@
             "sub value unchanged across the second restore")))))
 
 (deftest restore-rewinds-flow-output-in-app-db
-  (testing "Per Spec 013 — a flow's value lives in app-db at :path, where
+  (testing "Per Spec 013 — a flow's value lives in app-db at :output-path, where
   it 'survives ... time-travel revert.' After restore-epoch!, the flow's
   output reads through the restored db match the recorded epoch's output."
     (rf/reg-frame :test/main {})
@@ -2550,8 +2550,8 @@
     (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]}
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]}
                  {:frame :test/main})
 
     (rf/dispatch-sync [:init]    {:frame :test/main})  ;; area=6
@@ -2566,7 +2566,7 @@
       (is (some? target))
       (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= 15 (get-in (rf/app-db-value :test/main) [:rect :area]))
-          "the restored db carries the flow's value at :path"))))
+          "the restored db carries the flow's value at :output-path"))))
 
 (deftest restore-then-dispatch-recomputes-flow-correctly
   (testing "After restore, the next event drain re-runs flows correctly.
@@ -2579,8 +2579,8 @@
     (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]}
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]}
                  {:frame :test/main})
 
     (rf/dispatch-sync [:init]   {:frame :test/main})  ;; area=1
@@ -2593,7 +2593,7 @@
                         history)]
       (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= 4 (get-in (rf/app-db-value :test/main) [:rect :area]))
-          "restored db carries the flow output value at :path")
+          "restored db carries the flow output value at :output-path")
 
       ;; Drive a new event that changes :w. The flow must recompute
       ;; against the post-restore inputs, not against any leftover

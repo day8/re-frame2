@@ -10,7 +10,7 @@
 ;;   :rf.flow/computed    — recompute ran (inputs differed by =-equality)
 ;;   :rf.flow/skip        — recompute suppressed (inputs =-equal — rf2-719e)
 ;;   :rf.flow/cleared     — clear-flow ran
-;;   :rf.flow/failed      — :output fn threw (re-raised after this trace)
+;;   :rf.flow/failed      — :derive fn threw (re-raised after this trace)
 ;;
 ;; Required for re-frame-10x v2's flow panel (per the rf2-2s1o discovery
 ;; from the rf2-nfyf Tool-Pair audit).
@@ -26,13 +26,13 @@
   :flow  {:double
           {:doc    "Materialised :doubled — twice :n."
            :inputs [[:n]]
-           :path   [:doubled]}}}
+           :output-path [:doubled]}}}
 
  :fixture/handlers
  {:event {:n/init    [[:set [:n] 3]]
           :n/replace [[:set [:n] [:event-arg 1]]]}}
 
- ;; The :output fn realised by the harness as `(fn [n] (* 2 n))`.
+ ;; The :derive fn realised by the harness as `(fn [n] (* 2 n))`.
  :fixture/flow-bodies
  {:double [[:fn :* 2 [:event-arg 0]]]}
 

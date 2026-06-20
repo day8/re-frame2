@@ -6,7 +6,7 @@
 ;;   :rf.fx/clear-flow — args are a flow id;  clears the flow
 ;;
 ;; A flow registered mid-event first runs on the NEXT event drain
-;; (per Spec 013 §Sequencing). Clearing a flow dissoc's its :path.
+;; (per Spec 013 §Sequencing). Clearing a flow dissoc's its :output-path.
 
 {:fixture/id           :flow/toggle-via-fx
  :fixture/spec-version "1.0"
@@ -33,7 +33,7 @@
                              {:id     :step-2/computed
                               :inputs [[:step-2 :foo] [:step-2 :bar]]
                               :body   [[:fn :+ [:event-arg 0] [:event-arg 1]]]
-                              :path   [:step-2 :result]}]]
+                              :output-path [:step-2 :result]}]]
           :wizard/bump-foo [[:set [:step-2 :foo] [:event-arg 1]]]
           :wizard/leave    [[:fx :rf.fx/clear-flow :step-2/computed]]}}
 
@@ -55,11 +55,11 @@
 
  :fixture/expect
  ;; After :wizard/leave, :step-2 retains :foo / :bar; :result is gone
- ;; (clear-flow dissoc-in's the leaf at the flow's :path).
+ ;; (clear-flow dissoc-in's the leaf at the flow's :output-path).
  ;;
- ;; NOTE: rf2-aqt7 — clear-flow with a single-element :path (e.g. [:area])
+ ;; NOTE: rf2-aqt7 — clear-flow with a single-element :output-path (e.g. [:area])
  ;; currently leaves the key in app-db (off-by-one in update-in
- ;; (butlast path)). This fixture uses a two-element :path
+ ;; (butlast path)). This fixture uses a two-element :output-path
  ;; ([:step-2 :result]) which exercises the working code path.
  {:final-app-db
   {:step-2 {:foo 5 :bar 4}}

@@ -120,8 +120,8 @@
     (rf/reg-event :bump-z (fn [{:keys [db]} _]     {:db (assoc db :z (inc (or (:z db) 0)))}))
     (rf/reg-flow {:id     :sum
                   :inputs [[:x] [:y]]
-                  :output (fn [x y] (+ x y))
-                  :path   [:derived :sum]})
+                  :derive (fn [x y] (+ x y))
+                  :output-path   [:derived :sum]})
     (rf/dispatch-sync [:seed])
     ;; First non-seed dispatch — flow recomputes. Second — inputs stable,
     ;; flow emits :rf.flow/skip.

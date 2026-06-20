@@ -90,7 +90,7 @@
 (defn- declared-inputs
   "Project a flow's `:inputs` vector into the algebra view's declared
   inputs — each path lowered per `declared-input`, in declaration order
-  (so a downstream tool can reconstruct the dependency graph the `:output`
+  (so a downstream tool can reconstruct the dependency graph the `:derive`
   fn's positional args expect)."
   [flow]
   (mapv declared-input (:inputs flow)))
@@ -124,7 +124,7 @@
   `:derive` body token to a node when present. `:schema` / `:doc` are
   user-supplied flow-map keys, read straight off the frame-scoped flow-map
   (frame-safe). The `:source` coords are read frame-matched from the
-  registrar slot (the only place `reg-flow` records them). The `:output` fn
+  registrar slot (the only place `reg-flow` records them). The `:derive` fn
   is the flow's whole-value derivation — surfaced under `:derive` as an
   opaque token so a tool can show the function identity / source without it
   being serialized."
@@ -135,7 +135,7 @@
       (some? source)           (assoc :source source)
       (contains? flow :schema) (assoc :schema (:schema flow))
       (contains? flow :doc)    (assoc :doc (:doc flow))
-      (contains? flow :output) (assoc :derive (:output flow)))))
+      (contains? flow :derive) (assoc :derive (:derive flow)))))
 
 (defn- node-for
   "Build the derivation/process algebra view of one flow-map (Derivations
@@ -147,7 +147,7 @@
   The fixed-classification spine — a `:derivation` whose materialized output
   lands in app-db, evaluated `:after-event`, owned by its `:frame` — plus
   the per-flow `:inputs` (lowered app-db / runtime-db paths), `:output`
-  (`[:db <:path>]`), `:source-form`, opaque `:derive` token, and source
+  (`[:db <:output-path>]`), `:source-form`, opaque `:derive` token, and source
   coords / schema / doc."
   [frame-id flow]
   (let [flow-id (:id flow)]
@@ -155,7 +155,7 @@
          :kind          :derivation
          :source-form   {:kind :reg-flow :id flow-id}
          :inputs        (declared-inputs flow)
-         :output        [:db (vec (:path flow))]
+         :output        [:db (vec (:output-path flow))]
          :storage       :app-db
          :evaluation    :after-event
          :lifecycle     :frame
@@ -178,7 +178,7 @@
   and machine selectors as ONE family.
 
   Flows are FRAME-SCOPED (Spec 013 §Frame-scoping): the same flow-id can
-  register against two frames with different `:inputs` / `:output` / `:path`,
+  register against two frames with different `:inputs` / `:derive` / `:output-path`,
   so the view preserves the frame dimension — keyed the same way as
   `flows-snapshot`.
 
@@ -193,8 +193,8 @@
                      read) or `[:runtime …rest]` (a `[:rf.db/runtime …]`
                      partition-qualified runtime-db read — EP-0001 §535-551),
                      in declaration order.
-  - `:output`      — `[:db <:path>]` — the flow MATERIALIZES its whole value
-                     into the app-db partition at its `:path` (flow writes
+  - `:output`      — `[:db <:output-path>]` — the flow MATERIALIZES its whole value
+                     into the app-db partition at its `:output-path` (flow writes
                      are app-db only — Spec 013 §Input partition).
   - `:storage`     — `:app-db`.
   - `:evaluation`  — `:after-event` (evaluated inside the event drain — Spec
@@ -203,7 +203,7 @@
   - `:owner`       — `[:frame <frame-id>]` (the frame the flow registered
                      against; `destroy-frame!` releases it).
   - `:materialized?` — `true`.
-  - `:derive`      — the opaque `:output` body-fn token (never serialized).
+  - `:derive`      — the opaque `:derive` body-fn token (never serialized).
   - `:source` / `:schema` / `:doc` — present when the registration carried
                      them (source coords auto-captured by `reg-flow` via
                      `source-coords/merge-coords`).

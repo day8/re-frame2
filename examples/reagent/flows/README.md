@@ -26,7 +26,7 @@ companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md).
   reads `[:cart :total]` directly out of `db`, with no subscribe
   ceremony. Materialised state IS app-db state.
 - **Reading flow output via a plain sub** — a sub over the flow's
-  `:path` is just a sub; nothing special about reading materialised
+  `:output-path` is just a sub; nothing special about reading materialised
   state.
 
 ## Why a flow and not a sub

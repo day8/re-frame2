@@ -86,17 +86,17 @@
 (def sample-flows
   {:rf/default
    {:user/full-name
-    {:id     :user/full-name
-     :inputs [[:user :first] [:user :last]]
-     :output (fn [_] "")
-     :path   [:derived :full-name]
-     :doc    "concat first + last"}
+    {:id          :user/full-name
+     :inputs      [[:user :first] [:user :last]]
+     :derive      (fn [_] "")
+     :output-path [:derived :full-name]
+     :doc         "concat first + last"}
     :cart/total
-    {:id     :cart/total
-     :inputs [[:cart :items]]
-     :output (fn [_] 0)
-     :path   [:cart :total]
-     :doc    "sum of cart items"}}})
+    {:id          :cart/total
+     :inputs      [[:cart :items]]
+     :derive      (fn [_] 0)
+     :output-path [:cart :total]
+     :doc         "sum of cart items"}}})
 
 ;; -------------------------------------------------------------------------
 ;; (1) pure helpers
@@ -155,9 +155,9 @@
       (is (= {} (panel/scope-to-frame multi :rf/nope))))))
 
 (deftest project-data-scopes-to-frame
-  (let [multi {:rf/default {:a {:id :a :inputs [] :path [:a]}}
-               :rf/cart    {:b {:id :b :inputs [] :path [:b]}
-                            :c {:id :c :inputs [] :path [:c]}}}]
+  (let [multi {:rf/default {:a {:id :a :inputs [] :output-path [:a]}}
+               :rf/cart    {:b {:id :b :inputs [] :output-path [:b]}
+                            :c {:id :c :inputs [] :output-path [:c]}}}]
     (testing "frame A surfaces only frame A's flows, not the flattened global set"
       (let [data (panel/project-data multi :rf/default nil)]
         (is (= 1 (:total data)))
@@ -205,16 +205,16 @@
   "Two frames each carrying distinct flows — fixture for the picker-
   scoping regression."
   {:rf/default
-   {:user/full-name {:id     :user/full-name
-                     :inputs [[:user :first]]
-                     :path   [:derived :full-name]}}
+   {:user/full-name {:id          :user/full-name
+                     :inputs      [[:user :first]]
+                     :output-path [:derived :full-name]}}
    :rf/cart-frame
-   {:cart/total {:id     :cart/total
-                 :inputs [[:cart :items]]
-                 :path   [:cart :total]}
-    :cart/count {:id     :cart/count
-                 :inputs [[:cart :items]]
-                 :path   [:cart :count]}}})
+   {:cart/total {:id          :cart/total
+                 :inputs      [[:cart :items]]
+                 :output-path [:cart :total]}
+    :cart/count {:id          :cart/count
+                 :inputs      [[:cart :items]]
+                 :output-path [:cart :count]}}})
 
 (deftest tab-data-scopes-to-picker-frame
   (testing "the L1 frame picker scopes the Flows catalogue — switching

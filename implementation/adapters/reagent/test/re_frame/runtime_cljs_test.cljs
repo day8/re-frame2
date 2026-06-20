@@ -252,8 +252,8 @@
     (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:area]})
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])

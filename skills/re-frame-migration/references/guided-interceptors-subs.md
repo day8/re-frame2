@@ -333,10 +333,10 @@ rewrite, and let the author confirm.
 
 ```clojure
 (rf/reg-flow
-  {:id     <picked-id>
-   :inputs <in-paths>
-   :output f
-   :path   <out-path>})
+  {:id          <picked-id>
+   :inputs      <in-paths>
+   :derive      f
+   :output-path <out-path>})
 ```
 
 The author picks the flow's `:id`; the agent suggests `:legacy/<original-event-id>` as a starting point. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.

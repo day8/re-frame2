@@ -374,8 +374,8 @@
                        (fn [_ _] {:fx [[:rf.fx/reg-flow
                                         {:id     :uh5ic5/prod-flow
                                          :inputs [[:uh5ic5 :seed]]
-                                         :output (fn [_] 1)
-                                         :path   [:uh5ic5 :out]}]]}))
+                                         :derive (fn [_] 1)
+                                         :output-path   [:uh5ic5 :out]}]]}))
       (rf/dispatch-sync [:uh5ic5/install-flow]
                         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
       (let [r (some (fn [x] (when (= :rf.error/reserved-fx-override (:error x)) x)) @seen)]

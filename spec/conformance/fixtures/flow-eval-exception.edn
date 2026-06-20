@@ -28,7 +28,7 @@
 {:fixture/id           :flow/eval-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace :flow/basic :flow/trace}
- :fixture/doc          "A flow's :output throws. Per the atomicity contract (Spec 013 §Failure semantics, rf2-u0zz5) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate, rf2-0q0du). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
+ :fixture/doc          "A flow's :derive throws. Per the atomicity contract (Spec 013 §Failure semantics, rf2-u0zz5) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate, rf2-0q0du). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
 
  :fixture/registry
  {:event {:flow/init       {:doc "Seed :token to a non-string vector — first drain computes :tries without throwing."}
@@ -37,7 +37,7 @@
   :flow  {:tries
           {:doc    "Materialised :tries — counts :token. The conformance :count builtin throws if :token is a string."
            :inputs [[:token]]
-           :path   [:tries]}}}
+           :output-path [:tries]}}}
 
  :fixture/handlers
  {:event {:flow/init       [[:set [:token] [1 2 3]]

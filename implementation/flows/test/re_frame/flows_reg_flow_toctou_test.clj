@@ -7,7 +7,7 @@
   `topo/topo-sort` on it, and — in a SEPARATE step — committed via
   `swap!`. Two threads registering on the SAME frame two flows that
   together form a dependency cycle (T1 registers A whose `:inputs` read
-  B's `:path`; T2 registers B whose `:inputs` read A's `:path`) could
+  B's `:output-path`; T2 registers B whose `:inputs` read A's `:output-path`) could
   interleave so that BOTH read the frame's pre-cycle state, BOTH pass
   their individual prospective check (neither sees the other's
   not-yet-committed flow), and BOTH commit — leaving a CYCLIC registry.
@@ -83,8 +83,8 @@
   ;; Per round, on ONE shared frame, two threads simultaneously register
   ;; the two halves of a cycle-forming pair:
   ;;
-  ;;   A : :inputs [[:b]]  :path [:a]   (A depends on B's output slot)
-  ;;   B : :inputs [[:a]]  :path [:b]   (B depends on A's output slot)
+  ;;   A : :inputs [[:b]]  :output-path [:a]   (A depends on B's output slot)
+  ;;   B : :inputs [[:a]]  :output-path [:b]   (B depends on A's output slot)
   ;;
   ;; Registered together they form the cycle :a → :b → :a. The
   ;; per-round flow-ids are namespaced by round so a stale registrar /
@@ -127,8 +127,8 @@
               b-id    (keyword "qxwib.toctou" (str "b-" round))
               ;; A reads B's output path; B reads A's output path —
               ;; together a cycle.
-              flow-a  {:id a-id :inputs [[:b]] :output identity :path [:a]}
-              flow-b  {:id b-id :inputs [[:a]] :output identity :path [:b]}
+              flow-a  {:id a-id :inputs [[:b]] :derive identity :output-path [:a]}
+              flow-b  {:id b-id :inputs [[:a]] :derive identity :output-path [:b]}
               barrier (CyclicBarrier. 2)
               reg!    (fn [flow]
                         (fn []

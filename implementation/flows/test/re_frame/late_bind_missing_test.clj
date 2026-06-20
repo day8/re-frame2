@@ -57,8 +57,8 @@
       (fn []
         (let [thrown (try (rf/reg-flow {:id     :late-bind-missing/probe
                                         :inputs []
-                                        :output (fn [] 0)
-                                        :path   [:probe]})
+                                        :derive (fn [] 0)
+                                        :output-path   [:probe]})
                           nil
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)

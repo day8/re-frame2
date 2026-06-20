@@ -212,7 +212,7 @@
 
 ;; ---- flow-body realisation -----------------------------------------------
 ;;
-;; Per Spec 013, a flow's :output is a positional fn — `(fn [in1 in2 ...] ...)`.
+;; Per Spec 013, a flow's :derive is a positional fn — `(fn [in1 in2 ...] ...)`.
 ;; The conformance corpus describes flow bodies as DSL (e.g. `[[:fn :* [:event-arg 0] [:event-arg 1]]]`)
 ;; so the same fixture is portable across implementations. The harness
 ;; realises the body into a real fn whose positional args bind to
@@ -225,10 +225,10 @@
 ;; one-step expressions).
 
 (defn realise-flow-output-fn
-  "DSL body steps → flow :output fn taking positional inputs.
+  "DSL body steps → flow :derive fn taking positional inputs.
 
   Each `[:event-arg n]` in the body resolves to the n-th positional input.
-  Returns a fn `(fn [& inputs] ...)` ready for `reg-flow`'s :output slot."
+  Returns a fn `(fn [& inputs] ...)` ready for `reg-flow`'s :derive slot."
   [steps]
   (fn [& inputs]
     (let [ctx       {:event (vec inputs) :db nil}
@@ -323,7 +323,7 @@
   alone. `:rf.fx/reg-flow`'s `:body` is itself a DSL body — it must NOT
   be walked through resolve-value (which would treat `[:fn :k ...]` as
   a value form and partially-apply it). Pull `:body` aside, resolve the
-  rest of the map normally, then realise `:body` into `:output`.
+  rest of the map normally, then realise `:body` into `:derive`.
 
   Per rf2-yhfgf — `:rf.fx/reg-http-interceptor`'s `:before` is also a
   DSL body. Same shape, different realisation: the body becomes a
@@ -334,7 +334,7 @@
     (if (and (map? args) (contains? args :body))
       (let [body          (:body args)
             other-resolved (resolve-value (dissoc args :body) ctx)]
-        (assoc other-resolved :output (realise-flow-output-fn body)))
+        (assoc other-resolved :derive (realise-flow-output-fn body)))
       (resolve-value args ctx))
 
     :rf.fx/reg-http-interceptor

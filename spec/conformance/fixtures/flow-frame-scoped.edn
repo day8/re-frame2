@@ -21,7 +21,7 @@
 ;;
 ;;   Contract 3 (`clear-flow` is frame-local). `(clear-flow :compute
 ;;     {:frame :left})` removes the flow's definition from `:left`'s
-;;     slot and `dissoc-in`s its `:path` from `:left`'s app-db only.
+;;     slot and `dissoc-in`s its `:output-path` from `:left`'s app-db only.
 ;;     `:right`'s `:compute` and its output are undisturbed.
 ;;
 ;; The flow body, registration, and clearing all flow through
@@ -50,19 +50,19 @@
  ;; Each frame's :on-create cascade fires :tenant/init, which seeds
  ;; :x against the cascading frame. The fx-fired :rf.fx/reg-flow then
  ;; registers :compute against the dispatching frame — different :body
- ;; per frame, same flow-id, same :path.
+ ;; per frame, same flow-id, same :output-path.
  :fixture/handlers
  {:event {:tenant/init       [[:set [:x] 1]]
           :tenant/reg-double [[:fx :rf.fx/reg-flow
                                {:id     :compute
                                 :inputs [[:x]]
                                 :body   [[:fn :* [:event-arg 0] 2]]
-                                :path   [:result]}]]
+                                :output-path [:result]}]]
           :tenant/reg-cent   [[:fx :rf.fx/reg-flow
                                {:id     :compute
                                 :inputs [[:x]]
                                 :body   [[:fn :* [:event-arg 0] 100]]
-                                :path   [:result]}]]
+                                :output-path [:result]}]]
           :tenant/set-x      [[:set [:x] [:event-arg 1]]]
           :tenant/clear      [[:fx :rf.fx/clear-flow :compute]]}}
 

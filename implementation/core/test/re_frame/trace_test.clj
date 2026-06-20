@@ -562,12 +562,12 @@
     (let [recorded (atom [])]
       (rf/register-listener! :trace ::timing (fn [ev] (swap! recorded conj ev)))
 
-      ;; A flow whose :output recomputes when [:n] changes (outermost
+      ;; A flow whose :derive recomputes when [:n] changes (outermost
       ;; :after of the cascade).
       (rf/reg-flow {:id     :timing/doubled
                     :inputs [[:n]]
-                    :output (fn [n] (* 2 (or n 0)))
-                    :path   [:doubled]})
+                    :derive (fn [n] (* 2 (or n 0)))
+                    :output-path   [:doubled]})
       (rf/reg-fx :timing/side (fn [_ _] :ok))
       (rf/reg-event :timing/seed
         (fn [_ _]

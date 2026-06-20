@@ -1,6 +1,6 @@
 ;; Conformance fixture: data-classification/flow-output-inherits-from-input
 ;; Per Spec 015:568 §Tests — a `reg-flow` whose `:inputs` include a
-;; SENSITIVE app-db path produces a flow `:path` write whose value is
+;; SENSITIVE app-db path produces a flow `:output-path` write whose value is
 ;; marked sensitive in the SAME event's post-flow pending snapshot:
 ;; the `:rf.event/db` slot on that event's `:rf.event/db-pending-post-flow`
 ;; (t2) trace event.
@@ -28,27 +28,27 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace :flow/basic
                          :data-classification/marks}
- :fixture/doc          "A reg-flow whose :inputs include a sensitive app-db path produces a flow :path write that is marked sensitive in the SAME event's post-flow pending snapshot — the :rf.event/db slot on that event's :rf.event/db-pending-post-flow (t2) trace event. The flow output inherits the data-classification of its input by default; the path-precise redaction leaves an unmarked sibling slot raw."
+ :fixture/doc          "A reg-flow whose :inputs include a sensitive app-db path produces a flow :output-path write that is marked sensitive in the SAME event's post-flow pending snapshot — the :rf.event/db slot on that event's :rf.event/db-pending-post-flow (t2) trace event. The flow output inherits the data-classification of its input by default; the path-precise redaction leaves an unmarked sibling slot raw."
 
  :fixture/registry
  {:event {:dc/init {:doc "Seed a sensitive :ssn and an unmarked :name."}}
   :flow  {:dc/ssn-echo
           {:doc    "Copies the sensitive :user :ssn input into :derived :ssn-copy — the output inherits the input's sensitivity."
            :inputs [[:user :ssn]]
-           :path   [:derived :ssn-copy]}}}
+           :output-path [:derived :ssn-copy]}}}
 
  :fixture/handlers
  {:event {:dc/init [[:set [:user :ssn]  "123-45-6789"]
                     [:set [:user :name] "Ada"]]}}
 
- ;; The :output fn is realised as `(fn [ssn] {:copy ssn})`. The literal map
+ ;; The :derive fn is realised as `(fn [ssn] {:copy ssn})`. The literal map
  ;; value walks through the value DSL so `[:event-arg 0]` (the flow's first
  ;; positional input) resolves to the :ssn input.
  :fixture/flow-bodies
  {:dc/ssn-echo [{:copy [:event-arg 0]}]}
 
  ;; Mark the flow's INPUT path sensitive BEFORE the flow registers, so the
- ;; propagated whole-output declaration installs at the flow's :path.
+ ;; propagated whole-output declaration installs at the flow's :output-path.
  :fixture/app-marks
  [{:add-marks {[:user :ssn] :sensitive}}]
 

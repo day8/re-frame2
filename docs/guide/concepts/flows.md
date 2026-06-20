@@ -24,11 +24,11 @@ Here is the same label as a flow. Same pure function, zero new domain:
   {:id     :counter/parity
    :doc    "Whether the count is odd or even, materialised into app-db."
    :inputs [[:counter/value]]                  ;; frame-state paths to watch (bare = app-db)
-   :output (fn [n] (if (odd? n) :odd :even))   ;; pure: input values, in order → output
-   :path   [:counter/parity]})                 ;; the app-db path the answer is written to
+   :derive (fn [n] (if (odd? n) :odd :even))   ;; pure: input values, in order → output
+   :output-path [:counter/parity]})            ;; the app-db path the answer is written to
 ```
 
-`:inputs` is a vector of frame-state paths (a bare path reads app-db; a path led by `:rf.db/runtime` reads runtime-db). Their values arrive at `:output` positionally, and the result is written to an app-db `:path`. From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. Here's the part worth pausing on: the recompute is part of the *same commit*. A flow runs immediately after the event's handler, so each event still makes exactly one app-db write, carrying the handler's change and the fresh flow output together. Views never see a half-updated state. And the flow skips recomputing when its inputs didn't actually change value, which keeps the cost honest.
+`:inputs` is a vector of frame-state paths (a bare path reads app-db; a path led by `:rf.db/runtime` reads runtime-db). Their values arrive at `:derive` positionally, and the result is written to an app-db `:output-path`. From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. Here's the part worth pausing on: the recompute is part of the *same commit*. A flow runs immediately after the event's handler, so each event still makes exactly one app-db write, carrying the handler's change and the fresh flow output together. Views never see a half-updated state. And the flow skips recomputing when its inputs didn't actually change value, which keeps the cost honest.
 
 > **Same label, now materialised — a flow is a derivation whose answer your handlers can read.**
 
@@ -61,10 +61,10 @@ The RealWorld editor's submit gate is the canonical case. "Can the user submit?"
   {:id     :editor/can-submit?
    :doc    "True when the draft is valid AND differs from the loaded baseline."
    :inputs [[:editor :draft] [:editor :baseline]]
-   :output (fn [draft baseline]
+   :derive (fn [draft baseline]
              (and (empty? (validate-draft draft))   ;; pure validator → {field msg}, empty when valid
                   (not= draft baseline)))
-   :path   [:editor :can-submit?]})
+   :output-path [:editor :can-submit?]})
 
 (rf/reg-event :editor/initialise
   (fn [{:keys [db]} _event]
@@ -110,8 +110,8 @@ Flows are registered against the runtime, not compiled into event chains. So you
   (fn [_cofx _event]
     {:fx [[:rf.fx/reg-flow {:id     :cart/discount-rate
                             :inputs [[:cart :subtotal]]
-                            :output (fn [_subtotal] 0.10)
-                            :path   [:cart :discount-rate]}]
+                            :derive (fn [_subtotal] 0.10)
+                            :output-path [:cart :discount-rate]}]
           [:dispatch [:cart/touch]]]}))             ;; see the lag note below
 
 (rf/reg-event :cart/remove-discount
@@ -123,7 +123,7 @@ Flows are registered against the runtime, not compiled into event chains. So you
   (fn [{:keys [db]} _event] {:db db}))              ;; no-op; exists only to trigger a drain
 ```
 
-`:rf.fx/clear-flow` removes the registration **and vacates the value at `:path`**, so no stale derived state is left behind for downstream readers to trust by mistake. (If you need the last value, copy it somewhere else before clearing.)
+`:rf.fx/clear-flow` removes the registration **and vacates the value at `:output-path`**, so no stale derived state is left behind for downstream readers to trust by mistake. (If you need the last value, copy it somewhere else before clearing.)
 
 !!! note "The one-event lag"
 

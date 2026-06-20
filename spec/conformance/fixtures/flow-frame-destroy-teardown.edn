@@ -46,12 +46,12 @@
                            {:id     :area
                             :inputs [[:w] [:h]]
                             :body   [[:fn :* [:event-arg 0] [:event-arg 1]]]
-                            :path   [:rect :area]}]]
+                            :output-path [:rect :area]}]]
           :reg-area-sole [[:fx :rf.fx/reg-flow
                            {:id     :area-sole
                             :inputs [[:w] [:h]]
                             :body   [[:fn :* [:event-arg 0] [:event-arg 1]]]
-                            :path   [:rect :area-sole]}]]
+                            :output-path [:rect :area-sole]}]]
           :seed          [[:set [:w] [:event-arg 1]]
                           [:set [:h] [:event-arg 2]]]}}
 

@@ -171,10 +171,10 @@
       ;; count. Logging the inputs proves which pending :db each eval saw.
       (rf/reg-flow {:id     :http/pending-count
                     :inputs [[:http/in-flight]]
-                    :output (fn [in-flight]
+                    :derive (fn [in-flight]
                               (swap! flow-evals conj (set (keys in-flight)))
                               (count in-flight))
-                    :path   [:derived :pending-count]})
+                    :output-path   [:derived :pending-count]})
 
       ;; :issue mirrors what an app handler would do alongside a real
       ;; :rf.http/managed fx — drop a marker into app-db so subs / flows
@@ -293,10 +293,10 @@
         ;; every eval. It will throw on the :cancel drain.
         (rf/reg-flow {:id     :http/boom
                       :inputs [[:http/in-flight]]
-                      :output (fn [_]
+                      :derive (fn [_]
                                 (throw (ex-info "flow boom on cancel"
                                                 {:why :test})))
-                      :path   [:derived :http-doomed]})
+                      :output-path   [:derived :http-doomed]})
 
         (reset! *captured* [])
         (rf/dispatch-sync [:http/cancel :load-articles])

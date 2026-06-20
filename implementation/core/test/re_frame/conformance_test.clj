@@ -673,7 +673,7 @@
   fixture's `:on-create` cascade under its declared config.
 
   The static flow shape lives under `:fixture/registry :flow` (with
-  `:inputs` / `:path` / `:doc`) and the body DSL under
+  `:inputs` / `:output-path` / `:doc`) and the body DSL under
   `:fixture/flow-bodies`. Dynamic flow registration via
   `:rf.fx/reg-flow` is handled in the conformance DSL interpreter."
   [fixture]
@@ -684,7 +684,7 @@
         (let [output-fn (conformance/realise-flow-output-fn body)]
           (rf/reg-flow (-> flow-meta
                            (assoc :id flow-id)
-                           (assoc :output output-fn))))))))
+                           (assoc :derive output-fn))))))))
 
 (defn- realise-app-marks!
   "Apply a fixture's `:fixture/app-marks` data-classification declarations

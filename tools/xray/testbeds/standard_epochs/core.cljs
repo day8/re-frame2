@@ -297,11 +297,11 @@
 ;; :rf/default host frame explicitly for this ns-load registration.
 (with-frame :rf/default
   (rf/reg-flow
-    {:id     :standard-epochs/derived
-     :inputs [[:base]]
-     :output (fn [base] (* 2 (or base 0)))
-     :path   [:derived]
-     :doc    "Derived = 2 × :base. Recomputes on the post-handler flows pass."}))
+    {:id          :standard-epochs/derived
+     :inputs      [[:base]]
+     :derive      (fn [base] (* 2 (or base 0)))
+     :output-path [:derived]
+     :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."}))
 
 ;; ============================================================================
 ;; EVENTS — the button ladder

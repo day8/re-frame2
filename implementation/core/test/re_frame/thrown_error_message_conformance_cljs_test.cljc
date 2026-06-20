@@ -175,8 +175,8 @@
     #(#'flows-registry/validate-flow
        {:id     "not-a-keyword"
         :inputs [[:a]]
-        :output (fn [_] nil)
-        :path   [:out]})))
+        :derive (fn [_] nil)
+        :output-path   [:out]})))
 
 (deftest route-error-emits-conformant-routing-throw
   ;; routing.registry route-error — the routing exemplar. Build directly
@@ -207,8 +207,8 @@
     "detect-output-path-overlap! (overlapping :paths)"
     :rf.error/flow-path-overlap
     #(flows-topo/detect-output-path-overlap!
-       {:a {:id :a :inputs [[:w]] :output identity :path [:x]}
-        :b {:id :b :inputs [[:h]] :output identity :path [:x]}})))
+       {:a {:id :a :inputs [[:w]] :derive identity :output-path [:x]}
+        :b {:id :b :inputs [[:h]] :derive identity :output-path [:x]}})))
 
 (deftest flow-cycle-emits-conformant-throw
   ;; topo-sort — two flows forming a dependency cycle.
@@ -216,8 +216,8 @@
     "topo-sort (cyclic flow dependency)"
     :rf.error/flow-cycle
     #(flows-topo/topo-sort
-       {:a {:id :a :inputs [[:b]] :output identity :path [:a]}
-        :b {:id :b :inputs [[:a]] :output identity :path [:b]}})))
+       {:a {:id :a :inputs [[:b]] :derive identity :output-path [:a]}
+        :b {:id :b :inputs [[:a]] :derive identity :output-path [:b]}})))
 
 (deftest flow-cycle-extract-invariant-emits-conformant-throw
   ;; extract-cycle-path — the internal dead-end invariant (a stuck node with no

@@ -70,7 +70,7 @@
          against the count of `:rf.flow/computed` events captured
          (excludes `:rf.flow/skip`).
        - `:flow-graph-topology` — for each `flow-id #{dep-id ...}`
-         entry, every dep is a registered flow whose `:path` overlaps
+         entry, every dep is a registered flow whose `:output-path` overlaps
          the dependent's `:inputs`.
        - `:flow-registry-after` — the set of flow ids in the per-frame
          registry after the final dispatch. Two shapes: a bare set
@@ -329,10 +329,10 @@
 
 (defn- realise-flows!
   "Per Spec 013 the static flow shapes live under :fixture/registry :flow
-  (with :inputs / :path) and the body DSL under :fixture/flow-bodies.
+  (with :inputs / :output-path) and the body DSL under :fixture/flow-bodies.
   Dynamic flow registration via :rf.fx/reg-flow is handled by the
   conformance DSL interpreter (resolve-fx-args in conformance.cljc
-  lifts the :body field into an :output fn before the fx fires).
+  lifts the :body field into an :derive fn before the fx fires).
 
   Called AFTER the frame is (re-)registered — see the
   ordering note in `run-fixture` (rf2-wbtjn)."
@@ -344,7 +344,7 @@
         (let [output-fn (conformance/realise-flow-output-fn body)]
           (rf/reg-flow (-> flow-meta
                            (assoc :id flow-id)
-                           (assoc :output output-fn))))))))
+                           (assoc :derive output-fn))))))))
 
 ;; ---- trace capture -------------------------------------------------------
 
@@ -451,7 +451,7 @@
   stream. `:rf.flow/skip` events do NOT count toward the recompute
   total — per Spec 013 §Dirty-check semantics, a `:skip` is the absence
   of a recompute. The fixture's `:flow-recompute-counts` map is the
-  number of times each flow actually re-ran its `:output` fn."
+  number of times each flow actually re-ran its `:derive` fn."
   [traces]
   (reduce (fn [acc ev]
             (if (= :rf.flow/computed (:operation ev))
@@ -462,7 +462,7 @@
 
 (defn- flow-graph-deps
   "Build the dependency graph from the per-frame flow registry. Flow B
-  depends on flow A iff A's `:path` and any of B's `:inputs` share a
+  depends on flow A iff A's `:output-path` and any of B's `:inputs` share a
   path prefix in either direction (the symmetric overlap rule per
   Spec 013 §Topological sort).
 

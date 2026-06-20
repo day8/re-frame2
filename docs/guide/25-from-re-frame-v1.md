@@ -79,7 +79,7 @@ Inside that tree, every bare `dispatch` / `subscribe` you already wrote works un
 
 **Paths and cache identity.** This one is mostly good news, with one habit to drop. v2 treats a **path** — a vector addressing a value, the thing you hand `get-in` / `assoc-in` — as a precise, framework-wide concept ([chapter 02 — paths are ordinary data](concepts/app-db.md)). Your existing plain vector paths carry over unchanged: `[:cart :items]` means exactly what it always did. Three small adjustments are worth knowing:
 
-- **Plain vector paths stay valid.** Nothing to do. Where v2 stores a path for you (a flow's `:path`, a named declaration), it normalizes whatever sequence you gave it to a canonical vector. So a list or seq you passed for convenience comes back as a vector, but it's the same path.
+- **Plain vector paths stay valid.** Nothing to do. Where v2 stores a path for you (a flow's `:output-path`, a named declaration), it normalizes whatever sequence you gave it to a canonical vector. So a list or seq you passed for convenience comes back as a vector, but it's the same path.
 - **Drop hand-rolled cache keys.** A v1 codebase that built its own cache-key strings — `(str "user-" id "-" tab)`, a `pr-str` of a params map, an MD5 of a query — should move that identity onto the **scoped resource key**: a `[cache-scope resource-id canonical-params]` triple, the shape [server-state resources](concepts/server-state.md) use. (A resource here is a managed handle to server-held state.) The data is the identity in v2, but scope is part of it. Two reads share a cache entry only when their whole scoped key matches: same resource id, same canonical scope, and same canonical params (each canonical regardless of key order, with no string or hash to keep in sync). Don't migrate a params-only key as if params alone were the identity. Folding scope back in is what keeps per-user and per-tenant caches from leaking into one another. Ad-hoc string and hash keys were always fragile (insertion order, host differences); the canonical-EDN scoped key makes the fragility go away.
 - **Make `nil`-vs-missing explicit.** v2 distinguishes an absent key from a key present with value `nil`, and that distinction is part of a value's identity. Code that leaned on "absent and `nil` are the same" — a params map that sometimes omits a key and sometimes sets it `nil` — should pick one on purpose. The two are now genuinely different facts: a different cache entry, a different identity. The fix is a `:params-schema` or a sentinel value, not an accident.
 
@@ -152,8 +152,8 @@ This is the one v1 concept that maps onto something with a genuinely new name an
 (rf/reg-flow
   {:id     :rectangle/area
    :inputs [[:width] [:height]]      ;; vector of app-db paths
-   :output (fn [w h] (* w h))         ;; pure: (in-1, in-2, ...) → output
-   :path   [:area]                    ;; where the result is written
+   :derive (fn [w h] (* w h))         ;; pure: (in-1, in-2, ...) → output
+   :output-path [:area]               ;; where the result is written
    :doc    "Rectangle area computed from :width and :height."})
 ```
 
@@ -163,7 +163,7 @@ Internalise two things before you reach for them, because the easy mistake is to
 
 Flows can also reach what `on-changes` couldn't. `on-changes` was statically wired into specific events at registration time, so a derivation that should run conditionally — only while a wizard step is active, only when a feature gate is engaged, only in advanced mode — had no clean shape. Flows are runtime-registered and runtime-clearable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. Toggling one is an ordinary fx (a mutation here being a runtime change to what's registered). So the migration sometimes improves the code it touches: a thing that was awkwardly always-on becomes cleanly conditional.
 
-The rewrite itself is Type B. Mechanically it's `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`, but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditional rather than always-on. An app with no `on-changes` sees no migration here at all.
+The rewrite itself is Type B. Mechanically it's `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :derive f :output-path out-path})`, but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditional rather than always-on. An app with no `on-changes` sees no migration here at all.
 
 ### Registrations, images, and frames
 
