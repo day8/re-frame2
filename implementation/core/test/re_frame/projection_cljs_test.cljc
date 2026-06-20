@@ -271,6 +271,54 @@
           "the sensitive token inside the error's :event is redacted"))))
 
 ;; ---------------------------------------------------------------------------
+;; Frame-bearing record — opts omit :frame, the RECORD's own :frame governs
+;; (rf2-vkblw4). The documented public call shape (Spec 015 §`project-egress`):
+;; the record carries `:frame :app/main` and opts supply ONLY the profile.
+;; Pre-fix the record's frame was silently dropped and the AMBIENT (fixture
+;; `:rf/default`, no declarations) frame governed — so a record-frame-declared
+;; sensitive arg rode RAW off-box (a privacy hole) and off-box tree slots were
+;; over-redacted to `:rf/redacted` instead of projected under the record's
+;; frame policy.
+;; ---------------------------------------------------------------------------
+
+(deftest record-frame-governs-when-opts-omit-frame
+  (testing "opts carry ONLY the profile; the record's own :frame governs the walk"
+    ;; `:proj/owned` declares [:auth :token] sensitive; the fixture's ambient
+    ;; `:rf/default` declares NOTHING. Opts omit :frame, so pre-fix the ambient
+    ;; default governed and the token rode RAW; post-fix the record's :frame is
+    ;; seeded and the token is redacted (the privacy-critical leg).
+    (mk-frame! :proj/owned)
+    (let [record {:kind  :rf.observe/error
+                  :frame :proj/owned
+                  :error :rf.error/handler-exception
+                  :event [:auth/login {:auth {:token "super-secret-token"}}]}
+          out    (rf/project-egress
+                   record
+                   ;; NB: NO :frame opt — the documented record-owned-frame shape.
+                   {:rf.egress/profile :rf.egress/off-box-tool})]
+      (is (redacted? (get-in (:event out) [1 :auth :token]))
+          "the record-frame-declared sensitive token is redacted (not shipped raw)")
+      (is (= :proj/owned (:frame out)) "the summary :frame slot rides through"))))
+
+(deftest explicit-frame-opt-wins-over-record-frame
+  (testing "an explicit :frame opt OVERRIDES the record's own :frame (override semantics)"
+    ;; `:proj/decl` declares [:auth :token] sensitive; `:proj/empty` declares
+    ;; nothing. The record names :proj/empty but the caller deliberately
+    ;; reclassifies under :proj/decl via an explicit opt — the opt must win.
+    (mk-frame! :proj/decl)
+    (rf/reg-frame :proj/empty {})
+    (let [record {:kind  :rf.observe/error
+                  :frame :proj/empty
+                  :error :rf.error/handler-exception
+                  :event [:auth/login {:auth {:token "super-secret-token"}}]}
+          out    (rf/project-egress
+                   record
+                   {:frame :proj/decl
+                    :rf.egress/profile :rf.egress/off-box-tool})]
+      (is (redacted? (get-in (:event out) [1 :auth :token]))
+          "the explicit :frame opt's policy governs, redacting the token"))))
+
+;; ---------------------------------------------------------------------------
 ;; Closed enum + fail-closed.
 ;; ---------------------------------------------------------------------------
 
@@ -300,7 +348,17 @@
       (let [out (rf/project-egress {:auth {:token "tok"}}
                   {:rf.size/include-sensitive? true})]
         (is (= {:auth {:token "tok"}} out)
-            "explicit include-sensitive? true is the deliberate frameless opt-out")))))
+            "explicit include-sensitive? true is the deliberate frameless opt-out"))
+      ;; rf2-vkblw4: the record-frame seed adds NOTHING when neither the record
+      ;; nor opts name a frame — a frameless kindless record (or a record whose
+      ;; :frame is nil) still FAILS CLOSED, never an empty-policy identity walk.
+      (let [out (rf/project-egress {:kind :rf.observe/error :frame nil
+                                    :event [:x {:auth {:token "tok"}}]}
+                  {:rf.egress/profile :rf.egress/off-box-observability})]
+        ;; No frame from the record (:frame nil) and none ambient ⇒ the walker
+        ;; redacts the WHOLE :event slot, never an empty-policy identity walk.
+        (is (redacted? (:event out))
+            "a :frame nil record still fails closed (the seed is a no-op, no leak)")))))
 
 (deftest no-profile-is-the-advanced-raw-flags-path
   (testing "with no profile, :rf.size/* flags pass through to the walker verbatim"

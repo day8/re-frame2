@@ -53,11 +53,13 @@
   ## Fail-closed (EP-0002 / Spec 015 §Direct reads)
 
   Egress policy is frame-scoped. A tree-shaped slot is projected only when
-  the frame is KNOWN (the explicit `:frame` opt, or the carried-invariant
-  scope). With no frame and no `:rf.size/include-sensitive? true` opt-out,
-  the underlying `elide-wire-value` redacts the whole value to
-  `:rf/redacted` rather than borrow another frame's policy — `project-egress`
-  inherits that fail-closed posture, it does NOT synthesise `:rf/default`.
+  the frame is KNOWN (the explicit `:frame` opt, the FRAME-BEARING record's
+  own top-level `:frame` slot — seeded into opts when opts omits one, the
+  explicit opt winning — or the carried-invariant scope). With no frame and
+  no `:rf.size/include-sensitive? true` opt-out, the underlying
+  `elide-wire-value` redacts the whole value to `:rf/redacted` rather than
+  borrow another frame's policy — `project-egress` inherits that fail-closed
+  posture, it does NOT synthesise `:rf/default`.
 
   ## Event-shaped slots carry REGISTRATION-owned marks (EP-0015 / rf2-qe6v1u)
 
@@ -361,7 +363,7 @@
   `opts` is a map:
 
       {:rf.egress/profile <one of `profiles`>   ;; the named boundary
-       :frame             <frame-id>            ;; whose classification applies
+       :frame             <frame-id>            ;; whose classification applies (override; else the record's own :frame)
        :path              [...]                 ;; offset for a bare-value walk
        :rf.size/include-sensitive? <bool>       ;; explicit override (wins)
        :rf.size/include-large?     <bool>
@@ -374,14 +376,39 @@
   (the override wins). An unknown `:rf.egress/profile` throws
   `:rf.error/unknown-egress-profile` — the enum is closed.
 
+  Frame resolution (EP-0015 / rf2-vkblw4): an `:rf.observe/*` record is
+  FRAME-BEARING — it carries its OWNING frame under a top-level `:frame`
+  slot (the §`project-egress` example record carries `:frame :app/main`
+  with opts supplying only `:rf.egress/profile`). That owning frame is the
+  frame whose classification governs the record's tree-shaped slots, so
+  when `opts` does NOT supply `:frame` it is SEEDED from the record's
+  top-level `:frame`. An explicit `:frame` opt still WINS (override
+  semantics — it is the caller's deliberate reclassification), and a
+  kindless / frameless input seeds nothing. Without this seed the
+  documented record-owned-frame call shape silently dropped the record's
+  frame and walked every tree slot under the AMBIENT (or no) frame — which
+  over-redacted off-box slots and, under a sensitive opt-in profile,
+  shipped values raw that the record's frame would have governed.
+
   Fail-closed (EP-0002 / Spec 015 §Direct reads): a tree-shaped slot is
-  projected only when the frame is KNOWN; with no frame and no
-  `:rf.size/include-sensitive? true` opt-out the delegated walker redacts
-  the whole value to `:rf/redacted` rather than borrow another frame's
-  policy. `project-egress` does NOT synthesise `:rf/default`.
+  projected only when the frame is KNOWN — the explicit `:frame` opt, the
+  record's owning `:frame`, or the carried-invariant scope. With no frame
+  from ANY of those and no `:rf.size/include-sensitive? true` opt-out the
+  delegated walker redacts the whole value to `:rf/redacted` rather than
+  borrow another frame's policy. `project-egress` does NOT synthesise
+  `:rf/default`.
 
   Per [Spec 015 §`project-egress`](../../../../../spec/015-Data-Classification.md#project-egress--the-record-level-boundary-primitive)."
   ([record-or-value] (project-egress record-or-value nil))
   ([record-or-value opts]
-   (let [elision-opts (resolve-elision-opts opts)]
+   ;; The record is frame-bearing: seed `:frame` from its owning `:frame`
+   ;; slot when opts omits one (an explicit `:frame` opt WINS). A kindless
+   ;; / frameless input adds nothing, so the fail-closed posture below is
+   ;; preserved when no frame is known from any source. rf2-vkblw4.
+   (let [opts         (let [record-frame (and (map? record-or-value)
+                                              (:frame record-or-value))]
+                        (if (and record-frame (not (:frame opts)))
+                          (assoc opts :frame record-frame)
+                          opts))
+         elision-opts (resolve-elision-opts opts)]
      (project-record-by-kind record-or-value opts elision-opts))))
