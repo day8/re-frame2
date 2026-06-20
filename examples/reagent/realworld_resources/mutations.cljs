@@ -13,7 +13,7 @@
      use (the runtime owns reply addressing — the app `:request` MUST NOT
      supply `:request-id` / `:on-success` / `:on-failure`);
    - declares `:invalidates` — the resource `:tags` the write makes stale on
-     success, fed straight into the landed `:rf.resource/invalidate-tags`
+     success, fed straight into `:rf.resource/invalidate-tags`
      (scoped, owner-aware: mounted-and-owned reads refetch, inactive ones go
      stale). The detail page and any list refetch with NO further wiring;
    - some also declare `:populates` — seeding the affected resource entry from

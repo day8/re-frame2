@@ -3,14 +3,13 @@
    both realworld example apps (`realworld.*` and `realworld-resources.*`).
 
    The official RealWorld (Conduit) spec renders the article body as
-   CommonMark. This replaces the earlier hand-rolled markdown subset
-   with a real CommonMark library so the clone is faithful:
+   CommonMark. This uses a real CommonMark library so the clone is faithful:
    tables, nested lists, images, footnotes — the shapes a hand-rolled
-   subset could not cover — render correctly, and the parser is no longer
-   our maintenance/bug surface.
+   subset could not cover — render correctly, and the parser is not a
+   maintenance/bug surface of our own.
 
-   Library choice (Mike ruled 2026-06-11)
-   ---------------------------------------
+   Library choice
+   --------------
    `io.github.nextjournal/markdown`, used in HICCUP-EMITTING mode
    (`md/->hiccup`). In ClojureScript it tokenizes with `markdown-it` (a
    pure-JS CommonMark tokenizer — no DOM, runs in the browser AND in the
