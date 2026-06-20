@@ -62,13 +62,13 @@ The public multi-frame model is `image -> frame -> event stream`: an image is th
 
 | Surface | Shape |
 |---|---|
-| `rf/image` | `({:include-ns [<ns-glob> …] :registrations {…} :rf.image/requires #{…} :replace {…} :replace-standard {…} :id …})` → **inert image value** (pure data, no realm/registrar side effect). `:include-ns` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match pattern fails image assembly. Supplied to a frame via the `:images` vector. |
+| `rf/image` | `({:include-ns [<ns-glob> …] :registrations {…} :rf.image/requires #{…} :replace {…} :replace-standard {…} :id …})` → **inert image value** (pure data, no registrar side effect). `:include-ns` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match pattern fails image assembly. Supplied to a frame via the `:images` vector. |
 
 `make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts (`:id` / `:initial-db` / `:on-create` / …) in one call and returns the live frame **value** (read its id via `frame-value->id`; `dispatch` / `subscribe` / `destroy-frame!` take the value or its id). A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Construct image *values* with `rf/image`; for a callable frame at the app root, `reg-frame` it and scope with `frame-provider-existing` (see [`../fundamentals/frames.md`](../fundamentals/frames.md)); for a per-mount lifetime use `make-frame` + `destroy-frame!` or the owned `frame-provider`.
 
-## EP-0013 → EP-0023: the retired composition surface
+## Composition: `image → frame → event stream`
 
-EP-0023 supersedes EP-0013's public app/realm vocabulary. The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`); the EP-0013 app/realm construction/install/query family is **NOT on the `re-frame.core` facade**, and a registrar-query map is now ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})` — a map without `:frame` is an error). This is migration-disposition material: the full EP-0013→EP-0023 mapping table lives once at [`../fundamentals/frames.md` §The realm substrate is retained internally](../fundamentals/frames.md#the-realm-substrate-is-retained-internally-not-the-public-model).
+The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`); there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map is ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})` — a map without `:frame` is an error). Frame isolation plus image assembly are the whole composition story — see [`../fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story). Any retired pre-alpha names are inspectable as data via `rf/migration-map` / `rf/migration-explain`.
 
 ## Routing — `day8/re-frame2-routing`
 
