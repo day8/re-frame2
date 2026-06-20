@@ -318,9 +318,9 @@
 
 ;; The `:tags/data` sub is defined in `realworld.tags`. The
 ;; popular-tags lifecycle is the :data-region machine variant of
-;; Pattern-RemoteData — the slice is gone, items are projected off
-;; the `:realworld/tags` machine's `:data`. The home view's sidebar
-;; below consumes `:tags/data` as before; only the source changed.
+;; Pattern-RemoteData — items are projected off the `:realworld/tags`
+;; machine's `:data`, with no separate app-db slice. The home view's
+;; sidebar below consumes `:tags/data`.
 
 ;; ---- render-priority + :articles.home/render selector ----
 ;;

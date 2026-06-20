@@ -415,7 +415,7 @@
 
 ;; The machine snapshot lives at [:rf.runtime/machines :snapshots :auth.login/flow] (per
 ;; Spec 005). These named subs project out the convenient pieces. The
-;; "in :submitting?" and "in :authed?" predicates moved to the
+;; "in :submitting?" and "in :authed?" predicates live as the
 ;; `rf/machine-has-tag?` queries in views below (per Spec 005 §State tags).
 
 ;; EP-0001: machine snapshots are durable runtime-db state — read
