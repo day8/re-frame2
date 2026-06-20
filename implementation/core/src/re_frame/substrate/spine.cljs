@@ -113,7 +113,23 @@
   drain requests (the running loop already observes newly-enqueued
   thunks). Each thunk recomputes its derived value and, on a `=`-change,
   notifies its watchers — which may enqueue downstream thunks that the
-  same loop then drains, preserving topological order."
+  same loop then drains, preserving topological order.
+
+  Per-thunk throw isolation (rf2-l3lelt). On the production sub graph a
+  flush thunk never throws: the spine compute-fn is
+  `subs.memo/validate-and-trace`, which brackets the user sub body in
+  `try/catch`, emits `:rf.error/sub-exception`, and recovers to nil. A
+  non-catching compute-fn (a RAW derived value built by tooling/tests)
+  can throw, though — and a throw propagating out of the bare drain loop
+  STRANDED every downstream thunk still queued behind it: the `finally`
+  retained them in `@queue`, but their `dirty?` flag stayed `true`, so
+  `mark-dirty!` (guarded by `(when-not @dirty? …)`) could never re-enqueue
+  them on a later source change — a latent stuck-dirty strand. Mirroring
+  `drain-after-render-queue!`, each thunk now runs inside its own
+  `try/catch` that swallows: one misbehaving thunk cannot strand the rest,
+  and the loop drains to completion (the throwing thunk's own `dirty?` was
+  already cleared by `flush!` before `recompute`, so it leaves no stuck
+  guard either)."
   [{:keys [flushing? queue queued] :as _scheduler}]
   (when-not @flushing?
     (vreset! flushing? true)
@@ -125,8 +141,10 @@
     ;; building a chain of nested subvec views per cascade step. The
     ;; cursor advances and the entry leaves `queued` BEFORE the thunk runs,
     ;; so a thunk that throws is already considered consumed (matching the
-    ;; old head-pop-before-call ordering); the `finally` then compacts
-    ;; `@queue` to exactly the not-yet-drained tail on every exit path.
+    ;; old head-pop-before-call ordering). A per-thunk `try/catch` (see the
+    ;; docstring) isolates a throwing thunk so the loop still drains the
+    ;; downstream tail to completion; the `finally` then releases the
+    ;; backing vector for the next epoch.
     (let [cursor (volatile! 0)]
       (try
         (loop []
@@ -134,18 +152,18 @@
             (let [thunk (nth @queue @cursor)]
               (vswap! queued disj thunk)
               (vswap! cursor inc)
-              (thunk))
+              ;; Per-thunk throw isolation (rf2-l3lelt): swallow so one
+              ;; throwing thunk cannot strand the not-yet-drained tail —
+              ;; mirrors `drain-after-render-queue!`'s per-callback guard.
+              (try (thunk) (catch :default _ nil)))
             (recur)))
         (finally
-          ;; Drop the drained prefix in ONE pass (a single fresh vector,
-          ;; not a per-step subvec chain): normally the tail is empty so
-          ;; this releases the backing vector for the next epoch; on a
-          ;; thunk throw it leaves the un-drained remainder, exactly as the
-          ;; incremental-subvec drain did.
-          (let [q @queue]
-            (vreset! queue (if (< @cursor (count q))
-                             (into [] (subvec q @cursor))
-                             [])))
+          ;; The loop now consumes `@queue` to empty on every
+          ;; non-re-entrant exit (per-thunk isolation means no throw escapes
+          ;; the loop), so the cursor reaches the end and this releases the
+          ;; backing vector for the next epoch. Re-entrant drains still
+          ;; short-circuit on `@flushing?` above and never reach here.
+          (vreset! queue [])
           (vreset! flushing? false))))))
 
 (defn- schedule-flush!
