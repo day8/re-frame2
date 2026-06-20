@@ -38,17 +38,18 @@ Three roles never blur:
   {:doc            "Article detail by slug."
    :params-schema  [:map [:slug :string]]          ;; REQUIRED — validates + canonicalizes params
    :data-schema    :app/article                    ;; validates decoded data
-   :request                                         ;; REQUIRED — returns a Spec 014 managed-HTTP args map
-   (fn [{:keys [slug]} _ctx]
-     {:request {:method :get :url (str "/api/articles/" slug)}
-      :decode  :app/article})
    :scope          :rf.scope/global                 ;; REQUIRED — see §Scope is mandatory
    :stale-after-ms 60000                            ;; fresh window; after it, an ensure refetches
    :gc-after-ms    300000                           ;; inactive (no owner) entries GC'd after this
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})})  ;; invalidation tags
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}  ;; invalidation tags
+
+  ;; REQUIRED request fn (third positional arg) — returns a Spec 014 managed-HTTP args map
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :app/article}))
 ```
 
-The `:request` fn returns a managed-HTTP args map but MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime owns reply addressing and stale suppression (those are rejected at registration / dispatch).
+The request fn returns a managed-HTTP args map but MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime owns reply addressing and stale suppression (those are rejected at registration / dispatch).
 
 ### Read it (passive subscriptions)
 
@@ -107,10 +108,10 @@ When the same viewer identity (session / tenant / account / locale / impersonati
 ;; reference it anywhere derived scope is allowed:
 (rf/reg-resource :feed
   {:scope   {:from-db :session}                          ;; ← reference
-   :request (fn [{:keys [page]} _ctx]
-              {:request {:method :get :url "/api/feed" :params {:page page}}
-               :decode  :app/feed})
-   :tags    (fn [_params _value] #{[:feed] [:article-list]})})
+   :tags    (fn [_params _value] #{[:feed] [:article-list]})}
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get :url "/api/feed" :params {:page page}}
+     :decode  :app/feed}))
 ```
 
 The `{:inputs … :resolve …}` form **declares** which app facts decide the identity — so tooling can explain it and the runtime re-resolves only when a declared input changes. A whole-db function sugar exists (`(rf/reg-resource-scope :session (fn [db _ctx] …))`) but lowers to an explicit whole-db dependency that tooling flags as a cost — prefer declared inputs. A `{:from-db …}` reference resolves **at use time** against the causal db of its site, and is **fail-closed**: nil at a scope-requiring site is the unresolved condition (route planning never substitutes global; a sub is the loud `:rf.error/resource-sub-unresolved-scope`), never a silent fall-through. A **live subscription re-keys reactively** when the resolver's inputs change mid-session (account switch / login / logout): it points at the *new* scoped key and shows that key's state (`:idle` / `:loading`), never the old principal's data — the leak boundary holds across the re-key.
@@ -149,12 +150,13 @@ A mutation is a named WRITE that, on success, patches / populates / invalidates 
 (rf/reg-mutation
   :article/save
   {:params-schema :app/article
-   :request (fn [{:keys [slug] :as article} _ctx]
-              {:request {:method :put :url (str "/api/articles/" slug) :body article}
-               :decode  :app/article})
    :invalidates       (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})
    :scope             :rf.scope/global
-   :invalidate-timing :after-success})              ;; | :before-request | :after-failure | :after-settle
+   :invalidate-timing :after-success}               ;; | :before-request | :after-failure | :after-settle
+
+  (fn [{:keys [slug] :as article} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug) :body article}
+     :decode  :app/article}))
 
 [:rf.mutation/execute {:mutation :article/save :params article
                        :instance :form/save-1       ;; caller-supplied (or generated)
@@ -247,9 +249,6 @@ Populate is an **authoritative load**: a key seeded from an accepted reply becom
 ```clojure
 (rf/reg-mutation :article/favorite
   {:scope :rf.scope/global
-   :request (fn [{:keys [slug]} _ctx]
-              {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
-               :decode  :app/article})
    ;; {target value} — the KEY is the map-form target; the VAL is the seeded value.
    :populates (fn [{:keys [slug]} result]                    ;; (params result)
                 {{:resource :article/by-slug
@@ -257,7 +256,10 @@ Populate is an **authoritative load**: a key seeded from an accepted reply becom
                   :scope    :rf.scope/global} result})        ;; stored = full resource shape
    :invalidates (fn [{:keys [slug]} _result]
                   [{:scope :rf.scope/global :tags #{[:article-list] [:article slug]}}
-                   {:scope {:from-db :session} :tags #{[:feed]}}])})
+                   {:scope {:from-db :session} :tags #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
+     :decode  :app/article}))
 
 ;; :patches — {target patch-fn}; the patch-fn reshapes the entry's existing :data.
 ;; :patches (fn [{:keys [slug]} result]
@@ -273,7 +275,7 @@ Populate is an **authoritative load**: a key seeded from an accepted reply becom
 
 ### Request decoration — auth headers, retry (the managed-HTTP seam)
 
-A resource/mutation `:request` fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers, default retry — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register a frame-level HTTP interceptor and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
+A resource/mutation request fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers, default retry — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register a frame-level HTTP interceptor and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
 
 ```clojure
 (rf/reg-http-interceptor :auth
@@ -284,9 +286,9 @@ A resource/mutation `:request` fn describes **the domain request** — method, u
                                  (str "Token " token)))))})
 
 (rf/reg-resource :current-user                  ;; no per-resource auth opt-in needed
-  {:scope   :rf.scope/from-caller
-   :request (fn [_params _ctx]
-              {:request {:method :get :url "/api/user"} :decode :app/user})})
+  {:scope   :rf.scope/from-caller}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/user"} :decode :app/user}))
 ```
 
 The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. **Default retry should be read-focused** — retrying writes can duplicate side effects, so mutation retry defaults stay conservative (a mutation arms `:retry` only when its own `:request` declares it). Traces report *that* an auth interceptor applied, never the bearer value itself.
@@ -298,8 +300,7 @@ Routes are not required, but when a load is route-scoped, declare it on the rout
 ```clojure
 (rf/reg-route
   :route/article
-  {:path "/articles/:slug"
-   :params [:map [:slug :string]]
+  {:params [:map [:slug :string]]
    :resources
    [{:resource :article/by-slug
      :params   (fn [route] {:slug (get-in route [:params :slug])})
@@ -309,7 +310,8 @@ Routes are not required, but when a load is route-scoped, declare it on the rout
      :params   (fn [route] {:slug (get-in route [:params :slug])})
      :when     (fn [route _ctx] (some? (get-in route [:params :slug])))
      :blocking? false
-     :keep-previous? true}]})
+     :keep-previous? true}]}
+  "/articles/:slug")
 ```
 
 `:blocking?` keeps the route transition pending and gives SSR a wait point; `:when` gates conditional resources (use it, not sentinel `nil` params); `:keep-previous?` keeps the prior page visible while a new page/filter first-loads. `:after #{local-id}` orders **ensure-dispatch only** — it is **not** a data waterfall (a later entry's params come from the *route*, not an earlier entry's loaded data). `:on-match` remains canonical for arbitrary route-entry work — `:resources` is declarative server-state beside it, not a second router.

@@ -60,7 +60,7 @@ The runtime offers two complementary dev-time tools: handler `:schema` (validate
    [:body    :string]
    [:authors [:vector [:map [:id :uuid] [:name :string]]]]])
 
-(rf/reg-app-schema [:article :data] Article)                    ;; dev-only — validates the article PAYLOAD slice only
+(rf/reg-app-schema [:article :data] {:schema Article})          ;; dev-only — validates the article PAYLOAD slice only
 
 (rf/reg-event :article/load
   {:doc    "Load one article by slug."
@@ -83,7 +83,7 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
 (def Session
   [:map [:user/id :uuid] [:user/roles [:set :keyword]]])
 
-(rf/reg-app-schema [:session] Session)                           ;; dev-only — elided in production
+(rf/reg-app-schema [:session] {:schema Session})                 ;; dev-only — elided in production
 
 (rf/reg-event :session/rehydrate
   {:schema [:cat [:= :session/rehydrate]]                        ;; dev-only — pins the (trusted) dispatch shape

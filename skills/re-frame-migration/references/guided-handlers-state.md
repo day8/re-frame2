@@ -136,7 +136,7 @@ Present the categorisation; confirm with the author; apply.
 
 **Decision shape**: add the registration. Two pieces:
 
-1. The route: `(rf/reg-route :rf.route/not-found {:path "/*rest" :params [:map [:rest :string]]})`.
+1. The route: `(rf/reg-route :rf.route/not-found {:params [:map [:rest :string]]} "/*rest")`.
 2. A view registered under `:rf.route/not-found` (a basic 404 page; author writes the content).
 
 If the author declines, document the warning in the report.
