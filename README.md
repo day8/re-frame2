@@ -34,7 +34,7 @@ For about ten years now, the React world has been organised around a particular 
 
 re-frame rejects that. Instead, events update centralised state. Subscriptions derive values from that state. Views sit at the end of the flow — they're render functions over reactive inputs, and they fire when their inputs change, and that is the entire job they have. There is no useState in a re-frame view. There is no useEffect. There is no "lifting state up" because state was never down there in the first place. Views are not causal, they are derivative.
 
-**A re-frame2 app is, quite literally, a small virtual machine.** Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the instructions (collectively the program). The runtime executes every event through the same six-step pipeline, every time, no exceptions, no escape hatches. We call one iteration an epoch.
+**A re-frame2 frame is, quite literally, a small virtual machine.** An image loads behavior — registered handlers — into a frame, and those handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the instructions, and a frame processes them as an event stream. The runtime runs every event through the same six-step pipeline, every time, no exceptions, no escape hatches. We call one iteration of the pipeline an epoch.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 >
