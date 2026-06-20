@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * PR-CI Node-regression gate (rf2-md05gp).
+ * PR-CI Node-regression gate.
  *
  * Runs the pure-Node UNIT cluster of the conformance inventory — every
  * row in `scripts/test-all.cjs`'s authoritative `TESTS` array whose
@@ -18,10 +18,8 @@
  * bundle), live (nREPL), story (JVM `clojure`), and hermetic
  * (shadow-cljs + Chromium) gates. Those are run by dedicated CI jobs
  * (`mcp-conformance-{re-frame2-pair,story}`) with their own toolchains
- * and caches. Pre-rf2-md05gp the PR CI for those jobs ran ONLY
- * `test:exec-safety` (+ the e2e / live / story steps); the other seven
- * `node --test` unit gates were in the local inventory but NEVER ran in
- * CI, so a regression they guard could ship green.
+ * and caches. This gate runs the full set of `node --test` unit gates in
+ * PR CI, so a regression any of them guards is caught before merge.
  *
  * This runner DERIVES its set from `test-all.cjs` rather than
  * re-listing, so it cannot drift: add a new `node --test` row to the

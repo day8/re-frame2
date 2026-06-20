@@ -1,6 +1,5 @@
 (ns re-frame.mcp-conformance.wire-vocab.source-pins
-  "Shared source-text pin inventories + near-miss helpers (rf2-7ckmwx —
-  extracted from `wire_vocab_test.clj`).
+  "Shared source-text pin inventories + near-miss helpers.
 
   The wire-vocab conformance corpus pins each canonical marker literal
   against the server source/spec files where it MUST (emit-sources) or
@@ -12,8 +11,7 @@
   `redacted_sentinel_test`) — they live here so a new marker family adds
   ONE `:require` rather than re-deriving the inventories.
 
-  ## The two-tier pin (rf2-vj8y3, refactor-audit r2 of rf2-azk9c
-  ## §F-VOCAB-1 + F-VOCAB-3)
+  ## The two-tier pin
 
   - **emit-sources** — source files where the literal MUST appear as
     actual data (not in a comment or docstring). Stripped via
@@ -25,13 +23,13 @@
     against raw text suffices; documentation reorganisation may move
     the mention around without tripping the gate.
 
-  The pre-rf2-vj8y3 pin grepped `tools.cljs` + `Principles.md` +
-  `003-Tool-Catalogue.md` with `some`, which passed because the spec
-  docs prose-referenced every marker — even though four of five
-  literals did not appear in any re-frame2-pair-mcp source code AT ALL (they
-  were imported via `re-frame.mcp-base.vocab/<key>`). A rename inside
-  `mcp-base/vocab.cljc` (the canonical home of every literal) didn't
-  trip the gate. The emit-side pin closes that hole."
+  The emit-side pin is the load-bearing one: a `some`-over-doc-sources
+  check would pass merely because the spec docs prose-reference every
+  marker, even though four of five literals never appear in
+  re-frame2-pair-mcp source code at all (they are imported via
+  `re-frame.mcp-base.vocab/<key>`), so a rename inside
+  `mcp-base/vocab.cljc` (the canonical home of every literal) would not
+  trip a doc-only gate. The emit-side pin closes that hole."
   (:require [clojure.string :as str]))
 
 (def emit-source-files
@@ -49,8 +47,8 @@
   is the right invariant; emit-sites that import from vocab.cljc
   cannot drift independently of the canonical declaration.
 
-  As of rf2-90eft story-mcp also consumes from `mcp-base/vocab.cljc`
-  (the `dedup-table-key` symbol — `tools/story-mcp/src/re_frame/
+  story-mcp also consumes from `mcp-base/vocab.cljc` (the
+  `dedup-table-key` symbol — `tools/story-mcp/src/re_frame/
   story_mcp/tools/dedup.cljc` `:require`s it). Same single-source-of-
   truth posture as pair-mcp; the emit-source path is the same file."
   {:re-frame2-pair-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]

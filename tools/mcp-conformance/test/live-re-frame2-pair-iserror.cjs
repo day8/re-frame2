@@ -1,32 +1,30 @@
 // Live-re-frame2-pair MCP-client conformance variant pinning the
 // universal `:ok? false ⇒ isError:true` contract on the read-family
 // GENUINE error envelopes (read-dom / read-ui bad-selector).
-// Source: rf2-87h71e (pairs with the pair-mcp fix rf2-q7cavs).
 //
-// ## The hole this closes
+// ## What this test guards
 //
-// rf2-q7cavs was a spec-contract violation in pair-mcp:
-// `probe/map-result-or-blank` (the shared read-dom/read-ui `on-value`
-// projection) routed ANY map through `wire/ok-text`, so a GENUINE
+// pair-mcp's `probe/map-result-or-blank` (the shared read-dom/read-ui
+// `on-value` projection) branches its map arm on `:ok?`: a GENUINE
 // runtime failure envelope — `{:ok? false :reason
 // :rf.error/read-dom-bad-selector}` (a malformed CSS selector makes
 // `querySelectorAll` throw), the `:rf.error/ui-read-bad-selector`
-// equivalent, `:no-document`, `:no-element` — shipped with
-// `isError:false`. That violates spec/003-Tool-Catalogue.md §381
-// ("every `:ok? false` response is `isError:true`") AND makes the
-// failure CACHE-ELIGIBLE (cache eligibility bypasses isError), so a
-// transient failure could be cached and mask a later success.
+// equivalent, `:no-document`, `:no-element` — ships with
+// `isError:true`. This honours spec/003-Tool-Catalogue.md §381 ("every
+// `:ok? false` response is `isError:true`") AND keeps the failure
+// CACHE-INELIGIBLE (cache eligibility bypasses isError), so a transient
+// failure cannot be cached and mask a later success.
 //
-// It shipped GREEN at the conformance layer (rf2-87h71e) because
-// read-dom / read-ui were exercised ONLY in DEGRADED mode (the
-// `:nrepl-port-not-found` envelope, which routes through `wire/err-text`
-// directly and is isError by construction). NO test drove the GENUINE
-// live error path — a `querySelectorAll` throw inside the runtime fn —
-// through the SDK boundary. So a server returning `:ok? false` WITHOUT
-// `isError:true` on the read-family error path was never caught.
+// This is the live counterpart to the degraded-mode coverage: read-dom /
+// read-ui in DEGRADED mode return the `:nrepl-port-not-found` envelope
+// (which routes through `wire/err-text` directly and is isError by
+// construction). This test drives the GENUINE live error path — a
+// `querySelectorAll` throw inside the runtime fn — through the SDK
+// boundary, so a server returning `:ok? false` WITHOUT `isError:true` on
+// the read-family error path is caught.
 //
-// This test fills that gap. With a real nREPL + browser runtime
-// connected (the hermetic orchestrator boots both), it:
+// With a real nREPL + browser runtime connected (the hermetic
+// orchestrator boots both), it:
 //
 //   1. `tools/call read-dom` with a malformed CSS selector (`>>>`) so
 //      the runtime's `querySelectorAll` throws and the runtime fn
@@ -35,10 +33,10 @@
 //      `{:ok? false :reason :rf.error/ui-read-bad-selector}`.
 //   3. ASSERTS each response carries BOTH the structured failure reason
 //      (proving we reached the GENUINE runtime error path, not the
-//      degraded `:nrepl-port-not-found` envelope) AND `isError === true`
-//      (the contract rf2-q7cavs restored). Revert the q7cavs fix
-//      (`map-result-or-blank` back to a bare `wire/ok-text` map arm) and
-//      both arms go RED — the reason still rides, but `isError` is false.
+//      degraded `:nrepl-port-not-found` envelope) AND `isError === true`.
+//      Revert the `map-result-or-blank` map arm back to a bare
+//      `wire/ok-text` and both arms go RED — the reason still rides, but
+//      `isError` is false.
 //
 // This is the SDK-boundary counterpart to the unit
 // `bad-selector-error-forwarded` tests in
@@ -70,18 +68,17 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // we must use a selector the parser REJECTS, not one that merely misses.)
 const BAD_SELECTOR = '>>>';
 
-// The load-bearing assertion (rf2-87h71e / rf2-q7cavs): a GENUINE
-// `:ok? false` runtime failure MUST carry `isError === true`. Three
-// conditions, each load-bearing:
+// The load-bearing assertion: a GENUINE `:ok? false` runtime failure
+// MUST carry `isError === true`. Three conditions, each load-bearing:
 //
 //   - the structured `reason` is the expected bad-selector reason: proves
 //     we drove the GENUINE runtime error path (a `querySelectorAll`
 //     throw), NOT the degraded `:nrepl-port-not-found` envelope (which
 //     would false-pass a bare isError check, since it is isError too).
 //   - `:ok? false`: the envelope is a fault, not a legitimate empty answer.
-//   - `isError === true`: the contract rf2-q7cavs restored. Pre-fix this
-//     was `false` (the shared projection routed every map through
-//     `ok-text`), so this is the assertion that goes RED on a revert.
+//   - `isError === true`: the universal contract. This is the assertion
+//     that goes RED if the shared projection routes every map through
+//     `ok-text`.
 function assertReadFailureIsError(resp, name, expectedReason) {
   const text = responseText(resp);
   if (!text.includes(expectedReason)) {

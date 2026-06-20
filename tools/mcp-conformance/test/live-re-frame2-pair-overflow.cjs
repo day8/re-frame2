@@ -1,6 +1,5 @@
 // Live-re-frame2-pair MCP-client conformance variant exercising the wire-cap
 // overflow marker (:rf.mcp/overflow) under real over-budget conditions.
-// Source: rf2-ynaoc, follow-on from rf2-cum40 (PR #702).
 //
 // ## What this test guards
 //
@@ -49,10 +48,10 @@
 // re-frame2-pair-mcp server attaches, and this test runs the real-overflow
 // path.
 //
-// A follow-on bead (filed by rf2-ynaoc) tracks the "live overflow via
-// a worked example + auto-spawned shadow-cljs" variant. That gives
-// fully-hermetic CI coverage; this script gives Mike a one-command
-// local-runtime guard today.
+// A follow-on bead tracks the "live overflow via a worked example +
+// auto-spawned shadow-cljs" variant. That gives fully-hermetic CI
+// coverage; this script gives Mike a one-command local-runtime guard
+// today.
 //
 // ## How the cap is naturally tripped
 //
@@ -72,7 +71,7 @@
 // (same as the sibling harness). Exits 0 on success or SKIP. Exits 1
 // on any conformance violation.
 
-// ## DRY-on-3 resolution (rf2-1bwph → rf2-0ogn7)
+// ## DRY-on-3 resolution
 //
 // This file and its `live-re-frame2-pair-*.cjs` siblings (subscribe,
 // redaction) share the nREPL SKIP-gate (via $SHADOW_CLJS_NREPL_PORT) and
@@ -113,14 +112,11 @@ const DEFAULT_MAX_TOKENS = 5000;
 // path kicks in first).
 const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
 
-// `edn-data` parse opts pinned for the whole harness (rf2-i3ffz
-// F-CORR-2): map → plain JS object, keyword → bare string (no `:`
-// prefix), set → array. The bare-string keyword form matches Node's
-// JSON-native sensibilities and makes assertions read directly
-// (`body.limit === 'reached'` vs the previous `body[':limit'] ===
-// ':reached'`). Drift in the EDN shape now surfaces as a parse
-// exception on a real EDN reader, not a hand-rolled tokeniser's
-// silent acceptance of an evolution it wasn't designed for.
+// `edn-data` parse opts pinned for the whole harness: map → plain JS
+// object, keyword → bare string (no `:` prefix), set → array. The
+// bare-string keyword form matches Node's JSON-native sensibilities and
+// makes assertions read directly (`body.limit === 'reached'`). Drift in
+// the EDN shape surfaces as a parse exception on a real EDN reader.
 const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
 
 // Required-field table for `:rf.mcp/overflow` (re-frame2-pair-mcp shape). Each
@@ -140,7 +136,7 @@ const REQUIRED_FIELDS = [
 ];
 
 // Validate the parsed `:rf.mcp/overflow` body against the canonical
-// `ReFrame2PairOverflowBody` shape (rf2-i3ffz F-HYG-4 data-driven refactor).
+// `ReFrame2PairOverflowBody` shape.
 function assertOverflowBody(body, ctx) {
   if (!body || typeof body !== 'object') {
     throw new Error(ctx + ': overflow body is not a map: ' + JSON.stringify(body));
@@ -165,14 +161,11 @@ function assertOverflowBody(body, ctx) {
   }
 }
 
-// Parse the canonical re-frame2-pair-mcp overflow marker from response text
-// (rf2-i3ffz F-CORR-2). The hand-rolled ~120-LoC tokeniser this
-// replaces was technically correct for today's shape but fragile under
-// nested-map / escape-sequence evolution; `edn-data` (~30KB, zero
-// transitive deps) is a real EDN reader that handles the cases the
-// hand-roll only handled by accident. Returns the inner body map (a
-// plain JS object with bare-string keys) or null when the marker is
-// absent / the text is unparseable.
+// Parse the canonical re-frame2-pair-mcp overflow marker from response
+// text. `edn-data` (~30KB, zero transitive deps) is a real EDN reader
+// that handles nested-map / escape-sequence shapes robustly. Returns the
+// inner body map (a plain JS object with bare-string keys) or null when
+// the marker is absent / the text is unparseable.
 function parseOverflowMarker(text) {
   let outer;
   try {
@@ -212,8 +205,7 @@ runWithWatchdog(
     clientName: 'mcp-conformance-re-frame2-pair-live-overflow',
     transportSpec: {
       command: process.execPath,
-      // eval-cljs is ON by default post-rf2-a0z0h (inverts the prior
-      // rf2-cxx5s default-OFF). This live-overflow harness's whole
+      // eval-cljs is ON by default. This live-overflow harness's whole
       // purpose is to trip the wire cap on a real eval response, so we
       // boot without `--no-eval` — the default-ON state is exactly
       // what we want. The disabled-envelope contract is pinned by the

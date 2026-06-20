@@ -1,4 +1,4 @@
-// Wire-side decoder for the `:rf.mcp/dedup-table` envelope (rf2-90eft).
+// Wire-side decoder for the `:rf.mcp/dedup-table` envelope.
 //
 // ## Why this lives here
 //
@@ -12,13 +12,13 @@
 // reconstructed payload is what user code sees.
 //
 // The conformance harness drives the servers from Node, so it does
-// not have `de-dupe.core/expand` reachable. Per the rf2-90eft
-// post-mortem (CI run 26403312986), the story-mcp end-to-end test
-// asserted `:lifecycle` at the top level of `:structuredContent` —
-// a SEMANTIC contract — but the literal JSON shape after dedup wraps
-// the slot inside `cache-0` of the dedup table. We were checking the
-// wire shape, but conformance MUST validate the semantic contract a
-// real client sees.
+// not have `de-dupe.core/expand` reachable. A server may wrap a
+// semantic slot (e.g. `:lifecycle` at the top level of
+// `:structuredContent`) inside `cache-0` of the dedup table, so the
+// literal JSON shape on the wire differs from what a real client sees
+// after expansion. Conformance MUST validate the semantic contract a
+// real client sees, not the pre-expansion wire shape — this decoder
+// supplies the Node-side expansion the harness needs to do that.
 //
 // `decodeDedupEnvelope` is the Node-side mirror of
 // `de-dupe.core/expand`: given a structuredContent value that may be
@@ -63,7 +63,7 @@ function isCacheRefString(v) {
   return typeof v === 'string' && v.startsWith(CACHE_NS_PREFIX);
 }
 
-// Distinct in-progress sentinel (rf2-87h71e LOW). Installed in the memo
+// Distinct in-progress sentinel. Installed in the memo
 // while a cache entry is mid-expansion so a cyclic ref that re-enters
 // `expandEntry` resolves to THIS sentinel rather than to `undefined` —
 // letting the cycle be detected and rejected LOUDLY instead of silently
@@ -102,7 +102,7 @@ function expandCache(cache) {
       // caches are acyclic — refs always point at strictly-smaller
       // subtrees — so a cycle is a malformed / adversarial table. Fail
       // LOUD rather than returning `undefined` (silent corruption); a
-      // conformance decoder must reject malformed input (rf2-87h71e LOW).
+      // conformance decoder must reject malformed input.
       if (memoized === EXPANDING) {
         throw new Error(
           'dedup-envelope: cyclic dedup cache — reference ' + cacheId +

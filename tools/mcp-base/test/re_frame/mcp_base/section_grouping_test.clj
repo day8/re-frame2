@@ -1,11 +1,10 @@
 (ns re-frame.mcp-base.section-grouping-test
   "Tests for the path-headed cluster projection used at the MCP wire
-  boundary (rf2-qeous). The pass takes the flat patch list produced
+  boundary. The pass takes the flat patch list produced
   by `re-frame.mcp-base.diff-encode/collect-patches` and projects it
   into N path-headed clusters — the same `sections-per-cluster`
-  decomposition Xray ships in its panel renderer (rf2-gfxmk Phase 1
-  of rf2-abts7), recast over patches so mcp-base stays free of the
-  xray dep."
+  decomposition Xray ships in its panel renderer, recast over patches
+  so mcp-base stays free of the xray dep."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.section-grouping :as sg]))
@@ -99,7 +98,7 @@
         "raising the budget admits the previously-rejected coalescence")))
 
 ;; ---------------------------------------------------------------------------
-;; Worked examples — the three rf2-gfxmk cases recast over patches.
+;; Worked examples — the three Xray cluster cases recast over patches.
 ;; ---------------------------------------------------------------------------
 
 (deftest cart-cascade-projects-to-3-cart-and-non-cart-sections
@@ -155,7 +154,7 @@
     (is (= :removed (:section-kind (first sections))))))
 
 (deftest all-assoc-direct-children-classify-as-added-only-with-db-before-proof
-  ;; rf2-ykv9a0 — the patch grammar uses :assoc for BOTH inserted and
+  ;; The patch grammar uses :assoc for BOTH inserted and
   ;; changed leaves, so all-:assoc direct-child shape alone CANNOT prove
   ;; a container is newly added. `:added` is claimed only when :db-before
   ;; proves the container was absent.
@@ -175,7 +174,7 @@
           "existing [:user] whose direct children changed is a modification, not an addition"))))
 
 (deftest synthetic-direct-child-cluster-under-absent-container-classifies-as-added
-  ;; rf2-ykv9a0 — the genuine :added shape. An advanced consumer
+  ;; The genuine :added shape. An advanced consumer
   ;; supplies a synthetic patch list (NOT from collect-patches, which
   ;; emits a whole-subtree singleton for a brand-new key): direct-child
   ;; :assoc patches under a container that :db-before proves was absent.

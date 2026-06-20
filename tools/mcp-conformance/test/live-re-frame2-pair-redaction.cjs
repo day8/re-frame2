@@ -1,11 +1,8 @@
 // Live-re-frame2-pair MCP-client conformance variant exercising egress
 // protection of a FRAME-OWNED `:sensitive {:app-db …}` slot through the
 // pull-mode epoch tools (`trace-window` + `watch-epochs`).
-// Source: rf2-q4o83 (regression net for rf2-6wvh5; correctness review
-// finding rf2-5t8mr.18). Updated for rf2-5613h (epoch-rollup whole-drop)
-// and rf2-2h7153 (drive the PUBLIC EP-0015 frame-owned route).
 //
-// ## EP-0015 — durable app-db policy is FRAME-OWNED (rf2-2h7153)
+// ## EP-0015 — durable app-db policy is FRAME-OWNED
 //
 // Durable app-db egress policy is declared on the FRAME, through the
 // public `reg-frame` route: `(reg-frame :id {:sensitive {:app-db
@@ -14,68 +11,51 @@
 // `reg-frame` validates the classification and installs it into the
 // frame's durable elision registry tagged `:source :frame`; the epoch
 // assembler's `sensitive-rollup` and the off-box `projected-record` both
-// read THAT registry. Schema-attached `:sensitive?` app-db classification
-// was REMOVED (EP-0015 §8): schemas describe shape, not durable app-db
-// egress policy, and the former `populate-sensitive-from-schemas!`
-// importer is gone.
+// read THAT registry. Schemas describe shape, not durable app-db egress
+// policy: there is no schema-attached `:sensitive?` app-db classification
+// (EP-0015 §8).
 //
 // The gate-OFF / gate-ON arms below therefore declare the sensitive slot
 // through the FRAME-OWNED `reg-frame` route — the same route an app
-// author uses — NOT by hand-seeding the elision registry. This is the
-// load-bearing change rf2-2h7153 fixes: the prior version wrote the
-// `:sensitive-declarations` slot directly via `swap-elision-slot!`, which
-// EP-0015 treats as internal projection plumbing, so the surface could
-// stay GREEN even if `reg-frame` `:sensitive {:app-db …}` policy stopped
-// reaching the epoch rollup / projected-record / pair-MCP wire egress.
-// Driving the public route proves the whole frame-owned path end-to-end.
+// author uses — NOT by hand-seeding the elision registry. Driving the
+// public route proves the whole frame-owned path end-to-end: a regression
+// where `reg-frame` `:sensitive {:app-db …}` policy stopped reaching the
+// epoch rollup / projected-record / pair-MCP wire egress goes RED here.
 //
-// ## The hole this closes
+// ## What this test guards
 //
-// rf2-6wvh5 was a HIGH-severity egress leak: the pull-mode epoch tools
-// `trace-window` and `watch-epochs` egressed whole `:rf/epoch-record`s
-// carrying `:db-before` / `:db-after` app-db snapshots over the MCP wire
-// WITHOUT routing them through the framework's off-box projection. A
-// schema-declared `:sensitive?` slot (e.g. `[:auth :password]`) rode the
-// wire verbatim even with the `--allow-sensitive-reads` gate OFF (the
-// published-build default). The original rf2-6wvh5 fix routed each
-// egressed record through `re-frame.core/projected-record` server-side —
-// value-redacting the sensitive slot to `:rf/redacted`.
+// The pull-mode epoch tools `trace-window` and `watch-epochs` egress
+// `:rf/epoch-record`s carrying `:db-before` / `:db-after` app-db snapshots
+// over the MCP wire. A FRAME-declared sensitive slot (e.g. `[:auth
+// :password]`) MUST be protected on egress even with the
+// `--allow-sensitive-reads` gate OFF (the published-build default). This
+// is the end-to-end wire gate that puts a sensitive value into a live
+// app-db and asserts it is protected on the wire through these tools —
+// coverage neither source-text greps (wire_vocab_test.clj) nor a
+// leaf-counter indicator gate provide, since neither asserts the
+// sensitive leaf is actually protected on egress.
 //
-// The leak shipped GREEN because the cross-server mcp-conformance gate
-// had NO scenario that put a sensitive value into a live app-db and
-// asserted it was protected on the wire through these tools. The only
-// `:rf/redacted` coverage in tools/mcp-conformance was source-text greps
-// (wire_vocab_test.clj) and a leaf-counter indicator gate — neither
-// asserts the sensitive leaf was actually protected on egress. This test
-// is the missing end-to-end wire gate: it would have caught rf2-6wvh5 RED.
+// ## Whole-epoch DROP for sensitive epochs
 //
-// ## rf2-5613h — the protection STRENGTHENED to a whole-epoch DROP
-//
-// rf2-5613h closed a second, related leak: pair-mcp's `sensitive-epoch?`
-// (the whole-epoch DROP predicate that `strip-sensitive` feeds in the
-// `:epoch-vector` wire-pipeline arm) was reading the UNqualified
-// `:sensitive?` key, which the runtime never writes on an epoch record —
-// the real record-level rollup is the qualified `:rf.epoch/sensitive?`
+// pair-mcp's `sensitive-epoch?` (the whole-epoch DROP predicate that
+// `strip-sensitive` feeds in the `:epoch-vector` wire-pipeline arm) reads
+// the qualified record-level rollup `:rf.epoch/sensitive?`
 // (`re-frame.epoch.assembly/sensitive-rollup`). The assembler sets that
-// rollup `true` whenever a schema-declared sensitive PATH holds a non-nil
-// leaf in `:db-before`/`:db-after` — exactly the scenario this test sets
-// up. Pre-rf2-5613h the mismatch meant the whole-drop never fired for a
-// schema-derived sensitive epoch, so its metadata (`:event-id`, timing,
-// `:redacted-modified-paths-count`, outcome) shipped across the wire
-// alongside the value-redacted `:db-*` slots — a default-DROP violation.
+// rollup `true` whenever a declared sensitive PATH holds a non-nil leaf in
+// `:db-before`/`:db-after` — exactly the scenario this test sets up.
 //
-// Post-rf2-5613h the default (gate-OFF) posture is fail-closed at the
-// RECORD level: a sensitive epoch is WHOLE-DROPPED before egress — it
-// never reaches the value-redaction stage at all. So the gate-OFF arm now
-// asserts the sentinel is ABSENT *and* the tool reports `:dropped-sensitive`
-// >= 1 with no record in `:epochs` (proving the strip-fn dropped it — not
-// that the window happened to exclude it or the slot was empty). The
-// previous "`:rf/redacted` PRESENT" assertion no longer applies on this
-// path: with the whole-drop firing, there is no surviving record to carry
-// a redacted slot. (`projected-record` value-redaction is still the
-// belt-and-braces inner layer for any sensitive material the record-level
-// rollup does NOT catch; this scenario's declared-sensitive non-nil leaf
-// DOES flag the rollup, so the outer whole-drop governs.)
+// The default (gate-OFF) posture is fail-closed at the RECORD level: a
+// sensitive epoch is WHOLE-DROPPED before egress — it never reaches the
+// value-redaction stage at all, so none of its metadata (`:event-id`,
+// timing, `:redacted-modified-paths-count`, outcome) crosses the wire. So
+// the gate-OFF arm asserts the sentinel is ABSENT *and* the tool reports
+// `:dropped-sensitive` >= 1 with no record in `:epochs` (proving the
+// strip-fn dropped it — not that the window happened to exclude it or the
+// slot was empty). With the whole-drop firing there is no surviving record
+// to carry a redacted slot. (`projected-record` value-redaction is still
+// the belt-and-braces inner layer for any sensitive material the
+// record-level rollup does NOT catch; this scenario's declared-sensitive
+// non-nil leaf DOES flag the rollup, so the outer whole-drop governs.)
 //
 // ## What this test drives (across the MCP boundary, via the SDK Client)
 //
@@ -92,7 +72,7 @@
 //           into that slot, landing it in the next epoch's `:db-after`
 //           (and flagging the epoch's `:rf.epoch/sensitive?` rollup true).
 //   3. `tools/call trace-window` AND `tools/call watch-epochs` — the two
-//      pull-mode epoch tools that leaked.
+//      pull-mode epoch tools whose egress this gate protects.
 //   4. ASSERT the sentinel does NOT appear ANYWHERE in either egress
 //      payload, AND that the tool reports `:dropped-sensitive` >= 1 (the
 //      whole sensitive epoch was dropped — proving the strip-fn fired, not
@@ -104,12 +84,13 @@
 //
 // ## Why this is a true regression net
 //
-// Revert the rf2-5613h key fix (point `sensitive-epoch?` back at the
-// UNqualified `:sensitive?`) and step 4 goes RED two ways: the whole-drop
-// stops firing (`:dropped-sensitive` falls to 0) AND — because the record
-// now survives into the value-redaction stage — its raw metadata ships.
-// Verified by reproduction during the rf2-5613h greening (the gate-OFF
-// trace-window returned `:dropped-sensitive 1, :epochs []` post-fix).
+// Point `sensitive-epoch?` at the UNqualified `:sensitive?` (which the
+// runtime never writes on an epoch record) and step 4 goes RED two ways:
+// the whole-drop stops firing (`:dropped-sensitive` falls to 0) AND —
+// because the record then survives into the value-redaction stage — its
+// raw metadata ships. Under the correct qualified `:rf.epoch/sensitive?`
+// read, the gate-OFF trace-window returns `:dropped-sensitive 1,
+// :epochs []`.
 //
 // ## Gating
 //
@@ -260,7 +241,7 @@ const SEED_FORM = `
 const VERIFY_WRITE_FORM =
   `(get (re-frame2-pair.runtime/snapshot (re-frame2-pair.runtime/current-frame)) ${SECRET_KEY})`;
 
-// ---- INNER projected-record value-redaction arm (rf2-ywn27.3) --------------
+// ---- INNER projected-record value-redaction arm --------------
 //
 // Egress under gate-OFF has TWO independent redaction layers:
 //
@@ -277,8 +258,8 @@ const VERIFY_WRITE_FORM =
 //
 // The gate-OFF arm above declares the path BEFORE dispatch, so the
 // rollup stamps true and the OUTER whole-drop governs — the INNER layer
-// is BYPASSED (no record survives to carry a redacted slot; the test's
-// own header, lines 42-53, confirms this).
+// is BYPASSED (no record survives to carry a redacted slot; the
+// whole-epoch DROP section of this header confirms this).
 //
 // This arm drives the shape where the INNER layer is the SOLE
 // protection: record a NON-sensitive epoch FIRST (no declaration ⇒
@@ -298,7 +279,7 @@ const VERIFY_WRITE_FORM =
 // + sentinel ABSENT + the `:rf/redacted` marker PRESENT in the surviving
 // record's `:db-after`.
 //
-// rf2-2h7153 — this arm ALSO drives the PUBLIC frame-owned route:
+// This arm ALSO drives the PUBLIC frame-owned route:
 // `reg-frame fid {}` (no `:sensitive` block) clears the prior frame-owned
 // `:source :frame` declarations, and `reg-frame fid {:sensitive {:app-db
 // …}}` installs the post-hoc declaration. So the inner-layer arm proves
@@ -406,14 +387,13 @@ function droppedSensitiveCount(text) {
   return m ? Number(m[1]) : null;
 }
 
-// The load-bearing assertion (rf2-5613h): the SENTINEL must be ABSENT AND
-// the tool must report `:dropped-sensitive` >= 1 — proving the whole
-// sensitive epoch was DROPPED by the strip-fn, not merely that the slot
-// was empty or the window excluded the record (a window-excludes-everything
-// regression reports `:dropped-sensitive 0` and would pass a bare absence
-// check while the drop never fired). Pre-rf2-5613h this asserted a
-// surviving record carried `:rf/redacted`; with the whole-drop now firing
-// for a schema-derived sensitive epoch, no record survives to carry it.
+// The load-bearing assertion: the SENTINEL must be ABSENT AND the tool
+// must report `:dropped-sensitive` >= 1 — proving the whole sensitive
+// epoch was DROPPED by the strip-fn, not merely that the slot was empty or
+// the window excluded the record (a window-excludes-everything regression
+// reports `:dropped-sensitive 0` and would pass a bare absence check while
+// the drop never fired). With the whole-drop firing for a declared-
+// sensitive epoch, no record survives to carry a `:rf/redacted` slot.
 function assertDropped(resp, name) {
   assertOk(resp, name);
   const text = responseText(resp);
@@ -440,7 +420,7 @@ function assertDropped(resp, name) {
   }
 }
 
-// The INNER-layer assertion (rf2-ywn27.3): the INNER_SENTINEL must be
+// The INNER-layer assertion: the INNER_SENTINEL must be
 // ABSENT, the surviving record must carry the `:rf/redacted` marker, AND
 // `:dropped-sensitive` MUST be 0 — proving the protection was the
 // SERVER-SIDE `projected-record` value-redaction (the inner layer), NOT
@@ -577,7 +557,7 @@ async function enableEpochRecording(client, label) {
   const enable = await client.callTool({ name: 'eval-cljs', arguments: { form: ENABLE_CONFIGURE_FORM } });
   assertOk(enable, label + ' eval-cljs configure-epoch');
   // Structured `:hook-installed? true` token, not a bare 'true' substring
-  // — same rationale as the seedRuntime check above (rf2-6r5qe.2).
+  // — same rationale as the seedRuntime check above.
   if (!/:hook-installed\?\s+true\b/.test(responseText(enable))) {
     throw new Error(
       label + ' eval-cljs configure-epoch did not install the :epoch/settle! hook ' +
@@ -587,7 +567,7 @@ async function enableEpochRecording(client, label) {
   }
 }
 
-// ---- INNER projected-record value-redaction arm (rf2-ywn27.3) --------------
+// ---- INNER projected-record value-redaction arm --------------
 //
 // A SECOND gate-OFF server (no `--allow-sensitive-reads`) so its ring
 // holds ONLY the one epoch we seed here — no other recorded epoch can
@@ -613,8 +593,7 @@ async function runInnerProjectionArm() {
     // Register with the outer watchdog the INSTANT this secondary child is
     // constructed — BEFORE connect awaits — so a hang in THIS arm's boot or
     // a later tool call is reaped by the outer timeout instead of orphaning
-    // the secondary Node child (rf2-wqi4n4 finding 1). The bare-caller
-    // analogue of the rf2-2js41 finding-2 fix.
+    // the secondary Node child.
     onClient: registerAuxClient,
   });
   try {
@@ -690,8 +669,8 @@ async function runInnerProjectionArm() {
     assertInnerRedacted(tw, 'trace-window (inner projected-record value-redaction)');
     console.log('OK   trace-window (gate OFF, inner layer SOLE) -> :db-after :rf/redacted + :dropped-sensitive 0');
 
-    // watch-epochs: the named focus of rf2-ywn27 — same inner-layer SOLE
-    // protection at its INDEPENDENT call site.
+    // watch-epochs: same inner-layer SOLE protection at its INDEPENDENT
+    // call site.
     const we = await client.callTool({
       name: 'watch-epochs',
       arguments: { 'epochs-mode': 'full', dedup: false },
@@ -700,7 +679,7 @@ async function runInnerProjectionArm() {
     console.log('OK   watch-epochs (gate OFF, inner layer SOLE) -> :db-after :rf/redacted + :dropped-sensitive 0');
   } finally {
     // Deregister before the explicit close so the watchdog set doesn't hold
-    // a stale handle past teardown (rf2-wqi4n4 finding 1).
+    // a stale handle past teardown.
     unregisterAuxClient(client);
     await closeQuietly(client);
   }
@@ -717,10 +696,10 @@ async function runInnerProjectionArm() {
 // would pass a gate-OFF-only test but break the operator's deliberate
 // raw-state read.
 async function runGateOnArm() {
-  // Stand up the second server via the shared spawn+connect primitive
-  // (rf2-0ogn7). The `[server:gate-on]` stderr prefix keeps this
-  // concurrent boot's logs distinguishable from the runner-managed
-  // gate-OFF server's `[server]` lines.
+  // Stand up the second server via the shared spawn+connect primitive.
+  // The `[server:gate-on]` stderr prefix keeps this concurrent boot's logs
+  // distinguishable from the runner-managed gate-OFF server's `[server]`
+  // lines.
   const { client } = await connectServer({
     clientName: 'mcp-conformance-re-frame2-pair-redaction-gate-on',
     stderrPrefix: '[server:gate-on]',
@@ -733,7 +712,7 @@ async function runGateOnArm() {
     // Register with the outer watchdog the INSTANT this secondary child is
     // constructed — BEFORE connect awaits — so a hang in this gate-ON boot
     // or a later tool call is reaped by the outer timeout instead of
-    // orphaning the secondary Node child (rf2-wqi4n4 finding 1).
+    // orphaning the secondary Node child.
     onClient: registerAuxClient,
   });
   try {
@@ -774,7 +753,7 @@ async function runGateOnArm() {
     console.log('OK   gate-ON watch-epochs (+:include-sensitive) -> sentinel SHIPS (opt-in honoured)');
   } finally {
     // Deregister before the explicit close so the watchdog set doesn't hold
-    // a stale handle past teardown (rf2-wqi4n4 finding 1).
+    // a stale handle past teardown.
     unregisterAuxClient(client);
     await closeQuietly(client);
   }
@@ -829,15 +808,15 @@ runWithWatchdog(
     }
     console.log('OK   eval-cljs verify-write -> sentinel confirmed live in app-db (raw, on-box)');
 
-    // 3a. trace-window — the first pull-mode tool that leaked. Wide window
-    // so the just-dispatched epoch is comfortably inside it. The sensitive
-    // epoch is WHOLE-DROPPED (rf2-5613h): sentinel ABSENT + :dropped-sensitive >= 1.
+    // 3a. trace-window — the first pull-mode tool. Wide window so the
+    // just-dispatched epoch is comfortably inside it. The sensitive epoch
+    // is WHOLE-DROPPED: sentinel ABSENT + :dropped-sensitive >= 1.
     const tw = await client.callTool({ name: 'trace-window', arguments: { ms: TRACE_WINDOW_MS } });
     assertDropped(tw, 'trace-window');
     console.log('OK   trace-window (gate OFF) -> sentinel ABSENT + sensitive epoch DROPPED');
 
-    // 3b. watch-epochs — the second pull-mode tool that leaked. No
-    // :since-id → the full ring (which includes the sentinel epoch).
+    // 3b. watch-epochs — the second pull-mode tool. No :since-id → the
+    // full ring (which includes the sentinel epoch).
     const we = await client.callTool({ name: 'watch-epochs', arguments: {} });
     assertDropped(we, 'watch-epochs');
     console.log('OK   watch-epochs (gate OFF) -> sentinel ABSENT + sensitive epoch DROPPED');
@@ -845,8 +824,8 @@ runWithWatchdog(
     // 3c. Hostile per-call opt-in MUST NOT defeat the gate. A caller
     // passing `:include-sensitive true` to a server booted WITHOUT
     // `--allow-sensitive-reads` cannot talk it into shipping raw state —
-    // the boot gate forces `incl? false` regardless (rf2-c2dtu). Pin that
-    // the per-call arg is powerless when the operator didn't opt in.
+    // the boot gate forces `incl? false` regardless. Pin that the per-call
+    // arg is powerless when the operator didn't opt in.
     const twHostile = await client.callTool({
       name: 'trace-window',
       arguments: { ms: TRACE_WINDOW_MS, 'include-sensitive': true },
@@ -856,10 +835,10 @@ runWithWatchdog(
       'OK   trace-window (gate OFF + hostile :include-sensitive true) -> still DROPPED',
     );
 
-    // 3d. watch-epochs hostile per-call opt-in — the SIBLING of 3c
-    // (rf2-ywn27.1). trace-window and watch-epochs compute `incl?` at
-    // SEPARATE call sites (trace_window.cljs:61-63 vs
-    // watch_epochs.cljs:61-63) — each is an independent
+    // 3d. watch-epochs hostile per-call opt-in — the SIBLING of 3c.
+    // trace-window and watch-epochs compute `incl?` at SEPARATE call sites
+    // (trace_window.cljs:61-63 vs watch_epochs.cljs:61-63) — each is an
+    // independent
     // `(if (raw-state-allowed?) (parse-bool-arg ... :include-sensitive)
     // false)`, NOT shared code. So a regression that drops the boot-gate
     // guard on watch-epochs ALONE (e.g. watch_epochs.cljs:61 simplified
@@ -868,9 +847,9 @@ runWithWatchdog(
     // WITHOUT --allow-sensitive-reads into shipping RAW epoch `:db-after`
     // — `incl? true` ⇒ `project? false` ⇒ no projected-record wrap AND
     // `strip-sensitive [items 0]` ⇒ the whole-drop is bypassed too. The
-    // pre-rf2-ywn27.1 suite stayed GREEN because it only ever sent
-    // watch-epochs the DEFAULT-args call gate-OFF (3b), which forces
-    // `incl? false` regardless. Pin the hostile arg is powerless here.
+    // default-args gate-OFF call (3b) forces `incl? false` regardless, so
+    // it cannot catch this; this hostile-arg call is the one that pins the
+    // boot-gate guard on watch-epochs's INDEPENDENT site.
     const weHostile = await client.callTool({
       name: 'watch-epochs',
       arguments: { 'include-sensitive': true },
@@ -881,7 +860,7 @@ runWithWatchdog(
     );
 
     // 3e. INNER projected-record value-redaction layer — the sole
-    // protection when the OUTER whole-drop does NOT fire (rf2-ywn27.3).
+    // protection when the OUTER whole-drop does NOT fire.
     // See `runInnerProjectionArm` for the two-layer model and why this
     // is distinguishable from the whole-drop scenarios above.
     await runInnerProjectionArm();

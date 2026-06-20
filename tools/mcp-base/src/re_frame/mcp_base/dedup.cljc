@@ -1,7 +1,6 @@
 (ns re-frame.mcp-base.dedup
   "Structural dedup at the wire boundary — the cross-MCP forward
-  (encode) direction (rf2-obpa9 / rf2-90eft, lifted to the base by
-  rf2-ttspi7).
+  (encode) direction, shared in the base by both servers.
 
   ## Why dedup at the wire boundary
 
@@ -45,8 +44,9 @@
 
   ## What does NOT live here — the inverse (`dedup-expand`)
 
-  The forward direction is byte-identical, so it is lifted. The INVERSE
-  (`dedup-expand`) is NOT — neither MCP server calls it at runtime (the
+  The forward direction is byte-identical, so it is shared here. The
+  INVERSE (`dedup-expand`) is NOT — neither MCP server calls it at
+  runtime (the
   wire contract is that the agent host calls `de-dupe.core/expand`
   directly), so it is test-only, and each consumer's placement reflects
   its own test-corpus topology rather than a shared shape:
@@ -59,8 +59,8 @@
     ceremony than the helper costs — it is harmlessly available at
     runtime and never invoked by the server).
 
-  Lifting only the forward direction keeps each inverse's placement
-  decision local and intact (rf2-ttspi7)."
+  Sharing only the forward direction keeps each inverse's placement
+  decision local and intact."
   (:require [de-dupe.core :as dd]
             [re-frame.mcp-base.vocab :as vocab]))
 

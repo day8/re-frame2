@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.overflow
-  "Wire-boundary token-budget cap (rf2-rvyzy) shape builder.
+  "Wire-boundary token-budget cap shape builder.
 
   Per `spec/Principles.md` §Tight token budget per response, every MCP
   `tools/call` response is bounded at ~5,000 tokens by default. When
@@ -24,7 +24,7 @@
 
 (def ^:const default-max-tokens
   "The convention's documented cap. Sized for a typical 5K-token MCP
-  response envelope after diff-encode + dedup. Per rf2-rvyzy."
+  response envelope after diff-encode + dedup."
   5000)
 
 (defn token-estimate

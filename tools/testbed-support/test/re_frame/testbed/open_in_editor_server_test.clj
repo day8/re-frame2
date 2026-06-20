@@ -8,11 +8,11 @@
 
   The load-bearing regression: a classpath checkout path containing a
   literal `+` (e.g. `C:/code/re-frame2+wip`) must survive `:file`
-  resolution verbatim. The historic code decoded the `file:` resource URL
-  with `URLDecoder`, which is a FORM-body decoder that maps `+` → space,
-  so such a path resolved to a nonexistent `re-frame2 wip` dir and the
-  endpoint launched the editor at the wrong place. `file-url->path` now
-  decodes via `URI`, which leaves a literal `+` intact while still
+  resolution verbatim. Decoding the `file:` resource URL with `URLDecoder`
+  is wrong here — it is a FORM-body decoder that maps `+` → space,
+  so such a path would resolve to a nonexistent `re-frame2 wip` dir and the
+  endpoint would launch the editor at the wrong place. `file-url->path`
+  decodes via `URI` instead, which leaves a literal `+` intact while still
   decoding `%20` / `%2B`."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]

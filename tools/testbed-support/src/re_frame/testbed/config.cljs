@@ -1,7 +1,6 @@
 (ns re-frame.testbed.config
   "Shared testbed-config helper — derives the on-disk source-root the
-  Xray / Story testbeds hand to their 'open in editor' resolvers
-  (rf2-5dphw).
+  Xray / Story testbeds hand to their 'open in editor' resolvers.
 
   ## Two roots, named for what they are
 
@@ -16,24 +15,23 @@
     the *output* `resolve-source-root` returns — the root the editor-URI
     composer prepends to a classpath-relative `:file` slot.
 
-  Keeping the two names distinct removes the overload that an earlier
-  `project-root`-everywhere vocabulary forced on the reader (input and
-  output both spelled 'root').
+  Keeping the two names distinct keeps input and output from both being
+  spelled 'root', which would overload the reader.
 
   ## Why this exists
 
   Xray and Story turn a source-coord (`standard_epochs/core.cljs:42`) into an
-  editor URI by prepending an on-disk *source root*. SHIPPED code reads
+  editor URI by prepending an on-disk *source root*. Shipped code reads
   that root from host config (`xray-config/configure!` /
-  `story/configure!`); there is no baked default. But the dev testbeds
-  that drive Xray / Story have to PASS a root to `configure!`, and they
-  previously each hardcoded the author's absolute Windows checkout
-  (`C:/Users/me/code/my-app/tools/xray/testbeds`) as that value —
-  six copies of one machine-specific string. On any other clone, any
-  other directory, and every Mac/Linux maintainer, 'open in editor'
-  resolved to a path that does not exist.
+  `story/configure!`); there is no baked default. The dev testbeds that
+  drive Xray / Story have to PASS a root to `configure!`, and that root
+  cannot be a hardcoded absolute checkout (e.g.
+  `C:/Users/me/code/my-app/tools/xray/testbeds`): on any other clone, any
+  other directory, and every Mac/Linux maintainer, such a literal resolves
+  'open in editor' to a path that does not exist. This helper derives the
+  root cross-platform from the build environment instead.
 
-  ## The fix (cross-platform, build-env derived)
+  ## How the root is derived (cross-platform, build-env derived)
 
   `checkout-root` is a `goog-define`d string, default `\"\"`. The dev launcher
   (`implementation/scripts/dev-testbed.cjs`, wired as the `dev` npm
@@ -47,13 +45,13 @@
 
   `resolve-source-root` then joins that checkout root with the
   tool-relative testbed subdir (`\"tools/xray/testbeds\"` /  `\"tools/story/testbeds\"`)
-  the caller passes. A `?checkout-root=<checkout>` query string still wins
+  the caller passes. A `?checkout-root=<checkout>` query string wins
   as the per-session escape hatch (CI, a reader on a different machine, a
   testbed served from a copied bundle) — it names the same thing as the
   build-time root (a CHECKOUT root) and has the subdir appended the same
   way, so the composed editor URI reaches the tool source root
   (`<checkout>/tools/xray/testbeds`) the classpath-relative source coords
-  resolve against (rf2-w4yw9q). When neither the override nor the
+  resolve against. When neither the override nor the
   build-time root is present, this returns `nil` and the testbed simply
   configures no root — 'open in editor' degrades to a no-op rather than a
   broken link, exactly the graceful-absence behaviour
@@ -98,7 +96,7 @@
   non-blank — or nil when the param is absent, blank, or the search string
   itself is blank/nil.
 
-  Decoding semantics (rf2-xdsat.1): a literal `+` in the value is preserved
+  Decoding semantics: a literal `+` in the value is preserved
   VERBATIM, NOT decoded to a space. The override names an on-disk checkout
   root, so a checkout at e.g. `/home/dev/re-frame2+wip` must round-trip
   through `?checkout-root=/home/dev/re-frame2+wip` with the `+` intact. We
@@ -164,9 +162,9 @@
   `%5C`-decoded Windows override root, e.g.
   `C:\\Users\\me\\code\\re-frame2\\`) becomes `/` — so a Windows
   `?checkout-root=` value joins exactly like a POSIX one rather than
-  yielding a `\\/` boundary (`C:\\...\\/tools/xray/testbeds`) that relied
-  on downstream tolerant path normalisation. `root` then has any single
-  trailing slash stripped (so `/repo/` + `sub` never yields `/repo//sub`);
+  yielding a `\\/` boundary (`C:\\...\\/tools/xray/testbeds`) that would
+  depend on downstream tolerant path normalisation. `root` then has any
+  single trailing slash stripped (so `/repo/` + `sub` never yields `/repo//sub`);
   `subdir` is trimmed and any leading slash(es) removed (so callers may
   pass it with or without a leading slash). A blank / nil / slash-only
   `subdir` collapses to the normalised root verbatim.
@@ -177,10 +175,9 @@
   blank relative path), so it is the only case where `normalized-root`
   ends in `/`. We therefore add the boundary separator only when the
   root does not already supply one, so `\"/\"` + `\"tools/xray/testbeds\"`
-  yields `/tools/xray/testbeds` (exactly one separator) rather than the
-  `//tools/xray/testbeds` the unconditional `(str root \"/\" subdir)`
-  produced — honouring the single-separator contract for every root,
-  POSIX filesystem-root included (rf2-fzgcii)."
+  yields `/tools/xray/testbeds` (exactly one separator) rather than
+  `//tools/xray/testbeds` — honouring the single-separator contract for
+  every root, POSIX filesystem-root included."
   [root subdir]
   (let [normalized-root   (-> root str/trim to-forward-slashes strip-trailing-slash)
         normalized-subdir (-> (or subdir "")
@@ -208,7 +205,7 @@
   relative to the testbed source root `<checkout>/tools/xray/testbeds`).
   The result must therefore reach down to that source root, or the composed
   editor URI misses the tool source-root segment and points at a nonexistent
-  file (rf2-w4yw9q). The override and the build-time define mean the
+  file. The override and the build-time define mean the
   same thing — a checkout root — so they share one join.
 
   Resolution order:

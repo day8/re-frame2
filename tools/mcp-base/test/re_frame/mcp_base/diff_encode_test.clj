@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.diff-encode-test
   "Tests for the path-keyed structural diff used at the MCP wire
-  boundary (rf2-1wdzp, shared across both servers via rf2-vw4sq)."
+  boundary, shared across both servers."
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
@@ -38,7 +38,7 @@
          (de/collect-patches {:a {:b 1}} {:a [1 2 3]} []))))
 
 ;; ---------------------------------------------------------------------------
-;; collect-patches — same-length vectors diff structurally (rf2-cwhod2).
+;; collect-patches — same-length vectors diff structurally.
 ;; ---------------------------------------------------------------------------
 
 (deftest collect-patches-diffs-vector-element-map-update
@@ -102,7 +102,7 @@
       (is (= b (de/apply-patches a p))))))
 
 (deftest apply-patches-round-trips-vector-diffs
-  ;; rf2-cwhod2: every same-length-vector diff shape round-trips through
+  ;; Every same-length-vector diff shape round-trips through
   ;; the existing assoc-in replay (integer index paths), and every
   ;; length-change whole-leaf replacement does too.
   (doseq [[label a b]
@@ -125,7 +125,7 @@
   (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
 
 (deftest apply-patches-applies-in-order-for-same-path
-  ;; Regression pin (rf2-cwqc8 / round-2 F18): when two patches target
+  ;; Regression pin: when two patches target
   ;; the same path, the later one wins — `reduce` over the patch
   ;; sequence applies them in order so a later `:assoc` overrides an
   ;; earlier one, and a `:dissoc` after an `:assoc` clears the value.
@@ -147,7 +147,7 @@
                                      [[:a] :assoc 7]])))))
 
 (deftest apply-patches-nested-dissoc-missing-or-scalar-parent-is-noop
-  ;; rf2-ykv9a0 — `[<path> :dissoc]` is a no-op when the key does not
+  ;; `[<path> :dissoc]` is a no-op when the key does not
   ;; exist (per the spec). The naive `(update-in acc parent dissoc k)`
   ;; violated this: a MISSING parent manufactured nil branches, and a
   ;; SCALAR parent threw a host ClassCastException at the decoder
@@ -171,7 +171,7 @@
     (is (= {:a 1} (de/apply-patches {:a 1} [[[:z] :dissoc]])))))
 
 (deftest apply-patches-nested-assoc-into-scalar-parent-is-structured-error
-  ;; rf2-glybzz — the `:assoc` PEER of the rf2-ykv9a0 dissoc guard.
+  ;; The `:assoc` PEER of the dissoc guard.
   ;; A grammar-valid patch like `[[[:a :b] :assoc 2]]` against base
   ;; `{:a 1}` used to delegate straight to `assoc-in`, which throws a
   ;; raw host `ClassCastException` with nil ex-data at the wire decoder
@@ -236,7 +236,7 @@
     (is (= {:y 9} (de/apply-patches {:x 1} [[[] :assoc {:y 9}]])))))
 
 (deftest decode-db-after-nested-assoc-mismatched-base-is-structured-error
-  ;; rf2-glybzz — the same guard reached via the section-decoder hot
+  ;; The same guard reached via the section-decoder hot
   ;; path. `decode-db-after` replays through the non-validating
   ;; `apply-patches*`; a section whose `:patches` assoc into a path that
   ;; is non-associative in THIS record's `:db-before` (a corrupt /
@@ -268,8 +268,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest diff-encode-db-after-emits-sections-shape
-  ;; rf2-qeous: the encoder now emits path-headed cluster sections
-  ;; instead of a flat patch list.
+  ;; The encoder emits path-headed cluster sections, not a flat patch
+  ;; list.
   (let [epoch    {:db-before {:a 1 :b 2}
                   :db-after  {:a 1 :b 3}}
         encoded  (de/diff-encode-db-after epoch)
@@ -283,7 +283,7 @@
       (is (= [[[:b] :assoc 3]] (:patches s))))))
 
 (deftest diff-encode-db-after-classifies-modified-not-false-added
-  ;; rf2-ykv9a0 — the encoder threads :db-before into section
+  ;; The encoder threads :db-before into section
   ;; classification so an all-:assoc direct-child cluster is :added ONLY
   ;; when its container was genuinely absent before. Patch shape alone
   ;; can't tell an insert from a change (both are :assoc), so an existing
@@ -381,7 +381,7 @@
             "non-:db-after fields unchanged on decode")))))
 
 ;; ---------------------------------------------------------------------------
-;; Patch grammar — Malli schema pin (rf2-rgg7d).
+;; Patch grammar — Malli schema pin.
 ;;
 ;; The schema is published as `de/patch-schema` (single tuple) and
 ;; `de/patches-schema` (sequential of tuples). The encoder boundary
@@ -609,20 +609,20 @@
           (is (= 0 (:bad-index data))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Decoder-boundary validation (rf2-8e61v / F17).
+;; Decoder-boundary validation.
 ;;
 ;; `apply-patches` is the wire-decoder entry point. A malformed patch
-;; reaching this fn is a contract violation — the previous behaviour
-;; silently no-op'd on the offending tuple (fell through the `cond` to
-;; `:else acc` and dropped the corrupted patch without a peep). Mirror
-;; the encoder boundary's gate: validate against `patches-schema` and
-;; throw `:rf.error/bad-diff-patches`.
+;; reaching this fn is a contract violation. The gate mirrors the
+;; encoder boundary's: validate against `patches-schema` and throw
+;; `:rf.error/bad-diff-patches`. Without it the offending tuple would
+;; silently no-op (fall through the `cond` to `:else acc` and drop the
+;; corrupted patch without a peep).
 ;; ---------------------------------------------------------------------------
 
 (deftest apply-patches-rejects-malformed-tuples
   (testing "missing op (2-element tuple with no op) throws"
-    ;; Pre-fix: silently no-op'd because the destructure put `nil` in
-    ;; `op` and the cond fell through to `:else acc`. Post-fix: the
+    ;; Without the gate this would silently no-op: the destructure puts
+    ;; `nil` in `op` and the cond falls through to `:else acc`. The
     ;; validate-patches! gate trips on the malformed tuple BEFORE the
     ;; reduce starts.
     (is (thrown-with-msg?
@@ -663,19 +663,15 @@
   (is (= {:a 1} (de/apply-patches {:a 1} []))))
 
 ;; ---------------------------------------------------------------------------
-;; Decoder-boundary SECTION validation (rf2-j6oay / rf2-80y2h).
+;; Decoder-boundary SECTION validation.
 ;;
 ;; `decode-db-after` validates the `:sections` vector via
 ;; `validate-sections!` BEFORE flattening + replaying — encoder/decoder
-;; symmetry per the rf2-8e61v argument. The encoder boundary
-;; (`diff-encode-db-after`) was tested negatively
-;; (`diff-encode-db-after-emits-schema-conformant-sections` +
-;; `validate-patches!` direct), and `validate-sections!` was tested
-;; only positively (it never throws on a real encode). This pins the
-;; SYMMETRIC decode-side gate: a marker carrying malformed `:sections`
-;; reaching `decode-db-after` MUST throw `:rf.error/bad-diff-sections`
-;; rather than slip cosmetic `:section-kind` / `:section-path` slots
-;; through to an agent-host UI that paints them as truth.
+;; symmetry. This pins the SYMMETRIC decode-side gate: a marker carrying
+;; malformed `:sections` reaching `decode-db-after` MUST throw
+;; `:rf.error/bad-diff-sections` rather than slip cosmetic
+;; `:section-kind` / `:section-path` slots through to an agent-host UI
+;; that paints them as truth.
 ;; ---------------------------------------------------------------------------
 
 (deftest decode-db-after-rejects-malformed-sections
@@ -726,17 +722,18 @@
               "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)"))))))
 
 (deftest decode-db-after-rejects-malformed-sections-slot
-  ;; rf2-y3qpv: a diff marker whose `:sections` slot is `nil` or `false`
-  ;; previously decoded to a no-op via `(or sections [])` — an empty seq
-  ;; satisfies `[:sequential section-schema]`, so the gate never tripped
-  ;; and the epoch's real `:db-after` change was silently ERASED back to
-  ;; `:db-before`. The raw slot is now validated, so a PRESENT non-sequential
-  ;; `:sections` trips `:rf.error/bad-diff-sections` (Malli present).
-  ;; `:db-before` carries a real change so a regression (silent no-op) would
-  ;; observably hand back `{:a 1}` instead of throwing.
+  ;; A diff marker whose `:sections` slot is `nil` or `false` must not
+  ;; decode to a no-op. Coercing it via `(or sections [])` would let an
+  ;; empty seq satisfy `[:sequential section-schema]`, so the gate would
+  ;; never trip and the epoch's real `:db-after` change would be silently
+  ;; ERASED back to `:db-before`. The raw slot is validated, so a PRESENT
+  ;; non-sequential `:sections` trips `:rf.error/bad-diff-sections`
+  ;; (Malli present). `:db-before` carries a real change so a regression
+  ;; (silent no-op) would observably hand back `{:a 1}` instead of
+  ;; throwing.
   ;;
-  ;; rf2-71kxvb: a MISSING `:sections` key is now a marker-BODY shape
-  ;; violation (the closed two-key contract), so it trips the structural
+  ;; A MISSING `:sections` key is a marker-BODY shape violation (the
+  ;; closed two-key contract), so it trips the structural
   ;; `:rf.error/bad-diff-marker` gate FIRST (see
   ;; `decode-db-after-rejects-malformed-marker-body`). A PRESENT-but-falsey
   ;; `:sections` still satisfies the closed key set, so the body gate passes
@@ -769,15 +766,17 @@
           (is (= 'mcp-base/decode-db-after (:where (ex-data e)))))))))
 
 (deftest decode-db-after-rejects-malformed-marker-body
-  ;; rf2-71kxvb — the decoder recognizes a diff marker on the PRESENCE of
+  ;; The decoder recognizes a diff marker on the PRESENCE of
   ;; the `:rf.mcp/diff-from` key (intent), then enforces the CLOSED
   ;; marker-body contract (mcp-conformance `DiffFromBody`): EXACTLY
   ;; `{:rf.mcp/diff-from :db-before, :sections [...]}` — two top-level keys,
   ;; the marker value restricted to `:db-before`. A pure STRUCTURAL gate
-  ;; (no Malli), so it fires regardless of Malli presence. Previously:
-  ;;   - an extra sibling key slipped past (only `:sections` was checked);
-  ;;   - an unsupported marker value was treated as 'not a diff' and passed
-  ;;     THROUGH unchanged, letting a corrupt/third-party marker survive.
+  ;; (no Malli), so it fires regardless of Malli presence. It closes two
+  ;; cases a `:sections`-only check would miss:
+  ;;   - an extra sibling key would slip past (only `:sections` checked);
+  ;;   - an unsupported marker value would be treated as 'not a diff' and
+  ;;     pass THROUGH unchanged, letting a corrupt/third-party marker
+  ;;     survive.
   (testing "an extra sibling top-level key rejects (closed two-key contract)"
     (let [epoch {:db-before {:a 1}
                  :db-after  {:rf.mcp/diff-from :db-before
@@ -832,7 +831,7 @@
       (is (= epoch (de/decode-db-after epoch))))))
 
 (deftest decode-db-after-explicit-empty-sections-is-valid-no-change
-  ;; rf2-y3qpv companion: an EXPLICIT `:sections []` is a legitimate
+  ;; Companion: an EXPLICIT `:sections []` is a legitimate
   ;; no-change diff (db-before == db-after) and MUST still validate and
   ;; replay to `:db-before` unchanged — the gate guards malformed shape,
   ;; it does not reject a real empty diff.

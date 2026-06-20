@@ -1,13 +1,12 @@
 (ns re-frame.mcp-base.section-grouping
-  "Patch-list → path-headed cluster sections (rf2-qeous).
+  "Patch-list → path-headed cluster sections.
 
   ## What this is
 
-  The MCP wire boundary's `:db-after` shape evolves from flat patches
-  to path-headed cluster sections — the same sections-per-cluster
-  decomposition Xray's panel renderer ships (rf2-gfxmk Phase 1 of
-  rf2-abts7), but projected from the patch list rather than from the
-  annotated-tree.
+  The MCP wire boundary's `:db-after` shape is path-headed cluster
+  sections — the same sections-per-cluster decomposition Xray's panel
+  renderer ships, but projected from the patch list rather than from
+  the annotated-tree.
 
   An agent that asks 'what did this cascade do?' gets N scoped
   cluster summaries — each headed by a path breadcrumb — instead of
@@ -56,7 +55,7 @@
   `:modified`. The agent uses this to skim cluster intent without
   walking every patch. (`:added` requires `:db-before` context —
   see §Classify each section for why patch shape alone can't prove
-  it; rf2-ykv9a0.)
+  it.)
 
   ## Algorithm
 
@@ -104,7 +103,7 @@
        default; the agent reads `:modified` and knows the cluster
        carries a mix of inserts / changes / deletes.
 
-     ## Why `:added` needs `:db-before` (rf2-ykv9a0)
+     ## Why `:added` needs `:db-before`
 
      The patch grammar uses `:assoc` for BOTH inserted and changed
      leaves, so patch SHAPE alone cannot distinguish a newly-added
@@ -151,7 +150,7 @@
 (def default-opts
   "Tunable knobs. Mirrors `tools/xray/.../section_grouping.cljc`'s
   defaults so the agent sees the same cluster shape Xray's panel
-  renders. Tune against a real corpus in rf2-ogkh0."
+  renders."
   {:max-coalesce-depth 3})
 
 ;; ---- coalescence -------------------------------------------------------
@@ -258,7 +257,7 @@
 
 (def ^:private absent
   "Private sentinel for `get-in` miss detection — distinguishes a stored
-  `nil` from an absent key (rf2-ykv9a0)."
+  `nil` from an absent key."
   #?(:clj (Object.) :cljs (js-obj)))
 
 (defn- path-present?
@@ -279,7 +278,7 @@
   ALREADY exist in `:db-before`?'. The patch grammar uses `:assoc` for
   BOTH inserted and changed leaves, so patch shape ALONE cannot tell a
   newly-added container from an existing one whose direct children
-  changed (rf2-ykv9a0): `{:user {:name \"bob\"}}` →
+  changed: `{:user {:name \"bob\"}}` →
   `{:user {:name \"ada\" :email \"…\"}}` emits the SAME all-`:assoc`
   direct-child cluster under `[:user]` as a genuinely new `[:user]`
   subtree would. `:added` is therefore claimed ONLY when the patches are
@@ -341,7 +340,7 @@
                 `:db-before` — the pre-change value the patches diff
                 from. When supplied, `:section-kind :added` is claimed
                 only for an all-`:assoc` direct-child cluster whose
-                container was ABSENT in `:db-before` (rf2-ykv9a0).
+                container was ABSENT in `:db-before`.
                 When absent, the classifier cannot prove addition and
                 errs to `:modified` for every all-`:assoc` cluster.
 
@@ -351,7 +350,7 @@
    (let [{:keys [max-coalesce-depth db-before]} (merge default-opts opts)
          ;; `:added` requires PROOF the container is newly introduced —
          ;; patch shape alone cannot supply it (`:assoc` covers both
-         ;; insert and change, rf2-ykv9a0). When `:db-before` is threaded
+         ;; insert and change). When `:db-before` is threaded
          ;; in (the `diff-encode-db-after` caller has it in hand), a
          ;; cluster is `:added` only if its section-path was ABSENT
          ;; before. Without it (standalone projection) every cluster's
@@ -394,7 +393,7 @@
   trips `:rf.error/bad-diff-sections` on such a marker; this fn only
   runs after that gate (or its soft-pass when Malli is absent), so the
   non-sequential branch is the soft-pass safety net, not the primary
-  validation (rf2-y3qpv)."
+  validation."
   [sections]
   (if (sequential? sections)
     (vec (mapcat :patches sections))

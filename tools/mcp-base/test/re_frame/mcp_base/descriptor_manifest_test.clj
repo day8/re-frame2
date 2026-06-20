@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.descriptor-manifest-test
   "Tests for the shared MCP tool-descriptor manifest serialiser +
-  drift-check (rf2-sofwv). The serialiser is consumed by BOTH MCP
+  drift-check. The serialiser is consumed by BOTH MCP
   servers' generators; this corpus pins its determinism + diff
   semantics on the JVM (the algorithm is platform-agnostic `.cljc`)."
   (:require [clojure.edn :as edn]
@@ -12,7 +12,7 @@
   "Two descriptors in the on-the-registry shape both servers emit —
   story-mcp lifts :outputSchema/:annotations via cond->, pair-mcp
   declares them per-tool, but the slot SHAPE is identical. Both carry
-  `:required` (inside :inputSchema) + `:typicalTokens` (rf2-cwhod2) so
+  `:required` (inside :inputSchema) + `:typicalTokens` so
   the corpus exercises every governed slot."
   [{:name        "beta"
     :description "Second tool."
@@ -46,7 +46,7 @@
     (is (= 600 (:typicalTokens row)) "typicalTokens passed through verbatim")))
 
 (deftest descriptor->row-projects-required-and-typical-tokens
-  ;; rf2-cwhod2: the two live facets the original narrow projection missed.
+  ;; The two live API-semantics facets: :required + :typicalTokens.
   (let [row (dm/descriptor->row (second sample-descriptors))] ; alpha
     (is (= ["event"] (:input-keys row)))
     (is (= ["event"] (:required row)) ":required projects the mandatory input subset")
@@ -114,7 +114,7 @@
         "rows sorted by name regardless of input order")))
 
 ;; ---------------------------------------------------------------------------
-;; Gated-input profiles (rf2-qo3wvp)
+;; Gated-input profiles
 ;;
 ;; A descriptor input key can sit on a PRIVILEGED (gate-open) `tools/list`
 ;; profile yet be stripped from the DEFAULT one by an operator-only gate
@@ -148,9 +148,8 @@
         ":gated-input-keys names the default-stripped subset")))
 
 (deftest default-vs-gate-open-surfaces-are-derivable
-  ;; The bead's core requirement: the default profile excludes
-  ;; include-sensitive; the gate-open profile includes it. Both are
-  ;; derivable from one byte-stable row.
+  ;; The default profile excludes include-sensitive; the gate-open
+  ;; profile includes it. Both are derivable from one byte-stable row.
   (let [row          (dm/descriptor->row gated-descriptor #{"include-sensitive"})
         gate-open    (:input-keys row)
         default-surf (remove (set (:gated-input-keys row)) gate-open)]
@@ -230,12 +229,12 @@
     (is (= :test (-> parsed :meta :server)))
     (is (= 2 (-> parsed :meta :tool-count)))
     (is (= ["alpha" "beta"] (mapv :name (:tools parsed))))
-    ;; rf2-cwhod2: the new facets survive the EDN round-trip.
+    ;; The :required + :typicalTokens facets survive the EDN round-trip.
     (is (= ["event"] (:required (by-name "alpha"))))
     (is (= [] (:required (by-name "beta"))))
     (is (= 300 (:typicalTokens (by-name "alpha"))))
     (is (= 600 (:typicalTokens (by-name "beta"))))
-    ;; rf2-qo3wvp: the gated-input slot survives + renders uniformly.
+    ;; The gated-input slot survives + renders uniformly.
     (is (= [] (:gated-input-keys (by-name "alpha"))) "empty gated slot round-trips")
     (is (= [] (:gated-input-keys (by-name "beta"))))))
 
@@ -299,11 +298,12 @@
       (is (= ["beta"] (:removed res)) "beta was dropped"))))
 
 (deftest check-detects-changed-existing-tool
-  ;; rf2-y3qpv: when an EXISTING tool's catalogue row drifts (here alpha
-  ;; gains an input key) the identity sets stay empty — neither :added
-  ;; nor :removed names it. The CI guard previously went red with no
-  ;; row-level identity of WHAT changed, forcing a manual whole-manifest
-  ;; diff. `:changed` now names the drifted tool and carries old/new rows.
+  ;; When an EXISTING tool's catalogue row drifts (here alpha gains an
+  ;; input key) the identity sets stay empty — neither :added nor
+  ;; :removed names it. Without a row-level diff the CI guard would go
+  ;; red with no identity of WHAT changed, forcing a manual
+  ;; whole-manifest diff. `:changed` names the drifted tool and carries
+  ;; old/new rows.
   (testing "an existing tool that gains an input key is :changed, not :added/:removed"
     (let [committed-m   (dm/build-manifest :test sample-descriptors)
           committed-edn (dm/render-edn committed-m)
@@ -328,8 +328,8 @@
   ;; Every catalogue-surface slot the manifest governs trips :changed in
   ;; isolation (description / output? / annotations / required /
   ;; typicalTokens, plus the input-keys case above). One row mutated per
-  ;; case; beta untouched. rf2-cwhod2 added the :required + :typicalTokens
-  ;; cases — the live API-semantics facets the original gate missed.
+  ;; case; beta untouched. The :required + :typicalTokens cases cover
+  ;; the live API-semantics facets alongside the others.
   (let [base (second sample-descriptors)] ; alpha
     (doseq [[label mutate] [["description"   #(assoc % :description "Changed prose.")]
                             ["output?"       #(assoc % :outputSchema {:type "object"})]

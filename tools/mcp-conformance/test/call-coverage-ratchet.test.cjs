@@ -1,4 +1,4 @@
-// Unit test for the SDK callTool() coverage ratchet (rf2-ke5n56).
+// Unit test for the SDK callTool() coverage ratchet.
 //
 // `assertCallCoverageRatchet` is itself a conformance gate — it is the
 // teeth that turn a descriptor-only advertised tool (LISTED but never

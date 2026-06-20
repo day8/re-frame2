@@ -1,5 +1,5 @@
 (ns re-frame.testbed.config-cljs-test
-  "Focused unit tests for `re-frame.testbed.config` (rf2-ynjts.23).
+  "Focused unit tests for `re-frame.testbed.config`.
 
   ## What this pins
 
@@ -20,13 +20,12 @@
     5. Blank `checkout-root` → `nil` (the graceful-no-op contract that
        `set-checkout-root!` already encodes for blank input).
 
-  Before this file the only coverage was indirect: the consuming
-  testbeds compile through `config.cljs` under `npm run
+  The consuming testbeds compile through `config.cljs` under `npm run
   test:xray-feature-gate`, but each calls `resolve-source-root` with
-  ONE fixed subdir and no query override, so the normalisation branches
-  above were never asserted. A behaviour-preserving refactor of the
-  join/strip logic could have silently regressed cross-platform path
-  construction.
+  ONE fixed subdir and no query override, so those checks never assert the
+  normalisation branches above. A behaviour-preserving refactor of the
+  join/strip logic could silently regress cross-platform path
+  construction, so this suite pins each branch directly.
 
   ## Where this lives
 
@@ -36,19 +35,19 @@
   `:ns-regexp \"cljs-test$\"`) discovers this suite there. The runtime
   helper source path (`tools/testbed-support/src`) carries the helper
   namespaces only, keeping the same source/test separation the rest of
-  the repo uses (rf2-d0631h). Nothing under `src/` `:require`s this test,
+  the repo uses. Nothing under `src/` `:require`s this test,
   so it is on the classpath only for the `:node-test` build that finds it
   by the `cljs-test$` ns regexp and never reaches a release bundle.
 
   ## How the `?checkout-root=` override (tier 1) is pinned here
 
   Tier 1 of the resolution order — the `?checkout-root=<path>` query
-  string winning over everything — used to have NO executable coverage:
-  the override read `js/window.location.search` directly, and there is no
-  `js/window` under `:node-test`, so the branch silently degraded to nil
-  and the cross-machine escape hatch could regress unnoticed (rf2-6bq0o).
+  string winning over everything — is browser-bound: the override reads
+  `js/window.location.search` directly, and there is no `js/window` under
+  `:node-test`, so a naive test would silently degrade to nil and the
+  cross-machine escape hatch could regress unnoticed.
 
-  `config.cljs` now isolates the single genuinely browser-bound step —
+  `config.cljs` isolates the single genuinely browser-bound step —
   reading `location.search` off the live document — behind the thin
   `query-param` adapter, and delegates the actual parse/decode/trim/
   non-blank contract to the PURE `query-param-from-search`, which takes a
@@ -79,8 +78,8 @@
 ;; slice's unit suite can pin the end-to-end composed path (no `//`, the
 ;; tool source-root segment present) without reaching into the Xray
 ;; editor-uri resolver. Defined here at the top so every composition test
-;; below — the rf2-w4yw9q override form, the rf2-d01s6s Windows form, and
-;; the rf2-fzgcii lone-`"/"`-root edge — can use it.
+;; below — the override form, the Windows form, and the lone-`"/"`-root
+;; edge — can use it.
 
 (defn- composed-editor-path
   "Mirror the open-in-editor prepend: resolved-root + \"/\" + the
@@ -130,7 +129,7 @@
 
 ;; ---- private helper: to-forward-slashes --------------------------------
 ;;
-;; The canonicalisation step (rf2-d01s6s): a Windows path with `\`
+;; The canonicalisation step: a Windows path with `\`
 ;; separators reduces to the same `/`-separated form a POSIX path already
 ;; has, matching the launcher's build-env normalisation and the
 ;; separator-agnostic editor-URI composer.
@@ -230,13 +229,13 @@
     (with-redefs [config/checkout-root "   "]
       (is (nil? (config/resolve-source-root "tools/xray/testbeds"))))))
 
-;; ---- resolve-source-root: the lone POSIX filesystem root "/" (rf2-fzgcii)
+;; ---- resolve-source-root: the lone POSIX filesystem root "/" ------------
 ;;
 ;; `strip-trailing-slash` DELIBERATELY preserves a lone `"/"` (the count > 1
 ;; guard) so a Unix filesystem root is not destroyed into a blank relative
 ;; path. That is the one normalised root that still ends in a separator — so
-;; the join must NOT then prepend a SECOND `/`. The pre-fix
-;; `(str normalized-root "/" subdir)` unconditionally did, yielding
+;; the join must NOT then prepend a SECOND `/`: an unconditional
+;; `(str normalized-root "/" subdir)` would yield
 ;; `//tools/xray/testbeds` for `root = "/"`, breaking the docstring's
 ;; single-separator promise. These tests pin the edge through the FULL
 ;; `resolve-source-root` surface for BOTH root tiers (build-time define and
@@ -310,9 +309,9 @@
 ;; off-browser by handing the pure parser literal `location.search`
 ;; strings — the same code path the browser adapter runs, no `js/window`
 ;; fakery. The parser splits the query string manually and decodes with
-;; `js/decodeURIComponent` (rf2-xdsat.1) so a LITERAL `+` survives verbatim
+;; `js/decodeURIComponent` so a LITERAL `+` survives verbatim
 ;; rather than being form-urlencoded-decoded to a space (the silent
-;; path-corruption seam that `js/URLSearchParams` introduced).
+;; path-corruption seam `js/URLSearchParams` would introduce).
 
 (deftest query-param-from-search-reads-the-named-param
   (testing "the named param's value is returned, trimmed + non-blank"
@@ -447,7 +446,7 @@
       (is (nil? (config/resolve-source-root "tools/xray/testbeds"))
           "no override AND no checkout-root → nil (graceful no-op)"))))
 
-;; ---- composed editor path: the documented override form (rf2-w4yw9q) ---
+;; ---- composed editor path: the documented override form ----------------
 ;;
 ;; The whole point of the resolved root is that the open-in-editor
 ;; resolver prepends it to a CLASSPATH-RELATIVE source coord (the
@@ -506,13 +505,13 @@
       (is (= "/home/dev/re-frame2+wip/tools/xray/testbeds/standard_epochs/core.cljs"
              via-override)))))
 
-;; ---- Windows override normalisation (rf2-d01s6s) -----------------------
+;; ---- Windows override normalisation ------------------------------------
 ;;
 ;; A Windows reader pasting `?checkout-root=C:\Users\me\code\re-frame2\`
 ;; (raw `\` separators, with or without a trailing `\`) — or its
 ;; %5C-encoded transport form — must resolve to a CLEAN, single-separator,
 ;; forward-slash path, NOT the `C:\...\/tools/xray/testbeds` boundary
-;; duplication that relied on downstream tolerant path normalisation. Both
+;; duplication that would rely on downstream tolerant path normalisation. Both
 ;; root tiers go through the SAME canonicalising join, so this holds for
 ;; the build-time `checkout-root` tier as well as the query override.
 

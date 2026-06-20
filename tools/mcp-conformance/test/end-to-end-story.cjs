@@ -15,11 +15,10 @@
 //
 // Workflow (canonical write-loop with --allow-writes enabled). This is
 // the single agent-loop integration harness for story-mcp's write
-// surface — it absorbed the four smokes that the now-deleted
-// tools/story-mcp/test/live-server.js used to add on top of a
-// hand-rolled copy of this same loop (rf2-2mx0q). Running one SDK-driven
-// boot instead of two hand-rolled + SDK boots saves a full JVM start in
-// CI for no loss of coverage:
+// surface — one SDK-driven boot covers the full write loop plus the four
+// live smokes (register→read round-trip, lifecycle preview, stable-hash
+// identity, recorder bridge), saving a full JVM start in CI for no loss
+// of coverage:
 //
 //   1. connect (initialize + notifications/initialized via SDK)
 //   2. tools/list — confirm the advertised catalogue matches story-mcp's
@@ -27,29 +26,25 @@
 //      §"Single source of truth for tool counts")
 //   3. register-variant — write a fixture variant
 //   4. get-variant — read it back; assert the body :doc round-trips
-//      through the EDN text payload (ex-live-server smoke #1)
+//      through the EDN text payload (live smoke #1)
 //   5. preview-variant — exercise the run-variant lifecycle via the
-//      preview tool; assert a :lifecycle key surfaces (ex-live-server
-//      smoke #2)
+//      preview tool; assert a :lifecycle key surfaces (live smoke #2)
 //   6. run-variant — exercise lifecycle via the testing-category tool,
 //      assert the UNIFIED run-result shape (:status === "pass" for the
-//      vacuous run; the retired :passing? boolean is gone — rf2-ba86n.17)
+//      vacuous run; no :passing? boolean)
 //   7. read-failures — zero failures, run :status surfaces (unified shape)
 //   7b. explain-variant — the human Explain panel's data mirror; assert
 //      the source-chain / merge / runner-requirement slots round-trip
-//      (rf2-ba86n.17)
 //   8. snapshot-identity — same args ⇒ stable content-hash twice in a
-//      row (ex-live-server smoke #3)
+//      row (live smoke #3)
 //   9. record-as-variant — zero-duration capture; proves the recorder
-//      bridge (rf2-luhdu) is wired into dispatch (ex-live-server
-//      smoke #4)
+//      bridge is wired into dispatch (live smoke #4)
 //  10. unregister-variant — symmetric teardown + not-found verify
 //  11. JSON-RPC error-code conformance
 //  12. clean disconnect
 //
 // Run with: `node test/end-to-end-story.cjs` from this directory. Exits
-// 0 on success. Source: rf2-cum40 (loop) + rf2-2mx0q (live-server
-// absorption).
+// 0 on success.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -68,7 +63,7 @@ const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 // Resolve `clojure` to a trusted absolute path outside the workspace,
 // or honour the explicit STORY_MCP_CMD override (trust the invoker —
-// rf2-33vvc accident-gating only fires on the implicit-PATH path).
+// accident-gating only fires on the implicit-PATH path).
 // Without the override, spawning bare `clojure` with `cwd =
 // STORY_MCP_CWD` would let a workspace-local `clojure.cmd` hijack the
 // invocation on Windows; the resolved-absolute-path form prevents it.
@@ -76,8 +71,8 @@ const CLOJURE = process.env.STORY_MCP_CMD
   ? process.env.STORY_MCP_CMD
   : resolveTrustedExe('clojure', { workspaceRoot: REPO_ROOT });
 
-// Canonical tool-name list — sourced from story-mcp's own fixture
-// (rf2-36upq TE7) so this conformance harness and the upstream
+// Canonical tool-name list — sourced from story-mcp's own fixture so
+// this conformance harness and the upstream
 // `tools/story-mcp/test/stdio-roundtrip.js` / JVM `tools_test.clj`
 // agree on the expected `tools/list` response without three hand-
 // maintained lists drifting. A registry change updates one file.
@@ -85,10 +80,10 @@ const EXPECTED_TOOLS = JSON.parse(
   fs.readFileSync(path.join(STORY_MCP_CWD, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
 ).names;
 
-// Per-tool annotation-classification ratchet (rf2-yi451). Pins each
-// descriptor's EXACT readOnly/destructive posture + budget-hint prose so
-// a tool silently re-classified turns this gate RED for an unchanged
-// tool-set. Sourced from this slice's own fixture (mirrors
+// Per-tool annotation-classification ratchet. Pins each descriptor's
+// EXACT readOnly/destructive posture + budget-hint prose so a tool
+// silently re-classified turns this gate RED for an unchanged tool-set.
+// Sourced from this slice's own fixture (mirrors
 // tools/story-mcp/tool-descriptors.edn).
 const EXPECTED_CLASSIFICATIONS = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'story-classifications.json'), 'utf8'),
@@ -105,24 +100,24 @@ const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 // `:lifecycle` on `preview-variant`'s structuredContent). Three of
 // story-mcp's tools (`preview-variant`, `run-variant`,
 // `record-as-variant`) ship their payloads wrapped in
-// `{:rf.mcp/dedup-table <cache>}` at the wire boundary (rf2-90eft) — a
-// real MCP client decodes via `de-dupe.core/expand` before user code sees
-// it. Routing every structuredContent read through `structured` mirrors
-// that (a no-op on payloads without the marker), so a future tool gaining
-// or losing dedup-eligibility doesn't break this suite.
+// `{:rf.mcp/dedup-table <cache>}` at the wire boundary — a real MCP
+// client decodes via `de-dupe.core/expand` before user code sees it.
+// Routing every structuredContent read through `structured` mirrors that
+// (a no-op on payloads without the marker), so a future tool gaining or
+// losing dedup-eligibility doesn't break this suite.
 //
-// SDK callTool() coverage tracking (rf2-ke5n56) via the shared `track`
-// helper (_runner.cjs): every tool the workflow drives through
+// SDK callTool() coverage tracking via the shared `track` helper
+// (_runner.cjs): every tool the workflow drives through
 // `Client.callTool()` records its name into the returned `called` Set; the
 // coverage ratchet at the end of the body fails if any ADVERTISED tool is
 // neither recorded nor in the reviewed exclusion table.
 
 // Tools intentionally NOT SDK-call-covered by THIS harness, each with the
-// rationale + where its alternative coverage lives (rf2-ke5n56). Today the
-// Story workflow below drives a probe for every advertised tool, so this
-// table is empty — but it is wired through `assertCallCoverageRatchet` so
-// a FUTURE runtime-heavy/live-only Story tool has a reviewed home instead
-// of silently dropping out of coverage. A blank rationale, a stale row, or
+// rationale + where its alternative coverage lives. The Story workflow
+// below drives a probe for every advertised tool, so this table is empty
+// — but it is wired through `assertCallCoverageRatchet` so a FUTURE
+// runtime-heavy/live-only Story tool has a reviewed home instead of
+// silently dropping out of coverage. A blank rationale, a stale row, or
 // an excluded-yet-called row trips the ratchet.
 const STORY_CALL_EXCLUSIONS = {};
 
@@ -142,7 +137,7 @@ runWithWatchdog(
     },
   },
   async (rawClient) => {
-    // Wrap the SDK client in the coverage tracker (rf2-ke5n56): every
+    // Wrap the SDK client in the coverage tracker: every
     // `client.callTool({name,…})` below records `name` for the callTool
     // coverage ratchet at the end of this body. All other client members
     // delegate transparently.
@@ -167,37 +162,36 @@ runWithWatchdog(
     console.log('OK   tools/list -> ' + names.length + ' tools advertised');
 
     // Descriptor-shape conformance — inputSchema type=object +
-    // max-tokens (rf2-i3ffz F-GAP-2 / TOKEN-BUDGETS.md), :outputSchema
-    // (rf2-3l3be), and an :annotations classification hint (rf2-94p8q).
-    // Shared `assertDescriptorShape` helper (rf2-80y2h dedup). story-mcp
+    // max-tokens (TOKEN-BUDGETS.md), :outputSchema, and an :annotations
+    // classification hint. Shared `assertDescriptorShape` helper. story-mcp
     // is MOSTLY closed-world (reads + fixture writes), but `run-variant`
     // and `preview-variant` run the variant author's lifecycle events/fx
-    // and so carry `openWorldHint:true` (rf2-e6knrq finding 2). Passing
-    // `allowOpenWorld: true` lets that hint count as a classifier; the
-    // PER-TOOL open-world VALUES are pinned exactly by the classification
-    // ratchet's `closed-world` list below + the JVM matrix, so this only
-    // relaxes the "at-least-one-classifier" floor — it does not let a
-    // closed-world tool silently flip open.
+    // and so carry `openWorldHint:true`. Passing `allowOpenWorld: true`
+    // lets that hint count as a classifier; the PER-TOOL open-world VALUES
+    // are pinned exactly by the classification ratchet's `closed-world`
+    // list below + the JVM matrix, so this only relaxes the
+    // "at-least-one-classifier" floor — it does not let a closed-world
+    // tool silently flip open.
     assertDescriptorShape(listed.tools, { allowOpenWorld: true });
     console.log(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
 
-    // Per-tool classification CONTENT ratchet (rf2-yi451). Pins WHICH
-    // classifier per tool (the exact readOnly/destructive posture) +
-    // the budget-hint prose — not just that SOME classifier is set. A
-    // gated write tool (register-variant, unregister-variant,
-    // record-as-variant) silently re-classified readOnly turns RED here.
+    // Per-tool classification CONTENT ratchet. Pins WHICH classifier per
+    // tool (the exact readOnly/destructive posture) + the budget-hint
+    // prose — not just that SOME classifier is set. A gated write tool
+    // (register-variant, unregister-variant, record-as-variant) silently
+    // re-classified readOnly turns RED here.
     assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);
     console.log(
       'OK   per-tool classification ratchet: readOnly/destructive posture + ' +
         'budget-hint prose pinned (rf2-yi451)',
     );
 
-    // Open-world VALUE conformance (rf2-e6knrq finding 2). The ratchet's
-    // `closed-world` list pins the closed-world tools to openWorldHint:false;
-    // this positively pins the OTHER direction over the SDK wire — the two
-    // lifecycle-run tools MUST advertise openWorldHint:true so an agent host
+    // Open-world VALUE conformance. The ratchet's `closed-world` list pins
+    // the closed-world tools to openWorldHint:false; this positively pins
+    // the OTHER direction over the SDK wire — the two lifecycle-run tools
+    // MUST advertise openWorldHint:true so an agent host
     // does not treat a call that can reach HTTP / analytics / websocket /
     // storage / navigation (any un-stubbed author fx) as contained on-box.
     // The annotation VALUE (not just the KEY presence the generated
@@ -227,25 +221,24 @@ runWithWatchdog(
         'openWorldHint:true + destructiveHint:true (rf2-e6knrq)',
     );
 
-    // 2e. Closed-world read-path SUCCESS-envelope conformance
-    // (rf2-ee38b.20). The completeness lens noted the harness walked
-    // only the write-loop tools and asserted error-only shapes elsewhere
-    // — no story-mcp `list-*` read was ever invoked, so a success-path
-    // `CallToolResultSchema` parse / structuredContent drift on the read
-    // surface (the exact bug class this harness exists to catch) could
-    // ship unobserved. story-mcp's `list-*` reads are closed-world (no
-    // runtime needed) and return a non-error envelope regardless of the
-    // write gate, so they cover the success path here with zero extra
-    // setup. Each routes through the SDK's `CallToolResultSchema` parse.
+    // 2e. Closed-world read-path SUCCESS-envelope conformance. The
+    // write-loop probes elsewhere assert error-only shapes; this walks
+    // story-mcp's `list-*` reads so a success-path `CallToolResultSchema`
+    // parse / structuredContent drift on the read surface (the exact bug
+    // class this harness exists to catch) turns RED rather than shipping
+    // unobserved. story-mcp's `list-*` reads are closed-world (no runtime
+    // needed) and return a non-error envelope regardless of the write
+    // gate, so they cover the success path here with zero extra setup.
+    // Each routes through the SDK's `CallToolResultSchema` parse.
     //
-    // `get-story-instructions` is walked here too (rf2-vyacl). It
-    // declares an `:outputSchema`, so the SDK's high-level `callTool`
-    // REJECTS a result with no structuredContent with `-32600` ("has an
-    // output schema but did not return structured content"). The handler
-    // now emits a matching `{:instructions <text>}` structuredContent
-    // (mirroring re-frame2-pair-mcp's sibling `get-re-frame2-pair-
-    // instructions`), so the SDK parse passes — this assertion pins that
-    // the latent defect stays fixed across the wire.
+    // `get-story-instructions` is walked here too. It declares an
+    // `:outputSchema`, so the SDK's high-level `callTool` REJECTS a result
+    // with no structuredContent with `-32600` ("has an output schema but
+    // did not return structured content"). The handler emits a matching
+    // `{:instructions <text>}` structuredContent (mirroring
+    // re-frame2-pair-mcp's sibling `get-re-frame2-pair-instructions`), so
+    // the SDK parse passes — this assertion pins that contract across the
+    // wire.
     for (const readTool of [
       'get-story-instructions',
       'list-substrates',
@@ -273,16 +266,16 @@ runWithWatchdog(
         'list-modes/list-tags) -> success envelopes',
     );
 
-    // 2f. Remaining closed-world LIST reads (rf2-ke5n56). The read loop
-    // above covered four of story-mcp's reads; `list-stories`,
-    // `list-assertions`, and `list-decorators` were advertised but never
-    // SDK-CALLED — descriptor-only in conformance, so a callTool-envelope
-    // / outputSchema / structuredContent regression on any of them shipped
-    // green. These three need no runtime and no fixture (they enumerate
-    // the canonical-vocabulary registry the server installs at boot), so
-    // each is a zero-arg success probe routed through the SDK's
-    // CallToolResultSchema + the declared outputSchema parse — the same
-    // success-path shape pin the four reads above carry.
+    // 2f. Remaining closed-world LIST reads. The read loop above covered
+    // four of story-mcp's reads; `list-stories`, `list-assertions`, and
+    // `list-decorators` are SDK-CALLED here so a callTool-envelope /
+    // outputSchema / structuredContent regression on any of them turns RED
+    // rather than passing under a descriptor-only check. These three need
+    // no runtime and no fixture (they enumerate the canonical-vocabulary
+    // registry the server installs at boot), so each is a zero-arg success
+    // probe routed through the SDK's CallToolResultSchema + the declared
+    // outputSchema parse — the same success-path shape pin the four reads
+    // above carry.
     for (const readTool of ['list-stories', 'list-assertions', 'list-decorators']) {
       const r = await client.callTool({ name: readTool, arguments: {} });
       if (r.isError) {
@@ -305,18 +298,18 @@ runWithWatchdog(
         ' -> success envelopes',
     );
 
-    // 2g. Refusal-path coverage for the two story-id read tools
-    // (rf2-ke5n56). `get-story` and `get-docs-markdown` were advertised
-    // but never SDK-called. Both REQUIRE a `:story-id` and resolve it via
-    // `safe-keyword` against the registered-stories set — an unregistered
-    // id short-circuits to a documented `Story not found` tool-execution
-    // error (isError:true, NOT a JSON-RPC protocol error). A default-off
-    // refusal probe is the cheap, fixture-free way to drive the callTool
-    // path: it pins the not-found envelope shape AND proves the tool is
-    // wired into dispatch (an unwired name would surface a different
-    // error). A success-path hit would need a registered STORY, but the
-    // conformance fixture is a VARIANT (the canonical vocabulary installs
-    // no stable story id to hit), so the refusal probe is the coverage.
+    // 2g. Refusal-path coverage for the two story-id read tools.
+    // `get-story` and `get-docs-markdown` both REQUIRE a `:story-id` and
+    // resolve it via `safe-keyword` against the registered-stories set —
+    // an unregistered id short-circuits to a documented `Story not found`
+    // tool-execution error (isError:true, NOT a JSON-RPC protocol error).
+    // A default-off refusal probe is the cheap, fixture-free way to drive
+    // the callTool path: it pins the not-found envelope shape AND proves
+    // the tool is wired into dispatch (an unwired name would surface a
+    // different error). A success-path hit would need a registered STORY,
+    // but the conformance fixture is a VARIANT (the canonical vocabulary
+    // installs no stable story id to hit), so the refusal probe is the
+    // coverage.
     const ABSENT_STORY = ':story.mcp-conformance/no-such-story';
     for (const storyTool of ['get-story', 'get-docs-markdown']) {
       const r = await client.callTool({
@@ -364,10 +357,10 @@ runWithWatchdog(
     // Pin the SINGLE canonical key story-mcp emits: `:registered?`
     // (Cheshire keeps the `?` on the keyword → JSON key `registered?`;
     // pinned JVM-side by tools_test.clj `(-> reg :structuredContent
-    // :registered?)`). The earlier `registered || registered?`
-    // alternation tolerated two spellings — masking exactly the
+    // :registered?)`). Pinning exactly one spelling catches the
     // envelope-key drift the rest of this harness pins single-spelling
-    // (`unregistered?`, `passing?`, `content-hash`). rf2-ee38b.20.
+    // (`unregistered?`, `content-hash`); a tolerated second spelling would
+    // mask it.
     if (regStruct['registered?'] !== true) {
       throw new Error(
         "register-variant did not report :registered? true: " + JSON.stringify(regResp),
@@ -377,9 +370,8 @@ runWithWatchdog(
 
     // 4. get-variant — round-trip the body. Cheshire coerces keys to
     // strings on the wire, so the comparison reads the :doc back from
-    // the text payload (EDN-encoded, keyword keys preserved). Absorbed
-    // from live-server.js (rf2-2mx0q) — proves the register→read
-    // round-trip the bare run/read loop did not.
+    // the text payload (EDN-encoded, keyword keys preserved). Proves the
+    // register→read round-trip end-to-end.
     const getResp = await client.callTool({
       name: 'get-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -393,16 +385,13 @@ runWithWatchdog(
     }
     console.log('OK   get-variant -> body :doc round-trips through EDN text');
 
-    // 4b. variant->edn (rf2-ke5n56). Advertised but never SDK-called —
-    // and it is the EXACT latent-defect twin of get-story-instructions:
-    // it declares an :outputSchema, so the SDK's high-level callTool
-    // REJECTS a result with no structuredContent (-32600); rf2-vyacl
-    // notes variant->edn was the only OTHER tool still text-only before
-    // the fix. Driving it against the live fixture pins that the fix
-    // stays fixed across the wire. The text slot is the byte-stable
-    // pr-str EDN; assert the fixture :doc round-trips through it AND that
-    // a JSON-object structuredContent rides alongside (the slot the SDK
-    // outputSchema parse demands).
+    // 4b. variant->edn. The EXACT twin of get-story-instructions: it
+    // declares an :outputSchema, so the SDK's high-level callTool REJECTS
+    // a result with no structuredContent (-32600). Driving it against the
+    // live fixture pins that contract across the wire. The text slot is
+    // the byte-stable pr-str EDN; assert the fixture :doc round-trips
+    // through it AND that a JSON-object structuredContent rides alongside
+    // (the slot the SDK outputSchema parse demands).
     const ednResp = await client.callTool({
       name: 'variant->edn',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -427,11 +416,11 @@ runWithWatchdog(
     }
     console.log('OK   variant->edn -> :doc round-trips through EDN text + structuredContent present');
 
-    // 4c. read-a11y-violations (rf2-ke5n56). Advertised but never SDK-called. The
-    // axe-core run is CLJS-in-browser only; from this JVM-standalone boot
-    // the tool READS the (empty) violations atom and returns a success
-    // envelope with `:violations []` + a JVM-standalone `:note` — so it
-    // is a cheap, fixture-backed, runtime-free success probe (NOT a live
+    // 4c. read-a11y-violations. The axe-core run is CLJS-in-browser only;
+    // from this JVM-standalone boot the tool READS the (empty) violations
+    // atom and returns a success envelope with `:violations []` + a
+    // JVM-standalone `:note` — so it is a cheap, fixture-backed,
+    // runtime-free success probe (NOT a live
     // browser dependency). Pins the callTool envelope + structuredContent
     // shape for the testing-category read against the registered fixture.
     const a11yResp = await client.callTool({
@@ -459,8 +448,7 @@ runWithWatchdog(
     // 5. preview-variant — exercise the full lifecycle via the preview
     // tool. With no :play events the run is vacuously passing; the
     // contract is that a :lifecycle key surfaces (loaders → events →
-    // render → play wiring is live). Absorbed from live-server.js
-    // (rf2-2mx0q).
+    // render → play wiring is live).
     const prevResp = await client.callTool({
       name: 'preview-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -477,9 +465,9 @@ runWithWatchdog(
     console.log('OK   preview-variant -> lifecycle=' + prevStruct.lifecycle);
 
     // 6. run-variant — exercise lifecycle; vacuous pass since :script
-    // is empty. The UNIFIED run-result (rf2-ba86n.17 clean break) returns
-    // the top-level :status verdict + unified :assertions records (each
-    // with a :status) + :checks — NOT the retired :passing? boolean.
+    // is empty. The UNIFIED run-result returns the top-level :status
+    // verdict + unified :assertions records (each with a :status) +
+    // :checks — and carries no :passing? boolean.
     const runResp = await client.callTool({
       name: 'run-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -536,11 +524,11 @@ runWithWatchdog(
           JSON.stringify(failResp),
       );
     }
-    // rf2-koq5m — egress indicator omit-when-zero MUST: a clean read
-    // (no sensitive records dropped, nothing elided) carries NEITHER
-    // `:dropped-sensitive` nor `:elided-large`. The positive-count side
-    // is pinned by the JVM `tools_test.clj` indicator deftests; the live
-    // SDK driver pins the omit-when-zero contract end-to-end.
+    // Egress indicator omit-when-zero MUST: a clean read (no sensitive
+    // records dropped, nothing elided) carries NEITHER `:dropped-sensitive`
+    // nor `:elided-large`. The positive-count side is pinned by the JVM
+    // `tools_test.clj` indicator deftests; the live SDK driver pins the
+    // omit-when-zero contract end-to-end.
     if ('dropped-sensitive' in failStruct || 'elided-large' in failStruct) {
       throw new Error(
         'read-failures clean read must OMIT indicator slots when zero ' +
@@ -552,10 +540,10 @@ runWithWatchdog(
       'OK   read-failures -> total=0, failures=[], :status="pass", indicators omitted (omit-when-zero)',
     );
 
-    // 7b. explain-variant — the agent mirror of the human Explain panel
-    // (rf2-ba86n.17). Assert the source-chain / merge / runner-requirement
-    // slots round-trip — a structuredContent shape pin, exactly like the
-    // existing reads. New net-additive Docs tool over story/explain.
+    // 7b. explain-variant — the agent mirror of the human Explain panel.
+    // Assert the source-chain / merge / runner-requirement slots
+    // round-trip — a structuredContent shape pin, exactly like the other
+    // reads. A Docs tool over story/explain.
     const explainResp = await client.callTool({
       name: 'explain-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -583,9 +571,8 @@ runWithWatchdog(
     }
     console.log('OK   explain-variant -> source-chain + merge + required-runner round-trip');
 
-    // 8. snapshot-identity — same args ⇒ same content-hash. Absorbed
-    // from live-server.js (rf2-2mx0q): proves the stable-hash identity
-    // contract the bare loop did not exercise.
+    // 8. snapshot-identity — same args ⇒ same content-hash. Proves the
+    // stable-hash identity contract.
     const snap1 = await client.callTool({
       name: 'snapshot-identity',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -607,8 +594,7 @@ runWithWatchdog(
     console.log('OK   snapshot-identity -> stable hash: ' + h1);
 
     // 9. record-as-variant — zero-duration capture; empty :play
-    // snippet. Proves the recorder bridge (rf2-luhdu) is wired into
-    // dispatch. Absorbed from live-server.js (rf2-2mx0q).
+    // snippet. Proves the recorder bridge is wired into dispatch.
     const recResp = await client.callTool({
       name: 'record-as-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -656,9 +642,9 @@ runWithWatchdog(
     }
     console.log('OK   unregister-variant -> teardown verified by subsequent get-variant -> not-found');
 
-    // 11. JSON-RPC error-code conformance (rf2-i3ffz F-GAP-3). Mirrors
-    // the assertion in end-to-end-re-frame2-pair.cjs — story-mcp MUST emit the
-    // same canonical codes from `mcp-base/vocab.cljc` for unknown-method
+    // 11. JSON-RPC error-code conformance. Mirrors the assertion in
+    // end-to-end-re-frame2-pair.cjs — story-mcp MUST emit the same
+    // canonical codes from `mcp-base/vocab.cljc` for unknown-method
     // + malformed-params (its JVM transport reuses the same SDK
     // server-side framing).
     await assertJsonRpcErrorCodes(client);
@@ -666,12 +652,12 @@ runWithWatchdog(
       'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
     );
 
-    // 12. callTool() coverage ratchet (rf2-ke5n56). Every advertised
-    // story-mcp tool MUST have been driven through `Client.callTool()`
-    // above (recorded in `called` by the `track` proxy) or carry a
-    // reviewed exclusion in `STORY_CALL_EXCLUSIONS`. A NEW advertised
-    // tool that the workflow forgets to probe trips RED here — closing
-    // the descriptor-only false-green the senior review flagged.
+    // 12. callTool() coverage ratchet. Every advertised story-mcp tool
+    // MUST have been driven through `Client.callTool()` above (recorded in
+    // `called` by the `track` proxy) or carry a reviewed exclusion in
+    // `STORY_CALL_EXCLUSIONS`. A NEW advertised tool that the workflow
+    // forgets to probe trips RED here — closing the descriptor-only
+    // false-green.
     assertCallCoverageRatchet({
       advertised: names,
       called,

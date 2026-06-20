@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.cursor-test
-  "Tests for the shared cursor-pagination machinery (rf2-ee38b.19).
+  "Tests for the shared cursor-pagination machinery.
   The base64 codec, the EDN-read-with-tagged-literal-rejection, the
   `::malformed` recovery contract, the `:limit` clamp, and the
   `cursor-stale-result` envelope are the cross-MCP pieces both servers
@@ -75,14 +75,13 @@
            (cursor/decode-cursor (cursor/encode-cursor {:wrong :shape}) offset-cursor?)))))
 
 (deftest decode-cursor-non-map-edn-is-malformed-without-consulting-predicate
-  ;; Coverage gap (rf2-ynjts.17): a cursor that base64+EDN-decodes to a
-  ;; well-formed but NON-MAP value (`"5"` ⇒ 5, `"[1 2 3]"` ⇒ vector,
-  ;; `":kw"` ⇒ keyword) hits the `(map? v)` short-circuit in
-  ;; `decode-cursor` — `valid?` is never consulted. The existing tests
-  ;; only exercised a map that FAILS `valid?`; the non-map arm (where
-  ;; `valid?` would throw if called on, say, a number) had no pin. We
-  ;; pass a `valid?` that THROWS on non-map input to prove the guard
-  ;; runs first: a throw here would mean `valid?` was reached.
+  ;; A cursor that base64+EDN-decodes to a well-formed but NON-MAP
+  ;; value (`"5"` ⇒ 5, `"[1 2 3]"` ⇒ vector, `":kw"` ⇒ keyword) hits
+  ;; the `(map? v)` short-circuit in `decode-cursor` — `valid?` is
+  ;; never consulted. This pins the non-map arm (where `valid?` would
+  ;; throw if called on, say, a number): we pass a `valid?` that THROWS
+  ;; on non-map input to prove the guard runs first — a throw here
+  ;; would mean `valid?` was reached.
   (let [strict-map-pred (fn [m]
                           ;; would explode on a non-map if reached
                           (and (map? m) (pos? (count m))))
@@ -100,13 +99,13 @@
         "string EDN cursor ⇒ ::malformed")))
 
 (deftest decode-cursor-at-inclusive-size-boundary-is-not-rejected
-  ;; Coverage gap (rf2-ynjts.17): the size guard is a STRICT `>`
-  ;; (`(> (count s) max-cursor-bytes)` ⇒ ::malformed). The existing
-  ;; oversize test only feeds `(inc max-cursor-bytes)` chars — the
-  ;; over-limit side. The INCLUSIVE side (a real cursor whose token
-  ;; length is `<= max-cursor-bytes`) was never pinned. A regression
-  ;; that flipped the guard to `>=` would reject a legitimate at-or-near-
-  ;; cap cursor; this test trips on that flip.
+  ;; The size guard is a STRICT `>`
+  ;; (`(> (count s) max-cursor-bytes)` ⇒ ::malformed). This pins the
+  ;; INCLUSIVE side (a real cursor whose token length is
+  ;; `<= max-cursor-bytes`), complementing the oversize test that feeds
+  ;; `(inc max-cursor-bytes)` chars. A regression that flipped the guard
+  ;; to `>=` would reject a legitimate at-or-near-cap cursor; this test
+  ;; trips on that flip.
   ;;
   ;; Build the largest real, decodable cursor whose token length is
   ;; still `<= max-cursor-bytes` (grow the payload's `:sig` to the cap).
@@ -145,17 +144,17 @@
     (is (= ::cursor/malformed (cursor/decode-cursor evil-map offset-cursor?)))))
 
 (deftest decode-cursor-rejects-builtin-tags-inside-valid-map
-  ;; rf2-13wbe: the BUILT-IN EDN tags `#inst` / `#uuid` have registered
+  ;; The BUILT-IN EDN tags `#inst` / `#uuid` have registered
   ;; readers (`clojure.edn` / `cljs.reader` resolve them from
   ;; `*data-readers*` / the tag-table) and BYPASS the `:default`
-  ;; handler entirely. Before the fix they decoded to a host
+  ;; handler entirely. Without an override they would decode to a host
   ;; `java.util.Date` / `UUID` (JVM) / `js/Date` / `cljs.core/UUID`
   ;; (CLJS), smuggling a host object through the cursor boundary inside
   ;; an OTHERWISE-VALID payload map. Pair-mcp's predicate is permissive
   ;; (`some? :after-id`), so the tagged value would survive validation
   ;; instead of being treated as malformed.
   ;;
-  ;; The `:readers` overrides now throw on `#inst` / `#uuid`, so EVERY
+  ;; The `:readers` overrides throw on `#inst` / `#uuid`, so EVERY
   ;; tag is rejected. Covered for both a story-style strict predicate
   ;; and a pair-style permissive predicate; both expect ::malformed.
   (let [permissive? (fn [m] (and (map? m) (some? (:after-id m))))
@@ -181,14 +180,13 @@
                                    permissive?))))))
 
 (deftest decode-cursor-rejects-trailing-forms
-  ;; rf2-ykv9a0 — a cursor is ONE opaque EDN payload map. Before the fix
-  ;; `read-edn-no-tags` used `read-string`, which reads only the FIRST
-  ;; form and never checks the input is exhausted: a token whose decoded
-  ;; text is a valid map FOLLOWED by a second form decoded as the valid
-  ;; map, silently IGNORING the trailing object — accepting mutated
-  ;; multi-form cursor text and weakening the opacity / corruption guard.
-  ;; The reader now requires the decoded text to be exactly one form;
-  ;; any trailing form ⇒ ::malformed.
+  ;; A cursor is ONE opaque EDN payload map. A plain `read-string`
+  ;; reads only the FIRST form and never checks the input is exhausted:
+  ;; a token whose decoded text is a valid map FOLLOWED by a second form
+  ;; would decode as the valid map, silently IGNORING the trailing
+  ;; object — accepting mutated multi-form cursor text and weakening the
+  ;; opacity / corruption guard. `read-edn-no-tags` requires the decoded
+  ;; text to be exactly one form; any trailing form ⇒ ::malformed.
   (testing "valid map + trailing #inst ⇒ ::malformed (not the silently-accepted first form)"
     (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #inst \"2024-01-01\"")]
       (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
@@ -201,11 +199,11 @@
   (testing "valid map + trailing scalar ⇒ ::malformed"
     (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} 42")]
       (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
-  ;; rf2-rtg9t1 — `]`-injection. The earlier wrap-in-`[…]` guard accepted
-  ;; a ONE-element vector; attacker text `{…}] <junk>` wraps to
-  ;; `[{…}] <junk>]` where the injected `]` closes the wrapper EARLY, so
-  ;; `read-string` reads the clean 1-element vector `[{…}]` and silently
-  ;; discards the trailing junk → the cursor was ACCEPTED. The
+  ;; `]`-injection. A naive wrap-in-`[…]` guard that accepted a
+  ;; ONE-element vector would be bypassable: attacker text `{…}] <junk>`
+  ;; wraps to `[{…}] <junk>]` where the injected `]` closes the wrapper
+  ;; EARLY, so `read-string` reads the clean 1-element vector `[{…}]`
+  ;; and silently discards the trailing junk → the cursor accepted. The
   ;; EOF-sentinel exhaustion check rejects it: the injected `]` truncates
   ;; the read before the appended sentinel, so the result no longer ends
   ;; with the sentinel ⇒ ::malformed.

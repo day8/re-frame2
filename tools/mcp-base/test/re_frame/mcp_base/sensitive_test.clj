@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.sensitive-test
   "Tests for the spec/009 §Privacy default-suppress filter shared
-  across the MCP pair (rf2-vw4sq). The predicate and the filter
+  across the MCP pair. The predicate and the filter
   must stay byte-identical across re-frame2-pair-mcp and story-mcp
   — these tests pin the contract."
   (:require [clojure.string]
@@ -22,15 +22,15 @@
   (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
 
 (deftest sensitive-event?-non-true-truthy-drops-fail-closed
-  ;; Fail-closed (rf2-ih7g4): the literal `true` drops AND any
+  ;; Fail-closed: the literal `true` drops AND any
   ;; non-boolean truthy value drops too. The `:rf/trace-event` schema
   ;; types `:sensitive?` as a boolean; a string `"true"` or keyword
   ;; `:yes` is a contract violation that means an upstream
   ;; serialisation bug has coerced the boolean into the wrong shape.
-  ;; The previous fail-OPEN posture silently leaked sensitive events
-  ;; on such drift. The fix is fail-CLOSED: drop AND log.
+  ;; A fail-OPEN posture would silently leak sensitive events on such
+  ;; drift; fail-CLOSED drops AND logs.
   ;; The expected contract-drift WARN is quieted by the central quiet
-  ;; runner's stderr buffer (rf2-nrk066) — no local `*err*` sink needed;
+  ;; runner's stderr buffer — no local `*err*` sink needed;
   ;; it stays buffered on green and replays on red.
   (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
   (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
@@ -43,20 +43,20 @@
   (is (not (sensitive/sensitive-event? "anything"))))
 
 (deftest sensitive-event?-explicit-false-passes
-  ;; Fail-closed posture (rf2-ih7g4) does NOT change the explicit-false
+  ;; Fail-closed posture does NOT change the explicit-false
   ;; / nil path — those remain non-sensitive. Only truthy non-boolean
-  ;; values get the new fail-closed drop.
+  ;; values get the fail-closed drop.
   (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false})))
   (is (not (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? nil}))))
 
 (deftest strip-sensitive-fail-closed-drops-malformed-truthy
-  ;; rf2-ih7g4: a transport bug that coerces `:sensitive? true` into
+  ;; A transport bug that coerces `:sensitive? true` into
   ;; `:sensitive? "true"` (string) or `:sensitive? :yes` (keyword) MUST
   ;; NOT silently leak the event. The fail-closed posture drops the
   ;; malformed-truthy event (with a stderr warning) so the contract
   ;; drift is visible to operators.
   ;; Expected WARN quieted by the central quiet-runner stderr buffer
-  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  ;; — no local `*err*` sink needed.
   (let [evts [{:id 1 :sensitive? false}
               {:id 2 :sensitive? "true"} ; malformed-truthy → drop
               {:id 3}
@@ -171,7 +171,7 @@
            (get-in out [:rf/default :machines])))))
 
 (deftest scrub-snapshot-is-not-a-full-snapshot-projector
-  ;; rf2-cj75yv: a consumer must not mistake `scrub-snapshot` output for
+  ;; A consumer must not mistake `scrub-snapshot` output for
   ;; already-projected full-snapshot output. The function does ONE thing —
   ;; filter sensitive trace events out of :traces / :epochs — and leaves
   ;; the value-carrying slices (:app-db / :sub-cache / :machines) exactly
@@ -207,15 +207,14 @@
     (is (zero? dropped))))
 
 (deftest scrub-snapshot-non-map-frame-values-pass-through-untouched
-  ;; Coverage gap (rf2-ynjts.17): `scrub-snapshot`'s per-frame reduce-kv
-  ;; only scrubs a frame value when `(map? v)`; a non-map value rides
-  ;; the `:else v` arm untouched. The runtime snapshot is a map of
-  ;; frame-id → frame-map, but the helper is defensive against a slot
-  ;; whose value isn't a frame map (a scalar marker, a nil sentinel).
-  ;; That else-arm had ZERO executing coverage — a regression that
-  ;; mangled non-map slots (e.g. `(scrub-frame v)` unconditionally)
-  ;; would NPE/throw rather than pass through, and no test would catch
-  ;; it. Pin the leave-alone guarantee for every non-map shape.
+  ;; `scrub-snapshot`'s per-frame reduce-kv only scrubs a frame value
+  ;; when `(map? v)`; a non-map value rides the `:else v` arm untouched.
+  ;; The runtime snapshot is a map of frame-id → frame-map, but the
+  ;; helper is defensive against a slot whose value isn't a frame map
+  ;; (a scalar marker, a nil sentinel). This pins the leave-alone
+  ;; guarantee for every non-map shape, so a regression that mangled
+  ;; non-map slots (e.g. `(scrub-frame v)` unconditionally) and
+  ;; NPE'd/threw rather than passing through would be caught.
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true} {:id 2}]}
               :meta-count  7              ;; scalar — must survive verbatim
               :flag        :rf.size/large-elided ;; keyword — survives
@@ -232,13 +231,12 @@
     (is (= [1 2 3] (:listslot out)) "vector frame value untouched")))
 
 (deftest scrub-snapshot-frame-without-trace-or-epoch-slices-is-no-op
-  ;; Coverage gap (rf2-ynjts.17): `scrub-frame`'s `cond->` only updates
-  ;; `:traces` / `:epochs` when present. A frame map carrying NEITHER
-  ;; slice (an `:app-db`-only frame, or a frame whose only slices are
-  ;; the left-alone `:sub-cache` / `:machines`) must return byte-equal
-  ;; — the `cond->` falls through both clauses. The existing
-  ;; strip-from-traces test always carried at least one of the two
-  ;; slices, so the both-absent fall-through was never exercised.
+  ;; `scrub-frame`'s `cond->` only updates `:traces` / `:epochs` when
+  ;; present. A frame map carrying NEITHER slice (an `:app-db`-only
+  ;; frame, or a frame whose only slices are the left-alone
+  ;; `:sub-cache` / `:machines`) must return byte-equal — the `cond->`
+  ;; falls through both clauses. This exercises that both-absent
+  ;; fall-through.
   (let [snap {:rf/default {:app-db    {:user/name "ada"}
                            :sub-cache {:user/profile {:data "x"}}
                            :machines  {:auth {:state :idle}}}}
@@ -262,7 +260,7 @@
         "only-:epochs frame has its epoch slice scrubbed")))
 
 (deftest scrub-snapshot-handles-lazy-seq-slice-values
-  ;; Regression pin (rf2-cwqc8 / round-2 F17): `:traces` and `:epochs`
+  ;; Regression pin: `:traces` and `:epochs`
   ;; arrive as vectors in the typical runtime emission, but the
   ;; instrumentation API doesn't guarantee that — a slice composed via
   ;; `concat` / `map` / `filter` produces a lazy seq. The `(vec items)`
@@ -284,7 +282,7 @@
            (get-in out [:rf/default :epochs])))))
 
 (deftest scrub-snapshot-strip-fn-arity-delegates-to-custom-predicate
-  ;; rf2-zpmmr: the three-arity form admits a caller-supplied strip-fn
+  ;; The three-arity form admits a caller-supplied strip-fn
   ;; matching the `[items include?] => [kept dropped]` contract. Pin
   ;; the contract so a future refactor of the helper can't silently
   ;; drop the delegation.
@@ -298,19 +296,20 @@
     (is (= [{:id 1} {:id 3}] (get-in out [:rf/default :traces])))))
 
 ;; ---------------------------------------------------------------------------
-;; Slice-shape discipline + fail-closed for malformed slices (rf2-wm9kp
-;; Finding 2). `scrub-snapshot` USED to `(vec …)` any present `:traces` /
-;; `:epochs` value unconditionally — even non-sequential ones. That
-;; mangled the shape (`nil → []`, `"oops" → [\o \o …]`, a single event
-;; map → a vector of map-entries) AND, for a malformed single SENSITIVE
-;; event map, reported zero drops while carrying the secret straight
-;; through (fail-OPEN). The fix only normalises + scrubs a genuinely
-;; `sequential?` batch; non-sequential shapes pass through byte-identical,
-;; and a single sensitive-event map is DROPPED fail-closed.
+;; Slice-shape discipline + fail-closed for malformed slices.
+;; `scrub-snapshot` only normalises + scrubs a genuinely `sequential?`
+;; `:traces` / `:epochs` batch; non-sequential shapes pass through
+;; byte-identical, and a single sensitive-event map is DROPPED
+;; fail-closed. An unconditional `(vec …)` of any present value would
+;; mangle non-sequential shapes (`nil → []`, `"oops" → [\o \o …]`, a
+;; single event map → a vector of map-entries) AND, for a malformed
+;; single SENSITIVE event map, report zero drops while carrying the
+;; secret straight through (fail-OPEN) — which the `sequential?` guard
+;; prevents.
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-snapshot-nil-slice-passes-through-unchanged
-  ;; rf2-wm9kp F2 — a nil `:traces` / `:epochs` slice is not a batch; it
+  ;; A nil `:traces` / `:epochs` slice is not a batch; it
   ;; must survive as nil, not be coerced to `[]`.
   (let [snap {:rf/default {:traces nil :epochs nil}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
@@ -322,7 +321,7 @@
         "nil :epochs survives as nil")))
 
 (deftest scrub-snapshot-scalar-slice-passes-through-unchanged
-  ;; rf2-wm9kp F2 — a scalar slice is not a batch.
+  ;; A scalar slice is not a batch.
   (let [snap {:rf/default {:traces 7 :epochs :marker}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
     (is (zero? dropped))
@@ -330,8 +329,8 @@
     (is (= :marker (get-in out [:rf/default :epochs])))))
 
 (deftest scrub-snapshot-string-slice-passes-through-unchanged
-  ;; rf2-wm9kp F2 — a string is `seqable?` but NOT a trace-event batch.
-  ;; The old `(vec "oops")` produced `[\o \o \p \s]`.
+  ;; A string is `seqable?` but NOT a trace-event batch.
+  ;; An unconditional `(vec "oops")` would produce `[\o \o \p \s]`.
   (let [snap {:rf/default {:traces "oops"}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
     (is (zero? dropped))
@@ -339,7 +338,7 @@
         "string slice survives verbatim (no char-vector mangle)")))
 
 (deftest scrub-snapshot-non-sensitive-single-map-slice-passes-through
-  ;; rf2-wm9kp F2 — a single (non-sensitive) event MAP is not a batch; it
+  ;; A single (non-sensitive) event MAP is not a batch; it
   ;; passes through byte-identical rather than becoming a vec of entries.
   (let [snap {:rf/default {:traces {:id 1 :op :something}}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
@@ -348,11 +347,11 @@
         "non-sensitive single map survives verbatim (no entry-vec mangle)")))
 
 (deftest scrub-snapshot-sensitive-single-map-slice-dropped-fail-closed
-  ;; rf2-wm9kp F2 (the leak) — a single MAP slice that is itself a
-  ;; sensitive event must be DROPPED, not shipped raw. Pre-fix the
-  ;; unconditional `(vec …)` turned `{:id 1 :sensitive? true}` into
-  ;; `[[:id 1] [:sensitive? true]]`, reported zero drops, and carried the
-  ;; secret across the boundary. Fail-closed: drop + count.
+  ;; A single MAP slice that is itself a sensitive event must be
+  ;; DROPPED, not shipped raw. An unconditional `(vec …)` would turn
+  ;; `{:id 1 :sensitive? true}` into `[[:id 1] [:sensitive? true]]`,
+  ;; report zero drops, and carry the secret across the boundary.
+  ;; Fail-closed: drop + count.
   (let [snap {:rf/default {:traces {:id 1 :sensitive? true :payload "SECRET"}}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
     (is (= 1 dropped) "the malformed sensitive single-map is counted as a drop")
@@ -363,8 +362,8 @@
         "no trace of the secret survives in the scrubbed snapshot")))
 
 (deftest scrub-snapshot-sensitive-single-map-epochs-dropped-fail-closed
-  ;; rf2-wm9kp F2 — the exact bead probe shape: nil `:traces` (passes
-  ;; through) + a malformed sensitive single-map `:epochs` (dropped).
+  ;; The probe shape: nil `:traces` (passes through) + a malformed
+  ;; sensitive single-map `:epochs` (dropped).
   (let [snap {:rf/default {:traces nil :epochs {:id 1 :sensitive? true}}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
     (is (= 1 dropped))
@@ -373,9 +372,8 @@
         "sensitive single-map :epochs dropped fail-closed")))
 
 (deftest scrub-snapshot-sequential-batch-still-scrubbed
-  ;; rf2-wm9kp F2 — the legitimate path is unchanged: a vector batch is
-  ;; normalised + scrubbed. (Companion to the existing lazy-seq test which
-  ;; pins the seq case.)
+  ;; The legitimate path: a vector batch is normalised + scrubbed.
+  ;; (Companion to the lazy-seq test which pins the seq case.)
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true} {:id 2}]
                            :epochs [{:event-id :a :sensitive? true} {:event-id :b}]}}
         [out dropped] (sensitive/scrub-snapshot snap false)]
@@ -384,15 +382,14 @@
     (is (= [{:event-id :b}] (get-in out [:rf/default :epochs])))))
 
 ;; ---------------------------------------------------------------------------
-;; Single-map fail-closed branch routes through the caller-supplied strip-fn
-;; (rf2-li6y2.1). The rf2-wm9kp guard classified a single-map slice with the
-;; BASE `sensitive-event?` instead of the caller's `strip-fn`. So a single-map
-;; slice sensitive ONLY by a UNION signal the caller's predicate catches
-;; (re-frame2-pair-mcp's epoch rollup `:rf.epoch/sensitive? true`, carrying no
-;; unqualified `:sensitive?` stamp) slipped past the guard to the `:else` arm
-;; and shipped RAW with dropped=0 — the rf2-5613h leak class re-surfacing
-;; inside the rf2-wm9kp defensive guard. The single-map branch now classifies
-;; via the SAME strip-fn the sequential branch uses.
+;; Single-map fail-closed branch routes through the caller-supplied strip-fn.
+;; The single-map branch classifies via the SAME `strip-fn` the sequential
+;; branch uses, NOT the base `sensitive-event?`. Classifying with the base
+;; predicate instead would let a single-map slice sensitive ONLY by a UNION
+;; signal the caller's predicate catches (re-frame2-pair-mcp's epoch rollup
+;; `:rf.epoch/sensitive? true`, carrying no unqualified `:sensitive?` stamp)
+;; slip past the guard to the `:else` arm and ship RAW with dropped=0 —
+;; leaking past the defensive single-map guard.
 ;; ---------------------------------------------------------------------------
 
 ;; The pair-mcp UNION strip-fn (mirrors tools/re-frame2-pair-mcp
@@ -407,13 +404,13 @@
     [kept (- (count items) (count kept))]))
 
 (deftest scrub-snapshot-single-map-sensitive-by-union-signal-dropped
-  ;; rf2-li6y2.1 (the leak) — a single-MAP :epochs slice sensitive ONLY by
-  ;; the union signal (`:rf.epoch/sensitive? true`, NO unqualified
-  ;; `:sensitive?` stamp). Pre-fix the single-map branch hardcoded the base
-  ;; `sensitive-event?` (which returns false here — no `:sensitive?` stamp),
-  ;; so the slice fell to the `:else` arm and PASSED THROUGH RAW with
-  ;; dropped=0, leaking the secret. The branch now routes through the
-  ;; caller-supplied union strip-fn, so the union sensitivity is honoured.
+  ;; A single-MAP :epochs slice sensitive ONLY by the union signal
+  ;; (`:rf.epoch/sensitive? true`, NO unqualified `:sensitive?` stamp).
+  ;; Hardcoding the base `sensitive-event?` in the single-map branch
+  ;; (which returns false here — no `:sensitive?` stamp) would let the
+  ;; slice fall to the `:else` arm and PASS THROUGH RAW with dropped=0,
+  ;; leaking the secret. The branch routes through the caller-supplied
+  ;; union strip-fn, so the union sensitivity is honoured.
   (let [snap {:rf/default {:epochs {:rf.epoch/sensitive? true
                                     :event-id :auth/sign-in
                                     :secret "TOKEN_LEAK"}}}
@@ -432,10 +429,10 @@
     (is (not (clojure.string/includes? (pr-str out) "TRACE_LEAK")))))
 
 (deftest scrub-snapshot-single-map-not-sensitive-by-union-passes-through
-  ;; rf2-li6y2.1 — symmetric safety: a single-map slice the union strip-fn
+  ;; Symmetric safety: a single-map slice the union strip-fn
   ;; does NOT classify as sensitive (no `:sensitive?` stamp, no
   ;; `:rf.epoch/sensitive?` rollup) still passes through byte-identically.
-  ;; The fix must not over-drop benign single maps.
+  ;; The single-map branch must not over-drop benign single maps.
   (let [snap {:rf/default {:epochs {:event-id :ui/click :data 42}}}
         [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
     (is (zero? dropped))
@@ -444,21 +441,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Malformed counter — operator-surface observability for the fail-
-;; closed gate (rf2-8cpsg / F19).
+;; closed gate.
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-count-increments-on-fail-closed-drop
-  ;; The fail-closed posture (rf2-ih7g4) drops a non-boolean truthy
+  ;; The fail-closed posture drops a non-boolean truthy
   ;; `:sensitive?` stamp AND increments a process-wide counter so
-  ;; operator surfaces can see the contract drift. Pre-fix, the
-  ;; counter was private and untestable; now `malformed-count` /
+  ;; operator surfaces can see the contract drift. `malformed-count` /
   ;; `reset-malformed-count!` are public so this regression pin
-  ;; exists.
+  ;; can read the gate's activity.
   (sensitive/reset-malformed-count!)
   (is (zero? (sensitive/malformed-count))
       "precondition: counter starts at zero after reset")
   ;; Expected WARNs quieted by the central quiet-runner stderr buffer
-  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  ;; — no local `*err*` sink needed.
   (sensitive/sensitive-event? {:sensitive? "true"})
   (sensitive/sensitive-event? {:sensitive? :yes})
   (sensitive/sensitive-event? {:sensitive? 1})
@@ -475,7 +471,7 @@
 
 (deftest reset-malformed-count!-zeroes-the-counter
   ;; Expected WARN quieted by the central quiet-runner stderr buffer
-  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  ;; — no local `*err*` sink needed.
   (sensitive/sensitive-event? {:sensitive? "true"})
   (is (pos? (sensitive/malformed-count))
       "precondition: a fail-closed drop has bumped the counter")
@@ -485,21 +481,20 @@
       "reset zeroes the counter for the next test"))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-el9sw — the malformed-stamp diagnostic must not LEAK and must not
+;; The malformed-stamp diagnostic must not LEAK and must not
 ;; OVERCOUNT. Logs are an egress boundary on this privacy surface: a
 ;; malformed truthy `:sensitive?` stamp is wire-adjacent, untrusted data,
 ;; and a serialisation bug could carry a secret in it. The fail-closed
 ;; posture drops the event from MCP output; the diagnostic must NOT then
 ;; re-leak the value across the log boundary, and the malformed counter
 ;; must be a faithful PER-EVENT metric (one bump per dropped malformed
-;; event), not a scan-strategy-dependent over-count. Subsumes rf2-lxm3e
-;; (leak) and rf2-5uqwa (over-count).
+;; event), not a scan-strategy-dependent over-count.
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-warning-redacts-raw-stamp-value
-  ;; rf2-el9sw / rf2-lxm3e: the contract-drift warning must carry a
-  ;; value-free type tag + a fixed `:rf/redacted` sentinel — NEVER the
-  ;; raw stamp, which could be a secret-bearing string / map / vector.
+  ;; The contract-drift warning must carry a value-free type tag + a
+  ;; fixed `:rf/redacted` sentinel — NEVER the raw stamp, which could
+  ;; be a secret-bearing string / map / vector.
   (sensitive/reset-malformed-count!)
   (doseq [[stamp leak-needle] [["sk_live_SECRET_TOKEN_abc123" "sk_live_SECRET_TOKEN_abc123"]
                                [:secret/api-key-VALUE          "api-key-VALUE"]
@@ -521,14 +516,14 @@
   (sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-malformed-count-is-exactly-one-per-event
-  ;; rf2-el9sw / rf2-5uqwa: `sensitive-event?` is side-effecting on the
-  ;; malformed path (bump + log). The OLD `strip-sensitive` ran the
-  ;; predicate twice per event (`some` pre-scan + `filterv` drop-scan),
-  ;; so a single malformed event bumped the counter ~2×. The single-pass
-  ;; classifier fixes this: each event is classified exactly once, so the
-  ;; counter is a faithful per-event metric.
+  ;; `sensitive-event?` is side-effecting on the malformed path
+  ;; (bump + log). The single-pass classifier classifies each event
+  ;; exactly once, so the counter is a faithful per-event metric. A
+  ;; two-pass shape (`some` pre-scan + `filterv` drop-scan) would run
+  ;; the predicate twice per event and bump the counter ~2× per
+  ;; malformed event.
   ;; Expected WARNs quieted by the central quiet-runner stderr buffer
-  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  ;; — no local `*err*` sink needed.
   (sensitive/reset-malformed-count!)
   (let [evts          [{:id 1 :sensitive? false}
                        {:id 2 :sensitive? "true"} ; malformed → drop, bump 1
@@ -543,9 +538,8 @@
   (sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-malformed-warning-emitted-once-per-event
-  ;; rf2-el9sw / rf2-lxm3e: the over-count bug also doubled the WARNING.
   ;; One malformed event ⇒ exactly one warning line on stderr through
-  ;; `strip-sensitive` (single-pass classification).
+  ;; `strip-sensitive` (single-pass classification) — no double-log.
   (sensitive/reset-malformed-count!)
   (let [sw (java.io.StringWriter.)]
     (binding [*err* sw]
@@ -559,12 +553,12 @@
   (sensitive/reset-malformed-count!))
 
 (deftest scrub-snapshot-malformed-count-is-exactly-one-per-event
-  ;; rf2-el9sw / rf2-5uqwa: `scrub-snapshot` delegates each slice to
+  ;; `scrub-snapshot` delegates each slice to
   ;; `strip-sensitive`, so the per-event count guarantee must hold
   ;; through the snapshot scrubber too — one malformed trace event in a
   ;; `:traces` slice bumps the counter exactly once.
   ;; Expected WARNs quieted by the central quiet-runner stderr buffer
-  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  ;; — no local `*err*` sink needed.
   (sensitive/reset-malformed-count!)
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? "true"}  ; malformed → 1 bump
                                     {:id 2}]
@@ -576,9 +570,9 @@
   (sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-no-drop-preserves-identity
-  ;; rf2-el9sw: the single-pass rewrite must keep the rf2-0q30r fast-path
-  ;; identity guarantee — when nothing drops, return the ORIGINAL vector
-  ;; (no fresh allocation).
+  ;; The single-pass classifier keeps the fast-path identity guarantee
+  ;; — when nothing drops, return the ORIGINAL vector (no fresh
+  ;; allocation).
   (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
         [kept dropped] (sensitive/strip-sensitive evts false)]
     (is (identical? evts kept)
@@ -593,7 +587,7 @@
   ;; existing tests — those only exercise the 2-arity form's outputs
   ;; against trace-event-stamp inputs, never the parity-with-3-arity
   ;; contract directly. Pin it: the 2-arity output MUST equal the
-  ;; 3-arity call with `strip-sensitive` explicit (rf2-jj46n / F21).
+  ;; 3-arity call with `strip-sensitive` explicit.
   (let [snap {:rf/default
               {:traces [{:id 1 :sensitive? false}
                         {:id 2 :sensitive? true}

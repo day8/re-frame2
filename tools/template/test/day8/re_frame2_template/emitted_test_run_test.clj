@@ -1,7 +1,5 @@
 (ns day8.re-frame2-template.emitted-test-run-test
-  "Behavioural test for the template's emitted unit-test scaffold
-   (rf2-ir6a0; deps-new port for rf2-c2770, closing the deeper-fidelity
-   half of rf2-owbpr).
+  "Behavioural test for the template's emitted unit-test scaffold.
 
    Sibling test files cover two cheap signals:
 
@@ -48,7 +46,7 @@
    and exits — preserves green on local fast-loop runs without
    pretending the smoke ran.
 
-   ## The MANUAL setup-skill scaffold fixture (rf2-ae98go)
+   ## The MANUAL setup-skill scaffold fixture
 
    The four substrate variants above materialise the GENERATOR template.
    The setup skill (`skills/re-frame2-setup/`) teaches a SECOND,
@@ -74,10 +72,10 @@
 
    This is a SEMANTIC-DRIFT NET — it proves the skill's own snippets
    compile against the in-repo monorepo source, NOT that a published
-   coordinate resolves. Per rf2-ae98go's ruling the per-PR
-   published-coordinate buildability gate stays DEFERRED to publication;
-   this fixture is the interim real-compile cover, riding the same
-   `RF2_TEMPLATE_RUN_EMITTED_TESTS` gate as the template variants above."
+   coordinate resolves. The per-PR published-coordinate buildability gate
+   stays DEFERRED to publication; this fixture is the interim real-compile
+   cover, riding the same `RF2_TEMPLATE_RUN_EMITTED_TESTS` gate as the
+   template variants above."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -86,17 +84,17 @@
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template! repo-root]])
   ;; java.nio types used directly by `link-node-modules!` below. The
-  ;; tmp-dir / delete-recursively helpers that needed Path / LinkOption /
-  ;; FileVisitOption moved to the shared test-support ns (rf2-5v619).
+  ;; tmp-dir / delete-recursively helpers that need Path / LinkOption /
+  ;; FileVisitOption live in the shared test-support ns.
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
 ;; --- Helpers ---------------------------------------------------------------
 ;;
 ;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
-;; repo-root live in the shared `test-support` ns (rf2-5v619, D1). The
-;; shared `run-template!` takes an optional 4th `include-story?` arg, so
-;; the with-story behavioural tier below reuses it directly.
+;; repo-root live in the shared `test-support` ns. The shared
+;; `run-template!` takes an optional 4th `include-story?` arg, so the
+;; with-story behavioural tier below reuses it directly.
 
 ;; --- Gating ----------------------------------------------------------------
 
@@ -268,8 +266,7 @@
   compile classpath; a broken UIx or Helix `core.cljs` (a wrong
   react-dom interop call, an adapter API rename, a view that won't
   compile) would otherwise ship green from shape + static-parse alone
-  and surface only when a user runs `npx shadow-cljs watch app`
-  (rf2-ee38b.23 / correctness L1).
+  and surface only when a user runs `npx shadow-cljs watch app`.
 
   When `include-story?` is true the generated project is the with-story
   scaffold (`core_with_stories.cljs`, `deps_with_story.edn` with the
@@ -278,9 +275,9 @@
   / `stories.cljs` / re-frame.story, so a broken with-story compile
   (re-frame.story API drift, a malformed deps_with_story.edn, a
   stories.cljs that won't load) fails here too rather than shipping
-  green (rf2-5v619, G1).
+  green.
 
-  ## :advanced release build (rf2-jdj17.2)
+  ## :advanced release build
 
   When the optional `release?` opt is true, the variant ALSO runs
   `clojure -M:shadow release app` — a `:advanced`/Closure-optimised
@@ -368,7 +365,7 @@
                    (is (re-find #"0 failures, 0 errors" out)
                        (str "expected '0 failures, 0 errors' line in output. Got:\n" out))))))
 
-           ;; --- :advanced release build (rf2-jdj17.2) -----------------------
+           ;; --- :advanced release build -------------------------------------
            ;; No other gate compiles the generated app under :advanced —
            ;; every other template compile is dev :none. Run
            ;; `clojure -M:shadow release app` so an :advanced-only failure
@@ -419,8 +416,8 @@
                                 "'day8.re_frame2_xray.preload' in "
                                 "resources/public/js/main.js — the "
                                 "cut-from-release invariant is broken."))
-                       ;; rf2-ek857f F2 — events.cljs registers the
-                       ;; default error-sink trace listener behind
+                       ;; events.cljs registers the default error-sink
+                       ;; trace listener behind
                        ;; `(when ^boolean goog.DEBUG ...)`, so Closure
                        ;; must DCE both the listener closure AND its
                        ;; substituted "[acme.my-app]" console marker out
@@ -459,7 +456,7 @@
 ;; --- Tests -----------------------------------------------------------------
 
 (deftest reagent-emitted-tests-run-test
-  ;; rf2-jdj17.2 — the Reagent default variant also runs the :advanced
+  ;; The Reagent default variant also runs the :advanced
   ;; release build (`release? true`). The `:app` module + `^:export init`
   ;; shape is substrate-invariant, so the default Reagent variant is the
   ;; canonical place to assert the release path compiles green and the
@@ -499,7 +496,7 @@
             (compile-and-run-emitted-test! :helix))))))
 
 (deftest reagent-with-story-emitted-tests-run-test
-  ;; G1 (rf2-5v619) — the only tier that actually shadow-compiles +
+  ;; The only tier that actually shadow-compiles +
   ;; node-runs the `:include-story? true` scaffold. Reagent-only because
   ;; with-story is Reagent-only in v1 (hooks.clj data-fn guard). Same
   ;; events_test.cljs as the default path runs; the value here is that
@@ -508,7 +505,7 @@
   ;; `stories.cljs` are all on the compile classpath — a broken
   ;; with-story compile fails the build before `node` ever runs.
   ;;
-  ;; rf2-jdj17.2 — the with-story variant ALSO runs the :advanced release
+  ;; The with-story variant ALSO runs the :advanced release
   ;; build (`release? true`). This is where the Story `:closure-define`
   ;; elision risk lives: core_with_stories.cljs documents the
   ;; `:closure-defines {re-frame.story.config/enabled? false}` elision,
@@ -533,7 +530,7 @@
             (compile-and-run-emitted-test! :reagent true {:release? true}))))))
 
 ;; ===========================================================================
-;; MANUAL setup-skill scaffold fixture (rf2-ae98go)
+;; MANUAL setup-skill scaffold fixture
 ;; ===========================================================================
 ;;
 ;; A second materialise+compile fixture that proves the `re-frame2-setup`
@@ -738,7 +735,7 @@
         (delete-recursively tmp)))))
 
 (deftest setup-skill-scaffold-compiles-test
-  ;; rf2-ae98go — the interim real-compile cover for the MANUAL setup-skill
+  ;; The interim real-compile cover for the MANUAL setup-skill
   ;; scaffold (the per-PR published-coordinate buildability gate stays
   ;; deferred to publication). Semantic-drift net: proves the skill's own
   ;; fenced snippets compile against the monorepo source, NOT that a

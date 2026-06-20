@@ -1,12 +1,11 @@
 (ns re-frame.mcp-conformance.wire-vocab.schemas
   "Canonical cross-MCP wire-marker schemas + the `canonical-markers`
-  catalogue (rf2-7ckmwx — extracted from `wire_vocab_test.clj`).
+  catalogue.
 
   This is the **contract data**, not boilerplate: a single Malli schema
   per cross-server wire marker, plus the ordered `canonical-markers`
   index binding each marker key to its schema, description, and
-  per-server fixtures. It was carved out of the ~2.8k-line
-  `wire_vocab_test.clj` so the several focused test namespaces that share
+  per-server fixtures. The several focused test namespaces that share
   these schemas (`wire_vocab_test`, `cursor_stale_test`,
   `progress_notification_test`, …) each `:require` ONE support ns rather
   than re-deriving the shapes. The marker-family-LOCAL schemas
@@ -36,19 +35,15 @@
   :reached` sentinel. Required-not-optional — an emit missing any of
   these is a contract break, not a degenerate but tolerated marker.
 
-  Multi-emitter as of rf2-yxgcsz: BOTH re-frame2-pair-mcp and story-mcp
-  emit this marker via the shared `mcp-base.cap/apply-cap` →
-  `overflow-payload` builder, so the body is byte-identical across both
-  — there is exactly one shape, not a per-server variant. (Historically
-  documented as a re-frame2-pair-mcp-only shape while story-mcp's cap
-  enforcement was still spec-pending; story-mcp's wire-boundary cap
-  landed — `tools/story-mcp/.../tools/wire_pipeline.cljc` calls
-  `base-cap/apply-cap` — making the marker a genuine cross-server
-  emission. The name keeps the `ReFrame2Pair` prefix as the historical
+  Multi-emitter: BOTH re-frame2-pair-mcp and story-mcp emit this marker
+  via the shared `mcp-base.cap/apply-cap` → `overflow-payload` builder,
+  so the body is byte-identical across both — there is exactly one
+  shape, not a per-server variant. (story-mcp's wire-boundary cap is
+  `tools/story-mcp/.../tools/wire_pipeline.cljc`, which calls
+  `base-cap/apply-cap`. The name keeps the `ReFrame2Pair` prefix as the
   shape-author; the SHAPE is the cross-MCP contract.) Cap renames
   (`cap-tokens` vs `cap_tokens`), field renames (`hint` vs `next-step`),
-  or empty bodies all trip the schema. Per rf2-kn8cj (refactor-audit r2
-  of rf2-azk9c §F-VOCAB-2)."
+  or empty bodies all trip the schema."
   [:map
    {:closed false}
    [:limit       [:enum :reached]]
@@ -60,7 +55,7 @@
 (def Overflow
   "`{:rf.mcp/overflow ReFrame2PairOverflowBody}` — the wrapper shape.
 
-  CLOSED single-key map (rf2-voux7 finding 2): a wire marker is ALWAYS a
+  CLOSED single-key map: a wire marker is ALWAYS a
   single reserved wrapper key (see the header — agents pattern-match on
   exactly one top-level key). A payload carrying the marker plus an
   unrelated sibling top-level key is a mixed-envelope emission a uniform
@@ -91,20 +86,18 @@
 
   `:counts` (a per-top-key map) is permitted as an alternate
   per-key shape: a single MAP marker MUST carry `:count` or `:counts`,
-  not neither. (Originally introduced for xray-mcp's
-  `Principles.md` example; preserved as a permitted schema variant
-  after the rf2-bu21t drop, so a future MCP server reviving
-  per-key counts validates without a schema bump.)
+  not neither. It is a permitted schema variant so a future MCP server
+  shipping per-key counts validates without a schema bump.
 
-  ## Type-specific shape (rf2-voux7 finding 1)
+  ## Type-specific shape
 
   The schema dispatches on `:type` and enforces the documented per-type
-  required slots — it no longer marks every shape-slot `{:optional true}`
-  with no type predicate. The pre-rf2-voux7 schema accepted
-  `{:type :map :bytes 1}` (a map summary carrying neither `:keys` nor a
-  count) and a `{:type :scalar :bytes 1}` (a scalar with no `:value`):
-  unusable markers a future server could ship while this gate stayed
-  green. Each arm is CLOSED to the documented slot set, so a scalar
+  required slots. It does not mark every shape-slot `{:optional true}`
+  with no type predicate — were it to, `{:type :map :bytes 1}` (a map
+  summary carrying neither `:keys` nor a count) and `{:type :scalar
+  :bytes 1}` (a scalar with no `:value`) would both validate: unusable
+  markers a future server could ship while this gate stayed green. Each
+  arm is CLOSED to the documented slot set, so a scalar
   carrying `:keys`, or a vector carrying `:value`, is now rejected too
   (a cross-type slot leak is a contract break, not a tolerated extra).
 
@@ -151,7 +144,7 @@
 
 (def Summary
   "`{:rf.mcp/summary SummaryBody}` — the wrapper shape. CLOSED single-key
-  map (rf2-voux7 finding 2 — see `Overflow`)."
+  map (see `Overflow`)."
   [:map {:closed true} [:rf.mcp/summary SummaryBody]])
 
 (def root-cache-id-name
@@ -163,7 +156,7 @@
   `cache-0` entry is therefore un-expandable — the Node-side decoder
   (`tools/mcp-conformance/lib/dedup-envelope.cjs` `ROOT_CACHE_ID`) throws
   on exactly that shape. Pinned here so the JVM schema and the Node
-  decoder agree on the required root (rf2-x0pr0 finding 2)."
+  decoder agree on the required root."
   "de-dupe.cache/cache-0")
 
 (defn dedup-cache-root-key?
@@ -212,19 +205,17 @@
   cache with no root is un-expandable and the Node-side decoder
   (`lib/dedup-envelope.cjs`) throws on it.
 
-  Pre-rf2-x0pr0 the schema was `[:map [:rf.mcp/dedup-table :map]]`,
-  which accepted `{}` and root-less caches that the Node decoder
-  rejects — the JVM contract was looser than the client-visible one.
-  The `has-dedup-root?` predicate closes that gap so both encodings
-  agree on the accepted cache shape (rf2-x0pr0 finding 2; acceptance
-  criteria 3 + 4).
+  The `has-dedup-root?` predicate requires that root entry so the JVM
+  contract is not looser than the client-visible one: an empty `{}` and
+  any root-less cache (which the Node decoder rejects) are rejected
+  here too, so both encodings agree on the accepted cache shape.
 
-  CLOSED single-key map (rf2-voux7 finding 2 — see `Overflow`)."
+  CLOSED single-key map (see `Overflow`)."
   [:map {:closed true} [:rf.mcp/dedup-table [:and :map [:fn has-dedup-root?]]]])
 
 (def DiffFromBody
   "An epoch's `:db-after` slot, diff-encoded against `:db-before` and
-  projected into path-headed cluster sections (rf2-qeous).
+  projected into path-headed cluster sections.
 
   Per `re-frame.mcp-base.diff-encode/diff-encode-db-after` and
   re-frame2-pair-mcp Principles §\"Cross-MCP vocabulary\". Shape:
@@ -247,11 +238,10 @@
   cluster intent; decoding flattens sections' `:patches` and
   replays them via `apply-patches` to reconstruct `:db-after`.
 
-  Pre-rf2-qeous shape carried a flat `:patches` slot directly under
-  the marker. This is a clean break (pre-alpha, no back-compat);
-  the marker key `:rf.mcp/diff-from` is unchanged.
+  The body slot is `:sections` (the path-headed cluster projection
+  above); the marker key `:rf.mcp/diff-from` heads it.
 
-  CLOSED map (rf2-voux7 finding 2): unlike the other markers,
+  CLOSED map: unlike the other markers,
   `:rf.mcp/diff-from` is NOT a single-key wrapper — the marker key and
   its `:sections` body slot ride as TWO top-level keys (the documented
   shape above; `diff-encode-db-after` emits exactly these two). Closing
@@ -288,7 +278,7 @@
 
 (def ElisionMarker
   "`{:rf.size/large-elided ElisionMarkerBody}` — the wrapper shape. CLOSED
-  single-key map (rf2-voux7 finding 2 — see `Overflow`)."
+  single-key map (see `Overflow`)."
   [:map {:closed true} [:rf.size/large-elided ElisionMarkerBody]])
 
 (def CacheHitBody
@@ -299,9 +289,9 @@
   args)` pair — the marker itself is content-free (no fresh state
   observed since `:unchanged-since`).
 
-  `:via` distinguishes the two hit paths: `:result-hash` (rf2-3rt1f
-  match-after-eval) ran the tool and discovered the hash matched;
-  `:precheck` (rf2-36xod) short-circuited the eval entirely. Same
+  `:via` distinguishes the two hit paths: `:result-hash`
+  (match-after-eval) ran the tool and discovered the hash matched;
+  `:precheck` short-circuited the eval entirely. Same
   vocabulary, different cost saved.
 
   Single-server today (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
@@ -317,7 +307,7 @@
 
 (def CacheHit
   "`{:rf.mcp/cache-hit CacheHitBody}` — the wrapper shape. CLOSED single-key
-  map (rf2-voux7 finding 2 — see `Overflow`)."
+  map (see `Overflow`)."
   [:map {:closed true} [:rf.mcp/cache-hit CacheHitBody]])
 
 (def ReFrame2PairProgressNotificationParams
@@ -339,7 +329,7 @@
   emits them on every tick (zero values are valid — the slot is the
   load-bearing shape). `:overflow-reason` is the `pr-str` of the
   runtime sentinel keyword (`:max-buffered-events` /
-  `:max-buffered-bytes` per rf2-ho4ve) or null when no overflow tripped
+  `:max-buffered-bytes`) or null when no overflow tripped
   this tick.
 
   Pinned cross-server today as a re-frame2-pair-mcp-only shape; if a future
@@ -377,7 +367,7 @@
   slots (`:requested-id`, `:head-id`, `:tool`, `:hint`) are open
   per-server.
 
-  ## MULTI-server reason value (rf2-2js41 finding 1)
+  ## MULTI-server reason value
 
   cursor-stale is emitted by BOTH MCP servers, for two distinct
   staleness causes that share the same agent recovery vocabulary:
@@ -397,9 +387,8 @@
   envelope (`{:content … :isError true :structuredContent <this shape>}`)
   — so it is the `:structuredContent` slot of story-mcp's emission that
   this schema validates (see `story-cursor-stale-emitted-live-by-canonical-builder`
-  below). Previously documented as pair-only; promoted to a multi-server
-  reason-value contract once story-mcp shipped cursor pagination for the
-  Docs `list-*` tools."
+  below). It is a multi-server reason-value contract: story-mcp emits it
+  for cursor pagination on the Docs `list-*` tools."
   [:map
    {:closed false}
    [:ok?    [:enum false]]
@@ -407,7 +396,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field slots (`:dropped-sensitive` / `:elided-large`).
-;; Per Conventions §Cross-MCP indicator-field vocabulary (rf2-2499j) and
+;; Per Conventions §Cross-MCP indicator-field vocabulary and
 ;; Spec 009 §Size elision in traces — Indicator field on tool responses
 ;; (MUST-level). Unqualified keys riding the tool's own envelope; integer
 ;; counters; omit when zero. These are NOT cross-server wire MARKERS

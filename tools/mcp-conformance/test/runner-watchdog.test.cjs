@@ -1,33 +1,27 @@
 // Regression test for the `runWithWatchdog` connect-hang teardown
-// contract (rf2-2js41 finding 2).
+// contract.
 //
 // Uses Node's built-in `node:test` so the harness picks up no extra
 // dev-dependency (same posture as `exec-safety.test.cjs`). Runs quiet
 // on success.
 //
-// ## The bug this pins
+// ## The contract this pins
 //
 // `runWithWatchdog` (in `_runner.cjs`) installs a watchdog `setTimeout`
 // whose timeout path tears the spawned MCP child down via
 // `closeQuietly(activeClient)` so a hung server can't be orphaned past
 // the runner's exit. The watchdog reads `activeClient` — a closure
-// handle.
-//
-// Pre-fix, `activeClient` was assigned only AFTER `connectServer`
-// RESOLVED, and `connectServer` resolves only after
-// `await client.connect(transport)` completes. So a server that spawns
-// and then HANGS during the `initialize` handshake (connect never
-// resolving, never throwing) left `activeClient` undefined when the
-// watchdog fired: the timeout path took its `else` branch and
-// `process.exit(2)`'d immediately WITHOUT calling `client.close()` /
-// tearing the transport down — orphaning exactly the child the watchdog
+// handle that is published the moment the client is constructed (via
+// `connectServer`'s `onClient` callback, fired BEFORE the connect await).
+// That ordering is the load-bearing property: a server that spawns and
+// then HANGS during the `initialize` handshake (connect never resolving,
+// never throwing) must still leave the watchdog a teardown handle, so the
+// timeout path can call `client.close()` / tear the transport down rather
+// than `process.exit(2)`'ing and orphaning exactly the child the watchdog
 // is meant to reap.
 //
-// The fix gives the watchdog a teardown handle the moment the client is
-// constructed (via `connectServer`'s `onClient` callback, fired BEFORE
-// the connect await). This test drives the real `runWithWatchdog`
-// through a hermetic child harness whose stubbed `client.connect()`
-// never resolves, and asserts:
+// This test drives the real `runWithWatchdog` through a hermetic child
+// harness whose stubbed `client.connect()` never resolves, and asserts:
 //
 //   1. the child exits with the watchdog's code 2 (the timeout fired —
 //      connect genuinely hung, so this is the only exit path), AND
@@ -35,9 +29,9 @@
 //      prints a marker from `close()`; its presence proves the watchdog
 //      had a teardown handle and used it).
 //
-// Without the fix, (1) still holds (the watchdog still exits 2) but (2)
-// fails — the marker never prints because `activeClient` was undefined.
-// So the marker assertion is the load-bearing one.
+// If `activeClient` were undefined when the watchdog fired, (1) would
+// still hold (the watchdog still exits 2) but (2) would fail — the marker
+// never prints. So the marker assertion is the load-bearing one.
 
 'use strict';
 
@@ -115,9 +109,9 @@ test('watchdog tears the child down when connect hangs mid-initialize (rf2-2js41
 
 test('watchdog tears the SECONDARY (body-booted) client down when its connect hangs (rf2-wqi4n4 finding 1)', () => {
   // The redaction live test boots ADDITIONAL in-process servers inside the
-  // runWithWatchdog body (inner-projection + gate-ON arms). Pre-fix the
-  // outer watchdog owned only the PRIMARY client, so a hang in a SECONDARY
-  // boot orphaned that child despite the harness reporting a timeout. The
+  // runWithWatchdog body (inner-projection + gate-ON arms). The outer
+  // watchdog owns the PRIMARY client AND every secondary registered with
+  // it, so a hang in a SECONDARY boot is still reaped on timeout. The
   // harness boots a primary (connect resolves) then a secondary (connect
   // hangs) via the real connectServer + registerAuxClient, and asserts the
   // watchdog reaps BOTH.
@@ -149,7 +143,7 @@ test('watchdog tears the SECONDARY (body-booted) client down when its connect ha
     'the secondary client was never constructed — the harness is not ' +
       'exercising the secondary-hang path.\n--- output ---\n' + out,
   );
-  // 1. The PRIMARY was torn down (the pre-existing rf2-voux7 guarantee).
+  // 1. The PRIMARY was torn down (the baseline single-client guarantee).
   assert.ok(
     out.includes(PRIMARY_CLOSE_MARKER),
     'the watchdog did NOT close the PRIMARY client on the secondary hang.\n' +
@@ -169,12 +163,12 @@ test('watchdog tears the SECONDARY (body-booted) client down when its connect ha
 
 test('flag-gates module watchdog tears the hung JVM client down on a connect-hang (rf2-wqi4n4 finding 1)', () => {
   // end-to-end-flag-gates.cjs runs its OWN module-scope watchdog (not
-  // runWithWatchdog) over `activeFlagGateClient`. Pre-fix that handle was
-  // set only AFTER `await connectServer(...)` resolved — so a story-mcp JVM
-  // that hung mid-initialize left it null and the watchdog exited WITHOUT
-  // tearing the JVM down. The harness stubs a never-resolving connect,
-  // bypasses resolveTrustedExe via $STORY_MCP_CMD, and shrinks the watchdog
-  // via $FLAG_GATE_WATCHDOG_MS.
+  // runWithWatchdog) over `activeFlagGateClient`. That handle is published
+  // via `connectServer`'s `onClient` callback BEFORE the connect await, so
+  // a story-mcp JVM that hangs mid-initialize is still torn down when the
+  // watchdog fires. The harness stubs a never-resolving connect, bypasses
+  // resolveTrustedExe via $STORY_MCP_CMD, and shrinks the watchdog via
+  // $FLAG_GATE_WATCHDOG_MS.
   const child = spawnSync(process.execPath, [FLAG_GATES_HARNESS], {
     cwd: path.resolve(__dirname, '..'),
     encoding: 'utf8',

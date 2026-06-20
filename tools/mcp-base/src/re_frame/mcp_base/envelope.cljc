@@ -1,5 +1,5 @@
 (ns re-frame.mcp-base.envelope
-  "Cross-MCP response-envelope helpers (rf2-ee38b.19).
+  "Cross-MCP response-envelope helpers.
 
   The MCP servers decorate their tool-response envelopes with two
   cross-cutting concerns that are pure data and identical across the
@@ -14,13 +14,12 @@
        that the cache + cap boundary steps emit themselves, so later
        boundary steps don't re-walk a sub-cap-by-construction marker.
 
-  Both indicator KEYS already live in `vocab.cljc`; the producers of
+  Both indicator KEYS live in `vocab.cljc`; the producers of
   the counts (`elision/count-elided-markers`,
-  `sensitive/strip-sensitive`) already live in the base. This ns adds
-  the helper that SPLICES them onto the envelope — previously
-  pair-mcp-only despite being pure data — so the single emit-path the
-  spec mandates lives in one place the conformance gate can test
-  directly.
+  `sensitive/strip-sensitive`) live in the base. This ns adds
+  the helper that SPLICES them onto the envelope — pure data shared by
+  both servers — so the single emit-path the spec mandates lives in one
+  place the conformance gate can test directly.
 
   ## Cross-platform
 
@@ -66,7 +65,7 @@
     (pos? (or elided  0)) (assoc vocab/elided-large-key      elided)))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi, rf2-3xd9i9).
+;; Wire-bounded marker detection.
 ;;
 ;; The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are
 ;; replacement results the cache + cap boundary steps emit themselves.
@@ -84,7 +83,7 @@
 ;; `pr-str` emits by default for a single-namespace map). Matching both
 ;; keeps the detector host- and print-setting-agnostic.
 ;;
-;; EXACT key, not a prefix (rf2-3xd9i9). A bare `starts-with?` on the
+;; EXACT key, not a prefix. A bare `starts-with?` on the
 ;; marker key would wrongly classify a LOOKALIKE first key whose name
 ;; merely begins with a marker key — e.g. `:rf.mcp/overflowed` or
 ;; `:rf.mcp/cache-hit-extra`. That is a correctness hole: an over-budget
@@ -134,7 +133,7 @@
 (defn- key-terminator?
   "Is the 1-char string `ch` a character that cannot continue an EDN
   keyword/symbol token — i.e. a valid terminator immediately following a
-  marker key in rendered text (rf2-3xd9i9)? `nil` (end-of-string) does
+  marker key in rendered text? `nil` (end-of-string) does
   NOT count: a complete marker map always has a value after the key, so
   a key flush against EOS is a truncated / lookalike form, not a real
   marker."
@@ -144,7 +143,7 @@
 (defn- exact-marker-prefix?
   "Does `text` begin with marker `prefix` AND end the marker key exactly
   there — i.e. the character at index `(count prefix)` is a token
-  terminator (rf2-3xd9i9)? This rejects lookalike first keys like
+  terminator? This rejects lookalike first keys like
   `:rf.mcp/overflowed` whose name merely starts with a marker key."
   [text prefix]
   (let [plen (count prefix)]
@@ -163,7 +162,7 @@
   here; this fn owns only the leading-token match logic, shared across
   hosts.
 
-  Matches the EXACT marker key, not merely a prefix of it (rf2-3xd9i9):
+  Matches the EXACT marker key, not merely a prefix of it:
   a lookalike leading key such as `:rf.mcp/overflowed` or
   `:rf.mcp/cache-hit-extra` is NOT a marker. The match requires the
   marker key to be terminated by an EDN token terminator (the space

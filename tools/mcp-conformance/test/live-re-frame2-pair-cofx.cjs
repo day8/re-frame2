@@ -1,11 +1,11 @@
 // Live-re-frame2-pair MCP-client conformance variant pinning the EP-0017
 // recordable-coeffects (`cofx`) paths over the real MCP SDK boundary.
-// Source: rf2-jyxmtq (senior-review coverage gap, tracking rf2-skhlw2).
 //
-// ## The hole this closes
+// ## What this test guards
 //
-// Before this gate, `tools/mcp-conformance` never exercised the EP-0017
-// reproducible-dispatch / `cofx` MCP paths against a LIVE runtime:
+// This gate exercises the EP-0017 reproducible-dispatch / `cofx` MCP
+// paths against a LIVE runtime — coverage the other harnesses cannot
+// reach:
 //
 //   - `end-to-end-re-frame2-pair.cjs` runs DEGRADED — the server's
 //     `degraded-handler` short-circuits `dispatch` (and every other

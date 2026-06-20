@@ -1,10 +1,10 @@
 (ns re-frame.mcp-base.elision-test
-  "Pins the elision-marker walker (rf2-9fz64). The walker counts every
+  "Pins the elision-marker walker. The walker counts every
   `{:rf.size/large-elided ...}` marker in a wire-bound payload — the
   count rides the response envelope as the `:elided-large` slot
-  (Conventions §Cross-MCP indicator-field vocabulary, MUST-level per
-  rf2-2499j). A regression here is a drift in the envelope's elision-
-  indicator parity with `:dropped-sensitive`."
+  (Conventions §Cross-MCP indicator-field vocabulary, MUST-level).
+  A regression here is a drift in the envelope's elision-indicator
+  parity with `:dropped-sensitive`."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.mcp-base.elision :as elision]))
 
@@ -55,10 +55,10 @@
           "Marker body is opaque; nested marker-shape isn't double-counted."))))
 
 (deftest count-elided-markers-handles-lazy-seq-input
-  ;; Mirror sensitive_test.clj's lazy-seq pin (rf2-cwqc8 / round-2 F17).
+  ;; Mirror sensitive_test.clj's lazy-seq pin.
   ;; The walker accepts `seq?` per `elision.cljc` so a slice composed via
   ;; `concat` / `map` / `filter` (lazy seqs) must count the same as the
-  ;; equivalent vector. Regression pin for rf2-jj46n / F20.
+  ;; equivalent vector.
   (let [marker {:rf.size/large-elided
                 {:path   [:user :pdf]
                  :bytes  102400

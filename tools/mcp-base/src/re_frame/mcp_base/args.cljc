@@ -39,7 +39,7 @@
 (def ^:private int-string-re
   "Strict integer-string grammar: optional sign + one-or-more digits,
   nothing else. Trailing garbage (`\"12abc\"`) is rejected so the
-  string arm parses byte-identically across hosts (rf2-ee38b.19) —
+  string arm parses byte-identically across hosts —
   `Long/parseLong` (JVM) already rejects trailing garbage; raw
   `js/parseInt` (CLJS) parses a numeric PREFIX (`\"12abc\"` ⇒ 12),
   which would diverge from the JVM default-fallback. Guarding both
@@ -47,16 +47,16 @@
   #"[-+]?\d+")
 
 ;; ---------------------------------------------------------------------------
-;; Cross-runtime finite/range guard (rf2-ykv9a0).
+;; Cross-runtime finite/range guard.
 ;;
 ;; `(long raw)` is UNSAFE on out-of-domain numerics: on the JVM `##Inf`,
 ;; `##NaN`, and finite values past the long range (`1.0E20`) THROW
 ;; `IllegalArgumentException`, while `##NaN` quietly truncates to `0` — a
-;; real, non-sentinel cap that locks the agent out. The string arm
-;; diverged too: a digit string above the JS safe-integer ceiling parsed
-;; on the JVM (`Long/parseLong "9007199254740992"`) but defaulted on
-;; CLJS (`Number.isSafeInteger` rejects it), so the SAME wire arg behaved
-;; differently per host.
+;; real, non-sentinel cap that locks the agent out. The string arm has
+;; the same hazard: a digit string above the JS safe-integer ceiling
+;; parses on the JVM (`Long/parseLong "9007199254740992"`) but defaults
+;; on CLJS (`Number.isSafeInteger` rejects it), so without a shared guard
+;; the SAME wire arg would behave differently per host.
 ;;
 ;; The cross-runtime-safe domain is the JS safe-integer range
 ;; (`±(2^53 − 1)`). It is the strictest of the two hosts (a JVM long is
@@ -80,7 +80,7 @@
   "Coerce a number to a `long` IFF it is finite and within the JS
   safe-integer window `[-(2^53−1), 2^53−1]`; otherwise return `nil`.
 
-  This is the cross-runtime arg-boundary guard (rf2-ykv9a0). It must be
+  This is the cross-runtime arg-boundary guard. It must be
   called BEFORE `(long raw)` on any caller-supplied numeric, because
   `(long ##Inf)` / `(long 1.0E20)` THROW on the JVM and `(long ##NaN)`
   truncates to a real `0`. A fractional in-range value is floored toward
@@ -107,7 +107,7 @@
   value); a string `raw` is strict-parsed (must match `int-string-re`
   end-to-end, then sit inside the same safe-integer window — trailing
   garbage and out-of-range magnitudes fall back to `default`, identically
-  on JVM and CLJS, rf2-ee38b.19 + rf2-ykv9a0). Every other shape falls
+  on JVM and CLJS). Every other shape falls
   back to `default`."
   [raw default floor]
   (cond
@@ -125,9 +125,9 @@
         default
         ;; Parse to a number, then route through the SAME finite/range
         ;; guard the numeric arm uses so the string and numeric arms agree
-        ;; AND the two hosts agree (rf2-ykv9a0). On the JVM a digit string
-        ;; past the long range threw `NumberFormatException`; on CLJS a
-        ;; digit string past the safe-integer ceiling silently became a
+        ;; AND the two hosts agree. Without it, on the JVM a digit string
+        ;; past the long range throws `NumberFormatException`; on CLJS a
+        ;; digit string past the safe-integer ceiling silently becomes a
         ;; lossy float. Reading both as a BigInteger / BigInt and feeding
         ;; the safe-integer guard gives one cross-host rejection threshold
         ;; (the JS safe-integer window) instead of two divergent ones.
@@ -162,7 +162,7 @@
   (parse-int* raw default 0))
 
 ;; ---------------------------------------------------------------------------
-;; Keyword coercion — bounded-allowlist gate (rf2-ih7g4)
+;; Keyword coercion — bounded-allowlist gate
 ;; ---------------------------------------------------------------------------
 ;;
 ;; JVM keywords are interned in a global table that NEVER shrinks. A
@@ -189,13 +189,11 @@
 ;;                       allocation cost — typically an operator-gated
 ;;                       write path (`--allow-writes`) whose registrar
 ;;                       enforces a grammar over the input. The
-;;                       positive-named successor to the retired
-;;                       `parse-keyword` (rf2-xxtrz); the fresh-id
-;;                       posture is on the name rather than in a
-;;                       warning-laden docstring.
+;;                       fresh-id posture is carried on the name itself
+;;                       rather than in a warning-laden docstring.
 ;;
-;; `parse-mode` is fixed here — every existing caller passes a finite
-;; `recognised` set, so the gate lifts cleanly with no surface change.
+;; `parse-mode` routes through `safe-keyword` — every caller passes a
+;; finite `recognised` set, so the bounded gate fits cleanly.
 
 (defn- normalise-keyword-string
   "Internal: strip a leading `:` from a string and split a namespaced
@@ -225,7 +223,7 @@
   Returns the matching keyword from `allowed`, or `nil` when the input
   is outside the set.
 
-  ## Why this exists (rf2-ih7g4)
+  ## Why this exists
 
   JVM keywords are interned in a global table that never shrinks.
   Calling `(keyword raw-agent-string)` on caller-supplied input lets an
@@ -283,7 +281,7 @@
 
   Namespaced keywords are supported (`\"ns/name\"` ⇒ `:ns/name`).
 
-  ## When to call (rf2-ih7g4 / rf2-xxtrz)
+  ## When to call
 
   JVM keywords are interned in a never-shrinking global table. Every
   `fresh-keyword` call permanently grows that table by one slot for a
@@ -330,7 +328,7 @@
   "Like `fresh-keyword`, but validate the DECOMPOSED `[ns-part name-part]`
   string shape against `shape-ok?` (and a length cap) BEFORE interning —
   so an id that fails the caller's grammar leaves NO keyword in the JVM
-  table (rf2-tag30h). Returns the interned keyword on success, or `nil`
+  table. Returns the interned keyword on success, or `nil`
   when the input is nil / blank / over-long / fails `shape-ok?` (the
   caller maps `nil` to its own structured error).
 
@@ -377,14 +375,13 @@
   `recognised` is a set of accepted keywords (e.g. `#{:diff :full}`)
   — the bounded allowlist.
 
-  ## Bounded-allowlist gate (rf2-ih7g4)
+  ## Bounded-allowlist gate
 
   Routes through `safe-keyword` so an unrecognised agent-supplied
-  string never interns a fresh JVM keyword. An earlier implementation
-  interned every input first and membership-checked after; the fix
-  flipped the order so the bounded check happens BEFORE the intern,
-  eliminating the unbounded-growth DoS path for mode-shaped args
-  (which are the vast majority of finite-set MCP args)."
+  string never interns a fresh JVM keyword. The bounded membership
+  check happens BEFORE any intern, so there is no unbounded-growth DoS
+  path for mode-shaped args (which are the vast majority of finite-set
+  MCP args)."
   [raw default recognised]
   (cond
     (nil? raw)                       default

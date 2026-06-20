@@ -1,7 +1,5 @@
 (ns day8.re-frame2-template.version-lockstep-test
-  "Pin-lockstep guard for the template's inline version literals
-  (rf2-0kcsu; deps-new port for rf2-c2770; substrate + clojure(script)
-  pins added rf2-jdj17.3).
+  "Pin-lockstep guard for the template's inline version literals.
 
   Principle P5 (tools/template/spec/Principles.md) declares that the
   template's pin literals are bumped in lockstep with their external
@@ -12,20 +10,19 @@
     - `:shadow-version` ↔ `implementation/package.json` shadow-cljs
     - `:react-version`  ↔ `implementation/package.json` react (and react-dom)
 
-  rf2-jdj17.3 — the substrate-lib + clojure(script) pins are now guarded
-  too (they were latent-only before: the emitted-app smoke compiles
-  against the TEMPLATE's own pin, never the impl tree's, so a drift was
-  invisible to every gate):
+  The substrate-lib + clojure(script) pins are guarded too. They need an
+  explicit guard because the emitted-app smoke compiles against the
+  TEMPLATE's own pin, never the impl tree's, so a drift between them would
+  otherwise be invisible to every gate:
 
     - reagent/reagent          ↔ `implementation/core/deps.edn` :deps
     - com.pitch/uix.core       ↔ `implementation/adapters/uix/deps.edn` :deps
     - com.pitch/uix.dom        ↔ `implementation/adapters/uix/deps.edn`
                                   :test alias :extra-deps (the shipped
-                                  uix adapter does NOT require uix.dom —
-                                  rf2-sl7ml — so the impl pin lives in
-                                  the test/testbed classpath; the
-                                  template's :app needs it for its DOM
-                                  mount)
+                                  uix adapter does NOT require uix.dom, so
+                                  the impl pin lives in the test/testbed
+                                  classpath; the template's :app needs it
+                                  for its DOM mount)
     - lilactown/helix          ↔ `implementation/adapters/helix/deps.edn` :deps
     - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
     - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
@@ -43,11 +40,10 @@
   `:devDependencies` (first hit wins) so the guard doesn't false-fail
   if the impl tree ever relocates a pin between the two sections.
 
-  History (rf2-8v20r): the template literal `:react-version` drifted to
-  `18.3.1` while `implementation/package.json` had moved to `19.2.0`.
-  Doctrine was right; the literal silently drifted with no automated
-  check. This test reads both sources of truth on disk and asserts the
-  entry-fn literals match, so the next bump can't drift silently.
+  Without an automated check a template literal such as `:react-version`
+  can silently drift away from `implementation/package.json`. This test
+  reads both sources of truth on disk and asserts the entry-fn literals
+  match, so a bump on one side can't drift silently from the other.
 
   The test runs free (JVM, no shadow), under the standard
   `clojure -M:test` invocation."
@@ -61,7 +57,7 @@
 ;; --- Helpers ---------------------------------------------------------------
 ;;
 ;; repo-root / run-template! / tmp-dir / delete-recursively live in the
-;; shared `test-support` ns (rf2-5v619, D1). repo-root anchors on
+;; shared `test-support` ns. repo-root anchors on
 ;; `implementation/core/src/re_frame` — the same repo root that holds
 ;; VERSION + implementation/package.json read below.
 
@@ -96,8 +92,7 @@
   shadow-cljs sit in `:devDependencies` (it is a test target, not a
   shipped lib), but if any of them ever moves to `:dependencies` the
   guard keeps working rather than false-failing the template suite for
-  a reason unrelated to the template (rf2-ee38b.23 / completeness +
-  correctness P3).
+  a reason unrelated to the template.
 
   We deliberately use a simple regex parse rather than dragging in a
   JSON library — the template test artefact has no JSON dep today, and
@@ -164,10 +159,8 @@
 ;;
 ;; Emission uses the shared `run-template!` (test-support) — the
 ;; pin literals are substrate-invariant, so the Reagent default path
-;; recovers them. (Previously a local `emit-reagent!` re-implemented
-;; the same `org.corfield.new/create` opts map; folded into the shared
-;; helper per rf2-jkake.22, keeping the rf2-5v619 D1 'one harness'
-;; posture.)
+;; recovers them. One harness drives every emission rather than a
+;; per-test re-implementation of the `org.corfield.new/create` opts map.
 
 (defn- extract-pin
   "Pull `\"pkg\": \"value\"` out of the emitted package.json text.
@@ -242,7 +235,7 @@
         (finally
           (delete-recursively tmp))))))
 
-;; --- substrate + clojure(script) lockstep (rf2-jdj17.3) -----------------
+;; --- substrate + clojure(script) lockstep --------------------------------
 ;;
 ;; The emitted deps.edn is valid EDN, so we read the pin straight off the
 ;; parsed map rather than regexing the text. `emit-deps-pin` generates
@@ -276,8 +269,8 @@
         (finally (delete-recursively tmp))))
 
     ;; com.pitch/uix.core — impl source of truth is adapters/uix/deps.edn :deps.
-    ;; com.pitch/uix.dom — the shipped uix adapter does NOT require uix.dom
-    ;; (rf2-sl7ml), so the impl pin lives in the :test alias's :extra-deps;
+    ;; com.pitch/uix.dom — the shipped uix adapter does NOT require uix.dom,
+    ;; so the impl pin lives in the :test alias's :extra-deps;
     ;; the template's :app build needs it for the DOM mount, so the template
     ;; pins it in :deps. Both must ride the same impl pin.
     (let [impl-uix-core (read-impl-deps-pin "implementation/adapters/uix/deps.edn"

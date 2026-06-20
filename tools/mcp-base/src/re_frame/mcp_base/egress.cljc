@@ -1,10 +1,10 @@
 (ns re-frame.mcp-base.egress
   "Cross-MCP `:rf.egress/*` profile vocabulary + a pure-data resolver
-  (EP-0015 §10, rf2-qus09h).
+  (EP-0015 §10).
 
   ## Why this ns
 
-  EP-0015 graduates the named-egress model: an off-box surface chooses
+  EP-0015 defines the named-egress model: an off-box surface chooses
   *which boundary is this?* — a named `:rf.egress/*` profile — not *which
   combination of `:rf.size/*` booleans did I remember?*. The framework
   owns the authoritative table in `re-frame.projection/profile-size-opts`
@@ -29,7 +29,7 @@
   drift (a profile rename / opt-set change in the framework that does not
   land here fails the gate).
 
-  ## The six profiles (EP-0015 §10, ruled CLOSED enum)
+  ## The six profiles (EP-0015 §10, CLOSED enum)
 
   | Profile | `:rf.size/*` floor |
   |---|---|
