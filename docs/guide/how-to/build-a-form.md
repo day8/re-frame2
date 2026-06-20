@@ -47,8 +47,8 @@ Now bind two schemas, one for the slice's shape and one for the value you're act
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
-(rf/reg-app-schema [:auth :login]        FormSlice)
-(rf/reg-app-schema [:auth :login :draft] LoginForm)
+(rf/reg-app-schema [:auth :login]        {:schema FormSlice})
+(rf/reg-app-schema [:auth :login :draft] {:schema LoginForm})
 ```
 
 With those bound, a `:status` outside the enum, or a malformed draft, now fails at write time instead of surfacing as a confusing render later. That early failure is worth a lot when you're debugging. ([Validate with schemas](validate-with-schemas.md) covers the vocabulary.)

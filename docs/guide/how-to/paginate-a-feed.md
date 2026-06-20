@@ -19,14 +19,14 @@ Every variable that changes the server's answer belongs in params — and the pa
 (rf/reg-resource :app/articles
   {:params-schema  [:map [:page :int]]
    :scope          :rf.scope/global
-   :request        (fn [{:keys [page]} _ctx]
-                     {:request {:method :get
-                                :url    "/api/articles"
-                                :params {:limit  page-size
-                                         :offset (* page-size (dec page))}}
-                      :decode  :json})
    :stale-after-ms 60000
-   :gc-after-ms    (* 5 60 1000)})
+   :gc-after-ms    (* 5 60 1000)}
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get
+               :url    "/api/articles"
+               :params {:limit  page-size
+                        :offset (* page-size (dec page))}}
+     :decode  :json}))
 ```
 
 (The server replies `{:articles [...] :total 290}` — adapt the field names to match yours. Add `:tags` when writes need to invalidate this list, covered in [Invalidate after a mutation](invalidate-after-a-mutation.md).)
@@ -38,13 +38,13 @@ The current page tells you *where the user is*, and that's the URL's job — not
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
 (rf/reg-route :app/home
-  {:path      "/"
-   :query     [:map [:page {:optional true} :int]]
+  {:query     [:map [:page {:optional true} :int]]
    :scroll    :top
    :resources [{:resource       :app/articles
                 :params         (fn [route] {:page (or (get-in route [:query :page]) 1)})
                 :blocking?      true
-                :keep-previous? true}]})
+                :keep-previous? true}]}
+  "/")
 ```
 
 Now route entry loads the right page, owns it while you're there, and releases it when you leave. Once a page is unowned, it falls back to the normal staleness and garbage-collection policy — so nothing leaks.
@@ -131,17 +131,6 @@ An infinite resource is an ordinary resource — identity, scope, request — pl
    :params-schema  [:map]
    :scope          :rf.scope/global
 
-   ;; :request keeps its (params ctx) shape; for an infinite resource the
-   ;; RESERVED ctx (its second arg) carries THIS page's context — the resolved
-   ;; cursor (nil for the first page) and the page index. No new arity.
-   :request
-   (fn [_feed-params {:rf.resource/keys [page-param page-index]}]
-     {:request {:method :get
-                :url    "/api/timeline"
-                :params (cond-> {:limit page-size :page-index page-index}
-                          page-param (assoc :cursor page-param))}
-      :decode  :json})
-
    ;; Derive the NEXT page param from the last loaded page. Returning nil is the
    ;; SINGLE terminal signal (no more pages); `:has-next-page?` is then false.
    :next-page-param
@@ -153,7 +142,17 @@ An infinite resource is an ordinary resource — identity, scope, request — pl
    :page->items    :items
 
    :stale-after-ms 60000
-   :gc-after-ms    (* 5 60 1000)})
+   :gc-after-ms    (* 5 60 1000)}
+
+  ;; The request fn (third positional arg) keeps its (params ctx) shape; for an
+  ;; infinite resource the RESERVED ctx (its second arg) carries THIS page's
+  ;; context — the resolved cursor (nil for the first page) and the page index.
+  (fn [_feed-params {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get
+               :url    "/api/timeline"
+               :params (cond-> {:limit page-size :page-index page-index}
+                         page-param (assoc :cursor page-param))}
+     :decode  :json}))
 ```
 
 The first page is fetched with `:page-param nil` (TanStack's `initialPageParam`). Each load-more passes the cursor your `:next-page-param` derived from the tail. Two `load-more` calls on the same feed don't make two cache keys — they extend one entry. Only the *identity params* (filter, sort, search) name the feed; change them and you get a different feed instance, not a mutation of this one.
@@ -168,11 +167,11 @@ A route declares an infinite resource exactly as it declares any resource. Route
 
 ```clojure
 (rf/reg-route :app/timeline
-  {:path  "/timeline"
-   :resources
+  {:resources
    [{:resource  :feed/timeline
      :params    (fn [_route] {})
-     :blocking? true}]})        ;; :blocking? blocks on page 0 only
+     :blocking? true}]}        ;; :blocking? blocks on page 0 only
+  "/timeline")
 ```
 
 ### 3. Read the merged list passively; load-more is a causal event

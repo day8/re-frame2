@@ -90,8 +90,8 @@ This is the production shape, for three reasons worth spelling out. It reads `(:
 Route-level auth is an interceptor over the navigation events, not a special routing mechanism ([Spec 012 — redirects and guards](../../../spec/012-Routing.md)). Start by tagging the routes that need a session:
 
 ```clojure
-(rf/reg-route :app/login    {:path "/login"})
-(rf/reg-route :app/settings {:path "/settings" :tags #{:requires-auth}})
+(rf/reg-route :app/login    {} "/login")
+(rf/reg-route :app/settings {:tags #{:requires-auth}} "/settings")
 ```
 
 Then comes the guard. There's one thing it absolutely must get right: **gate every navigation entry point**. Guarding `:rf.route/navigate` alone fails *open* on the most common path — a logged-out user who types `/settings` into the URL bar, reloads a protected page, or clicks a link gets in anyway. The fix is to normalise all three entry points to one target and redirect identically:

@@ -15,11 +15,12 @@ Here's the whole idea in one line: the URL is application state, and your back b
 
 ;; 1. A route is data in the registry.
 (rf/reg-route :app/home
-  {:path "/"})
+  {}
+  "/")
 
 (rf/reg-route :app/article
-  {:path   "/articles/:id"
-   :params [:map [:id :string]]})
+  {:params [:map [:id :string]]}
+  "/articles/:id")
 
 ;; 2. Navigation is an event.
 (rf/dispatch [:rf.route/navigate :app/article {:id "intro"}])
@@ -41,13 +42,13 @@ Everything else on this page is a refinement of those three moves: query strings
 
 ## A route is a registry entry
 
-`reg-route` registers a route the same way `reg-event` registers an event: an id plus a metadata map. The `:path` grammar is deliberately small enough to parse in your head — literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`). The `:params` and `:query` keys take schemas, which validate and coerce for you, so `?page=2` arrives as the integer `2` rather than the string `"2"`. That coercion is the part people forget to do by hand, so it's worth letting the schema own it.
+`reg-route` registers a route the same way `reg-event` registers an event: an id, a metadata map, and a path. The path grammar is deliberately small enough to parse in your head — literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`). The `:params` and `:query` keys take schemas, which validate and coerce for you, so `?page=2` arrives as the integer `2` rather than the string `"2"`. That coercion is the part people forget to do by hand, so it's worth letting the schema own it.
 
 ```clojure
 (rf/reg-route :app/search
-  {:path           "/search"
-   :query          [:map [:q :string] [:page {:optional true} :int]]
-   :query-defaults {:page 1}})
+  {:query          [:map [:q :string] [:page {:optional true} :int]]
+   :query-defaults {:page 1}}
+  "/search")
 ```
 
 When two patterns could match one URL, a structural ranking decides between them: more static segments win, and named params beat splats. The ranking is computed at registration time from the patterns alone, so there's never any runtime ambiguity to debug — the winner is decided before a single URL arrives. Path params and query params stay separate maps throughout, too: captured separately, validated against separate schemas, never silently merged.
@@ -113,8 +114,7 @@ If the page's data is [server state managed as resources](server-state.md) — a
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
 (rf/reg-route :realworld.article/show
-  {:path   "/article/:slug"
-   :params [:map [:slug :string]]
+  {:params [:map [:slug :string]]
    :scroll :top
    :resources
    [{:resource  :realworld/article
@@ -123,7 +123,8 @@ If the page's data is [server state managed as resources](server-state.md) — a
     {:resource  :realworld/comments
      :params    (fn [route] {:slug (get-in route [:params :slug])})
      :blocking? false
-     :keep-previous? true}]})
+     :keep-previous? true}]}
+  "/article/:slug")
 ```
 
 > **Coming from Remix?** This is the loader, as data. `:blocking? true` is the await — it holds the route transition (and, on the server, the render) until the resource settles; non-blocking entries fetch in the background; `:keep-previous?` keeps the old page visible while the next one first-loads.
@@ -155,8 +156,8 @@ When no pattern matches a URL — or a URL matches but its params fail the schem
 
 ```clojure
 (rf/reg-route :rf.route/not-found
-  {:path     "/404"
-   :on-match [[:analytics/log-404]]})
+  {:on-match [[:analytics/log-404]]}
+  "/404")
 ```
 
 !!! warning "Register your own not-found route"

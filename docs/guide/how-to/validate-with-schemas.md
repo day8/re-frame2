@@ -24,7 +24,7 @@ Here's the payoff: register one piece of data and it does three jobs at once. Th
    [:token [:maybe :string]]])
 
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:auth] AuthSlice))
+  (rf/reg-app-schema [:auth] {:schema AuthSlice}))
 ```
 
 Now, after every event handler runs, the runtime validates what the new app-db holds at `[:auth]` before installing it. When a write doesn't conform, the runtime emits `:rf.error/schema-validation-failure`, which carries `:where :app-db`, the failing path, the offending value, and a Malli explanation. The key thing is that **the write never lands**: app-db keeps its pre-event value, and the dispatch is treated as failed. So you get to debug a named handler and a printed bad value, not a half-corrupted app-db. Try it — cause one bad write with Xray open, and in the event's row you'll see the violation sit on the handler step, with everything downstream marked rolled back.
@@ -88,9 +88,9 @@ Here's a counter whose count must never go below zero — live. The rule appears
 
 ;; The slice's shape: a non-negative count, and a history of the same.
 (rf/reg-app-schema [:howto.schema/counter]
-  [:map
-   [:count   [:int {:min 0}]]
-   [:history [:vector [:int {:min 0}]]]])
+  {:schema [:map
+            [:count   [:int {:min 0}]]
+            [:history [:vector [:int {:min 0}]]]]})
 
 (rf/reg-event :howto.schema/initialise
   {:schema [:cat [:= :howto.schema/initialise]]}

@@ -20,21 +20,21 @@ Tags name *facts*, not resources. `[:article "welcome"]` and `[:article-list]` a
 (rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request (fn [{:keys [slug]} _ctx]
-              {:request {:method :get :url (str "/api/articles/" slug)}
-               :decode  :json})
-   :tags    (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})})
+   :tags    (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
 
 ;; The list read — tagged with the list identity AND every article it contains,
 ;; so a write to one article reaches any list currently showing it.
 (rf/reg-resource :article/list
   {:params-schema [:map]
    :scope         :rf.scope/global
-   :request (fn [_params _ctx]
-              {:request {:method :get :url "/api/articles"} :decode :json})
    :tags    (fn [_params data]
               (into #{[:article-list]}
-                    (map (fn [a] [:article (:slug a)]) (:articles data))))})
+                    (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/articles"} :decode :json}))
 ```
 
 ## 2. Declare what the write breaks
@@ -45,12 +45,12 @@ A mutation is a managed server-state *write* — the write counterpart to a reso
 (rf/reg-mutation :article/save
   {:params-schema [:map [:slug :string] [:title :string] [:body :string]]
    :scope         :rf.scope/global
-   :request (fn [{:keys [slug] :as article} _ctx]
-              {:request {:method :put
-                         :url    (str "/api/articles/" slug)
-                         :body   {:article article}}
-               :decode  :json})
-   :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})})
+   :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug] :as article} _ctx]
+    {:request {:method :put
+               :url    (str "/api/articles/" slug)
+               :body   {:article article}}
+     :decode  :json}))
 ```
 
 On success this runs through the same scoped, owner-aware engine as `:rf.resource/invalidate-tags`. Entries whose tags intersect get marked stale. The ones something still owns — a mounted route, a live machine — refetch immediately, while unowned ones simply go stale and wait until their next ensure. So you don't get a refetch storm for data nothing is watching, which is the behavior you want.
@@ -87,14 +87,14 @@ Sometimes the write's reply carries the updated data back to you. `:populates` p
 (rf/reg-mutation :article/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request (fn [{:keys [slug]} _ctx]
-              {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
-               :decode  :json})
    ;; The value MUST be the resource's stored shape — exactly what its own
-   ;; :request + :decode would have produced.
+   ;; request fn + :decode would have produced.
    :populates   (fn [{:keys [slug]} result]
                   {{:resource :article/by-slug :params {:slug slug}} result})
-   :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})})
+   :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
+     :decode  :json}))
 ```
 
 A populated key counts as an **authoritative load**, which means it's exempt from this same mutation's invalidation pass. So invalidating broad tags doesn't immediately re-fetch the entry you just seeded from the reply — the framework trusts the value you handed it.
