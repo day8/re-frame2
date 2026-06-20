@@ -48,6 +48,20 @@ known statically, so the only thing left to verify is that the README owns up to
 it. Keeping the gate pure-Python-stdlib makes it fast and CI-portable (no Node
 needed) and mirrors the other `scripts/check_skill_*.py` gates.
 
+Second invariant — in-package link resolution (rf2-deo2zp):
+
+    For every packaged skill, every INTRA-package relative link from a shipped
+    doc (SKILL.md / README.md / references/**.md) MUST resolve to a file the
+    package.json `files` allow-list ships.
+
+The defect this prevents: a shipped doc links to a sibling support doc
+(`docs/LOCAL_DEV.md`, `STATUS.md`, `RELEASING.md`, ...) that the `files`
+allow-list omits, so a packaged install resolves the link to a missing file at
+exactly the point a user is configuring the skill. Links that escape the package
+(`../`) point at the monorepo, not the tarball, and are owned by the
+`../shared/` caveat check above -- they are out of scope here. npm always ships
+`package.json`, the README, and LICENSE/LICENCE regardless of `files`.
+
 Exit code:
     0  no findings
     1  at least one finding
@@ -65,6 +79,7 @@ rf2-f14su.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import tempfile
@@ -159,12 +174,152 @@ def _iter_packaged_skills(skills_root: Path) -> Iterable[Path]:
             yield child
 
 
+# --------------------------------------------------------------------------
+# In-package link resolution (rf2-deo2zp)
+#
+# The package's shipped docs (SKILL.md / README.md / references/**.md) link to
+# sibling support docs (docs/LOCAL_DEV.md, STATUS.md, RELEASING.md, …). In a
+# packaged install those links resolve INSIDE the tarball, where the target
+# files are present only if the package.json `files` allow-list includes them.
+# A link to a file omitted from `files` is a broken link at exactly the point a
+# user is configuring the skill. This check verifies every intra-package
+# relative link from a shipped doc resolves against the `files` allow-list.
+# --------------------------------------------------------------------------
+
+# A markdown link target: the `(...)` part of `[label](target)`. We strip an
+# optional `#anchor` and any surrounding angle-brackets later.
+_MD_LINK_RE = re.compile(r"\]\(\s*<?([^)>\s]+)>?\s*\)")
+
+# Inline markers (case-insensitive) that flag a link as a DELIBERATE
+# monorepo-only / repo-maintenance reference — a file the skill intentionally
+# omits from its published package and tells the reader to reach from a clone.
+# When the linking line carries one of these, an unshipped target is expected,
+# not a defect (mirrors the prose-caveat philosophy of the ../shared/ check).
+_MONOREPO_ONLY_MARKERS = (
+    "not in the published package",
+    "deliberately not in the published",
+    "repo-maintenance artifact",
+    "repo-maintenance artefact",
+    "monorepo clone",
+    "from a clone",
+    "not shipped in the package",
+)
+
+
+def _load_files_allowlist(skill_dir: Path) -> list[str] | None:
+    """Return the package.json `files` array (normalized, forward-slash), or None."""
+    pkg = skill_dir / "package.json"
+    if not pkg.is_file():
+        return None
+    try:
+        data = json.loads(pkg.read_text(encoding="utf-8", errors="replace"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    files = data.get("files")
+    if not isinstance(files, list):
+        return None
+    return [str(f).strip().lstrip("./").rstrip("/") for f in files if isinstance(f, str)]
+
+
+def _is_shipped(rel_target: str, allow: list[str]) -> bool:
+    """True if `rel_target` (package-root-relative, forward-slash) is shipped.
+
+    npm always ships package.json + README + LICENSE/LICENCE regardless of
+    `files`; otherwise a target is shipped if it equals an allow-list file entry
+    or sits under an allow-list directory entry.
+    """
+    norm = rel_target.lstrip("./")
+    low = norm.lower()
+    # npm-always-shipped specials (top-level only).
+    if low in ("package.json", "readme.md") or low.startswith(("license", "licence")):
+        return True
+    for entry in allow:
+        if not entry:
+            continue
+        if norm == entry:
+            return True
+        # Directory entry (e.g. "docs/") covers everything beneath it.
+        if norm.startswith(entry + "/"):
+            return True
+    return False
+
+
+def _shipped_docs_with_links(skill_dir: Path) -> Iterable[Path]:
+    """Yield shipped markdown docs whose intra-package links we validate.
+
+    SKILL.md, README.md, and every references/**.md leaf — the docs that ship in
+    the package and that a packaged install resolves links inside.
+    """
+    for name in ("SKILL.md", "README.md"):
+        p = skill_dir / name
+        if p.is_file():
+            yield p
+    refs = skill_dir / "references"
+    if refs.is_dir():
+        for md in sorted(refs.rglob("*.md")):
+            yield md
+
+
+def _broken_package_links(skill_dir: Path) -> list[str]:
+    """Return human-readable findings for intra-package links to unshipped files."""
+    allow = _load_files_allowlist(skill_dir)
+    if allow is None:
+        return []
+    findings: list[str] = []
+    for doc in _shipped_docs_with_links(skill_dir):
+        rel_doc = doc.relative_to(skill_dir)
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            line_low = line.lower()
+            monorepo_only = any(mk in line_low for mk in _MONOREPO_ONLY_MARKERS)
+            for m in _MD_LINK_RE.finditer(line):
+                raw = m.group(1)
+                # Skip external links, mailto, and pure-anchor links.
+                if raw.startswith(("http://", "https://", "mailto:", "#")):
+                    continue
+                # Strip a trailing #anchor and any query.
+                target = raw.split("#", 1)[0].split("?", 1)[0]
+                if not target:
+                    continue
+                # Links escaping the package (../) point at the monorepo, not the
+                # tarball — out of scope for this allow-list check (the ../shared/
+                # caveat check above owns that hazard).
+                if target.startswith("../"):
+                    continue
+                # Resolve relative to the linking doc's directory, then make it
+                # package-root-relative.
+                resolved = (doc.parent / target).resolve()
+                try:
+                    rel_target = resolved.relative_to(skill_dir.resolve())
+                except ValueError:
+                    # Resolves outside the package despite no literal ../ prefix
+                    # (symlink, etc.) — treat as out of scope.
+                    continue
+                rel_str = rel_target.as_posix()
+                if _is_shipped(rel_str, allow):
+                    continue
+                # A deliberate monorepo-only reference (documented inline) is
+                # expected to be absent from the tarball — not a defect.
+                if monorepo_only:
+                    continue
+                findings.append(
+                    f"{rel_doc.as_posix()} links to `{target}` "
+                    f"→ `{rel_str}` is omitted from package.json `files`"
+                )
+    return findings
+
+
 def check(skills_root: Path, verbose: bool = False, ci: bool = False) -> int:
     """Validate every packaged skill.  Return finding count."""
     findings: list[tuple[Path, str]] = []
     n_checked = 0
 
     for skill_dir in _iter_packaged_skills(skills_root):
+        # (1) intra-package link resolution against the `files` allow-list.
+        for msg in _broken_package_links(skill_dir):
+            findings.append((skill_dir, msg))
+
+        # (2) the ../shared/ link-only distribution caveat.
         if not _references_shared(skill_dir):
             if verbose:
                 sys.stderr.write(
@@ -228,10 +383,18 @@ def _make_skill(
     package: bool,
     shared_ref_in: str | None,  # "skill" | "references" | "spec" | None
     readme_caveat: bool,
+    files: list[str] | None = None,  # package.json `files`; None -> ["SKILL.md"]
+    skill_link: str | None = None,   # an intra-package link to embed in SKILL.md
+    create_docs: bool = False,       # create docs/SETUP.md on disk
+    monorepo_only: bool = False,     # mark the skill_link line monorepo-only
 ) -> None:
     d = root / name
     if package:
-        _write(d / "package.json", '{"name": "@day8/%s", "files": ["SKILL.md"]}' % name)
+        allow = files if files is not None else ["SKILL.md"]
+        _write(
+            d / "package.json",
+            '{"name": "@day8/%s", "files": %s}' % (name, json.dumps(allow)),
+        )
     skill_body = "# skill\n"
     refs_body = "# refs\n"
     spec_body = "# spec\n"
@@ -241,6 +404,11 @@ def _make_skill(
         refs_body += "See [`../../shared/issue-filing.md`](../../shared/issue-filing.md).\n"
     elif shared_ref_in == "spec":
         spec_body += "Design refs [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md).\n"
+    if skill_link is not None:
+        suffix = " (not in the published package; run from a monorepo clone)" if monorepo_only else ""
+        skill_body += f"See [setup]({skill_link}){suffix}.\n"
+    if create_docs:
+        _write(d / "docs" / "SETUP.md", "# setup\n")
     _write(d / "SKILL.md", skill_body)
     _write(d / "references" / "lens.md", refs_body)
     _write(d / "spec" / "design.md", spec_body)
@@ -268,6 +436,73 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("ok_no_ref", dict(package=True, shared_ref_in=None, readme_caveat=False), 0),
         # UNpackaged + shared ref + NO caveat                   -> 0 (not distributable)
         ("ok_unpackaged", dict(package=False, shared_ref_in="skill", readme_caveat=False), 0),
+        # in-package link to a docs/ file NOT in `files`         -> 1 (broken in tarball)
+        (
+            "bad_unshipped_link",
+            dict(
+                package=True,
+                shared_ref_in=None,
+                readme_caveat=False,
+                files=["SKILL.md", "README.md"],
+                skill_link="docs/SETUP.md",
+                create_docs=True,
+            ),
+            1,
+        ),
+        # in-package link to a docs/ file covered by a dir entry -> 0 (shipped)
+        (
+            "ok_shipped_dir_link",
+            dict(
+                package=True,
+                shared_ref_in=None,
+                readme_caveat=False,
+                files=["SKILL.md", "README.md", "docs/"],
+                skill_link="docs/SETUP.md",
+                create_docs=True,
+            ),
+            0,
+        ),
+        # in-package link with #anchor to a shipped file         -> 0 (anchor stripped)
+        (
+            "ok_anchor_shipped",
+            dict(
+                package=True,
+                shared_ref_in=None,
+                readme_caveat=False,
+                files=["SKILL.md", "README.md", "docs/SETUP.md"],
+                skill_link="docs/SETUP.md#configure",
+                create_docs=True,
+            ),
+            0,
+        ),
+        # in-package link escaping the package (../) is out of scope here -> 0
+        (
+            "ok_parent_escape_out_of_scope",
+            dict(
+                package=True,
+                shared_ref_in=None,
+                readme_caveat=False,
+                files=["SKILL.md", "README.md"],
+                skill_link="../../tools/foo/README.md",
+                create_docs=False,
+            ),
+            0,
+        ),
+        # in-package link to an unshipped file, but the LINE documents it as a
+        # deliberate monorepo-only reference                     -> 0
+        (
+            "ok_monorepo_only_marker",
+            dict(
+                package=True,
+                shared_ref_in=None,
+                readme_caveat=False,
+                files=["SKILL.md", "README.md"],
+                skill_link="docs/SETUP.md",
+                create_docs=True,
+                monorepo_only=True,
+            ),
+            0,
+        ),
     ]
 
     failures = 0

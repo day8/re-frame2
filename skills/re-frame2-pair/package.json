@@ -28,11 +28,14 @@
   "files": [
     "SKILL.md",
     "README.md",
+    "STATUS.md",
+    "RELEASING.md",
     "LICENSE",
     "agents/",
     "preload/",
     ".claude-plugin/",
-    "references/"
+    "references/",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public"
