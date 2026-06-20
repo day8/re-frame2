@@ -113,7 +113,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/non-trivial-app-db
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/non-trivial-app-db`; output

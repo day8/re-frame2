@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
  * Orchestrator for the adapter-smoke Playwright suite (npm run
- * test:examples). The `examples/` tree is TEST-FREE — this
+ * test:adapter-smokes). The `examples/` tree is TEST-FREE — this
  * orchestrator compiles + stages only the surfaces paired with a
- * `spec.cjs` under the runner's SPEC_ROOTS, which is just the three
- * adapter smokes at implementation/adapters/<name>/testbed/.
+ * `spec.cjs` under the runner's ADAPTER_SMOKE_SPEC_ROOTS, which is just
+ * the three adapter smokes at implementation/adapters/<name>/testbed/.
  *
  * Framework + top-level testbed assertions live as CLJS/JVM unit
  * tests. The testbed surfaces themselves (tools/xray/testbeds/** and
@@ -21,13 +21,13 @@
  *    implementation/scripts/dev-testbed.cjs) and spawns http-server over
  *    out/examples on 127.0.0.1:<port>.
  * 4. Waits for it to be reachable, then runs the Playwright runner
- *    (run-examples-tests.cjs).
+ *    (run-adapter-smokes.cjs).
  * 5. Always tears the server down.
  *
- * Build list, mount paths, and HTML sources are declared in EXAMPLES
- * below. Adding a new smoke: append an entry here ONLY when a
- * matching spec.cjs exists under SPEC_ROOTS; never stage a surface
- * that nothing tests.
+ * Build list, mount paths, and HTML sources are declared in
+ * ADAPTER_SMOKES below. Adding a new smoke: append an entry here ONLY
+ * when a matching spec.cjs exists under ADAPTER_SMOKE_SPEC_ROOTS; never
+ * stage a surface that nothing tests.
  *
  * Cross-platform: compile shadow-cljs shell-free by resolving its JS
  * entry-point and spawning it under THIS node binary (process.execPath),
@@ -40,10 +40,10 @@ const fs = require('fs');
 const path = require('path');
 const { resolveExamplesPort } = require('./examples-port.cjs');
 const {
-  EXAMPLES,
+  ADAPTER_SMOKES,
   parseFilterPatterns,
   selectEntries,
-} = require('./examples-filter.cjs');
+} = require('./adapter-smoke-filter.cjs');
 // Shared staging helpers (rf2-pdo5mx) — the recursive copy + _shared fan-out
 // live in one place so the standalone-example dev runner (serve-example.cjs)
 // reuses the SAME staging this orchestrator does, rather than duplicating it.
@@ -54,23 +54,23 @@ const {
   waitForHttpReady,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
-// Narrow filter. When set, only the EXAMPLES entries the filter selects
-// are compiled + staged, and the value is propagated to the Playwright
-// runner via the `EXAMPLES_FILTER` env-var so the runner executes exactly
-// the same selected set's specs. Unset (or empty) = the full sweep. The
-// filter is supplied via either:
+// Narrow filter. When set, only the ADAPTER_SMOKES entries the filter
+// selects are compiled + staged, and the value is propagated to the
+// Playwright runner via the `ADAPTER_SMOKE_FILTER` env-var so the runner
+// executes exactly the same selected set's specs. Unset (or empty) = the
+// full sweep. The filter is supplied via either:
 //
 //   1. CLI flag (cross-platform; the recommended shape):
-//      node serve-and-run-examples-tests.cjs --filter adapters
+//      node serve-and-run-adapter-smokes.cjs --filter adapters
 //
 //   2. Env var (for CI / scripted use):
-//      EXAMPLES_FILTER=adapters node serve-and-run-examples-tests.cjs
+//      ADAPTER_SMOKE_FILTER=adapters node serve-and-run-adapter-smokes.cjs
 //
 // Multi-pattern filter: comma separates alternatives, OR-matched. The
 // single CI invocation today (adapter-testbed-smokes) passes
 // `adapters/` to scope the runner to the 3 adapter smokes.
 //
-// Selection is shared with the runner via examples-filter.cjs's
+// Selection is shared with the runner via adapter-smoke-filter.cjs's
 // `selectEntries`, which matches each pattern against an entry's
 // shadow-cljs build id (`adapters/<name>-testbed`) AND its paired
 // spec.cjs path in one canonical separator space. That means build-id
@@ -93,11 +93,11 @@ function parseFilterFromArgs(argv) {
   return '';
 }
 const FILTER = parseFilterFromArgs(process.argv)
-            || (process.env.EXAMPLES_FILTER || '').trim();
+            || (process.env.ADAPTER_SMOKE_FILTER || '').trim();
 // Split a comma-separated filter into the list of substrings. Empty
 // filter returns an empty array (meaning "pass-through everything").
-// Shared with the runner via examples-filter.cjs so the two phases parse
-// the filter identically.
+// Shared with the runner via adapter-smoke-filter.cjs so the two phases
+// parse the filter identically.
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // Port resolution lives in examples-port.cjs (resolveExamplesPort, called
 // at the top of main()). Default is 8050 — in the examples orchestrator's
@@ -111,7 +111,7 @@ const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
-const RUNNER = path.resolve(__dirname, 'run-examples-tests.cjs');
+const RUNNER = path.resolve(__dirname, 'run-adapter-smokes.cjs');
 // http-server is a devDependency of implementation/package.json. Resolve
 // it from there explicitly so this script can be invoked from any cwd.
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
@@ -129,7 +129,7 @@ try {
   });
 } catch {
   throw new Error(
-    'serve-and-run-examples-tests: could not resolve shadow-cljs. Run ' +
+    'serve-and-run-adapter-smokes: could not resolve shadow-cljs. Run ' +
       `\`npm install\` in ${IMPL_ROOT} first.`,
   );
 }
@@ -137,11 +137,11 @@ const READY_TIMEOUT_MS = 30000;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
-// The example set (shadow-cljs build id + HTML source + output dir +
-// paired spec.cjs path) is declared ONCE in examples-filter.cjs and
-// imported as EXAMPLES above. Policy reminder: the `examples/` tree is
-// TEST-FREE; every entry pairs a build with an existing spec.cjs (never
-// stage a surface nothing tests). Real regressions are caught by
+// The adapter-smoke set (shadow-cljs build id + HTML source + output dir
+// + paired spec.cjs path) is declared ONCE in adapter-smoke-filter.cjs
+// and imported as ADAPTER_SMOKES above. Policy reminder: the `examples/`
+// tree is TEST-FREE; every entry pairs a build with an existing spec.cjs
+// (never stage a surface nothing tests). Real regressions are caught by
 // substrate contract tests, the Xray feature-matrix gate,
 // bundle-isolation, the perf-bundle gate, and mcp-conformance.
 
@@ -151,7 +151,7 @@ cleanup.installSignalHandlers();
 // to the runner's spec set for any filter shape (rf2-l72e2). The same
 // selection gates compile and stage so a narrow run never spins up
 // resources for excluded surfaces.
-function selectedExamples() {
+function selectedSmokes() {
   return selectEntries(FILTER_PATTERNS);
 }
 
@@ -164,7 +164,7 @@ function selectedExamples() {
 // shared OUT_ROOT) because a narrow run must not wipe sibling outputs; the
 // helper path-guards every target to live strictly under OUT_ROOT.
 function cleanSelectedOutDirs() {
-  const dirs = selectedExamples().map((e) => e.outDir);
+  const dirs = selectedSmokes().map((e) => e.outDir);
   if (dirs.length > 0) cleanStageDirs(dirs, OUT_ROOT);
 }
 
@@ -173,10 +173,10 @@ function compileAll() {
   // shares the JVM warmup across builds. Silent-on-success: shadow-
   // cljs's own status lines flow through; that output is build-tool,
   // not test-runner, and is out of scope here.
-  const builds = selectedExamples().map((e) => e.build);
+  const builds = selectedSmokes().map((e) => e.build);
   if (builds.length === 0) {
     throw new Error(
-      `EXAMPLES_FILTER='${FILTER}' matched zero builds; nothing to compile.`,
+      `ADAPTER_SMOKE_FILTER='${FILTER}' matched zero builds; nothing to compile.`,
     );
   }
   // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
@@ -201,8 +201,8 @@ function compileAll() {
 function stageHtml() {
   // Silent-on-success: per-file staging notices are suppressed.
   // Errors still throw with the offending path.
-  // EXAMPLES_FILTER: only stage selected entries.
-  for (const ex of selectedExamples()) {
+  // ADAPTER_SMOKE_FILTER: only stage selected entries.
+  for (const ex of selectedSmokes()) {
     if (!fs.existsSync(ex.outDir)) {
       throw new Error(`Build output dir missing: ${ex.outDir}`);
     }
@@ -269,12 +269,12 @@ async function main() {
     stdio: 'inherit',
     env: {
       ...process.env,
-      EXAMPLES_BASE_URL:    `http://127.0.0.1:${PORT}`,
+      ADAPTER_SMOKE_BASE_URL: `http://127.0.0.1:${PORT}`,
       // Propagate the orchestrator's filter (CLI or env) to the runner
       // so spec-file selection matches the build/stage narrowing.
       // Empty = full sweep, which matches the runner's unset-env
       // default.
-      EXAMPLES_FILTER:       FILTER,
+      ADAPTER_SMOKE_FILTER:   FILTER,
     },
   }));
 

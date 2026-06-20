@@ -8,11 +8,11 @@
  * examples/_shared/ ships a shared design system (stylesheet + favicon +
  * Open Graph card) that examples/_shared/README.md declares is "consumed by
  * every example index.html". The only automated gate that touches _shared
- * is the adapter-smoke harness (npm run test:examples), and that harness
- * compiles + serves ONLY the three adapter testbeds at
+ * is the adapter-smoke harness (npm run test:adapter-smokes), and that
+ * harness compiles + serves ONLY the three adapter testbeds at
  * implementation/adapters/<name>/testbed/. Those testbed pages link NONE of
  * _shared, so a broken shared stylesheet, a missing/renamed _shared asset, a
- * bad @import target, or a stageShared regression all pass test:examples —
+ * bad @import target, or a stageShared regression all pass test:adapter-smokes —
  * the staged copy is never loaded by any page the runner navigates to. The
  * shared design system had ZERO automated coverage.
  *

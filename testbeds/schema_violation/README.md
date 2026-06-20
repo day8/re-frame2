@@ -71,7 +71,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/schema-violation
 # Or full orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/schema-violation`; output lands

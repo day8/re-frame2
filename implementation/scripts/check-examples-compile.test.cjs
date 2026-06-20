@@ -23,7 +23,7 @@
  *   - the parse over the REAL shadow-cljs.edn is non-vacuous.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
- * `_examples-filter.test.cjs` / `dev-testbed.test.cjs`. Wired into
+ * `_adapter-smoke-filter.test.cjs` / `dev-testbed.test.cjs`. Wired into
  * package.json via `test:script-policy`.
  */
 

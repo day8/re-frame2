@@ -8,7 +8,7 @@ The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 St
 |---|---|---|
 | **Direct/headless CLJS fixture** | `npm run test:cljs` | Per-example semantic tests (outside `examples/`) that require the example's production namespace and drive its events / subs / machines / resources directly. Only some examples have one (see the per-example coverage column below). |
 | **Compile coverage** | `npm run test:examples-compile` | Compiles EVERY declared `:examples/*` shadow-cljs build (warnings-as-errors). Catches a missing namespace / typo'd init-fn / bad `:require` / compile-time form error in any example — but proves nothing about runtime behaviour. |
-| **Adapter-mount browser smoke** | `npm run test:examples` | Exactly THREE adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. It does **NOT** build the examples in this directory. |
+| **Adapter-mount browser smoke** | `npm run test:adapter-smokes` | Exactly THREE adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. It does **NOT** build the examples in this directory. |
 
 Real cross-cutting regression coverage additionally lives in the framework gates (`npm run test:xray-feature-gate`, `test:bundle-isolation`, `test:perf-bundle`, mcp-conformance). The per-example coverage column in the [catalogue](../README.md) and the [coverage table below](#coverage-level-per-reagent-example) record which layer(s) pin each example.
 
@@ -52,7 +52,7 @@ Per [`spec/Conventions.md`](../../spec/Conventions.md): schema-bearing examples 
 
 ## Running
 
-The `examples/` tree is **test-free** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates, not under `examples/`. `npm run test:examples` compiles and serves only the three adapter testbeds (`implementation/adapters/<name>/testbed/`); it does **not** build the examples in this directory. See [examples/README.md §Testing](../README.md) for the full split.
+The `examples/` tree is **test-free** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates, not under `examples/`. `npm run test:adapter-smokes` compiles and serves only the three adapter testbeds (`implementation/adapters/<name>/testbed/`); it does **not** build the examples in this directory. See [examples/README.md §Testing](../README.md) for the full split.
 
 To view one example in a browser, watch its build directly from `implementation/`:
 

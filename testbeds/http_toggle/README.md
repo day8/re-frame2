@@ -94,13 +94,13 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/http-toggle
 # Or full orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/http-toggle`; output lands in
 `implementation/out/testbeds/http-toggle/`. The `api/success.json`
 asset is staged next to `main.js` by the orchestrator (one
-`extraFiles` entry in `serve-and-run-examples-tests.cjs`).
+`extraFiles` entry in `serve-and-run-adapter-smokes.cjs`).
 
 ## Cross-references
 

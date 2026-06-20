@@ -1819,8 +1819,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # rf2-9grp6 — narrow scope. The orchestrator at
-      # examples/scripts/serve-and-run-examples-tests.cjs supports a
-      # comma-separated EXAMPLES_FILTER (substring OR-match against
+      # examples/scripts/serve-and-run-adapter-smokes.cjs supports a
+      # comma-separated ADAPTER_SMOKE_FILTER (substring OR-match against
       # shadow-cljs build ids). `adapters/` matches exactly the 3
       # adapter smokes (adapters/reagent-testbed, adapters/uix-testbed,
       # adapters/helix-testbed). Per rf2-8cevm the `examples/` tree
@@ -1834,8 +1834,8 @@ jobs:
       # pattern used for cljs-browser (rf2-zoem).
       - name: Compile adapter smokes, serve, and run Playwright specs
         env:
-          EXAMPLES_FILTER: "adapters/"
-        run: npm run test:examples
+          ADAPTER_SMOKE_FILTER: "adapters/"
+        run: npm run test:adapter-smokes
 
   story-xray-browser:
     name: Story/Xray browser gates (PR-smoke)

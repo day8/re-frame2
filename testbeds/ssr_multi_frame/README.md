@@ -48,7 +48,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/ssr-multi-frame
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 Build id `testbeds/ssr-multi-frame`; served at

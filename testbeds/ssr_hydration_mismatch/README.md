@@ -55,7 +55,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/ssr-hydration-mismatch
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 Build id `testbeds/ssr-hydration-mismatch`; served at

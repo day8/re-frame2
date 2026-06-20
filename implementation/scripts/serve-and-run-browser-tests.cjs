@@ -210,7 +210,7 @@ async function resolvePort() {
   // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
   // probe and the browser only ever hit loopback, so the listener must
   // not be exposed on non-loopback interfaces during a test run
-  // (rf2-utvst; matches serve-and-run-examples-tests.cjs).
+  // (rf2-utvst; matches serve-and-run-adapter-smokes.cjs).
   const args = [HTTP_SERVER_BIN, ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
   const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, args, {
     cwd: IMPL_ROOT,

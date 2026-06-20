@@ -292,7 +292,7 @@ npm run test:browser    # browser-test build, headless Chromium via Playwright
 npm run test:elision    # production-elision contract (Spec 009 §Production builds)
 npm run test:bundle-isolation
 npm run test:reagent-slim:bundle-isolation
-npm run test:examples   # example-app browser tests
+npm run test:adapter-smokes   # example-app browser tests
 ```
 
 `npm run test:cljs` builds the `:node-test` target via shadow-cljs and

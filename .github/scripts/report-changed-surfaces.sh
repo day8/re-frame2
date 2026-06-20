@@ -192,13 +192,14 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      examples/scripts/serve-and-run-examples-tests.cjs|examples/scripts/run-examples-tests.cjs|examples/scripts/spec-helpers.cjs|examples/scripts/examples-filter.cjs|examples/scripts/examples-port.cjs)
+      examples/scripts/serve-and-run-adapter-smokes.cjs|examples/scripts/run-adapter-smokes.cjs|examples/scripts/spec-helpers.cjs|examples/scripts/adapter-smoke-filter.cjs|examples/scripts/examples-port.cjs)
         # rf2-bxdk8 + rf2-cjp0i — the orchestrator + runner + helpers
         # under examples/scripts/ drive the adapter-testbed-smokes job
-        # (via `npm run test:examples`). rf2-l72e2 — examples-filter.cjs
-        # is the shared example-set manifest + selection logic both the
-        # orchestrator and runner import, so a change to it must fire the
-        # gate too. rf2-y9o5e3 — examples-port.cjs is the port resolver
+        # (via `npm run test:adapter-smokes`). rf2-l72e2 —
+        # adapter-smoke-filter.cjs is the shared adapter-smoke manifest +
+        # selection logic both the orchestrator and runner import, so a
+        # change to it must fire the gate too. rf2-y9o5e3 —
+        # examples-port.cjs is the port resolver
         # the orchestrator's main() calls before any compile/serve; a
         # break there false-greens the adapter smoke gate, so it fires it
         # too. These are the adapter-smoke executable paths under
@@ -233,7 +234,7 @@ else
         # examples-staging.cjs is the SHARED staging/cleaning helper (it owns
         # stageShared, cleanStageDirs, stageExample) require'd by BOTH browser
         # gate families: the adapter-smoke orchestrator
-        # serve-and-run-examples-tests.cjs (`npm run test:examples`,
+        # serve-and-run-adapter-smokes.cjs (`npm run test:adapter-smokes`,
         # adapter_testbed_smokes) imports stageShared + cleanStageDirs, AND the
         # two Story launchers — serve-and-run-story-feature-load-tests.cjs
         # (`npm run test:story-feature-load`) and

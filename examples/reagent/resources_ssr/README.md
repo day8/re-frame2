@@ -92,7 +92,7 @@ shadow-cljs watch examples/resources-ssr
 
 The watch build emits `main.js` into `out/examples/resources-ssr/`; copy
 this folder's [`index.html`](index.html) (and `../../_shared/`) alongside it
-and serve over HTTP. `npm run test:examples` does not build this example.
+and serve over HTTP. `npm run test:adapter-smokes` does not build this example.
 The JVM-runnable server flow (`handle-request`) is demonstrative code; the
 example tree is test-free per [`examples/README.md`](../../README.md).
 

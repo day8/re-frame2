@@ -11,10 +11,10 @@
  * mount/inject/click path.
  *
  * Deliberately a DEDICATED slim smoke, NOT an entry in the shared
- * examples adapter-smoke manifest (examples/scripts/examples-filter.cjs,
+ * adapter-smoke manifest (examples/scripts/adapter-smoke-filter.cjs,
  * whose Reagent/UIx/Helix set + reconcile guard are a separate surface).
  * It is named `smoke.cjs` (not `spec.cjs` / `*.spec.cjs`) so the shared
- * examples spec-walker never discovers it, and it is driven by the
+ * adapter-smoke spec-walker never discovers it, and it is driven by the
  * adapter-owned runner implementation/scripts/serve-and-run-reagent-slim-
  * smoke.cjs (npm `test:reagent-slim:smoke`). This mirrors how the slim
  * bundle-isolation contract gets its OWN script

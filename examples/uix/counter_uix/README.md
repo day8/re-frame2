@@ -65,7 +65,7 @@ compiled `main.js`, starts `shadow-cljs watch` (edits recompile live),
 serves `out/examples/counter-uix/` on a free local port, and prints the
 URL to open. Add `--no-watch` for a one-shot compile-and-serve.
 
-(`npm run test:examples` does not build this example — it compiles and
+(`npm run test:adapter-smokes` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/uix/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); the UIx adapter

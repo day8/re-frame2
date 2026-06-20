@@ -4,14 +4,14 @@ Shared stylesheet, favicon, and Open Graph imagery consumed by every
 example `index.html` across every example substrate (Reagent, Reagent
 Slim, UIx, Helix).
 The smoke orchestrator
-(`examples/scripts/serve-and-run-examples-tests.cjs`) stages this whole
+(`examples/scripts/serve-and-run-adapter-smokes.cjs`) stages this whole
 tree into each staged surface's output dir — for the adapter testbeds it
 drives, that is
 `implementation/out/examples/adapter-testbeds/<name>/_shared/`, next to
 the staged `index.html` + `main.js` — so every page references assets at
 the same relative path (`_shared/css/style.css`). (The exact output dir is
 declared per-entry as `outDir` in
-[`examples/scripts/examples-filter.cjs`](../scripts/examples-filter.cjs);
+[`examples/scripts/adapter-smoke-filter.cjs`](../scripts/adapter-smoke-filter.cjs);
 the smoke set is the three adapter testbeds, which do not themselves link
 `_shared` — see below.)
 

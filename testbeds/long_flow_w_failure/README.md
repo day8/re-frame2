@@ -150,7 +150,7 @@ From `implementation/`:
 ```bash
 shadow-cljs watch testbeds/long-flow-w-failure
 # Or via the orchestrator:
-npm run test:examples
+npm run test:adapter-smokes
 ```
 
 The shadow-cljs build id is `testbeds/long-flow-w-failure`; output

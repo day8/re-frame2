@@ -8,12 +8,12 @@
  * `generate-story-tutorial-screenshots.cjs`.
  *
  * Pipeline:
- *   1. The orchestrator at examples/scripts/serve-and-run-examples-tests.cjs
+ *   1. The orchestrator at examples/scripts/serve-and-run-adapter-smokes.cjs
  *      builds + serves every example bundle on http://127.0.0.1:8040
  *      (its default port; override with EXAMPLES_PORT, and point this
  *      script at the same port via SCREENSHOT_BASE_URL).
  *      We assume the same orchestrator has already been run (or we invoke
- *      `npm run test:examples -- --serve-only` in a future iteration).
+ *      `npm run test:adapter-smokes -- --serve-only` in a future iteration).
  *   2. For each declared scene, we navigate to the testbed URL, drive
  *      the UI into the target state, then call page.screenshot.
  *   3. ANNOTATIONS are data-driven. The companion file
@@ -33,7 +33,7 @@
  * How to run (from repo root):
  *
  *   # one-time, builds the example bundles and serves them on :8040
- *   cd implementation && npm run test:examples:serve-only &
+ *   cd implementation && npm run test:adapter-smokes:serve-only &
  *
  *   # then, from repo root:
  *   node docs/scripts/generate-tutorial-screenshots.cjs
@@ -546,9 +546,9 @@ async function probeBaseUrl() {
   if (!(await probeBaseUrl())) {
     console.error(`Static server not reachable at ${BASE_URL}.`);
     console.error('Run the example orchestrator first:');
-    console.error('  cd implementation && npm run test:examples');
+    console.error('  cd implementation && npm run test:adapter-smokes');
     console.error('— or — start a long-running server with:');
-    console.error('  cd implementation && SCREENSHOT_SERVE_ONLY=1 npm run test:examples');
+    console.error('  cd implementation && SCREENSHOT_SERVE_ONLY=1 npm run test:adapter-smokes');
     process.exit(2);
   }
 

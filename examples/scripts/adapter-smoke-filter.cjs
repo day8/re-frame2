@@ -1,12 +1,12 @@
 /*
- * Single source of truth for the adapter-smoke example set AND the
+ * Single source of truth for the adapter-smoke set AND the
  * filter-selection logic shared by the orchestrator
- * (serve-and-run-examples-tests.cjs) and the Playwright runner
- * (run-examples-tests.cjs).
+ * (serve-and-run-adapter-smokes.cjs) and the Playwright runner
+ * (run-adapter-smokes.cjs).
  *
  * Why this module exists (rf2-l72e2)
  * ----------------------------------
- * The two scripts used to apply the same `EXAMPLES_FILTER` value to two
+ * The two scripts used to apply the same `ADAPTER_SMOKE_FILTER` value to two
  * *different string spaces*:
  *
  *   - the orchestrator substring-matched the filter against shadow-cljs
@@ -55,16 +55,17 @@ const path = require('path');
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
-// The canonical example set: the three adapter smokes. Each entry pairs
-// a shadow-cljs build id with the hand-written spec.cjs that drives it
-// and the HTML/output staging coordinates the orchestrator needs.
+// The canonical adapter-smoke set: the three adapter smokes. Each entry
+// pairs a shadow-cljs build id with the hand-written spec.cjs that drives
+// it and the HTML/output staging coordinates the orchestrator needs.
 //
 // Policy: the `examples/` tree is TEST-FREE. Every entry here MUST pair a
-// build with an existing spec.cjs under SPEC_ROOTS; never add a build
-// whose only purpose is "compile + stage with no spec to drive it" (dead
-// CI weight). Real regressions are caught by substrate contract tests,
-// the Xray feature-matrix gate, bundle-isolation, the perf-bundle gate,
-// and mcp-conformance — not by per-example Playwright specs.
+// build with an existing spec.cjs under ADAPTER_SMOKE_SPEC_ROOTS; never
+// add a build whose only purpose is "compile + stage with no spec to
+// drive it" (dead CI weight). Real regressions are caught by substrate
+// contract tests, the Xray feature-matrix gate, bundle-isolation, the
+// perf-bundle gate, and mcp-conformance — not by per-example Playwright
+// specs.
 //
 // Adding a new adapter smoke: append an entry with all four fields
 // (build, htmlSrc, outDir, specPath). `specPath` is the absolute path to
@@ -72,7 +73,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ADAPTERS = ['reagent', 'uix', 'helix'];
 const OUT_ROOT = path.join(REPO_ROOT, 'implementation', 'out', 'examples');
 
-const EXAMPLES = ADAPTERS.map((name) => ({
+const ADAPTER_SMOKES = ADAPTERS.map((name) => ({
   build: `adapters/${name}-testbed`,
   htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', name, 'testbed', 'index.html'),
   outDir: path.join(OUT_ROOT, 'adapter-testbeds', name),
@@ -81,8 +82,8 @@ const EXAMPLES = ADAPTERS.map((name) => ({
 
 // Spec discovery roots — the per-adapter smoke root only (examples/ is
 // test-free). Exported so the runner can keep a discover-then-reconcile
-// sanity check against the declared EXAMPLES manifest.
-const SPEC_ROOTS = [path.join(REPO_ROOT, 'implementation', 'adapters')];
+// sanity check against the declared ADAPTER_SMOKES manifest.
+const ADAPTER_SMOKE_SPEC_ROOTS = [path.join(REPO_ROOT, 'implementation', 'adapters')];
 
 // Collapse the three cosmetic separators (`_`, `\`, `/`) to a single
 // canonical `-` so build-id form and spec-path form land in the same
@@ -129,17 +130,17 @@ function entryMatches(entry, patterns) {
   });
 }
 
-// Select the subset of EXAMPLES whose identities match any pattern.
+// Select the subset of ADAPTER_SMOKES whose identities match any pattern.
 // Empty patterns => the full set. This is the single selection function
 // both the orchestrator and the runner call, guaranteeing an identical
 // selected set for any filter shape.
-function selectEntries(patterns, examples = EXAMPLES) {
-  return examples.filter((e) => entryMatches(e, patterns));
+function selectEntries(patterns, smokes = ADAPTER_SMOKES) {
+  return smokes.filter((e) => entryMatches(e, patterns));
 }
 
 module.exports = {
-  EXAMPLES,
-  SPEC_ROOTS,
+  ADAPTER_SMOKES,
+  ADAPTER_SMOKE_SPEC_ROOTS,
   REPO_ROOT,
   normalizeForFilter,
   parseFilterPatterns,

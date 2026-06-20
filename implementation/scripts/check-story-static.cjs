@@ -358,7 +358,7 @@ async function smokeTest(baseUrl, diagnostics) {
   // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
   // probe and the headless browser only ever hit loopback, so the
   // listener must not be exposed on non-loopback interfaces during a
-  // test run (rf2-utvst; matches serve-and-run-examples-tests.cjs).
+  // test run (rf2-utvst; matches serve-and-run-adapter-smokes.cjs).
   const serverArgs = [HTTP_SERVER_BIN, OUT_DIR, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
   const server = cleanup.trackProcess(spawnHarnessProcess(
     process.execPath,

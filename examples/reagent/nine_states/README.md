@@ -125,7 +125,7 @@ The watch build emits `main.js` into `out/examples/nine-states/`; copy
 this folder's hand-written [`index.html`](index.html) (and the shared
 assets it references under [`../../_shared/`](../../_shared/))
 alongside it, then serve `out/examples/nine-states/` over HTTP.
-(`npm run test:examples` does not build this example — it compiles and
+(`npm run test:adapter-smokes` does not build this example — it compiles and
 serves only the three adapter testbeds; see
 [`examples/reagent/README.md`](../README.md).)
 

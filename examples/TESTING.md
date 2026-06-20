@@ -19,7 +19,7 @@ surfaces change and in the scheduled/manual expensive workflow.
 | Command                            | What it runs                                                                                                        | Where the orchestrator lives                                                                                                |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | `npm run test:browser`             | The shadow-cljs `:browser-test` bundle — every `*-cljs-test` namespace, including example wrappers (`re-frame.nine-states-cljs-test`, `re-frame.realworld-cljs-test`, ...). All of them load into a single Chromium page. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs)        |
-| `npm run test:examples`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
+| `npm run test:adapter-smokes`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-adapter-smokes.cjs`](scripts/serve-and-run-adapter-smokes.cjs)                                       |
 | `npm run test:examples-compile`    | **Compile-coverage gate.** `shadow-cljs compile` over EVERY declared standalone `:examples/*` build (the list is derived from `shadow-cljs.edn`, so a new example build is swept automatically). Fails on any compile-time error AND on any warning (a typo'd init-fn surfaces as an `:undeclared-var` warning, and `compile` exits 0 on warnings). NOT a Playwright/runtime check — no `spec.cjs` involved. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 
 The three surfaces are independent:
@@ -28,7 +28,7 @@ The three surfaces are independent:
   namespace that is `:require`'d by a `*-cljs-test` wrapper is loaded into
   the same JS runtime and runs against a single shared DOM. This is where
   ns-load side effects bite.
-- `test:examples` is **N bundles, N pages, N specs** — one per adapter
+- `test:adapter-smokes` is **N bundles, N pages, N specs** — one per adapter
   testbed. Each adapter owns its own runtime; no cross-adapter
   interaction is possible.
 - `test:examples-compile` is **compile-only** — it never serves a page or
@@ -234,14 +234,14 @@ The anti-pattern to avoid is:
     (rdc/create-root (js/document.getElementById "app"))))
 ```
 
-Under `test:examples` (one ns per page) this is harmless. Under
+Under `test:adapter-smokes` (one ns per page) this is harmless. Under
 `test:browser` (every ns in one page) every example namespace that
 `:require`s into the test bundle would race `create-root` calls on the
 same shared `#app` element — leaking example-A's mount into example-B's
 tests and emitting `createRoot is being called on the same container
 twice` warnings. The lazy-mount pattern keeps ns-load DOM-side-effect
 free; `run` only fires when the example is actually being driven as a
-standalone page by `test:examples`.
+standalone page by `test:adapter-smokes`.
 
 The same lazy-mount shape is also used by the UIx and Helix examples
 (see `examples/uix/login_uix/core.cljs` and friends) — the substrate
@@ -451,21 +451,21 @@ bundle, in the same page, with the same shared `#app` mount point. If
 mount-isolation discipline holds, the new example will not affect any
 sibling's tests.
 
-## Adding a new example to `test:examples`
+## Adding a new example to `test:adapter-smokes`
 
 Per the test-free examples policy the `examples/` tree
-itself carries no Playwright specs; `test:examples` drives only the
+itself carries no Playwright specs; `test:adapter-smokes` drives only the
 three adapter testbeds at
 `implementation/adapters/{reagent,uix,helix}/testbed/`. **Do NOT add
 a `*.spec.cjs` under `examples/`.**
 
 The example set is declared **once** in
-[`scripts/examples-filter.cjs`](scripts/examples-filter.cjs) — each entry
+[`scripts/adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs) — each entry
 pairs a shadow-cljs build id with its `index.html` source, its
 `out/examples/` staging dir, and the `spec.cjs` it runs. Both the
 orchestrator (compile + stage) and the Playwright runner (spec
 selection) import that manifest and call its shared `selectEntries`, so a
-narrow `--filter`/`EXAMPLES_FILTER` value selects the *identical* set in
+narrow `--filter`/`ADAPTER_SMOKE_FILTER` value selects the *identical* set in
 both phases regardless of whether it is build-id-shaped
 (`adapters/reagent-testbed`, `reagent-testbed`) or path-shaped
 (`adapters/reagent/testbed`, `reagent/testbed`). The runner also
@@ -478,7 +478,7 @@ compile coverage: `test:examples-compile` derives its build list from
 `shadow-cljs.edn`, so declaring the build there is enough — the next CI
 run compiles it (and fails on any compile error or warning). See
 [Compile-coverage gate](#compile-coverage-gate-testexamples-compile)
-above. You only touch `examples-filter.cjs` when the build also needs a
+above. You only touch `adapter-smoke-filter.cjs` when the build also needs a
 Playwright *runtime* smoke (the three adapter testbeds), which the
 test-free examples policy reserves for adapter-level surfaces.
 

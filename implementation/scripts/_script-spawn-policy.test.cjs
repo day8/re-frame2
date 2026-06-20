@@ -61,7 +61,7 @@ const SCRIPTS_DIR = __dirname;
 // rf2-y9o5e3 — the executable browser-gate launchers under
 // examples/scripts/ run the SAME shadow-cljs compile + http-server spawn
 // posture as the implementation/scripts launchers, and `npm run
-// test:examples` / `test:story-feature-load` / `test:story-play-scripts`
+// test:adapter-smokes` / `test:story-feature-load` / `test:story-play-scripts`
 // drive them on Windows local runs. They were previously OUTSIDE this
 // policy gate (it scanned only implementation/scripts/), so a forbidden
 // npx.cmd/cmd.exe/shell posture survived there. Pull them in here.
@@ -204,7 +204,7 @@ test('serve-and-run-xray-feature-gate.cjs resolves shadow-cljs runner + spawns i
 // implementation/scripts launchers above), so a future edit can't quietly
 // regress to the npx.cmd/cmd.exe/shell posture this bead removed.
 const EXAMPLES_LAUNCHERS = [
-  'serve-and-run-examples-tests.cjs',
+  'serve-and-run-adapter-smokes.cjs',
   'serve-and-run-story-feature-load-tests.cjs',
   'serve-and-run-story-play-scripts.cjs',
 ];
@@ -250,7 +250,7 @@ for (const base of IMPL_LOOPBACK_LAUNCHERS) {
       `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
         `http-server's default is 0.0.0.0, and this launcher only ever serves ` +
         `127.0.0.1 (readiness probe + headless browser). Match ` +
-        `serve-and-run-examples-tests.cjs.`,
+        `serve-and-run-adapter-smokes.cjs.`,
     );
   });
 }
