@@ -143,10 +143,9 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (flows/reset-last-inputs!)
-  ;; Per rf2-bacs4: the error-emit listener registry is a `defonce` atom
-  ;; that survives test re-runs. Clear before each test so a listener
-  ;; registered by one fixture (per rf2-gmrks `:error-emit-records`
-  ;; matcher) doesn't leak into the next.
+  ;; The error-emit listener registry is a `defonce` atom that survives test
+  ;; re-runs. Clear before each test so a listener registered by one fixture
+  ;; (the `:error-emit-records` matcher) doesn't leak into the next.
   (error-emit/clear-error-listeners!)
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
@@ -157,9 +156,9 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.flows :reload)
-  ;; EP-0002 (rf2-5q7um6): the conformance corpus registers flows and
-  ;; dispatches ambiently against :rf/default; reg-flow + dispatch are now
-  ;; context-required (no :rf/default floor). Register :rf/default as an
+  ;; EP-0002: the conformance corpus registers flows and dispatches ambiently
+  ;; against :rf/default; reg-flow + dispatch are context-required (no
+  ;; :rf/default floor). Register :rf/default as an
   ;; ordinary frame here so the scope is available — but do NOT pin
   ;; `*current-frame*` around the whole body: `run-fixture`'s `reg-frame`
   ;; must run with no in-flight scope so its `:on-create` cascade fires
@@ -259,9 +258,8 @@
   surface. Mirrors core's runner shape."
   []
   {:read-db!  (fn [frame-id] (frame/frame-app-db-value frame-id))
-   ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db! —
-   ;; app-db-container is now a read-only projection over the one physical
-   ;; frame-state container.
+   ;; EP-0001: write the app-db PARTITION via swap-frame-db! — app-db-container
+   ;; is a read-only projection over the one physical frame-state container.
    :write-db! (fn [frame-id new-db]
                 (frame/swap-frame-db! frame-id (constantly new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
@@ -357,12 +355,12 @@
                               (fn [ev] (swap! traces conj ev)))
     traces))
 
-;; ---- error-emit capture (rf2-gmrks) -------------------------------------
+;; ---- error-emit capture --------------------------------------------------
 ;;
 ;; Per Spec 013 §Failure semantics rule 4 + §Resolved decisions
-;; §`:rf.error/flow-eval-exception` rides the always-on error substrate
-;; (rf2-0q0du): flow-eval failures fire on the always-on production
-;; error-emit substrate, which survives CLJS `:advanced` +
+;; §`:rf.error/flow-eval-exception` rides the always-on error substrate:
+;; flow-eval failures fire on the always-on production error-emit substrate,
+;; which survives CLJS `:advanced` +
 ;; `goog.DEBUG=false` elision. The `flow-eval-exception.edn` fixture's
 ;; `:error-emit-records` matcher asserts the listener captured a record
 ;; of the expected shape — the host-agnostic data-shape equivalent of
@@ -523,7 +521,7 @@
     (let [fid          (:fixture/id fixture)
           traces       (collect-traces fid)
           ;; Always register an error-emit listener so the
-          ;; `:error-emit-records` matcher (rf2-gmrks) has a captured
+          ;; `:error-emit-records` matcher has a captured
           ;; stream to assert against. Listeners with no expectations
           ;; cost nothing — the registry is cleared in `reset-runtime`
           ;; between fixtures.
@@ -541,29 +539,28 @@
           ;; seam is bypassed. Single-frame fixtures keep the original
           ;; shape (`:fixture/frame-config` configures `:rf/default`).
           ;;
-          ;; Order (rf2-wbtjn): event / sub / fx handlers must be
-          ;; registered BEFORE `reg-frame` fires the `:on-create`
-          ;; cascade — `:on-create` dispatches the fixture's seed event,
-          ;; which needs its handler resolved. Flow registration MUST
-          ;; come AFTER `reg-frame`: the destroy-frame! teardown hook
-          ;; (the symmetric leak fix this bead lands) clears any flows
-          ;; registered against the frame being destroyed, so
-          ;; registering them before the destroy would wipe them.
+          ;; Order: event / sub / fx handlers must be registered BEFORE
+          ;; `reg-frame` fires the `:on-create` cascade — `:on-create`
+          ;; dispatches the fixture's seed event, which needs its handler
+          ;; resolved. Flow registration MUST come AFTER `reg-frame`: the
+          ;; destroy-frame! teardown hook clears any flows registered against
+          ;; the frame being destroyed, so registering them before the destroy
+          ;; would wipe them.
           _            (rf/destroy-frame! :rf/default)
           _            (realise-event-sub-fx-handlers fixture)
           ;; reg-frame runs with NO in-flight scope so its `:on-create`
           ;; cascade fires SYNCHRONOUSLY (Spec 002 §reg-frame from inside a
           ;; handler async-queues on-create when `*current-frame*` is bound;
-          ;; EP-0002 / rf2-5q7um6). The carried-invariant scope is pinned
-          ;; AFTER reg-frame, around `realise-flows!` + the dispatch loop.
+          ;; EP-0002). The carried-invariant scope is pinned AFTER reg-frame,
+          ;; around `realise-flows!` + the dispatch loop.
           _            (if (seq frames-spec)
                          (doseq [f frames-spec]
                            (rf/reg-frame (:id f) (dissoc f :id)))
                          (rf/reg-frame :rf/default frame-config))
           dispatches   (or (:fixture/dispatches fixture) [])]
-      ;; EP-0002 (rf2-5q7um6): reg-flow + bare single-frame dispatches are
-      ;; context-required frame-local. Pin :rf/default as the established
-      ;; scope for the no-explicit-frame calls below. Multi-frame fixtures
+      ;; EP-0002: reg-flow + bare single-frame dispatches are context-required
+      ;; frame-local. Pin :rf/default as the established scope for the
+      ;; no-explicit-frame calls below. Multi-frame fixtures
       ;; pass explicit `{:frame …}` envelopes (the override), which win over
       ;; this ambient binding.
       (binding [frame/*current-frame* :rf/default]
@@ -573,8 +570,8 @@
       ;;   - an envelope map `{:event [...] :frame <id> ...}` (multi-frame,
       ;;     mirrors core's runner per
       ;;     spec/conformance/fixtures/frame-multi-instance.edn)
-      ;;   - a teardown step `{:destroy-frame <frame-id>}` (rf2-gmrks /
-      ;;     Spec 013 §Frame-destroy teardown). The runner calls
+      ;;   - a teardown step `{:destroy-frame <frame-id>}`
+      ;;     (Spec 013 §Frame-destroy teardown). The runner calls
       ;;     `frame/destroy-frame!` on the named frame; subsequent
       ;;     dispatch / matcher checks see the post-teardown state.
       (doseq [ev dispatches]
@@ -623,7 +620,7 @@
             ;; `:trace-absent` — a vector of trace patterns that MUST NOT
             ;; appear anywhere in the captured stream (no op-type filter).
             ;; Powers the atomicity-contract assertion that a flow throw
-            ;; emits NO `:rf.event/db-changed` (rf2-u0zz5).
+            ;; emits NO `:rf.event/db-changed`.
             forbidden-emits  (:trace-absent expect)
             absent-failures  (when forbidden-emits
                                (check-trace-absent @traces forbidden-emits))
@@ -647,7 +644,7 @@
                                      (for [[fid _] expected-after]
                                        [fid (flow-registry-ids fid)]))
                                :else (flow-registry-ids))
-            ;; `:flow-last-inputs-after` (rf2-gmrks) — `{flow-id
+            ;; `:flow-last-inputs-after` — `{flow-id
             ;; #{frame-ids}}` strict match. Per Spec 013 §Frame-destroy
             ;; teardown: after `destroy-frame!`, the destroyed frame's
             ;; row in every `last-inputs[flow-id]` MUST be dropped; the
@@ -658,7 +655,7 @@
                                (into {}
                                      (for [[flow-id _] expected-li]
                                        [flow-id (last-inputs-frame-set flow-id)])))
-            ;; `:registrar-flow-slots-after` (rf2-gmrks) — strict set
+            ;; `:registrar-flow-slots-after` — strict set
             ;; match of `:flow` registrar ids that survive the fixture's
             ;; teardown. Per Spec 013 §Frame-destroy teardown: the slot
             ;; drops iff no surviving frame still owns the id.
@@ -667,14 +664,13 @@
                                (into #{}
                                      (filter registrar-has-flow?
                                              expected-slots)))
-            ;; `:error-emit-records` (rf2-gmrks) — order-preserving
-            ;; subset match against the captured always-on error-emit
-            ;; substrate stream. Per Spec 013 §Failure semantics rule 4
-            ;; + Resolved decisions §`:rf.error/flow-eval-exception`
-            ;; rides the always-on error substrate (rf2-0q0du): the
-            ;; substrate fires under CLJS `:advanced` + `goog.DEBUG=false`
-            ;; — this matcher is the host-agnostic data-shape equivalent
-            ;; of the JVM-side prod-elision proof.
+            ;; `:error-emit-records` — order-preserving subset match against
+            ;; the captured always-on error-emit substrate stream. Per Spec 013
+            ;; §Failure semantics rule 4 + Resolved decisions
+            ;; §`:rf.error/flow-eval-exception` rides the always-on error
+            ;; substrate: the substrate fires under CLJS `:advanced` +
+            ;; `goog.DEBUG=false` — this matcher is the host-agnostic data-shape
+            ;; equivalent of the JVM-side prod-elision proof.
             expected-err     (:error-emit-records expect)
             err-failures     (when expected-err
                                (check-trace-stream @err-records expected-err))]
@@ -733,7 +729,7 @@
             ;; A flow fixture that will not parse, declares a spec-version
             ;; this runner does not claim, or declares a capability outside
             ;; the claim is NOT a benign skip — this runner is the reference
-            ;; gate for every `flow-*.edn` fixture (rf2-lrf1se). Record it as
+            ;; gate for every `flow-*.edn` fixture. Record it as
             ;; a FAILURE so `(is (zero? failed))` catches it; the fix is to
             ;; fix the fixture or extend `claimed-*` + implement the matcher
             ;; (a reviewed edit to this file), never to let it skip.
@@ -763,10 +759,10 @@
     (let [all     @results
           passed  (filter :passed? all)
           failed  (remove :passed? all)]
-      ;; Silent-on-success (rf2-try1x): summary prints only on failure.
-      ;; No skip bucket (rf2-lrf1se): a flow fixture this runner cannot run —
-      ;; load error, unclaimed spec-version, out-of-claim capability — is a
-      ;; FAILURE, not a non-blocking skip.
+      ;; Silent-on-success: the summary prints only on failure.
+      ;; No skip bucket: a flow fixture this runner cannot run — load error,
+      ;; unclaimed spec-version, out-of-claim capability — is a FAILURE, not a
+      ;; non-blocking skip.
       (when (seq failed)
         (println)
         (println "Flows conformance corpus (flow-*.edn fixtures):")

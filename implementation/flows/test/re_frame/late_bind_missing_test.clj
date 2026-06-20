@@ -41,12 +41,11 @@
       (finally
         (late-bind/set-fn! hook-key original)))))
 
-;; rf2-wad2fl (front-porch shrink): `clear-flow` was demoted off the
-;; `re-frame.core` façade — it is reached through `re-frame.flows/clear-flow`
-;; now, so the façade artefact-missing contract no longer applies to it. The
-;; `reg-flow` registration MACRO remains on the façade (source-coord capture);
-;; its missing-artefact contract is tested below, alongside the
-;; framework-internal hook no-op contracts.
+;; `clear-flow` is not on the `re-frame.core` façade — it is reached through
+;; `re-frame.flows/clear-flow`, so the façade artefact-missing contract does
+;; not apply to it. The `reg-flow` registration MACRO is on the façade
+;; (source-coord capture); its missing-artefact contract is tested below,
+;; alongside the framework-internal hook no-op contracts.
 
 (deftest reg-flow-raises-when-flows-artefact-missing
   (testing "rf/reg-flow (macro) raises :rf.error/flows-artefact-missing when the :flows/reg-flow hook is nil"
@@ -63,26 +62,26 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-flow throws when the flows artefact is absent")
-          ;; rf2-vvixub — the message is the human :reason sentence + the
-          ;; trailing [:rf.error/<id>] greppability token (Spec 009 §The
-          ;; thrown-error shape). Assert the token substring + the canonical
-          ;; :rf.error/id discriminator, NOT exact keyword-equality.
+          ;; The message is the human :reason sentence + the trailing
+          ;; [:rf.error/<id>] greppability token (Spec 009 §The thrown-error
+          ;; shape). Assert the token substring + the canonical :rf.error/id
+          ;; discriminator, NOT exact keyword-equality.
           (is (re-find #"\[:rf\.error/flows-artefact-missing\]" (.getMessage thrown))
               "the message carries the [:rf.error/flows-artefact-missing] token")
           (let [data (ex-data thrown)]
             (is (= :rf.error/flows-artefact-missing (:rf.error/id data))
                 "ex-data carries the canonical :rf.error/id discriminator")
-            ;; Per rf2-hoiu the throw lives in `re-frame.core-flows/reg-flow`
-            ;; — the sibling-namespace fn-form delegate the macro routes
-            ;; through. Per rf2-j8icl the `:where` symbol is namespace-
-            ;; qualified to the user-facing surface (`rf/reg-flow`).
+            ;; The throw lives in `re-frame.core-flows/reg-flow` — the
+            ;; sibling-namespace fn-form delegate the macro routes through. The
+            ;; `:where` symbol is namespace-qualified to the user-facing
+            ;; surface (`rf/reg-flow`).
             (is (= 'rf/reg-flow (:where data))
                 "ex-data carries :where = 'rf/reg-flow")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Framework-internal hooks (rf2-g9t87)
+;; Framework-internal hooks
 ;;
 ;; The four hooks below are framework-internal: their consumers are
 ;; `re-frame.router/flows-after-interceptor` (outermost `:after` flow
@@ -110,8 +109,8 @@
     (with-hook-as-nil :flows/run-flows-on-db
       (fn []
         (rf/init! plain-atom/adapter)
-        ;; EP-0002 (rf2-5q7um6): `init!` no longer creates `:rf/default`,
-        ;; and a bare `dispatch-sync` under no established scope raises
+        ;; EP-0002: `init!` does not create `:rf/default`, and a bare
+        ;; `dispatch-sync` under no established scope raises
         ;; `:rf.error/no-frame-context`. Register `:rf/default` and pin it
         ;; as the established scope so this absent-flows-artefact drain test
         ;; carries a frame stamp (the carried invariant).
