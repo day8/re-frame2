@@ -200,16 +200,16 @@
 ;; processing-start (re-frame.cofx/deliver-declared-cofx writes the generated
 ;; value back into the in-flight `:rf.cofx` record).
 ;;
-;; Before rf2-1xdotm the assembled `:rf/epoch-record` carried `:trigger-event`
-;; / `:event-id` / `:dispatch-id` but NO first-class `:rf.cofx` replay token,
-;; so a tool replaying from the record could not supply the exact facts the
-;; original run consumed: under strict replay it would miss the generated fact
-;; and fail with `:rf.error/missing-required-cofx`. These tests reproduce the
-;; gap with a generator-backed recordable cofx and pin the fix end-to-end —
-;; dispatch once with no supplied fact (generator mints it), assert the record
-;; carries the post-generation `:rf.cofx`, then replay the recorded event under
-;; `:strict` from that token and assert NO generator call occurs and the
-;; handler receives the recorded value.
+;; The assembled `:rf/epoch-record` carries `:trigger-event` / `:event-id` /
+;; `:dispatch-id` AND a first-class `:rf.cofx` replay token (rf2-1xdotm), so a
+;; tool replaying from the record can supply the exact facts the original run
+;; consumed. Without that token a strict replay would miss a generated fact
+;; and fail with `:rf.error/missing-required-cofx`. These tests pin the
+;; property end-to-end with a generator-backed recordable cofx — dispatch once
+;; with no supplied fact (generator mints it), assert the record carries the
+;; post-generation `:rf.cofx`, then replay the recorded event under `:strict`
+;; from that token and assert NO generator call occurs and the handler
+;; receives the recorded value.
 
 (deftest epoch-record-carries-post-generation-rf-cofx
   (testing "rf2-1xdotm — the assembled :rf/epoch-record exposes the complete
@@ -2324,15 +2324,15 @@
 ;;
 ;; `value-changed-epoch-for` (state.cljc) scans the ring newest-first for the
 ;; epoch that genuinely re-rendered a view, bounded so it only walks records
-;; that still carry `:trace-events` (the matchable set). rf2-3rg4j bounded it
-;; at `(- n keep)`. rf2-b2c02 R2: that index-derived bound is correct only in
-;; STEADY STATE — after a RUNTIME `:trace-events-keep` REDUCTION, elision is
-;; non-retroactive (`elide-just-crossed-trace-events`'s docstring), so records
-;; that were inside the OLD keep-window still carry `:trace-events` yet now sit
-;; BELOW `(- n new-keep)`. An index bound would skip those still-trace-bearing
-;; records and miss a genuine value-change, mis-attributing the render. The fix
-;; bounds the scan on the directly-observable elision state (break at the first
-;; record MISSING `:trace-events`) so it tracks reality under any reconfigure.
+;; that still carry `:trace-events` (the matchable set). The scan bounds on the
+;; directly-observable elision state (rf2-b2c02 R2): it breaks at the first
+;; record MISSING `:trace-events`, so it tracks reality under any reconfigure.
+;; An index bound at `(- n keep)` (rf2-3rg4j) is correct only in STEADY STATE:
+;; after a RUNTIME `:trace-events-keep` REDUCTION, elision is non-retroactive
+;; (`elide-just-crossed-trace-events`'s docstring), so records that were inside
+;; the OLD keep-window still carry `:trace-events` yet now sit BELOW
+;; `(- n new-keep)` — an index bound would skip those still-trace-bearing
+;; records and miss a genuine value-change, mis-attributing the render.
 ;;
 ;; rf2-yw1w1u — the two tests below KEEP direct private-var access
 ;; (`@#'state/histories`, `@#'state/config`, `@#'state/value-changed-epoch-for`)
@@ -2868,11 +2868,11 @@
 ;; (rf/configure! {:epoch-history {:depth 0}}) the ring buffer is DISABLED by
 ;; documented design (Tool-Pair §Time-travel — depth 0 retains no history;
 ;; consume via register-epoch-listener!), so the synthetic anchor can never land
-;; in the ring. Pre-fix: state/record! early-returned under its pos-depth guard,
-;; so NOTHING landed, yet perform-replace! returned true AND re-anchored
-;; last-settled-epoch (a PHANTOM anchor naming a non-ring epoch-id) — a tool/pair
-;; gesture believed it could rewind and could not (restore-epoch! of that id
-;; failed :rf.epoch/restore-unknown-epoch). Contract chosen: LOUD REJECT —
+;; in the ring (state/record! early-returns under its pos-depth guard). If
+;; perform-replace! nonetheless returned true and re-anchored last-settled-epoch
+;; (a PHANTOM anchor naming a non-ring epoch-id), a tool/pair gesture would
+;; believe it could rewind and could not (restore-epoch! of that id fails
+;; :rf.epoch/restore-unknown-epoch). The contract is therefore LOUD REJECT —
 ;; depth 0 means "history disabled", so force-appending the anchor would
 ;; contradict the spec; instead reject loudly via the in-artefact failure
 ;; channel (the analogue of the artefact-missing throw at core_epoch.cljc:111).
@@ -3016,10 +3016,10 @@
 ;; ---- replace-runtime-db! / replace-frame-state! (rf2-szbzei) ---------------
 ;;
 ;; Per Tool-Pair §Pair-tool writes the four partition-aware injection
-;; mutators are ALL epoch-backed dev/tooling writes. rf2-szbzei extends
-;; the epoch-backed write path (previously app-db-only) to the runtime-db
-;; and full-frame mutators. The invariants below mirror the app-db-pair
-;; tests above, proving the four contract points the bead enumerates:
+;; mutators are ALL epoch-backed dev/tooling writes — the app-db, runtime-db,
+;; and full-frame mutators all run through the one epoch-backed write path
+;; (rf2-szbzei). The invariants below mirror the app-db-pair tests above,
+;; proving the four contract points the bead enumerates:
 ;;
 ;;   1. A replace-runtime-db! / replace-frame-state! injection records a
 ;;      synthetic :rf.epoch/db-replaced epoch, and restore-epoch! of a PRIOR
@@ -3311,14 +3311,13 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     ;; Out-of-drain emit: :rf.epoch/db-replaced fires with a :frame tag.
-    ;; Pre-fix, capture-event! would buffer it into capture-buffers[:test/main].
+    ;; capture-event! must NOT buffer it into capture-buffers[:test/main].
     (rf/replace-app-db! :test/main {:n 100})
 
-    ;; Cascade 2: a real event. Post-fix, its harvested record reflects
-    ;; only the :bump cascade. Pre-fix, the leaked :rf.epoch/db-replaced
-    ;; event would be the FIRST event in the buffer, and
-    ;; find-trigger-event's fallback arm would pick its :epoch-id over
-    ;; the real :bump event.
+    ;; Cascade 2: a real event. Its harvested record reflects only the :bump
+    ;; cascade. Were the :rf.epoch/db-replaced event leaked into the buffer it
+    ;; would be the FIRST event there, and find-trigger-event's fallback arm
+    ;; would pick its :epoch-id over the real :bump event.
     (rf/dispatch-sync [:bump] {:frame :test/main})
 
     (let [history    (rf/epoch-history :test/main)
@@ -3745,13 +3744,6 @@
         (is (= 1 (count silenced))
             "silencing fires for the observed frame")))))
 
-;; rf2-ee38b: the `clear-frame-history!` seam pin (rf2-jvrd) was removed
-;; alongside the dead `defn-` it existed solely to test — scoped clearing
-;; is not on the integration critical path (the fixture uses the unscoped
-;; `clear-history!`), and `state/drop-frame-history!` is already exercised
-;; directly by the destroy path. Pre-alpha posture favours deleting
-;; unreferenced API surface over preserving a self-justifying seam.
-
 ;; ---- rf2-ronz: on-frame-destroyed! direct unit pin ------------------------
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-20. Currently reached only
@@ -3836,9 +3828,8 @@
 ;; buffer — treating it as belonging to that cascade. The
 ;; `find-trigger-event` fallback would pick its `:epoch-id` as the
 ;; trigger; `project-all` (rf2-ecu37) would silently include the
-;; leaked entries. The rf2-htf28 fix added the missing ops to the skip-set; pin
-;; the contract here so a future regression that drops them surfaces
-;; loudly.
+;; leaked entries. The skip-set carries these ops (rf2-htf28); this pins
+;; the contract so a future regression that drops them surfaces loudly.
 
 (deftest capture-buffer-does-not-cross-contaminate-from-replace-app-db
   (testing "an out-of-drain :rf.epoch/db-replaced emit from
@@ -3851,8 +3842,8 @@
     ;; 1. Drive one cascade — clean record lands.
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    ;; 2. replace-app-db! out-of-drain — emits :rf.epoch/db-replaced
-    ;;    which (pre-rf2-htf28) would buffer into capture-buffers.
+    ;; 2. replace-app-db! out-of-drain — emits :rf.epoch/db-replaced,
+    ;;    which must NOT buffer into capture-buffers.
     (is (true? (rf/replace-app-db! :test/main {:n 99})))
 
     ;; 3. Drive a second cascade for [:foo].
@@ -3953,15 +3944,12 @@
 ;; for a destroyed frame; devtools receive the record via the listener
 ;; fan-out, the documented introspection channel for the destroy halt).
 ;;
-;; rf2-9neiq corrected the FALSE-GREEN db assertions here: this test
-;; previously PINNED `nil` :db-before / :db-after, contradicting
-;; Spec-Schemas §:rf/epoch-record §Outcomes, which documents
-;; :halted-destroy as carrying the PRE-CASCADE snapshot as :db-before and
-;; the DESTROY-TIME state as :db-after. The prior nil/nil arose because
-;; `destroy-frame!` notified epoch AFTER the container was dissoc'd; the
-;; fix threads both snapshots (pre-cascade via frame/*cascade-db-before*,
-;; destroy-time via the container read at the top of destroy-frame!) into
-;; the destroy hook so the record now carries the real app-db state.
+;; Per Spec-Schemas §:rf/epoch-record §Outcomes, :halted-destroy carries the
+;; PRE-CASCADE snapshot as :db-before and the DESTROY-TIME state as :db-after
+;; (rf2-9neiq) — NOT nil/nil. `destroy-frame!` threads both snapshots
+;; (pre-cascade via frame/*cascade-db-before*, destroy-time via the container
+;; read at the top of destroy-frame!) into the destroy hook before the
+;; container is dissoc'd, so the record carries the real app-db state.
 
 (deftest live-halted-destroy-fires-partial-record-with-real-snapshots
   (testing "a mid-drain destroy-frame! fires exactly one :halted-destroy
@@ -4159,15 +4147,14 @@
 ;; ---- rf2-7kxxx: find-trigger-event must not synthesise [eid] when
 ;; ---- :event tag is absent on the fallback arm ----------------------------
 ;;
-;; Per audit r3 §F2: the fallback arm of `find-trigger-event` previously
-;; synthesised `[eid]` as `:event` when the buffered event carried an
-;; `:event-id` tag but no `:event` tag. That misrepresents an event that
-;; originally carried payload (e.g. `[:foo "bar" 42]`) as a payload-less
-;; event. Post-fix: the fallback returns `:event nil` when the tag is
-;; absent, and (per rf2-kl5p1) `build-record` then omits the
-;; `:trigger-event` slot entirely. No silent fabrication; consumers
-;; rendering 'what triggered this cascade' either see the real event
-;; vector or none at all.
+;; Per audit r3 §F2: the fallback arm of `find-trigger-event` returns
+;; `:event nil` when the buffered event carries an `:event-id` tag but no
+;; `:event` tag, and (per rf2-kl5p1) `build-record` then omits the
+;; `:trigger-event` slot entirely. Synthesising `[eid]` as `:event` would
+;; misrepresent an event that carried payload (e.g. `[:foo "bar" 42]`) as a
+;; payload-less event, so there is no such fabrication; consumers rendering
+;; 'what triggered this cascade' either see the real event vector or none at
+;; all.
 
 (deftest find-trigger-event-fallback-does-not-synthesise-event-vector
   (testing "find-trigger-event's fallback arm — :event-id tag present,
@@ -4223,11 +4210,11 @@
 ;; Per the correctness review (ai/findings/review/correctness--
 ;; implementation-epoch.md): the run-start arm (rf2-rly4a) reads
 ;; :dispatch-id from the canonical `:event/run-start` trace, which is
-;; correct. The fallback arm previously also surfaced the :dispatch-id of
-;; an arbitrary non-run-start trace (e.g. an error trace from a rejected
-;; dispatch). Spec-Schemas §`:rf/epoch-record` documents :dispatch-id as
+;; correct. Surfacing the :dispatch-id of an arbitrary non-run-start trace
+;; (e.g. an error trace from a rejected dispatch) on the fallback arm would
+;; be wrong: Spec-Schemas §`:rf/epoch-record` documents :dispatch-id as
 ;; pinned from the run-start tag and ABSENT for a no-run-start cascade —
-;; so the fallback arm must NOT pin a dispatch-id; only the run-start arm
+;; so the fallback arm does NOT pin a dispatch-id; only the run-start arm
 ;; does.
 
 (deftest find-trigger-event-fallback-omits-dispatch-id
@@ -4339,12 +4326,12 @@
 
 ;; ---- rf2-douii: configure! validates at the boundary ---------------------
 ;;
-;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: `configure!` previously
-;; accepted any value for `:depth` and `:trace-events-keep`. A nil or
-;; non-numeric value would survive configuration and explode later at
-;; `record!` time when `pos?` / `nat-int?` ran on the stored value. The
-;; validation now sanitises at the boundary — invalid values are silently
-;; dropped, the prior valid config survives.
+;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: `configure!` validates
+;; `:depth` and `:trace-events-keep` at the boundary — invalid values (nil,
+;; non-numeric) are silently dropped and the prior valid config survives.
+;; Without that boundary check a bad value would survive configuration and
+;; explode later at `record!` time when `pos?` / `nat-int?` ran on the stored
+;; value.
 
 (deftest configure-rejects-nil-depth
   (testing "(rf/configure! {:epoch-history {:depth nil}}) is a no-op; the
@@ -4878,15 +4865,13 @@
 ;; `frame/replace-*` write returns STILL slips through — the liveness check
 ;; said "live", yet the physical write lands against a now-destroyed frame and
 ;; the choke-point `commit-frame-transition!` returns `nil` (the nil-container
-;; guard). Pre-rf2-s93722 the four perform helpers IGNORED that return, so they
-;; emitted success telemetry, recorded + fanned out a synthetic epoch, and
-;; returned `true` for a write that never happened.
-;;
-;; The fix: capture the `frame/replace-*` return; `nil` is the destroyed-frame
-;; signal (a non-nil — possibly EMPTY — changed-key-set means the write
-;; landed, even a no-op), so surface the canonical `:rf.error/no-such-handler`
-;; (kind :frame) / `false` BEFORE any success telemetry, synthetic epoch, or
-;; listener fanout. Empty-set / no-op writes stay successful.
+;; guard). The four perform helpers (rf2-s93722) capture that return: `nil` is
+;; the destroyed-frame signal (a non-nil — possibly EMPTY — changed-key-set
+;; means the write landed, even a no-op), so they surface the canonical
+;; `:rf.error/no-such-handler` (kind :frame) / `false` BEFORE any success
+;; telemetry, synthetic epoch, or listener fanout. Ignoring the return would
+;; emit success telemetry and a fanned-out synthetic epoch for a write that
+;; never happened. Empty-set / no-op writes stay successful.
 ;;
 ;; The race is reproduced by redefining the boundary `frame/replace-*` write
 ;; to DESTROY the frame and then delegate to the real fn — so liveness has
@@ -5200,12 +5185,12 @@
 ;;
 ;; notify-listeners! iterates a listener SNAPSHOT, then per cb-id calls
 ;; record-observation! (writing the separate observed-frames-by-cb atom)
-;; BEFORE invoking the callback. If unregister-epoch-listener! removes a cb
-;; between the snapshot and the record-observation! call, the stale cb-id
-;; would (pre-rf2-7i872) be RE-INTRODUCED into observed-frames-by-cb and
-;; later receive a bogus :rf.epoch.cb/silenced-on-frame-destroy trace on
-;; frame destroy. The fix gates record-observation! on the cb-id still being
-;; a live listener at record time.
+;; BEFORE invoking the callback. record-observation! is gated (rf2-7i872) on
+;; the cb-id still being a live listener at record time: if
+;; unregister-epoch-listener! removes a cb between the snapshot and the
+;; record-observation! call, an ungated write would RE-INTRODUCE the stale
+;; cb-id into observed-frames-by-cb, which would later receive a bogus
+;; :rf.epoch.cb/silenced-on-frame-destroy trace on frame destroy.
 
 (deftest record-observation-skips-unregistered-cb-no-stale-bookkeeping
   (testing "rf2-7i872 — record-observation! against a cb that has been
