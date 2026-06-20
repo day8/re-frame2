@@ -1,11 +1,11 @@
 (ns day8.re-frame2-xray.palette.recents
   "localStorage round-trip for the Xray command palette's
-  last-used-commands list (rf2-ybjkx).
+  last-used-commands list.
 
-  Per the bead's acceptance contract: the palette persists the top-3
-  recently-invoked commands to localStorage so a reload surfaces the
-  user's recent verbs first. The open-state itself is transient and
-  NEVER persisted — only the recents list.
+  The palette persists the top-3 recently-invoked commands to
+  localStorage so a reload surfaces the user's recent verbs first.
+  The open-state itself is transient and NEVER persisted — only the
+  recents list.
 
   ## Shape
 
@@ -14,8 +14,8 @@
       ;; localStorage value
       \"[:rf.xray.cmd/toggle-theme :rf.xray.cmd/jump-tab-event ...]\"
 
-  Most-recent-first order. The list is capped at 3 entries (per the
-  bead — top-3 recent). `record!` dedups on identity so re-invoking
+  Most-recent-first order. The list is capped at 3 entries (top-3
+  recent). `record!` dedups on identity so re-invoking
   the same command bubbles it back to position 0 without growing the
   list.
 
@@ -50,8 +50,7 @@
   3)
 
 ;; ---- localStorage helpers -----------------------------------------------
-;; Raw browser access lives in the shared `local-storage` seam
-;; (rf2-jkake.24).
+;; Raw browser access lives in the shared `local-storage` seam.
 
 (defn- read-raw
   []

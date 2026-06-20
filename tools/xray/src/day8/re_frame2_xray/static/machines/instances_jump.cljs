@@ -1,16 +1,14 @@
 (ns day8.re-frame2-xray.static.machines.instances-jump
   "Instances-mode JUMP — clicking the Instances pill (or the per-row
   `→ Dynamic` chip in the browse-list) switches Xray to Dynamic mode,
-  opens the Dynamic Machines tab, and selects this machine
-  (rf2-o5f5f.2).
+  opens the Dynamic Machines tab, and selects this machine.
 
   ## Why this lives in its own ns
 
   The browse-list rows AND the right-pane sub-strip both dispatch the
   same JUMP; centralising the dispatcher means the two surfaces never
-  drift. Per the bead's §Instances mode the JUMP is a Static-side
-  affordance that hands off to the Dynamic-side Machines tab via the
-  existing events:
+  drift. The JUMP is a Static-side affordance that hands off to the
+  Dynamic-side Machines tab via the existing events:
 
     `:rf.xray/set-mode :dynamic`        — flip mode pill back
     `:rf.xray/select-tab :machines`     — surface the Dynamic Machines tab
@@ -21,9 +19,8 @@
   Dynamic panel's responsibility — the static-side JUMP just lands the
   selection; the post-collapse Dynamic Machines panel runs event-driven
   off the focused event, so the selected-machine-id slot drives the
-  Sim engine + the jump/focus landing today (per `panels/machine_inspector.
-  cljs/select-machine-id`; the share-URL surface that previously also
-  consumed the slot was removed in rf2-nugvv)."
+  Sim engine + the jump/focus landing (per `panels/machine_inspector.
+  cljs/select-machine-id`)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
@@ -31,7 +28,7 @@
 
 (defn dispatch-jump-via
   "Dispatch the three events that telegraph the JUMP through the
-  caller-supplied frame-aware `dispatch-fn` (rf2-nesy9). The chip /
+  caller-supplied frame-aware `dispatch-fn`. The chip /
   pill render inside the `browse-list` / `definition-detail` reg-views
   and thread that reg-view's injected `dispatch` in here, so the three
   events land on the SURROUNDING instance frame — not a `:rf/xray`
@@ -71,10 +68,10 @@
   count badge (when `live-count > 0`) so the user reads how many live
   instances the JUMP will land in.
 
-  Per the bead's §Instances mode the Static surface stays static —
-  this pill is a JUMP affordance, not a mode the right pane renders.
+  The Static surface stays static — this pill is a JUMP affordance,
+  not a mode the right pane renders.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  `dispatch` is the frame-aware dispatcher threaded from the
   caller's reg-view so the JUMP lands on the surrounding instance
   frame (a plain fn invoked as a Reagent component cannot recover the
   frame itself)."

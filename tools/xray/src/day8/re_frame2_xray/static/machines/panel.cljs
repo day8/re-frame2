@@ -1,10 +1,9 @@
 (ns day8.re-frame2-xray.static.machines.panel
-  "Top-level Machines sub-tab for Xray's Static surface (rf2-o5f5f.2).
+  "Top-level Machines sub-tab for Xray's Static surface.
 
   ## Shape
 
-  Master-detail layout. Per the bead's §Browse-all list / §Definition
-  detail header:
+  Master-detail layout (browse-all list · definition detail header):
 
       ┌──────────────────────┬────────────────────────────────────┐
       │ L4-left (~280px)     │  L4-right (fills)                  │
@@ -26,7 +25,7 @@
     `:rf.xray.static.machines/selected-id` — user's selection (raw slot)
     `:rf.xray.static.machines/sub-mode-by-id` — per-machine sub-mode map
     `:rf.xray.static.machines/sub-mode`    — effective sub-mode for a machine
-    `:rf.xray.static.machines/sim-by-machine`         — sim slots map (rf2-r4nao)
+    `:rf.xray.static.machines/sim-by-machine`         — sim slots map
     `:rf.xray.static.machines/sim-state`              — sim slot for selected machine
     `:rf.xray.static.machines/sim-active?`            — sim on for selected machine?
     `:rf.xray.static.machines/sim-available-transitions` — picker source
@@ -76,8 +75,7 @@
   with a browse-all list on the left and the per-machine definition
   detail on the right.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`."
   []
   [:div {:data-testid "rf-xray-static-machines-panel"
          :style {:display          "flex"
@@ -142,7 +140,7 @@
   ;; machine-snapshots subs registered by panels.machine-inspector
   ;; (install order is purely cosmetic — re-frame resolves :<- lazily).
   ;; The `:rf.xray/machine-snapshots-override` test-seam composes on top
-  ;; of the live snapshots in `install-test-overrides!` (rf2-e8330v) —
+  ;; of the live snapshots in `install-test-overrides!` —
   ;; production registration carries no override branch.
   (rf/reg-sub :rf.xray.static.machines/rows
     :<- [:rf.xray/registered-machines]
@@ -237,15 +235,13 @@
   (install-subs!)
   (install-events!)
   (persistence/install-fx!)
-  ;; Sim sub-mode engine (rf2-r4nao rehost; originally rf2-v869p
-  ;; Phase 2). Installs the `:rf.xray.static.machines/sim-*` event +
-  ;; sub family the Sim rail consumes.
+  ;; Sim sub-mode engine. Installs the `:rf.xray.static.machines/sim-*`
+  ;; event + sub family the Sim rail consumes.
   (sim/install!)
   ;; Hydrate from localStorage. The persistence ns guards storage
   ;; availability internally so the JVM test path is a no-op.
   (persistence/hydrate!)
-  ;; rf2-2moh1 — register the Static Machines tab with the internal L4
-  ;; tab registry.
+  ;; Register the Static Machines tab with the internal L4 tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :machines
      :label "Machines"
@@ -255,7 +251,7 @@
      :panel panel})
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam --------------------------------------------
 
 (defn install-test-overrides!
   "Re-register the Static Machines browse-list subs to layer the

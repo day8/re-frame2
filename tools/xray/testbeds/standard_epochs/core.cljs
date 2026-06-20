@@ -41,10 +41,9 @@
 
   Pick ANY ONE Xray panel — Epoch, App-db, Views, or Trace — (or the
   inline issue surfacing — Epoch issue blocks · L2 event-row wash · the
-  issues ribbon signal; the standalone Issues tab was removed per
-  rf2-gbz39) and step through top to bottom: that panel is COMPLETELY
-  exercised. The step set is chosen for per-panel coverage completeness,
-  not one-lens-per-step.
+  issues ribbon signal) and step through top to bottom: that panel is
+  COMPLETELY exercised. The step set is chosen for per-panel coverage
+  completeness, not one-lens-per-step.
 
   ## Per-panel coverage map
 
@@ -91,11 +90,11 @@
 
   ## Test-free + self-contained
 
-  Per rf2-8cevm this testbed carries no spec.cjs; regression coverage
-  lives in the substrate contract tests + the Xray feature-matrix gate.
-  The events / subs / views below are OWNED here — this deck does NOT
-  reuse the shared `testdeck.*` modules (whose coupling to the two-frame
-  + routing surfaces is what made the step-deck inflexible)."
+  This testbed carries no spec.cjs; regression coverage lives in the
+  substrate contract tests + the Xray feature-matrix gate. The events /
+  subs / views below are OWNED here — this deck does NOT reuse the shared
+  `testdeck.*` modules, keeping it decoupled from the two-frame + routing
+  surfaces."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Flows artefact — load-time hook so `reg-flow` resolves
@@ -175,13 +174,12 @@
 ;; writes an int there; the post-handler app-db validation (Spec 010
 ;; §Validation order) rejects it and rolls the :db effect back, while the
 ;; schema-violation issue surfaces inline — the Epoch panel's issue block,
-;; the L2 event-row wash, and the issues ribbon signal (the standalone
-;; Issues tab was removed per rf2-gbz39).
+;; the L2 event-row wash, and the issues ribbon signal.
 
 (def AuthSlice [:map [:token :string]])
-;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This testbed's deck
-;; hosts on :rf/default (see `host-frame` below), so name it explicitly.
+;; EP-0002: reg-app-schema is context-required frame-local; a bare ns-load
+;; call raises :rf.error/no-frame-context. This testbed's deck hosts on
+;; :rf/default (see `host-frame` below), so name it explicitly.
 (with-frame :rf/default
   (rf/reg-app-schema [:auth] {:schema AuthSlice}))
 
@@ -293,8 +291,8 @@
 ;; changed. Button #5 bumps `:base`; App-db shows `:derived` recompute
 ;; and Trace shows the flow run.
 
-;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local; name the
-;; :rf/default host frame explicitly for this ns-load registration.
+;; EP-0002: reg-flow is context-required frame-local; name the :rf/default
+;; host frame explicitly for this ns-load registration.
 (with-frame :rf/default
   (rf/reg-flow
     {:id          :standard-epochs/derived
@@ -832,10 +830,10 @@
   ;; standalone wrapper (header + the parameterised `root`) on the
   ;; host-frame with the `standard-epochs` testid prefix and the deck's
   ;; run-step event. The runner cursor lives in app-db `:step`.
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
-  ;; absence — register the host frame, scope the boot dispatch, and wrap
-  ;; the render in a `frame-provider-existing` (scope-only — the host
-  ;; frame is already `reg-frame`'d; the carried invariant).
+  ;; EP-0002: the runtime never synthesises a frame from absence —
+  ;; register the host frame, scope the boot dispatch, and wrap the render
+  ;; in a `frame-provider-existing` (scope-only — the host frame is
+  ;; already `reg-frame`'d; the carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:standard-epochs/reset]))

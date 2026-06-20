@@ -1,6 +1,5 @@
 (ns panel-gallery.fixtures-machines
-  "Pure fixture builders for the Xray Machines tab gallery
-  (rf2-sszlr — rebuild for new 6-tab Xray shape).
+  "Pure fixture builders for the Xray Machines tab gallery.
 
   The Machines panel reads from `:rf.xray/machine-inspector-data`, a
   composite over `:rf.xray/registered-machines`,

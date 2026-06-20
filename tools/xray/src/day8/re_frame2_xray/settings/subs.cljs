@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.settings.subs
-  "Subscriptions for the Xray Settings popup modal (rf2-9poxq).
+  "Subscriptions for the Xray Settings popup modal.
 
   ## Sub tree
 
@@ -31,7 +31,7 @@
     (fn [db _query]
       (or (get db :settings-active-tab) :general)))
 
-  ;; rf2-ttnst — Buffer tab nested clear-confirm modal open state.
+  ;; Buffer tab nested clear-confirm modal open state.
   (rf/reg-sub :rf.xray/settings-clear-confirm-open?
     (fn [db _query]
       (boolean (get db :settings-clear-confirm-open? false))))
@@ -53,7 +53,7 @@
     (fn [db _query]
       (or (get db :settings) (config/get-settings))))
 
-  ;; rf2-i39w2 Phase 3 — convenience sub for the diff opts map the
+  ;; Convenience sub for the diff opts map the
   ;; hiccup-diff engine consumes via `classify-prop`. Reads the
   ;; `:diff` slot of the settings map (in app-db when seeded, the
   ;; atom otherwise) and reshapes to the engine's opts vocabulary.
@@ -67,7 +67,7 @@
         {:highlight-fn-ref-changes? (boolean
                                       (:highlight-fn-ref-changes? diff))})))
 
-  ;; rf2-dudqz — host editor default (the `editor` atom set by
+  ;; Host editor default (the `editor` atom set by
   ;; `set-editor!` / `(xray-config/configure! {:rf.xray/editor …})`).
   ;; Read by the Settings popup's editor-override picker so the
   ;; "Project default: <name>" hint shows what flipping back to the
@@ -78,11 +78,12 @@
     (fn [_db _query]
       (config/get-host-editor-default)))
 
-  ;; rf2-ttnst — convenience sub for the density knob. Reads
+  ;; Convenience sub for the density knob. Reads
   ;; `:general :density` (`:cosy` or `:compact`). Views detail rows
   ;; + App-db diff rows branch padding/line-height off this value.
-  ;; The Comfy tier is intentionally absent (Mike 2026-05-19); a
-  ;; persisted `:comfy` (from a prior schema) is treated as `:cosy`.
+  ;; The density tiers are exactly `:cosy` and `:compact`; any
+  ;; unrecognised value (e.g. a persisted `:comfy`) is treated as
+  ;; `:cosy`.
   (rf/reg-sub :rf.xray/density
     (fn [db _query]
       (let [d (or (get-in db [:settings :general :density])

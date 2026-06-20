@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.settings.editor-hint
-  "Open-in-editor 'pick an editor in Settings' hint toast (rf2-4s08ov).
+  "Open-in-editor 'pick an editor in Settings' hint toast.
 
-  ## The problem (rf2-ffijtp finding)
+  ## The problem
 
   Xray's 'Open in editor' chip resolves a source-coord to an editor
   URI (`vscode://…` by default) and fires `Location.assign`. When the
@@ -13,9 +13,8 @@
   nothing happens. JS cannot observe the OS-level handler miss, so the
   developer gets no feedback at all.
 
-  rf2-ffijtp documented the fix (host apps must set `:rf.xray/editor`);
-  rf2-4s08ov surfaces it at click-time so the chip itself guides the
-  developer.
+  The fix is for host apps to set `:rf.xray/editor`; this toast
+  surfaces that at click-time so the chip itself guides the developer.
 
   ## The hint
 
@@ -26,9 +25,10 @@
   appears in the bottom-right of the shell with a one-line note and an
   'Open Settings' button that lands the operator on the General tab's
   editor picker. Once an editor IS configured (host or operator), the
-  click resolves and navigates exactly as before — the hint never fires.
+  click resolves and navigates to the configured editor — the hint
+  never fires.
 
-  Conservative by design (per the bead): a small, non-intrusive
+  Conservative by design: a small, non-intrusive
   bottom-corner toast, NOT a redesign of Settings and NOT a modal that
   blocks the chrome. It is dismissable (✕) and self-dismisses the moment
   the operator opens Settings.
@@ -126,11 +126,11 @@
 
 (defn toast-view
   "Hiccup for the open editor-hint toast. The caller (`Toast`) gates
-  the mount on `:rf.xray/editor-hint-open?`. `dispatch` (rf2-nesy9) is
+  the mount on `:rf.xray/editor-hint-open?`. `dispatch` is
   the frame-aware dispatcher injected by the `reg-view` body so the
   deferred `:on-click` handlers land on the surrounding instance frame."
   [dispatch]
-  ;; rf2-wpvy6f — the PRIMARY, reachable Esc-dismissal path is the
+  ;; The PRIMARY, reachable Esc-dismissal path is the
   ;; shell-level global keydown listener (`keybinding/handle-keydown`),
   ;; which dismisses the hint whenever it is open regardless of where
   ;; focus sits. This toast is a non-modal `role=status` surface and
@@ -183,10 +183,10 @@
   `:rf.xray/editor-hint-open?` is true; closed-state is a single
   subscribe + a `when` — cheap.
 
-  Per rf2-in6l2 `reg-view`-registered so the body's subscribes route
-  through the React-context tier to `:rf/xray`. rf2-nesy9 — the
-  reg-view-injected `dispatch` is threaded into `toast-view` so the
-  deferred `:on-click` handlers land on the surrounding instance frame."
+  `reg-view`-registered so the body's subscribes route through the
+  React-context tier to `:rf/xray`. The reg-view-injected `dispatch`
+  is threaded into `toast-view` so the deferred `:on-click` handlers
+  land on the surrounding instance frame."
   []
   (when @(rf/subscribe [:rf.xray/editor-hint-open?])
     (toast-view dispatch)))

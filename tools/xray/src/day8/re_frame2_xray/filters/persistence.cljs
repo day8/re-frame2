@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.persistence
-  "localStorage round-trip for Xray's IN/OUT filter pills (rf2-ak4ms).
+  "localStorage round-trip for Xray's IN/OUT filter pills.
 
   Per `tools/xray/spec/018-Event-Spine.md` §7 Filter persistence:
   ribbon pills persist via localStorage per host-app under a Xray-
@@ -8,8 +8,8 @@
 
   ## Default is empty
 
-  Per Mike's call (rf2-ak4ms / 10x-config R5 / spec/018 §7 'Empty
-  defaults'): first-session honesty beats first-session quietness. No
+  Per spec/018 §7 'Empty defaults': first-session honesty beats
+  first-session quietness. No
   events are filtered out by default — the user surfaces the noise
   themselves with explicit filters. Shipping a default `:mouse-move`
   filter would silently hide events the user didn't know they were
@@ -75,7 +75,7 @@
 
 ;; ---- localStorage helpers ------------------------------------------------
 ;; Raw browser access + the no-op-when-unavailable / swallow-throws
-;; posture live in the shared `local-storage` seam (rf2-jkake.24). The
+;; posture live in the shared `local-storage` seam. The
 ;; key is resolved per call through `get-storage-key` so a runtime
 ;; `configure!` re-key takes effect immediately.
 

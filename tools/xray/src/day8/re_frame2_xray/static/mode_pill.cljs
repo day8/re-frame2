@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.static.mode-pill
   "Ribbon-left mode control — a compact single-select dropdown toggling
-  Dynamic ↔ Static (rf2-o5f5f.1, reshaped by rf2-4vp5j).
+  Dynamic ↔ Static.
 
   ## Purpose
 
@@ -20,26 +20,24 @@
   `keybinding.cljs`) fires the same `:rf.xray/toggle-mode` event so the
   chord and the dropdown are wired to the same handler.
 
-  ## Why a dropdown, not the old two-button pill (rf2-4vp5j)
+  ## Why a dropdown
 
-  Mode is an OCCASIONAL-use control — most sessions never flip it. The
-  earlier 160px two-segment radio pill was too dominant for that
-  cadence, anchoring the eye at chrome-left where the Frame picker now
-  belongs. The reshape collapses it to a compact `<select>` that shares
-  the frame picker's weight (`bg-2` fill, `border-default` hairline,
-  4px radius). Post rf2-ad7zx.13 the Figma export carries a single
-  `:accent` (GitHub blue) — the ribbon stripe no longer changes colour
-  by mode; the `<select>`'s `data-active-mode` attribute + active option
-  carry the mode state, and the Dynamic/Static MODE remains functional
-  (it drives motion/pulse), it just no longer drives accent colour.
+  Mode is an OCCASIONAL-use control — most sessions never flip it, so a
+  compact `<select>` is the right weight: understated and undominant at
+  chrome-left where the Frame picker also lives. It shares the frame
+  picker's weight (`bg-2` fill, `border-default` hairline, 4px radius).
+  The theme carries a single `:accent` (GitHub blue); the ribbon stripe
+  does not change colour by mode. The `<select>`'s `data-active-mode`
+  attribute + active option carry the mode state, and the
+  Dynamic/Static MODE drives motion/pulse rather than accent colour.
 
   ## Why a single registered view
 
   `(rf/reg-view mode-pill …)` is the canonical Xray shape: subscribes
   inside the component body resolve to `:rf/xray` via React-context
-  (rf2-in6l2 / Spec 004 §Plain Reagent fns do not pick up the
-  surrounding frame). The `<select>` is native so keyboard + screen-
-  reader navigation work out of the box.
+  (Spec 004 §Plain Reagent fns do not pick up the surrounding frame).
+  The `<select>` is native so keyboard + screen-reader navigation work
+  out of the box.
 
   ## Production posture
 
@@ -72,8 +70,8 @@
 ;; ---- view ---------------------------------------------------------------
 
 (rf/reg-view mode-pill
-  "Chrome-ribbon mode dropdown (rf2-o5f5f.1 / rf2-4vp5j) — a compact
-  single-select `<select>` toggling Dynamic ↔ Static. Shares the frame
+  "Chrome-ribbon mode dropdown — a compact single-select `<select>`
+  toggling Dynamic ↔ Static. Shares the frame
   picker's control style (`bg-2`, `border-default`, 4px radius) so the
   two chrome-left selectors read as one stratum. The mode SIGNAL is the
   ribbon's left-edge accent stripe, not this control — the dropdown is
@@ -97,8 +95,8 @@
                              (let [v    (.. e -target -value)
                                    mode (keyword v)]
                                (when (not= mode active-mode)
-                                 ;; rf2-nesy9 — reg-view-injected
-                                 ;; frame-aware dispatch.
+                                 ;; reg-view-injected frame-aware
+                                 ;; dispatch.
                                  (dispatch [:rf.xray/set-mode mode]))))
               :style       {:background    (:bg-2 tokens)
                             :color         (:text-primary tokens)

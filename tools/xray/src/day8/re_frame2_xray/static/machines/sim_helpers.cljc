@@ -1,13 +1,7 @@
 (ns day8.re-frame2-xray.static.machines.sim-helpers
-  "Pure-data helpers for Xray's Static Machines Sim sub-mode (rf2-r4nao
-  rehost; engine originally rf2-v869p Phase 2, parent rf2-2tkza).
+  "Pure-data helpers for Xray's Static Machines Sim sub-mode.
 
-  ## Rehost (rf2-r4nao)
-
-  Rehosted from `panels/machine_inspector_sim_helpers.cljc` when the
-  Dynamic Machine Inspector collapsed (rf2-y9xmf). The pure-data algebra
-  is unchanged — only the ns name + the consuming UI surface moved.
-  Sim is now exclusively a Static-surface sub-mode (event-INDEPENDENT
+  Sim is exclusively a Static-surface sub-mode (event-INDEPENDENT
   'what-if' simulator).
 
   ## Why a separate `.cljc` ns
@@ -29,7 +23,7 @@
       flips the chart from live-highlight to sim-highlight (amber).
     - The sim **clones** the registered machine definition into Xray
       state; production registry is untouched.
-    - A user picks an event from an autocomplete-style picker (v1: a
+    - A user picks an event from an autocomplete-style picker (a
       text input + dropdown of declared events for the current state)
       and clicks Step.
     - The runtime calls `rf/machine-transition` (the public late-bind
@@ -69,7 +63,7 @@
        machines artefact ns directly (Xray has no compile-time dep
        on `re-frame.machines.result`).
     8. `last-transition` / `current-sim-state` / `edge-click->event`
-       — rf2-u422r on-chart binding algebra: the focused-edge lens
+       — on-chart binding algebra: the focused-edge lens
        inputs + active-state highlight + edge-click → step-event
        coercion that bind the topology chart to the sim engine."
   (:require [clojure.string :as str]
@@ -150,9 +144,9 @@
   transition declared on the snapshot's current state node. The picker
   surfaces these as the user's step options.
 
-  v1 scope: only direct `:on` transitions on the leaf state. `:always` /
-  `:after` / parent-state inheritance are deferred to a follow-on bead
-  (the engine handles them at step time; the picker only surfaces what
+  Surfaces only direct `:on` transitions on the leaf state. `:always` /
+  `:after` / parent-state inheritance are not listed in the picker (the
+  engine still handles them at step time; the picker only surfaces what
   the user can fire interactively from the leaf).
 
   Returns `[]` when the definition / snapshot is nil, or the current
@@ -180,13 +174,13 @@
       {:state <keyword-or-vector>  ;; the declared :initial leaf
        :data  <map>}               ;; the declared :data initial map
 
-  Phase 2 keeps the initial-state cascade simple (the `:initial` slot
+  The initial-state cascade stays simple (the `:initial` slot is
   shallow-read) — the runtime's own `apply-initial-entry-cascade` would
-  fire `:entry` actions, which sim deliberately skips at v1 (we want a
-  pure, hermetic step machine the user drives). The first user-fired
-  event runs `rf/machine-transition` which DOES execute entry / exit /
-  action cascades — so action evaluation kicks in from step 1 onwards,
-  not from initial bootstrap.
+  fire `:entry` actions, which sim deliberately skips at bootstrap (we
+  want a pure, hermetic step machine the user drives). The first
+  user-fired event runs `rf/machine-transition` which DOES execute
+  entry / exit / action cascades — so action evaluation kicks in from
+  step 1 onwards, not from initial bootstrap.
 
   Returns nil when `definition` is nil or has no `:initial`."
   [definition]
@@ -359,9 +353,9 @@
       :else
       (record-error sim-state event nil "engine returned a non-Result value"))))
 
-;; ---- on-chart binding helpers (rf2-u422r) -------------------------------
+;; ---- on-chart binding helpers -------------------------------------------
 ;;
-;; The on-chart simulator (rf2-u422r, epic rf2-nrrtb) renders the sim ON
+;; The on-chart simulator renders the sim ON
 ;; the topology chart: the active state highlights amber, the taken
 ;; transition's edge animates, and clicking an outgoing event edge sends
 ;; that event into the SAME hermetic engine the step-button drives. These

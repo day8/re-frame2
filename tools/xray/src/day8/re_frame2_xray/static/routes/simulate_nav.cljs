@@ -1,19 +1,18 @@
 (ns day8.re-frame2-xray.static.routes.simulate-nav
   "Hermetic 'Simulate navigation' preview for Xray's Static Routes
-  tab (rf2-o5f5f.3).
+  tab.
 
   ## Purpose
 
-  Per the parent epic decision (option (a): two-verbs-two-homes) and
-  the findings doc §4.3 option (a): the per-row 'Simulate navigation'
-  button is HERMETIC — NO real dispatch into the host app, NO fx, NO
-  runtime-db / app-db mutation. It surfaces a preview of what would land:
+  The per-row 'Simulate navigation' button is HERMETIC — NO real
+  dispatch into the host app, NO fx, NO runtime-db / app-db mutation.
+  It surfaces a preview of what would land:
 
     - matched params (derived from the row's pattern + the optional
       URL from the row's simulate-URL input);
     - the registered `:on-match` event vector;
     - the expected runtime-db route slice
-      (`[:rf.runtime/routing :current ...]`, EP-0001 rf2-vzld77 — the
+      (`[:rf.runtime/routing :current ...]`, EP-0001 — the
       framework-owned route slice lives in runtime-db, not app-db) shape.
 
   The hermetic posture is the spec point — Xray is a lens, not a

@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.static.interceptors.panel
-  "Top-level Interceptors sub-tab for Xray's Static surface (rf2-o5f5f.6).
+  "Top-level Interceptors sub-tab for Xray's Static surface.
 
   ## Pure-browse verb
 
@@ -10,7 +10,7 @@
 
     - an INLINE interceptor VALUE — a map carrying `:id`, optional
       `:before`/`:after` fns, and the framework `:rf/default?` marker for
-      auto-wrappers (rf2-twt7m); the additive-window legacy shape.
+      auto-wrappers.
     - a REFERENCE into the `:interceptor` registrar — a bare keyword id
       (`:my/logging`) or a parameterized `[id arg]` 2-vector
       (`[:rf.interceptor/path [:cart]]`). The runtime resolves refs to
@@ -100,8 +100,8 @@
   nil); inline values do not call it."
   [entry resolve-ref-fn]
   (cond
-    ;; INLINE interceptor value — the additive-window legacy shape. Checked
-    ;; FIRST: an inline value is a map, never a keyword or [id arg] vector.
+    ;; INLINE interceptor value — a map. Checked FIRST: an inline value
+    ;; is a map, never a keyword or [id arg] vector.
     (icpt-reg/interceptor-value? entry)
     {:id       (or (:id entry) ::unnamed)
      :ref?     false
@@ -210,7 +210,7 @@
 
 (defn- header
   []
-  ;; rf2-6xezz — Mike-direction 2026-05-21: panel-name heading scrubbed.
+  ;; Spacer only — the panel carries no name heading.
   [:div {:data-testid "rf-xray-static-interceptors-header"
          :style       {:padding "4px 16px"}}])
 
@@ -218,9 +218,9 @@
 
 (defn- search-box
   [query total filtered?]
-  ;; rf2-nesy9 — render-time frame capture (rendered inside the
-  ;; interceptors Panel reg-view), not a `:rf/xray` literal. rf2-1keg3 —
-  ;; the flex-row markup lives in the shared `search-box` component.
+  ;; Render-time frame capture (rendered inside the interceptors Panel
+  ;; reg-view), not a `:rf/xray` literal. The flex-row markup lives in
+  ;; the shared `search-box` component.
   (let [frame (rf/current-frame-id)]
     [search-box/search-box
      {:testid-prefix   "rf-xray-static-interceptors"
@@ -242,9 +242,9 @@
         row-id  (if (and (> (count id-text) 0) (= \: (first id-text)))
                   (subs id-text 1)
                   id-text)]
-    ;; rf2-mq8wk — list semantics. Interceptor rows are non-interactive
-    ;; catalogue entries (no row-level dispatch), so `role=listitem` is
-    ;; the right shape rather than `role=button`.
+    ;; List semantics. Interceptor rows are non-interactive catalogue
+    ;; entries (no row-level dispatch), so `role=listitem` is the right
+    ;; shape rather than `role=button`.
     [:li {:data-testid (str "rf-xray-static-interceptors-row-" row-id)
           :role        "listitem"
           :style       {:display       "block"
@@ -337,8 +337,7 @@
   "Static Interceptors panel root view. Subscribes to the
   interceptors composite + search slot.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`."
   []
   (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])
         {:keys [silent? interceptors total filtered? query]} data]
@@ -378,7 +377,7 @@
 ;;
 ;; The raw value the production data sub reads. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so the override
-;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+;; branch lives in ONE place (the seam), not duplicated.
 
 (defn- registry-value
   "The event-chain registry off the HOST app's `:event` registrar — each entry
@@ -426,7 +425,7 @@
   ;; The test-only override seam (`:rf.xray.static.interceptors/set-
   ;; registry-override-for-test` + the `*-override` sub) is NOT installed
   ;; here — production registration carries no `-for-test` ids. Tests opt
-  ;; into it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+  ;; into it via `install-test-overrides!`.
 
   ;; ---- production data sub ---------------------------------------------
 
@@ -443,7 +442,7 @@
     (fn [[registrations-map query] _query]
       (project-data registrations-map query)))
 
-  ;; rf2-2moh1 — register the Static Interceptors tab. Contiguous order:
+  ;; Register the Static Interceptors tab. Contiguous order:
   ;; machines 0 · routes 1 · schemas 2 · flows 3 · interceptors 4.
   (panel-registry/reg-l4-tab!
     {:id    :interceptors
@@ -455,7 +454,7 @@
 
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam --------------------------------------------
 
 (defn install-test-overrides!
   "Install the Static Interceptors panel's test-only override seam — the

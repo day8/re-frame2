@@ -497,10 +497,10 @@
 (defn ^:export run []
   (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
-  ;; absence — establish the host frame explicitly, run the boot dispatch
-  ;; under its scope, and wrap the render in a `frame-provider-existing`
-  ;; (scope-only — the host frame is already `reg-frame`'d) so in-tree
+  ;; EP-0002: the runtime never synthesises a frame from absence —
+  ;; establish the host frame explicitly, run the boot dispatch under its
+  ;; scope, and wrap the render in a `frame-provider-existing` (scope-only
+  ;; — the host frame is already `reg-frame`'d) so in-tree
   ;; dispatch/subscribe resolve to it (the carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame

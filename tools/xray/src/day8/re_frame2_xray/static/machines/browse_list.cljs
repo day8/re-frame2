@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.machines.browse-list
-  "Browse-all list — L4-left pane of the Static Machines sub-tab
-  (rf2-o5f5f.2).
+  "Browse-all list — L4-left pane of the Static Machines sub-tab.
 
   ## What it renders
 
@@ -9,8 +8,7 @@
 
     - selection glyph (◉ active / ○ inactive — same vocabulary as
       the Static tab-bar's `tab-button`)
-    - machine-id in mono accent-violet (per the bead's §Browse-all
-      list)
+    - machine-id in mono accent-violet
     - source-coord chip (renders the file:line label; jump-to-source
       via `:rf.xray/open-in-editor`)
     - state-count chip (mono · tertiary)
@@ -35,20 +33,20 @@
   "Top-of-list search input. Incremental filtering — every keystroke
   dispatches `:rf.xray.static.machines/set-search`. Esc clears.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  `dispatch` is the frame-aware dispatcher threaded from the
   `browse-list` reg-view (a plain fn invoked as a Reagent component
   renders in its own cycle, so it cannot recover the frame itself).
 
   `query` is the current search string, threaded from the `browse-list`
-  reg-view's own subscribe (rf2-wxu4l3) — this helper is a plain fn
-  invoked as a Reagent component, so it renders in its OWN cycle and
-  CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 004
-  §Plain Reagent fns do not pick up the surrounding frame; a bare
-  `subscribe` here throws `:rf.error/no-frame-context` and crashes the
-  whole Static surface). The reg-view body already derefs the same
+  reg-view's own subscribe — this helper is a plain fn invoked as a
+  Reagent component, so it renders in its OWN cycle and CANNOT recover
+  the `:rf/xray` frame to `rf/subscribe` itself (Spec 004 §Plain Reagent
+  fns do not pick up the surrounding frame; a bare `subscribe` here
+  throws `:rf.error/no-frame-context` and crashes the whole Static
+  surface). The reg-view body already derefs the same
   `:rf.xray.static.machines/search` sub — pass that value down.
-  rf2-1keg3 — the markup lives in the shared `search-box` component's
-  `:pane` variant."
+  The markup lives in the shared `search-box` component's `:pane`
+  variant."
   [dispatch query]
   [search-box/search-box
    {:variant          :pane
@@ -68,8 +66,8 @@
   describing.
 
   `sort-key` is the current sort axis, threaded from the `browse-list`
-  reg-view's own subscribe (rf2-wxu4l3) — this helper is a plain fn
-  invoked as a Reagent component, so it renders in its OWN cycle and
+  reg-view's own subscribe — this helper is a plain fn invoked as a
+  Reagent component, so it renders in its OWN cycle and
   CANNOT recover the `:rf/xray` frame to `rf/subscribe` itself (Spec 004
   §Plain Reagent fns do not pick up the surrounding frame; a bare
   `subscribe` here throws `:rf.error/no-frame-context` and crashes the
@@ -99,7 +97,7 @@
 
 (defn- source-coord-chip
   "Render the source-coord chip for a row. Degrades to nil when the
-  coord is missing (silent — rf2-g3ghh)."
+  coord is missing (silent)."
   [source-coord]
   (when (some? source-coord)
     [:span {:data-testid "rf-xray-static-machines-row-source-coord"
@@ -127,7 +125,7 @@
 (defn- pip-cluster
   "Live-instance pip cluster per `helpers/pip-render-plan`. Renders
   filled cyan dots up to the cap, then a textual `>N live` form
-  beyond. Silent for zero (per rf2-g3ghh)."
+  beyond. Silent for zero."
   [live-count]
   (let [{:keys [kind count]} (h/pip-render-plan live-count)]
     (case kind
@@ -163,7 +161,7 @@
   tab with this machine selected — same handler the right-pane
   Instances pill uses (centralised in `instances_jump`).
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from the
+  `dispatch` is the frame-aware dispatcher threaded from the
   `browse-list` reg-view (via `row`)."
   [dispatch machine-id]
    [:button
@@ -189,7 +187,7 @@
 ;; ---- one row ------------------------------------------------------------
 
 (defn- row
-  "Render one browse-list row. `dispatch` (rf2-nesy9) is threaded from
+  "Render one browse-list row. `dispatch` is threaded from
   the `browse-list` reg-view."
   [dispatch {:keys [machine-id state-count live-count source-coord] :as r} active?]
   (let [glyph (if active? "◉" "○")]
@@ -270,14 +268,14 @@
 
 (rf/reg-view browse-list
   "L4-left pane of the Static Machines sub-tab — search + sort +
-  scrollable rows. Per rf2-in6l2 `reg-view`-registered so subscribes
-  resolve to `:rf/xray`."
+  scrollable rows. `reg-view`-registered so subscribes resolve to
+  `:rf/xray`."
   []
   (let [{:keys [rows total visible selected-id]}
         @(rf/subscribe [:rf.xray.static.machines/data])
         query    @(rf/subscribe [:rf.xray.static.machines/search])
-        ;; rf2-wxu4l3 — deref the sort axis HERE (in the reg-view body, where
-        ;; the `:rf/xray` frame is in context) and thread it into the plain-fn
+        ;; Deref the sort axis HERE (in the reg-view body, where the
+        ;; `:rf/xray` frame is in context) and thread it into the plain-fn
         ;; `sort-button` helper, which renders in its own cycle and cannot
         ;; recover the frame to subscribe itself.
         sort-key @(rf/subscribe [:rf.xray.static.machines/sort-key])]

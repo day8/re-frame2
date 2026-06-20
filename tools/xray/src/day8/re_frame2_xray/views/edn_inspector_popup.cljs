@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.views.edn-inspector-popup
-  "Data-display popup overlay infra — phase 6 of rf2-oqa60 (D6=a per
-  rf2-sndui).
+  "Data-display popup overlay infra.
 
   ## What this is
 
@@ -8,7 +7,7 @@
   a CLJS value at depth via the first-class edn-inspector widget
   (`views.edn-inspector`). Anchor scope is Xray-internal only — the
   popup overlays the Xray DOM; it never anchors to the debugged
-  application's DOM (locked per D6=a).
+  application's DOM.
 
   ## Public API
 
@@ -35,7 +34,7 @@
   Two-arg overload matches `[edn-inspector value opts]` (D2=a) so the
   popup's call shape is the same as the widget it wraps.
 
-  ## Per-mount UUID (D8=a per rf2-sndui)
+  ## Per-mount UUID
 
   Each `[edn-inspector-popup …]` mount allocates a fresh UUID
   `mount-id` on first render via the form-2 outer fn. The `mount-id`:
@@ -65,16 +64,15 @@
     `[panel-id mount-id path]`, so the popup's contents survive
     unmount/remount when the same id is reused).
 
-  ## Why this lives in NEW files only
+  ## Why this is its own namespace
 
-  The umbrella widget at `views.edn-inspector.cljs` is phase 1's
-  surface and just landed in #2143. Phase 6's overlay infra is an
-  additive surface — a wrapper component + its own state slot — so
-  the phase-1 file stays untouched and the popup's lifecycle is
-  self-contained. The shell wires the `edn-inspector-popup-stack`
-  view into its overlay container in a follow-on bead; the install!
-  fn here makes the registrations idempotent so that wire-up is a
-  one-call addition.
+  The umbrella widget at `views.edn-inspector.cljs` owns value
+  rendering. This overlay infra is a separate surface — a wrapper
+  component + its own state slot — so the widget file stays focused
+  and the popup's lifecycle is self-contained. The shell wires the
+  `edn-inspector-popup-stack` view into its overlay container; the
+  `install!` fn here makes the registrations idempotent so that
+  wire-up is a one-call addition.
 
   ## Z-index
 
@@ -312,9 +310,9 @@
 ;; =========================================================================
 
 (defn- gen-mount-id
-  "Generate a stable per-mount UUID (D8=a per rf2-sndui). Public so
-  programmatic callers (a context-menu handler that wants to open a
-  popup at a known id) can mint a matching id ahead of time."
+  "Generate a stable per-mount UUID. Public so programmatic callers
+  (a context-menu handler that wants to open a popup at a known id)
+  can mint a matching id ahead of time."
   []
   (str (random-uuid)))
 
@@ -331,9 +329,9 @@
   `opts` may carry `:on-close` (0-arg fn). When present the caller
   owns the close lifecycle and the default rf-dispatch is skipped.
 
-  `frame` (rf2-nesy9) is the surrounding instance frame captured by
-  `popup-chrome` at render time so the close dispatch lands on it, not
-  a `{:frame :rf/xray}` literal. Defaults to `(rf/current-frame-id)` for
+  `frame` is the surrounding instance frame captured by `popup-chrome`
+  at render time so the close dispatch lands on it, not a
+  `{:frame :rf/xray}` literal. Defaults to `(rf/current-frame-id)` for
   the test seam / direct callers."
   ([mount-id opts] (close-fn mount-id opts (rf/current-frame-id)))
   ([mount-id {:keys [on-close]} frame]
@@ -349,9 +347,9 @@
   `:close mount-id` so the layered-popups contract holds — if the
   user opens A, then B over A, Esc closes B and leaves A standing.
 
-  `frame` (rf2-nesy9) is the surrounding instance frame captured by
-  `popup-chrome` at render time. Defaults to `(rf/current-frame-id)` for
-  the test seam."
+  `frame` is the surrounding instance frame captured by `popup-chrome`
+  at render time. Defaults to `(rf/current-frame-id)` for the test
+  seam."
   ([^js e] (handle-keydown e (rf/current-frame-id)))
   ([^js e frame]
    (when (= "Escape" (.-key e))
@@ -398,8 +396,8 @@
                 default-expanded-depth 2
                 max-inline-width 60
                 max-depth 16}} opts
-        ;; rf2-nesy9 — capture the surrounding instance frame at render
-        ;; time so the deferred close handlers dispatch into it, not a
+        ;; Capture the surrounding instance frame at render time so the
+        ;; deferred close handlers dispatch into it, not a
         ;; `:rf/xray` literal. popup-chrome renders inside the panels'
         ;; reg-views (and the stack reg-view), so current-frame-id resolves
         ;; through the React-context tier here.
@@ -410,9 +408,9 @@
         ;; The shared backdrop owns z-index for position 0; dialogs
         ;; ride on top of their own backdrop tier.
         dialog-z      (z-index-for (inc (or stack-pos 0)))]
-    ;; rf2-7oxvd — shared backdrop + dialog scaffold. This popup keeps
-    ;; its own (public) `backdrop-style` / `dialog-style`, its
-    ;; stack-position z-index OVERRIDE (folded onto the backdrop style),
+    ;; Shared backdrop + dialog scaffold. This popup keeps its own
+    ;; (public) `backdrop-style` / `dialog-style`, its stack-position
+    ;; z-index OVERRIDE (folded onto the backdrop style),
     ;; its `data-rf-mount-id` markers (via the `:*-extra` slots), the
     ;; backdrop -1 / dialog 0 tab-index split and the Esc-closes-top
     ;; `keydown` on both. `modal-chrome` owns the positioning attribute,
@@ -465,16 +463,15 @@
 (defn edn-inspector-popup
   "Floating popup overlay that wraps `[ei/edn-inspector value opts]`.
   Form-2 Reagent component: the outer fn allocates a stable
-  `mount-id` (UUID, D8=a per rf2-sndui) in closure; the inner fn
-  reads the popup's stack position from app-db (so multiple popups
+  `mount-id` (UUID) in closure; the inner fn reads the popup's
+  stack position from app-db (so multiple popups
   layer in z-index order) and renders the chrome.
 
-  Per D6=a the popup is **Xray-internal** — the backdrop spans the
-  Xray shell only (or the Story cell when `:rf.xray/modal-positioning`
-  resolves to `:absolute`); it never anchors to the debugged
-  application's DOM.
+  The popup is **Xray-internal** — the backdrop spans the Xray shell
+  only (or the Story cell when `:rf.xray/modal-positioning` resolves
+  to `:absolute`); it never anchors to the debugged application's DOM.
 
-  Per D8=a the auto-generated UUID on mount lives until unmount; two
+  The auto-generated UUID on mount lives until unmount; two
   side-by-side `[edn-inspector-popup …]` mounts get independent
   expansion state.
 
@@ -526,14 +523,14 @@
   **inline** opens (a panel that wants to control the popup
   imperatively from its own view tree).
 
-  Per rf2-1yif8 `reg-view`-registered (was a plain Reagent `defn`
-  prior, which silently routed `subscribe` / `dispatch` to
-  `:rf/default` when mounted under a non-default frame — the exact
-  class of bug `:rf.warning/plain-fn-under-non-default-frame-once`
-  was added to catch). The view-id is auto-derived from the symbol
-  per the canonical reg-view convention; the surrounding shell mounts
-  this stack under `:rf/xray`, so all its `subscribe` calls now
-  resolve through the React-context tier to the surrounding frame."
+  `reg-view`-registered so its `subscribe` / `dispatch` calls resolve
+  against the frame it is mounted under rather than silently routing
+  to `:rf/default` (the class of bug
+  `:rf.warning/plain-fn-under-non-default-frame-once` catches). The
+  view-id is auto-derived from the symbol per the canonical reg-view
+  convention; the surrounding shell mounts this stack under `:rf/xray`,
+  so all its `subscribe` calls resolve through the React-context tier
+  to the surrounding frame."
   []
   (let [stack   @(rf/subscribe [stack-slot])
         entries @(rf/subscribe [entries-slot])

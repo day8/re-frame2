@@ -1,18 +1,16 @@
 (ns day8.re-frame2-xray.panel-registry
-  "Internal L4-tab registry — `reg-l4-tab!` (rf2-2moh1).
+  "Internal L4-tab registry — `reg-l4-tab!`.
 
   ## The seam
 
-  Before this ns, `shell.cljs` carried a hard-coded vector of the
-  Dynamic tabs + a parallel case-switch in `detail-panel`; `static/
-  shell.cljs` carried the same shape for the 6 Static tabs. Adding a
-  tab (e.g. promoting Routing to its own L3 lens per rf2-nrbs9)
-  required editing two files in lock-step — modify-shell coupling.
+  The Dynamic and Static tab inventories are declared per-panel rather
+  than as hard-coded vectors in `shell.cljs` / `static/shell.cljs`,
+  avoiding the modify-shell coupling that a centralised tab list and a
+  parallel `detail-panel` case-switch would impose.
 
-  Per the audit finding `ai/findings/2026-05-20-tools-xray-api-review.md`
-  Finding #3: each panel's existing `(defn install! [] ...)` already
-  owns its subs / events / fxs. Threading the tab metadata through the
-  same install! call closes the loop — adding a tab now means:
+  Each panel's `(defn install! [] ...)` already owns its subs / events
+  / fxs. Threading the tab metadata through the same install! call
+  closes the loop — adding a tab means:
 
     (defn install! []
       ...subs / events / fxs...

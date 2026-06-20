@@ -1,5 +1,5 @@
 (ns panel-gallery.fixtures
-  "Pure fixture builders for the Xray panel gallery (rf2-1o7mp).
+  "Pure fixture builders for the Xray panel gallery.
 
   Story variants seed state by firing REAL Xray init events
   (`:rf.xray/sync-trace-buffer`, `:rf.xray/select-dispatch-id`)
@@ -23,11 +23,9 @@
                    :rf.view/render-key  [<view-id> <args>] ;; on :view
                    :frame       <frame-id>}}
 
-  The mirror of this shape (the `cascade-evs` helper template) lived
-  in the panel-detail panel's test corpus alongside the panel itself;
-  rf2-5gl5r retired the Event/Handler panel and its tests. The gallery
-  retains the template so any future panel projection change has one
-  shared fixture surface to drive variant seeds.
+  The `cascade-evs` helper template is the gallery's single shared
+  fixture surface, so any future panel projection change has one place
+  to drive variant seeds from.
 
   Builders return plain vectors; the variant `:events` slot wraps each
   in `[:rf.xray/sync-trace-buffer <buffer>]` for the seed dispatch.")
@@ -40,9 +38,8 @@
 ;; cascades surface a panel's `:frame` annotation in its cascade list.
 
 (defn cascade-evs
-  "Synthesize the eight trace events for a single cascade. Mirrors the
-  template used by the retired event-detail unit tests (rf2-5gl5r);
-  retained here as the canonical gallery seed.
+  "Synthesize the eight trace events for a single cascade. The canonical
+  gallery seed template.
 
   Returns a vector of trace-event maps shaped per
   `re-frame.trace.projection/group-cascades`."
@@ -392,10 +389,10 @@
        (mapcat identity)
        vec))
 
-;; ---- event-lens variants (rf2-zh2qc) -----------------------------------
+;; ---- event-lens variants -----------------------------------------------
 ;;
-;; Builders that exercise the redesigned Event lens's 6-section layout
-;; under realistic combinations of substrate keys (rf2-twt7m): the
+;; Builders that exercise the Event lens's 6-section layout
+;; under realistic combinations of substrate keys: the
 ;; dispatch-site coord on :rf.event/dispatched, the :fx + :db-present?
 ;; tags on :rf.fx/do-fx, and (in tests) the :rf/default? flag on
 ;; framework-auto-wrapped interceptors.
@@ -434,12 +431,12 @@
   (event-lens-simple-buffer))
 
 (defn event-lens-with-coeffects-buffer
-  "Event lens fixture exercising the COEFFECTS section (rf2-jhhqt,
-  rf2-9dk9y). Stamps two user-injected coeffects (`:now` +
+  "Event lens fixture exercising the COEFFECTS section. Stamps two
+  user-injected coeffects (`:now` +
   `:local-storage`) onto the `:rf.event/run-end` trace's
   `:tags :rf.event/coeffects` slot — the substrate filter has already
   excluded the framework defaults (`:db` `:event` `:frame` `:source`
-  `:trace-id`). Per rf2-9dk9y the stamp lives on `:run-end`, not
+  `:trace-id`). The stamp lives on `:run-end`, not
   `:do-fx`, because do-fx never fires for handlers that return only
   `:db` and no `:fx`."
   []
@@ -500,8 +497,8 @@
 (defn event-lens-handler-threw-buffer
   "Event lens fixture — handler threw mid-run. §5 + §6 should be
   ABSENT; the cascade-outcome glyph is ✗ red and the failure surfaces
-  inline (rf2-gbz39 — Issues is no longer a tab; issues fold into the
-  Epoch panel + the L2 pink-wash + the ribbon signal)."
+  inline — issues fold into the Epoch panel + the L2 pink-wash + the
+  ribbon signal."
   []
   (let [dispatch-id 300
         id-base     300
@@ -521,8 +518,8 @@
 (defn event-lens-hydration-completed-buffer
   "Event lens fixture — a :rf.ssr/hydrated completion event. Renders
   the SSR✓ outcome-line badge plus the hydration-outcome row inside
-  §5. With :mismatches 0 there's no issue cross-reference (rf2-gbz39 —
-  issues surface inline, not via a tab)."
+  §5. With :mismatches 0 there's no issue cross-reference (issues
+  surface inline)."
   []
   (let [dispatch-id 400
         id-base     400
@@ -542,7 +539,7 @@
 (defn event-lens-hydration-mismatch-buffer
   "Event lens fixture — hydration completed WITH mismatches. The
   hydration-outcome row carries the inline issue cross-reference
-  (rf2-gbz39 — issues surface inline, not via a dedicated tab)."
+  (issues surface inline)."
   []
   (let [dispatch-id 401
         id-base     410

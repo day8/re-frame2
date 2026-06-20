@@ -1,6 +1,6 @@
 (ns machine-epochs.core
   "MACHINE-EPOCHS testbed — the MULTI-MACHINE, FRAME-ISOLATED state-machine
-  stepper (rf2-q3lfm). It is the STATE-MACHINE consumer of the shared
+  stepper. It is the STATE-MACHINE consumer of the shared
   queued-step RUNNER (`runner.core`) re-expressed as a multi-track picker:
   each machine domain lives in its OWN frame and owns its OWN Xray epoch
   ring, and the picker re-points Xray (`:rf.xray/select-frame`) at the
@@ -8,15 +8,13 @@
   cascade, the time-travel scrubber, the App-db panel, the Machine
   Inspector) shows ONLY that machine's isolated arc.
 
-  ## The lens (rf2-q3lfm)
+  ## The lens
 
   THE VALUE is seeing the Xray progression for EACH machine IN ISOLATION.
-  All 8 machine domains used to dispatch into ONE frame (`:rf/default`), so
-  they shared ONE epoch ring — a machine's progression was scattered through
-  a global timeline interleaved with seven others (worst in the
-  switch-and-return flow). One frame per machine fixes that at the root:
-  switching switches WHICH isolated arc Xray shows — no interleaving, ever,
-  including across switch-and-return.
+  One frame per machine keeps every domain's arc clean: a machine's
+  progression is its OWN epoch ring, never scattered through a global
+  timeline interleaved with the others. Switching switches WHICH isolated
+  arc Xray shows — no interleaving, ever, including across switch-and-return.
 
   ## Two layers of frame
 
@@ -45,32 +43,30 @@
     (`rf/reset-frame!` = destroy + re-`reg-frame` with the same `:on-create`,
     so the ring clears and re-arcs from boot) and clears the track cursor.
 
-  ## Boot-on-select (the smaller call, applied — rf2-q3lfm)
+  ## Boot-on-select
 
   Selecting a track boots its machine(s) so the FIRST observed epoch is the
   machine's START cascade — directly answering 'choose a machine and see it
   start'. Consequence: selecting the FUSE track boots `:armed`, whose
   `:entry` action THROWS, so selecting fuse shows the exception card
-  immediately (arguably the point of the fuse track). We keep that — the
-  throw is the headline of the fuse arc.
+  immediately (the point of the fuse track) — the throw is the headline of
+  the fuse arc.
 
-  With boot-on-select, entering a track produces the START epoch
-  automatically as the ring's FIRST entry, so we DROPPED the explicit
-  'start machine' step rows: every track's first observed epoch is its
-  START badge for free (the door step-0 START-badge demo is preserved for
-  all tracks).
+  Entering a track produces the START epoch automatically as the ring's
+  FIRST entry, so there is no explicit 'start machine' step row: every
+  track's first observed epoch is its START badge for free (the door step-0
+  START-badge demo applies to all tracks).
 
   ## Tracks (code data — the single source of truth)
 
-  A `tracks` vector replaces the old flat `steps`. Each track is
+  A `tracks` vector is the single source of truth. Each track is
   `{:id :label :blurb :machines #{machine-ids} :path [{:label :event :watch}
   …]}`. `:machines` is a SET so the media track can own TWO machine-ids
   (`:media/shallow` + `:media/deep`) in one observed domain; `:on-create`
-  boots every machine in the set. The cross-machine fan-out steps of the old
-  deck were DROPPED (Mike ruling 5): every track drives exactly its own
-  domain.
+  boots every machine in the set. Every track drives exactly its own
+  domain — there are no cross-machine fan-out steps.
 
-  ## Localized runner (rf2-q3lfm)
+  ## Localized runner
 
   The shared `runner.core` is consumed by six decks and stays UNTOUCHED. The
   multi-track + frame-per-machine machinery is machine-epochs-LOCAL (this
@@ -79,7 +75,7 @@
   UX is specific to this deck (the only multi-machine one), so localizing
   contains blast radius (YAGNI: generalize only if a second deck needs it).
 
-  ## Idiomatic re-frame2 (rf2-5sjbg)
+  ## Idiomatic re-frame2
 
   app-db + events + subs ONLY — no Reagent atoms threaded through views, no
   frame-ids as view args. The picker rail, the step panel, the cursor, and
@@ -95,8 +91,8 @@
   No `spec.cjs` lives here. Regression coverage lives in the Xray test
   surface: the CLJS unit test
   `day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test`
-  (drives the substrate directly, decoupled from this view — unchanged by
-  this redesign) + the feature-matrix gate
+  (drives the substrate directly, decoupled from this view) + the
+  feature-matrix gate
   (`tools/xray/testbeds/feature_matrix/scenarios.cjs` — the
   `machine-epochs machine ladder` scenario, which selects each track then
   drives its per-step RUN buttons + reads the per-machine frame's snapshot).
@@ -170,9 +166,9 @@
 ;; MACHINE EVENTS — the per-track path drivers (one event per path step)
 ;; ============================================================================
 ;;
-;; These are the SAME machine features the old flat deck drove; only the
-;; cross-machine fan-out steps were dropped. A step's `:event` is dispatched
-;; INTO the track's machine frame, so a multi-dispatch helper (e.g.
+;; Each event drives one clean machine feature within its own track. A
+;; step's `:event` is dispatched INTO the track's machine frame, so a
+;; multi-dispatch helper (e.g.
 ;; `:machine-epochs/reopen-then-block`) fans out within that one frame's
 ;; cascade — its child `:dispatch`es inherit the frame from the handler's
 ;; envelope (Spec 002 §Cascade propagation).
@@ -212,7 +208,7 @@
 
 ;; drive the spawned :session/login child to its :final? state. The child's
 ;; deterministic spawn-id is resolved through `machine-paths/spawned-path`.
-;; FAIL LOUD ON A MISS (rf2-4i0ac): an `assert` surfaces a missing slot as a
+;; FAIL LOUD ON A MISS: an `assert` surfaces a missing slot as a
 ;; loud failure at the call site rather than a silent no-op.
 (rf/reg-event :machine-epochs/finish-login
   {:doc "Resolve the spawned :session/login child via the machines artefact's
@@ -220,15 +216,13 @@
          to its :final? state. The child fires :on-done (reporting the token to
          the parent) and auto-destroys. Asserts the child id is present — a
          missing spawn slot fails loud rather than silently no-opping."}
-  ;; EP-0001 (rf2-vzld77 / rf2-wxu4l3): the machines runtime — `:snapshots`
-  ;; AND the parent→child `:spawned` join-state map — is durable framework
-  ;; RUNTIME-DB state at `[:rf.runtime/machines …]`, NOT app-db. Read the
-  ;; spawned child id off the `:rf.db/runtime` coeffect every event handler
-  ;; receives (the canonical idiom — mirrors the routing `:on-match` loader
-  ;; reading the route slice off `:rf.db/runtime`). The former app-db read
-  ;; resolved nil (app-db never holds `:spawned`), so the assert no-op'd /
-  ;; the child was never driven to :final, and the parent's :on-done never
-  ;; stamped :session-token.
+  ;; EP-0001: the machines runtime — `:snapshots` AND the parent→child
+  ;; `:spawned` join-state map — is durable framework RUNTIME-DB state at
+  ;; `[:rf.runtime/machines …]`, NOT app-db. Read the spawned child id off
+  ;; the `:rf.db/runtime` coeffect every event handler receives (the
+  ;; canonical idiom — mirrors the routing `:on-match` loader reading the
+  ;; route slice off `:rf.db/runtime`). app-db never holds `:spawned`, so a
+  ;; read against app-db would resolve nil and the assert would fail loud.
   (fn handler-finish-login [{:keys [db] rt :rf.db/runtime} _ev]
     (let [child-id (get-in rt (machine-paths/spawned-path :session/flow [:authenticating]))]
       (assert child-id
@@ -265,7 +259,7 @@
   (fn handler-probe-history [{:keys [db]} _ev]
     {:db (assoc db :machine-epochs/history-rejected? (machines/history-rejected?))}))
 
-;; the HISTORY restore dance (rf2-mle6e.5). To make the RESTORE the focal
+;; the HISTORY restore dance. To make the RESTORE the focal
 ;; cascade, the step first POSITIONS the player deep (`:insert` → `:seek`)
 ;; and EJECTS it (recording :player's last config into :rf/history), then
 ;; fires the final `:insert` — the restore whose cascade carries the
@@ -308,7 +302,7 @@
 ;; (RESTART) re-runs the SAME `:on-create`, so a restart re-arcs from boot.
 ;;
 ;; `[id [:rf.machine/start]]` is the eager kick (xstate `createActor().start()`):
-;; per F‴ (rf2-gl588) it runs the initial-entry cascade then STOPS — a PURE
+;; per F‴ it runs the initial-entry cascade then STOPS — a PURE
 ;; init-kick, never re-fed into the transition step.
 
 (defn- boot-machines-fx
@@ -344,7 +338,7 @@
   {:doc "Boot the fuse machine — its initial state :armed declares an :entry
          action :blow-fuse that THROWS, so booting fuse raises a real
          :rf.error/machine-action-exception immediately. The exception card +
-         pink-wash is the headline of the fuse arc (boot-on-select, rf2-q3lfm)."}
+         pink-wash is the headline of the fuse arc (boot-on-select)."}
   (fn [_ _] {:fx (boot-machines-fx [:fuse/box])}))
 
 (rf/reg-event :machine-epochs/boot-hvac
@@ -355,19 +349,19 @@
 (rf/reg-event :machine-epochs/boot-media
   {:doc "Boot BOTH media machines (:media/deep + :media/shallow) into the one
          media frame — the media track owns two machine-ids in one observed
-         domain (rf2-q3lfm). Both start at :tray."}
+         domain. Both start at :tray."}
   (fn [_ _] {:fx (boot-machines-fx [:media/deep :media/shallow])}))
 
 (rf/reg-event :machine-epochs/boot-modal
   {:doc "Boot the modal machine to :closed — the multi-event-transition machine
          whose :open ──► :closed edge is reached on THREE distinct events
-         (the events-as-nodes divergence, rf2-vilpfa)."}
+         (the events-as-nodes divergence)."}
   (fn [_ _] {:fx (boot-machines-fx [:modal/main])}))
 
 (rf/reg-event :machine-epochs/boot-gate
   {:doc "Boot the gate machine to :idle — the multi-branch guarded-fork machine
          whose :gate/check forks by guard (:high / :low / :rejected) from :idle
-         (the guard-fork divergence, rf2-vilpfa)."}
+         (the guard-fork divergence)."}
   (fn [_ _] {:fx (boot-machines-fx [:gate/main])}))
 
 ;; ============================================================================
@@ -381,16 +375,14 @@
 ;; - `:boot` is the frame's `:on-create` event — runs in the machine frame so
 ;;   the START cascade is the ring's first observed epoch (boot-on-select).
 ;; - `:path` is the ordered step list. Each step's `:event` is dispatched INTO
-;;   the track's machine frame. The explicit 'start machine' rows of the old
-;;   deck were DROPPED — boot-on-select produces the START epoch for free.
+;;   the track's machine frame. There is no explicit 'start machine' row —
+;;   boot-on-select produces the START epoch for free.
 ;;
-;; The first 8 domains are the same clean machine features the old flat deck
-;; drove; the cross-machine fan-out steps ('Reset door + tick traffic' and the
-;; multi-machine no-op) were DROPPED (Mike ruling 5). Two later domains —
-;; :modal (multi-event transition) + :gate (multi-branch guarded fork) — were
-;; ADDED (rf2-vilpfa) to cover the two xstate-render-divergence cases the
-;; original 8 miss: events-as-nodes (one edge reached on N events) and the
-;; guard-fork (one :check forking by guarded candidate).
+;; Each track drives exactly its own domain — there are no cross-machine
+;; fan-out steps. The :modal (multi-event transition) + :gate (multi-branch
+;; guarded fork) domains cover the two xstate-render-divergence cases:
+;; events-as-nodes (one edge reached on N events) and the guard-fork (one
+;; :check forking by guarded candidate).
 
 (def tracks
   [{:id       :door
@@ -949,7 +941,7 @@
 (defn ^:export run []
   (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — register the SHELL frame explicitly and scope the boot
   ;; dispatches to it. The per-track machine frames are reg-frame'd inside
   ;; the `:machine-epochs/select` handler (a real cascade — `*handler-scope*`

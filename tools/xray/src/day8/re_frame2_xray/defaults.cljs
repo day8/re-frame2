@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.defaults
   "Shared defaults for Xray's registrar surface.
 
-  Extracted so per-panel `install!` fns (the panel-owned blocks
-  migrated out of `registry.cljs` per rf2-d4xda) can read these Vars
-  without depending on `registry.cljs` — `registry.cljs` requires the
+  The dependency-free seam the per-panel `install!` fns (the
+  panel-owned registrar blocks) read these Vars through without
+  depending on `registry.cljs` — `registry.cljs` requires the
   panel namespaces to call their `install!` fns, so a panel→registry
   edge would form a cycle. This ns is the dependency-free seam.
 
@@ -12,11 +12,11 @@
   source of truth, same external surface.")
 
 (def default-frame-id
-  "Production singleton frame-id for the Xray SHELL itself (rf2-lnluk).
+  "Production singleton frame-id for the Xray SHELL itself.
   Distinct from `default-target-frame` (the OBSERVED host frame): this
   is the frame the shell's OWN app-db lives in — selected tab, focused
   epoch, theme, modal open-state. The single permitted bare `:rf/xray`
-  literal in the render-tree per the rf2-1w07r EPIC; every other
+  literal in the render-tree; every other
   affordance resolves its frame from React-context or a captured
   dispatcher rather than this literal.
 
@@ -31,12 +31,12 @@
   "The default OBSERVED-target state when no host frame has been
   selected: **`nil` = UNSELECTED**.
 
-  EP-0002 (rf2-bd4div) — Xray distinguishes its OWN frame (`default-
-  frame-id`, `:rf/xray`, where the shell's chrome state lives) from the
+  EP-0002 — Xray distinguishes its OWN frame (`default-frame-id`,
+  `:rf/xray`, where the shell's chrome state lives) from the
   inspected TARGET frame (the host app frame the scrubber / app-db /
   machine-inspector panels observe). The target frame is NOT defaulted to
-  `:rf/default`: under the carried invariant `:rf/default` is an ordinary
-  id, never an absence-repair fallback (Spec 002 §Frame target resolution).
+  `:rf/default`: `:rf/default` is an ordinary id, never an
+  absence-repair fallback (Spec 002 §Frame target resolution).
   The target frame starts UNSELECTED and becomes selected only by:
 
     - host config (`init! {:target-frame …}` / `set-target-frame!`),
@@ -49,7 +49,7 @@
   `:rf.xray/target-frame` sub reports `nil` and the panels render their
   unselected-target state (the frame picker prompts a choice) rather than
   reading a synthesised `:rf/default`. `set-target-frame! nil` resets to
-  this UNSELECTED state — it no longer resets THROUGH `:rf/default`.
+  this UNSELECTED state.
 
   Read via the `:rf.xray/target-frame` sub or written via the
   `:rf.xray/set-target-frame` event; panels that need the host db read

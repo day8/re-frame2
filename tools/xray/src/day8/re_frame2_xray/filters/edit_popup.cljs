@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.filters.edit-popup
-  "Edit popup for IN/OUT filter pills (rf2-ak4ms).
+  "Edit popup for IN/OUT filter pills.
 
   Per `tools/xray/spec/018-Event-Spine.md` §7 'Click-pill → edit
   popup' the popup is a modal overlay with (Add-filter copy shown;
@@ -53,10 +53,10 @@
 
 ;; ---- styles --------------------------------------------------------------
 ;;
-;; Backdrop honours `:rf.xray/modal-positioning` (rf2-om6fa). `:fixed`
+;; Backdrop honours `:rf.xray/modal-positioning`. `:fixed`
 ;; (production default) keeps the full-viewport overlay with max-int
 ;; z-index (one above the palette so an edit popup opened over an
-;; open palette wins focus — palette is z 2147483646 per rf2-wm7z4).
+;; open palette wins focus — palette is z 2147483646).
 ;; `:absolute` (Story testbeds) confines the backdrop to the shell
 ;; cell and drops the z-index to a sane in-cell layer.
 
@@ -214,7 +214,7 @@
   "The popup body. Caller (`filters/Modal`) gates the mount on
   `:rf.xray/edit-popup-open?`.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher injected by the
+  `dispatch` is the frame-aware dispatcher injected by the
   `filters/Modal` `reg-view` body — every deferred handler routes
   through it so the edit lands on the surrounding instance frame, not
   a `{:frame :rf/xray}` literal."
@@ -231,7 +231,7 @@
         ;; Apply is enabled when the pattern is non-blank.
         can-apply?  (let [p (:pattern draft)]
                       (and (string? p) (seq (clojure.string/trim p))))]
-    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this popup's
+    ;; Shared backdrop + dialog scaffold. Keeps this popup's
     ;; own `backdrop-style` / `dialog-style` and its `tab-index "-1"`
     ;; dialog root. It carries NO backdrop/dialog keydown handler — Esc
     ;; is handled inside the pattern input's own `:on-key-down` (the

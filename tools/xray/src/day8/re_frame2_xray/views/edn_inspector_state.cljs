@@ -1,26 +1,19 @@
 (ns day8.re-frame2-xray.views.edn-inspector-state
-  "Expansion-state registration for the edn-inspector widget (rf2-l42sg7).
+  "Expansion-state registration for the edn-inspector widget.
 
-  Extracted from `views/edn-inspector` as the first cohesive-slice carve-
-  out of that over-large namespace (rf2-xxo3zz F5). This namespace owns
-  ONE concern: the per-node expansion overrides the widget stores in
-  re-frame app-db — the `expansion-slot` key, its `reg-sub`, the
-  `toggle-node` / `set-node` / `reset-expansion` events, the pure
-  `expansion-key` composer, and the `resolve-expanded?` projection.
+  This namespace owns ONE concern: the per-node expansion overrides the
+  widget stores in re-frame app-db — the `expansion-slot` key, its
+  `reg-sub`, the `toggle-node` / `set-node` / `reset-expansion` events,
+  the pure `expansion-key` composer, and the `resolve-expanded?`
+  projection.
 
-  The split is behaviour-preserving: the same global event/sub ids
-  register here, and `views/edn-inspector` re-exports the public vars
-  (`expansion-slot`, `expansion-key`, `resolve-expanded?`) so existing
-  call sites and tests keep resolving against the widget namespace
-  unchanged.
+  `views/edn-inspector` re-exports the public vars (`expansion-slot`,
+  `expansion-key`, `resolve-expanded?`) so call sites and tests can
+  resolve them against the widget namespace.
 
-  Why a separate namespace: the widget's expansion state is a self-
-  contained app-db slice with no dependency on the renderer (no tokens,
-  no hiccup). Isolating it shrinks the renderer namespace and gives the
-  expansion machinery its own reviewable, testable home — the sibling
-  `widths` (width-aware heuristic) and `zoom` (focus navigation) view-
-  state groups remain in `views/edn-inspector` for now; this pass takes
-  one clean slice only."
+  The expansion state is a self-contained app-db slice with no
+  dependency on the renderer (no tokens, no hiccup), so it lives apart
+  from the renderer namespace with its own reviewable, testable home."
   (:require [re-frame.core :as rf]))
 
 ;; =========================================================================
@@ -31,11 +24,7 @@
 
 (def expansion-slot
   "App-db slot holding the per-node expansion overrides. Public so
-  the consuming panel's reset affordance can clear it.
-
-  Distinct from the legacy `:rf.xray/edn-inspector-expansion` slot
-  used by `edn-inspector/render` — keeping them separate lets the old
-  engine and the new widget coexist during the phased rollout."
+  the consuming panel's reset affordance can clear it."
   :rf.xray.edn-inspector/expansion)
 
 (defn expansion-key
@@ -48,7 +37,7 @@
 
 (rf/reg-event :rf.xray.edn-inspector/toggle-node
   (fn [{:keys [db]} [_ panel-id mount-id path rendered-expanded?]]
-    ;; rf2-y59tb — first click MUST invert the currently-visible state.
+    ;; First click MUST invert the currently-visible state.
     ;;
     ;; The widget renders `default-expanded` paths (top-level nodes,
     ;; depth ≤ `default-expanded-depth`) open BEFORE the user clicks,
@@ -57,7 +46,7 @@
     ;; emit the same state the user already sees — a silent no-op on
     ;; the first click.
     ;;
-    ;; The dispatch payload now carries `rendered-expanded?` — the
+    ;; The dispatch payload carries `rendered-expanded?` — the
     ;; value `resolve-expanded?` returned for this path on the last
     ;; render (i.e. what the user currently sees). When no override
     ;; is stored the reducer flips from that visible state; when an

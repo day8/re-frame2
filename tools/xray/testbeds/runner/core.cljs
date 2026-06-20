@@ -119,11 +119,11 @@
 ;; ============================================================================
 ;;
 ;; The one place the runner reaches into Xray, through the same host-facing
-;; focus channel Story uses. Restores the focus-pinning the rf2-5sjbg rewrite
-;; deleted, re-expressed for the app-db `:step` driver: a per-host-frame
-;; epoch listener fires AFTER each settle and focuses the just-settled CHILD
-;; epoch (not the `[:run-step]` parent), so a Step press leaves Xray showing
-;; the step's real result. No Reagent atom, no timer.
+;; focus channel Story uses. Pins the focus to 'the just-dispatched render'
+;; for the app-db `:step` driver: a per-host-frame epoch listener fires
+;; AFTER each settle and focuses the just-settled CHILD epoch (not the
+;; `[:run-step]` parent), so a Step press leaves Xray showing the step's
+;; real result. No Reagent atom, no timer.
 
 (defn focus-epoch!
   "Focus epoch `epoch-id` on `host-frame` in the embedded Xray surface,
@@ -229,7 +229,7 @@
           (assert event (str "runner step " n " has no :event"))
           {:db (assoc db :step n)
            ;; A 2-element `:fx :dispatch` entry — `[fx-id args]` per the
-           ;; `:fx` per-entry arity contract (rf2-18kwf / rf2-n6d3m). The
+           ;; `:fx` per-entry arity contract. The
            ;; child dispatch INHERITS `host-frame` from this handler's own
            ;; envelope (the views dispatch `[run-step-event n] {:frame
            ;; host-frame}`, so the handler runs in host-frame and

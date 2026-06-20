@@ -1,5 +1,5 @@
 (ns xray.devtools
-  "Xray DevTools — authoritative SURFACE reference (rf2-xawwb).
+  "Xray DevTools — authoritative SURFACE reference.
 
   This file is a self-contained, loadable Reagent render of the
   AUTHORITATIVE Xray surface design produced by Figma Make. It is a
@@ -10,38 +10,36 @@
   exists so a human (or agent) can see the TARGET LOOK at a glance and
   diff the live chrome against it.
 
-  ## rf2-xawwb — the Figma-Make surface deltas recorded here
+  ## The Figma-Make surface, as rendered here
 
   1. **Chrome ribbon → DARK.** The top chrome ribbon paints the dark
      `--devtools-chrome-ribbon-bg` band with white
      `--devtools-chrome-ribbon-text` ink in BOTH themes. Label reads
-     `Event History` (was `Events`). The filter affordance is a `+ filter`
-     TEXT button. A sun/moon THEME TOGGLE flips light ⇄ dark.
+     `Event History`. The filter affordance is a `+ filter` TEXT button.
+     A sun/moon THEME TOGGLE flips light ⇄ dark.
   2. **Dark tabs ribbon.** The tab strip is a dark band carrying
      ROUNDED-TOP tab buttons (`border-radius 4px 4px 0 0`; active = light
      `--devtools-chrome-ribbon-tab-active` fill, inactive = translucent),
      prefixed with a `↳ for selected event` contextual label. The first
-     tab is `Handler` (was `Event`).
-  3. **Events ribbon reorg.** LEFT → RIGHT: a `↳ filters:` label + an
+     tab is `Handler`.
+  3. **Events ribbon layout.** LEFT → RIGHT: a `↳ filters:` label + an
      add-filter `+` button; the green/red filter pills (each with a
      vertical divider before the `✕`); then the `N events filtered out`
      count pushed to the RIGHT end.
   4. **Event-list column order:** `event id` FIRST, then `source`,
      `timestamp`, `duration`.
   5. **Handler panel** numbered lifecycle pipeline is 6 steps in operational
-     order (rf2-ynnre, B+): 1 DISPATCH, 2 COEFFECTS, 3 EVENT HANDLER,
-     4 FLOWS, 5 APP-DB CHANGES, 6 FX. FLOWS sits BETWEEN EVENT HANDLER and
+     order: 1 DISPATCH, 2 COEFFECTS, 3 EVENT HANDLER, 4 FLOWS,
+     5 APP-DB CHANGES, 6 FX. FLOWS sits BETWEEN EVENT HANDLER and
      APP-DB CHANGES so the panel's section rhythm tracks the operational
      order (handler returns pending `:db` → flows reshape → atomic commit
-     → fx). Supersedes the earlier Figma-A order (HANDLER → APP-DB
-     CHANGES → FLOWS → FX), per Mike's 2026-05-25 B+ decision on
-     rf2-5t9h0.
+     → fx).
 
-  ## What this reference DELIBERATELY keeps richer than the Figma stub
+  ## What this reference keeps richer than the Figma stub
 
-  The Figma export stubs the `app-db` panel. This reference RETAINS the
-  earlier richer `app-db-panel` section (APP STATE / MACHINE / ROUTE
-  cards) rather than the stub — the live App-db panel is the contractual
+  The Figma export stubs the `app-db` panel. This reference carries the
+  richer `app-db-panel` section (APP STATE / MACHINE / ROUTE cards)
+  rather than the stub — the live App-db panel is the contractual
   surface and the reference documents its shape.
 
   ## What this reference DELIBERATELY diverges from the Figma authority
@@ -51,16 +49,16 @@
     at `rgba(255,255,255,0.2)`; both this mirror and the live shell
     (`tools/xray/src/day8/re_frame2_xray/shell.cljs`) use 0.12 instead.
     The quieter inactive fill lets the active tab POP in the rhythm
-    of the dark tabs ribbon; 0.2 made the inactive tabs read as
+    of the dark tabs ribbon; 0.2 makes the inactive tabs read as
     competing siblings rather than backgrounded options. This is a
     deliberate, contractual divergence from the authority — codified
-    here (rf2-2kw7f) so a future audit doesn't re-raise it as drift.
+    here so a future audit doesn't raise it as drift.
 
   ## Out of scope (WIP)
 
-  The Machine panel design is a work-in-progress (Mike). This reference
-  carries NO Machine-panel design — the Machine TAB exists in the tab
-  bar (one label) but its body is a placeholder here."
+  The Machine panel design is a work-in-progress. This reference carries
+  NO Machine-panel design — the Machine TAB exists in the tab bar (one
+  label) but its body is a placeholder here."
   (:require [reagent.core :as r]
             [reagent.dom :as rdom]))
 
@@ -80,7 +78,7 @@
 
   /* Developer tool colors */
   --devtools-chrome-bg: #f5f5f5;
-  /* rf2-xawwb — dark chrome ribbon band (DARK even under the light theme) */
+  /* dark chrome ribbon band (DARK even under the light theme) */
   --devtools-chrome-ribbon-bg: #2a2a2a;
   --devtools-chrome-ribbon-text: #ffffff;
   --devtools-chrome-ribbon-text-muted: #b0b0b0;
@@ -190,7 +188,7 @@
    [:line {:x1 "10" :y1 "14" :x2 "21" :y2 "3"}]])
 
 ;; ============================================================================
-;; Chrome Ribbon Component (rf2-xawwb — DARK band + Event History + theme toggle)
+;; Chrome Ribbon Component (DARK band + Event History + theme toggle)
 ;; ============================================================================
 
 (defn chrome-ribbon [is-dark toggle-theme]
@@ -217,7 +215,7 @@
                          :align-items "center" :justify-content "center"}}
         [icon]])]
 
-    ;; rf2-xawwb — `+ filter` TEXT button (replaces the prior plus-icon).
+    ;; `+ filter` TEXT button.
     [:button {:class "devtools-caption"
               :style {:height "21px" :padding "0 8px" :border-radius "4px"
                       :border "1px solid var(--devtools-chrome-ribbon-text-muted)"
@@ -243,8 +241,8 @@
      [:span "Dynamic"]
      [chevron-down]]
 
-    ;; rf2-xawwb — sun/moon THEME TOGGLE. In the live shell this flips the
-    ;; existing `:theme` setting (toggling `rf-xray-theme-light/dark` on
+    ;; sun/moon THEME TOGGLE. In the live shell this flips the
+    ;; `:theme` setting (toggling `rf-xray-theme-light/dark` on
     ;; the shell + <html> root); here it toggles the local `dark` class so
     ;; the reference previews both palettes.
     [:button {:style {:padding "8px" :border-radius "4px" :background "transparent"
@@ -264,7 +262,7 @@
      [x-icon]]]])
 
 ;; ============================================================================
-;; Events Ribbon Component (rf2-xawwb — filters: label + add(+) left, count right)
+;; Events Ribbon Component (filters: label + add(+) left, count right)
 ;; ============================================================================
 
 (defn filter-pill [label tone]
@@ -273,7 +271,7 @@
                  :border-radius "4px" :border (str "1px solid " tone)
                  :height "21px" :color tone}}
    [:span {:style {:padding "0 8px"}} label]
-   ;; rf2-xawwb — VERTICAL DIVIDER before the ✕.
+   ;; VERTICAL DIVIDER before the ✕.
    [:div {:style {:width "1px" :height "13px" :background tone}}]
    [:button {:style {:width "21px" :height "21px" :border "none" :background "transparent"
                      :color "inherit" :cursor "pointer" :display "flex"
@@ -311,12 +309,12 @@
     "12 events filtered out"]])
 
 ;; ============================================================================
-;; Event List Component (rf2-xawwb — event-id FIRST, then source)
+;; Event List Component (event-id FIRST, then source)
 ;; ============================================================================
 
 (defn event-list []
   (let [height (r/atom 144)
-        ;; rf2-xawwb — column order is event-id FIRST, then source.
+        ;; column order is event-id FIRST, then source.
         mock-events [{:event-id ":title/flow"  :source "fx"     :timestamp "12:30:05.123" :duration "1.2 ms"}
                      {:event-id ":counter-inc" :source "view"   :timestamp "12:30:06.456" :duration "0.4 ms" :active? true}
                      {:event-id ":poll/tick"   :source "timer"  :timestamp "12:30:07.001" :duration "0.2 ms"}
@@ -349,14 +347,14 @@
                       :height "4px" :cursor "ns-resize" :background "transparent"}}]])))
 
 ;; ============================================================================
-;; Tabs Ribbon Component (rf2-xawwb — DARK band, rounded-top tabs, Handler tab)
+;; Tabs Ribbon Component (DARK band, rounded-top tabs, Handler tab)
 ;; ============================================================================
 
 (defn tab-button [active-tab tab-id label]
   (let [is-active (= @active-tab tab-id)]
-    ;; rf2-2kw7f — inactive fill is rgba(...,0.12), NOT the Figma
-    ;; authority's 0.2. Deliberate; see the docstring (§What this
-    ;; reference DELIBERATELY diverges from the Figma authority).
+    ;; inactive fill is rgba(...,0.12), NOT the Figma authority's 0.2.
+    ;; Deliberate; see the docstring (§What this reference DELIBERATELY
+    ;; diverges from the Figma authority).
     [:button {:class "devtools-body"
               :style {:padding "3px 16px" :border-radius "4px 4px 0 0" :border "none"
                       :background (if is-active "var(--devtools-chrome-ribbon-tab-active)" "rgba(255,255,255,0.12)")
@@ -370,15 +368,15 @@
                  :border-bottom "1px solid var(--devtools-border)"
                  :background "var(--devtools-chrome-ribbon-bg)"}}
 
-   ;; rf2-xawwb — `↳ for selected event` contextual label.
+   ;; `↳ for selected event` contextual label.
    [:span {:class "devtools-caption" :style {:color "var(--devtools-chrome-ribbon-text-muted)"
                                              :margin-right "13px" :display "flex"
                                              :align-items "center" :gap "8px" :align-self "center"}}
     [corner-down-right]
     "for selected event"]
 
-   ;; rf2-xawwb — first tab is `Handler` (was `Event`). Machine TAB stays
-   ;; (one label); its panel body design is WIP and out of scope here.
+   ;; first tab is `Handler`. Machine TAB carries one label; its panel
+   ;; body design is WIP and out of scope here.
    [tab-button active-tab :handler "Handler"]
    [tab-button active-tab :app-db "app-db"]
    [tab-button active-tab :views "Views"]
@@ -388,7 +386,7 @@
    [tab-button active-tab :issues "Issues"]])
 
 ;; ============================================================================
-;; Handler Panel Component (rf2-ynnre B+ — 6-step operational order:
+;; Handler Panel Component (6-step operational order:
 ;; DISPATCH / COEFFECTS / EVENT HANDLER / FLOWS / APP-DB CHANGES / FX)
 ;; ============================================================================
 
@@ -463,9 +461,9 @@
         "  (" [:span {:class "syntax-keyword"} "fn"] " [{:keys [db]} _]\n"
         "    {" [:span {:class "syntax-keyword"} ":db"] " (" [:span {:class "syntax-keyword"} "update"] " db " [:span {:class "syntax-keyword"} ":counter"] " inc)}))"]]]
 
-     ;; 4. FLOWS (rf2-ynnre — step 4, between EVENT HANDLER and APP-DB
-     ;; CHANGES, matching operational order). Shows the flow(s) that
-     ;; recomputed + their db contribution.
+     ;; 4. FLOWS (step 4, between EVENT HANDLER and APP-DB CHANGES,
+     ;; matching operational order). Shows the flow(s) that recomputed
+     ;; + their db contribution.
      [:section {:style {:position "relative"}}
       [step-circle 4]
       [step-label "FLOWS"]
@@ -482,9 +480,9 @@
          [:span "[:totals :sum]"]
          [:span {:style {:color "var(--devtools-success)"}} "42"]]]]]
 
-     ;; 5. APP-DB CHANGES (rf2-ynnre — step 5, after FLOWS, matching
-     ;; operational order). Carries the `committed diff` caption to
-     ;; clarify it's the post-flow t4 observable.
+     ;; 5. APP-DB CHANGES (step 5, after FLOWS, matching operational
+     ;; order). Carries the `committed diff` caption to clarify it's the
+     ;; post-flow t4 observable.
      [:section {:style {:position "relative"}}
       [step-circle 5]
       [step-label "APP-DB CHANGES"]
@@ -503,7 +501,7 @@
         [:span {:style {:color "var(--devtools-text-muted)"}} "[:last-updated]"]
         [:span {:style {:color "var(--devtools-success)"}} "#inst \"2026-05-23T12:30:05\""]]]]
 
-     ;; 6. FX (rf2-ynnre — carries the post-commit · irreversible caption)
+     ;; 6. FX (carries the post-commit · irreversible caption)
      [:section {:style {:position "relative"}}
       [step-circle 6]
       [step-label "FX"]

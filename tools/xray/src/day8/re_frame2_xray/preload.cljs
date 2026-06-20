@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.preload
   "Xray preload — the entry point shadow-cljs's `:devtools/preloads`
   pulls. This namespace is the canonical install path for Xray per
-  rf2-n6x4q + tools/xray/spec/000-Vision.md §Headline experiences.
+  tools/xray/spec/000-Vision.md §Headline experiences.
 
   ## What loading this ns does
 
@@ -45,7 +45,7 @@
   production builds via shadow-cljs's `:dev`-only `:devtools` block."
   (:require [re-frame.interop :as interop]
             ;; Pull `re-frame.epoch` into the dev classpath via the
-            ;; Xray preload (rf2-1barg). The Xray Time Travel panel
+            ;; Xray preload. The Xray Time Travel panel
             ;; reads epoch records via `rf/epoch-history` +
             ;; `rf/register-epoch-listener!`; those wrappers late-bind into
             ;; `re-frame.epoch`'s seed table. When the host example
@@ -62,21 +62,20 @@
             ;; bundles by the `:devtools/preloads` shadow-cljs gate.
             [re-frame.epoch]
             [day8.re-frame2-xray.config :as config]
-            ;; rf2-5w06uu — the inert, callable install helpers
-            ;; (trace/epoch collector registration + browser-API
-            ;; exports) live in `day8.re-frame2-xray.install`, a
-            ;; namespace whose LOAD performs no side-effects. The
-            ;; preload's side-effecting boot block below calls them;
-            ;; the manual facade (`core`) requires `install` directly
-            ;; so requiring the facade no longer drags in this
-            ;; preload's load-time side-effects.
+            ;; The inert, callable install helpers (trace/epoch
+            ;; collector registration + browser-API exports) live in
+            ;; `day8.re-frame2-xray.install`, a namespace whose LOAD
+            ;; performs no side-effects. The preload's side-effecting
+            ;; boot block below calls them; the manual facade (`core`)
+            ;; requires `install` directly, so requiring the facade
+            ;; does not drag in this preload's load-time side-effects.
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
-            ;; rf2-8xzoe.4 (F-4) — pull the Xray-runtime accessor
-            ;; namespace into the preload classpath. The `:require` is the
+            ;; Pull the Xray-runtime accessor namespace into the
+            ;; preload classpath. The `:require` is the
             ;; load: `day8.re-frame2-xray.runtime` installs its
             ;; `js/globalThis.__day8_re_frame2_xray_runtime` sentinel as
             ;; a top-level side effect (gated on `interop/debug-enabled?`).
@@ -86,13 +85,13 @@
             ;; entry is required on the consumer side.
             [day8.re-frame2-xray.runtime]))
 
-;; ---- install-helper re-exports (rf2-5w06uu) ------------------------------
+;; ---- install-helper re-exports -------------------------------------------
 ;;
-;; The callable install primitives now live in
+;; The callable install primitives live in
 ;; `day8.re-frame2-xray.install` (an inert-on-load ns). Re-export them
-;; here as `def`-aliases so the established `preload/<helper>` call
-;; sites — the Xray test corpus, `test_support/reset-all!`, embed-host
-;; tooling — keep resolving against the same fn values. Identity holds:
+;; here as `def`-aliases so `preload/<helper>` call sites — the Xray
+;; test corpus, `test_support/reset-all!`, embed-host tooling — resolve
+;; against the same fn values. Identity holds:
 ;; `(= install/register-trace-collector! preload/register-trace-collector!)`.
 
 (def register-trace-collector!
@@ -127,7 +126,7 @@
 ;; tree-shaking).
 
 (when interop/debug-enabled?
-  ;; Settings persistence (rf2-9poxq) — load BEFORE registry install
+  ;; Settings persistence — load BEFORE registry install
   ;; so the first sub read from the popup's events lands on the
   ;; persisted values, not on the defaults.
   (config/load-settings-from-storage!)
@@ -141,16 +140,15 @@
   ;; on a missing root; the events handler re-applies on every
   ;; subsequent update.
   (settings-effects/apply-all!)
-  ;; Auto-open-on-error watcher (rf2-9poxq) — NOT installed here.
+  ;; Auto-open-on-error watcher — NOT installed here.
   ;; The watcher subscribes to `:rf.xray/issues-ribbon`, a sub that
   ;; reads from `:rf/xray`'s app-db; but `:rf/xray` is
   ;; lazy-registered by `mount/ensure-xray-frame!` on first open
-  ;; (see mount.cljs §Why here, not at preload time). Eagerly
-  ;; subscribing here returned nil and `(add-watch nil ...)` threw
+  ;; (see mount.cljs §Why here, not at preload time). Subscribing
+  ;; here would return nil, and `(add-watch nil ...)` throws
   ;; `No protocol method IWatchable.-add-watch defined for type
-  ;; null` in test runtimes that never opened Xray (Story
-  ;; testbeds). The install is now driven from two correctness-
-  ;; safe hooks:
+  ;; null` in test runtimes that never open Xray (Story testbeds).
+  ;; The install is driven from two correctness-safe hooks:
   ;;   1. `mount/ensure-xray-frame!` — when Xray first opens, if
   ;;      the persisted setting is on, install (covers the user's
   ;;      `:auto-open-on-error? true` round-trip across reloads).

@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.static.flows.panel
-  "Top-level Flows sub-tab for Xray's Static surface (rf2-uhsqb).
+  "Top-level Flows sub-tab for Xray's Static surface.
 
   ## Browse-all verb
 
@@ -80,10 +80,10 @@
 
   An entry whose `:frame` slot is absent (defensive — every flow
   registration stamps `:frame`) buckets under the distinct
-  `:rf.xray/no-frame-stamp` sentinel. EP-0002 (rf2-bd4div) — a missing
-  frame stamp is NOT bucketed under `:rf/default` (now an ordinary id
-  that a real flow may legitimately register in): conflating the two
-  would mis-attribute a stamp-less registration to a real frame's group.
+  `:rf.xray/no-frame-stamp` sentinel. Per EP-0002, a missing frame
+  stamp is NOT bucketed under `:rf/default` (an ordinary id that a real
+  flow may legitimately register in): conflating the two would
+  mis-attribute a stamp-less registration to a real frame's group.
   Pure data — JVM-runnable."
   [registrations]
   (reduce-kv
@@ -152,8 +152,8 @@
 
 (defn- header
   []
-  ;; rf2-6xezz — Mike-direction 2026-05-21: panel-name heading scrubbed.
-  ;; The L4 tab strip is the panel-name source-of-truth.
+  ;; The header carries no panel-name heading — the L4 tab strip is the
+  ;; panel-name source-of-truth.
   [:div {:data-testid "rf-xray-static-flows-header"
          :style       {:padding "4px 16px"}}])
 
@@ -161,10 +161,10 @@
 
 (defn- search-box
   [query total filtered?]
-  ;; rf2-nesy9 — render-time frame capture so the deferred search input
-  ;; dispatches into the surrounding instance frame (rendered inside the
-  ;; flows Panel reg-view), not a `:rf/xray` literal. rf2-1keg3 — the
-  ;; flex-row markup lives in the shared `search-box` component.
+  ;; Render-time frame capture so the deferred search input dispatches
+  ;; into the surrounding instance frame (rendered inside the flows Panel
+  ;; reg-view), not a `:rf/xray` literal. The flex-row markup lives in
+  ;; the shared `search-box` component.
   (let [frame (rf/current-frame-id)]
     [search-box/search-box
      {:testid-prefix   "rf-xray-static-flows"
@@ -180,11 +180,11 @@
 
 (defn- flow-row
   [{:keys [flow-id frame inputs output-path doc] :as _row}]
-  ;; rf2-mq8wk — list semantics. Flow rows are non-interactive (no
-  ;; row-level dispatch), so `role=listitem` is the right shape — they
-  ;; are catalogue entries, not buttons. The interactive Static surface
-  ;; that earns keyboard activation is the Routes list (whose rows
-  ;; toggle an expand surface — see static/routes/browse_list.cljs).
+  ;; List semantics. Flow rows are non-interactive (no row-level
+  ;; dispatch), so `role=listitem` is the right shape — they are
+  ;; catalogue entries, not buttons. The interactive Static surface that
+  ;; earns keyboard activation is the Routes list (whose rows toggle an
+  ;; expand surface — see static/routes/browse_list.cljs).
   [:li {:data-testid (str "rf-xray-static-flows-row-"
                           (subs (pr-str flow-id) 1))
         :role        "listitem"
@@ -209,14 +209,14 @@
             :style {:color     (:text-tertiary tokens)
                     :font-size "10px"}}
      (pr-str frame)]]
-   ;; rf2-2kwhw — input + output path values render through the shared
-   ;; cljs-devtools EDN widget (spec 007:119 — "all values rendered via
-   ;; the cljs-devtools-shaped renderer") rather than raw `pr-str` +
+   ;; Input + output path values render through the shared cljs-devtools
+   ;; EDN widget (spec 007:119 — "all values rendered via the
+   ;; cljs-devtools-shaped renderer") rather than raw `pr-str` +
    ;; `[:code]`. `edn/inspect` is the canonical L4 renderer (same call
    ;; the App-DB segment-inspector uses); each value gets a stable
    ;; per-flow `node-key` so the widget's per-node expand state + copy
-   ;; affordance (rf2-f026h) ride the same way they do in the App-DB /
-   ;; Trace / Event surfaces.
+   ;; affordance ride the same way they do in the App-DB / Trace / Event
+   ;; surfaces.
    (let [flow-key (subs (pr-str flow-id) 1)]
      [:div {:style {:margin-left  "12px"
                     :color        (:text-secondary tokens)
@@ -252,8 +252,7 @@
   composite + the search-query slot and composes the header + search +
   flat list.
 
-  Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
-  `:rf/xray`."
+  `reg-view`-registered so subscribes resolve to `:rf/xray`."
   []
   (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])
         {:keys [silent? flows total filtered? query]} data]
@@ -293,7 +292,7 @@
 ;;
 ;; The raw value the production data sub reads. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so the override
-;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+;; branch lives in ONE place (the seam), not duplicated.
 
 (defn- registered-flows-value
   "The registered flows regrouped into the per-frame
@@ -346,7 +345,7 @@
   ;; The test-only override seam (`:rf.xray.static.flows/set-registered-
   ;; flows-override-for-test` + the `*-override` sub) is NOT installed
   ;; here — production registration carries no `-for-test` ids. Tests opt
-  ;; into it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+  ;; into it via `install-test-overrides!`.
 
   ;; ---- production data sub ---------------------------------------------
 
@@ -377,17 +376,15 @@
     (fn [[registry-snapshot observed-frame query] _query]
       (project-data registry-snapshot observed-frame query)))
 
-  ;; rf2-2moh1 — register the Static Flows tab with the internal L4
-  ;; tab registry. Contiguous order: machines 0 · routes 1 · schemas 2
-  ;; · flows 3 · interceptors 4 (the standalone :views / :events tabs
-  ;; rf2-b2fif removed previously left orders 3 + 5 as gaps).
-  ;; rf2-l1ru8 — mnemonic is "f" (first-letter-of-label, the Static-mode
-  ;; convention: Machines→m, Routes→r, Interceptors→i). "f" is free in the
-  ;; Static mnemonic set (Schemas uses "c" because "s" is the Settings
-  ;; key; Flows has no such collision), and the Static shell's own
-  ;; canonical IA listing (`static/shell.cljs` "Flows (f)") documents "f"
-  ;; as the intended binding. The prior "l" was an off-convention impl
-  ;; value that disagreed with both the shell docstring and the skill.
+  ;; Register the Static Flows tab with the internal L4 tab registry.
+  ;; Contiguous order: machines 0 · routes 1 · schemas 2 · flows 3 ·
+  ;; interceptors 4.
+  ;; Mnemonic is "f" (first-letter-of-label, the Static-mode convention:
+  ;; Machines→m, Routes→r, Interceptors→i). "f" is free in the Static
+  ;; mnemonic set (Schemas uses "c" because "s" is the Settings key;
+  ;; Flows has no such collision), and the Static shell's own canonical
+  ;; IA listing (`static/shell.cljs` "Flows (f)") documents "f" as the
+  ;; intended binding.
   (panel-registry/reg-l4-tab!
     {:id    :flows
      :label "Flows"
@@ -398,7 +395,7 @@
 
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam --------------------------------------------
 
 (defn install-test-overrides!
   "Install the Static Flows panel's test-only override seam — the

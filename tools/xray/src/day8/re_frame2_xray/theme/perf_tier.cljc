@@ -2,42 +2,27 @@
   "Shared perf-tier classification — the canonical duration→tier→colour
   ladder per `tools/xray/spec/007-UX-IA.md` §Colour system §Perf scale.
 
-  ## Why this lives in `theme/` (rf2-6ja23)
+  ## Why this lives in `theme/`
 
   Inspired by Vue DevTools 3's colour-coded lifecycle hook durations
   (green ≤10ms / yellow >10ms / red >30ms). Spec/007-UX-IA.md
   §'Colour system' defines four tiers — `:fast` / `:medium` / `:slow`
   / `:blocking` (<16 / 16-50 / 50-100 / >100ms, where 100ms is the
   INP-blocking threshold). Every node carrying a measurable duration
-  should surface the tier-coloured dot the same way: same hex, same
+  surfaces the tier-coloured dot the same way: same hex, same
   glyph shape, same label string.
 
-  Originally the tier helpers were buried in
-  `panels/performance_helpers.cljc` and used only by the Performance
-  panel. The audit bead rf2-6ja23 found that:
-
-    - `event_detail` already surfaces `:duration-ms` on the handler row
-      (as raw EDN text — no tier dot).
-    - Every other panel that will eventually show per-node durations
-      (`subscriptions` sub-run timings, `effects` fx-handler timings,
-      `machine_inspector` guard-eval timings, `time_travel` cascade
-      span) is blocked on the trace stream carrying per-event
-      `:duration-ms`. Spec 009 L38: 'no separate start/end pair,
-      no :duration, no duration-ms tag'.
-
-  Hoisting the helpers to `theme/perf_tier.cljc` makes them
+  The classification ladder is design-system grade — one source of
+  truth, spec-anchored, JVM-portable — so it lives in `theme/` and is
   discoverable from anywhere in `panels/` without a cross-panel
-  require chain. The Performance panel re-exports from here (no
-  behaviour change) so existing call-sites keep working.
+  require chain. The Performance panel re-exports from here.
 
-  ## Audit ledger — panels that DO / DO NOT yet show tier dots
-
-  Last reviewed 2026-05-14 against the Phase 5 panel set.
+  ## Panel ledger — surfaces that DO / DO NOT yet show tier dots
 
     Panel                Surface that should carry the tier-dot   Status
     -----                --------------------------------------   ------
     performance          cascade-row, breakdown-bar, tier-chip    LIVE
-    event_detail         handler-row :duration-ms slot            LIVE (rf2-6ja23)
+    event_detail         handler-row :duration-ms slot            LIVE
     subscriptions        per-sub :duration-ms (run timings)       blocked on trace-stream
     effects              per-fx :duration-ms (handler timings)    blocked on trace-stream
     machine_inspector    guard-eval :duration-ms                  blocked on trace-stream
@@ -50,10 +35,6 @@
   this by computing `(max :time) - (min :time)` across cascade
   slices, which is a cheap proxy at the cascade level but doesn't
   attribute per-handler / per-sub.
-
-  Hoisting to `theme/` is the audit's structural finding: the
-  classification ladder is design-system grade (one source of truth,
-  spec-anchored, JVM-portable), not panel-local.
 
   ## Pure data, JVM-portable
 
@@ -107,7 +88,7 @@
 (defn tier-colour
   "Hex swatch per perf tier. Resolves the semantic token keyword
   (`tier->token`) through the canonical `theme/tokens` map so the
-  palette has exactly one source of truth (rf2-5kfxe.4). Falls back
+  palette has exactly one source of truth. Falls back
   to `:text-tertiary` for unknown tiers."
   [tier]
   (get tokens/tokens

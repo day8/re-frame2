@@ -1,18 +1,17 @@
 (ns day8.re-frame2-xray.static.machines.cascade-dimmed
-  "Cascade pill — DIMMED in the Static surface (rf2-o5f5f.2).
+  "Cascade pill — DIMMED in the Static surface.
 
-  Per the bead's §Cascade mode + findings Q7: the Cancellation Cascade
-  is a Dynamic-only surface (it composes against the trace ring buffer
-  which is event-coupled — there is no spine in Static mode). The pill
-  is rendered in the strip for muscle-memory consistency with the
-  Dynamic sub-strip (same DOM, same letter mnemonic), but it's GREYED
-  and the click is a no-op. A tooltip surfaces the why."
+  The Cancellation Cascade is a Dynamic-only surface (it composes
+  against the trace ring buffer which is event-coupled — there is no
+  spine in Static mode). The pill is rendered in the strip for
+  muscle-memory consistency with the Dynamic sub-strip (same DOM, same
+  letter mnemonic), but it's GREYED and the click is a no-op. A tooltip
+  surfaces the why."
   (:require [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack type-scale]]))
 
 (def tooltip-text
-  "Per the bead — surfaced as the pill's `title` AND its
-  `aria-disabled` description."
+  "Surfaced as the pill's `title` AND its `aria-disabled` description."
   "Cancellation cascade is a Dynamic-only surface. Switch to Dynamic mode to view.")
 
 (defn pill

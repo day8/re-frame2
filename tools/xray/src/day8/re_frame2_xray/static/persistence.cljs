@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.persistence
-  "localStorage round-trip for Xray's Dynamic ↔ Static mode selection
-  (rf2-o5f5f.1).
+  "localStorage round-trip for Xray's Dynamic ↔ Static mode selection.
 
   Per `tools/xray/spec/007-UX-IA.md` §Static mode + the findings doc
   `ai/findings/2026-05-19-xray-explorer-mode.md`: Xray exposes TWO
@@ -83,7 +82,7 @@
 
 ;; ---- localStorage helpers -----------------------------------------------
 ;; Raw browser access + the no-op-when-unavailable / swallow-throws
-;; posture live in the shared `local-storage` seam (rf2-jkake.24).
+;; posture live in the shared `local-storage` seam.
 
 (defn read-raw
   "Read the raw string Xray wrote under `storage-key`. Returns nil

@@ -10,30 +10,24 @@ const {
   readTraceEventsAsEdn,
 } = require('../../../../testbeds/spec-helpers.cjs');
 
-// Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
-// sidebar + bottom rail is dead. The L3 tab bar exposes the 9 LIVE
-// Dynamic tabs: epoch / app-db / views / trace / machines / routing /
-// resources / derivation-graph / module-view
-// (spec/018 §5 §The 9 tabs; spec/007-UX-IA.md §L3 — post rf2-5gl5r the
-// Event/Handler tab was retired in favour of the Epoch panel; post
-// rf2-gbz39 the Issues tab was removed per Mike's Option (c) ruling —
-// issues surface inline in the Epoch panel + the L2 event-row pink-wash
-// + the always-on issues ribbon signal). The sweep walks EVERY shipped
-// Dynamic tab (rf2-1sddi6 F3 — Graph + Modules were previously omitted)
-// and asserts a real panel root, never the unknown-tab stub. Panels
-// without a tab no longer have a UI handoff and are dropped from
-// the shell-sweep scenario.
+// The 4-layer chrome's L3 tab bar exposes the 9 LIVE Dynamic tabs:
+// epoch / app-db / views / trace / machines / routing / resources /
+// derivation-graph / module-view (spec/018 §5 §The 9 tabs;
+// spec/007-UX-IA.md §L3). The Epoch panel is the canonical
+// "what happened in this epoch" surface; issues surface inline in the
+// Epoch panel + the L2 event-row pink-wash + the always-on issues
+// ribbon signal. The sweep walks EVERY shipped Dynamic tab and asserts
+// a real panel root, never the unknown-tab stub. Only panels with a tab
+// have a UI handoff, so the shell-sweep scenario covers exactly those.
 const PANEL_HANDOFFS = [
   ['epoch', 'rf-xray-epoch-panel'],
   ['app-db', 'rf-xray-app-db-diff'],
-  // The :views tab routes to the full Views panel per spec/012-Views.md
-  // (rf2-21ob3 replaced the legacy Subscriptions panel). The Views
-  // panel renders its canonical `rf-xray-reactive` root testid.
+  // The :views tab routes to the full Views panel per spec/012-Views.md.
+  // The Views panel renders its canonical `rf-xray-reactive` root testid.
   ['views', 'rf-xray-reactive'],
   ['trace', 'rf-xray-trace'],
   ['machines', 'rf-xray-machine-inspector'],
-  // The :routing tab (promoted under rf2-nrbs9 + reshaped under
-  // rf2-lq0ef) is the focused-event navigation lens. Its root view
+  // The :routing tab is the focused-event navigation lens. Its root view
   // renders the `rf-xray-routing` testid (panels/routing.cljs).
   ['routing', 'rf-xray-routing'],
   // The :resources tab (Spec 016 §Xray and AI tooling) is the
@@ -42,21 +36,19 @@ const PANEL_HANDOFFS = [
   // testbed no resources are registered, so the panel renders its
   // silent-by-default state under the same `rf-xray-resources` root.
   ['resources', 'rf-xray-resources'],
-  // The :derivation-graph tab (EP-0014 prop-3, rf2-9ett2d) — the unified
+  // The :derivation-graph tab (EP-0014 prop-3) — the unified
   // derivation/process graph. L4-only registry tab. Its root view always
   // renders the `rf-xray-derivation-graph` testid (panels/derivation_
   // graph.cljs); on the counter testbed it renders the silent state under
   // the same root.
   ['derivation-graph', 'rf-xray-derivation-graph'],
-  // The :module-view tab (EP-0013, rf2-wtg9z4) — the (realm, frame)
-  // address space + demand-trigger surface. L4-only registry tab. Its
-  // root view always renders the `rf-xray-module-view` testid
-  // (panels/module_view.cljs).
+  // The :module-view tab (EP-0013) — the (realm, frame) address space +
+  // demand-trigger surface. L4-only registry tab. Its root view always
+  // renders the `rf-xray-module-view` testid (panels/module_view.cljs).
   ['module-view', 'rf-xray-module-view'],
-  // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
-  // issues surface inline in the Epoch panel + the L2 event-row pink-
-  // wash + the always-on issues ribbon signal (the auto-open-on-error
-  // watcher). There is no dedicated Issues tab to enumerate here.
+  // There is no dedicated Issues tab to enumerate here; issues surface
+  // inline in the Epoch panel + the L2 event-row pink-wash + the
+  // always-on issues ribbon signal (the auto-open-on-error watcher).
 ];
 
 const STAGED_SURFACES = [
@@ -66,35 +58,12 @@ const STAGED_SURFACES = [
     html: ['examples', 'reagent', 'counter', 'index.html'],
     servedPath: 'counter',
   },
-  // ---- retired with the perf_counter testbed (rf2-6cq3u) --------------
-  //
-  // The `examples/counter-perf` surface staged + served the
-  // perf-instrumented counter from `tools/xray/testbeds/perf_counter/
-  // index.html`, but NO scenario navigated to `/counter-perf/` — it was
-  // a dead staged surface that compiled + served a bundle nothing hit.
-  // The three load scenarios the bead tracked ride independent
-  // surfaces: '20-event large value elision load' on
-  // `/testbeds/large-dispatcher/`, and the '1000-event trace row-budget'
-  // + '20-event launch-mode shared runtime' re-checks on `/counter/`.
-  // Deleting the perf_counter testbed therefore drops this surface with
-  // zero scenario impact. The migrated User-Timing-emission assertions
-  // live nightly as pure CLJS at `implementation/core/test/re_frame/
-  // performance_emit_nightly_test.cljs` (Wave 4, rf2-e3j8l).
   {
     build: 'testbeds/deliberate-throw',
     bundleDir: ['out', 'testbeds', 'deliberate-throw'],
     html: ['testbeds', 'deliberate_throw', 'index.html'],
     servedPath: 'testbeds/deliberate-throw',
   },
-  // ---- retired with the migrated scenario (rf2-w1mnq / rf2-fxnszc) -----
-  //
-  // The `testbeds/schema-violation` surface had been a no-op SKIP since
-  // #1745 and its schema-recovery assertions moved to CLJS unit
-  // (`tools/xray/test/.../panels/epoch/projection_cljs_test.cljc`, landed
-  // #1753). No live SCENARIOS entry navigated to `/testbeds/schema-
-  // violation/`, so staging it only paid a dead compile + serve. The
-  // testbed source remains under `testbeds/schema_violation/` as a manual-
-  // inspection target.
   {
     build: 'testbeds/http-toggle',
     bundleDir: ['out', 'testbeds', 'http-toggle'],
@@ -119,27 +88,6 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'deep_machine', 'index.html'],
     servedPath: 'testbeds/deep-machine',
   },
-  // ---- retired with the dropped panels (rf2-xy4yb / rf2-fxnszc) -------
-  //
-  // `testbeds/long-flow-w-failure` (Flows panel) and `testbeds/drain-depth-
-  // trigger` (Performance panel) staged surfaces drove scenarios that were
-  // retired when the 4-layer chrome refactor (rf2-xy4yb) dropped both
-  // panels — there is no UI handoff left to assert. No live SCENARIOS
-  // entry navigates to either served path, so both were dead staged
-  // surfaces paying a compile + serve for nothing. The flow-failure trace
-  // evidence stays covered by the `deterministic exceptions` scenario; the
-  // `:halted-depth` epoch record stays observable via the substrate's
-  // host-side epoch-history probe. The testbed sources remain under
-  // `testbeds/{long_flow_w_failure,drain_depth_trigger}/`.
-  // ---- retired with the converted scenario (rf2-rviu8) ----------------
-  //
-  // The `testbeds/non-trivial-app-db` build was driven by the
-  // 'non-trivial app-db diff substrate' scenario. That scenario is
-  // now covered by `non_trivial_app_db_e2e_cljs_test.cljs` (data-
-  // level, no browser), so the staged surface is no longer needed.
-  // Removing it saves the bundle compile + serve setup. The testbed
-  // source remains under `testbeds/non_trivial_app_db/` for any
-  // future re-introduction.
   {
     build: 'testbeds/large-dispatcher',
     bundleDir: ['out', 'testbeds', 'large-dispatcher'],
@@ -152,29 +100,21 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'ssr_hydration_mismatch', 'index.html'],
     servedPath: 'testbeds/ssr-hydration-mismatch',
   },
-  // ---- retired: never wired to a live scenario (rf2-fxnszc) -----------
-  //
-  // The `testbeds/ssr-multi-frame` surface was staged but no SCENARIOS
-  // entry ever navigated to `/testbeds/ssr-multi-frame/` — a dead staged
-  // surface that compiled + served a bundle nothing hit. The SSR
-  // multi-frame isolation invariant is covered as pure JVM coverage at
-  // `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`.
-  // The testbed source remains under `testbeds/ssr_multi_frame/`.
-  // rf2-azfct — panel-gallery testbed staged for the theme-token CSS-
-  // variable resolution probe. The gallery embeds bare Xray widgets
-  // without mounting the Xray shell, so its boot path must call
-  // `global-styles/install!` explicitly (rf2-pqulr). The probe asserts
-  // that contract from a real browser; without `install!` every
-  // `var(--rf-xray-*)` reference would resolve to its CSS fallback
-  // default and panels would paint unstyled.
+  // The panel-gallery testbed is staged for the theme-token CSS-variable
+  // resolution probe. The gallery embeds bare Xray widgets without
+  // mounting the Xray shell, so its boot path must call
+  // `global-styles/install!` explicitly. The probe asserts that contract
+  // from a real browser; without `install!` every `var(--rf-xray-*)`
+  // reference would resolve to its CSS fallback default and panels would
+  // paint unstyled.
   {
     build: 'testbeds/panel-gallery',
     bundleDir: ['out', 'testbeds', 'panel-gallery'],
     html: ['tools', 'xray', 'testbeds', 'panel_gallery', 'index.html'],
     servedPath: 'testbeds/panel-gallery',
   },
-  // rf2-5crg4 — routes-epochs deck (the ROUTING step-up tester). A
-  // single-frame numbered-button ladder over the real `reg-route` +
+  // The routes-epochs deck (the ROUTING step-up tester). A single-frame
+  // numbered-button ladder over the real `reg-route` +
   // `:rf.route/navigate` surface, driving the Xray Routing panel
   // (`rf-xray-routing`). Served from the deck's own hand-written
   // index.html (source dir first, like the 8032 :dev-http entry); the
@@ -185,11 +125,11 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'routes_epochs', 'index.html'],
     servedPath: 'testbeds/routes-epochs',
   },
-  // rf2-w06op + rf2-kipb5 — machine-epochs deck (the STATE-MACHINE tester),
-  // converted to the shared queued-step runner (`runner.core`). A single-frame
-  // step matrix over the real `reg-machine` + machine-event-routing surface,
-  // driving the Xray Machine Inspector (`rf-xray-machine-inspector`). Served
-  // from the deck's own hand-written index.html (source dir first, like the
+  // The machine-epochs deck (the STATE-MACHINE tester), built on the
+  // shared queued-step runner (`runner.core`). A single-frame step matrix
+  // over the real `reg-machine` + machine-event-routing surface, driving
+  // the Xray Machine Inspector (`rf-xray-machine-inspector`). Served from
+  // the deck's own hand-written index.html (source dir first, like the
   // 8033 :dev-http entry); the compiled main.js falls through to
   // out/examples/machine-epochs.
   {
@@ -211,43 +151,37 @@ async function openXray(page) {
   await expectVisible(page.locator('[data-testid="rf-xray-shell"]'), 5000);
 }
 
-// Post rf2-xy4yb: the L3 tab bar replaces the legacy sidebar. Tabs
-// expose `data-testid="rf-xray-tab-<id>"` for the 9 LIVE Dynamic panels
-// (epoch / app-db / views / trace / machines / routing / resources /
-// derivation-graph / module-view — spec/018 §5 §The 9 tabs; rf2-5gl5r
-// retired the Event/Handler tab in favour of the Epoch panel; rf2-gbz39
-// removed the Issues tab per Mike's Option (c) ruling; Resources added
-// per Spec 016 §Xray and AI tooling; Graph + Modules per EP-0014 /
-// EP-0013, swept since rf2-1sddi6 F3).
+// The L3 tab bar's tabs expose `data-testid="rf-xray-tab-<id>"` for the
+// 9 LIVE Dynamic panels (epoch / app-db / views / trace / machines /
+// routing / resources / derivation-graph / module-view — spec/018 §5
+// §The 9 tabs; Resources per Spec 016 §Xray and AI tooling; Graph +
+// Modules per EP-0014 / EP-0013).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);
 }
 
-// Legacy panel ids → new L3 tab ids. Panels removed by the 4-layer
-// refactor (time-travel, causality, subs, fx, flows, routes,
-// performance, schemas, hydration, mcp-server) and the rf2-y0z5b
-// causality-surface drop have no UI handoff — callers that target
-// them must be updated separately. rf2-5gl5r: `event-detail` and
-// `event` legacy ids both route to the Epoch panel's `:epoch` tab
-// (the canonical "what happened in this epoch" surface).
+// Panel-id vocabulary → L3 tab ids. Only the panels listed here have a
+// UI handoff in the 4-layer chrome; a caller targeting any other panel-id
+// gets an explicit throw (handled in `clickSidebar`). Both `event-detail`
+// and `event` route to the Epoch panel's `:epoch` tab — the canonical
+// "what happened in this epoch" surface.
 const LEGACY_PANEL_TO_TAB = {
   'event-detail': 'epoch',
   'event':        'epoch',
   'app-db':       'app-db',
   'trace':        'trace',
   'machines':     'machines',
-  // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
-  // there is no `issues` tab handoff. Issues surface inline in the
+  // There is no `issues` tab handoff. Issues surface inline in the
   // Epoch panel + the L2 event-row pink-wash + the always-on issues
   // ribbon signal.
 };
 
-// Back-compat wrapper used by scenarios still pointing at the old
-// panel-id vocabulary (multi-frame, large-dispatcher, etc.). Maps to
-// a tab when possible; throws explicitly when a caller targets a
-// panel the new chrome no longer exposes so the test surfaces the
-// real gap instead of timing out on a missing testid.
+// Wrapper used by scenarios that address panels by their panel-id
+// vocabulary (multi-frame, large-dispatcher, etc.). Maps to a tab when
+// one exists; throws explicitly when a caller targets a panel the chrome
+// does not expose so the test surfaces the real gap instead of timing
+// out on a missing testid.
 async function clickSidebar(page, id, canvasTestId) {
   const tabId = LEGACY_PANEL_TO_TAB[id];
   if (!tabId) {
@@ -325,19 +259,19 @@ async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
     const root = document.getElementById('rf-xray-root');
     const selectors = {
       trace: '[data-testid^="rf-xray-trace-row-"] button[data-testid$="-source-coord"]',
-      // rf2-gbz39 — the `issues` panel selector was dropped with the
-      // removed Issues tab; source-coord bridge coverage rides the
-      // Trace panel's chips (the same exception traces carry coords).
+      // There is no `issues` panel selector; source-coord bridge coverage
+      // rides the Trace panel's chips (the same exception traces carry
+      // the coords).
       hydration: '[data-testid="rf-xray-hydration-source-coord"] button',
     };
     if (!root) return { clicked: false, reason: 'Xray root missing', candidates: [] };
     const selector = selectors[targetPanel] || 'button[data-testid*="source"]';
     const buttons = Array.from(root.querySelectorAll(selector));
-    // rf2-ad7zx.9 — the Issues panel's source affordance is now an `↗`
-    // icon (per the Figma design); the `file:line` coord rides the
-    // button's `title` attribute, not its text. Prefer `title` when it
-    // carries the coord (icon affordances), falling back to textContent
-    // for the trace / hydration chips that still render the coord inline.
+    // An icon source affordance (the `↗` icon, per the Figma design)
+    // carries its `file:line` coord on the button's `title` attribute
+    // rather than its text. Prefer `title` when it carries the coord
+    // (icon affordances), falling back to textContent for the trace /
+    // hydration chips that render the coord inline.
     const coordOf = (button) => {
       const title = (button.getAttribute('title') || '').trim();
       const text = (button.textContent || '').trim();
@@ -375,14 +309,14 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
   const beforeUrl = page.url();
   const requestStart = ctx && ctx.browserState ? ctx.browserState.requestFailures.length : 0;
 
-  // rf2-4s08ov — explicitly configure an editor before clicking the
-  // chip. The counter surface (this scenario's host) wires only the
-  // bare preload and never sets `:rf.xray/editor`, so by default the
-  // click would now surface the 'pick an editor in Settings' DX hint
-  // (the intended behaviour for an unconfigured host) instead of
-  // firing the `vscode://` navigation this scenario asserts. Setting
-  // `:vscode` explicitly models a properly-wired host and exercises
-  // the click → `Location.assign` bridge the scenario is about.
+  // Explicitly configure an editor before clicking the chip. The counter
+  // surface (this scenario's host) wires only the bare preload and never
+  // sets `:rf.xray/editor`, so by default the click surfaces the 'pick an
+  // editor in Settings' DX hint (the intended behaviour for an
+  // unconfigured host) instead of firing the `vscode://` navigation this
+  // scenario asserts. Setting `:vscode` explicitly models a properly-
+  // wired host and exercises the click → `Location.assign` bridge the
+  // scenario is about.
   await page.evaluate(() => {
     const cfg = window.day8 && window.day8.re_frame2_xray &&
                 window.day8.re_frame2_xray.config;
@@ -401,16 +335,12 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
     });
   }
 
-  // Per rf2-xs8vu: the chip-click handler dispatches
-  // `:rf.xray/open-in-editor` under the `:rf/xray` frame, which then
-  // fires `:rf.editor/open` as an fx (also `:rf/xray`-framed). The
-  // trace-bus ingest filter (`xray-internal-event?`) correctly drops
-  // those self-emitted events before they reach Xray's buffer — they
-  // are Xray machinery, not host activity. The bridge round-trip
-  // therefore CANNOT be verified by reading Xray's trace feed
-  // (pre-rf2-xs8vu the test exploited the absence of that filter as
-  // a convenient probe; it was incidental observability, not the
-  // bridge's contract).
+  // The chip-click handler dispatches `:rf.xray/open-in-editor` under the
+  // `:rf/xray` frame, which then fires `:rf.editor/open` as an fx (also
+  // `:rf/xray`-framed). The trace-bus ingest filter (`xray-internal-
+  // event?`) correctly drops those self-emitted events before they reach
+  // Xray's buffer — they are Xray machinery, not host activity. The bridge
+  // round-trip therefore CANNOT be verified by reading Xray's trace feed.
   //
   // The contract is: clicking a chip writes `window.location.href`
   // to the resolved `vscode://...` URI (via `open-in-editor/open!`).
@@ -686,15 +616,13 @@ async function setXrayTargetFrame(page, frame) {
  * (`frame`, `eventId`) pair (an `:rf.event/dispatched` record) and
  * dispatch `:rf.xray/focus-cascade` to focus that cascade.
  *
- * Replaces the old `clickTraceRowByFrame` helper: post rf2-ycoct the
- * Trace DOM is cascade-scoped and only renders rows for the currently
- * focused cascade, so scanning trace rows to "find and click" a
- * sibling cascade no longer works. The bus buffer is the canonical,
- * unscoped source of (frame, event) → dispatch-id, and `:rf.xray/
- * focus-cascade` is the same spine event the L2 event-row click
- * dispatches — picking a cascade through this helper exercises the
- * same focus → projection wiring without depending on the cascade-
- * scoped Trace surface.
+ * The Trace DOM is cascade-scoped and only renders rows for the currently
+ * focused cascade, so scanning trace rows to "find and click" a sibling
+ * cascade does not work. The bus buffer is the canonical, unscoped source
+ * of (frame, event) → dispatch-id, and `:rf.xray/focus-cascade` is the
+ * same spine event the L2 event-row click dispatches — picking a cascade
+ * through this helper exercises the same focus → projection wiring without
+ * depending on the cascade-scoped Trace surface.
  */
 async function focusCascadeByFrameEvent(page, { frame, eventId }) {
   const result = await page.evaluate(({ targetFrame, targetEventId }) => {
@@ -797,12 +725,11 @@ async function focusCascadeByFrameEvent(page, { frame, eventId }) {
   return result;
 }
 
-// rf2-r6d6u: the trace header's 'X / Y in view' denominator is now
-// cascade-scoped (Y = in-scope, pre-user-filter count), so it is NO
-// LONGER a proxy for the whole ring's depth. The buffer-cap invariant
-// ('still capped at 1000') is read straight from the trace bus — the
-// canonical source of truth for ring depth, independent of which
-// cascade the spine has in focus.
+// The trace header's 'X / Y in view' denominator is cascade-scoped
+// (Y = in-scope, pre-user-filter count), so it is not a proxy for the
+// whole ring's depth. The buffer-cap invariant ('still capped at 1000')
+// is read straight from the trace bus — the canonical source of truth
+// for ring depth, independent of which cascade the spine has in focus.
 async function readTraceBufferDepth(page) {
   return page.evaluate(() => {
     const cljs = window.cljs && window.cljs.core;
@@ -830,10 +757,10 @@ async function pushSyntheticTraceEvents(page, count) {
         busKeys: bus ? Object.keys(bus).sort().slice(0, 60) : [],
       };
     }
-    // Post-rf2-43koh — bump the secondary ring's depth so the test can
-    // assert against a 1000-event budget without coupling the new
-    // default to a perf-test invariant. The default
-    // `default-frameless-ring-depth` (100) is what production hosts see.
+    // Bump the secondary ring's depth so the test can assert against a
+    // 1000-event budget without coupling the production default to a
+    // perf-test invariant. The default `default-frameless-ring-depth`
+    // (100) is what production hosts see.
     if (typeof bus.set_frameless_ring_depth_BANG_ === 'function') {
       bus.set_frameless_ring_depth_BANG_(eventCount);
     }
@@ -849,17 +776,17 @@ async function pushSyntheticTraceEvents(page, count) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
-    // Post rf2-ycoct: the Trace tab is cascade-scoped — it only
-    // renders rows belonging to the spine's focused cascade. To stress
-    // the per-cascade 200-row DOM budget we push every synthetic event
-    // under a SINGLE shared :dispatch-id so the buffer holds one
-    // focusable cascade containing all `eventCount` rows; LIVE mode
-    // auto-snaps focus to that head cascade and the trace ribbon ends
-    // up trying to render all 1000 — which the DOM budget then caps at
-    // 200 with the overflow indicator. (The earlier shape allocated a
-    // distinct :dispatch-id per event, producing 1000 single-row
-    // cascades; under cascade-scoping only the head cascade — a single
-    // row — would render, missing the budget assertion entirely.)
+    // The Trace tab is cascade-scoped — it only renders rows belonging to
+    // the spine's focused cascade. To stress the per-cascade 200-row DOM
+    // budget we push every synthetic event under a SINGLE shared
+    // :dispatch-id so the buffer holds one focusable cascade containing
+    // all `eventCount` rows; LIVE mode auto-snaps focus to that head
+    // cascade and the trace ribbon ends up trying to render all 1000 —
+    // which the DOM budget then caps at 200 with the overflow indicator.
+    // (Allocating a distinct :dispatch-id per event would instead produce
+    // 1000 single-row cascades, and under cascade-scoping only the head
+    // cascade — a single row — would render, missing the budget assertion
+    // entirely.)
     const sharedDispatchId = 500000;
     const now = Date.now();
     for (let i = 0; i < eventCount; i += 1) {
@@ -938,10 +865,9 @@ async function readLaunchModeProjection(page) {
         ? Array.from(root.querySelectorAll('[data-testid^="rf-xray-sidebar-item-"]'))
           .find((el) => (el.textContent || '').includes('◉'))
         : null;
-      // rf2-5gl5r — `rf-xray-event-detail-cascade` is gone with the
-      // retired Event/Handler panel. The Epoch panel is the canonical
-      // focused-cascade surface; its DISPATCH step is the rendering
-      // proxy for "a cascade is in focus and its data is rendered".
+      // The Epoch panel is the canonical focused-cascade surface; its
+      // DISPATCH step is the rendering proxy for "a cascade is in focus
+      // and its data is rendered".
       const epochPanel = root && root.querySelector('[data-testid="rf-xray-epoch-panel"]');
       const dispatchStep = root && root.querySelector('[data-testid="rf-xray-epoch-step-dispatch"]');
       return {
@@ -959,9 +885,9 @@ async function readLaunchModeProjection(page) {
         selectedDispatchId: null,
         selectedFrame: null,
         cascadeText: text(root, '[data-testid="rf-xray-epoch-panel"]'),
-        // Post rf2-5gl5r `cascadeRows` semantics shift: 1 when the
-        // Epoch panel rendered a DISPATCH step (focus has a cascade),
-        // 0 when not (empty-state / no-focus / epoch-evicted).
+        // `cascadeRows`: 1 when the Epoch panel rendered a DISPATCH step
+        // (focus has a cascade), 0 when not (empty-state / no-focus /
+        // epoch-evicted).
         cascadeRows: dispatchStep ? 1 : 0,
         traceRows: count(root, '[data-testid^="rf-xray-trace-row-"]'),
         epochPanelPresent: Boolean(epochPanel),
@@ -1040,9 +966,8 @@ async function runShellFeatureSweep(page) {
   await openXray(page);
 
   // Sweep every L3 tab. Each tab click must surface its panel canvas
-  // (per spec/018 §5). The 4-layer chrome dropped the legacy
-  // time-travel / routes / schemas / mcp-server panels — they no
-  // longer have a tab and are not part of this sweep.
+  // (per spec/018 §5). Only the panels with a tab take part in this
+  // sweep; panels without a tab have no UI handoff to assert.
   for (const [id, canvas] of PANEL_HANDOFFS) {
     await clickTab(page, id, canvas);
   }
@@ -1052,11 +977,10 @@ async function runShellFeatureSweep(page) {
   await clickHostButtonByLabel(page, '-');
 
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
-  // Post rf2-5gl5r the Epoch panel supersedes the retired Event/Handler
-  // panel. Per rf2-639lc the panel default-focuses the head cascade
-  // on mount; the panel renders the numbered cascade steps directly
-  // (e.g. `rf-xray-epoch-step-dispatch`). Asserts non-empty via the
-  // presence of at least one step row.
+  // The Epoch panel is the canonical "what happened in this epoch"
+  // surface. It default-focuses the head cascade on mount and renders the
+  // numbered cascade steps directly (e.g. `rf-xray-epoch-step-dispatch`).
+  // Asserts non-empty via the presence of at least one step row.
   await waitForValue(
     () => page.locator('[data-testid="rf-xray-epoch-step-dispatch"]').count(),
     (count) => count > 0,
@@ -1064,15 +988,13 @@ async function runShellFeatureSweep(page) {
   );
 
   await clickTab(page, 'trace', 'rf-xray-trace');
-  // rf2-td380: the Trace panel is epoch-scoped — after the host
-  // dispatches above, LIVE auto-snap focuses the head epoch whose
-  // `:trace-events` populate the ribbon. Assert non-empty via the
-  // rendered rows (the 'X / Y in view' counts header is gone, rf2-o6yqq).
+  // The Trace panel is epoch-scoped — after the host dispatches above,
+  // LIVE auto-snap focuses the head epoch whose `:trace-events` populate
+  // the ribbon. Assert non-empty via the rendered rows (there is no
+  // 'X / Y in view' counts header).
   //
-  // rf2-jnxfj — rows are now `:div`s wrapped by the shared
-  // `rt/resizable-table` view (formerly `:li`s in a `:ul`). The
-  // data-testid contract `rf-xray-trace-row-<id>` is unchanged; only
-  // the container tag-name moved.
+  // Rows are `:div`s wrapped by the shared `rt/resizable-table` view. The
+  // data-testid contract `rf-xray-trace-row-<id>` identifies each row.
   await waitForValue(
     () => page.locator('[data-testid^="rf-xray-trace-row-"]').count(),
     (count) => count > 0,
@@ -1086,10 +1008,10 @@ async function runSourceCoordinatesAndLaunchModes(page, state, ctx) {
   await clearTrace(page);
   await clickHostButtonByLabel(page, '+');
   await waitForTraceMatch(page, /counter\/core\.cljs/, 'counter source-coordinate trace');
-  // rf2-td380 + rf2-gkczt: the Trace panel is epoch-scoped with no chip
-  // filter. After the host dispatch the spine auto-snaps focus to the
-  // head epoch (LIVE), whose `:trace-events` carry the source-coord
-  // rows — no filter step needed; every row's source-coord chip renders.
+  // The Trace panel is epoch-scoped with no chip filter. After the host
+  // dispatch the spine auto-snaps focus to the head epoch (LIVE), whose
+  // `:trace-events` carry the source-coord rows — no filter step needed;
+  // every row's source-coord chip renders.
   await waitForValue(
     () => page.locator('[data-testid^="rf-xray-trace-row-"] button[data-testid$="-source-coord"]').count(),
     (count) => count > 0,
@@ -1117,12 +1039,10 @@ async function runExceptionSchemaHttp(page, state, ctx) {
     ['machine exception', /machine-action-exception|deliberate-throw \/ machine action/],
   ]);
 
-  // rf2-gbz39 — the dedicated Issues tab was removed (Mike RULED
-  // Option (c)). Exceptions now surface INLINE in the Epoch panel as
-  // the "Exception Thrown" block (rf2-ahhgn / rf2-wnvid). Verify the
-  // inline surfacing, then run the source-coord bridge against the
-  // Trace panel's source-coord chips (the same exception traces carry
-  // the coords) since the Issues feed no longer exists.
+  // Exceptions surface INLINE in the Epoch panel as the "Exception
+  // Thrown" block. Verify the inline surfacing, then run the source-coord
+  // bridge against the Trace panel's source-coord chips (the same
+  // exception traces carry the coords).
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
   const exceptionEpochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
@@ -1132,18 +1052,18 @@ async function runExceptionSchemaHttp(page, state, ctx) {
     });
   }
 
-  // rf2-s6oqd + rf2-oqi0c — focus the handler-throw epoch (Button A,
-  // `::throw-in-handler`: throws before returning a `:db`) and assert the
-  // exception-chrome fixes hold on the live cascade:
-  //   (s6oqd)  NO spurious "Rolled back" recovery chip — nothing committed
-  //            or rolled back here (and the post-commit/flow throws in this
-  //            deck likewise never roll back the committed `:db`).
-  //   (oqi0c-b) NO category-reason boilerplate headline element on any
-  //            exception card (the position + "Exception Thrown" heading
-  //            carry the attribution).
-  //   (oqi0c-a) the HANDLER step does NOT render the redundant
-  //            "— no :db (handler threw)" line — the inline card is the
-  //            signal, so the `:db` sub-section is omitted on a throw.
+  // Focus the handler-throw epoch (Button A, `::throw-in-handler`: throws
+  // before returning a `:db`) and assert the exception-chrome contract
+  // holds on the live cascade:
+  //   (1) NO spurious "Rolled back" recovery chip — nothing committed or
+  //       rolled back here (and the post-commit/flow throws in this deck
+  //       likewise never roll back the committed `:db`).
+  //   (2) NO category-reason boilerplate headline element on any exception
+  //       card (the position + "Exception Thrown" heading carry the
+  //       attribution).
+  //   (3) the HANDLER step does NOT render the redundant
+  //       "— no :db (handler threw)" line — the inline card is the signal,
+  //       so the `:db` sub-section is omitted on a throw.
   await focusCascadeByFrameEvent(page, {
     frame: ':rf/default',
     eventId: ':deliberate-throw.core/throw-in-handler',
@@ -1155,7 +1075,7 @@ async function runExceptionSchemaHttp(page, state, ctx) {
     (count) => count > 0,
     { timeoutMs: 5000, description: 'oqi0c — handler exception card present' },
   );
-  // (s6oqd) no rollback happened → NO "Rolled back" recovery chip anywhere
+  // (1) no rollback happened → NO "Rolled back" recovery chip anywhere
   const handlerEpochRecoveryChips = await page
     .locator('[data-testid="rf-xray-epoch-panel"] [data-testid$="-recovery"]')
     .count();
@@ -1169,7 +1089,7 @@ async function runExceptionSchemaHttp(page, state, ctx) {
       chipText,
     });
   }
-  // (oqi0c-b) the category-reason boilerplate headline is dropped
+  // (2) no category-reason boilerplate headline is rendered
   const handlerEpochHeadlines = await page
     .locator('[data-testid="rf-xray-epoch-panel"] [data-testid$="-headline"]')
     .count();
@@ -1178,7 +1098,7 @@ async function runExceptionSchemaHttp(page, state, ctx) {
       headlineCount: handlerEpochHeadlines,
     });
   }
-  // (oqi0c-a) the HANDLER step omits the "— no :db (handler threw)" line
+  // (3) the HANDLER step omits the "— no :db (handler threw)" line
   const handlerThrewNoDbLine = await page
     .locator('[data-testid="rf-xray-epoch-handler-db-no-write"]')
     .count();
@@ -1223,15 +1143,14 @@ async function runHttpToggle(page) {
     await waitForTraceMatch(page, new RegExp(outcome.replace('.', '\\.')), `${outcome} trace`);
   }
 
-  // Post rf2-xy4yb: the dedicated Effects (fx) panel was dropped.
-  // Post rf2-5gl5r the Epoch panel is the canonical "what happened
-  // in this epoch" surface. Per rf2-639lc the panel default-focuses
-  // the head (most-recent) cascade on mount — opening the tab after
-  // the last `:go` dispatch surfaces its full numbered cascade.
-  // Assert the rendered panel carries the EFFECT HANDLERS step (rf2-kt6js;
-  // the `:rf.fx/handled` emits for the dispatched `:go` event are
-  // projected into the step's `:fx` sub-step). The step header reads
-  // "EFFECT HANDLERS" and the `:fx` sub-header reads ":fx".
+  // The Epoch panel is the canonical "what happened in this epoch"
+  // surface and folds fx/effects in as inline steps of its numbered
+  // cascade. It default-focuses the head (most-recent) cascade on mount —
+  // opening the tab after the last `:go` dispatch surfaces its full
+  // numbered cascade. Assert the rendered panel carries the EFFECT
+  // HANDLERS step (the `:rf.fx/handled` emits for the dispatched `:go`
+  // event are projected into the step's `:fx` sub-step). The step header
+  // reads "EFFECT HANDLERS" and the `:fx` sub-header reads ":fx".
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
   const epochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
@@ -1240,10 +1159,6 @@ async function runHttpToggle(page) {
       epochText: epochText.slice(0, 800),
     });
   }
-  // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c)).
-  // The fx outcomes for this scenario surface inline in the Epoch
-  // panel's EFFECT HANDLERS step (asserted above); there is no dedicated
-  // Issues tab to hand off to anymore.
 }
 
 async function runMultiFrame(page, state) {
@@ -1304,21 +1219,19 @@ async function runMultiFrame(page, state) {
     (count) => count > 0,
     { timeoutMs: 5000, description: 'multi-frame trace rows' },
   );
-  // Post rf2-ycoct: the Trace tab is cascade-scoped — it only renders
-  // rows belonging to the spine's focused cascade. LIVE mode auto-
-  // snaps focus to the head cascade (the most recent dispatch), so
-  // unless the :counter/b :multi-frame.core/inc cascade happens to be
-  // the head the Trace DOM never contains that row. The old test
-  // scanned `[data-testid^="rf-xray-trace-row-"]` for it directly
-  // and failed under cascade-scoping.
+  // The Trace tab is cascade-scoped — it only renders rows belonging to
+  // the spine's focused cascade. LIVE mode auto-snaps focus to the head
+  // cascade (the most recent dispatch), so unless the :counter/b
+  // :multi-frame.core/inc cascade happens to be the head the Trace DOM
+  // does not contain that row.
   //
   // The test's intent — exercise the cascade-focus → event-detail
-  // wiring for a chosen :counter/b cascade — is preserved by focusing
-  // the cascade explicitly via the spine event `:rf.xray/focus-
-  // cascade` (the same event the L2 event-row click dispatches) and
-  // then asserting the event-detail projection. We look up the
-  // dispatch-id by walking the bus buffer for the (frame, event-id)
-  // pair, which is independent of the cascade-scoped Trace DOM.
+  // wiring for a chosen :counter/b cascade — is met by focusing the
+  // cascade explicitly via the spine event `:rf.xray/focus-cascade`
+  // (the same event the L2 event-row click dispatches) and then asserting
+  // the event-detail projection. We look up the dispatch-id by walking
+  // the bus buffer for the (frame, event-id) pair, which is independent
+  // of the cascade-scoped Trace DOM.
   //
   // The L2 event list is frame-scoped: in a multi-frame app the
   // operator first picks the frame they want to inspect (the L1
@@ -1339,10 +1252,9 @@ async function runMultiFrame(page, state) {
     eventId: ':multi-frame.core/inc',
   });
   state.multiFrame.selectedTraceRow = selected;
-  // Post rf2-5gl5r the Epoch panel supersedes the retired Event/
-  // Handler panel; the selected-cascade projection lives on the
-  // Epoch DISPATCH step. Assert the panel text carries the event-id
-  // of the focused multi-frame cascade.
+  // The selected-cascade projection lives on the Epoch panel's DISPATCH
+  // step. Assert the panel text carries the event-id of the focused
+  // multi-frame cascade.
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   const eventDetailProjection = await waitForValue(
     () => page.evaluate(() => {
@@ -1368,12 +1280,9 @@ async function runMultiFrame(page, state) {
       expectedEvent: ':multi-frame.core/inc',
     });
   }
-  // Post rf2-xy4yb: the dedicated Causality and Time-Travel panels
-  // were dropped (Causality fully removed in rf2-y0z5b). Per
-  // spec/018 §5 + §6 Time Travel folds into the Event tab + RETRO
-  // scrubbing on the L2 event list. This scenario covers multi-
-  // frame isolation through the trace + event-tab cascade evidence
-  // above; the dedicated time-travel handoff steps are retired.
+  // This scenario covers multi-frame isolation through the trace +
+  // Epoch-tab cascade evidence above. Time Travel is part of the Epoch
+  // tab + RETRO scrubbing on the L2 event list (spec/018 §5 + §6).
 }
 
 async function runDeepMachine(page, state) {
@@ -1389,8 +1298,8 @@ async function runDeepMachine(page, state) {
   await clickSidebar(page, 'machines', 'rf-xray-machine-inspector');
   await expectVisible(page.locator('[data-testid="rf-xray-machine-inspector"]'), 5000);
 
-  // rf2-bz72m — drive the chart-render path through the existing
-  // test-only event surface (`:rf.xray/set-epoch-history-for-test` +
+  // Drive the chart-render path through the test-only event surface
+  // (`:rf.xray/set-epoch-history-for-test` +
   // `:rf.xray/set-focus-epoch-id-for-test`, both registered by
   // `panels/machine_inspector.cljs` §595 and not gated behind
   // `interop/debug-enabled?`).
@@ -1410,7 +1319,7 @@ async function runDeepMachine(page, state) {
   // empty in production today. (A future framework fix is tracked
   // separately — orthogonal to the shim-survival probe.)
   //
-  // The shim-survival probe this bead actually wants — the
+  // This scenario's shim-survival probe — the
   // chart/{svg,layout,elk_layout} re-export chain — only fires when
   // the focused epoch's cascade window carries at least one
   // `:rf.machine/transition` row whose `:machine-id` resolves to a
@@ -1489,13 +1398,11 @@ async function runDeepMachine(page, state) {
   state.deepMachine = state.deepMachine || {};
   state.deepMachine.chartInjection = chartInjection;
 
-  // rf2-bz72m / rf2-gpzb4 — assert the machines-viz xyflow chart
-  // actually renders. The chart was migrated to `@xyflow/react` on
-  // 2026-05-21 (Mike override of the 2026-05-19 ELK+SVG lock); the
-  // canvas is no longer a raw `<svg>` but an xyflow `<div
+  // Assert the machines-viz xyflow chart actually renders. The chart is
+  // built on `@xyflow/react`; the canvas is an xyflow `<div
   // class="react-flow">` containing per-node child `<div>`s. The
-  // assertion now counts (1) the chart wrapper testid, (2) the
-  // xyflow root class, and (3) at least one rendered state node
+  // assertion counts (1) the chart wrapper testid, (2) the xyflow root
+  // class, and (3) at least one rendered state node
   // (`[data-testid^="rf-mv-chart-node-"]`) — non-zero proves elk.js
   // laid out + xyflow rendered + the machines-viz custom node
   // components resolved through the shim chain.
@@ -1652,14 +1559,11 @@ async function runLargeDispatcher(page, state) {
   const traceEvents = await readTrace(page);
   await clickSidebar(page, 'app-db', 'rf-xray-app-db-diff');
   await expectVisible(page.locator('[data-testid="rf-xray-app-db-diff"]'), 5000);
-  // rf2-ndb13 — large markers render as first-class chip chrome inside
-  // the edn-inspector (the predicate previously mis-matched `:rf/large`
-  // and the marker fell through to ordinary map rendering, surfacing
-  // the `:rf.size/large-elided` keyword as plain text). With the
-  // predicate now keyed off the spec/015 marker, the chip appears under
-  // `[data-testid="rf-xray-edn-inspector-large"]`. Assert chip presence
-  // and absence of the raw payload — the two together cover "elision
-  // marker surfaced" and "raw value never leaks".
+  // Large markers render as first-class chip chrome inside the
+  // edn-inspector. The predicate is keyed off the spec/015 marker, so the
+  // chip appears under `[data-testid="rf-xray-edn-inspector-large"]`.
+  // Assert chip presence and absence of the raw payload — the two together
+  // cover "elision marker surfaced" and "raw value never leaks".
   const largeChips = page.locator(
     '[data-testid="rf-xray-app-db-diff"] [data-testid="rf-xray-edn-inspector-large"]',
   );
@@ -1678,9 +1582,9 @@ async function runLargeDispatcher(page, state) {
       appDbText: appDbText.slice(0, 1200),
     });
   }
-  // rf2-8pfkk — the edn-inspector's internal `::missing` absence
-  // sentinel (`:day8.re-frame2-xray.views.edn-inspector/missing`) must
-  // NEVER reach the rendered App-DB Diff. A removed slot renders as a
+  // The edn-inspector's internal `::missing` absence sentinel
+  // (`:day8.re-frame2-xray.views.edn-inspector/missing`) must NEVER reach
+  // the rendered App-DB Diff. A removed slot renders as a
   // struck-through ghost, not a literal sentinel keyword. The
   // per-rendering removed-to-empty + deleted-ancestor cases are pinned
   // exhaustively in the CLJS unit tests (`edn_inspector_cljs_test.cljs`
@@ -1708,21 +1612,18 @@ async function runLargeDispatcher(page, state) {
 async function runHydration(page) {
   // ---- (1) verify-hydration! emitted the structured trace ------------
   //
-  // Post rf2-xy4yb: the dedicated Hydration debugger panel was
-  // dropped. Post rf2-gbz39 (Mike RULED Option (c)) the Issues tab was
-  // ALSO removed; hydration mismatches surface as `:rf.ssr/*` rows
-  // (category-prefix "rf.ssr") via the L2 event-row signal + the
-  // always-on issues ribbon (auto-open-on-error) rather than a tab.
+  // Hydration mismatches surface as `:rf.ssr/*` rows (category-prefix
+  // "rf.ssr") via the L2 event-row signal + the always-on issues ribbon
+  // (auto-open-on-error).
   //
   // `:rf.ssr/hydration-mismatch` is emitted by `verify-hydration!`
   // OUTSIDE any event-handler context (see testbed `core.cljs:188`).
   // The framework's epoch capture (`re-frame.epoch.capture/capture-
   // event!`) drops out-of-cascade orphan emits — an error with no
-  // in-flight cascade AND no `:dispatch-id` (rf2-avvwm) — so the
-  // mismatch trace never lands in any `:rf/epoch-record`'s
-  // `:trace-events`. Surfacing orphaned out-of-cascade errors is a
-  // deliberately separate concern (the L2 timeline's per-row signal,
-  // not a per-epoch panel).
+  // in-flight cascade AND no `:dispatch-id` — so the mismatch trace
+  // never lands in any `:rf/epoch-record`'s `:trace-events`. Surfacing
+  // orphaned out-of-cascade errors is a deliberately separate concern
+  // (the L2 timeline's per-row signal, not a per-epoch panel).
   //
   // What this scenario verifies end-to-end:
   //
@@ -1730,16 +1631,15 @@ async function runHydration(page) {
   //     payload — proves `verify-hydration!` reached `emit-error!`)
   //   - the Xray shell opens cleanly under cascade (focused-epoch)
   //     scope without crashing — proving the focused-epoch projection
-  //     + head-fallback (rf2-h0120) resolve to a real epoch record.
+  //     + head-fallback resolve to a real epoch record.
   const mismatchBanner = page.locator('[data-testid="mismatch-banner"]');
   await expectVisible(mismatchBanner, 10000);
   await expectVisible(page.locator('[data-testid="mismatch-server-hash"]'), 5000);
 
-  // ---- (2) Xray shell opens cleanly under cascade scope (rf2-gbz39) ---
-  // The dedicated Issues tab was removed under Option (c). Verify the
-  // shell mounts cleanly and the default Epoch panel renders its
-  // focused-epoch projection without crashing (the head-fallback,
-  // rf2-h0120, resolves to a real epoch record).
+  // ---- (2) Xray shell opens cleanly under cascade scope --------------
+  // Verify the shell mounts cleanly and the default Epoch panel renders
+  // its focused-epoch projection without crashing (the head-fallback
+  // resolves to a real epoch record).
   await openXray(page);
   await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
   await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
@@ -1752,16 +1652,15 @@ async function runTraceBudgetSaturation(page, state) {
   await clearTrace(page);
   const start = Date.now();
   const pushed = await pushSyntheticTraceEvents(page, 1000);
-  // rf2-r6d6u + rf2-td380 (+ rf2-43koh): the saturation invariant is a
-  // RING property. Post-rf2-43koh Xray's secondary frameless ring caps
-  // at `default-frameless-ring-depth` (100 events) by default; the
-  // synthetic-events helper bumps the depth to the pushed count via
-  // `set-frameless-ring-depth!` so this perf test can assert against a
-  // 1000-event budget independent of the production default. Frame-
-  // bound events ride the framework's per-frame rings (cascade-keyed,
-  // capped at `:cascades-retained` per frame). The Trace PANEL stays
-  // epoch-scoped (rf2-td380) — it renders the focused epoch record's
-  // `:trace-events`, NOT the global bus.
+  // The saturation invariant is a RING property. Xray's secondary
+  // frameless ring caps at `default-frameless-ring-depth` (100 events) by
+  // default; the synthetic-events helper bumps the depth to the pushed
+  // count via `set-frameless-ring-depth!` so this perf test can assert
+  // against a 1000-event budget independent of the production default.
+  // Frame-bound events ride the framework's per-frame rings (cascade-
+  // keyed, capped at `:cascades-retained` per frame). The Trace PANEL is
+  // epoch-scoped — it renders the focused epoch record's `:trace-events`,
+  // NOT the global bus.
   const expectedDepth = 1000;
   const saturatedDepth = await waitForValue(
     () => readTraceBufferDepth(page),
@@ -1800,8 +1699,8 @@ async function runTraceBudgetSaturation(page, state) {
 async function runLaunchModesTwentyEventLoad(page, state) {
   await expectHostCounterEquals(page, 5, 10000);
   await openXray(page);
-  // rf2-5gl5r — `event-detail` → `epoch` tab; the Epoch panel's
-  // root testid is `rf-xray-epoch-panel`.
+  // `event-detail` routes to the `epoch` tab; the Epoch panel's root
+  // testid is `rf-xray-epoch-panel`.
   await clickSidebar(page, 'event-detail', 'rf-xray-epoch-panel');
 
   const launch = await page.evaluate(() => {
@@ -1894,13 +1793,12 @@ async function runLaunchModesTwentyEventLoad(page, state) {
   }
 }
 
-// rf2-qd5r6 — ex-Tier-2 L-10 deepening of the Config (Spec 015) surface.
-// The lightweight chrome smokes already cover inline auto-mount + the
-// Ctrl+Shift+C toggle + the editor/project-root config round-trip
-// (Tier-1 §1 / §8 / §10c equivalents). What was not previously pinned
-// is the `configure!` multi-key map + partial-update semantics: a
-// single call carrying five keys round-trips every key; a second call
-// carrying only one key leaves the other four slots untouched.
+// Deepened coverage of the Config (Spec 015) surface. The lightweight
+// chrome smokes cover inline auto-mount + the Ctrl+Shift+C toggle + the
+// editor/project-root config round-trip. This scenario pins the
+// `configure!` multi-key map + partial-update semantics: a single call
+// carrying five keys round-trips every key; a second call carrying only
+// one key leaves the other four slots untouched.
 async function runConfigurePartialUpdate(page, state) {
   await expectHostCounterEquals(page, 5, 10000);
   await openXray(page);
@@ -1913,9 +1811,8 @@ async function runConfigurePartialUpdate(page, state) {
     if (typeof cfg.configure_BANG_ !== 'function') {
       return { ok: false, reason: 'configure_BANG_ missing' };
     }
-    // Two-arg keyword constructor: kw(ns, n) → :ns/n. Required for the
-    // rf2-xea9u rename: every configure! key now lives under :rf.xray/*
-    // or :rf.privacy/* (cross-tool privacy).
+    // Two-arg keyword constructor: kw(ns, n) → :ns/n. Every configure!
+    // key lives under :rf.xray/* or :rf.privacy/* (cross-tool privacy).
     const kw = (ns, n) => (cljs.keyword.call
       ? cljs.keyword.call(null, ns, n)
       : cljs.keyword(ns, n));
@@ -1996,7 +1893,7 @@ async function runConfigurePartialUpdate(page, state) {
 
     // Restore pre-state. Narrowing the egress profile :rf.egress/local-raw
     // → redacting default triggers the trace-bus retroactive scrub per
-    // Spec 009 §Privacy (rf2-lqmje); that's expected and not visible here.
+    // Spec 009 §Privacy; that's expected and not visible here.
     cfg.set_editor_BANG_(preEditor);
     cfg.set_project_root_BANG_(preProjectRoot);
     cfg.set_layout_host_selector_BANG_(preLayoutHost);
@@ -2017,18 +1914,15 @@ async function runConfigurePartialUpdate(page, state) {
   state.configureProbe = { ok: true };
 }
 
-// rf2-n39g2 — Static-mode browser scenario.
+// Static-mode browser scenario.
 //
-// Static mode shipped under #1565 + #1568 + #1569 (rf2-o5f5f.1 / .2 / .3).
-// Per rf2-8l3uk the `:rf.xray/static-mode?` feature gate was removed —
-// Static mode is unconditionally available. Before this scenario the
-// feature-matrix carried zero browser coverage for the highest-user-
-// visible Xray surface to land in the recent cluster. This scenario:
+// Static mode is unconditionally available (no feature gate). This
+// scenario:
 //
-//   1. Asserts the Dynamic baseline — mode dropdown present with
-//      `dynamic` selected (rf2-4vp5j reshaped the two-button pill into a
-//      compact `<select>`; `data-active-mode`/`value` carry the state),
-//      L2 spine event-list visible (4-layer chrome).
+//   1. Asserts the Dynamic baseline — the mode control is a compact
+//      `<select>` dropdown present with `dynamic` selected
+//      (`data-active-mode`/`value` carry the state), L2 spine event-list
+//      visible (4-layer chrome).
 //   2. Fires Ctrl+Shift+M (the cross-platform chord per
 //      `keybinding.cljs/mode-toggle-key?` — Cmd-Shift-M on macOS,
 //      Ctrl-Shift-M elsewhere; Playwright drives Ctrl as the headless
@@ -2036,16 +1930,12 @@ async function runConfigurePartialUpdate(page, state) {
 //      dropdown reads `static`, the Static surface mounts
 //      (`rf-xray-static-surface` with `data-rf-xray-mode="static"`),
 //      the L2 spine disappears (3-layer silhouette — chrome-silhouette
-//      mode-signal #4), the Machines sub-tab is selected by default
-//      (rf2-o5f5f.1 §tabs), and each shipped sub-tab (Routes / Schemas
-//      / Views / Flows) mounts its real panel root testid while
-//      `:events` (rf2-o5f5f.6 — last remaining placeholder) still
-//      renders a placeholder card naming the sibling bead.
+//      mode-signal #4), the Machines sub-tab is selected by default,
+//      and each shipped sub-tab (Routes / Schemas / Flows /
+//      Interceptors) mounts its real panel root testid.
 //   3. Selects `Dynamic` in the dropdown; mode flips back; L2 spine
 //      returns (proves the dropdown is the canonical toggle path too —
 //      not just the chord).
-//   4. Reloads the page; asserts localStorage `xray.mode` round-
-//      trips the last-set mode (Dynamic here, per the flip-back step).
 async function runStaticModeChromeAndChord(page, state) {
   // ---- (0) baseline — clear the persisted mode slot -----------------
   await page.goto(page.url(), { waitUntil: 'load' });
@@ -2062,10 +1952,9 @@ async function runStaticModeChromeAndChord(page, state) {
   await openXray(page);
 
   // ---- (1) Dynamic baseline -----------------------------------------
-  // Per rf2-8l3uk the mode control is always rendered (the Static-mode
-  // feature gate was removed). Per rf2-4vp5j it is a compact `<select>`
-  // dropdown; `data-active-mode` + `value` carry the active mode.
-  // Dynamic must be selected by default.
+  // The mode control is always rendered (Static mode is unconditionally
+  // available). It is a compact `<select>` dropdown; `data-active-mode` +
+  // `value` carry the active mode. Dynamic must be selected by default.
   await expectVisible(
     page.locator('[data-testid="rf-xray-mode-pill"]'),
     5000,
@@ -2120,8 +2009,8 @@ async function runStaticModeChromeAndChord(page, state) {
         '[data-testid="rf-xray-static-tab-machines"]',
       );
       // L4 detail panel — when Machines is the default tab the live
-      // panel mounts (rf2-o5f5f.2); the static-detail-panel-* root
-      // remains a stable testid hook regardless of which tab is selected.
+      // panel mounts; the static-detail-panel-* root is a stable testid
+      // hook regardless of which tab is selected.
       const detailPanel = document.querySelector(
         '[data-testid="rf-xray-static-detail-panel-machines"]',
       );
@@ -2152,15 +2041,11 @@ async function runStaticModeChromeAndChord(page, state) {
 
   // ---- (2a) Walk the Static sub-tabs --------------------------------
   // Tab inventory (per `static/shell.cljs/static-tabs`):
-  //   :machines     (.2 — default, mounted above)
-  //   :routes       (.3 — shipped #1568)
-  //   :schemas      (.4 — shipped #1636 / rf2-o5f5f.4)
-  //   :flows        (rf2-uhsqb — shipped #1636)
-  //   :interceptors (.6 — shipped)
-  //
-  // rf2-b2fif dropped the Static Views + Events sub-tabs — the info
-  // those tabs surfaced is already in the source code; the tabs were
-  // not pulling their weight.
+  //   :machines     (default, mounted above)
+  //   :routes
+  //   :schemas
+  //   :flows
+  //   :interceptors
   //
   // For each shipped panel we click its tab and wait for the panel's
   // canonical root `data-testid` (e.g. `rf-xray-static-schemas`) —
@@ -2202,9 +2087,9 @@ async function runStaticModeChromeAndChord(page, state) {
     shippedSubTabRoots[tabId] = observed;
   }
 
-  // Per rf2-o5f5f.6 all Static sub-tabs are now panelled — no
-  // placeholder cards remain. Keep the empty inventory + texts map so
-  // the downstream scenario snapshot shape stays stable.
+  // All Static sub-tabs are panelled — there are no placeholder cards.
+  // Keep the empty texts map so the downstream scenario snapshot shape
+  // stays stable.
   const placeholderTexts = {};
   // Restore the Machines tab so subsequent steps see the default L4.
   await page.locator('[data-testid="rf-xray-static-tab-machines"]').click();
@@ -2214,8 +2099,8 @@ async function runStaticModeChromeAndChord(page, state) {
   );
 
   // ---- (3) Select Dynamic in the dropdown — Static → Dynamic --------
-  // rf2-4vp5j — the mode control is a `<select>`; flipping back is a
-  // selectOption (the canonical toggle path, not just the chord).
+  // The mode control is a `<select>`; flipping back is a selectOption
+  // (the canonical toggle path, not just the chord).
   await page.locator('[data-testid="rf-xray-mode-pill"]').selectOption('dynamic');
   const afterClickBack = await waitForValue(
     () => page.evaluate(() => {
@@ -2243,11 +2128,6 @@ async function runStaticModeChromeAndChord(page, state) {
     { timeoutMs: 5000, description: 'Dynamic restored after selecting Dynamic in the dropdown' },
   );
 
-  // Per rf2-8l3uk Static mode is unconditionally available — no feature
-  // flag re-opt-in to exercise. The earlier reload/persistence cycle
-  // checked a localStorage round-trip that survived the gate removal
-  // only via a dangling `reoptIn` reference (rf2-rat6r); the branch is
-  // dead code and removed here.
   state.staticMode = {
     dynamicBaseline,
     afterChord,
@@ -2257,13 +2137,11 @@ async function runStaticModeChromeAndChord(page, state) {
   };
 }
 
-// rf2-z5zip — Cmd-K command palette browser scenario.
+// Cmd-K command palette browser scenario.
 //
-// The palette shipped under #1572 (rf2-ybjkx) — 6 new verbs, mode-
-// aware command index, recents slot, reduced-motion override. The
-// pre-bead suite carried helper-level unit gates only (no end-to-end
-// browser proof that the chord-bind → view-mount → dispatch route
-// land together). This scenario:
+// The palette offers verbs, a mode-aware command index, a recents slot,
+// and a reduced-motion override. This scenario gives end-to-end browser
+// proof that the chord-bind → view-mount → dispatch route land together:
 //
 //   1. Opens Xray, clears the recents slot (so the test starts from
 //      a known empty-recents state), then presses Ctrl+K.
@@ -2487,23 +2365,20 @@ async function runPaletteOpenExecute(page, state) {
   };
 }
 
-// rf2-azfct — Mike-authorised 2026-05-28 (explicit exception to the
-// "default Causa/Story tests to CLJS" rule because real-browser CSS-
-// variable resolution is the signal under test; the CLJS render-tree
-// tests pin the inline-style → `var(--rf-xray-*)` contract at the
-// hiccup layer but cannot prove the browser actually substitutes a
-// hex at paint time).
+// A deliberate exception to the "default Causa/Story tests to CLJS" rule:
+// real-browser CSS-variable resolution is the signal under test. The CLJS
+// render-tree tests pin the inline-style → `var(--rf-xray-*)` contract at
+// the hiccup layer but cannot prove the browser actually substitutes a
+// hex at paint time.
 //
-// rf2-pqulr (the P1 this gate catches): panel-gallery's boot path
-// missing `global-styles/install!` left every `var(--rf-xray-*)`
-// reference resolving to its CSS fallback default, painting every
-// variant unstyled. Without an automated gate the regression went
-// undetected for some time.
+// The regression class this gate guards against: a boot path that misses
+// `global-styles/install!` leaves every `var(--rf-xray-*)` reference
+// resolving to its CSS fallback default, painting every variant unstyled.
 //
-// The probe is minimal — one variant load + one token assertion per
-// the bead's acceptance. The Story shell is left at its default
-// landing (no variant click) because `:root` CSS custom properties
-// are global; the only thing under test is "did boot install them?".
+// The probe is minimal — one variant load + one token assertion. The
+// Story shell is left at its default landing (no variant click) because
+// `:root` CSS custom properties are global; the only thing under test is
+// "did boot install them?".
 async function runPanelGalleryThemeTokens(page, state) {
   // 1. Visit the gallery at /#/stories so the Story shell mounts.
   //    The gallery's boot calls `global-styles/install!` from
@@ -2561,8 +2436,8 @@ async function runPanelGalleryThemeTokens(page, state) {
   }
 }
 
-// rf2-5crg4 — routes-epochs routing step-up deck. Walks the deck's
-// numbered ladder top-to-bottom and asserts the Xray Routing panel
+// The routes-epochs routing step-up deck. Walks the deck's numbered
+// ladder top-to-bottom and asserts the Xray Routing panel
 // (`rf-xray-routing`) lights up across its three sections — CURRENT
 // ROUTE, NAVIGATION THIS EPOCH, and the nested ROUTE TABLE — plus the
 // blocked-navigation outcome. The deck owns its routes/events/subs and
@@ -2576,21 +2451,17 @@ async function runPanelGalleryThemeTokens(page, state) {
 
 // Drive a deck ladder rung by its (1-based) rung number.
 //
-// rf2-3xakq — the deck was converted to the shared queued-step runner
-// (`runner.core`). It no longer mounts a bespoke `routes-epochs-rung-<n>`
-// button per rung; instead the runner renders one step row per step, and
-// each row's index is a RANDOM-ACCESS RUN-THIS-STEP button
-// (`routes-epochs-step-<n>-run`, n = 0-based step index). The runner's
-// per-step run affordance is exactly the random-access addressing this
-// scenario needs — it drives rungs OUT OF ORDER (#3, #1, #4, #5, #7, #10,
-// #11), asserting the Routing panel after each, which the runner's
-// sequential cursor alone could not provide.
+// The deck rides the shared queued-step runner (`runner.core`): the
+// runner renders one step row per step, and each row's index is a
+// RANDOM-ACCESS RUN-THIS-STEP button (`routes-epochs-step-<n>-run`,
+// n = 0-based step index). That per-step run affordance is exactly the
+// random-access addressing this scenario needs — it drives rungs OUT OF
+// ORDER (#3, #1, #4, #5, #7, #10, #11), asserting the Routing panel after
+// each.
 //
-// The scenario keeps the historical 1-based rung vocabulary (rung 1 = the
-// first step) and maps it onto the 0-based runner step index here, so every
-// call site below reads unchanged. The step ORDER is identical to the old
-// ladder (same events, same routing features); only the driving affordance
-// moved to the runner.
+// The scenario uses a 1-based rung vocabulary (rung 1 = the first step)
+// and maps it onto the 0-based runner step index here, so every call site
+// below reads in rung terms.
 async function clickRung(page, n) {
   await clickTestId(page, `routes-epochs-step-${n - 1}-run`);
 }
@@ -2768,17 +2639,15 @@ async function runRoutesEpochs(page, state) {
       snap.currentId && snap.currentId.includes('routes-epochs/settings'),
     { timeoutMs: 10000, description: '#11 try-leave → guard blocked, CURRENT ROUTE stays :settings' },
   );
-  // rf2-wxu4l3 — the `afterBlocked` wait above resolves IMMEDIATELY because
-  // CURRENT ROUTE was already on :settings from rung #10, so a bare read of
-  // the pending-nav slot here races the #11 block cascade's runtime-db
+  // The `afterBlocked` wait above resolves IMMEDIATELY because CURRENT
+  // ROUTE was already on :settings from rung #10, so a bare read of the
+  // pending-nav slot here would race the #11 block cascade's runtime-db
   // commit (the slice-stayed-put invariant proves nothing changed, but the
   // commit that WRITES `:rf/pending-navigation` lands a tick later). Poll
-  // until the slot fills. The probe also reads the CORRECT location: per
-  // EP-0001 (rf2-vzld77) the pending-nav slot is durable routing RUNTIME-DB
-  // state at `[:rf.runtime/routing :pending-navigation]` — read via the
-  // public `re-frame.core/runtime-db-value` seam, NOT app-db (the former
-  // `app-db-value` probe at `[:rf/runtime :routing ...]` read the stale
-  // pre-EP-0001 partition + key and always saw nil). The deck strip
+  // until the slot fills. The probe reads the canonical location: per
+  // EP-0001 the pending-nav slot is durable routing RUNTIME-DB state at
+  // `[:rf.runtime/routing :pending-navigation]` — read via the public
+  // `re-frame.core/runtime-db-value` seam, NOT app-db. The deck strip
   // (`:rf/pending-navigation` runtime-sub) is the secondary cross-check.
   const pendingProbe = await waitForValue(
     () => page.evaluate(() => {
@@ -2833,10 +2702,10 @@ async function runRoutesEpochs(page, state) {
   };
 }
 
-// rf2-w06op + rf2-kipb5 — machine-epochs state-machine deck, converted to the
-// shared queued-step runner (`runner.core`). Walks the deck's step matrix
-// top-to-bottom (via the runner's per-step RUN-THIS-STEP buttons) and asserts
-// each step's machine feature landed, then opens the Xray Machine Inspector
+// The machine-epochs state-machine deck, built on the shared queued-step
+// runner (`runner.core`). Walks the deck's step matrix top-to-bottom (via
+// the runner's per-step RUN-THIS-STEP buttons) and asserts each step's
+// machine feature landed, then opens the Xray Machine Inspector
 // (`rf-xray-machine-inspector`) and confirms the panel mounts on the focused
 // machine event. The final handoff re-drives a few steps OUT OF ORDER (the
 // fresh-transition / unhandled-no-op / boot-entry-throw contrast) — the random-
@@ -2844,14 +2713,14 @@ async function runRoutesEpochs(page, state) {
 //
 // What this scenario can / cannot assert:
 // —————————————————————————————————————————————————————————————
-// rf2-q3lfm — the deck OWNS all 8 machine domains and drives each through the
-// REAL `reg-machine` + machine-event-routing surface, but each domain now
-// runs in its OWN frame (`:machine/<track>`). Every step's machine FEATURE
+// The deck OWNS all 8 machine domains and drives each through the REAL
+// `reg-machine` + machine-event-routing surface, with each domain running
+// in its OWN frame (`:machine/<track>`). Every step's machine FEATURE
 // (plain transition · entry/exit data delta · guard pass vs fail ·
 // parallel-region broadcast · ignored event · microstep · timer · spawn ·
 // deep-compound LCA · history) is genuinely exercised and is observable in
-// THAT track's frame app-db machine snapshot, read directly via the public
-// `re-frame.core/app-db-value` accessor (`readTrackSnapshots`, scoped to
+// THAT track's frame machine snapshot, read directly via the public
+// `re-frame.core/runtime-db-value` accessor (`readTrackSnapshots`, scoped to
 // `:machine/<track>`). We assert those per-frame snapshot facts — they are
 // the robust, non-flaky proof each machine feature fired in its own frame.
 //
@@ -2863,19 +2732,19 @@ async function runRoutesEpochs(page, state) {
 // (see `runDeepMachine` above, lines re: machine-transition + `:frame`),
 // a real host-app `:rf.machine/transition` carries no `:frame` tag and so
 // is not captured into an epoch's `:trace-events`, leaving the focused-
-// event transitions sub empty in production today. `deep_machine` owns the
-// chart-render shim-survival probe via test-only injection events; this
-// deck's job is the real-machine-feature step-up surface, asserted through
-// the substrate snapshot + the panel handoff.
+// event transitions sub empty. `deep_machine` owns the chart-render
+// shim-survival probe via test-only injection events; this deck's job is
+// the real-machine-feature step-up surface, asserted through the substrate
+// snapshot + the panel handoff.
 
-// rf2-q3lfm — the deck was reworked into a MULTI-MACHINE, FRAME-ISOLATED
-// stepper. Each machine domain now lives in its OWN frame (`:machine/<id>`)
-// and the left rail is a PICKER: selecting a track
-// (`machine-epochs-track-<id>`) shows its step path AND re-points Xray at
-// that machine's frame. The per-track step rows are still RANDOM-ACCESS
-// RUN-THIS-STEP buttons (`machine-epochs-step-<n>-run`, n = 0-based index
-// WITHIN the selected track's path), so this scenario first selects a track,
-// then drives that track's steps by their per-track index.
+// The deck is a MULTI-MACHINE, FRAME-ISOLATED stepper. Each machine domain
+// lives in its OWN frame (`:machine/<id>`) and the left rail is a PICKER:
+// selecting a track (`machine-epochs-track-<id>`) shows its step path AND
+// re-points Xray at that machine's frame. The per-track step rows are
+// RANDOM-ACCESS RUN-THIS-STEP buttons (`machine-epochs-step-<n>-run`,
+// n = 0-based index WITHIN the selected track's path), so this scenario
+// first selects a track, then drives that track's steps by their per-track
+// index.
 //
 // Select a track by its id (`:door` -> `machine-epochs-track-door`). The
 // select boots the track's machine(s) into its frame (boot-on-select) and
@@ -2899,21 +2768,16 @@ async function restartMachineTrack(page) {
 }
 
 // Read one machine's snapshot directly from its OWN `:machine/<track>` frame
-// RUNTIME-DB (rf2-q3lfm — per-machine frame isolation; snapshots no longer
-// live in `:rf/default`). Reconstructs the same `state … · tags …` text the
-// old `:rf/default` strip produced, scoped to the given track's frame, so the
-// per-machine assertions below read robustly. Returns `{ mounted, ... }`.
+// RUNTIME-DB (per-machine frame isolation; each track's snapshots live in
+// its own frame). Builds a `state … · tags …` text scoped to the given
+// track's frame, so the per-machine assertions below read robustly. Returns
+// `{ mounted, ... }`.
 //
-// rf2-wxu4l3 — machine snapshots are durable framework RUNTIME-DB state per
-// EP-0001 (rf2-vzld77; re-frame.machines.paths/snapshot-path): they live at
+// Machine snapshots are durable framework RUNTIME-DB state per EP-0001
+// (re-frame.machines.paths/snapshot-path): they live at
 // `[:rf.runtime/machines :snapshots <machine-id>]` in the runtime-db
 // PARTITION, read via the public `re-frame.core/runtime-db-value` seam — NOT
-// in app-db. The former `app-db-value` read at `[:rf/runtime :machines
-// :snapshots …]` looked at the stale pre-EP-0001 partition + key spelling and
-// always saw nil, so every track snapshot read back as `nil` (the door track
-// "booted to nil" symptom). The boot itself is correct (the door frame's
-// epoch ring shows :machine-epochs/boot-door → :door/main and runtime-db
-// carries `{:state :locked …}`); only this read seam was stale.
+// in app-db.
 //
 // `trackId` is the track name (e.g. 'door', 'media'); the frame id is
 // `:machine/<trackId>`. `machineIds` is the set of machine-ids the track
@@ -2979,12 +2843,8 @@ async function waitForTrackSnapshot(page, trackId, machineIds, pred, description
   );
 }
 
-// (rf2-q3lfm — the old single-`:rf/default` `readMachineStrip` is gone; the
-// per-machine-frame `readTrackSnapshots` above is the snapshot reader now,
-// since each machine's snapshot lives in its own `:machine/<track>` frame.)
-
 async function runMachineEpochs(page, state) {
-  // rf2-q3lfm — the MULTI-MACHINE, FRAME-ISOLATED stepper. Each machine
+  // The MULTI-MACHINE, FRAME-ISOLATED stepper. Each machine
   // domain runs in its OWN frame (`:machine/<track>`); the left rail is a
   // PICKER that, on select, boots the track's machine(s) (boot-on-select) AND
   // re-points Xray at that frame. We SELECT a track, then drive its per-track
@@ -3070,8 +2930,8 @@ async function runMachineEpochs(page, state) {
     'door#6 audit -> root :on fallthrough -> :locked',
   );
 
-  // ===== Cross-frame flip acceptance (rf2-q3lfm de-risk) =================
-  // The linchpin of the redesign: switch A -> B -> back to A and confirm each
+  // ===== Cross-frame flip acceptance ===================================
+  // The linchpin of the design: switch A -> B -> back to A and confirm each
   // machine's frame snapshot is ISOLATED. Pick traffic, drive it, return to
   // door and confirm DOOR's ring/state is intact (:locked, NOT touched by the
   // traffic steps) — the proof the two frames never interleave.
@@ -3097,7 +2957,8 @@ async function runMachineEpochs(page, state) {
 
   // Switch BACK to door: its frame's snapshot must be UNTOUCHED by the
   // traffic steps (door is still :locked from its last step) — frame
-  // isolation, the core lens of rf2-q3lfm. Re-selecting resumes door's ring.
+  // isolation, the core lens of this scenario. Re-selecting resumes door's
+  // ring.
   await selectMachineTrack(page, 'door');
   const doorAfterReturn = await waitForTrackSnapshot(
     page, 'door', [':door/main'],
@@ -3243,7 +3104,7 @@ async function runMachineEpochs(page, state) {
   await clickMachineStep(page, 1); // shallow restore
   await clickMachineStep(page, 2); // deep restore
 
-  // ===== Modal (MULTI-EVENT transition — events-as-nodes, rf2-vilpfa) ====
+  // ===== Modal (MULTI-EVENT transition — events-as-nodes) ===============
   // ONE edge (:open ──► :closed) reached on THREE distinct events
   // (cancel/submit/escape). Drive all three (re-opening between) and confirm
   // each lands :closed; the submit branch also runs :save (:saved? true). The
@@ -3282,7 +3143,7 @@ async function runMachineEpochs(page, state) {
     'modal#5 escape -> :closed (multi-event fan-in #3 — all 3 events land :closed)',
   );
 
-  // ===== Gate (MULTI-BRANCH GUARDED fork — guard-fork, rf2-vilpfa) ========
+  // ===== Gate (MULTI-BRANCH GUARDED fork — guard-fork) ==================
   // :gate/check forks from :idle by a guarded candidate vector (high?→:high,
   // low?→:low, else→:rejected); :gate/set arms :level first. Drive all three
   // guard branches; the fork's guard-predicate render is asserted in the CLJS
@@ -3326,11 +3187,11 @@ async function runMachineEpochs(page, state) {
   // ===== Xray Machine Inspector handoff + the throw/no-op contrast ======
   await openXray(page);
 
-  // rf2-q3lfm — the FUSE track throws on BOOT (boot-on-select): its initial
-  // :entry action :blow-fuse throws when the fuse frame is created on select.
-  // So the SOLE machine-action-exception trigger is now SELECTING fuse (not a
-  // late "rung 19"). Before selecting fuse, NO machine-action-exception may
-  // have fired from any other track's boot-on-select.
+  // The FUSE track throws on BOOT (boot-on-select): its initial :entry
+  // action :blow-fuse throws when the fuse frame is created on select. So
+  // the SOLE machine-action-exception trigger is SELECTING fuse. Before
+  // selecting fuse, NO machine-action-exception may have fired from any
+  // other track's boot-on-select.
   {
     const bootTrace = await readTrace(page);
     const bootThrow = bootTrace.filter((e) =>
@@ -3397,22 +3258,17 @@ const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
     url: '/counter/',
-    // rf2-wa3oo: PR-smoke tier. The 6-tab handoff over the counter
-    // surface is the highest-signal Xray scenario — it boots the shell,
-    // walks every surviving L3 tab, and proves the chrome wiring. Kept
-    // on the PR critical path; the rest of the matrix runs nightly.
+    // PR-smoke tier. The tab handoff over the counter surface is the
+    // highest-signal Xray scenario — it boots the shell, walks every L3
+    // tab, and proves the chrome wiring. Kept on the PR critical path;
+    // the rest of the matrix runs nightly.
     smoke: true,
     panels: PANEL_HANDOFFS.map(([id]) => id),
-    // Post rf2-xy4yb + rf2-y0z5b + rf2-5gl5r: coverage narrowed to the
-    // surviving L3 tabs (Event/Handler retired in favour of the Epoch
-    // panel). Post rf2-gbz39 (Option (c)) the Issues tab was removed —
-    // 6 surviving tabs; issues surface inline in the Epoch panel + the
-    // L2 event-row pink-wash + the always-on issues ribbon signal.
-    // Removed surfaces (Time Travel, Causality Graph, Subscriptions,
-    // Routes, Schemas, Hydration, Performance, Flows, Effects, MCP
-    // Server) lost their UI handoff with the 4-layer chrome refactor
-    // and are covered (where still functionally present) by their
-    // dedicated substrate scenarios.
+    // Coverage spans the L3 tabs that have a UI handoff. Issues surface
+    // inline in the Epoch panel + the L2 event-row pink-wash + the
+    // always-on issues ribbon signal. Surfaces without a tab (e.g. Time
+    // Travel, Hydration, Effects) are covered, where still functionally
+    // present, by their dedicated substrate scenarios.
     coveredRows: [
       'Epoch Panel',
       'App-DB Diff',
@@ -3437,35 +3293,22 @@ const SCENARIOS = [
   {
     name: 'deterministic exceptions and inline/trace surfacing',
     url: '/testbeds/deliberate-throw/',
-    // rf2-wa3oo: PR-smoke tier. The exception → inline-Epoch/Trace
-    // surfacing path is the second-highest-signal slice (it proves the
-    // error lens wires up end-to-end against a real thrown handler).
-    // Counter + deliberate-throw are the only two surfaces the smoke
-    // compiles. (rf2-gbz39 — the Issues tab was removed under Option
-    // (c); exceptions now surface inline in the Epoch panel + via the
-    // Trace panel source-coord chips.)
+    // PR-smoke tier. The exception → inline-Epoch/Trace surfacing path is
+    // the second-highest-signal slice (it proves the error lens wires up
+    // end-to-end against a real thrown handler). Counter + deliberate-
+    // throw are the only two surfaces the smoke compiles. Exceptions
+    // surface inline in the Epoch panel + via the Trace panel source-coord
+    // chips.
     smoke: true,
     panels: ['epoch', 'trace'],
     coveredRows: ['Epoch Panel', 'Trace', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
     run: runExceptionSchemaHttp,
   },
-  // Schema-violation coverage migrated to CLJS unit (rf2-w1mnq, landed
-  // #1753). The browser scenario had been a no-op SKIP since #1745 — its
-  // schema-recovery assertions never ran. Authoritative coverage now lives
-  // in tools/xray/test/.../panels/epoch/projection_cljs_test.cljc: all four
-  // `:where` surfaces (:app-db, :event, :cofx, :fx-args), the `:app-db`
-  // rollback, and the inline SIDE EFFECTS-step synthesis. The Epoch-Panel
-  // matrix row remains covered by other live scenarios (deterministic
-  // exceptions, managed http, multi-frame, hydration mismatch). The
-  // /testbeds/schema-violation/ build remains as a manual-inspection target.
   {
     name: 'managed http and effects rows',
     url: '/testbeds/http-toggle/',
-    // Post rf2-xy4yb: the Effects panel was dropped — fx/effects rows
-    // are now inline steps inside the Epoch panel's numbered cascade.
-    // Performance panel is gone too (Mike's call: use Chrome DevTools
-    // Performance). rf2-5gl5r: `event` panel renamed to `epoch`.
-    // rf2-gbz39: the Issues tab was removed (Option (c)) — fx outcomes
+    // fx/effects rows are inline steps inside the Epoch panel's numbered
+    // cascade; the Epoch tab is where this scenario reads them. fx outcomes
     // surface inline in the Epoch panel's EFFECT HANDLERS step.
     panels: ['epoch', 'trace'],
     coveredRows: ['Epoch Panel', 'Trace'],
@@ -3474,19 +3317,16 @@ const SCENARIOS = [
   {
     name: 'multi-frame isolation substrate',
     url: '/testbeds/multi-frame/',
-    // Post rf2-xy4yb + rf2-y0z5b: Causality Graph and Time Travel
-    // panels were dropped. Multi-frame isolation is now exercised
-    // via the Trace and Epoch tabs (cascade per frame). rf2-5gl5r:
-    // `event` panel renamed to `epoch`.
+    // Multi-frame isolation is exercised via the Trace and Epoch tabs
+    // (one cascade per frame).
     panels: ['trace', 'epoch'],
     coveredRows: ['Trace', 'Epoch Panel'],
     run: runMultiFrame,
   },
   {
-    // rf2-bz72m — deepened to assert the machines-viz chart SVG
-    // actually renders (not just the inspector mount). Catches a
-    // broken `chart/{svg,layout,elk_layout}` re-export shim after the
-    // #1570 / rf2-o9arp machines-viz extraction.
+    // Asserts the machines-viz chart actually renders (not just the
+    // inspector mount). Catches a broken `chart/{svg,layout,elk_layout}`
+    // re-export shim across the machines-viz package boundary.
     name: 'deep machine inspector substrate',
     url: '/testbeds/deep-machine/',
     panels: ['machines'],
@@ -3494,10 +3334,8 @@ const SCENARIOS = [
     run: runDeepMachine,
   },
   {
-    // rf2-n39g2 — Static mode (rf2-o5f5f.1 / .2 / .3) browser
-    // coverage: chord + pill + 3-layer chrome silhouette.
-    // (Persistence round-trip dropped by rf2-rat6r — rf2-8l3uk made
-    // Static mode unconditional so the reload cycle is dead code.)
+    // Static mode browser coverage: chord + mode dropdown + 3-layer
+    // chrome silhouette.
     name: 'static mode chrome and chord',
     url: '/counter/',
     panels: [],
@@ -3508,15 +3346,15 @@ const SCENARIOS = [
     run: runStaticModeChromeAndChord,
   },
   {
-    // rf2-z5zip — Cmd-K command palette (rf2-ybjkx) browser coverage:
-    // chord opens, fuzzy narrows, Enter executes a verb (theme flip),
-    // recents persist + lead on re-open, Esc closes without dispatch.
+    // Cmd-K command palette browser coverage: chord opens, fuzzy narrows,
+    // Enter executes a verb (theme flip), recents persist + lead on
+    // re-open, Esc closes without dispatch.
     name: 'command palette chord, fuzzy filter, execute verb, and recents round-trip',
     url: '/counter/',
-    // rf2-wa3oo: PR-smoke tier. Reuses the already-staged counter
-    // surface (no extra compile), and exercises the Cmd-K interaction
-    // path — the highest-signal "key interactions" coverage the audit
-    // asked the smoke to keep. Adds no surface to the compile set.
+    // PR-smoke tier. Reuses the already-staged counter surface (no extra
+    // compile), and exercises the Cmd-K interaction path — the highest-
+    // signal "key interactions" coverage. Adds no surface to the compile
+    // set.
     smoke: true,
     panels: [],
     coveredRows: [
@@ -3526,22 +3364,20 @@ const SCENARIOS = [
     run: runPaletteOpenExecute,
   },
   {
-    // rf2-azfct — theme-token CSS-variable resolution probe.
-    // Mike-authorised 2026-05-28 (explicit exception to the
-    // "default Causa/Story tests to CLJS" rule — real-browser
-    // CSS-variable resolution is the signal under test, CLJS
-    // unit tests can't reach it). Gates against the rf2-pqulr
-    // regression class: a boot path that embeds bare Xray widgets
-    // without calling `global-styles/install!` leaves every
-    // `var(--rf-xray-*)` reference resolving to its CSS fallback
-    // default, painting every variant unstyled.
+    // Theme-token CSS-variable resolution probe. A deliberate exception
+    // to the "default Causa/Story tests to CLJS" rule — real-browser
+    // CSS-variable resolution is the signal under test, which CLJS unit
+    // tests can't reach. Guards against the regression class where a boot
+    // path that embeds bare Xray widgets without calling
+    // `global-styles/install!` leaves every `var(--rf-xray-*)` reference
+    // resolving to its CSS fallback default, painting every variant
+    // unstyled.
     //
-    // PR-smoke tier — the panel-gallery surface is unique to this
-    // probe (no other smoke scenario uses it), but the regression
-    // class is severe (P1) and the probe is fast (~one page load
-    // + one DOM read). The compile + serve overhead is the cost
-    // of buying pre-merge coverage of a class of bugs that went
-    // undetected for some time when caught only by live observation.
+    // PR-smoke tier — the panel-gallery surface is unique to this probe
+    // (no other smoke scenario uses it), but the regression class is
+    // severe (P1) and the probe is fast (~one page load + one DOM read).
+    // The compile + serve overhead buys pre-merge coverage of a class of
+    // bugs otherwise only caught by live observation.
     name: 'panel-gallery theme-token CSS-variable resolution on :root (rf2-azfct)',
     url: '/testbeds/panel-gallery/#/stories',
     smoke: true,
@@ -3552,13 +3388,13 @@ const SCENARIOS = [
     run: runPanelGalleryThemeTokens,
   },
   {
-    // rf2-5crg4 — routes-epochs routing step-up deck. Drives the real
-    // `reg-route` + `:rf.route/navigate` surface and asserts the Xray
-    // Routing panel across CURRENT ROUTE (id + params + nested tree
-    // highlight), NAVIGATION THIS EPOCH (──► TO + outcome:
-    // transitioned / not-found / blocked), and the ROUTE TABLE
-    // (nested-row indent under the parent). Real Routing-panel coverage
-    // for the deck the `Routes` matrix row names.
+    // The routes-epochs routing step-up deck. Drives the real `reg-route`
+    // + `:rf.route/navigate` surface and asserts the Xray Routing panel
+    // across CURRENT ROUTE (id + params + nested tree highlight),
+    // NAVIGATION THIS EPOCH (──► TO + outcome: transitioned / not-found /
+    // blocked), and the ROUTE TABLE (nested-row indent under the parent).
+    // Real Routing-panel coverage for the deck the `Routes` matrix row
+    // names.
     name: 'routes-epochs routing ladder (current route, nav-this-epoch, nested table, blocked)',
     url: '/testbeds/routes-epochs/',
     panels: ['routing'],
@@ -3566,11 +3402,11 @@ const SCENARIOS = [
     run: runRoutesEpochs,
   },
   {
-    // rf2-w06op + rf2-g27vv + rf2-kipb5 + rf2-q3lfm — machine-epochs
-    // assertion-backed render harness, reworked into the MULTI-MACHINE,
-    // FRAME-ISOLATED stepper. Each machine domain runs in its OWN frame
-    // (`:machine/<track>`); the left rail is a PICKER that, on select, boots
-    // the track's machine(s) (boot-on-select) AND re-points Xray
+    // The machine-epochs assertion-backed render harness — a
+    // MULTI-MACHINE, FRAME-ISOLATED stepper. Each machine domain runs in
+    // its OWN frame (`:machine/<track>`); the left rail is a PICKER that,
+    // on select, boots the track's machine(s) (boot-on-select) AND
+    // re-points Xray
     // (`:rf.xray/select-frame`) at that frame. The scenario SELECTS each track
     // then drives its per-track step rows, asserting each step's machine
     // FEATURE off THAT track's frame snapshot: door (plain · entry/exit ·
@@ -3582,9 +3418,9 @@ const SCENARIOS = [
     // reject + live shallow/deep restore — the restore-cascade render is
     // asserted in the CLJS harness), modal (MULTI-EVENT transition: one edge
     // :open ──► :closed reached on THREE events — the events-as-nodes
-    // divergence, rf2-vilpfa), gate (MULTI-BRANCH GUARDED fork: :gate/check
-    // forks by guard high?/low?/else → :high/:low/:rejected — the guard-fork
-    // divergence, rf2-vilpfa). It also proves the per-machine frame
+    // divergence), gate (MULTI-BRANCH GUARDED fork: :gate/check forks by
+    // guard high?/low?/else → :high/:low/:rejected — the guard-fork
+    // divergence). It also proves the per-machine frame
     // ISOLATION with a cross-frame flip (door -> traffic -> back to door:
     // each frame's snapshot stays intact, never interleaved) + a Restart
     // (frame reset + re-arc from boot). Then opens the Xray Machine Inspector
@@ -3602,29 +3438,6 @@ const SCENARIOS = [
     coveredRows: ['Machines'],
     run: runMachineEpochs,
   },
-  // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
-  //
-  // 'long flow failure substrate' (Flows panel) and 'drain-depth load
-  // failure substrate' (Performance panel) were retired when the 4-layer
-  // chrome refactor dropped both panels — Flows folds into the Views tab
-  // as derived state (spec/018 §5) and Performance is replaced by Chrome
-  // DevTools' Performance tab (Mike's call). With no UI handoff to assert,
-  // their runners + staged surfaces were removed (rf2-fxnszc). Surviving
-  // flow-failure trace evidence is covered by `deterministic exceptions
-  // and inline/trace surfacing`; the `:halted-depth` epoch record stays
-  // observable via the substrate's host-side epoch-history probe.
-  //
-  // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
-  //
-  // 'non-trivial app-db diff substrate' — the Playwright scenario
-  // only asserted the App-DB Diff panel mounted after a six-click
-  // sequence of deep-tree mutations. The data invariants (spine focus
-  // advances, target-frame-db reflects each mutation, epoch history
-  // grows by 6) are now covered at <50ms per assertion by
-  // `tools/xray/test/day8/re_frame2_xray/panels_e2e/
-  // non_trivial_app_db_e2e_cljs_test.cljs`. Per Mike's 2026-05-19
-  // multi-frame-e2e finding, removing this scenario cuts ~30s of
-  // browser gate runtime with zero coverage loss.
   {
     name: '20-event large value elision load',
     url: '/testbeds/large-dispatcher/',
@@ -3636,38 +3449,20 @@ const SCENARIOS = [
   {
     name: 'hydration mismatch debugger',
     url: '/testbeds/ssr-hydration-mismatch/',
-    // Post rf2-xy4yb: the dedicated Hydration debugger panel was
-    // dropped. Post rf2-gbz39 (Option (c)) the Issues tab was ALSO
-    // removed; hydration mismatches surface via the L2 event-row signal
-    // + the always-on issues ribbon. The scenario now verifies the
-    // Xray shell + Epoch panel mount cleanly under cascade scope.
+    // Hydration mismatches surface via the L2 event-row signal + the
+    // always-on issues ribbon. The scenario verifies the Xray shell +
+    // Epoch panel mount cleanly under cascade scope.
     panels: ['epoch'],
     coveredRows: ['Epoch Panel'],
     run: runHydration,
   },
-  // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
-  //
-  // '20-event feature/load re-check' — the Playwright scenario drove
-  // 20 host counter +/- clicks and asserted the trace count grew +
-  // the focused cascade rendered (originally on the Event Detail
-  // panel; rf2-5gl5r migrated the surface to the Epoch panel). Both
-  // are data invariants the multi-frame e2e harness covers at ~5ms
-  // per dispatch (vs ~200ms per click in browser):
-  // `tools/xray/test/day8/re_frame2_xray/panels_e2e/
-  // twenty_event_load_e2e_cljs_test.cljs` walks the same 20-event
-  // sequence, asserts cascades grow, focus auto-follows the head
-  // (rf2-70tkv class), epoch history records every dispatch, and
-  // target-frame-db reflects the net counter value. Estimated CI
-  // saving: ~45s (full 20-click sequence + panel handoff).
   {
     name: '1000-event trace row-budget plus 20-dispatch re-check',
     url: '/counter/',
     panels: ['trace'],
     load: true,
-    // Post rf2-y0z5b: 'Performance' coveredRow was dropped (the
-    // Performance panel was retired per Mike's call — Chrome DevTools
-    // Performance tab is the canonical surface). Trace + Shell/Elision
-    // remain.
+    // Covers the Trace + Shell/Elision rows. Performance profiling is the
+    // job of Chrome DevTools' Performance tab, not an Xray panel.
     coveredRows: [
       'Trace',
       'Shell, Keybinding, Config, Preload, Settings, and Production Elision',
@@ -3686,16 +3481,6 @@ const SCENARIOS = [
     ],
     run: runLaunchModesTwentyEventLoad,
   },
-  // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
-  //
-  // 'configure! multi-key map and partial-update semantics' (was
-  // rf2-qd5r6). The Playwright scenario went into a browser solely
-  // to call `window.day8.re_frame2_xray.config.configure_BANG_` and
-  // assert atom-state round-trips. Pure CLJS — no DOM involvement.
-  // Converted to direct fn-call coverage in
-  // `tools/xray/test/day8/re_frame2_xray/panels_e2e/
-  // configure_multi_key_e2e_cljs_test.cljs`. Estimated CI saving:
-  // ~10s (browser context teardown alone).
 ];
 
 module.exports = {

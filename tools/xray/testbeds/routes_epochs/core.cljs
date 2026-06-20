@@ -86,8 +86,8 @@
 
   ## Test-free + self-contained
 
-  Per rf2-8cevm this testbed carries no spec.cjs; regression coverage
-  lives in the substrate contract tests + the Xray feature-matrix gate
+  This testbed carries no spec.cjs; regression coverage lives in the
+  substrate contract tests + the Xray feature-matrix gate
   (`tools/xray/testbeds/feature_matrix/scenarios.cjs` — the
   `routes-epochs routing ladder` scenario, which drives the ladder via the
   runner's per-step RUN-THIS-STEP buttons). The routes / events / subs /
@@ -248,10 +248,9 @@
          from the route slice and writes `:profile` into app-db (the
          transition runs :loading → :idle around this loader).
 
-         EP-0001 (rf2-vzld77 / rf2-tj6w9l): the route slice is durable
-         routing RUNTIME-DB state at `[:rf.runtime/routing :current]`, no
-         longer in app-db `:rf/runtime`. An event handler reads it off the
-         `:rf.db/runtime` coeffect every event handler receives — the
+         EP-0001: the route slice is durable routing RUNTIME-DB state at
+         `[:rf.runtime/routing :current]`. An event handler reads it off
+         the `:rf.db/runtime` coeffect every event handler receives — the
          canonical `:on-match` loader idiom (mirrors the realworld
          example's `:profile/load`)."}
   (fn handler-load-profile [{:keys [db] rt :rf.db/runtime} _ev]
@@ -465,9 +464,9 @@
   ;; right project-root on its first paint of any chip.
   (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
-  ;; absence — establish the host frame explicitly. URL ownership is now an
-  ;; explicit declaration, so opt the host frame in via `{:url-bound? true}`
+  ;; EP-0002: the runtime never synthesises a frame from absence —
+  ;; establish the host frame explicitly. URL ownership is an explicit
+  ;; declaration, so opt the host frame in via `{:url-bound? true}`
   ;; (otherwise `:rf.nav/push-url` no-ops and history-driven steps stall).
   (rf/reg-frame host-frame {:url-bound? true})
   ;; Seed app-db and pull the current URL into the route slice (what a

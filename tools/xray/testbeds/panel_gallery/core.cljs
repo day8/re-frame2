@@ -1,14 +1,13 @@
 (ns panel-gallery.core
-  "Boot for the Xray panel gallery testbed (rf2-durls — redone against
-  the de-singletoned shell + the four-bucket Story authoring model;
-  supersedes the rf2-sszlr boot).
+  "Boot for the Xray panel gallery testbed, built against the
+  per-frame shell + the four-bucket Story authoring model.
 
   ## What this testbed is
 
-  A visual gallery of the six original L4 tab panels (Epoch · App-db ·
+  A visual gallery of the six core L4 tab panels (Epoch · App-db ·
   Reactive · Trace · Machines · Routing) plus the full 4-layer Xray
   chrome, framed exactly like Storybook frames UI components. Issues is
-  NOT a tab (rf2-gbz39 — Option (c)): issue surfacing folds INLINE into
+  NOT a tab: issue surfacing folds INLINE into
   the Epoch panel + the L2 event-row pink-wash + the always-on issues
   ribbon signal, so there is no standalone Issues panel to gallery.
   Scroll the workspace; see what each panel looks like under varying
@@ -16,10 +15,10 @@
   the surface a developer (Mike first) reaches for when asking 'what
   does this look like under load X?'.
 
-  ## Intentional gallery exclusions (rf2-1sddi6 F3)
+  ## Intentional gallery exclusions
 
-  The three cohesive-sub-domain / runtime-structure tabs added after
-  this gallery's original six — **Resources** (`:resources`, EP-0016),
+  Three cohesive-sub-domain / runtime-structure tabs beyond the six
+  core lenses — **Resources** (`:resources`, EP-0016),
   **Graph** (`:derivation-graph`, EP-0014), and **Modules**
   (`:module-view`, EP-0013) — are deliberately NOT galleried here. They
   are visual *design* surfaces whose shipped-surface + focusability
@@ -43,19 +42,18 @@
 
   Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
   layers — top ribbon + event list + tab bar + detail panel — with
-  nine L4 tabs replacing the legacy sidebar's 16+ panels (Issues folded
-  inline per rf2-gbz39; this gallery covers the six core lenses and
-  intentionally excludes Resources / Graph / Modules — see the
-  exclusions note above). Time Travel is folded into the spine.
+  nine L4 tabs (Issues folded inline; this gallery covers the six core
+  lenses and intentionally excludes Resources / Graph / Modules — see
+  the exclusions note above). Time Travel is folded into the spine.
 
-  ## Per-variant frame isolation (de-singletoned shell — rf2-1w07r)
+  ## Per-variant frame isolation
 
   Every gallery variant renders inside the Story canvas's per-variant
   `frame-provider`, so each cell is its own isolated re-frame frame
   (its own app-db, sub-cache, router). The per-tab galleries seed that
   frame directly with canonical Xray events (e.g. `:rf.xray/sync-epoch-
   history`). The chrome / settings / filters galleries mount the FULL
-  shell — `shell/shell-view` now takes a `:frame-id` opt, and the
+  shell — `shell/shell-view` takes a `:frame-id` opt, and the
   `chrome-shell` wrapper threads `(rf/current-frame-id)` (the variant
   frame) into it, so the shell's own app-db also lives in the variant
   frame. N chrome cells therefore stay fully isolated in one grid; the
@@ -97,7 +95,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; rf2-2c5xb — Xray's `configure!` to seed `:project-root`
+            ;; Xray's `configure!` seeds `:project-root`
             ;; so the source-coord chips on registered handlers /
             ;; views / machines resolve their classpath-relative
             ;; `:file` slot to an absolute on-disk URI. Without this
@@ -105,7 +103,7 @@
             ;; classpath-relative path (`panel_gallery/foo.cljs`) to
             ;; the OS scheme handler, which rejects it.
             ;;
-            ;; rf2-ymnfx (Issue A) — Story's parallel slot
+            ;; Story's parallel slot
             ;; (`:rf.story/project-root`) is seeded via
             ;; `story/configure!` below so the Story variant-toolbar
             ;; 'Open' button (which reads `re-frame.story.config/
@@ -118,7 +116,7 @@
             ;; re-seed of Xray is a no-op via `reset!`).
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.registry :as xray-registry]
-            ;; rf2-pqulr — Xray's `:root` CSS-variable installer. Required
+            ;; Xray's `:root` CSS-variable installer. Required
             ;; here because the panel-gallery embeds bare Xray widgets
             ;; without mounting the Xray shell; the shell normally calls
             ;; `global-styles/install!` from its `shell-view` reg-view body.
@@ -129,45 +127,42 @@
             [day8.re-frame2-xray.theme.global-styles :as global-styles]
             [panel-gallery.panel-views :as panel-views]
             ;; Side-effecting story registrations — namespaces fire
-            ;; their `register-all!` at namespace load.
-            ;; (rf2-5gl5r — `gallery-event` removed alongside the
-            ;; retired Event/Handler panel; the Epoch gallery is the
-            ;; canonical surface.)
+            ;; their `register-all!` at namespace load. The Epoch gallery
+            ;; is the canonical event/handler surface.
             [panel-gallery.gallery-app-db]
             [panel-gallery.gallery-epoch]
             [panel-gallery.gallery-views]
             [panel-gallery.gallery-trace]
             [panel-gallery.gallery-machines]
             [panel-gallery.gallery-routing]
-            ;; (rf2-gbz39 — `gallery-issues` removed alongside the
-            ;; Issues tab; Option (c) folds issue surfacing into the
-            ;; Epoch panel + L2 event-row pink-wash + the always-on
-            ;; issues ribbon signal — no standalone Issues panel to
-            ;; gallery. Chrome-under-issue-load coverage lives in
-            ;; `gallery-chrome` `:story.xray.chrome/issue-load`.)
+            ;; Issue surfacing folds into the Epoch panel + L2 event-row
+            ;; pink-wash + the always-on issues ribbon signal, so there
+            ;; is no standalone Issues panel to gallery. Chrome-under-
+            ;; issue-load coverage lives in `gallery-chrome`
+            ;; `:story.xray.chrome/issue-load`.
             [panel-gallery.gallery-chrome]
-            ;; Chrome follow-on galleries — rf2-mpn8m settings popup,
-            ;; rf2-kbrkx auto-filter pill / edit-popup.
+            ;; Chrome follow-on galleries — settings popup,
+            ;; auto-filter pill / edit-popup.
             [panel-gallery.gallery-settings]
             [panel-gallery.gallery-filters]
-            ;; Widget galleries — rf2-hp4ow edn-inspector isolation
+            ;; Widget galleries — edn-inspector isolation
             ;; coverage. The widget is exercised indirectly by every
             ;; L4 panel that mounts it; this gallery gives it a
             ;; dedicated harness with one variant per input shape /
             ;; opts combination.
             [panel-gallery.gallery-edn-inspector]
-            ;; rf2-n2jig — mode-3 diff grammar Story set (R1-R8 +
+            ;; Mode-3 diff grammar Story set (R1-R8 +
             ;; combination + edge + theme/density). Shares the
             ;; `:panel-gallery.edn-inspector/fixture` slot + Panel
             ;; mount with the edn-inspector gallery above; the
             ;; variants pass `:full-with-diff? true` to opt into
             ;; the mode-3 chrome (R3 chip + R4 rail).
             [panel-gallery.gallery-diff-mode-3]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
+            ;; Shared testbed-config helper: derives the
             ;; open-in-editor project-root from the build env.
             [re-frame.testbed.config :as testbed-config]
-            ;; Shared live-app↔Story-shell hash-router host (rf2-tq26t /
-            ;; rf2-uv7sn). rf2-x31vn — panel-gallery adopts the helper so
+            ;; Shared live-app↔Story-shell hash-router host. The
+            ;; panel-gallery uses this helper so
             ;; its `hashchange` listener is installed via the helper's
             ;; remove-then-add `defonce` handle discipline rather than a
             ;; bare per-`run` `addEventListener` (which stacks a duplicate
@@ -213,7 +208,7 @@
 ;; ============================================================================
 
 ;; ----------------------------------------------------------------------------
-;; Project-root resolution (rf2-2c5xb)
+;; Project-root resolution
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Source-coord `:file` slots captured at registration time are classpath-
@@ -224,7 +219,7 @@
 ;; to prepend — without it, the URI ships the bare relative path and the
 ;; OS-side editor handler rejects it ("Path does not exist").
 ;;
-;; Per the rf2-5m5n2 contract Xray exposes `:rf.xray/project-root`. The
+;; Xray exposes `:rf.xray/project-root`. The
 ;; panel-gallery boots with its known on-disk repo position by default; a
 ;; `?checkout-root=<path>` query string overrides for cross-machine portability
 ;; (mirroring the `standard_epochs` testbed's resolver).
@@ -239,7 +234,7 @@
 ;; its precedence over the build-time repo-root) is pinned by
 ;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
 
-;; rf2-5dphw — open-in-editor project-root derived from the build
+;; Open-in-editor project-root derived from the build
 ;; environment (the build-time `re-frame.testbed.config/checkout-root`
 ;; goog-define joined with this testbed's tool-relative subdir), not a
 ;; hardcoded personal path. `?checkout-root=<path>` still overrides per
@@ -256,21 +251,21 @@
 ;; -- Routing between landing and Story shell ------------------------------
 ;;
 ;; The live-app↔Story-shell hash router + React-root host handle live in the
-;; shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn); `run`
+;; shared `re-frame.testbed.story-host` helper; `run`
 ;; hands it `landing-view` as the live-app surface. The helper tears one React
 ;; root down before mounting the other on the same `#app` node, and installs
 ;; its `hashchange` listener via a `defonce` remove-then-add handle so a CLJS
-;; hot-reload re-`run` never stacks a duplicate (rf2-x31vn).
+;; hot-reload re-`run` never stacks a duplicate.
 
 (defn ^:export run []
-  ;; rf2-2c5xb — seed `:rf.xray/project-root` BEFORE the Xray handlers
+  ;; Seed `:rf.xray/project-root` BEFORE the Xray handlers
   ;; register so the first chip render reads the configured root. The
   ;; resolver reads only the configured atom; the URI build is independent
   ;; of `window.location`, so the panel-gallery's source links resolve to
   ;; the same on-disk paths regardless of which port shadow-cljs serves
   ;; the testbed from.
   (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
-  ;; rf2-ymnfx (Issue A) — seed `:rf.story/project-root` for the SAME
+  ;; Seed `:rf.story/project-root` for the SAME
   ;; on-disk root so the Story shell's variant-toolbar 'Open' button
   ;; (re-frame.story.ui.open-in-editor/open-chip) ships an absolute
   ;; path. Story's own atom is independent of Xray's; without this
@@ -289,11 +284,11 @@
   ;; Xray instance for the duration of the variant render — the per-tab
   ;; galleries seed it directly, and the chrome / settings / filters
   ;; galleries thread that same variant frame into `shell-view`'s
-  ;; `:frame-id` opt (de-singletoned shell, rf2-1w07r). No `:rf/xray`
+  ;; `:frame-id` opt (per-frame shell). No `:rf/xray`
   ;; literal, no testbed-local seed event — the variant's `:setup`
   ;; dispatches the canonical Xray events into its own frame.
   (xray-registry/register-xray-handlers!)
-  ;; rf2-pqulr — install Xray theme CSS variables on :root so
+  ;; Install Xray theme CSS variables on :root so
   ;; embedded widgets paint with the themed palette rather than
   ;; browser defaults. Shell normally calls this from shell-view;
   ;; the gallery bypasses the shell so we call directly.
@@ -314,7 +309,6 @@
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell — and so the `hashchange` listener is
   ;; installed via the helper's remove-then-add `defonce` handle rather than a
-  ;; bare per-`run` `addEventListener` that stacks duplicates across hot-reload
-  ;; (rf2-x31vn). The helper renders `[landing-view]` for any non-`#/stories`
-  ;; hash, matching the prior `mount-landing!`.
+  ;; bare per-`run` `addEventListener` that stacks duplicates across hot-reload.
+  ;; The helper renders `[landing-view]` for any non-`#/stories` hash.
   (story-host/mount-with-hash-routing! landing-view))

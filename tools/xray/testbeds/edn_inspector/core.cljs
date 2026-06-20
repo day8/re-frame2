@@ -82,8 +82,8 @@
 
   ## Test-free + self-contained
 
-  Per rf2-8cevm this testbed carries no spec.cjs; the edn-inspector's
-  regression coverage lives in the engine + renderer unit tests
+  This testbed carries no spec.cjs; the edn-inspector's regression
+  coverage lives in the engine + renderer unit tests
   (`diff/engine_cljs_test`, `views/edn_inspector_cljs_test`) + the
   `panel_gallery` Story gallery (gated by the Xray feature-matrix gate) +
   the substrate contract tests. This deck is the manual LIVE driver of the
@@ -565,10 +565,10 @@
   ;; surfaces resolves its classpath-relative `:file` to an on-disk URI.
   (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
-  ;; absence — register the single, plain host frame, scope the boot
-  ;; dispatch, and wrap the render in a `frame-provider-existing` (the
-  ;; frame is already created by `reg-frame`; carried invariant).
+  ;; EP-0002: the runtime never synthesises a frame from absence —
+  ;; register the single, plain host frame, scope the boot dispatch, and
+  ;; wrap the render in a `frame-provider-existing` (the frame is already
+  ;; created by `reg-frame`; carried invariant).
   (rf/reg-frame host-frame {})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:edn-inspector/reset]))

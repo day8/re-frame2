@@ -89,11 +89,10 @@
   buttons in the standard-epochs ladder are FEATURES being exercised —
   they light up Xray's Issues surface legitimately, per frame.
 
-  Per rf2-8cevm this testbed carries no spec.cjs; regression coverage for
-  multi-frame isolation lives in the substrate contract tests
-  (`npm run test:cljs`) + the Xray feature-matrix gate's `multi-frame
-  isolation substrate` scenario (on the framework `testbeds/multi_frame`
-  surface)."
+  This testbed carries no spec.cjs; regression coverage for multi-frame
+  isolation lives in the substrate contract tests (`npm run test:cljs`)
+  + the Xray feature-matrix gate's `multi-frame isolation substrate`
+  scenario (on the framework `testbeds/multi_frame` surface)."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Requiring `standard-epochs.core` installs every handler /

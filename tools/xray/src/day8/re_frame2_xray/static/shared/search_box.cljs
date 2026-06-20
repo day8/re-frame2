@@ -1,15 +1,14 @@
 (ns day8.re-frame2-xray.static.shared.search-box
   "Shared search-box + substring `filter-rows` algebra for the Static
-  surface's flat-catalogue sub-tabs (rf2-1keg3).
+  surface's flat-catalogue sub-tabs.
 
-  ## Why this exists (rf2-nesy9 dedup follow-on, Cluster 1 + 2)
+  ## What it provides
 
   Five Static sub-tabs each grow a flat searchable catalogue — Flows,
   Interceptors, Schemas, Routes (the browse list), and Machines (the
-  browse list). Before this ns they each carried a private
-  `defn- search-box` that re-implemented the same skeleton: an
-  `<input>` dispatching a `set-query` event on every keystroke, wrapped
-  in a header row. Two layout variants existed:
+  browse list). They all render their search affordance through this one
+  component: an `<input>` dispatching a `set-query` event on every
+  keystroke, wrapped in a header row. Two layout variants are offered:
 
     - the `:catalogue` variant (Flows / Interceptors / Schemas /
       Routes) — a flex row with a `Search` label and a right-aligned
@@ -21,12 +20,11 @@
       `aria-label`, with no count chip (Machines surfaces its count in a
       separate toolbar).
 
-  Folding the five into one component drops each call-site from ~40 LoC
-  to ~6 and makes a UX change to the search affordance a one-file edit.
-  The two variants keep each call-site's exact rendered markup — this is
-  a pure refactor, zero visual change.
+  A single component keeps every call-site at ~6 LoC and makes a UX
+  change to the search affordance a one-file edit. Each variant renders
+  its call-site's exact markup.
 
-  ## Frame-correctness (rf2-1w07r EPIC / rf2-nesy9)
+  ## Frame-correctness
 
   The input's keystroke dispatch is an OUT-OF-RENDER affordance: it
   fires after render unwinds, when the ambient frame is gone, so a bare

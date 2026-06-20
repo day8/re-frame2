@@ -1,10 +1,10 @@
 (ns day8.re-frame2-xray.filters.typed-predicates
-  "Typed-predicate filter kinds for Xray pills (rf2-piye4).
+  "Typed-predicate filter kinds for Xray pills.
 
   ## Why typed predicates
 
-  Spec/018 §7 pills shipped as `{:pattern <kw-or-str>}` records keyed
-  off the cascade's `event-id` only. Surface-aware filters — 'show
+  A bare `{:pattern <kw-or-str>}` pill keys off the cascade's
+  `event-id` only. Surface-aware filters — 'show
   every cascade that touched THIS machine' / 'show every cascade in
   THIS HTTP exchange' / 'show every cascade triggering THIS fx kind'
   — need to walk the cascade's trace-events, not just its event-id.
@@ -15,14 +15,13 @@
 
   Each kind has a matcher in `cascade-matches-by-kind?` that consults
   the cascade's data shape — event-id-pattern delegates to the
-  existing event-id matcher (`matcher.cljc`), the other three walk the
+  event-id matcher (`matcher.cljc`), the other three walk the
   cascade's trace-event buckets for the expected `:tags` slot.
 
-  ## v1 kinds (per Mike's rf2-drcyb closure)
+  ## v1 kinds
 
-  - `:event-id-pattern` — back-compat with rf2-ak4ms's
-    `{:pattern <kw-or-str>}` shape. Delegates to the existing
-    pattern matcher.
+  - `:event-id-pattern` — the `{:pattern <kw-or-str>}` shape.
+    Delegates to the event-id pattern matcher.
   - `:machine` — match cascades whose trace-events include a
     `:tags :machine-id` equal to `<params :machine-id>`. The right-
     click affordance on the Machines panel rows fires
@@ -36,25 +35,23 @@
     `<params :fx-id>`. The right-click affordance on managed-fx
     records' surface badge fires `:rf.xray/filter-by-fx`.
 
-  ## Deferred kinds (Mike's rf2-piye4 scoping)
+  ## Deferred kinds
 
   - `:source-coord` — defer to v1.1; niche.
   - `:interceptor` — defer to v1.1; niche.
-  - `:descendant-of` — MOOT (Causality dropped this session).
 
-  ## Back-compat
+  ## Bare-pattern pills
 
-  Pills stored under the legacy `{:pattern <kw-or-str>}` shape (every
-  pill written before this bead) hydrate as `:event-id-pattern` via
-  `canonicalise-pill`. The persistence load path is unchanged; the
-  matcher folds the missing `:kind` slot into the canonical kind on
-  the way through. New typed pills written by the right-click
-  affordances persist with the explicit `:kind` so re-load round-trips
-  cleanly.
+  Pills stored under the bare `{:pattern <kw-or-str>}` shape
+  hydrate as `:event-id-pattern` via
+  `canonicalise-pill`. The matcher folds the missing `:kind` slot into
+  the canonical kind on the way through. Typed pills written by the
+  right-click affordances persist with the explicit `:kind` so re-load
+  round-trips cleanly.
 
-  ## Composition (spec/018 §7 unchanged)
+  ## Composition (spec/018 §7)
 
-  IN/OUT pill composition stays:
+  IN/OUT pill composition is:
 
       keep = (no-IN-pills OR matches-IN) AND NOT (matches-OUT)
 
@@ -63,13 +60,13 @@
   Mixing typed + keyword pills in the same bucket is supported and
   exercised by tests.
 
-  ## Causal-parent matching under epoch-per-event (rf2-a1eld)
+  ## Causal-parent matching under epoch-per-event
 
   Under epoch-per-event each dequeued event — including `:fx :dispatch`
   children and machine-internal transitions — is its OWN cascade. A
   `:machine` / `:http-correlation` / `:fx` IN pill matching only the
   cascade carrying its tag would lose the link to the PARENT event that
-  spawned the transition (now a sibling cascade). The projection
+  spawned the transition (a sibling cascade). The projection
   surfaces the causal-parent link once as `:parent-dispatch-id`; a
   directly-matching cascade pulls in its whole SPAWNING LINEAGE — every
   causal ancestor walked UP that link to the root user event — so a
@@ -95,8 +92,8 @@
   - If `:kind` is already present, return verbatim (with `:params`
     defaulted to `{}`).
   - If `:pattern` is present and `:kind` is absent, infer
-    `:event-id-pattern` and migrate `:pattern` into `:params`. This is
-    the back-compat path for pills persisted under the rf2-ak4ms shape.
+    `:event-id-pattern` and lift `:pattern` into `:params`. This is
+    the path for pills persisted under the bare `{:pattern …}` shape.
   - Otherwise return the pill verbatim (the matcher will treat it as
     `:never` — guards a malformed pill from matching everything)."
   [pill]
@@ -170,10 +167,10 @@
   false)
 
 (defmethod cascade-matches-by-kind? :event-id-pattern
-  ;; Delegate to the existing event-id pattern matcher. The pill's
-  ;; `:params :pattern` is the same `kw-or-str` shape the legacy
+  ;; Delegate to the event-id pattern matcher. The pill's
+  ;; `:params :pattern` is the same `kw-or-str` shape the event-id
   ;; matcher consumes; we surface it under params for typed pills and
-  ;; fall back to the top-level `:pattern` for legacy shape.
+  ;; fall back to the top-level `:pattern` for the bare-pattern shape.
   [cascade pill]
   (let [canonical (canonicalise-pill pill)
         pattern   (get-in canonical [:params :pattern])
@@ -227,7 +224,7 @@
 
 (defn cascade-matches-pill?
   "True iff the typed pill matches the cascade. Single entrypoint —
-  routes through `canonicalise-pill` so legacy `{:pattern ...}` shape
+  routes through `canonicalise-pill` so the bare `{:pattern ...}` shape
   and explicit `{:kind ...}` shape land at the same matcher."
   [cascade pill]
   (cascade-matches-by-kind? cascade (canonicalise-pill pill)))
@@ -240,7 +237,7 @@
     (when (seq pills)
       (some #(cascade-matches-pill? cascade %) pills))))
 
-;; ---- causal-parent walk (rf2-a1eld) -------------------------------------
+;; ---- causal-parent walk -------------------------------------------------
 ;;
 ;; Under epoch-per-event each dequeued event — including `:fx :dispatch`
 ;; children and machine-internal transitions — is its OWN cascade
@@ -248,7 +245,7 @@
 ;; `:rf.trace/dispatch-id`). A `:machine` / `:http` / `:fx` typed pill
 ;; matching ONLY the cascade carrying its tag therefore loses the link
 ;; to the PARENT event that spawned the transition (the spawning event
-;; lives in a sibling cascade now). 'Filter to this machine' must
+;; lives in a sibling cascade). 'Filter to this machine' must
 ;; surface the spawning event's cascade too, not just the machine's
 ;; bare epoch.
 ;;
@@ -296,7 +293,7 @@
                (conj acc c))))))
 
 (defn in-kept-id-set
-  "Compute the set of `:dispatch-id`s kept by the IN pills (rf2-a1eld).
+  "Compute the set of `:dispatch-id`s kept by the IN pills.
   A cascade that DIRECTLY matches any IN pill pulls in its whole
   spawning lineage — itself plus every causal ancestor (walked via
   `index`). The union is what surfaces the spawning event's cascade
@@ -326,13 +323,13 @@
 
   `in-kept-ids` is the precomputed set from `in-kept-id-set` — the
   dispatch-ids kept by the IN pills, INCLUDING the spawning ancestors
-  of every directly-matching cascade (rf2-a1eld). nil `in-kept-ids`
+  of every directly-matching cascade. nil `in-kept-ids`
   means no IN filter is active (keep every cascade subject to OUT). The
   OUT test stays cascade-local — a hide pill suppresses only the
   cascade carrying its tag, never its ancestors (so hiding a child's fx
   does not silently drop the originating user event).
 
-  Pure data; JVM-runnable. The legacy single-cascade arity falls back
+  Pure data; JVM-runnable. The single-cascade arity falls back
   to direct (ancestor-free) IN matching for callers without the full
   cascade set."
   ([cascade {:keys [in out]}]
@@ -354,7 +351,7 @@
 
   Builds a `{dispatch-id → cascade}` index once, computes the IN-kept
   id set (each directly-matching cascade pulls in its spawning
-  ancestors, rf2-a1eld), then keeps cascades whose id is in that set
+  ancestors), then keeps cascades whose id is in that set
   and which no OUT pill suppresses — so a typed pill on a child
   transition cascade also keeps the spawning event's cascade under
   epoch-per-event."

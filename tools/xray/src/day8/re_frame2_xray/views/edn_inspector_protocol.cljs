@@ -1,13 +1,12 @@
 (ns day8.re-frame2-xray.views.edn-inspector-protocol
-  "Custom-formatters protocol for the Xray edn-inspector widget
-  (rf2-oqa60 phase 7 · rf2-0qrcr · D7=a per rf2-sndui ruling).
+  "Custom-formatters protocol for the Xray edn-inspector widget.
 
   ## Why this exists
 
-  Phase 1 (rf2-oqa60) shipped a *closed* renderer — it classifies
-  every built-in CLJS shape natively (maps, vectors, sets, records,
-  map-entries, sentinels, scalars). That covers the universe of
-  shapes Xray itself produces. Consuming applications, however, may
+  The widget is a *closed* renderer — it classifies every built-in
+  CLJS shape natively (maps, vectors, sets, records, map-entries,
+  sentinels, scalars). That covers the universe of shapes Xray itself
+  produces. Consuming applications, however, may
   carry **domain types** (typed records, custom deftypes, opaque
   wrappers around external library objects) that the closed renderer
   has no better fallback for than `pr-str`.
@@ -60,10 +59,10 @@
   ## Boundary
 
   The protocol is the ONLY public extension seam in the edn-inspector
-  widget. Per the locked B.9 / rf2-sndui interaction model the
-  widget itself ships exactly one path-click interaction; consumers
-  do NOT extend interactions through this protocol — only the
-  visual rendering of values.
+  widget. Per the B.9 interaction model the widget itself ships
+  exactly one path-click interaction; consumers do NOT extend
+  interactions through this protocol — only the visual rendering of
+  values.
 
   ## Spec
 

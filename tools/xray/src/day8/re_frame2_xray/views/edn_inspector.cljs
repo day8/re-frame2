@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.views.edn-inspector
   "Xray's first-class edn-inspector widget — roll-your-own CLJS-value
-  renderer (rf2-oqa60 phase 1).
+  renderer.
 
   ## What this is
 
@@ -11,20 +11,16 @@
   token variables so light + dark themes resolve at paint time
   without a re-render.
 
-  ## What replaces what
+  ## What this widget owns
 
-  - `views/edn-widget` — superseded for current-state browse
-    (phase 1 wires the App-DB panel here directly; phases 2-5 migrate
-    the remaining call sites).
-  - `theme/data-inspector` — sentinels (`:rf/redacted`,
-    `:rf.size/large-elided`) become first-class types INSIDE this
-    widget; the chrome wrapper goes away (D3=a per rf2-sndui).
-  - `edn-inspector/render` — diff renderer subsumed (phase 5; D5=a per
-    rf2-sndui). The diff path is now an opt-in mode on this same
-    widget — pass `:before` to render with gutter glyphs +
-    `← was <prior>` annotations.
-  - `binaryage/cljs-devtools` dep — dropped from the project; this
-    widget renders CLJS values natively from CLJS itself (rf2-oqa60).
+  - Current-state browse for every call site (the App-DB panel and the
+    rest mount this widget directly).
+  - Sentinels (`:rf/redacted`, `:rf.size/large-elided`) as first-class
+    types — chip chrome rendered inline, no separate wrapper.
+  - Diff rendering as an opt-in mode on the same widget — pass `:before`
+    to render with gutter glyphs + `← was <prior>` annotations.
+  - Native CLJS-value rendering, classified from CLJS itself with no
+    external devtools dependency.
 
   ## Public API
 
@@ -40,7 +36,7 @@
 
   - `:panel-id`     (optional, default `:rf.xray.edn-inspector/anon`)
                     distinguishes per-panel expansion state.
-  - `:site-id`      (optional, rf2-pvsxs) — when supplied, becomes the
+  - `:site-id`      (optional) — when supplied, becomes the
                     second component of the per-node expansion key
                     INSTEAD of the auto-generated mount-id. Lets the
                     same logical call site survive a panel-leave-and-
@@ -48,20 +44,18 @@
                     a stable site-id does not). Omit to keep the per-
                     call-site isolation default (two `[edn-inspector]`
                     mounts side-by-side stay independent).
-  - `:default-expanded-depth` (optional, default 8) — rf2-kbdk8: now an
-                    EXPAND CEILING rather than a trigger. The widget
-                    NEVER auto-expands past this depth — deeper nodes
-                    render as a `▸ {…N keys}` collapsed summary unless
-                    the operator clicks. Under the width-aware
-                    heuristic shallow nodes inline whenever their full
-                    `pr-str` fits the measured column; the depth ceiling
-                    only protects against pathological wide-and-deep
-                    auto-expansion when measurements are unavailable.
-                    Default raised from 2 → 8 to reflect the new
-                    semantic; tests that explicitly pass
-                    `:default-expanded-depth 2` (or any number) get the
-                    legacy depth-driven behaviour unchanged when no
-                    width measurement has arrived.
+  - `:default-expanded-depth` (optional, default 8) — an EXPAND
+                    CEILING. The widget NEVER auto-expands past this
+                    depth — deeper nodes render as a `▸ {…N keys}`
+                    collapsed summary unless the operator clicks. Under
+                    the width-aware heuristic shallow nodes inline
+                    whenever their full `pr-str` fits the measured
+                    column; the depth ceiling only protects against
+                    pathological wide-and-deep auto-expansion when
+                    measurements are unavailable. When no width
+                    measurement has arrived the depth-driven path runs:
+                    any explicit value (e.g.
+                    `:default-expanded-depth 2`) drives that fallback.
   - `:max-inline-width` (optional, default 60) — character budget for
                     the COLLAPSED-PREVIEW one-liner (`▸ {:a 1, :b 2,
                     …}` style); leaves the width-aware inline decision
@@ -82,7 +76,7 @@
                     expand heuristic. With no `:before` (and no
                     `:added?`) the same renderer shows `value` plainly —
                     no annotations, no rail, no chip.
-  - `:added?` (optional, default false) — rf2-kp7bw FIRST-RUN signal: a
+  - `:added?` (optional, default false) — FIRST-RUN signal: a
                     value that just came into existence (a sub's first
                     cache entry, an app-db key that just appeared) with
                     no prior value to diff against. Synthesises the
@@ -90,25 +84,22 @@
                     whole tree classifies as `:added` (green wash + `+`
                     chrome over every descendant). An explicit `:before`
                     always wins; empty containers still read `:added`.
-  - `:popup-affordance?` (optional, default false) — rf2-l4625; when
-                    true the widget renders a top-right ↗ icon button
-                    (rf2-7sdja — was ⊕; ↗ reads as 'open in new pane')
-                    that dispatches
+  - `:popup-affordance?` (optional, default false) — when true the
+                    widget renders a top-right ↗ icon button (reads as
+                    'open in new pane') that dispatches
                     `[:rf.xray.edn-inspector-popup/open mount-id payload]`
                     through the captured frame-aware dispatcher so the
                     popup-open write lands on the surrounding instance
-                    frame (rf2-r0o63 — supersedes the rf2-7sdja
-                    `:rf/xray` literal pin; N shells stay isolated). The
-                    popup-mount-id is derived from this widget's own mount-
-                    id, so re-clicking raises the existing popup rather
-                    than spawning a duplicate. Opt-in per call-site;
-                    panels enable the affordance where the inline
-                    widget is genuinely cramped (machine snapshots,
-                    sub values, trace payloads). App-DB does NOT use
-                    the affordance (rf2-7sdja — App-DB has plenty of
-                    horizontal room; the popup would be unnecessary
-                    affordance noise).
-  - `:card?`         (optional, default false) — rf2-63ie5; when true
+                    frame (N shells stay isolated). The popup-mount-id
+                    is derived from this widget's own mount-id, so
+                    re-clicking raises the existing popup rather than
+                    spawning a duplicate. Opt-in per call-site; panels
+                    enable the affordance where the inline widget is
+                    genuinely cramped (machine snapshots, sub values,
+                    trace payloads). App-DB does NOT use the affordance
+                    — it has plenty of horizontal room, so the popup
+                    would be unnecessary affordance noise.
+  - `:card?`         (optional, default false) — when true
                     the widget's outer container carries the inspector-
                     card chrome (background `:bg-1`, 1px `:border-
                     default` border, `8px` radius, `8px 10px` padding,
@@ -122,11 +113,11 @@
                     panels with multiple top-level inspector mounts
                     (App-DB's TOP + per-`:rf/*` sections; Handler's
                     side-by-side event-detail mounts) opt in.
-  - `:header`        (optional, default nil) — rf2-okq7p; opt-in
+  - `:header`        (optional, default nil) — opt-in
                     three-shade card chrome (outer `<section>` →
                     `<header>` ribbon → body sleeve), modelled on the
                     Machine panel's `focused-event-section`. `nil`
-                    renders inline as today. A string renders a
+                    renders inline. A string renders a
                     plain-label ribbon. Hiccup renders whatever the
                     consumer composes (label + code chip + per-
                     inspector affordances). The widget treats the
@@ -150,16 +141,14 @@
                     its own surface chrome, so `:card?` is usually
                     redundant when `:header` is present).
 
-  - `:zoomable?`     (optional, default false) — rf2-h71e0; gesture
-                    reworked rf2-zl4rs. When true every non-root
-                    container becomes a zoom-in TARGET: double-click
-                    (or Enter while the node is keyboard-focused)
-                    re-roots the inspector onto that node. There is no
-                    longer a `⊙` glyph button — the gesture lives on
-                    the container itself, which carries `tab-index 0` +
-                    an `aria-label` so the keyboard + screen-reader
-                    affordance the glyph button used to provide is
-                    preserved. The gesture dispatches
+  - `:zoomable?`     (optional, default false) — when true every
+                    non-root container becomes a zoom-in TARGET:
+                    double-click (or Enter while the node is keyboard-
+                    focused) re-roots the inspector onto that node. The
+                    gesture lives on the container itself, which carries
+                    `tab-index 0` + an `aria-label` so the keyboard +
+                    screen-reader affordance is available. The gesture
+                    dispatches
                     `[:rf.xray.edn-inspector/zoom-to panel-id mount-id
                     absolute-path]`, which stores the absolute path
                     under `:rf.xray.edn-inspector/zoom` keyed by
@@ -169,9 +158,9 @@
                     root (each segment clickable for one-tap zoom-up).
                     Esc (when the widget has focus AND a zoom is
                     active) pops one level off the zoom stack.
-                    Zoom applies in the SINGLE full+diff renderer
-                    (rf2-e28r3 / rf2-zl4rs): the re-root walks `value`
-                    always and `before` too when a pre-image is present,
+                    Zoom applies in the SINGLE full+diff renderer: the
+                    re-root walks `value` always and `before` too when a
+                    pre-image is present,
                     so the diff rail / chip / inline annotations paint
                     relative to the zoomed subtree. A zoom into a wholly
                     `:added` subtree re-roots both halves so the whole
@@ -182,10 +171,10 @@
                     pass a stable `:site-id` to survive a panel-leave-
                     and-return round-trip.
 
-  Drop the `:render-id` arg from the old facade — mount-id is now
-  auto-generated internally per D4=a (rf2-sndui).
+  There is no `:render-id` arg — the mount-id is auto-generated
+  internally.
 
-  ## Per-call-site isolation (rf2-sndui D4=a · rf2-pvsxs opt-out)
+  ## Per-call-site isolation
 
   Each `[edn-inspector …]` mount auto-assigns a UUID `mount-id` on
   first render (captured in a form-2 outer `let`). Two mounts side-
@@ -236,67 +225,64 @@
   | record           | `:info`            | `#user.Rec{` `}`         |
   | js object        | `:text-tertiary`   | `#object[` `]`           |
 
-  Per rf2-79ojx the per-type tokens were renamed + the palette retuned
-  to an editor-syntax-highlight scheme (One Dark / One Light). Five
-  scalar types now span four hue families: keyword magenta, string
-  green, number orange, boolean gold, nil grey."
+  The per-type tokens follow an editor-syntax-highlight scheme (One
+  Dark / One Light). Five scalar types span four hue families: keyword
+  magenta, string green, number orange, boolean gold, nil grey."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            ;; rf2-l42sg7 — expansion-state registration extracted to its
-            ;; own namespace (the `expansion-slot` key, its reg-sub, the
+            ;; Expansion-state registration lives in its own namespace
+            ;; (the `expansion-slot` key, its reg-sub, the
             ;; toggle/set/reset events, `expansion-key`, `resolve-expanded?`).
-            ;; Re-exported below so existing call sites + tests keep
-            ;; resolving against this widget namespace unchanged.
+            ;; Re-exported below so call sites + tests resolve against
+            ;; this widget namespace.
             [day8.re-frame2-xray.views.edn-inspector-state :as state]
             [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp]
-            ;; rf2-n2jig — Editscript-backed diff projection engine.
-            ;; Replaces the home-grown leaf-walker classifier that
-            ;; used to live at lines 533-664 of this file. The
-            ;; engine produces `{:path-ops :container-ops :flat-rows
+            ;; Editscript-backed diff projection engine. Produces
+            ;; `{:path-ops :container-ops :flat-rows
             ;; :wholly-changed-roots :shift-suffix :vector-removals}`
             ;; — the renderer chrome below consumes it via
             ;; `engine/op-at`, `engine/wholly-changed-ancestor`,
             ;; `engine/shifted-was-index`, etc.
             [day8.re-frame2-xray.diff.engine :as engine]
-            ;; rf2-x16b1 — load default IXrayEdnInspector formatters
-            ;; for uuid + inst. Requiring for side-effect (extend-type).
-            ;; Consumers that extend the same types win — `extend-type`
-            ;; installs the most-recently-loaded impl.
+            ;; Load default IXrayEdnInspector formatters for uuid + inst.
+            ;; Requiring for side-effect (extend-type). Consumers that
+            ;; extend the same types win — `extend-type` installs the
+            ;; most-recently-loaded impl.
             [day8.re-frame2-xray.views.edn-inspector-default-formatters]))
 
 ;; =========================================================================
-;; expansion state — extracted to `views/edn-inspector-state` (rf2-l42sg7).
+;; expansion state — lives in `views/edn-inspector-state`.
 ;; The slot key, its reg-sub, the toggle/set/reset events, `expansion-key`,
-;; and `resolve-expanded?` now live there (it registers the same global
-;; event/sub ids). Re-exported here so call sites + tests keep resolving
-;; `edn-inspector/{expansion-slot,expansion-key,resolve-expanded?}`
-;; unchanged. The state ns lives in :rf.xray.edn-inspector/expansion under
-;; the SURROUNDING instance frame (the shell's frame-id; `:rf/xray` for the
-;; production singleton) — per-frame so N shells keep independent expansion.
+;; and `resolve-expanded?` live there (it registers the global
+;; event/sub ids). Re-exported here so call sites + tests resolve
+;; `edn-inspector/{expansion-slot,expansion-key,resolve-expanded?}`.
+;; The slot is :rf.xray.edn-inspector/expansion under the SURROUNDING
+;; instance frame (the shell's frame-id; `:rf/xray` for the production
+;; singleton) — per-frame so N shells keep independent expansion.
 ;; =========================================================================
 
 (def expansion-slot
-  "Re-export of `edn-inspector-state/expansion-slot` (rf2-l42sg7) — the
-  app-db slot holding the per-node expansion overrides. Public so the
-  consuming panel's reset affordance can clear it."
+  "Re-export of `edn-inspector-state/expansion-slot` — the app-db slot
+  holding the per-node expansion overrides. Public so the consuming
+  panel's reset affordance can clear it."
   state/expansion-slot)
 
 (def expansion-key
-  "Re-export of `edn-inspector-state/expansion-key` (rf2-l42sg7) — composes
-  the per-node expansion key. Pure data, JVM-portable."
+  "Re-export of `edn-inspector-state/expansion-key` — composes the
+  per-node expansion key. Pure data, JVM-portable."
   state/expansion-key)
 
 (def resolve-expanded?
-  "Re-export of `edn-inspector-state/resolve-expanded?` (rf2-l42sg7) — pure
+  "Re-export of `edn-inspector-state/resolve-expanded?` — pure
   projection returning whether THIS node renders expanded; the operator's
   sticky override (if present) wins."
   state/resolve-expanded?)
 
 ;; =========================================================================
 ;; available-width capture — per-mount measurement for the width-aware
-;; expansion heuristic (rf2-kbdk8)
+;; expansion heuristic
 ;; =========================================================================
 ;;
 ;; The widget measures its container's `clientWidth` via a `:ref` callback
@@ -311,7 +297,7 @@
 ;;
 ;; When no measurement is yet present (first render before the ref fires,
 ;; or a programmatic test render that doesn't mount), the widget falls
-;; back to the legacy strict inline-fit gate — the heuristic improvement
+;; back to the strict inline-fit gate — the heuristic improvement
 ;; is additive and graceful.
 
 (def widths-slot
@@ -337,20 +323,19 @@
       db)}))
 
 ;; =========================================================================
-;; zoom-into-node + breadcrumb navigation (rf2-h71e0; gesture reworked rf2-zl4rs)
+;; zoom-into-node + breadcrumb navigation
 ;; =========================================================================
 ;;
 ;; Zoom turns the inspector into a focused window onto an arbitrary subtree.
 ;; Operator double-clicks any container (or presses Enter while it is
-;; keyboard-focused, rf2-zl4rs); that node becomes the root of the displayed
-;; tree. There is no separate `⊙` glyph button — the gesture lives on the
-;; container itself. A breadcrumb trail at the top shows the path from the
-;; original root; clicking any segment zooms back to that level. Esc zooms
-;; out one level.
+;; keyboard-focused); that node becomes the root of the displayed
+;; tree. The gesture lives on the container itself. A breadcrumb trail at
+;; the top shows the path from the original root; clicking any segment
+;; zooms back to that level. Esc zooms out one level.
 ;;
 ;; State shape mirrors `expansion-slot` — keyed by `[panel-id site-or-
 ;; mount-id]` so two side-by-side mounts zoom independently and a stable
-;; `:site-id` (rf2-pvsxs) preserves the zoomed view across a panel-
+;; `:site-id` preserves the zoomed view across a panel-
 ;; leave-and-return round-trip:
 ;;
 ;;   {[:rf.xray/app-db [:rf.xray/app-db "top"]] [:cart :items]
@@ -516,24 +501,17 @@
 ;; diff mode — projection-aware chrome
 ;; =========================================================================
 ;;
-;; rf2-n2jig — Editscript-backed projection engine replaces the home-
-;; grown classifier wholesale (no shim, no transitional double-engine
-;; state). The 10 pre-existing fns (`diff-op` / `children-descendant?` /
-;; `op->gutter-glyph` / `op->gutter-tone-key` / `op->row-wash-key` /
-;; `op->row-stripe-key` / `gutter-colour` / `row-wash-bg` /
-;; `row-stripe-colour` / `container-op`) were retired here in favour of
-;; `day8.re-frame2-xray.diff.engine`'s pre-computed projection
-;; (`engine/project`) + the path-keyed lookup helpers (`engine/op-at`,
-;; `engine/wholly-changed-ancestor`, `engine/shifted-was-index`,
-;; `engine/type-change?`, `engine/redaction-side`,
-;; `engine/change-count-at`).
+;; Diff classification flows through `day8.re-frame2-xray.diff.engine`'s
+;; pre-computed projection (`engine/project`) + the path-keyed lookup
+;; helpers (`engine/op-at`, `engine/wholly-changed-ancestor`,
+;; `engine/shifted-was-index`, `engine/type-change?`,
+;; `engine/redaction-side`, `engine/change-count-at`).
 ;;
-;; The legacy `::missing` sentinel is re-exported below for compatibility
-;; with the existing diff-aware container-iteration logic
-;; (`children-of-pair`, `diff-pair-count`) — those walkers thread
-;; `::missing` to represent slots that exist on one side of the diff
-;; only. The CLASSIFIER side of that interaction (which op to attach to
-;; the leaf) now flows through the engine's projection map.
+;; The `::missing` sentinel is re-exported below for the diff-aware
+;; container-iteration logic (`children-of-pair`, `diff-pair-count`) —
+;; those walkers thread `::missing` to represent slots that exist on one
+;; side of the diff only. The CLASSIFIER side of that interaction (which
+;; op to attach to the leaf) flows through the engine's projection map.
 
 (def missing-sentinel
   "Marker for a `:before` / `:after` slot that does not exist in its
@@ -543,7 +521,7 @@
   edn-inspector tests can assert the walker triples against the exact
   sentinel value — distinct from `engine/missing-sentinel`
   (`:day8.re-frame2-xray.diff.engine/missing`), which is the CLASSIFIER
-  side's marker per rf2-n2jig. Never collides with a real `nil` slot."
+  side's marker. Never collides with a real `nil` slot."
   ::missing)
 
 ;; ---- per-op token tables ------------------------------------------------
@@ -602,7 +580,7 @@
     :modified (:diff-modified-stripe tokens)
     nil))
 
-;; ---- gutter-row hoisted style maps (rf2-7cddi) ---------------------------
+;; ---- gutter-row hoisted style maps --------------------------------------
 ;;
 ;; `gutter-row` fires once per change-bearing leaf in a diff render — a
 ;; 30-changed-leaf render allocates 90 fresh map literals at the call site without
@@ -639,7 +617,7 @@
 
 (defn- gutter-row
   "Wrap `body` with the diff row chrome: gutter glyph + low-opacity
-  row-background wash + 2px left-edge stripe (rf2-awqts).
+  row-background wash + 2px left-edge stripe.
 
   ## What lives on what channel
 
@@ -664,20 +642,18 @@
   descendant) gets the gutter glyph but NO wash + NO stripe — the
   changed descendants below carry the colour-coded signal.
 
-  ## rf2-1bra5 — inline-flex, not flex
+  ## inline-flex, not flex
 
-  Switched from `display: flex` (block-level) to `inline-flex` so a
-  diff'd scalar leaf composes inline with its preceding key inside a
-  map-row grid. Pre-fix the block-level `<div>` forced the leaf onto
-  its own line (the per-row flex container couldn't keep the key+value
-  on one line — `flex-wrap: wrap` pushed the wide block-div below the
-  key, producing the `:show-parity?` / `:threshold` two-line rows Mike
-  measured at ~28.79px against the inline ~17.79px sibling rows).
+  Uses `display: inline-flex` so a diff'd scalar leaf composes inline
+  with its preceding key inside a map-row grid. A block-level `<div>`
+  would force the leaf onto its own line (the per-row flex container
+  can't keep key+value on one line — `flex-wrap: wrap` pushes a wide
+  block-div below the key, producing two-line rows).
 
   Returns an `[:span ...]` (display: inline-flex) so it nests inside a
   grid cell without breaking the row.
 
-  ## rf2-n2jig — R5-tinted suppression
+  ## R5-tinted suppression
 
   The optional `chrome-opts` map carries R5-tinted overrides:
 
@@ -689,7 +665,7 @@
     op is `:same` or `:same-shifted` (so descendants of a wholly-
     new subtree still read as green).
 
-  ## rf2-zpeyv — slot-vs-value anchoring
+  ## slot-vs-value anchoring
 
   - `:suppress-wash?` — paint NO wash on this gutter-row. Used when
     the slot-anchored chrome paints the wash on the WHOLE ROW (key +
@@ -715,7 +691,7 @@
          glyph-colour  (if suppress-glyph?
                          (:text-tertiary tokens)
                          (op-gutter-colour op))]
-     ;; rf2-7cddi — hoisted style bases (see `gutter-row-*-style` defs above):
+     ;; Hoisted style bases (see `gutter-row-*-style` defs above):
      ;; the static skeletons are ns-top defs; only the dynamic per-op
      ;; overlays (`:border-left` colour + optional `:background` wash on
      ;; the outer; `:color` on the glyph) are computed per render.
@@ -874,12 +850,11 @@
                          :margin-left "4px"}}
           (str "· " bytes " bytes")])])
     :sentinel-large
-    ;; rf2-ndb13 — body keys per Spec 015 §Wire elision:
+    ;; Body keys per Spec 015 §Wire elision:
     ;; `:path :bytes :type :reason :hint :handle`. `:type` is the
     ;; original-value type tag (`:map :vector :string …`); `:hint`
     ;; carries the schema-author's docstring; `:handle` is the
-    ;; structured fetch handle for a future drill-in affordance
-    ;; (deferred — see rf2-ndb13 "Out of scope").
+    ;; structured fetch handle for a future drill-in affordance.
     (let [{:keys [bytes type hint]} (val (first v))]
       [:span {:data-rf-type "rf-size-large-elided"
               :data-testid  "rf-xray-edn-inspector-large"
@@ -928,7 +903,7 @@
 
 (defn inline-separator
   "Inter-element separator STRING for an inline / collapsed render of a
-  collection of `kind`, matching canonical EDN print spacing (rf2-7hqwe):
+  collection of `kind`, matching canonical EDN print spacing:
 
   - maps / records — `\", \"` between consecutive key/value PAIRS, e.g.
     `{:a 1, :b 2}` (the space WITHIN a pair is supplied separately by the
@@ -947,9 +922,8 @@
   "The inter-element separator rendered as a `:text-tertiary` hiccup span
   for inline collection renders. Shared by the two inline-fit render
   paths — `render-inline-recursive` (width-aware recursive) and
-  `render-container`'s legacy inline-fit branch — which previously built
-  this same span twice. The separator STRING comes from `inline-separator`
-  (canonical EDN spacing per kind)."
+  `render-container`'s strict inline-fit branch. The separator STRING
+  comes from `inline-separator` (canonical EDN spacing per kind)."
   [kind]
   [:span {:style (token-style :text-tertiary)} (inline-separator kind)])
 
@@ -1073,9 +1047,9 @@
 ;; =========================================================================
 
 (declare render-node)
-;; rf2-n2jig — `render-leaf-with-diff` uses `mini` for R7 type-change
-;; suffix rendering; `mini` is defined later in the file (it's the
-;; public 1-arg inline render). Forward declare so the compiler resolves.
+;; `render-leaf-with-diff` uses `mini` for R7 type-change suffix
+;; rendering; `mini` is defined later in the file (it's the public 1-arg
+;; inline render). Forward declare so the compiler resolves.
 (declare mini)
 
 (defn- children-of
@@ -1113,8 +1087,9 @@
   collection of the SAME family — `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`,
   `(x)→()` — with the KEY INTACT (the slot still exists in AFTER).
 
-  This is the render-side discriminator for rf2-0c6a3. The engine's R5
-  `mark-wholly-changed` legitimately promotes such an emptied set / map
+  This is the render-side discriminator for an emptied collection. The
+  engine's R5 `mark-wholly-changed` legitimately promotes such an
+  emptied set / map
   KEY to `:removed` (the opposite side is empty, so there is no surviving
   member to anchor a member-level diff at the container path — see
   `engine/mark-wholly-changed`). But an emptied collection is NOT a
@@ -1149,7 +1124,7 @@
   "Diff-aware children walk — return a seq of `[child-key after-value
   before-value]` triples covering the UNION of `before` + `after` so
   removed children (present in BEFORE, absent from AFTER) are visible
-  to the diff renderer (rf2-zuh1e).
+  to the diff renderer.
 
   Slots that don't exist in their side carry `::missing` (the same
   `missing-sentinel` `diff-op` consumes), so the recursive renderer
@@ -1163,7 +1138,7 @@
     carry stable order across boundaries anyway (array-map vs hash-
     map crossover, `dissoc` rehashing); appended-at-end is simple,
     predictable, and reads as 'the post-image, then a deletions
-    section' in the rendered tree (rf2-zuh1e decision).
+    section' in the rendered tree.
   - **Vector / list / seq** — index-align up to the longer side's
     count; trailing BEFORE-only positions render as `:removed`.
   - **Set** — UNION of members, sorted by `pr-str` for stable render
@@ -1256,14 +1231,14 @@
   through removed element gets a React `:key` distinct from the surviving
   element now occupying that integer slot. The removal's op is forced
   `:removed` by its `::missing` after-value (`render-leaf-with-diff`'s
-  structural override, rf2-8pfkk), so this synthetic segment is never
+  structural override), so this synthetic segment is never
   consulted for a projection op lookup — it exists purely for key + testid
   uniqueness."
   :rf.xray.edn-inspector/removed)
 
 (defn sequential-diff-children
-  "Projection-aware children walk for a vector / list / seq in diff mode
-  (rf2-vu42n). Returns a seq of `[child-key after-value before-value]`
+  "Projection-aware children walk for a vector / list / seq in diff mode.
+  Returns a seq of `[child-key after-value before-value]`
   triples — the SAME shape `children-of-pair` returns — but built by
   CONSUMING the engine's `:vector-removals` + `:same-shifted` projection
   rather than index-aligning the raw before/after vectors.
@@ -1284,7 +1259,7 @@
     / `:same-shifted` / `:modified`). Their `before` slot carries the
     element's PRIOR value (recovered via the survivor's before-index) —
     NOT `::missing`, because `render-leaf-with-diff` treats a `::missing`
-    before slot as a structural `:added` (rf2-8pfkk), which would override
+    before slot as a structural `:added`, which would override
     the projection and paint a surviving element green.
   - Purely-added elements come from the AFTER vector at their AFTER index
     with a `::missing` before slot (correctly forcing `:added`).
@@ -1411,22 +1386,19 @@
                   (try (pr-str k) (catch :default _ (str k)))]))
 
 ;; =========================================================================
-;; width-aware expansion heuristic (rf2-kbdk8)
+;; width-aware expansion heuristic
 ;; =========================================================================
 ;;
-;; The closed-renderer's auto-expansion was depth-driven — any container
-;; within `default-expanded-depth` opened automatically regardless of how
-;; trivially its inline form would fit the available column width. Result:
-;; short values rendered as 8-9 row trees that consumed ~9× the vertical
-;; real-estate of their inline equivalents.
+;; The heuristic renders inline FIRST when the value's estimated inline
+;; width fits the available column (with a small safety margin); it falls
+;; back to tree-expand only when the inline form would overflow. This
+;; keeps short values from rendering as multi-row trees that consume far
+;; more vertical real-estate than their inline equivalents.
 ;;
-;; The new heuristic flips the test: render inline FIRST when the value's
-;; estimated inline width fits the available column (with a small safety
-;; margin); only fall back to tree-expand when the inline form would
-;; overflow. `default-expanded-depth` is repurposed as a CEILING — never
-;; auto-expand past depth N even when the inline form overflows; show a
-;; collapsed-summary instead. The operator's sticky override and diff-
-;; mode's force-open-over-changed-descendant rule still win.
+;; `default-expanded-depth` is a CEILING — never auto-expand past depth N
+;; even when the inline form overflows; show a collapsed-summary instead.
+;; The operator's sticky override and diff-mode's
+;; force-open-over-changed-descendant rule still win.
 ;;
 ;; Width is estimated by `(* char-count mono-char-width-px)` — JetBrains
 ;; Mono / Source Code Pro at the inspector's 12px size carries an
@@ -1436,11 +1408,10 @@
 ;; cause horizontal overflow).
 ;;
 ;; A `safety-margin-px` of 16px guards against edge-case wrap (a few extra
-;; pixels for the closing bracket, gutter, scroll-bar reserve). Tested live
-;; against the Handler panel dispatch-section mount (rf2-kbdk8 bead body):
-;; the 81-char `[:ws/connection [:rf.machine.timer/after-elapsed 2501
-;; [:active :authenticating]]]` value at ~570px estimate fits trivially in
-;; the 966px column and now renders inline at one row (was 148px / 8-9 rows).
+;; pixels for the closing bracket, gutter, scroll-bar reserve). For
+;; example, the 81-char `[:ws/connection [:rf.machine.timer/after-elapsed
+;; 2501 [:active :authenticating]]]` value at ~570px estimate fits
+;; trivially in a 966px column and renders inline at one row.
 
 (def mono-char-width-px
   "Monospace M-advance in CSS pixels at the inspector's 12px font size.

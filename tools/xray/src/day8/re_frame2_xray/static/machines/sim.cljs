@@ -1,14 +1,10 @@
 (ns day8.re-frame2-xray.static.machines.sim
-  "Static Machines Sim sub-mode (rf2-r4nao rehost; engine originally
-  rf2-v869p, Phase 2, parent rf2-2tkza).
+  "Static Machines Sim sub-mode.
 
-  ## Rehost (rf2-r4nao)
-
-  Rehosted from `panels/machine_inspector_sim.cljs` when the Dynamic
-  Machine Inspector collapsed (rf2-y9xmf). The engine + UI algebra is
-  unchanged; only the ns + the mount point + the event/sub namespacing
-  moved. Sim now lives ONLY on the Static surface — it is event-
-  INDEPENDENT (a hermetic 'what-if' simulator) by design.
+  Sim lives ONLY on the Static surface — it is event-INDEPENDENT (a
+  hermetic 'what-if' simulator) by design. This ns is the thin CLJS
+  wrapper that wires the pure-data helpers to the reactive substrate;
+  all logic lives in `sim_helpers.cljc`.
 
   ## Surface
 
@@ -39,7 +35,7 @@
     - **Exit** disposes the per-machine sim slot and flips the strip's
       sub-mode back to `:topology`.
 
-  ## On-chart simulation (rf2-u422r, epic rf2-nrrtb)
+  ## On-chart simulation
 
   Stately's signature is simulating ON the chart. The Sim body is a
   two-pane split: `SimChart` (the topology chart bound to this engine)
@@ -56,16 +52,15 @@
 
     - The `body` view — the per-machine Sim panel mounted as the
       `:sim` sub-mode body in the Static Machines panel.
-    - `SimChart` — the on-chart simulation surface (rf2-u422r).
+    - `SimChart` — the on-chart simulation surface.
     - `SimRail` — the side controls/diagnostics column.
     - The `pill` affordance — the `Sim` pill in the 4-mode sub-strip.
     - The `:rf.xray.static.machines/sim-*` events:
       `sim-start`, `sim-step`, `sim-reset`, `sim-stop`,
-      `sim-chart-edge-clicked` (rf2-u422r on-chart step), plus
+      `sim-chart-edge-clicked` (on-chart step), plus
       `sim-set-pending-event` / `sim-set-pending-data`.
     - The `:rf.xray.static.machines/sim-*` sub family, incl.
-      `sim-current-state` / `sim-last-transition` (rf2-u422r chart
-      binding).
+      `sim-current-state` / `sim-last-transition` (chart binding).
 
   ## Helper algebra
 
@@ -173,15 +168,15 @@
       (when sim
         (sim-h/event-id-suggestions (:definition sim)))))
 
-  ;; rf2-u422r — the sim's current snapshot state, for the on-chart
-  ;; active-state highlight (amber via the chart's `:sim?` palette).
+  ;; The sim's current snapshot state, for the on-chart active-state
+  ;; highlight (amber via the chart's `:sim?` palette).
   (rf/reg-sub :rf.xray.static.machines/sim-current-state
     :<- [:rf.xray.static.machines/sim-state]
     (fn [sim _query]
       (sim-h/current-sim-state sim)))
 
-  ;; rf2-u422r — the most-recent transition `{:from :to :event}`, feeding
-  ;; the chart's focused-event lens so the taken edge animates after each
+  ;; The most-recent transition `{:from :to :event}`, feeding the
+  ;; chart's focused-event lens so the taken edge animates after each
   ;; on-chart (or step-button) step. nil before the first step.
   (rf/reg-sub :rf.xray.static.machines/sim-last-transition
     :<- [:rf.xray.static.machines/sim-state]
@@ -226,7 +221,7 @@
     (fn [{:keys [db]} [_ {:keys [machine-id event]}]]
       {:db (step-and-store db machine-id event)}))
 
-  ;; rf2-u422r — on-chart edge click → step. The chart's clickable edge
+  ;; On-chart edge click → step. The chart's clickable edge
   ;; hands us the raw fireable event-id; coerce it to a step event vector
   ;; and fold it through the SAME engine path as the step-button (no new
   ;; transition logic — `step-and-store` runs `step-sim` +
@@ -259,11 +254,9 @@
 ;; ---- pill (4-mode sub-strip) -------------------------------------------
 
 (defn pill
-  "Render the Sim pill in the 4-mode sub-strip. Mirrors the placeholder
-  pill's shape (`testid` + active/inactive styling) — the visual
-  contract for the strip is unchanged from rf2-o5f5f.2 + the rf2-r4nao
-  placeholder; only the body the pill flips to is now the real Sim
-  surface."
+  "Render the Sim pill in the 4-mode sub-strip. Shares the strip's
+  visual contract (`testid` + active/inactive styling); the pill flips
+  the panel body to the Sim surface."
   [{:keys [active? on-click]}]
   [:button
    {:data-testid    "rf-xray-static-machines-pill-sim"
@@ -426,9 +419,9 @@
                              :event event-v}])))))
     :style       {:background (:yellow tokens)
                   :border "none"
-                  ;; rf2-5kfxe.4 — dark text on yellow uses :bg-1
-                  ;; (between bg-0 and bg-2; AA-grade on the yellow
-                  ;; accent without competing with primary text).
+                  ;; Dark text on yellow uses :bg-1 (between bg-0 and
+                  ;; bg-2; AA-grade on the yellow accent without
+                  ;; competing with primary text).
                   :color (:bg-1 tokens)
                   :padding "6px 14px"
                   :border-radius "4px"
@@ -538,7 +531,7 @@
            ;; `get-react-key` only reads `:key` meta from vectors (see
            ;; reagent2.impl.template). `available-transition-row`
            ;; always returns a `[:li …]` vector, so apply the key
-           ;; directly via `with-meta`. (rf2-ppzid)
+           ;; directly via `with-meta`.
            (for [t transitions]
              (with-meta
                (available-transition-row dispatch machine-id pending-event t)
@@ -606,25 +599,25 @@
            ;; `get-react-key` only reads `:key` meta from vectors (see
            ;; reagent2.impl.template). `audit-trail-row` always returns
            ;; a `[:li …]` vector, so apply the key directly via
-           ;; `with-meta`. (rf2-ppzid)
+           ;; `with-meta`.
            (for [[idx row] (map-indexed vector trail)]
              (with-meta (audit-trail-row idx row) {:key idx}))))])
 
 (defn SimRail
   "The Sim sub-mode's content rail — banner + current state + event
   picker + Step / Reset / Exit + available transitions + audit trail.
-  Pure hiccup (per Xray's rf2-tijr convention).
+  Pure hiccup (per Xray convention).
 
   Returns nil when sim is not active for the currently-selected
   machine (the caller is expected to dispatch `:sim-start` BEFORE
   rendering when the body mounts; this guard keeps the rail safe
   during the auto-start microtask gap).
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded from
-  `body` — fanned out to every control helper.
+  `dispatch` is the frame-aware dispatcher threaded from `body` —
+  fanned out to every control helper.
 
-  `sim` / `transitions` / `suggestions` (rf2-jholrb) are the derefed sub
-  values threaded down from the `detail` reg-view (`definition_detail`),
+  `sim` / `transitions` / `suggestions` are the derefed sub values
+  threaded down from the `detail` reg-view (`definition_detail`),
   via `body`. SimRail is a plain fn invoked as a Reagent component, so it
   renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
   frame to `rf/subscribe` itself (Spec 004 §Plain Reagent fns do not pick
@@ -659,12 +652,12 @@
        (available-transitions-list dispatch machine-id (:pending-event sim) transitions)
        (audit-trail (:audit-trail sim))])))
 
-;; ---- on-chart simulation surface (rf2-u422r) ---------------------------
+;; ---- on-chart simulation surface ---------------------------------------
 
 (defn SimChart
   "The on-chart simulation surface — the topology chart bound to the
-  hermetic sim engine (rf2-u422r, epic rf2-nrrtb). Stately's signature
-  is simulating ON the chart; this is the binding seam that delivers it.
+  hermetic sim engine. Stately's signature is simulating ON the chart;
+  this is the binding seam that delivers it.
 
   Reuses the EXISTING engine end-to-end — no new transition logic:
 
@@ -674,7 +667,7 @@
       AMBER (distinct from the live cyan highlight on the Dynamic
       surface).
     - **Context band** — the machine's STATIC context shape (keys +
-      type captions, rf2-eao0s0) drives the chart's `:context-band`
+      type captions) drives the chart's `:context-band`
       so the root Context band renders here too (the Dynamic + Static
       Topology charts already pass it). Shape + declared-over-inferred
       provenance come from the shared `topology-view/static-context-
@@ -695,11 +688,11 @@
   Returns nil when sim is inactive (the auto-start gap) so the host's
   `when sim` guard keeps the render safe.
 
-  Pure hiccup (Xray rf2-tijr convention). `dispatch` (rf2-nesy9) is the
-  frame-aware dispatcher threaded from `body`.
+  Pure hiccup (Xray convention). `dispatch` is the frame-aware
+  dispatcher threaded from `body`.
 
-  `current` / `last-trans` (rf2-jholrb) are the derefed sub values
-  threaded down from the `detail` reg-view (`definition_detail`), via
+  `current` / `last-trans` are the derefed sub values threaded down
+  from the `detail` reg-view (`definition_detail`), via
   `body`. SimChart is a plain fn invoked as a Reagent component, so it
   renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
   frame to `rf/subscribe` itself (Spec 004; a bare `subscribe` here
@@ -720,7 +713,7 @@
     {:definition             definition
      :machine-id             machine-id
      :current-state          current
-     ;; rf2-eao0s0 — surface the STATIC context shape so the root
+     ;; Surface the STATIC context shape so the root
      ;; Context band renders on the Static Sim chart too (the Dynamic
      ;; topology + focused-event + Static Topology charts already do).
      ;; Shape + provenance come from the shared machines-viz-backed
@@ -758,7 +751,7 @@
   `dispatch-sync`) so the render itself stays pure; the subsequent
   reactive cycle re-mounts with sim-state populated.
 
-  ## On-chart layout (rf2-u422r)
+  ## On-chart layout
 
   The sim body is a two-pane split: the interactive `SimChart` is the
   PRIMARY surface (left/main) — the user clicks transition edges on the
@@ -769,7 +762,7 @@
   audit trail. The chart and rail read the SAME sim-state, so clicking
   an edge and clicking a Step button are interchangeable.
 
-  ## Frame recovery (rf2-jholrb)
+  ## Frame recovery
 
   `body` is mounted by `definition_detail/body` as a plain-fn Reagent
   component, so it renders in its OWN cycle and CANNOT recover the
@@ -780,7 +773,7 @@
   the `detail` reg-view (where the frame IS in context) and threaded down
   through `definition_detail/body` to here, then fanned out to `SimChart`
   / `SimRail` (themselves plain-fn components). This mirrors the
-  rf2-wxu4l3 browse-list fix exactly."
+  browse-list frame-recovery pattern exactly."
   [dispatch {:keys [machine-id definition sim transitions suggestions
                     current last-trans]}]
   ;; Side-effecting auto-start, then the render. The `defn` body is an
@@ -789,7 +782,7 @@
   (when (and (some? machine-id)
              (some? definition)
              (nil? sim))
-    ;; rf2-nesy9 — auto-start dispatches through the threaded
+    ;; Auto-start dispatches through the threaded
     ;; frame-aware `dispatch` (sim/body is invoked as a Reagent
     ;; component, so render-time frame recovery is unavailable).
     (dispatch [:rf.xray.static.machines/sim-start
@@ -821,7 +814,7 @@
      " — Sim cannot clone what isn't there."]
 
     ;; Sim-state has landed (or the auto-start dispatch just queued).
-    ;; rf2-u422r — two-pane split: the on-chart sim surface is primary,
+    ;; Two-pane split: the on-chart sim surface is primary,
     ;; the rail is the side detail/controls column. Both guard the
     ;; auto-start gap (`SimChart` returns its wrapper unconditionally
     ;; but the chart degrades on a nil definition; `SimRail`'s `when

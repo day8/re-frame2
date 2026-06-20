@@ -26,7 +26,7 @@
   the panel-selection slot, the shared cascades projection, and the
   three suppression-counter handlers) plus the orchestration call
   into each per-panel `install!`. Per-panel registrations live in the
-  panel's own ns under `(defn install! [] ...)` (rf2-d4xda) so each
+  panel's own ns under `(defn install! [] ...)` so each
   panel owns its subs / events / fxs colocated with the view that
   reads them. Sub-registration order is purely cosmetic — re-frame
   resolves `:<-` chains lazily at subscribe time, not register time."
@@ -36,11 +36,9 @@
             ;; top-level `reg-sub` / `reg-event` calls land in
             ;; the registrar at orchestrator-load time. The widget
             ;; owns `:rf.xray.edn-inspector/*` events/subs and is the
-            ;; SINGLE source of truth for browse + diff + mini
-            ;; (rf2-q3dzw phase 5; legacy `edn-inspector.render` +
-            ;; `theme.data-inspector` ns'es are deleted).
+            ;; SINGLE source of truth for browse + diff + mini.
             [day8.re-frame2-xray.views.edn-inspector]
-            ;; rf2-l4625 — popup overlay infra. `install!` registers
+            ;; Popup overlay infra. `install!` registers
             ;; the stack/entries subs + open/close/close-top/close-all
             ;; events at orchestrator-load time. The stack VIEW mount
             ;; lives in `shell.cljs`; per-panel "open in popup"
@@ -50,7 +48,7 @@
             ;; `:rf/xray` frame.
             [day8.re-frame2-xray.views.edn-inspector-popup
              :as edn-inspector-popup]
-            ;; rf2-uji72 — shared draggable-column-resize affordance.
+            ;; Shared draggable-column-resize affordance.
             ;; `install!` registers the `:rf.xray.column-widths/*`
             ;; events + sub that drive the per-table grid template.
             [day8.re-frame2-xray.views.resizable-table :as resizable-table]
@@ -89,14 +87,13 @@
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
-;; ---- defaults (re-exported for back-compat callers) ---------------------
+;; ---- defaults (re-exported) ---------------------------------------------
 ;;
 ;; The Var itself lives in `day8.re-frame2-xray.defaults` so the
 ;; per-panel `install!` fns can read it without forming a
-;; registry→panel→registry cycle. Re-exported here so the existing
-;; test surface keeps reading `registry/default-target-frame` — same
-;; source of truth. (`default-panel-id` was dropped with rf2-qy0nu —
-;; the legacy `:rf.xray/selected-panel` slot is no longer read.)
+;; registry→panel→registry cycle. Re-exported here so the test surface
+;; reads `registry/default-target-frame` against the same source of
+;; truth.
 
 (def default-target-frame defaults/default-target-frame)
 
@@ -119,7 +116,7 @@
 
     ;; Xray's trace-buffer sub returns a flat snapshot of every
     ;; registered frame's per-frame trace ring + the small frameless
-    ;; secondary ring (per rf2-43koh + the rf2-3g9nw D2=a ruling).
+    ;; secondary ring.
     ;; The slot lives in Xray's app-db at `:trace-buffer` and is
     ;; populated by `trace-collector/refresh-trace-rings!` — a
     ;; microtask-coalesced snapshot from the framework's per-frame
@@ -144,11 +141,11 @@
 
     ;; Total count of :sensitive? trace events the collector has
     ;; suppressed under the current local-render egress profile
-    ;; (`:rf.xray/egress-profile`; rf2-h40lt2). The shell's bottom-rail renders a `[● REDACTED N]`
+    ;; (`:rf.xray/egress-profile`). The shell's bottom-rail renders a `[● REDACTED N]`
     ;; hint when this is positive so the user sees why the buffer is
     ;; shorter than the runtime's actual emit count.
     ;;
-    ;; Per rf2-0vxdn the counter lives in Xray's app-db at
+    ;; The counter lives in Xray's app-db at
     ;; `:suppressed-counters` ({frame-id → count}); `config/note-
     ;; suppressed!` dispatches `:rf.xray/note-sensitive-suppressed`
     ;; in CLJS, so the sub fires on the standard app-db-write
@@ -163,27 +160,25 @@
       (fn [db _query]
         (reduce + 0 (vals (get db :suppressed-counters {})))))
 
-    ;; ---- 4-layer chrome — selected tab (rf2-xy4yb / spec/018) ----
+    ;; ---- 4-layer chrome — selected tab (spec/018) ----
     ;;
     ;; The L3 tab bar reads `:rf.xray/selected-tab` to pick which
     ;; projection of the focused event the L4 detail panel renders.
-    ;; Default is `:epoch` post rf2-5gl5r — the Epoch panel is the
-    ;; canonical "what happened in this epoch" surface and registers
-    ;; at `:order -1` (leftmost). Previously defaulted to `:event`
-    ;; while the Handler/Event panel co-existed; that panel was
-    ;; retired and the Epoch panel supersedes it.
+    ;; Default is `:epoch` — the Epoch panel is the canonical "what
+    ;; happened in this epoch" surface and registers at `:order -1`
+    ;; (leftmost).
     (rf/reg-sub :rf.xray/selected-tab
       (fn [db _query]
         (get db :selected-tab :epoch)))
 
-    ;; ---- Machine tab fit-on-entry signal (rf2-6tw7t) ----
+    ;; ---- Machine tab fit-on-entry signal ----
     ;;
     ;; A monotonic counter bumped by `:rf.xray/select-tab :machines` and
     ;; `:rf.xray.static/select-tab :machines`. The Machine panel (Dynamic
     ;; `machine_inspector` + Static `static.machines` topology) reads it
     ;; and forwards the value as `MachineChart`'s `:fit-signal` so a
     ;; CHANGE re-fits the topology to view on panel-entry / tab-
-    ;; activation. The layout-key auto-fit (rf2-set3x) deliberately
+    ;; activation. The layout-key auto-fit deliberately
     ;; preserves manual zoom/pan across non-layout re-renders, leaving a
     ;; re-entered chart at its stale (possibly off-screen) viewport; this
     ;; signal is the orthogonal entry-fit escape hatch. Defaults to 0 so
@@ -193,7 +188,7 @@
       (fn [db _query]
         (get db :machine-tab-activations 0)))
 
-    ;; ---- Modal positioning (rf2-om6fa) ----
+    ;; ---- Modal positioning ----
     ;;
     ;; Every Xray modal (Settings popup, auto-filter edit popup,
     ;; Share modal, Cancellation cascade popover) defaults to
@@ -219,7 +214,7 @@
       (fn [{:keys [db]} [_ positioning]]
         {:db (assoc db :modal-positioning (or positioning :fixed))}))
 
-    ;; ---- Panel width (rf2-x8h9y horizontal resize handle) -------
+    ;; ---- Panel width (horizontal resize handle) -------
     ;;
     ;; The shell's left-edge resize handle drags the panel width.
     ;; `:rf.xray/panel-width-px` reads from the settings map (the
@@ -273,7 +268,7 @@
         {:fx [[:dispatch [:rf.xray/set-panel-width-px
                           config/default-panel-width-px]]]}))
 
-    ;; ---- L2 event-list height (rf2-t2dsh seam resize handle) -----
+    ;; ---- L2 event-list height (seam resize handle) -----
     ;;
     ;; The L2/L3 seam carries a row-resize drag handle that drives the
     ;; events-list height. Mirrors the panel-width-px shape above:
@@ -288,11 +283,9 @@
     ;;     emits one dispatch per pixel of motion; trace-buffering them
     ;;     would flood the bus with shape no panel consumes.
     ;;
-    ;; Per rf2-t2dsh the prior browser-native `:resize \"vertical\"`
-    ;; corner-grip on the L2 list was RETIRED — it carried no
-    ;; persistence, no keyboard affordance, and a tiny corner hit-
-    ;; target. The seam matches the panel-width handle's interaction
-    ;; model so all resize surfaces share one mental model.
+    ;; The seam matches the panel-width handle's interaction model so
+    ;; all resize surfaces share one mental model — a full-width
+    ;; click-area with persistence and a keyboard affordance.
     (rf/reg-sub :rf.xray/events-list-height-px
       (fn [db _query]
         (or (get-in db [:settings :general :events-list-height-px])
@@ -321,7 +314,7 @@
         {:fx [[:dispatch [:rf.xray/set-events-list-height-px
                           config/default-events-list-height-px]]]}))
 
-    ;; ---- L2 event-list resizable column widths (rf2-6ni62) -------
+    ;; ---- L2 event-list resizable column widths -------
     ;;
     ;; The L2 event-list carries four columns — `event-id` (flex),
     ;; `source`, `timestamp`, `duration`. The trailing three are
@@ -331,7 +324,7 @@
     ;; reload through `config/update-setting!` → localStorage.
     ;;
     ;; The sub resolves the persisted map over the defaults (defence-
-    ;; in-depth: a legacy / malformed payload yields a clamped, fully-
+    ;; in-depth: a stale / malformed payload yields a clamped, fully-
     ;; shaped map every consumer can read against). Header and rows
     ;; both read from the SAME sub so the two surfaces never drift
     ;; out of column alignment — the alignment guarantee.
@@ -372,13 +365,13 @@
         (when-let [default-px (get config/event-list-col-default-widths col-id)]
           {:fx [[:dispatch [:rf.xray/set-event-list-col-width col-id default-px]]]})))
 
-    ;; ---- 4-layer chrome — active filter pills (rf2-xy4yb / spec/018 §7) ----
+    ;; ---- 4-layer chrome — active filter pills (spec/018 §7) ----
     ;;
     ;; The ribbon's filter cluster reads `:rf.xray/active-filters` —
     ;; shape `{:in [{:pattern <str>}] :out [{:pattern <str>}]}` (pills
     ;; are keyed off event-id only; typed-predicate kinds add a
     ;; `{:kind … :params …}` shape via right-click affordances). The
-    ;; `:rf.xray/filtered-cascades` sub (rf2-ak4ms, installed via
+    ;; `:rf.xray/filtered-cascades` sub (installed via
     ;; `filters/install!` further down) composes against this slot to
     ;; produce the filtered cascade list every consumer reads.
     ;;
@@ -400,13 +393,13 @@
     ;; stays correct (and idle composites still don't pay for the
     ;; projection).
     ;;
-    ;; Per rf2-g1pt8 the projection ALSO hard-filters Xray-internal
-    ;; cascades (any cascade whose event-id is in the `rf.xray`
-    ;; namespace) at this single point so every downstream consumer
+    ;; The projection ALSO hard-filters Xray-internal cascades (any
+    ;; cascade whose event-id is in the `rf.xray` namespace) at this
+    ;; single point so every downstream consumer
     ;; — `:rf.xray/filtered-cascades`, the L2 event list, the spine,
-    ;; the Trace / Issues / Event / Views tabs — inherits the filter
+    ;; the Trace / Views tabs — inherits the filter
     ;; automatically. The ingest-side `self-noise/xray-internal-event?`
-    ;; guard (rf2-xs8vu) catches self-emitted sub-reads + view-renders
+    ;; guard catches self-emitted sub-reads + view-renders
     ;; inside Xray's frame scope, but `:rf.xray/*` events dispatched
     ;; WITHOUT a `{:frame :rf/xray}` option (palette quick-actions,
     ;; headless helpers) land on the host frame and slip past the
@@ -418,35 +411,24 @@
       (fn [buffer _query]
         (self-noise/filtered-cascades buffer)))
 
-    ;; ---- Focused-cascade composite (rf2-5gl5r — relocated from the
-    ;; retired event-detail panel) -----------------------------------
+    ;; ---- Focused-cascade composite -------------------------------
     ;;
     ;; `:rf.xray/focused-cascade-detail` produces the focused-cascade
     ;; record alongside the cascade vector + the effective dispatch-id/
     ;; frame so multiple consumers can read "the cascade the spine is
-    ;; pointing at" in one shot. The original home was
-    ;; `panels/event_detail.cljs`'s `install!`; when the Event/Handler
-    ;; panel was retired (Epoch panel supersedes it — rf2-5gl5r) the
-    ;; composite stayed valuable to the per-cascade managed-fx surface
-    ;; and the existing test corpus, so it lives here as a cross-panel
-    ;; primitive next to `:rf.xray/cascades` it composes against.
-    ;; (rf2-nugvv removed the share modal that previously also consumed
-    ;; it via `:rf.xray/cascade-export`.)
-    ;;
-    ;; rf2-7ed9ms — renamed from the retired-panel name
-    ;; `:rf.xray/event-detail` to the BEHAVIOUR name
-    ;; `:rf.xray/focused-cascade-detail`. The composite now means
-    ;; "the focused cascade's detail record", not "the Event Detail
-    ;; panel's data" (that panel is gone), so the live sub no longer
-    ;; carries retired-panel vocabulary in an active API surface.
+    ;; pointing at" in one shot. It is a cross-panel primitive (the
+    ;; per-cascade managed-fx surface + the test corpus read it), so it
+    ;; lives here next to `:rf.xray/cascades` it composes against. The
+    ;; name describes its behaviour: "the focused cascade's detail
+    ;; record".
     ;;
     ;; Reads the EFFECTIVE focused dispatch-id off the spine sub
     ;; (`:rf.xray/focus`); spine auto-advances to head in `:live` mode,
-    ;; so the consumers never pin to a stale id. Per rf2-639lc Bug 1:
-    ;; if the spine landed on `:ungrouped` (the projection's catch-all
-    ;; bucket for registry-time emits / frame lifecycle outside a
-    ;; drain), fall back to the most recent ROUTED cascade so the
-    ;; default-focus never lands on the projection's internal bucket.
+    ;; so the consumers never pin to a stale id. If the spine lands on
+    ;; `:ungrouped` (the projection's catch-all bucket for registry-time
+    ;; emits / frame lifecycle outside a drain), fall back to the most
+    ;; recent ROUTED cascade so the default-focus never lands on the
+    ;; projection's internal bucket.
     (rf/reg-sub :rf.xray/focused-cascade-detail
       :<- [:rf.xray/cascades]
       :<- [:rf.xray/focus]
@@ -477,19 +459,18 @@
            :selected-dispatch-frame selected-frame
            :selected-cascade        by-id})))
 
-    ;; ---- Spine shim — focus by dispatch-id (rf2-adve5, relocated
-    ;; rf2-5gl5r) ----------------------------------------------------
+    ;; ---- Spine shim — focus by dispatch-id ------------------------
     ;;
-    ;; `:rf.xray/select-dispatch-id` is the legacy entry point used by
-    ;; machine-inspector / trace / cancellation-cascade
+    ;; `:rf.xray/select-dispatch-id` is the by-dispatch-id entry point
+    ;; used by machine-inspector / trace / cancellation-cascade
     ;; / mcp-server / the cross-site event-status-colour e2e harness.
     ;; It writes through the spine via the same reducer the spec-018
-    ;; `:rf.xray/focus-cascade` event uses. Relocated from the retired
-    ;; event-detail panel — multi-panel consumer, lives here.
+    ;; `:rf.xray/focus-cascade` event uses. A multi-panel consumer, so
+    ;; it lives here.
     ;;
-    ;; rf2-o1c3r — re-key `:epoch-history` onto the selected cascade's
+    ;; Re-keys `:epoch-history` onto the selected cascade's
     ;; frame BEFORE resolving its settling epoch, exactly as the sibling
-    ;; `:rf.xray/focus-cascade` handler does (rf2-q8hvw). With the picker
+    ;; `:rf.xray/focus-cascade` handler does. With the picker
     ;; untouched the `:epoch-history` slot is keyed on the boot head
     ;; frame, so selecting a dispatch-id in a NON-head frame would
     ;; otherwise resolve its epoch against the wrong frame's ring →
@@ -506,9 +487,8 @@
           (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))}))
 
     ;; Programmatic clear of the focused cascade. Resets the spine
-    ;; focus back to LIVE (head-tracking) per the rf2-s0s5x Phase A
-    ;; semantics. Relocated from event_detail.cljs alongside the
-    ;; select event above (rf2-5gl5r).
+    ;; focus back to LIVE (head-tracking) per the Phase A semantics.
+    ;; A multi-panel consumer alongside the select event above.
     (rf/reg-event :rf.xray/clear-selected-dispatch-id
       (fn [{:keys [db]} _event]
         {:db (update db :focus (fnil assoc {})
@@ -517,21 +497,19 @@
                 :mode        :live
                 :previewing? false)}))
 
-    ;; ---- L2 relative-time anchor (rf2-vbbq0 / rf2-0s2at) ----------
+    ;; ---- L2 relative-time anchor ----------------------------------
     ;;
     ;; Every L2 row carries a small right-aligned chip showing how long
     ;; ago the cascade was dispatched ("5s" / "2m" / "1h" / "3d"). The
     ;; anchor — the "now" each row's relative-time computes against —
-    ;; flips on EVENT ARRIVAL, not on a wall-clock tick (rf2-0s2at).
+    ;; flips on EVENT ARRIVAL, not on a wall-clock tick.
     ;;
-    ;; Mike's design call (2026-05-19, watching the parallel-frames
-    ;; testbed live): a per-second `setInterval` re-rendered the L2
-    ;; list every second, producing constant flicker for negligible
-    ;; semantic gain. Relative time is meaningful BETWEEN events, not
-    ;; between seconds — so the anchor is the dispatched-time of the
-    ;; most recent cascade. When a new event arrives the anchor flips,
-    ;; older rows recompute (a row that was "3s" now reads "8s"); in
-    ;; between events the list is frozen.
+    ;; Relative time is meaningful BETWEEN events, not between seconds —
+    ;; so the anchor is the dispatched-time of the most recent cascade,
+    ;; which avoids the per-second flicker a wall-clock `setInterval`
+    ;; would produce for negligible semantic gain. When a new event
+    ;; arrives the anchor flips, older rows recompute (a row that was
+    ;; "3s" now reads "8s"); in between events the list is frozen.
     ;;
     ;; The sub composes off `:rf.xray/cascades` so it inherits the
     ;; Xray-internal filter (cascade-internal ticks never become the
@@ -547,18 +525,17 @@
           (when (seq times)
             (apply max times)))))
 
-    ;; ---- 4-layer chrome events (rf2-xy4yb / spec/018) -------------
+    ;; ---- 4-layer chrome events (spec/018) -------------------------
 
-    ;; L3 tab bar — flip the active tab. Six valid ids post rf2-gbz39
-    ;; (Issues tab removed; Option (c) — issues now surface inline in
-    ;; the Epoch + the L2 event-row pink-wash + the auto-open-on-error
-    ;; signal; rf2-5gl5r had retired the Event/Handler tab; Epoch
-    ;; supersedes):
+    ;; L3 tab bar — flip the active tab. Six valid ids:
     ;; :epoch :app-db :views :trace :machines :routing
-    ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
+    ;; Registry-driven; a new tab requires only a reg-l4-tab! call.
+    ;; Issues surface inline in the Epoch panel, via the L2 event-row
+    ;; pink-wash, and via the auto-open-on-error signal — there is no
+    ;; dedicated Issues tab.
     (rf/reg-event :rf.xray/select-tab
       (fn [{:keys [db]} [_ tab-id]]
-        ;; rf2-6tw7t — activating the Machine tab bumps a monotonic
+        ;; Activating the Machine tab bumps a monotonic
         ;; fit-signal counter so the Machine panel's topology re-fits to
         ;; view on entry (xyflow's one-shot `:fitView` + the layout-key
         ;; auto-fit both leave a re-entered chart at its stale pan/zoom).
@@ -572,28 +549,26 @@
           (= tab-id :machines)
           (update :machine-tab-activations (fnil inc 0)))}))
 
-    ;; ---- Issues feed composite (rf2-gbz39) ------------------------
+    ;; ---- Issues feed composite ------------------------------------
     ;;
     ;; `:rf.xray/issues-ribbon` projects the focused epoch's
     ;; `:trace-events` into the issue subset (errors + warnings +
-    ;; advisories per Spec 009 §Error event catalogue). Mike RULED
-    ;; Option (c) — the dedicated Issues TAB + its aggregate panel were
-    ;; removed (the session-wide triage list was consciously dropped).
-    ;; Issues now surface inline in the Epoch panel, via the L2
-    ;; event-row pink-wash, and via the always-on issues ribbon signal
-    ;; (the auto-open-on-error watcher). This composite SURVIVES the
-    ;; tab removal because it remains the canonical projection the
+    ;; advisories per Spec 009 §Error event catalogue). Issues surface
+    ;; inline in the Epoch panel, via the L2 event-row pink-wash, and
+    ;; via the always-on issues ribbon signal (the auto-open-on-error
+    ;; watcher); there is no dedicated Issues tab or session-wide
+    ;; triage list. This composite is the canonical projection the
     ;; auto-open watcher reads (settings/effects.cljs/
     ;; install-auto-open-watcher!) — the cross-epoch "something is
-    ;; wrong" signal Mike kept under (c). The pure-data projection lives
-    ;; in `issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
+    ;; wrong" signal. The pure-data projection lives in
+    ;; `issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
     ;; predicate via `panels/l2-timeline/cascade-has-issue?`), so the
     ;; algebra runs under the JVM test target.
     ;;
     ;; Per spec/021 §1.2 the projection is focused-epoch-scoped — it
     ;; joins `:rf.xray/focus`'s `:epoch-id` against the per-frame
     ;; `:rf.xray/epoch-history`, classifies focus status (no-focus /
-    ;; focused / evicted; rf2-h0120 head-fallback), looks up the epoch
+    ;; focused / evicted; head-fallback), looks up the epoch
     ;; record, and threads it through `project-feed`.
     (rf/reg-sub :rf.xray/issues-ribbon
       :<- [:rf.xray/focus]
@@ -606,7 +581,7 @@
                                                                epoch-history)]
           (issues-helpers/project-feed record focus-status))))
 
-    ;; ---- Static-mode chrome (rf2-o5f5f.1) -------------------------
+    ;; ---- Static-mode chrome ---------------------------------------
     ;;
     ;; Xray exposes TWO modes per `tools/xray/spec/007-UX-IA.md`
     ;; §Static mode: Dynamic (event-coupled spine) and Static
@@ -658,7 +633,7 @@
     (rf/reg-event :rf.xray.static/select-tab
       (fn [{:keys [db]} [_ tab-id]]
         {:db (if (contains? (static-shell/tab-ids) tab-id)
-          ;; rf2-6tw7t — Static shares the same `:machines` tab id +
+          ;; Static shares the same `:machines` tab id +
           ;; `machine-canvas/Chart`, so activating it bumps the same
           ;; fit-signal counter the Dynamic select-tab does. The Static
           ;; topology view forwards it as `:fit-signal` too.
@@ -679,7 +654,7 @@
     ;; edit popup in `filters/save-edit-popup` composes against the
     ;; same slot but threads through the popup's draft. Both surfaces
     ;; share the `:rf.xray.filters/persist` fx so every mutation
-    ;; round-trips to localStorage in one place (rf2-ak4ms).
+    ;; round-trips to localStorage in one place.
     (rf/reg-event :rf.xray/add-filter
       (fn [{:keys [db]} [_ mode pill]]
         (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
@@ -697,42 +672,38 @@
           {:db next-db
            :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
 
-    ;; Ribbon right-icon events. Per rf2-czcg5 the second-window UX has
-    ;; landed, so the chrome now carries a VISIBLE `⛶` pop-out button
-    ;; (shell.cljs `ribbon-right-icons`) that dispatches
+    ;; Ribbon right-icon events. The chrome carries a VISIBLE `⛶`
+    ;; pop-out button (shell.cljs `ribbon-right-icons`) that dispatches
     ;; `:rf.xray/popout-shell`. The event fires the DOM-side
     ;; `:rf.xray.fx/popout-shell` effect (mount/install-fx!) which calls
     ;; `mount/popout!` — the event/fx bridge keeps shell.cljs free of a
     ;; direct mount require (mirrors the close-shell bridge below). The
-    ;; programmatic `(xray/popout!)` API remains the secondary path.
+    ;; programmatic `(xray/popout!)` API is the secondary path.
     (rf/reg-event :rf.xray/open-settings
       (fn [{:keys [db]} _event]
-        ;; Settings popup lands behind rf2-pending-settings-modal.
         {:db (assoc db :settings-open? true)}))
 
     (rf/reg-event :rf.xray/popout-shell
       (fn [_cofx _event]
-        ;; rf2-czcg5 — open the second-window pop-out via the DOM-side
-        ;; effect. No db change: the pop-out is a sibling mount surface,
-        ;; not a reactive flag.
+        ;; Open the second-window pop-out via the DOM-side effect. No db
+        ;; change: the pop-out is a sibling mount surface, not a
+        ;; reactive flag.
         {:fx [[:rf.xray.fx/popout-shell]]}))
 
     (rf/reg-event :rf.xray/close-shell
       (fn [{:keys [db]} _event]
-        ;; Close intent (rf2-fq491). Two outcomes, kept in lock-step:
+        ;; Close intent. Two outcomes, kept in lock-step:
         ;;   :db  — set the reactive `:close-requested?` flag so the
         ;;          round-trip is observable/testable.
         ;;   :fx  — `:rf.xray.fx/hide-shell` performs the actual DOM
         ;;          hide via `mount/close!` (the same CSS-only toggle the
         ;;          Ctrl+Shift+C keybinding drives through `mount/toggle!`).
-        ;; Previously this only set the flag and nothing consumed it, so
-        ;; the `✕` button was a no-op.
         {:db (assoc db :close-requested? true)
          :fx [[:rf.xray.fx/hide-shell]]}))
 
     ;; Install the DOM-side `:rf.xray.fx/hide-shell` effect that the
     ;; `:rf.xray/close-shell` event above fires. Idempotent — re-frame's
-    ;; registrar replaces in place (rf2-fq491).
+    ;; registrar replaces in place.
     (mount/install-fx!)
 
     ;; ---- trace-buffer mirror events -------------------------------
@@ -740,7 +711,7 @@
     ;; The reactive surface for the layer-1 `:rf.xray/trace-buffer`
     ;; sub is Xray's `:rf/xray` app-db `:trace-buffer` slot. Two
     ;; events drive that slot, both flagged `:rf.trace/no-emit? true`
-    ;; (rf2-qsjda) so the mirror dispatch does not re-enter the trace
+    ;; so the mirror dispatch does not re-enter the trace
     ;; fan-out and loop:
     ;;
     ;;   `:rf.xray/sync-trace-buffer` — wholesale overwrite with a
@@ -748,8 +719,8 @@
     ;;     per-frame ring + the frameless secondary ring. Dispatched
     ;;     by `trace-collector/refresh-trace-rings!` (production
     ;;     microtask-coalesced via `request-mirror-sync!`; tests call
-    ;;     `refresh-trace-rings!` directly per the rf2-3g9nw D3=b
-    ;;     ruling). Also seeds the slot at first mount.
+    ;;     `refresh-trace-rings!` directly for a deterministic sync
+    ;;     entrypoint). Also seeds the slot at first mount.
     ;;
     ;;   `:rf.xray/clear-trace-buffer` — drop the slot entirely.
     ;;     Dispatched by `trace-collector/retroactive-scrub!` when the
@@ -759,7 +730,7 @@
 
     ;; Clear the mirrored slot in lockstep with the framework's
     ;; per-frame rings + Xray's frameless secondary ring (dispatched
-    ;; from `trace-collector/retroactive-scrub!`). Per rf2-qsjda the
+    ;; from `trace-collector/retroactive-scrub!`). The
     ;; `:rf.trace/no-emit?` flag avoids re-entering the trace fan-out.
     (rf/reg-event :rf.xray/clear-trace-buffer
       {:rf.trace/no-emit? true}
@@ -771,14 +742,14 @@
     ;; app-db with whatever the framework's per-frame rings + Xray's
     ;; frameless secondary ring have accumulated before the shell was
     ;; opened, and from `trace-collector/refresh-trace-rings!` /
-    ;; `request-mirror-sync!` on every microtask. Per rf2-qsjda
+    ;; `request-mirror-sync!` on every microtask.
     ;; `:rf.trace/no-emit? true` for the same loop-avoidance reason.
     (rf/reg-event :rf.xray/sync-trace-buffer
       {:rf.trace/no-emit? true}
       (fn [{:keys [db]} [_ buffer]]
         {:db (assoc db :trace-buffer (vec buffer))}))
 
-    ;; Bump the per-frame suppressed-events counter (rf2-0vxdn).
+    ;; Bump the per-frame suppressed-events counter.
     ;; Dispatched from `trace-collector/collect-trace!` (CLJS) under
     ;; `:rf/xray` whenever the privacy gate drops a `:sensitive? true`
     ;; trace event. `frame-id` is the event's `:tags :frame` (the host
@@ -786,30 +757,30 @@
     ;; the bottom-rail `[● REDACTED N]` indicator via the
     ;; `:rf.xray/suppressed-sensitive-count` sub — fully reactive.
     ;;
-    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` opts the handler out of
+    ;; `:rf.trace/no-emit? true` opts the handler out of
     ;; framework trace emission. Without this, the dispatch fired by
     ;; `trace-collector/collect-trace!` would itself emit
     ;; `:rf.event/dispatched` etc. back through the trace-cb fan-out,
     ;; the collector would see
     ;; its own self-emit, and the cascade would loop until
-    ;; `drain-depth-default` terminated it. The framework now
+    ;; `drain-depth-default` terminated it. The framework
     ;; short-circuits emission at the `emit!` / `emit-error!` /
-    ;; `emit-dispatched-trace!` gates — the predecessor Xray-side
-    ;; `self-emitted?` guard (rf2-nk01x) is obsolete.
+    ;; `emit-dispatched-trace!` gates so no Xray-side `self-emitted?`
+    ;; guard is needed.
     (rf/reg-event :rf.xray/note-sensitive-suppressed
       {:rf.trace/no-emit? true}
       (fn [{:keys [db]} [_ frame-id]]
         {:db (update-in db [:suppressed-counters (or frame-id :global)]
                    (fnil inc 0))}))
 
-    ;; Reset the suppressed-events counter (rf2-0vxdn). With no arg,
+    ;; Reset the suppressed-events counter. With no arg,
     ;; clears every bucket; with a `frame-id`, drops just that bucket.
     ;; Dispatched from `trace-collector/retroactive-scrub!` (CLJS) —
     ;; clearing the trace ring buffer also drops the REDACTED
     ;; indicator state (the "you missed N events" overhang disappears
     ;; alongside the events that produced it).
     ;;
-    ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
+    ;; `:rf.trace/no-emit? true` (see
     ;; `:rf.xray/note-sensitive-suppressed` above for the rationale).
     (rf/reg-event :rf.xray/reset-suppressed-counters
       {:rf.trace/no-emit? true}
@@ -828,12 +799,11 @@
     ;; The open-in-editor install is cross-panel — its
     ;; `:rf.xray/open-in-editor` event-fx + `:rf.editor/open` fx are
     ;; dispatched from trace, mcp-server, and the
-    ;; hydration debugger (rf2-g5q8d). Installed alongside the
+    ;; hydration debugger. Installed alongside the
     ;; per-panel installs so the registration order matches the
     ;; per-panel pattern.
 
-    ;; Cross-cutting epoch primitives (rf2-qy0nu — extracted from the
-    ;; deleted Time Travel panel). MUST install before app-db-diff +
+    ;; Cross-cutting epoch primitives. MUST install before app-db-diff +
     ;; views + machine-inspector — their composites :<- onto
     ;; `:rf.xray/epoch-history` / `:rf.xray/target-frame` (and pivot on
     ;; the spine focus epoch via `:rf.xray/focus-epoch-id`). Registration
@@ -841,7 +811,7 @@
     ;; dependency read is clearer.
     (epoch/install!)
     (open-in-editor/install!)
-    ;; rf2-4s08ov — open-in-editor 'pick an editor in Settings' hint
+    ;; Open-in-editor 'pick an editor in Settings' hint
     ;; toast. Installs before settings-popup since its
     ;; `:rf.xray/editor-hint-open-settings` event dispatches
     ;; `:rf.xray/settings-open` (registered by settings-popup), but the
@@ -850,18 +820,18 @@
     (editor-hint/install!)
     (palette/install!)
     (settings-popup/install!)
-    ;; rf2-l4625 — edn-inspector popup overlay (subs + events). The
+    ;; Edn-inspector popup overlay (subs + events). The
     ;; stack view is mounted in `shell.cljs` alongside the other modal
     ;; mounts; per-panel "open in popup" affordances pass through
     ;; `[ei/edn-inspector value {:popup-affordance? true …}]` and
     ;; dispatch the `:rf.xray.edn-inspector-popup/open` event registered
     ;; here.
     (edn-inspector-popup/install!)
-    ;; rf2-uji72 — shared draggable column-resize state for Xray
+    ;; Shared draggable column-resize state for Xray
     ;; tables. Registers :rf.xray.column-widths/{for-table,resize-pair,
     ;; reset,hydrate} + the :rf.xray.column-widths/persist fx.
     ;;
-    ;; rf2-xzg1y — column-widths now persist to localStorage under
+    ;; Column-widths persist to localStorage under
     ;; `re-frame2.xray.column-widths.v1`. `install!` wires the fx +
     ;; events; `hydrate!` runs here (preload-time, before the frame is
     ;; registered, so it's a guarded no-op) AND from `mount.cljs`'s
@@ -878,7 +848,7 @@
     ;; idempotency sentinel above prevents the hydrate-dispatch from
     ;; firing twice on shadow-cljs `:after-load`.
     (filters/install!)
-    ;; Per-event-id mute filter (rf2-ikuwt). Installs the
+    ;; Per-event-id mute filter. Installs the
     ;; `:rf.xray/muted-event-ids` slot + the mute / unmute / clear
     ;; events + the localStorage persistence fx + the unmute manager
     ;; modal open / close state. Installs AFTER `filters/install!` so
@@ -889,23 +859,23 @@
     ;; from `filtered-cascades` → `spine-filtered-cascades` so the
     ;; mute strip rides atop the existing IN/OUT pill filter).
     (spine-filters/install!)
-    ;; Spine MUST install before event-detail / time-travel — their
-    ;; legacy selection events shim writes through the spine slot,
+    ;; Spine MUST install before the cross-panel selection shims —
+    ;; the by-dispatch-id selection events write through the spine slot,
     ;; and the slot's reducer helpers live in spine.cljs.
     (spine/install!)
-    ;; Frame-switcher slot (rf2-iwwou) — hardened L1 frame-switcher
+    ;; Frame-switcher slot — hardened L1 frame-switcher
     ;; contract. MUST install AFTER `spine/install!` so the canonical
     ;; `:rf.xray/select-frame` event-fx's `[:dispatch [:rf.xray/set-
     ;; frame ...]]` resolves at install time. Registers the
     ;; `:rf.xray/current-frame` + `:rf.xray/available-frames` subs,
     ;; the `:rf.xray/select-frame` event-fx, and the `:rf.xray.frame-
     ;; switcher/persist` localStorage write fx. Does NOT restore the pin
-    ;; on init (rf2-swclw) — the frame pin is a transient filter, reset
+    ;; on init — the frame pin is a transient filter, reset
     ;; to unpinned on every page load by mount.cljs's
     ;; `::reset-transient-filters` hook.
     (frame-switcher/install!)
     (app-db-diff/install!)
-    ;; App-DB segment-inspector popup (rf2-e9tb0) — opens when any
+    ;; App-DB segment-inspector popup — opens when any
     ;; path-segment in the App-DB Diff breadcrumb is clicked. Installs
     ;; after `app-db-diff` so the segment-inspector's
     ;; `:rf.xray/segment-inspector-value` sub can chain off
@@ -913,25 +883,24 @@
     ;; Registration order is cosmetic — re-frame resolves `:<-` lazily;
     ;; the top-down dependency reading is the rationale.
     (app-db-segment-inspector/install!)
-    ;; Cancellation-cascade visualiser (rf2-59e7k) — installs the
+    ;; Cancellation-cascade visualiser — installs the
     ;; subs + events for the Machines tab side-panel + the trace-row
     ;; popover. The view-side `reg-view`s are picked up at ns-load.
     ;; Order: registers AFTER spine + cascades (composes against
     ;; `:rf.xray/focus` + `:rf.xray/trace-buffer`); registry order is
     ;; cosmetic since re-frame resolves `:<-` chains lazily.
     (cancellation-cascade/install!)
-    ;; Epoch panel (rf2-sc3r1) — the canonical "what happened in this
+    ;; Epoch panel — the canonical "what happened in this
     ;; epoch" surface; numbered cascade of every pipeline step. Reads
     ;; the spine's `:rf.xray/focus` + `:rf.xray/epoch-history`,
     ;; projects the focused record's `:trace-events` into ordered
-    ;; step rows. Registers at order -1 (leftmost). The retired
-    ;; Event/Handler panel (rf2-5gl5r) used to install here; its
-    ;; surviving cross-panel primitives — `:rf.xray/focused-cascade-detail`,
+    ;; step rows. Registers at order -1 (leftmost). The cross-panel
+    ;; primitives it consumes — `:rf.xray/focused-cascade-detail`,
     ;; `:rf.xray/select-dispatch-id`, `:rf.xray/clear-selected-
-    ;; dispatch-id` — were relocated to the cross-panel block above.
+    ;; dispatch-id` — live in the cross-panel block above.
     (epoch-panel/install!)
     (machine-inspector/install!)
-    ;; Static Machines sub-tab (rf2-o5f5f.2) — browses every registered
+    ;; Static Machines sub-tab — browses every registered
     ;; machine + Topology + JUMP-to-Dynamic + Cascade-dimmed surfaces.
     ;; Installs AFTER `machine-inspector/install!` so the static-machines
     ;; sub graph can :<- onto the existing `:rf.xray/registered-machines`,
@@ -940,14 +909,13 @@
     ;; cosmetic (re-frame resolves `:<-` chains lazily); the top-down
     ;; dependency read is clearer.
     (static-machines-panel/install!)
-    ;; Managed-fx wire-boundary diff template (rf2-uyp86) — installs the
+    ;; Managed-fx wire-boundary diff template — installs the
     ;; `:rf.xray/managed-fx-for-focused-event` sub + the
-    ;; `:rf.xray/focus-event` cross-link event. Originally embedded inline
-    ;; under the (now-retired) Event panel's six-domino cascade
-    ;; (rf2-5gl5r); the public `mount-managed-fx!` aggregator entry on
-    ;; `panels.cljs` is the remaining surface. No L3 tab.
+    ;; `:rf.xray/focus-event` cross-link event. The public
+    ;; `mount-managed-fx!` aggregator entry on `panels.cljs` is its
+    ;; mount surface. No L3 tab.
     (managed-fx-subs/install!)
-    ;; Routing tab (rf2-nrbs9, narrowed per rf2-o5f5f.3) — Dynamic L3
+    ;; Routing tab — Dynamic L3
     ;; tab carrying the focused-event lens (FROM/TO chips when the
     ;; focused event triggered navigation). Installs the registered-
     ;; routes / current-route-slice / routing-tab-data subs +
@@ -967,7 +935,7 @@
     ;; resources artefact (Xray does not :require it; bundle isolation).
     ;; Read-only: no `:rf.resource/*` dispatch (observing pins nothing).
     (resources/install!)
-    ;; Derivation-Graph tab (EP-0014 prop-3, rf2-9ett2d) — Dynamic L3 tab:
+    ;; Derivation-Graph tab (EP-0014 prop-3) — Dynamic L3 tab:
     ;; the UNIFIED derivation/process graph composed by
     ;; `re-frame.derivation.graph` across the five algebra-view families.
     ;; Xray is the EP's NAMED FIRST CONSUMER of the structured graph
@@ -979,13 +947,13 @@
     ;; redaction is `derivation-graph-helpers/redact-graph-for-egress`.
     ;; Read-only: assembling the graph pins nothing, dispatches nothing.
     (derivation-graph/install!)
-    ;; Module-view tab (rf2-32siq3.12) — Dynamic L4 tab: the EP-0023
+    ;; Module-view tab — Dynamic L4 tab: the EP-0023
     ;; `image -> frame -> event stream` public model — every live image-loaded
     ;; frame as an execution context carrying its resolved image's [kind id]
     ;; descriptors. Read-only: enumerating live frames + reading sealed
     ;; generations pins nothing, dispatches nothing.
     (module-view/install!)
-    ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
+    ;; Static Routes panel — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
     ;; navigation preview. Installs the UI-state slots under
     ;; `:rf.xray.static.routes/*` + the `:rf.xray.static.routes/
@@ -993,7 +961,7 @@
     ;; registered above) — order is cosmetic since re-frame resolves
     ;; `:<-` chains lazily.
     (static-routes-panel/install!)
-    ;; Static Schemas sub-tab (rf2-o5f5f.4) — browse every registered
+    ;; Static Schemas sub-tab — browse every registered
     ;; Malli schema across app-db slots + events + subs. Reads the
     ;; public `re-frame.schemas` façade (`rf/frame-ids` +
     ;; `app-schemas` + `app-schema-meta-at`) + `(rf/registrations
@@ -1001,7 +969,7 @@
     ;; chip dispatches `:rf.xray/open-in-editor` (open-in-editor
     ;; installed above).
     (static-schemas-panel/install!)
-    ;; Static Flows sub-tab (rf2-uhsqb) — browse every flow registered
+    ;; Static Flows sub-tab — browse every flow registered
     ;; via `re-frame.flows/reg-flow`. Reads the public
     ;; `(rf/registrations :flow)` surface, regrouping the flat
     ;; `{flow-id meta}` shape by each entry's stamped `:frame`. Flows
@@ -1010,24 +978,17 @@
     (static-flows-panel/install!)
     (reactive-panel/install!)
     (trace/install!)
-    ;; (rf2-4v67l — Mike-direction) The Xray Chrome A11y dogfood panel
-    ;; was removed in favour of Story's already-shipped chrome-a11y
-    ;; panel (rf2-18t6p · `tools/story/src/re_frame/story/ui/
-    ;; chrome_a11y.cljs`) + Story's variant a11y scanner (rf2-qgms1 ·
-    ;; `tools/story/src/re_frame/story/ui/a11y.cljs`). A11y dogfooding
-    ;; is Story's domain; a duplicate Xray panel was noise that flagged
-    ;; the Xray events-list as a problem.
-    ;; (rf2-b2fif — Mike-direction) The Static Events + Views sub-tabs
-    ;; were removed — info is in the source code, the tabs were not
-    ;; pulling their weight. Remaining Static sub-tabs: Flows ·
-    ;; Interceptors · Routes · Schemas (+ the densest Machines tab as
-    ;; the landing target).
-    ;; Static Interceptors sub-tab (rf2-o5f5f.6) — pure-browse lens
+    ;; A11y dogfooding is Story's domain — Story ships the chrome-a11y
+    ;; panel (`tools/story/src/re_frame/story/ui/chrome_a11y.cljs`) +
+    ;; the variant a11y scanner (`tools/story/src/re_frame/story/ui/
+    ;; a11y.cljs`), so Xray carries no a11y panel of its own.
+    ;; Static sub-tabs: Flows · Interceptors · Routes · Schemas (+ the
+    ;; densest Machines tab as the landing target).
+    ;; Static Interceptors sub-tab — pure-browse lens
     ;; over every interceptor surfaced through the registered event
     ;; chains. Collapses by `:id` so each interceptor appears once
     ;; with a chain-count. No simulate — interceptors are composition
-    ;; primitives; simulate fires through the handler-level simulate
-    ;; in the Events sub-tab.
+    ;; primitives, not independently simulable.
     (static-interceptors-panel/install!))
   nil)
 
