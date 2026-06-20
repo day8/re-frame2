@@ -935,7 +935,7 @@ Two layered defenses, both on by default:
 
 2. **`:keyword`-typed value gate.** A bare `:keyword` query-slot type-form is treated as an **unbounded** intern site (any URL value would intern as a keyword) and the value is preserved as a **string**. Authors who want keyword-typed values declare an `[:enum :asc :desc ...]` allowlist — the bounded keyword universe. Values matching one of the declared enum choices are interned; values outside the allowlist stay as strings.
 
-Routes that declare **no** `:query` vocabulary at all (no `:query` schema, `:query-defaults`, or `:query-retain`) keep **every** URL query key as a **string** — the keyword-all fallback was cut, so a bare `(reg-route :route/x {:path "/x"})` interns nothing on behalf of the URL, regardless of how many unique keys the URL carries. The selective-keywording rule (defense #1) and the `:keyword`-value gate (defense #2) promote **only** declared keys/values to keywords. (Defense #1 is the key-side mirror of defense #2: author-named intent is the trust boundary for promoting an attacker-influenceable URL key into the process-global keyword table.) A general input-*size* policy (byte/pair/request-boundary limits) is intentionally out of scope here; if one is ever wanted it would be designed separately, not as a keyword-interning cap.
+Routes that declare **no** `:query` vocabulary at all (no `:query` schema, `:query-defaults`, or `:query-retain`) keep **every** URL query key as a **string** — the keyword-all fallback was cut, so a bare `(reg-route :route/x {} "/x")` interns nothing on behalf of the URL, regardless of how many unique keys the URL carries. The selective-keywording rule (defense #1) and the `:keyword`-value gate (defense #2) promote **only** declared keys/values to keywords. (Defense #1 is the key-side mirror of defense #2: author-named intent is the trust boundary for promoting an attacker-influenceable URL key into the process-global keyword table.) A general input-*size* policy (byte/pair/request-boundary limits) is intentionally out of scope here; if one is ever wanted it would be designed separately, not as a keyword-interning cap.
 
 ```clojure
 ;; safe enum allowlist for a keyword-typed query value.
@@ -1032,10 +1032,10 @@ Fixture `route-fragment-change.edn` exercises:
 For nested layouts (e.g., `/account/settings`, `/account/billing`, `/account/security` all rendering inside an `/account` shell), the pattern is **id namespacing plus an explicit `:parent`**:
 
 ```clojure
-(rf/reg-route :route/account            {:path "/account"})
-(rf/reg-route :route/account.settings   {:path "/account/settings" :parent :route/account})
-(rf/reg-route :route/account.billing    {:path "/account/billing"  :parent :route/account})
-(rf/reg-route :route/account.security   {:path "/account/security" :parent :route/account})
+(rf/reg-route :route/account            {}                            "/account")
+(rf/reg-route :route/account.settings   {:parent :route/account}      "/account/settings")
+(rf/reg-route :route/account.billing    {:parent :route/account}      "/account/billing")
+(rf/reg-route :route/account.security   {:parent :route/account}      "/account/security")
 ```
 
 The `:parent` key gives the rendering side an enumerable answer to "what's the layout chain for this route?" The runtime exposes a sub:

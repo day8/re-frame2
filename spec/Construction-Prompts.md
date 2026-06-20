@@ -632,7 +632,7 @@ A feature ships these artefacts as a coherent bundle:
 
 | Artefact | Required | Convention |
 |---|---|---|
-| **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] FeatureSchema)` |
+| **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] {:schema FeatureSchema})` |
 | **`:on-create`-style init event** | yes | `:feature/initialise` — sets the slice to its initial value |
 | **State events** (the feature's instruction set) | yes | `:feature/verb-noun`, `:feature.subarea/verb-noun` |
 | **Subscriptions** | yes | `:feature/property` reading from `[:feature ...]` |
@@ -760,36 +760,39 @@ Routing is *state plus events*. The URL is a derivable view of `app-db`; navigat
 
 **Template — register routes (declarative; the runtime owns dispatch):**
 
+The canonical 3-slot grammar puts the URL `:path` pattern in the third VALUE
+slot (rf2-wvh95f F1):
+
 ```clojure
 (rf/reg-route :route/home
-  {:doc  "Landing page."
-   :path "/"})
+  {:doc "Landing page."}
+  "/")
 
 (rf/reg-route :route/cart
   {:doc      "The cart."
-   :path     "/cart"
    :on-match [[:cart/load-items]                          ;; runtime dispatches on match (server + client)
               [:user/load-prefs]]
    :on-error [:route/cart-load-failed]                    ;; if any :on-match event errors
-   :scroll   :top})                                       ;; scroll-to-top on entering this route
+   :scroll   :top}                                        ;; scroll-to-top on entering this route
+  "/cart")
 
 (rf/reg-route :route/cart.item-detail
   {:doc    "Detail page for a single cart item."
-   :path   "/cart/items/:id"
    :params [:map [:id :uuid]]
-   :parent :route/cart})                                  ;; nested-layout convention
+   :parent :route/cart}                                   ;; nested-layout convention
+  "/cart/items/:id")
 
 (rf/reg-route :route/search
   {:doc            "Search results."
-   :path           "/search"
    :query          [:map [:q :string] [:page {:optional true} :int]]
    :query-defaults {:page 1}
    :query-retain   #{:theme :locale}                      ;; carry through subsequent navigations
-   :on-match       [[:search/run]]})
+   :on-match       [[:search/run]]}
+  "/search")
 
 (rf/reg-route :rf.route/not-found
-  {:doc  "Default 404."
-   :path "/404"})
+  {:doc "Default 404."}
+  "/404")
 ```
 
 **No need to register `:rf.route/navigate` or `:rf.route/handle-url-change` yourself** — the runtime ships them. Re-register only to override behaviour (e.g. add a guard interceptor; see [012 §Redirects and guards](012-Routing.md#redirects-and-guards)).
@@ -903,10 +906,10 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
    [:loading?  :boolean]
    [:checkout-state [:enum :idle :submitting :error]]])
 
-(rf/reg-app-schema [:cart] CartState)
+(rf/reg-app-schema [:cart] {:schema CartState})
 
 ;; Whole-app-db root schema (path = [])
-(rf/reg-app-schema [] AppDbRoot)
+(rf/reg-app-schema [] {:schema AppDbRoot})
 
 ;; Fx args schema
 (rf/reg-fx :http
