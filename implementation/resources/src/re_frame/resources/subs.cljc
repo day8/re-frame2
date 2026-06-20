@@ -15,7 +15,9 @@
 
   The framework resource subs read the frame's RUNTIME-DB projection
   (`reg-runtime-sub`) — the durable cache lives at
-  `[:rf.runtime/resources :entries <scoped-resource-key>]` in runtime-db.
+  `[:rf.runtime/resources :entries <key-id>]` in runtime-db, keyed by the
+  CEDN-1 byte-identity `key-id` (the scoped key is carried inside each
+  entry under `:resource/key`); the sub resolves it via `(state/entry-path k)`.
   The derived booleans (`:stale?` / `:loading?` / `:fetching?` /
   `:has-data?`) are PUBLIC DERIVED SUB VALUES computed here from the
   durable entry facts, NOT stored on the entry (Spec 016 §Status

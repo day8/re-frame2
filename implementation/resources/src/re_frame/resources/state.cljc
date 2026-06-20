@@ -75,16 +75,20 @@
 
 (defn tag-index-path
   "Runtime-db-relative path to the reverse tag index
-  `{<tag> #{<scoped-resource-key> …}}`. Recomputable-from-`:entries`
-  (rebuilt on restore/hydration, never trusted from the snapshot). Per
-  Spec 016 §Cache home / §Restore and replay."
+  `{<tag> #{<key-id> …}}` — members are CEDN-1 byte `key-id`s (the SAME
+  keys `:entries` uses), resolved to entries via `entry-path-by-id`
+  (rf2-9e0tyq). Recomputable-from-`:entries` (rebuilt on
+  restore/hydration, never trusted from the snapshot). Per Spec 016
+  §Cache home / §Restore and replay."
   []
   [resources-key :tag-index])
 
 (defn owner-index-path
   "Runtime-db-relative path to the reverse owner index
-  `{<owner> #{<scoped-resource-key> …}}`. Recomputable-from-`:entries`.
-  Per Spec 016 §Cache home / §Restore and replay."
+  `{<owner> #{<key-id> …}}` — members are CEDN-1 byte `key-id`s (the SAME
+  keys `:entries` uses), resolved to entries via `entry-path-by-id`
+  (rf2-9e0tyq). Recomputable-from-`:entries`. Per Spec 016 §Cache home /
+  §Restore and replay."
   []
   [resources-key :owner-index])
 
