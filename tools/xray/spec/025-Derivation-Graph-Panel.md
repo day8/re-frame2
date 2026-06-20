@@ -314,8 +314,9 @@ the enclosing `[rf/frame-provider-existing {:frame :rf/xray}]` in `shell.cljs`.
   setting `:rf.xray/target-frame` makes it call `live-derivation-graph` with
   the observed `:frame`; the test override (installed by the seam) still
   bypasses the composer; and a
-  node carrying the reserved EP-0013 relocation coordinates (`:realm/id`,
-  `:app/id`, `:module/id`) survives tab-data summarization unchanged. This
+  node carrying optional image/frame metadata (`:rf.frame/id`, `:rf.image/id`)
+  survives tab-data summarization unchanged (arbitrary node metadata rides
+  through). This
   closes the seam the helper/registry/redaction tests leave: that Xray's
   ACTUAL subscriptions consume `re-frame.derivation.graph` in both modes
   across all five families. Plus the **live-content** arm (rf2-k0meap.3): a

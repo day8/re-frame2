@@ -40,9 +40,9 @@
        call `live-derivation-graph` with `:frame <target>` (the live shape,
        carrying the observed frame id).
     5. OVERRIDE path — the test override still bypasses composer output.
-    6. EP-0013 coordinates — a node carrying optional `:realm/id` / `:app/id`
-       / `:module/id` survives tab-data summarization unchanged (the future
-       relocation coordinates ride through; Spec-Schemas reserves them)."
+    6. Optional node metadata — a node carrying optional image/frame metadata
+       (`:rf.frame/id` / `:rf.image/id`) survives tab-data summarization
+       unchanged (arbitrary node metadata rides through)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -278,18 +278,17 @@
 
 ;; ---- (6) EP-0013 relocation coordinates survive tab-data ----------------
 
-(deftest ep0013-relocation-coordinates-survive-tab-data
-  (testing "a node carrying optional :realm/id / :app/id / :module/id rides
-            through summarization unchanged (Spec-Schemas reserves them for the
-            future EP-0013 relocation; the consumer must preserve them)"
+(deftest optional-node-metadata-survives-tab-data
+  (testing "a node carrying optional image/frame metadata rides through
+            summarization unchanged (the consumer preserves arbitrary node
+            metadata keys it does not itself interpret)"
     (setup-xray!)
-    (let [coord-node {:id        :scoped/fact
-                      :kind      :derivation
-                      :rf/family :subs
-                      :value     {:count 3}        ;; a value-bearing field → summarized
-                      :realm/id  :realm/tenant-a
-                      :app/id    :app/checkout
-                      :module/id :module/cart}
+    (let [coord-node {:id            :scoped/fact
+                      :kind          :derivation
+                      :rf/family     :subs
+                      :value         {:count 3}    ;; a value-bearing field → summarized
+                      :rf.frame/id   :checkout/main
+                      :rf.image/id   :checkout/img}
           fixture    {:mode  :static
                       :nodes {[:sub :scoped/fact] coord-node}
                       :edges []}]
@@ -298,10 +297,9 @@
       (let [{:keys [by-family]} (read-xray [:rf.xray/derivation-graph-tab-data])
             summarized (->> (get by-family :subs)
                             (some (fn [[k node]] (when (= k [:sub :scoped/fact]) node))))]
-        (is (some? summarized) "the coordinate-carrying node is grouped under :subs")
-        (is (= :realm/tenant-a (:realm/id summarized)) ":realm/id preserved through tab-data")
-        (is (= :app/checkout (:app/id summarized)) ":app/id preserved through tab-data")
-        (is (= :module/cart (:module/id summarized)) ":module/id preserved through tab-data")
+        (is (some? summarized) "the metadata-carrying node is grouped under :subs")
+        (is (= :checkout/main (:rf.frame/id summarized)) ":rf.frame/id preserved through tab-data")
+        (is (= :checkout/img (:rf.image/id summarized)) ":rf.image/id preserved through tab-data")
         ;; the value-bearing field still got its on-box summary attached
         (is (contains? summarized :summaries) "the on-box summary is attached")
         ;; structure preserved: kind + family ride through
