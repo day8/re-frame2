@@ -1,44 +1,38 @@
 (ns re-frame.flows-output-marks-test
-  "JVM coverage for Spec 015 §7 (Flows) data-classification on `reg-flow`
-  (rf2-ouemt — senior-review finding; rf2-ihfz9o — input→output PROPAGATION).
+  "JVM coverage for Spec 015 §7 (Flows) data-classification on `reg-flow`,
+  including input→output PROPAGATION.
 
   A `reg-flow` registration may carry output data-classification keys
   (`:rf.egress/output-sensitivity` derived-output sensitivity enum + `:large?`
-  whole-output size, `:sensitive` / `:large` per-output-path). Pre-fix these
-  were stashed in the frame-blind global
-  `re-frame.marks` `{flow-id marks}` table whose only reader (`flow-marks`)
-  was never wired into the central trace projection switch — so the contract
-  was silently inert: a `{:sensitive [[:secret]]}` or `{:rf.egress/output-sensitivity :rf.egress/sensitive}`
-  flow emitted its raw `:result` on `:rf.flow/computed` AND wrote the raw
-  value to its app-db destination slot (visible to App-DB-Diff / pending-db
-  egress / view render-arg egress).
+  whole-output size, `:sensitive` / `:large` per-output-path). Flow output
+  marks are FIRST-CLASS through the SAME per-frame app-db elision registry the
+  schema-first wire walker (`elision/elide-wire-value`) reads: `reg-flow`
+  translates the output-rooted marks into absolute declarations rooted at
+  `(:output-path flow)` and installs them frame-aware. ONE walker then redacts
+  BOTH the flow trace `:result` / `:before` slots AND the app-db destination
+  slot — so a `{:sensitive [[:secret]]}` or
+  `{:rf.egress/output-sensitivity :rf.egress/sensitive}` flow never egresses
+  its raw value on `:rf.flow/computed` or its app-db destination slot (visible
+  to App-DB-Diff / pending-db egress / view render-arg egress).
 
-  The fix (rf2-ouemt) makes flow output marks FIRST-CLASS through the SAME
-  per-frame app-db elision registry the schema-first wire walker
-  (`elision/elide-wire-value`) already reads: `reg-flow` translates the
-  output-rooted marks into absolute declarations rooted at `(:output-path flow)`
-  and installs them frame-aware. ONE walker then redacts BOTH the flow
-  trace `:result` / `:before` slots AND the app-db destination slot.
+  A flow OUTPUT INHERITS the data-classification of its INPUT paths
+  (Spec 015:313 + the 015:568 conformance fixture): a flow reading a SENSITIVE
+  app-db (or runtime-db-qualified) input emits a sensitive output BY DEFAULT
+  (fail-closed — taint by default, declassify explicitly) unless the author
+  opts out with `:rf.egress/output-sensitivity :rf.egress/public`. `:large` is
+  asymmetric and is NOT auto-propagated (a flow usually shrinks a large
+  input). `:rf.egress/output-sensitivity :rf.egress/public` is a REAL
+  declassify — it suppresses the propagated mark.
 
-  rf2-ihfz9o (Mike RULED (a) PROPAGATE, 2026-06-09) closes the privacy gap
-  the prior impl carried: a flow OUTPUT now INHERITS the data-classification
-  of its INPUT paths (Spec 015:313 + the 015:568 conformance fixture). A flow
-  reading a SENSITIVE app-db (or runtime-db-qualified, rf2-4eisfr) input
-  emits a sensitive output BY DEFAULT (fail-closed — taint by default,
-  declassify explicitly) unless the author opts out with `:rf.egress/output-sensitivity :rf.egress/public`.
-  `:large` is asymmetric and is NOT auto-propagated (a flow usually shrinks a
-  large input). `:rf.egress/output-sensitivity :rf.egress/public` is now a REAL declassify — it suppresses
-  the propagated mark (previously a no-op).
-
-  These tests pin the acceptance cases the bead enumerates:
+  These tests pin the acceptance cases:
     1. per-path flow output redaction (`:sensitive` / `:large` sub-paths);
     2. whole-output `:rf.egress/output-sensitivity :rf.egress/sensitive`;
     3. `:large` whole-output markers;
     4. `:rf.egress/output-sensitivity :rf.egress/public` declassify (the explicit opt-out);
     5. same-flow-id multi-frame registrations with DIFFERENT marks (frame
-       isolation — the frame-blind table would conflate them);
+       isolation — a frame-blind table would conflate them);
     6. lifecycle (clear-flow / path-change drop & move declarations);
-    7. PROPAGATION (rf2-ihfz9o) — default sensitive inheritance, explicit
+    7. PROPAGATION — default sensitive inheritance, explicit
        `:rf.egress/output-sensitivity :rf.egress/sensitive` over a sensitive input, explicit `:rf.egress/output-sensitivity :rf.egress/public`
        declassify of a sensitive input, per-output-path coexisting with
        propagation, BOTH `:sensitive` AND `:large` axes, runtime-db-qualified
@@ -49,9 +43,9 @@
             [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
-            ;; EP-0015 (rf2-mngp4o): `add-marks` / `set-marks` are no longer
-            ;; on the `re-frame.core` façade; these tests drive the internal
-            ;; `re-frame.marks` helpers directly.
+            ;; `add-marks` / `set-marks` are not on the `re-frame.core`
+            ;; façade; these tests drive the internal `re-frame.marks` helpers
+            ;; directly.
             [re-frame.marks :as marks]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
@@ -72,9 +66,9 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
+  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
+  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
+  ;; ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (let [captured (atom [])]
     (binding [*captured*           captured
@@ -190,8 +184,8 @@
         ;; the marker rides `:reason :flow`. That uniformity is the point —
         ;; one walker, one marker shape; the `:reason` records provenance
         ;; (`:flow` here, `:frame` for frame-owned `:large {:app-db …}`,
-        ;; `:marks` for marks-sourced). Per EP-0015 §8 schemas no longer
-        ;; feed this registry, so `:schema` is no longer a `:reason`.
+        ;; `:marks` for marks-sourced). Per Spec 015 §8 schemas do not feed
+        ;; this registry, so `:schema` is not a `:reason`.
         (is (= :flow (:reason marker))
             "marker rides the walker's :reason :flow stamp (reg-flow-sourced)")))))
 
@@ -268,9 +262,9 @@
 ;; 5. Same-flow-id multi-frame registrations with DIFFERENT marks
 ;;
 ;; Spec 013 lets the SAME flow-id carry different definitions — hence
-;; different marks — in different frames. The frame-blind `{flow-id marks}`
-;; table the old code used would conflate them (last-writer-wins). The
-;; frame-aware elision-registry install keeps them isolated by construction.
+;; different marks — in different frames. A frame-blind `{flow-id marks}`
+;; table would conflate them (last-writer-wins); the frame-aware
+;; elision-registry install keeps them isolated by construction.
 ;; ---------------------------------------------------------------------------
 
 (deftest same-flow-id-different-frames-different-marks-isolated
@@ -395,20 +389,19 @@
         ":b's stale declaration is cleared — re-registration replaces in full")))
 
 ;; ===========================================================================
-;; 8. PROPAGATION (rf2-ihfz9o — Mike RULED (a) PROPAGATE)
+;; 8. PROPAGATION
 ;;
 ;; A flow OUTPUT inherits the data-classification of its INPUT paths
 ;; (Spec 015:313 + the 015:568 conformance fixture). The cases below pin the
-;; bead's enumerated propagation coverage:
+;; propagation coverage:
 ;;   - default inheritance (no explicit key on the flow);
 ;;   - explicit `:rf.egress/output-sensitivity :rf.egress/sensitive` over a sensitive input (force-mark holds);
 ;;   - explicit `:rf.egress/output-sensitivity :rf.egress/public` declassify of a sensitive input (the
-;;     opt-out actively SUPPRESSES the propagated mark — previously a no-op);
+;;     opt-out actively SUPPRESSES the propagated mark);
 ;;   - per-output-path marks coexisting with whole-output propagation;
 ;;   - both `:sensitive` AND `:large` axes (the asymmetry: :sensitive
 ;;     propagates, :large does NOT);
-;;   - runtime-db-qualified `[:rf.db/runtime …]` inputs (compose with
-;;     rf2-4eisfr — partition-aware);
+;;   - runtime-db-qualified `[:rf.db/runtime …]` inputs (partition-aware);
 ;;   - flow→flow DAG propagation (a flow reading an upstream flow's :output-path);
 ;;   - the t2 `:rf.event/db-pending-post-flow` redaction (Spec 015:568).
 ;; ===========================================================================
@@ -610,19 +603,18 @@
         "the output derived from a sensitive runtime-db slot is redacted")))
 
 (deftest runtime-db-qualified-input-value-is-elided-on-computed-trace
-  ;; rf2-p44r3u — the INPUT-VALUE leg of the runtime-qualified path. The
+  ;; The INPUT-VALUE leg of the runtime-qualified path. The
   ;; `propagation-runtime-db-qualified-input` test above proves the derived
   ;; OUTPUT is redacted; this proves the INPUT VALUE the flow read does not
-  ;; egress raw on the `:rf.flow/computed` `:input-values` slot. Pre-fix,
-  ;; `elide-inputs` seeded `elide-wire-value` with the DECLARED input path
-  ;; `[:rf.db/runtime :rf.runtime/routing :current :token]`, but the sensitive
-  ;; declaration is keyed at the STRIPPED runtime-db path
-  ;; `[:rf.runtime/routing :current :token]` (the registry is partition-blind),
-  ;; so the seed path never matched the declaration and the raw "RT-SECRET"
-  ;; rode the input-values slot. The fix normalizes the runtime-qualified
-  ;; input path (strip the partition key) before the elision walk, reusing the
-  ;; SAME registry normalization (`input-resolve-path`) the propagation path
-  ;; already uses.
+  ;; egress raw on the `:rf.flow/computed` `:input-values` slot. `elide-inputs`
+  ;; normalizes the runtime-qualified input path (strip the partition key)
+  ;; before the elision walk — reusing the SAME registry normalization
+  ;; (`input-resolve-path`) the propagation path uses — so the elision seed
+  ;; path matches the sensitive declaration, which is keyed at the STRIPPED
+  ;; runtime-db path `[:rf.runtime/routing :current :token]` (the registry is
+  ;; partition-blind). Without that strip the seed path
+  ;; `[:rf.db/runtime :rf.runtime/routing :current :token]` would never match
+  ;; the declaration and the raw "RT-SECRET" would ride the input-values slot.
   (testing "a sensitive runtime-db-qualified input value is elided (not raw)
             on the `:rf.flow/computed` `:input-values` slot"
     (reg-fw-runtime-handler! :seed-rt
@@ -647,11 +639,11 @@
            raw [:rf.db/runtime …] seed path) — the raw token never egresses"))))
 
 (deftest runtime-db-qualified-input-value-is-elided-on-failed-trace
-  ;; rf2-p44r3u — the SAME normalization must apply on the FAILURE path. A
-  ;; flow reading a sensitive runtime-db-qualified input whose `:derive`
-  ;; THROWS must not leak the raw input value on the `:rf.flow/failed`
-  ;; `:inputs` slot either (the trace bus is the wire boundary on both the
-  ;; success and the failure paths — `elide-inputs` is shared).
+  ;; The SAME normalization applies on the FAILURE path. A flow reading a
+  ;; sensitive runtime-db-qualified input whose `:derive` THROWS must not leak
+  ;; the raw input value on the `:rf.flow/failed` `:inputs` slot either (the
+  ;; trace bus is the wire boundary on both the success and the failure
+  ;; paths — `elide-inputs` is shared).
   (testing "a sensitive runtime-db-qualified input value is elided (not raw)
             on the `:rf.flow/failed` `:inputs` slot"
     (reg-fw-runtime-handler! :seed-rt
@@ -672,17 +664,17 @@
            path's :inputs slot — the raw token never egresses"))))
 
 (deftest runtime-db-whole-value-effect-preserves-flow-elision-declarations
-  ;; rf2-gom797 — a durable `:rf.db/runtime` whole-value effect must NOT clobber
-  ;; the elision declaration registry that lives in the SAME runtime-db
-  ;; partition at `[:rf.runtime/elision …]`. Pre-fix, `commit-frame-transition!`
-  ;; installed the effect's whole-value runtime-db verbatim, dropping every
-  ;; reserved `:rf.runtime/*` subsystem child (incl. `:rf.runtime/elision`) the
-  ;; effect did not itself carry — so a framework-authority event that seeded
-  ;; `:rf.runtime/routing` left the frame with NO flow-sourced elision
-  ;; declarations after commit, even though they were correctly read pre-commit
-  ;; (the existing `propagation-runtime-db-qualified-input` only asserts the
-  ;; SAME-event redaction, which reads the pre-commit registry). This regression
-  ;; pins POST-COMMIT declaration survival.
+  ;; A durable `:rf.db/runtime` whole-value effect must NOT clobber the
+  ;; elision declaration registry that lives in the SAME runtime-db partition
+  ;; at `[:rf.runtime/elision …]`. `commit-frame-transition!` preserves every
+  ;; reserved `:rf.runtime/*` subsystem child (incl. `:rf.runtime/elision`)
+  ;; the effect did not itself carry — so a framework-authority event that
+  ;; seeds `:rf.runtime/routing` leaves the frame's flow-sourced elision
+  ;; declarations intact after commit. (`propagation-runtime-db-qualified-input`
+  ;; only asserts the SAME-event redaction, which reads the pre-commit
+  ;; registry; this test pins POST-COMMIT declaration survival — installing
+  ;; the effect's whole-value runtime-db verbatim would drop the reserved
+  ;; children.)
   (testing "a durable `:rf.db/runtime` whole-value commit preserves the
             flow-sourced elision declarations (the registry is a reserved
             `:rf.runtime/elision` sibling, not application runtime-db)"
@@ -704,8 +696,8 @@
         "the propagated flow output declaration is present before dispatch")
     (reset! *captured* [])
     (rf/dispatch-sync [:seed-rt])
-    ;; POST-COMMIT — the bug: a whole-value :rf.db/runtime commit must NOT have
-    ;; wiped the elision registry. Both declarations must survive.
+    ;; POST-COMMIT: a whole-value :rf.db/runtime commit must NOT wipe the
+    ;; elision registry. Both declarations must survive.
     (is (contains? (sensitive-decls :rf/default) [:rf.runtime/routing :current :token])
         "the directly-marked runtime-db input declaration SURVIVES the durable runtime-db commit")
     (is (contains? (sensitive-decls :rf/default) [:derived :route-token])
@@ -720,16 +712,16 @@
         "the :rf.runtime/elision subsystem child coexists with :rf.runtime/routing post-commit")))
 
 (deftest drain-time-propagated-mark-survives-same-event-runtime-effect
-  ;; rf2-upx16k — the PRIVACY FAIL-OPEN the gom797 test above misses.
+  ;; The drain-time propagated-mark survival path that
+  ;; `runtime-db-whole-value-effect-preserves-flow-elision-declarations`
+  ;; does not cover.
   ;;
-  ;; gom797 (`runtime-db-whole-value-effect-preserves-flow-elision-declarations`)
-  ;; marks the input BEFORE dispatch, so the propagated output declaration is
-  ;; already in the LIVE registry — and, crucially, also in the chain-start
-  ;; `runtime-before` snapshot the router captured by reference. Reconciling the
-  ;; runtime effect against THAT snapshot still carries the declaration forward,
-  ;; so the bug stays hidden.
+  ;; That test marks the input BEFORE dispatch, so the propagated output
+  ;; declaration is already in the LIVE registry — and also in the chain-start
+  ;; `runtime-before` snapshot the router captured by reference. Reconciling
+  ;; the runtime effect against THAT snapshot carries the declaration forward.
   ;;
-  ;; This test exercises the missed path: the propagated output mark
+  ;; This test exercises the distinct path: the propagated output mark
   ;; MATERIALISES ONLY AT THE DRAIN-TIME TOPO REFRESH (the input is marked AFTER
   ;; reg-flow, so it is absent at reg-flow time — the
   ;; `propagation-fires-when-mark-added-AFTER-reg-flow` scenario). The refresh
@@ -737,15 +729,15 @@
   ;; `[:rf.runtime/elision]` slot DURING the `:after` chain — AFTER the router
   ;; captured `runtime-before` (the pre-handler coeffect, injected by reference
   ;; at chain start, whose elision slot is PRE-refresh). When the SAME event's
-  ;; handler ALSO returns a `:rf.db/runtime` effect SILENT about elision,
-  ;; reconciling against the stale `runtime-before` carries the PRE-refresh
-  ;; (mark-less) registry forward and the commit OVERWRITES the just-written
-  ;; `[:derived]` declaration — so the flow-derived sensitive output egresses
-  ;; RAW on the same event's db egress (and would stay raw until the next drain
-  ;; re-propagates). The fix reconciles against the LIVE runtime-db read at
-  ;; commit, so the freshly-propagated mark survives. Framework-authority
-  ;; handlers return runtime effects routinely (routing / machines), so this is
-  ;; not exotic.
+  ;; handler ALSO returns a `:rf.db/runtime` effect SILENT about elision, the
+  ;; commit reconciles against the LIVE runtime-db read at commit (not the
+  ;; stale chain-start `runtime-before` snapshot), so the freshly-propagated
+  ;; `[:derived]` declaration survives and the flow-derived sensitive output
+  ;; does NOT egress raw on the same event's db egress. (Reconciling against
+  ;; the PRE-refresh, mark-less `runtime-before` snapshot would carry the
+  ;; mark-less registry forward and overwrite the just-written declaration.)
+  ;; Framework-authority handlers return runtime effects routinely (routing /
+  ;; machines), so this is not exotic.
   (testing "a flow output mark freshly propagated at the drain-time refresh
             SURVIVES a same-event `:rf.db/runtime` effect commit — the derived
             slot does NOT egress raw (privacy mark is not overwritten by the
@@ -783,17 +775,17 @@
         "the framework-authority runtime-db effect committed durably")
     (is (some? (get (frame/frame-runtime-db-value :rf/default) :rf.runtime/elision))
         "the :rf.runtime/elision subsystem child coexists with :rf.runtime/routing post-commit")
-    ;; THE LOAD-BEARING PRIVACY ASSERTION (the channel the bug leaks on):
-    ;; egress the COMMITTED app-db through the wire-walker, which reads the
-    ;; COMMITTED runtime-db `[:rf.runtime/elision]` registry (`registry-of` →
-    ;; the live container). This is the db-diff / view / sub egress channel.
-    ;; Pre-fix the commit overwrote the freshly-propagated [:derived] mark
-    ;; (reconciled against the stale chain-start runtime-before snapshot), so
-    ;; the derived slot egressed RAW here. Post-fix the mark survives the
-    ;; commit, so the slot redacts. (The t2/computed-result trace assertions
-    ;; below project DURING the chain against the post-refresh LIVE registry, so
-    ;; they redact in BOTH the buggy and fixed cases — they do NOT distinguish
-    ;; the bug; this committed-registry egress is the one that does.)
+    ;; THE LOAD-BEARING PRIVACY ASSERTION (the channel most exposed to the
+    ;; leak): egress the COMMITTED app-db through the wire-walker, which reads
+    ;; the COMMITTED runtime-db `[:rf.runtime/elision]` registry (`registry-of`
+    ;; → the live container). This is the db-diff / view / sub egress channel.
+    ;; The mark survives the commit, so the derived slot redacts here; a commit
+    ;; that overwrote the freshly-propagated [:derived] mark (reconciling
+    ;; against the stale chain-start runtime-before snapshot) would egress it
+    ;; RAW. (The t2/computed-result trace assertions below project DURING the
+    ;; chain against the post-refresh LIVE registry, so they redact regardless
+    ;; — they do NOT distinguish this case; this committed-registry egress is
+    ;; the one that does.)
     (let [committed-db (frame/frame-app-db-value :rf/default)
           egressed     (binding [frame/*current-frame* :rf/default]
                          (elision/elide-wire-value committed-db {:frame :rf/default}))]
@@ -893,21 +885,17 @@
         "the output rides raw after declassification of the input")))
 
 ;; ---------------------------------------------------------------------------
-;; 8. Malformed classification metadata is rejected FAIL-CLOSED (rf2-cgk0wb)
+;; 8. Malformed classification metadata is rejected FAIL-CLOSED
 ;;
-;; Pre-fix, the OPTIONAL output data-classification keys fail-OPEN:
-;;   - `explicit-flow-output-mark-paths` silently `(filter vector?)`-dropped
-;;     malformed `:sensitive` / `:large` entries (`:sensitive [:token]`,
-;;     `:large "blob"`), and
-;;   - only a LITERAL `true` was honoured for `:sensitive?` / `:large?`, so a
-;;     present-but-malformed `:sensitive? :yes` / `:large? 1` behaved as ABSENT.
-;; A privacy/size declaration typo therefore registered with a normal return
-;; value and NO diagnostic, while the intended redaction NEVER happened — the
-;; worst failure mode for a safety feature. `validate-flow` now rejects each
-;; malformation at the API boundary with the `:rf.error/flow-bad-marks`
-;; discriminator BEFORE any registry / app-db / elision-declaration state
-;; mutates. These tests pin the rejection id + the canonical thrown-error
-;; shape, and prove NO flow row and NO elision declaration is installed.
+;; The OPTIONAL output data-classification keys are validated FAIL-CLOSED: a
+;; privacy/size declaration typo (`:sensitive [:token]` instead of
+;; `[[:token]]`, `:large "blob"`, `:large? 1`) is rejected rather than
+;; silently registering with no redaction installed — the worst failure mode
+;; for a safety feature. `validate-flow` rejects each malformation at the API
+;; boundary with the `:rf.error/flow-bad-marks` discriminator BEFORE any
+;; registry / app-db / elision-declaration state mutates. These tests pin the
+;; rejection id + the canonical thrown-error shape, and prove NO flow row and
+;; NO elision declaration is installed.
 ;; ---------------------------------------------------------------------------
 
 (defn- flow-row?
@@ -934,7 +922,7 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-marks (:rf.error/id data))
           ":rf.error/id carries the bad-marks discriminator")
-      ;; rf2-vvixub — message is the human :reason sentence + the trailing
+      ;; The message is the human :reason sentence + the trailing
       ;; [:rf.error/<id>] token; assert the token substring, not equality.
       (is (re-find #"\[:rf\.error/flow-bad-marks\]" (ex-message ex))
           "message carries the [:rf.error/flow-bad-marks] token")
