@@ -272,7 +272,7 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 | API | M/Fn | Signature | Status | Tier | Spec |
 |---|---|---|---|---|---|
 | `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | advanced | 012 |
-| `route-url` | Fn | `(route-url route-id path-params)` / `(route-url route-id path-params query-params)` → URL string | v1 | advanced | 012 |
+| `route-url` | Fn | `(route-url route-id path-params [query-params [fragment]])` → URL string (2-/3-/4-arity; the 4-arity emits a `#fragment`) | v1 | advanced | 012 |
 | `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | advanced | 012 |
 
 `reg-route` metadata reserved keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:can-leave`, `:scroll`. The URL `:path` pattern is the third VALUE slot (rf2-wvh95f F1), not a metadata key. Canonical detail in [012-Routing.md](012-Routing.md); shape in [Spec-Schemas §`:rf/route-metadata`](Spec-Schemas.md#rfroute-metadata).
