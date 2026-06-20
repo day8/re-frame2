@@ -259,6 +259,89 @@
       (is (= 0 @body-runs)
           "the disposed reaction's flush did not recompute on drain"))))
 
+;; ---- throw mid-drain does NOT strand downstream thunks --------------------
+;; (rf2-l3lelt)
+
+(deftest throwing-thunk-mid-drain-does-not-strand-downstream
+  (testing "a derived value whose compute-fn THROWS during the epoch drain
+            must not strand the downstream thunks still queued behind it:
+            the throw is contained (it does not escape replace-container!),
+            the surviving sibling drains its flush in the SAME epoch, and —
+            critically — its dirty? guard is cleared so a LATER source change
+            can re-enqueue it (no stuck-dirty strand).
+
+            Wiring mirrors the real graph: both layer-1 values watch the root
+            and so both enqueue a flush thunk on the ONE shared scheduler per
+            replace-container!. The thrower is constructed FIRST, so its flush
+            thunk is drained FIRST — meaning the surviving sibling is the
+            still-queued downstream entry a bare (rethrowing) drain would
+            strand (its flush never running, its dirty? stuck true, never
+            re-markable by `mark-dirty!`'s `(when-not @dirty? …)` guard).
+            (rf2-l3lelt)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          boom?      (atom false)
+          ;; Thrower: reads :a, throws on demand. Constructed FIRST so its
+          ;; flush thunk enqueues (and drains) ahead of the survivor's.
+          thrower    (make-derived [root]
+                       (fn [db] (when @boom? (throw (js/Error. "boom")))
+                         (:a db)))
+          ;; Survivor: the downstream thunk a stranding drain would skip.
+          survivor   (make-derived [root] (fn [db] (:b db)))
+          notes      (atom [])]
+      ;; Lazy baselines (the sub-cache reads on subscribe).
+      (is (= 1 @thrower) "thrower baseline")
+      (is (= 10 @survivor) "survivor baseline")
+      (add-watch survivor :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
+      ;; Arm the throw, then ONE replace-container! queues BOTH flush thunks;
+      ;; the thrower's recompute throws mid-drain.
+      (reset! boom? true)
+      (is (nil? (replace! root {:a 99 :b 20}))
+          "the mid-drain throw is contained — replace-container! returns
+           normally (the per-thunk guard swallows; the throw does not escape
+           the drain)")
+      (is (= [[10 20]] @notes)
+          "the survivor's flush STILL ran in the same epoch — it was not
+           stranded behind the throwing thunk")
+      (is (= 20 @survivor) "survivor deref reflects the settled value")
+      ;; The load-bearing strand assertion: disarm the throw and change the
+      ;; survivor's slice AGAIN. With the bug its dirty? was stuck true (its
+      ;; flush never ran on the first write), so this second change could
+      ;; never re-enqueue it and the watcher would NOT fire. With the fix the
+      ;; survivor drained cleanly the first time, so it re-marks and notifies.
+      (reset! boom? false)
+      (reset! notes [])
+      (replace! root {:a 99 :b 30})
+      (is (= [[20 30]] @notes)
+          "a LATER source change re-enqueues + flushes the survivor — no
+           stuck-dirty strand (the surviving thunk's guard was cleared)"))))
+
+(deftest throwing-thunk-clears-its-own-dirty-guard
+  (testing "the THROWING derived value itself leaves no stuck-dirty guard:
+            flush! resets dirty? BEFORE recompute, so even though its
+            recompute threw, a later (non-throwing) source change re-enqueues
+            and flushes it normally. (rf2-l3lelt)"
+    (let [{:keys [make-derived replace! root]} (build-graph)
+          boom?    (atom false)
+          thrower  (make-derived [root]
+                     (fn [db] (when @boom? (throw (js/Error. "boom")))
+                       (:a db)))
+          notes    (atom [])]
+      (is (= 1 @thrower) "baseline deref establishes prev-state")
+      (add-watch thrower :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
+      ;; First write throws mid-drain.
+      (reset! boom? true)
+      (is (nil? (replace! root {:a 2 :b 10}))
+          "the throw is contained")
+      (is (= [] @notes)
+          "the throwing flush did not notify (its recompute never returned)")
+      ;; Disarm; a fresh change must re-enqueue + flush the (formerly
+      ;; throwing) value — proving its dirty? guard was not left stuck true.
+      (reset! boom? false)
+      (replace! root {:a 3 :b 10})
+      (is (= [[1 3]] @notes)
+          "the value recovered: its dirty? guard was cleared by flush! before
+           the throw, so the next change re-marks + flushes it"))))
+
 ;; ---- direct source mutation outside an epoch ------------------------------
 
 (deftest layer-1-direct-source-write-still-flushes
