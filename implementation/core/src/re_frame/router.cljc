@@ -1911,10 +1911,13 @@
   Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): a
   post-commit `:db` schema-validation failure rolls the container
   back to the pre-handler value AND treats the dispatch as failed —
-  flows do NOT evaluate and `:fx` does NOT walk. The pre-handler db
-  is read from `(get-in final-ctx [:coeffects :db])` (assemble-
-  initial-ctx stamps it there). Downstream queued events still drain
-  per run-to-completion (handled by `drain-loop!`'s outer pass).
+  flows do NOT evaluate and `:fx` does NOT walk. The pre-handler db is
+  read from the cascade's pre-handler frame-state snapshot
+  (`frame/*cascade-frame-state-before*`'s app-db partition) — NOT from
+  `[:coeffects :db]`, which an `:rf.interceptor/path` handler focuses to
+  a slice (rf2-wfy2kq); see the `db-before` binding below. Downstream
+  queued events still drain per run-to-completion (handled by
+  `drain-loop!`'s outer pass).
 
   Per Spec 002 §Cascade propagation: `envelope` is threaded into
   `run-fx-effects!` so reserved-fx defmethods can propagate
@@ -1981,7 +1984,28 @@
         ;; `:rf.error/effect-map-shape` (`:logged-and-skipped`) for each.
         ;; Runs BEFORE any commit, preserving the no-partial-commit promise.
         effects        (events/police-final-effects! (:effects final-ctx) event)
-        db-before      (get-in final-ctx [:coeffects :db])
+        ;; Pre-handler app-db partition for the post-commit schema-rollback
+        ;; target (rf2-wfy2kq). MUST NOT be read from `[:coeffects :db]`: the
+        ;; `:rf.interceptor/path` std-interceptor's `:before` overwrites
+        ;; `[:coeffects :db]` with the FOCUSED slice and its `:after` only
+        ;; restores `[:effects :db]`, never the coeffect (std_interceptors
+        ;; §standard-path-interceptor). So under an idiomatic
+        ;; `[:rf.interceptor/path p]` handler, `(get-in final-ctx [:coeffects
+        ;; :db])` is the path SLICE, not the full app-db — and rolling back to
+        ;; it would install the slice as the WHOLE app-db, destroying every key
+        ;; outside `p` (data corruption on the recovery path). Source instead
+        ;; from the cascade's pre-handler frame-state snapshot
+        ;; (`frame/*cascade-frame-state-before*`, bound by `run-one-pass!`
+        ;; around the WHOLE cascade) — the canonical full pre-handler frame-
+        ;; state, whose app-db projection is `=` the un-focused coeffect by
+        ;; construction (both read the live container before the handler runs in
+        ;; `assemble-initial-ctx`) yet is immune to mid-chain path focusing.
+        ;; Fall back to the coeffect only when the var is unbound (no real
+        ;; cascade in flight — REPL / direct call; the rollback path cannot fire
+        ;; there since nothing commits out-of-cascade).
+        db-before      (if-let [fs-before frame/*cascade-frame-state-before*]
+                         (get fs-before frame/app-partition-key)
+                         (get-in final-ctx [:coeffects :db]))
         ;; Pre-handler runtime-db partition (EP-0001 rf2-adwcv6): the
         ;; `:rf.db/runtime` coeffect `assemble-initial-ctx` injected by
         ;; reference. Needed by `commit-frame-effects!` so an app-db schema

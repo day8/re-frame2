@@ -437,3 +437,71 @@
              (elision/sensitive-declarations :pc/rb-elision))
           "the flow-written elision mark SURVIVES the rollback — the rollback
            mirrors the forward path's privacy fail-safe (rf2-qzs1y9)"))))
+
+;; rf2-wfy2kq (P1 DATA-CORRUPTION) — the post-commit schema rollback must
+;; restore the FULL prior app-db, not a path-focused SLICE.
+;;
+;; The mechanism the corruption rode on: a `[:rf.interceptor/path p]` handler's
+;; `:before` overwrites `[:coeffects :db]` with the FOCUSED slice (the handler
+;; sees only the slice), and its `:after` rewrites only `[:effects :db]` — it
+;; NEVER restores `[:coeffects :db]`. The old rollback read `db-before` from
+;; `(get-in final-ctx [:coeffects :db])`, so under an idiomatic path handler
+;; `db-before` was the SLICE. On a post-commit schema rejection the rollback
+;; then installed that slice as the WHOLE app-db, DESTROYING every key outside
+;; `p`. The existing rollback tests above don't catch it because they use no
+;; path interceptor, so `[:coeffects :db]` coincidentally equals the full db.
+;;
+;; This test exercises the REAL corruption path: a handler focused on `[:slice]`
+;; with sibling state (`:keep`) living OUTSIDE the path, a root-path app schema
+;; that rejects the spliced-back full db, and an assertion that the rollback
+;; restored the WHOLE prior app-db — `:keep` MUST survive.
+;;
+;; Before the fix (`db-before` from `[:coeffects :db]`):
+;;   rollback installs `{:n 0}` (the slice) as the whole app-db → `:keep` gone.
+;; After the fix (`db-before` from `frame/*cascade-frame-state-before*`'s app
+;; partition):
+;;   rollback installs `{:keep :must-survive :slice {:n 0}}` (the full db).
+(deftest schema-rollback-restores-full-app-db-not-path-slice
+  (testing "a post-commit schema rollback under a [:rf.interceptor/path …]
+            handler restores the FULL prior app-db, NOT the path slice — every
+            key outside the focused path survives (rf2-wfy2kq)"
+    (when (late-bind/get-fn :schemas/validate-app-schema!)
+      (rf/reg-frame :pc/rb-path {:doc "rb-path"})
+      ;; Seed a coherent pre-handler app-db with state BOTH inside AND OUTSIDE
+      ;; the path the handler will focus. `:keep` is the canary — it lives
+      ;; outside `[:slice]`, so a slice-as-whole-db rollback would destroy it.
+      (rf/replace-frame-state! :pc/rb-path
+                               {:rf.db/app    {:keep  :must-survive
+                                               :slice {:n 0}}
+                                :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
+      ;; Root-path app schema: demands :keep stay present AND :slice.n a
+      ;; non-negative int. The path handler's bad write makes :slice.n -5; the
+      ;; path :after splices that back into the FULL db, so the schema (which
+      ;; validates the full committed app-db) rejects it → post-commit rollback.
+      (rf/with-frame :pc/rb-path
+        (rf/reg-app-schema [] {:schema [:map
+                                        [:keep  :keyword]
+                                        [:slice [:map [:n [:int {:min 0}]]]]]}))
+      ;; A PATH-FOCUSED handler: it sees ONLY `{:n 0}` (the [:slice] slice) and
+      ;; returns `{:n -5}`. This is the idiomatic interceptor that triggers the
+      ;; corruption — its `:before` overwrites [:coeffects :db] with the slice.
+      (rf/reg-event :pc/path-bad
+        {:doc          "path-focused schema-violating handler → rollback"
+         :interceptors [[:rf.interceptor/path [:slice]]]}
+        (fn [{:keys [db]} _]
+          ;; precondition (inside the chain): the handler sees the SLICE only.
+          (is (= {:n 0} db)
+              "the path handler is focused on the [:slice] sub-db")
+          {:db {:n -5}}))                                ;; violates the schema
+      (rf/dispatch-sync [:pc/path-bad] {:frame :pc/rb-path})
+      ;; THE REGRESSION ASSERTION: the rollback restored the FULL prior app-db,
+      ;; not the path slice. Before the fix this was `{:n 0}` (the slice clobbered
+      ;; the whole partition) and `:keep` was destroyed.
+      (is (= {:keep :must-survive :slice {:n 0}}
+             (rf/app-db-value :pc/rb-path))
+          "the FULL prior app-db is restored on rollback — sibling state outside
+           the focused path SURVIVES (NOT corrupted to the path slice)")
+      (is (= :must-survive (:keep (rf/app-db-value :pc/rb-path)))
+          "the out-of-path canary key SURVIVED the schema-rollback")
+      (is (= {:rf.runtime/machines {:m :pre}} (rf/runtime-db-value :pc/rb-path))
+          "runtime-db ALSO rolled back coherently — the whole transition unwinds"))))
