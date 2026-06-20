@@ -37,6 +37,17 @@ and asserts the README agrees on three axes:
                          prose, the same counts the JSON produces. Counts are
                          read as number-words OR digits.
 
+Beyond the per-target README↔JSON axes above, the gate also enforces one
+corpus-wide structural invariant over EVERY skill's evals.json (not only the
+doc-table targets):
+
+  A4  IDENTITY UNIQUE   — within one evals.json, every `name` slug and every
+                         `id` is unique. Both key per-fixture identity (the
+                         schema's unique `id`, and the `name` slug used as the
+                         per-run directory name), so a duplicate silently
+                         collides per-run directories / name-keyed reports and
+                         hides the intended scenario distinction.
+
 Each target declares its own conventions (which evals appear in the table, how
 its total-count sentence reads, which tally axes it asserts), so harnesses with
 different README shapes are all gated correctly. The `re-frame2` target keeps
@@ -241,6 +252,58 @@ def load_evals(path: Path) -> list[dict]:
     if not isinstance(evals, list):
         raise ValueError(f"{path}: top-level 'evals' is not a list")
     return evals
+
+
+# ---------------------------------------------------------------------------
+# Eval-identity uniqueness (A4) — name/id collisions within one evals.json.
+# ---------------------------------------------------------------------------
+#
+# Every eval harness keys per-fixture identity off two fields the schema (and
+# each harness README) calls unique: `id` (the unique integer) and `name`
+# (the short kebab-case slug, used as the per-run directory name). A duplicate
+# `name` silently collides those per-run directories — a later run overwrites
+# the earlier, or a report keyed by name merges two distinct cases — and hides
+# the intended scenario distinction from a human reading the corpus. A
+# duplicate `id` breaks the same identity contract. Neither the README↔JSON
+# drift axes (A1–A3) nor the schema runner currently catch this; this gate
+# closes it generically for EVERY skill that ships an evals.json, not only the
+# doc-table TARGETS above.
+
+
+def find_eval_identity_problems(evals: list[dict]) -> list[str]:
+    """Return identity-uniqueness problems for one evals.json (empty == clean).
+
+    Flags any `name` slug shared by two or more evals, and any `id` shared by
+    two or more evals. Both are per-fixture identity keys the schema declares
+    unique.
+    """
+    problems: list[str] = []
+    for keyfield, fmt in (("name", repr), ("id", str)):
+        seen: dict = {}
+        for e in evals:
+            if keyfield not in e:
+                continue
+            seen.setdefault(e[keyfield], []).append(e)
+        for value, group in seen.items():
+            if len(group) > 1:
+                ids = ", ".join(str(g.get("id", "?")) for g in group)
+                problems.append(
+                    f"A4 uniqueness: {keyfield} {fmt(value)} is shared by "
+                    f"{len(group)} evals (ids {ids}); each {keyfield} must be "
+                    f"unique (it keys per-fixture identity / the per-run "
+                    f"directory)."
+                )
+    return problems
+
+
+def find_all_eval_files() -> list[Path]:
+    """Every `skills/<name>/evals/evals.json` on disk, sorted by skill slug."""
+    if not SKILLS_DIR.is_dir():
+        return []
+    return sorted(
+        SKILLS_DIR.glob("*/evals/evals.json"),
+        key=lambda p: p.parent.parent.name,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -628,6 +691,31 @@ def _run_self_test() -> int:
                 f"{'clean' if is_clean else findings}"
             )
 
+    # --- A4 eval-identity uniqueness fixtures -------------------------------
+    # Independent of the README↔JSON drift axes: a duplicate `name` (or `id`)
+    # within one evals.json is a per-fixture identity collision.
+    identity_cases: list[tuple[str, list[dict], bool]] = [
+        ("unique name+id", [
+            {"id": 1, "name": "a"}, {"id": 2, "name": "b"}], True),
+        ("duplicate name", [
+            {"id": 1, "name": "dup"}, {"id": 2, "name": "dup"}], False),
+        ("duplicate id", [
+            {"id": 7, "name": "x"}, {"id": 7, "name": "y"}], False),
+        # Missing keys are skipped, not flagged (schema validation is elsewhere).
+        ("missing keys skipped", [{"id": 1}, {"name": "only-name"}], True),
+        ("empty list clean", [], True),
+    ]
+    for label, evals, want_clean in identity_cases:
+        problems = find_eval_identity_problems(evals)
+        is_clean = not problems
+        if is_clean != want_clean:
+            failures += 1
+            print(
+                f"SELF-TEST FAIL [identity]: {label!r} expected "
+                f"{'clean' if want_clean else 'drift'}, got "
+                f"{'clean' if is_clean else problems}"
+            )
+
     if failures:
         print(f"\n{failures} self-test failure(s).")
         return 1
@@ -684,6 +772,22 @@ def main(argv: Iterable[str]) -> int:
             all_findings.append((target.slug, f))
         if args.verbose and not findings:
             print(f"  [{target.slug}] no eval-docs drift.")
+
+    # A4 — eval-identity uniqueness over EVERY skill's evals.json (not just the
+    # doc-table TARGETS): a duplicate `name`/`id` collides per-fixture identity.
+    for eval_file in find_all_eval_files():
+        slug = eval_file.parent.parent.name
+        try:
+            evals = load_evals(eval_file)
+        except (ValueError, json.JSONDecodeError) as e:
+            msg = f"failed to parse {eval_file}: {e}"
+            print(f"::error::{msg}" if ci else f"ERROR: {msg}", file=sys.stderr)
+            return 2
+        id_problems = find_eval_identity_problems(evals)
+        for p in id_problems:
+            all_findings.append((slug, p))
+        if args.verbose and not id_problems:
+            print(f"  [{slug}] eval identity (name/id) unique.")
 
     if all_findings:
         print(

@@ -37,8 +37,11 @@ A single `evals.json` holds a **trigger-only** fixture list (`schema_version`
 `"1"`). Each entry carries:
 
 - `id` — unique integer.
-- `name` — short kebab-case slug; the per-run directory name when the harness
-  runs.
+- `name` — short kebab-case slug, **unique** across the corpus; the per-run
+  directory name when the harness runs (a duplicate slug would collide per-run
+  directories / name-keyed reports). The repo's
+  `scripts/check_skill_eval_docs.py` drift gate enforces both `id` and `name`
+  uniqueness for every skill's `evals.json`.
 - `should_trigger` — the expected activation decision (`true` for prompts that
   should fire the skill, `false` for prompts that should route elsewhere).
 - `prompt` — a self-contained user message that exercises the boundary.
