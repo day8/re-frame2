@@ -106,7 +106,9 @@ Non-goals:
 
 This section uses normative language so acceptance can graduate into specs with
 minimal rewriting. At `proposal` status it records the proposed contract, not a
-shipped guarantee.
+shipped guarantee. The open issues at the end are graduation blockers: this EP
+must not move to `final` until each dispatch-overlay question has an operator
+ruling or is explicitly deferred to a follow-on EP.
 
 ### Image keys
 
@@ -127,6 +129,10 @@ The following keys are retired from the ordinary public `rf/image` surface:
 :replace-standard
 :rf.image/requires
 ```
+
+If accepted, public image construction must reject these retired keys with
+actionable diagnostics rather than silently ignoring them or treating them as
+synonyms.
 
 `:replace-standard` may return only through a later, explicit standards-track
 decision that names real replaceable framework standards and their conformance
@@ -158,6 +164,11 @@ matches(clause :include) minus matches(clause :exclude)
 The image-selected namespaces are the union of all clause results. Exclusions
 are local to the include clause that contains them; they are not one global
 subtraction set.
+
+`:select-ns` defaults to an empty vector. An image with no `:select-ns` clauses
+selects no namespace-authored registrations and may still define inline
+`:registrations`. Each clause must contain at least one `:include` pattern;
+`:exclude` defaults to an empty vector.
 
 Selecting the same source namespace through more than one clause is idempotent:
 the descriptor is considered once. A same `[kind id]` collision between two
@@ -210,10 +221,11 @@ Across images, later images intentionally shadow earlier images for the same
 `[kind id]`. Shadowing is not ambient namespace load order; it is the explicit
 order of the `:images` vector.
 
-Tooling must retain enough provenance to show which descriptors were shadowed,
-which layer won, and why. Layer dominance should be inspectable, not invisible.
-This is a deliberate amendment to EP-0023's exact replacement maps: the API
-gains a smaller data shape, and gives up the old coordinate-level winner
+Assemblers must retain enough provenance to show which descriptors were
+shadowed, which layer won, and why. Layer dominance must be inspectable by Xray,
+Pair, error reporters, and other tooling rather than disappearing during
+resolution. This is a deliberate amendment to EP-0023's exact replacement maps:
+the API gains a smaller data shape, and gives up the old coordinate-level winner
 declaration. The mitigation is that order is explicit in `:images`, collisions
 inside one selection clause still fail loud, and shadowed descriptors remain
 visible to diagnostics and tools.
@@ -272,8 +284,8 @@ The omitted metadata maps normalize to `{}`.
 
 ### `rf/image` is an authoring macro
 
-The public `rf/image` form should be a macro for literal image specs. It should
-do for inline image entries what `reg-event`, `reg-sub`, `reg-view`, and other
+The public `rf/image` form is a macro for literal image specs. It must do for
+inline image entries what `reg-event`, `reg-sub`, `reg-view`, and other
 `reg-*` macros do for namespace-authored registrations:
 
 - capture source namespace, file, line, and column where available;
@@ -335,7 +347,10 @@ dispatch :registrations
 Frame-level `:registrations` use the same tuple grammar as image-level
 registrations. Dispatch-level `:registrations` use the same syntactic shape, but
 the exact allowed kind set is an open issue because overriding the triggering
-event handler itself may be too magical.
+event handler itself may be too magical. Until that ruling lands, image-level
+and frame-level overlays are the determinate part of this EP; dispatch-level
+overlays are accepted only if the final ruling records their allowed kind set
+and inheritance behavior.
 
 Dispatch-level overlays are part of one event cascade's resolution context. They
 must not update the frame's recorded construction data, must not rewrite the
@@ -412,8 +427,10 @@ part of the image/frame model.
 
 ## Backwards Compatibility
 
-re-frame2 is pre-alpha. No compatibility shims are required for off-pattern
-spellings.
+re-frame2 is pre-alpha. No compatibility shims are required, but this is still a
+breaking source migration for any code or documentation already using the
+EP-0023 image spellings. The retired keys must fail loudly during assembly so
+stale examples do not keep working by accident.
 
 Migration is source-level:
 
@@ -443,6 +460,9 @@ Expected implementation slices:
    inheritance rule, and source-stamping story.
 9. Update Xray, Pair, examples, tools, migration skill, and guide chapters that
    teach image assembly or stubbing.
+10. Add conformance tests for retired-key rejection, scoped namespace
+    selection, duplicate detection, cross-image shadow provenance, source
+    stamping, and frame/dispatch overlay precedence after the dispatch ruling.
 
 Guide-impact assessment:
 
@@ -453,6 +473,10 @@ Guide-impact assessment:
 - image composition docs should show layer dominance and shadow inspection.
 
 ## Open Issues
+
+These issues require recorded dispositions before this standards-track EP can
+graduate. If any answer is deferred, the final EP should narrow its normative
+surface and name the follow-on EP or bead that owns the deferred question.
 
 1. **Should dispatch-level `:registrations` allow every registration kind?**
    The recommended default is conservative: allow the kinds genuinely consulted
