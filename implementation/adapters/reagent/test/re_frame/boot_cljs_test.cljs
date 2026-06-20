@@ -318,7 +318,7 @@
                                  (swap! app-traces conj ev))))
       (try
         (with-new-frame [f (frame/make-anon-frame-record! {})]
-          (rf/reg-app-schema [:config] [:maybe boot-schema/Config] {:frame f})
+          (rf/reg-app-schema [:config] {:schema [:maybe boot-schema/Config] :frame f})
           (rf/dispatch-sync [::write-bad-config] {:frame f}))
         (finally (rf/unregister-listener! :trace ::app)))
       (is (pos? (count @app-traces))

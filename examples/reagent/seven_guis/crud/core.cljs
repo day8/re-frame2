@@ -60,7 +60,7 @@
 ;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
 ;; schema binds to the app frame whose commits it validates.
 (with-frame :rf/default
-  (rf/reg-app-schema [:crud] CrudState))
+  (rf/reg-app-schema [:crud] {:schema CrudState}))
 
 ;; ============================================================================
 ;; EVENTS

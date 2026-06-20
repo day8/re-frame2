@@ -67,8 +67,8 @@
   ;; pass the target frame explicitly (the *override*) rather than relying on
   ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
-                     [:maybe :string]
-                     {:frame :rf/default})
+                     {:schema [:maybe :string]
+                      :frame :rf/default})
   ;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
   ;; FRAME-owned. Install the `[:user/avatar-pdf]` large declaration
   ;; (index-free :rf/path) onto :rf/default's elision registry via the

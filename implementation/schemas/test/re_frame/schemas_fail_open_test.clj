@@ -226,7 +226,7 @@
     (schemas/set-schema-fns! {:validate (fn [_ _] false)
                               :explain  throwing-explainer})
     (try
-      (rf/reg-app-schema [:n] [:int])
+      (rf/reg-app-schema [:n] {:schema [:int]})
       (let [traces (capture
                      (fn []
                        (is (false? (schemas/validate-app-schema! {:n "bad"} :n/bad))
@@ -293,7 +293,7 @@
 (deftest healthy-explainer-still-attaches-explain
   (testing "rf2-a5kzs — the safe-explain wrapper is transparent on the happy
             path: a normal Malli failure still carries a non-nil :explain."
-    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:n] {:schema [:int]})
     (let [traces (capture
                    #(schemas/validate-app-schema! {:n "bad"} :n/bad))
           v      (first (validation-failures traces))]

@@ -319,7 +319,7 @@
           ;; fires :rf/server-init (which commits the canned articles).
           fid             (keyword "rf.frame" (str (gensym "f")))
           _               (ssr/set-request! fid {:uri "/articles"})
-          _               (rf/reg-app-schema [:articles] articles-schema {:frame fid})
+          _               (rf/reg-app-schema [:articles] {:schema articles-schema :frame fid})
           f               (rf/with-fx-overrides
                             {:rf.http/managed :ssr.http/canned-articles}
                             (rf/reg-frame fid

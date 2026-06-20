@@ -51,7 +51,7 @@
   (testing "rf/reg-app-schema (macro) raises :rf.error/schemas-artefact-missing when the :schemas/reg-app-schema hook is nil"
     (with-hook-as-nil :schemas/reg-app-schema
       (fn []
-        (let [thrown (try (rf/reg-app-schema [:probe] :int)
+        (let [thrown (try (rf/reg-app-schema [:probe] {:schema :int})
                           nil
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)

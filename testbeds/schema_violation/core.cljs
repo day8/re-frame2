@@ -43,7 +43,7 @@
 ;; bare ns-load call raises :rf.error/no-frame-context. This testbed hosts on
 ;; :rf/default, so name it explicitly.
 (with-frame :rf/default
-  (rf/reg-app-schema [:auth] AuthSlice))
+  (rf/reg-app-schema [:auth] {:schema AuthSlice}))
 
 (rf/reg-event ::initialise
   (fn [_cofx _ev]

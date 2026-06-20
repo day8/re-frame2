@@ -59,4 +59,4 @@
   "Attach the whole-app-db schema to the app's frame. Call once at boot,
    under the app's frame scope (see core/init)."
   []
-  (rf/reg-app-schema [] CounterDb))
+  (rf/reg-app-schema [] {:schema CounterDb}))

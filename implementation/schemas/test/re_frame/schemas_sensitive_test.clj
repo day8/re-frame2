@@ -162,7 +162,7 @@
             :sensitive? true"
     ;; A schema where the WHOLE registered slot is marked sensitive
     ;; (container-level :sensitive?).
-    (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+    (rf/reg-app-schema [:auth :token] {:schema [:string {:sensitive? true}]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::redact (fn [ev] (swap! traces conj ev)))
       ;; The value at [:auth :token] is an int (42) — fails :string.
@@ -194,9 +194,9 @@
             map schema covers that slot's failures"
     ;; reg-app-schema covers [:user], the :password child is sensitive.
     (rf/reg-app-schema [:user]
-                       [:map
-                        [:name     :string]
-                        [:password {:sensitive? true} :string]])
+                       {:schema [:map
+                                 [:name     :string]
+                                 [:password {:sensitive? true} :string]]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::slot (fn [ev] (swap! traces conj ev)))
       ;; password is an int — fails :string. Since validation is
@@ -220,7 +220,7 @@
 (deftest app-db-validation-non-sensitive-passes-through-verbatim
   (testing "Backward-compat — a schema with no :sensitive? props emits
             unchanged traces; :value and :explain ride verbatim"
-    (rf/reg-app-schema [:count] [:int])
+    (rf/reg-app-schema [:count] {:schema [:int]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::plain (fn [ev] (swap! traces conj ev)))
       (schemas/validate-app-schema! {:count "not-an-int"} :count/bad)
@@ -253,7 +253,7 @@
   "Helper: register `schema` at `path`, validate `db` (which must fail
   the schema), and return the single schema-validation-failure trace."
   [path schema db failing-id]
-  (rf/reg-app-schema path schema)
+  (rf/reg-app-schema path {:schema schema})
   (let [traces (atom [])
         kw     (keyword "rf2-g5auo" (name (gensym "listen")))]
     (rf/register-listener! :trace kw (fn [ev] (swap! traces conj ev)))
@@ -1411,7 +1411,7 @@
   (testing "rf2-qhq3f — a NON-sensitive app-db validation failure (Malli
             humanizer hook loaded) carries the real :explain-humanized
             payload alongside the raw :explain"
-    (rf/reg-app-schema [:auth :token] [:string])
+    (rf/reg-app-schema [:auth :token] {:schema [:string]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::hum-plain (fn [ev] (swap! traces conj ev)))
       (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
@@ -1433,7 +1433,7 @@
             :explain-humanized :rf/redacted alongside :explain
             :rf/redacted. The slot is PRESENT (the sentinel), not
             omitted — symmetric redaction per Spec 010 §Humanize-hook"
-    (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+    (rf/reg-app-schema [:auth :token] {:schema [:string {:sensitive? true}]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::hum-redact (fn [ev] (swap! traces conj ev)))
       (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
@@ -1457,7 +1457,7 @@
     (let [secret "TOP-SECRET-token-9f3a2"]
       ;; Schema wants an :int; the secret is a string — fails. The value
       ;; itself is the sensitive material that must not surface.
-      (rf/reg-app-schema [:auth :token] [:int {:sensitive? true}])
+      (rf/reg-app-schema [:auth :token] {:schema [:int {:sensitive? true}]})
       (let [traces (atom [])]
         (rf/register-listener! :trace ::no-leak (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:auth {:token secret}} :auth/init-bad)
@@ -1533,7 +1533,7 @@
             marker would re-leak :path / :bytes and is NOT emitted"
     ;; Schema declares the slot BOTH large and sensitive.
     (rf/reg-app-schema [:user :secret-pdf]
-                       [:string {:sensitive? true :large? true}])
+                       {:schema [:string {:sensitive? true :large? true}]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::both (fn [ev] (swap! traces conj ev)))
       ;; Value is a long string but is an int (42) here — actually let's
@@ -1562,7 +1562,7 @@
             behaviour — the entire validation body (including the
             redaction substitution) lives behind the
             interop/debug-enabled? gate. Production builds DCE both."
-    (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+    (rf/reg-app-schema [:auth :token] {:schema [:string {:sensitive? true}]})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::prod (fn [ev] (swap! traces conj ev)))
       (with-redefs [re-frame.interop/debug-enabled? false]
@@ -1625,7 +1625,7 @@
             redacts the failing post-commit slice fail-closed"
     (let [secret "OPAQUE-APPDB-SECRET-u9bjgr"]
       (rf/reg-app-schema [:user]
-                         (m/schema [:map [:token {:sensitive? true} :string]]))
+                         {:schema (m/schema [:map [:token {:sensitive? true} :string]])})
       (let [traces (atom [])]
         (rf/register-listener! :trace ::opqdb (fn [ev] (swap! traces conj ev)))
         ;; :token is a VECTOR where a :string is required → fails the schema.
@@ -1731,7 +1731,7 @@
   (testing "rf2-vmhu4i — a :large? app-db slot's post-commit validation
             failure elides the value-bearing slots to the size marker"
     (let [blob (apply str (repeat 500 "Y"))]
-      (rf/reg-app-schema [:upload] [:map [:blob {:large? true} :int]])
+      (rf/reg-app-schema [:upload] {:schema [:map [:blob {:large? true} :int]]})
       (let [traces (atom [])]
         (rf/register-listener! :trace ::lgdb (fn [ev] (swap! traces conj ev)))
         (schemas/validate-app-schema! {:upload {:blob blob}} :upload/bad)

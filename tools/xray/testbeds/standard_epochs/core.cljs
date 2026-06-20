@@ -183,7 +183,7 @@
 ;; bare ns-load call raises :rf.error/no-frame-context. This testbed's deck
 ;; hosts on :rf/default (see `host-frame` below), so name it explicitly.
 (with-frame :rf/default
-  (rf/reg-app-schema [:auth] AuthSlice))
+  (rf/reg-app-schema [:auth] {:schema AuthSlice}))
 
 ;; ============================================================================
 ;; COEFFECT — :standard-epochs/now  (button #2)

@@ -107,4 +107,4 @@
 ;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
 ;; the :rf/default frame, so name it explicitly here.
 (with-frame :rf/default
-  (rf/reg-app-schema [:messages]                   MessagesSlice))
+  (rf/reg-app-schema [:messages]                   {:schema MessagesSlice}))

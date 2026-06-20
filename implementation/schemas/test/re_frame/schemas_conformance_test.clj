@@ -400,7 +400,7 @@
   ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
   ;; schemas are NOT a registrar kind.
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
-    (rf/reg-app-schema path schema)))
+    (rf/reg-app-schema path {:schema schema})))
 
 ;; ---- trace capture -------------------------------------------------------
 
