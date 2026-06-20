@@ -123,37 +123,37 @@
                     [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [tag page]} _ctx]
-                     {:request {:method :get
-                                :url    (-> (if tag
-                                              (str "/articles?tag=" tag)
-                                              "/articles")
-                                            rh/full-url
-                                            (with-pagination page))}
-                      :decode  schema/ArticlesResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    ;; Tag the list identity AND every article it contains, so favoriting an
    ;; article (which tags `[:article slug]`) invalidates any list showing it.
    :tags           (fn [_params data]
                      (into #{[:article-list]}
-                           (map (fn [a] [:article (:slug a)]) (:articles data))))})
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [{:keys [tag page]} _ctx]
+    {:request {:method :get
+               :url    (-> (if tag
+                             (str "/articles?tag=" tag)
+                             "/articles")
+                           rh/full-url
+                           (with-pagination page))}
+     :decode  schema/ArticlesResponse
+     :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/article
   {:doc            "Article detail by slug (public)."
    :params-schema  [:map [:slug :string]]
    :data-schema    schema/ArticleResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (rh/full-url (str "/articles/" slug))}
-                      :decode  schema/ArticleResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    ;; Tag BOTH the per-article identity and the list identity so a save /
    ;; favorite invalidates the detail and the lists together.
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})})
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (rh/full-url (str "/articles/" slug))}
+     :decode  schema/ArticleResponse
+     :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/comments
   {:doc            "Comments for an article (public). A sub-resource of the
@@ -163,26 +163,26 @@
    :params-schema  [:map [:slug :string]]
    :data-schema    schema/CommentsResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (rh/full-url (str "/articles/" slug "/comments"))}
-                      :decode  schema/CommentsResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
-   :tags           (fn [{:keys [slug]} _data] #{[:comments slug]})})
+   :tags           (fn [{:keys [slug]} _data] #{[:comments slug]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (rh/full-url (str "/articles/" slug "/comments"))}
+     :decode  schema/CommentsResponse
+     :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/profile
   {:doc            "A user's public profile banner (public)."
    :params-schema  [:map [:username :string]]
    :data-schema    schema/ProfileResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [username]} _ctx]
-                     {:request {:method :get :url (rh/full-url (str "/profiles/" username))}
-                      :decode  schema/ProfileResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
-   :tags           (fn [{:keys [username]} _data] #{[:profile username]})})
+   :tags           (fn [{:keys [username]} _data] #{[:profile username]})}
+  (fn [{:keys [username]} _ctx]
+    {:request {:method :get :url (rh/full-url (str "/profiles/" username))}
+     :decode  schema/ProfileResponse
+     :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/author-articles
   {:doc            "Articles authored by a profile (public). Paginated by
@@ -192,18 +192,18 @@
                     [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [username page]} _ctx]
-                     {:request {:method :get
-                                :url    (-> (str "/articles?author=" username)
-                                            rh/full-url
-                                            (with-pagination page))}
-                      :decode  schema/ArticlesResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} data]
                      (into #{[:author-articles username]}
-                           (map (fn [a] [:article (:slug a)]) (:articles data))))})
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [{:keys [username page]} _ctx]
+    {:request {:method :get
+               :url    (-> (str "/articles?author=" username)
+                           rh/full-url
+                           (with-pagination page))}
+     :decode  schema/ArticlesResponse
+     :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/favorited-articles
   {:doc            "Articles a profile has FAVORITED (public). GET
@@ -219,31 +219,31 @@
                     [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          :rf.scope/global
-   :request        (fn [{:keys [username page]} _ctx]
-                     {:request {:method :get
-                                :url    (-> (str "/articles?favorited=" username)
-                                            rh/full-url
-                                            (with-pagination page))}
-                      :decode  schema/ArticlesResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} data]
                      (into #{[:favorited-articles username]}
-                           (map (fn [a] [:article (:slug a)]) (:articles data))))})
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [{:keys [username page]} _ctx]
+    {:request {:method :get
+               :url    (-> (str "/articles?favorited=" username)
+                           rh/full-url
+                           (with-pagination page))}
+     :decode  schema/ArticlesResponse
+     :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/tags
   {:doc            "The popular-tags sidebar (public)."
    :params-schema  [:map]
    :data-schema    schema/TagsResponse
    :scope          :rf.scope/global
-   :request        (fn [_params _ctx]
-                     {:request {:method :get :url (rh/full-url "/tags")}
-                      :decode  schema/TagsResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
-   :tags           (fn [_params _data] #{[:tags]})})
+   :tags           (fn [_params _data] #{[:tags]})}
+  (fn [_params _ctx]
+    {:request {:method :get :url (rh/full-url "/tags")}
+     :decode  schema/TagsResponse
+     :retry   rh/data-fetch-retry}))
 
 ;; ============================================================================
 ;; SESSION READ — a named `{:from-db …}` scope resolver (whose feed?)
@@ -278,14 +278,14 @@
    :params-schema  [:map [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
    :scope          {:from-db :realworld/session}
-   :request        (fn [{:keys [page]} _ctx]
-                     {:request {:method :get
-                                :url    (-> (rh/full-url "/articles/feed")
-                                            (with-pagination page))}
-                      :decode  schema/ArticlesResponse
-                      :retry   rh/data-fetch-retry})
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [_params data]
                      (into #{[:feed]}
-                           (map (fn [a] [:article (:slug a)]) (:articles data))))})
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get
+               :url    (-> (rh/full-url "/articles/feed")
+                           (with-pagination page))}
+     :decode  schema/ArticlesResponse
+     :retry   rh/data-fetch-retry}))

@@ -93,27 +93,27 @@
   {:doc            "The recent-articles list (public, same for everyone)."
    :params-schema  [:map]
    :scope          :rf.scope/global
-   :request        (fn [_params _ctx]
-                     {:request {:method :get :url "/api/articles"}
-                      :decode  :json})
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
    ;; Tags let a write invalidate this list by tag
    ;; (`:rf.resource/invalidate-tags {:tags #{[:article-list]}}`).
-   :tags           (fn [_params _data] #{[:article-list]})})
+   :tags           (fn [_params _data] #{[:article-list]})}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/articles"}
+     :decode  :json}))
 
 (rf/reg-resource :article/by-slug
   {:doc            "Article detail by slug (public)."
    :params-schema  [:map [:slug :string]]
    :scope          :rf.scope/global
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (str "/api/articles/" slug)}
-                      :decode  :json})
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
    ;; Tag BOTH the per-article identity and the list identity so a save
    ;; can invalidate the detail and the list relationship together.
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})})
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
 
 ;; ============================================================================
 ;; DEMO BACKEND — per-URL canned :rf.http/managed override

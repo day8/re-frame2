@@ -130,16 +130,6 @@
    ;; `:items` list. (A bare-vector page would need no accessor.)
    :page->items    :items
 
-   ;; :request keeps its (params ctx) shape; the RESERVED ctx carries the
-   ;; resolved page context for THIS page (page-param nil ⇒ first page).
-   :request
-   (fn [_feed-params {:rf.resource/keys [page-param page-index]}]
-     {:request {:method :get
-                :url    "/api/timeline"
-                :params (cond-> {:limit page-size :page-index page-index}
-                          page-param (assoc :cursor page-param))}
-      :decode  :json})
-
    ;; Derive the NEXT page param from the last loaded page. Returns nil to
    ;; signal end-of-feed (the single terminal; `:has-next-page?` is then false).
    :next-page-param
@@ -150,7 +140,15 @@
    :gc-after-ms    (* 5 60 1000)
    ;; A feed tag so a write could invalidate the whole feed by tag (coarse,
    ;; correct — R4); item-in-feed patching is the deferred optimistic axis.
-   :tags           (fn [_feed-params _data] #{[:feed :timeline]})})
+   :tags           (fn [_feed-params _data] #{[:feed :timeline]})}
+  ;; :request keeps its (params ctx) shape; the RESERVED ctx carries the
+  ;; resolved page context for THIS page (page-param nil ⇒ first page).
+  (fn [_feed-params {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get
+               :url    "/api/timeline"
+               :params (cond-> {:limit page-size :page-index page-index}
+                         page-param (assoc :cursor page-param))}
+     :decode  :json}))
 
 ;; ============================================================================
 ;; DEMO BACKEND — per-cursor canned :rf.http/managed override

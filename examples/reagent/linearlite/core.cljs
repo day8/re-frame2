@@ -138,10 +138,6 @@
    ;; per-team board would carry a scope resolver instead.
    :scope          :rf.scope/global
 
-   :request        (fn [_params _ctx]
-                     {:request {:method :get :url "/api/board"}
-                      :decode  :json})
-
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
 
@@ -149,7 +145,10 @@
    ;; optimistic writes below patch the entry directly (immediate) and re-seed
    ;; via :populates on commit, so they need no coarse invalidation; the tag is
    ;; kept so a future server-push / external change can stale the board.
-   :tags           (fn [_params _data] #{[:board]})})
+   :tags           (fn [_params _data] #{[:board]})}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/board"}
+     :decode  :json}))
 
 ;; ============================================================================
 ;; THE EXACT-TARGET — every optimistic write patches THIS key
@@ -221,10 +220,6 @@
                    it back out."
    :params-schema [:map [:id :string] [:title :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [title]} _ctx]
-                    {:request {:method :post :url "/api/issues"
-                               :body   {:title title}}
-                     :decode  :json})
    ;; FORWARD: append a new Backlog card to the board immediately (phase 1.5).
    ;; `:id` is the client-minted optimistic id so the card has a stable React
    ;; key before the server assigns one.
@@ -244,7 +239,11 @@
    ;; ROLLBACK conflict policy (the default, named for the dogfood): on a
    ;; contested rollback, the read path refetches rather than restoring a stale
    ;; inverse.
-   :on-conflict   :invalidate})
+   :on-conflict   :invalidate}
+  (fn [{:keys [title]} _ctx]
+    {:request {:method :post :url "/api/issues"
+               :body   {:title title}}
+     :decode  :json}))
 
 (rf/reg-mutation :linearlite/edit-title
   {:doc           "Retitle an issue (optimistic). PUT /api/issues/:id. The title
@@ -252,14 +251,14 @@
                    it to the prior title."
    :params-schema [:map [:id :string] [:title :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [id title]} _ctx]
-                    {:request {:method :put :url (str "/api/issues/" id)
-                               :body   {:title title}}
-                     :decode  :json})
    :optimistic    (fn [{:keys [id title]}]
                     {board-key (patch-issue id #(assoc % :title title :optimistic? true))})
    :populates     (fn [_params result] {board-key result})
-   :on-conflict   :invalidate})
+   :on-conflict   :invalidate}
+  (fn [{:keys [id title]} _ctx]
+    {:request {:method :put :url (str "/api/issues/" id)
+               :body   {:title title}}
+     :decode  :json}))
 
 (rf/reg-mutation :linearlite/change-status
   {:doc           "Move an issue to another status (optimistic). PUT
@@ -267,14 +266,14 @@
                    you click; a failure snaps it back to its prior column."
    :params-schema [:map [:id :string] [:status :keyword]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [id status]} _ctx]
-                    {:request {:method :put :url (str "/api/issues/" id)
-                               :body   {:status status}}
-                     :decode  :json})
    :optimistic    (fn [{:keys [id status]}]
                     {board-key (patch-issue id #(assoc % :status status :optimistic? true))})
    :populates     (fn [_params result] {board-key result})
-   :on-conflict   :invalidate})
+   :on-conflict   :invalidate}
+  (fn [{:keys [id status]} _ctx]
+    {:request {:method :put :url (str "/api/issues/" id)
+               :body   {:status status}}
+     :decode  :json}))
 
 ;; ============================================================================
 ;; DEMO BACKEND — a canned :rf.http/managed override (no server ships)

@@ -138,9 +138,6 @@
   {:doc             "Favorite an article (optimistic). POST /articles/:slug/favorite."
    :params-schema   [:map [:slug :string]]
    :scope           :rf.scope/global
-   :request         (fn [{:keys [slug]} _ctx]
-                      {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
-                       :decode  schema/ArticleResponse})
    ;; FORWARD: flip the heart on + bump the count across the detail, every list,
    ;; and the session feed, immediately on click (phase 1.5, before the request).
    :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags true slug))
@@ -161,15 +158,15 @@
    ;; ROLLBACK conflict policy (the default, named here for the dogfood): on a
    ;; failure rollback where a competing write moved a touched entry, refetch it
    ;; rather than restoring a stale inverse.
-   :on-conflict     :invalidate})
+   :on-conflict     :invalidate}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
+     :decode  schema/ArticleResponse}))
 
 (rf/reg-mutation :realworld/unfavorite
   {:doc             "Unfavorite an article (optimistic). DELETE /articles/:slug/favorite."
    :params-schema   [:map [:slug :string]]
    :scope           :rf.scope/global
-   :request         (fn [{:keys [slug]} _ctx]
-                      {:request {:method :delete :url (rh/full-url (str "/articles/" slug "/favorite"))}
-                       :decode  schema/ArticleResponse})
    :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags false slug))
    :populates       (fn [{:keys [slug]} result]
                       {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
@@ -178,7 +175,10 @@
                         :tags  #{[:article slug] [:article-list]}}
                        {:scope {:from-db :realworld/session}
                         :tags  #{[:feed]}}])
-   :on-conflict     :invalidate})
+   :on-conflict     :invalidate}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :delete :url (rh/full-url (str "/articles/" slug "/favorite"))}
+     :decode  schema/ArticleResponse}))
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW
@@ -192,25 +192,25 @@
   {:doc           "Follow a user. POST /profiles/:username/follow."
    :params-schema [:map [:username :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [username]} _ctx]
-                    {:request {:method :post :url (rh/full-url (str "/profiles/" username "/follow"))}
-                     :decode  schema/ProfileResponse})
    ;; Seed the banner from the reply (the whole `{:profile …}` envelope, the
    ;; `:realworld/profile` resource's stored shape) so it flips immediately.
    :populates     (fn [{:keys [username]} result]
                     {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})})
+   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+  (fn [{:keys [username]} _ctx]
+    {:request {:method :post :url (rh/full-url (str "/profiles/" username "/follow"))}
+     :decode  schema/ProfileResponse}))
 
 (rf/reg-mutation :realworld/unfollow
   {:doc           "Unfollow a user. DELETE /profiles/:username/follow."
    :params-schema [:map [:username :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [username]} _ctx]
-                    {:request {:method :delete :url (rh/full-url (str "/profiles/" username "/follow"))}
-                     :decode  schema/ProfileResponse})
    :populates     (fn [{:keys [username]} result]
                     {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})})
+   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+  (fn [{:keys [username]} _ctx]
+    {:request {:method :delete :url (rh/full-url (str "/profiles/" username "/follow"))}
+     :decode  schema/ProfileResponse}))
 
 ;; ============================================================================
 ;; POST / DELETE COMMENT
@@ -226,22 +226,22 @@
   {:doc           "Post a comment. POST /articles/:slug/comments."
    :params-schema [:map [:slug :string] [:body :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug body]} _ctx]
-                    {:request {:method :post
-                               :url    (rh/full-url (str "/articles/" slug "/comments"))
-                               :body   {:comment {:body body}}}
-                     :decode  schema/CommentResponse})
-   :invalidates   (fn [{:keys [slug]} _result] #{[:comments slug]})})
+   :invalidates   (fn [{:keys [slug]} _result] #{[:comments slug]})}
+  (fn [{:keys [slug body]} _ctx]
+    {:request {:method :post
+               :url    (rh/full-url (str "/articles/" slug "/comments"))
+               :body   {:comment {:body body}}}
+     :decode  schema/CommentResponse}))
 
 (rf/reg-mutation :realworld/delete-comment
   {:doc           "Delete a comment. DELETE /articles/:slug/comments/:id."
    :params-schema [:map [:slug :string] [:id :int]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug id]} _ctx]
-                    {:request {:method :delete
-                               :url    (rh/full-url (str "/articles/" slug "/comments/" id))}
-                     :decode  :auto})
-   :invalidates   (fn [{:keys [slug]} _result] #{[:comments slug]})})
+   :invalidates   (fn [{:keys [slug]} _result] #{[:comments slug]})}
+  (fn [{:keys [slug id]} _ctx]
+    {:request {:method :delete
+               :url    (rh/full-url (str "/articles/" slug "/comments/" id))}
+     :decode  :auto}))
 
 ;; ============================================================================
 ;; SETTINGS UPDATE
@@ -262,11 +262,11 @@
                    [:image    [:maybe :string]]
                    [:password {:optional true} [:maybe :string]]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [username email bio image password]} _ctx]
-                    {:request {:method :put
-                               :url    (rh/full-url "/user")
-                               :body   {:user (cond-> {:username username :email email
-                                                       :bio bio :image image}
-                                                (seq password) (assoc :password password))}}
-                     :decode  schema/UserResponse})
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})})
+   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+  (fn [{:keys [username email bio image password]} _ctx]
+    {:request {:method :put
+               :url    (rh/full-url "/user")
+               :body   {:user (cond-> {:username username :email email
+                                       :bio bio :image image}
+                                (seq password) (assoc :password password))}}
+     :decode  schema/UserResponse}))

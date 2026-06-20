@@ -84,11 +84,11 @@
   {:doc            "Recent articles (public, SSR-preloaded)."
    :params-schema  [:map]
    :scope          :rf.scope/global
-   :request        (fn [_params _ctx]
-                     {:request {:method :get :url "/api/articles"}
-                      :decode  :json})
    :stale-after-ms 60000
-   :tags           (fn [_params _data] #{[:article-list]})})
+   :tags           (fn [_params _data] #{[:article-list]})}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/articles"}
+     :decode  :json}))
 
 ;; ============================================================================
 ;; SERVER-SIDE PRELOAD EVENT

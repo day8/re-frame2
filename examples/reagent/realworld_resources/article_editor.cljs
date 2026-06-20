@@ -158,13 +158,6 @@
                    [:body  :string]
                    [:tagList [:vector :string]]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug] :as draft} _ctx]
-                    {:request {:method (if slug :put :post)
-                               :url    (rh/full-url (if slug
-                                                      (str "/articles/" slug)
-                                                      "/articles"))
-                               :body   (article-body (select-keys draft [:title :description :body :tagList]))}
-                     :decode  schema/ArticleResponse})
    ;; The lists go stale (global scope) so they re-read with the new article;
    ;; an edit's slug also stales its own detail entry. The create path has no
    ;; prior slug, so it stales only the lists (the new detail is read fresh on
@@ -176,26 +169,33 @@
                       :tags  (cond-> #{[:article-list]}
                                slug (conj [:article slug]))}
                      {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])})
+                      :tags  #{[:feed]}}])}
+  (fn [{:keys [slug] :as draft} _ctx]
+    {:request {:method (if slug :put :post)
+               :url    (rh/full-url (if slug
+                                      (str "/articles/" slug)
+                                      "/articles"))
+               :body   (article-body (select-keys draft [:title :description :body :tagList]))}
+     :decode  schema/ArticleResponse}))
 
 (rf/reg-mutation :realworld/delete-article
   {:doc           "Delete an article. DELETE /articles/:slug. Invalidates the
                    detail + lists + feed."
    :params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :delete
-                               :url    (rh/full-url (str "/articles/" slug))}
-                     ;; The delete endpoint returns no body; `:auto` handles
-                     ;; 204/empty gracefully.
-                     :decode  :auto})
    ;; Global article tags + the session feed, each in its own scope (EP-0016
    ;; D2 — see :realworld/save-article above).
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])})
+                      :tags  #{[:feed]}}])}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :delete
+               :url    (rh/full-url (str "/articles/" slug))}
+     ;; The delete endpoint returns no body; `:auto` handles
+     ;; 204/empty gracefully.
+     :decode  :auto}))
 
 ;; ============================================================================
 ;; EVENTS
