@@ -44,7 +44,7 @@
 ;; — it changes the URL and the declarative route plan does the rest. The
 ;; personalised feed is one of those route resources, scoped by the named
 ;; `{:from-db :realworld/session}` resolver (routing.cljs / resources.cljs) —
-;; so the home page no longer needs an `:on-match` event to ensure it by hand.
+;; so the home page needs no `:on-match` event to ensure it by hand.
 
 ;; ROUTE-SHAPE CONFORMANCE: the tag filter is the `/tag/:tag` PATH
 ;; route (`:realworld/home-tag`) — the active tag is a route PARAM, not a
@@ -127,9 +127,9 @@
 ;; The official Conduit article page carries contextual controls: a non-author
 ;; viewer follows/unfollows the AUTHOR; the author sees Edit (→ /editor/:slug)
 ;; and Delete. Logged-out viewers see neither. Both the follow continuation and
-;; the delete continuation are now call-site `:reply-to` targets (EP-0016 D1) —
-;; the mutation reply-side seam the variant previously had to emulate with
-;; Form-3 settle reactions on the article page.
+;; the delete continuation are call-site `:reply-to` targets (EP-0016 D1) —
+;; the mutation reply-side seam, declared at the call site rather than emulated
+;; with Form-3 settle reactions on the article page.
 
 (rf/reg-event :ui/follow-author
   {:doc "Follow / unfollow the article author from the detail page. Fires the
@@ -466,7 +466,7 @@
 
 (reg-view ^{:doc "The article-detail page — a pure function of subs that never
                   dispatches out of band. The two settle continuations the page
-                  needs are now the mutations' own `:reply-to` targets (EP-0016
+                  needs are the mutations' own `:reply-to` targets (EP-0016
                   D1): deleting fires `:ui/delete-article` → `:reply-to
                   [:ui/article-deleted]` (navigate home), and following the
                   author fires `:ui/follow-author` → `:reply-to

@@ -1,8 +1,7 @@
 (ns realworld-resources.mutations
   "The MUTATION registry — every RealWorld write as a named, causal write to
    remote state that invalidates / patches / populates the cached resource
-   reads it affected (Spec 016 §Mutations, EP-0003 §Mutations — landed, first
-   public-beta gate).
+   reads it affected (Spec 016 §Mutations, EP-0003 §Mutations).
 
    This is the half the focused `examples/reagent/resources/` lifecycle demo
    does NOT show: the read→write→invalidate→refetch loop end-to-end in a full
@@ -26,7 +25,7 @@
    through the passive `[:rf.mutation/state {:instance …}]` sub
    (`{:pending? :success? :error? :settled? :result :error :optimistic?}`).
 
-   OPTIMISTIC ROLLBACK is LANDED (Spec 016 §Optimistic mutations, EP-0019). The
+   OPTIMISTIC ROLLBACK (Spec 016 §Optimistic mutations, EP-0019). The
    favorite / unfavorite writes below declare `:optimistic-tags` — the heart
    flips and the count moves on click, BEFORE the request is sent, across every
    cached read showing that article (the detail, every list, the session feed)

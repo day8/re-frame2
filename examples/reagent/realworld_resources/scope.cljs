@@ -20,17 +20,17 @@
 
    ## One named resolver, every site (the EP-0016 idiom)
 
-   Before EP-0016 this app hand-rolled the session/feed seam: the feed
-   resource declared `:rf.scope/from-caller`, the home route ensured it from an
-   event (a route `:scope` resolver couldn't see app-db), every view threaded a
-   `:session/scope` value onto its subscription payload, and a favourite toggle
-   needed an extra explicit session-scoped invalidation because a global-scope
-   mutation couldn't reach the session feed. Four hand-wired seams for one fact:
-   \"who is the current viewer?\"
+   The session/feed seam answers one fact — \"who is the current viewer?\" — and
+   a named resource-scope resolver states that fact ONCE rather than wiring it
+   by hand at every site. Hand-wiring would mean: the feed resource declaring
+   `:rf.scope/from-caller`, the home route ensuring it from an event (a route
+   `:scope` resolver can't see app-db), every view threading a `:session/scope`
+   value onto its subscription payload, and a favourite toggle needing an extra
+   explicit session-scoped invalidation because a global-scope mutation can't
+   reach the session feed — four hand-wired seams for one fact.
 
-   EP-0016 names that fact ONCE — `reg-resource-scope :realworld/session` with
-   declared db inputs — and every site references it as `{:from-db
-   :realworld/session}`:
+   `reg-resource-scope :realworld/session` with declared db inputs names that
+   fact once, and every site references it as `{:from-db :realworld/session}`:
 
    - the feed RESOURCE declares `:scope {:from-db :realworld/session}`
      (resources.cljs), so a subscription resolves the scope itself — no view
