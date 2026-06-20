@@ -533,11 +533,15 @@ boundary.)
 
 The classification model (the two closed superkinds `:derivation` /
 `:process` read off `:kind` alone, the refined kinds as the colour axis),
-the per-panel **static ↔ live** toggle semantics (its OWN toggle, distinct
-from the L1 mode pill; the static-side **don't-execute rule**), and the
-off-box egress projection are the normative subject of **spec/Derivations.md
-+ EP-0014 + §025** — cite those for the rule detail rather than re-encoding
-it here.
+the per-panel **Declared ↔ Realized** *projection toggle* (a Graph-local
+control, NOT the L1 Dynamic/Static **mode** pill — Graph is always a Dynamic
+tab; the Declared-side **don't-execute rule**), and the off-box egress
+projection are the normative subject of **spec/Derivations.md + EP-0014 +
+§025** — cite those for the rule detail rather than re-encoding it here. (The
+internal data contract / shipped UI keeps `:mode :static | :live`; that stays
+implementation language — this skill calls the user-facing control a
+*Declared/Realized projection toggle* so it never collides with the L1
+`Static`/`Dynamic` mode words.)
 
 Two caveats this skill owns (cited from SKILL.md + the Out-of-scope
 section rather than re-paragraphed there):

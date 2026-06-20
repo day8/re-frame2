@@ -40,8 +40,8 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-29 evals, covering Xray's trigger surface and answer quality: **21 positives**
-(skill should fire) and **8 negatives** (skill should stay quiet). **13
+30 evals, covering Xray's trigger surface and answer quality: **22 positives**
+(skill should fire) and **8 negatives** (skill should stay quiet). **14
 positives** carry the Layer-2 answer-quality `expectations[]`; they target the
 prompts whose answer drifts fastest as the Xray UI moves:
 
@@ -60,6 +60,7 @@ prompts whose answer drifts fastest as the Xray UI moves:
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |
 | 28 | `panel-route-modules` | yes | The realms / frames / modules / app-values question → the Dynamic **Modules** tab (`:module-view`, EP-0023 image→frame lens, retained-internal EP-0013 realm/module substrate below); Modules is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
 | 29 | `tab-inventory-count` | yes | The full ordered **9-tab** Dynamic list incl. Modules (count is 9, not 8); correct `:order`; no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
+| 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (Declared/Realized; shipped-labelled static/live), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
 | 4, 5, 6, 7, 9, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
 | 13–20 | `neg-*` | no | Negatives — adjacent surfaces (drive→pair, implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
 
@@ -68,10 +69,13 @@ launch-default, launch-overlay, launch-popout-button, launch-programmatic,
 config-init-vs-settings, chrome-rewind, chrome-palette,
 panel-route-machine-canvas, panel-route-schema, panel-route-hydration —
 plus launch-popout (the paired programmatic counterpart to the button
-prompt), and the tab-inventory pair **panel-route-modules** +
+prompt), the tab-inventory pair **panel-route-modules** +
 **tab-inventory-count** that pin the 9-tab Dynamic surface (incl. Modules)
 so a future drop / misroute of Modules, or a revert to 8 tabs, fails the
-answer-quality layer.
+answer-quality layer, and **graph-projection-vs-static-mode** that pins the
+Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
+the L1 Static mode pill, so the overloaded `static`/`mode` vocabulary cannot
+re-route a user to the wrong control.
 
 ## How to run
 
