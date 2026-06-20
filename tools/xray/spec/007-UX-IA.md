@@ -195,8 +195,11 @@ panel's outer edge (left edge when docked `:right-rail`; the default per
   and pen unified through pointer events; `touch-action: none` so a
   touch-drag does not pan the page)
 - Clamp width to `[320px, 90vw]`
-- Persist via `configure! :rf.xray/settings :general :panel-width-px`
-  (see [`015-Configuration.md`](./015-Configuration.md))
+- Persist to the Settings slot `[:general :panel-width-px]` at runtime
+  via the `:rf.xray/settings-update` event (a host boot default can
+  bulk-set the same slot with the one-arg map `configure!`,
+  `{:rf.xray/settings {:general {:panel-width-px <px>}}}`; see
+  [`015-Configuration.md`](./015-Configuration.md))
 - Reset to default width on double-click
 
 The CSS-variable cascade (`--rf-xray-inline-width` on the host's
@@ -276,9 +279,12 @@ bar** is a draggable resize affordance. The seam SHALL:
 - Clamp height to `[48px, viewport×0.7]` — 48px == 2 rows + chrome,
   the documented L2 minimum; 70% leaves a 30% sliver for L1 chrome +
   L3 tab bar + L4 detail panel
-- Persist via `configure! :rf.xray/settings :general :events-list-height-px`
-  (round-trips through localStorage with the rest of the Settings
-  map; see [`015-Configuration.md`](./015-Configuration.md))
+- Persist to the Settings slot `[:general :events-list-height-px]` at
+  runtime via the `:rf.xray/settings-update` event (round-trips through
+  localStorage with the rest of the Settings map; a host boot default
+  can bulk-set the same slot with the one-arg map `configure!`,
+  `{:rf.xray/settings {:general {:events-list-height-px <px>}}}`; see
+  [`015-Configuration.md`](./015-Configuration.md))
 - Reset to default height (200px) on double-click
 
 The click-area is a **full-width 8px horizontal strip** so the
