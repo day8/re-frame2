@@ -36,6 +36,7 @@
             [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.live-frame :as live-frame]
+            [re-frame.marks :as marks]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -246,9 +247,11 @@
     ;; The marks themselves are DERIVED from the registrar meta at `marks-for`
     ;; read time (no imperative stash). The propagation table
     ;; (`re-frame.marks/mark-sub-output!`) is updated on each sub-cache compute
-    ;; pass — see `compute-and-cache!`.
-    (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-      (validate! :sub meta))
+    ;; pass — see `compute-and-cache!`. DIRECT REQUIRE (rf2-58bq1r): the
+    ;; always-on, same-artefact `validate-marks!` is called directly, not through
+    ;; the former `:marks/validate-marks!` late-bind hop (a vestigial indirection
+    ;; for this key — no DCE seam, no decoupling, cycle-free).
+    (marks/validate-marks! :sub meta)
     (registrar/register! :sub id
       (cond-> (assoc (source-coords/merge-coords meta)
                      :handler-fn    handler-fn
@@ -273,10 +276,11 @@
 
   rf2-ehexnw — VALIDATE marks fail-loud BEFORE the registrar write; marks are
   DERIVED from the registrar meta at read time, no imperative stash. Emits the
-  Spec 009 §`:rf.sub/create` materialisation trace. Returns `id`."
+  Spec 009 §`:rf.sub/create` materialisation trace. Returns `id`. DIRECT REQUIRE
+  (rf2-58bq1r): always-on, same-artefact validator called directly, not via the
+  former `:marks/validate-marks!` late-bind hop."
   [id meta handler-fn input-kind]
-  (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-    (validate! :sub meta))
+  (marks/validate-marks! :sub meta)
   (registrar/register! :sub id
     (assoc (source-coords/merge-coords meta)
            :handler-fn    handler-fn

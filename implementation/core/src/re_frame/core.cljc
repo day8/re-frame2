@@ -64,11 +64,14 @@
             ;; owned classification + `project-egress` are the public
             ;; boundary now). `re-frame.marks` stays a side-effect-only
             ;; require — it publishes the `:marks/*` late-bind hooks (the
-            ;; trace bus's `:marks/project-trace-event` emit chokepoint, the
-            ;; reg-* boundary `:marks/validate-marks!` fail-loud check, and
+            ;; trace bus's `:marks/project-trace-event` emit chokepoint and
             ;; `:marks/marks-for` — which DERIVES per-(kind,id) marks from the
             ;; registrar metadata at read time, no imperative side-table:
-            ;; rf2-ehexnw) that must be bound at boot. No `marks/*` symbols are
+            ;; rf2-ehexnw) that must be bound at boot. The reg-* boundary
+            ;; fail-loud check is no longer a hook: events / fx / cofx / subs
+            ;; call `re-frame.marks/validate-marks!` by DIRECT REQUIRE
+            ;; (rf2-58bq1r — always-on, same-artefact, cycle-free, already
+            ;; bundled, so the hop bought nothing). No `marks/*` symbols are
             ;; referenced from this façade any more.
             [re-frame.marks]
             ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect

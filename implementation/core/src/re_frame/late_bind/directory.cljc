@@ -152,15 +152,17 @@
    ;; EXCEPTION — the `:marks/*` rows are NOT an absent-optional-artefact
    ;; case (rf2-eq7m0x). `re-frame.marks` ships IN core and is side-
    ;; effect-required at boot (core.cljc), so the hooks are bound in
-   ;; every canonical build — `marks` is NEVER absent. The late-bind hop
-   ;; from events/fx/subs/cofx into `marks` is the production-DCE/elision
-   ;; SEAM, not decoupling: the dev-only marks projection surface rides
-   ;; `interop/debug-enabled?` and constant-folds out of `:advanced` +
-   ;; `goog.DEBUG=false` bundles (marks.cljc §Hot-path cost), so a direct
-   ;; `:require` would pin that dev-only surface into the prod bundle and
-   ;; regress elision. The always-on survivors (`:marks/validate-marks!`
-   ;; reg-time validator, `:marks/redact-event-by-registration` prod
-   ;; redactor) are reached through the SAME indirection. See the per-key
+   ;; every canonical build — `marks` is NEVER absent. For the DEV-GATED
+   ;; projection hooks the late-bind hop is the production-DCE/elision
+   ;; SEAM, not decoupling: their emit-time surface rides
+   ;; `interop/debug-enabled?` and is gated at the trace/emit! call sites,
+   ;; so the hop keeps the lookup off the always-on registration path. The
+   ;; always-on `:marks/redact-event-by-registration` prod redactor is
+   ;; reached through the SAME indirection. NOTE (rf2-58bq1r): the
+   ;; `:marks/validate-marks!` row is GONE — being always-on AND
+   ;; same-artefact AND already bundled, the seam rationale never applied to
+   ;; it, so reg-event / reg-fx / reg-cofx / reg-sub call
+   ;; `re-frame.marks/validate-marks!` by DIRECT REQUIRE. See the per-key
    ;; notes below.
    ;; ===========================================================================
 
@@ -180,16 +182,25 @@
    ;; ---- re-frame.marks (rf2-vw7f5 Spec 015 data classification) -------------
    ;; NOT an optional-artefact decoupling (rf2-eq7m0x): `re-frame.marks` ships IN
    ;; core and is boot side-effect-required (core.cljc), so these hooks are bound
-   ;; in every canonical build. The indirection is the production-DCE/elision
-   ;; SEAM. Two grades live on these rows:
-   ;;   - DCE / DEV-ONLY seam (constant-folds out of `:advanced` +
-   ;;     `goog.DEBUG=false` per marks.cljc §Hot-path cost): :marks/marks-for,
-   ;;     :marks/project-trace-event, :marks/resolve-sub-output-marks,
-   ;;     :marks/mark-sub-output!, :marks/clear-marks!,
-   ;;     :marks/clear-sub-output-marks!.
-   ;;   - ALWAYS-ON production survivors reached through the SAME indirection
-   ;;     (NOT DCE'd): :marks/validate-marks! (reg-time validator, above) and
-   ;;     :marks/redact-event-by-registration (production egress redactor).
+   ;; in every canonical build. For the DEV-GATED projection hooks the indirection
+   ;; is the production-DCE/elision SEAM — their emit-time surface rides
+   ;; `interop/debug-enabled?` and is gated at the trace/emit! call sites, so the
+   ;; late-bind hop keeps the lookup off the always-on registration path:
+   ;;   :marks/marks-for, :marks/project-trace-event,
+   ;;   :marks/resolve-sub-output-marks, :marks/mark-sub-output!,
+   ;;   :marks/clear-marks!, :marks/clear-sub-output-marks!.
+   ;; ALWAYS-ON production survivor still reached through the indirection:
+   ;;   :marks/redact-event-by-registration (the production egress redactor).
+   ;; NOTE (rf2-58bq1r): the `:marks/validate-marks!` hook row is GONE. It was the
+   ;; ONE always-on, NON-dev-gated marks key, so the DCE-seam rationale never
+   ;; applied to it: `re-frame.marks` lives in the SAME artefact as its only
+   ;; callers (events / fx / cofx / subs) and is already pinned into every
+   ;; production bundle, the validator fail-louds in prod, and the require is
+   ;; cycle-free (marks' transitive closure touches none of events/fx/cofx/subs).
+   ;; A before/after `:advanced` + goog.DEBUG=false bundle diff confirmed marks
+   ;; present and the dev-only sentinels still elided either way — the hop bought
+   ;; no decoupling and no elision win, so reg-event / reg-fx / reg-cofx / reg-sub
+   ;; now call `re-frame.marks/validate-marks!` by DIRECT REQUIRE.
    ;; NOTE (rf2-gjp7t6): the `:marks/add-marks` / `:marks/set-marks` hook rows
    ;; are GONE. EP-0015 §3 (rf2-mngp4o) removed the public imperative façade
    ;; exports; the hooks themselves had ZERO consumers and were kept only for
@@ -197,20 +208,6 @@
    ;; `set-marks` fns survive as test / conformance-only helpers reached by
    ;; DIRECT REQUIRE (the marks tests + the conformance corpus harness), never
    ;; through a late-bind hook.
-   ;; DCE-SEAM (rf2-eq7m0x): `re-frame.marks` is core-owned + boot side-effect-
-   ;; required (core.cljc), so this hook is bound in every canonical build. The
-   ;; late-bind hop into marks is the production-DCE/elision seam — the dev-only
-   ;; marks PROJECTION surface (`:marks/project-trace-event`, the sub-output
-   ;; propagation table) rides `interop/debug-enabled?` and constant-folds out of
-   ;; `:advanced` + `goog.DEBUG=false` bundles (marks.cljc §Hot-path cost); a
-   ;; direct `:require` would pin that dev-only surface into the prod bundle and
-   ;; regress elision. `validate-marks!` ITSELF is the ALWAYS-ON reg-time
-   ;; validator (NOT DCE'd — it fail-louds on every reg-* in prod too), reached
-   ;; through that same DCE-seam indirection.
-   {:key         :marks/validate-marks!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-ehexnw"
-    :description "ALWAYS-ON reg-time validator (NOT a DCE'd dev surface — fail-louds in production too). VALIDATE a registration's :sensitive / :large / :rf.egress/output-sensitivity declarations fail-loud at the reg-* boundary (raising :rf.error/bad-marks on a malformed declaration, before the registrar write so a bad registration never lands). NOTHING is stashed — per-(kind, id) marks are DERIVED from the registrar meta at :marks/marks-for read time (rf2-ehexnw), not duplicated into an imperative side-table. Replaces the deleted :marks/register-marks! (stash) and :marks/union-marks! (additive-merge) hooks. Called from reg-event / reg-fx / reg-cofx / reg-sub via this late-bind hook NOT to decouple core from an absent artefact (marks is core-owned + boot-bound, never absent) but because the hook routes through the production-DCE/elision seam the rest of the marks surface uses (rf2-eq7m0x)."}
    {:key         :marks/marks-for
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"

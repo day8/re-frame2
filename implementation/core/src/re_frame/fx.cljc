@@ -23,6 +23,7 @@
             [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.marks :as marks]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
@@ -44,10 +45,16 @@
   kind-specific registrar slots merged on top — `nil` for `reg-fx`, the
   `:recordable?` / `:provided?` grade flags for `reg-cofx`. `re-frame.cofx`
   reaches this through its existing `fx/` alias (the same single-definition
-  pattern as `runs-on-platform?` / `platform-for-frame-record`, rf2-4ymm0)."
+  pattern as `runs-on-platform?` / `platform-for-frame-record`, rf2-4ymm0).
+
+  Marks validation is a DIRECT call into `re-frame.marks/validate-marks!`
+  (rf2-58bq1r): an ALWAYS-ON registration-time validator in the same core
+  artefact, already pinned into every production bundle, reached without the
+  former `:marks/validate-marks!` late-bind hop (which was neither a DCE seam
+  nor optional-artefact decoupling for this always-on, same-artefact key; the
+  require is cycle-free)."
   [kind id meta handler-fn extra-slots]
-  (when-let [validate! (late-bind/get-fn :marks/validate-marks!)]
-    (validate! kind meta))
+  (marks/validate-marks! kind meta)
   (registrar/register! kind id (merge (assoc (source-coords/merge-coords meta)
                                              :handler-fn handler-fn)
                                       extra-slots)))
