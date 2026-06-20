@@ -1280,10 +1280,35 @@
             ;; cascade too. Then emit the rollback change traces so subs /
             ;; listeners see the restored state. The schema-failure error
             ;; trace already fired between the forward and rollback commits.
-            (let [rb-changed (frame/replace-frame-state!
+            ;;
+            ;; Privacy fail-safe (forward/rollback symmetry, rf2-qzs1y9): the
+            ;; forward commit above reconciles the runtime-db effect against the
+            ;; LIVE runtime-db so flow-written elision marks ([:rf.runtime/elision])
+            ;; propagated during the `:after` drain SURVIVE the commit. The
+            ;; rollback target `runtime-before` is the chain-start snapshot
+            ;; captured by reference BEFORE the drain ran, so it predates those
+            ;; marks. Restoring it verbatim would silently DISCARD the
+            ;; flow-written elision declarations — the very marks the forward
+            ;; path takes care to preserve — and a flow-derived sensitive path
+            ;; would egress RAW until the next successful drain re-propagated.
+            ;; The elision registry is CROSS-CUTTING durable subsystem state
+            ;; written OUT-OF-BAND (`reg-flow` / `add-marks` / frame-
+            ;; classification), NOT part of the transactional handler effect the
+            ;; schema rejected — so it must NOT be unwound with the rejected db.
+            ;; Carry the LIVE registry (the freshest flow-propagated marks, as
+            ;; preserved by the forward reconcile and still resident on the
+            ;; container) forward onto the restored `runtime-before`, mirroring
+            ;; the forward path. A stale declaration for a path the rolled-back
+            ;; db no longer contains is harmless (it redacts nothing); dropping a
+            ;; live one risks raw egress — fail safe toward redaction.
+            (let [live-elision (get (frame/frame-runtime-db-value frame)
+                                    :rf.runtime/elision)
+                  runtime-restore (elision/write-elision-slot runtime-before
+                                                              live-elision)
+                  rb-changed (frame/replace-frame-state!
                                frame
                                {frame/app-partition-key     db-before
-                                frame/runtime-partition-key runtime-before})]
+                                frame/runtime-partition-key runtime-restore})]
               ;; Roll back the flow dirty-check
               ;; (`last-inputs`) bookkeeping in lock-step with the app-db
               ;; (frame-scoped). No-op when no flow ran or the

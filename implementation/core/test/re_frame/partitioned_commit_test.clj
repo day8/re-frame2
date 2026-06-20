@@ -28,9 +28,16 @@
        post-commit-best-effort fx asymmetry (Mike-ruled, unchanged)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
+            [re-frame.marks :as marks]
             [re-frame.registrar :as registrar]
+            ;; Load the schemas artefact so the
+            ;; `:schemas/validate-app-schema!` late-bind hook is published —
+            ;; the post-commit schema-rollback tests below guard on it and are
+            ;; otherwise skipped when this ns runs in isolation (`-n`).
+            [re-frame.schemas]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
@@ -377,3 +384,56 @@
           "app-db rolled back to the pre-handler value")
       (is (= {:rf.runtime/machines {:m :pre}} (rf/runtime-db-value :pc/rb))
           "runtime-db ALSO rolled back — the whole transition unwinds coherently"))))
+
+;; rf2-qzs1y9 — forward/rollback symmetry for flow-written elision marks.
+;;
+;; The forward commit reconciles the runtime-db effect against the LIVE
+;; runtime-db so an elision mark a flow's `:after`-chain drain wrote into
+;; `[:rf.runtime/elision]` (AFTER the chain-start `runtime-before` snapshot was
+;; captured by reference) SURVIVES the commit. The post-commit schema-validation
+;; ROLLBACK must mirror that care: it restores the pre-handler `runtime-before`,
+;; which predates the in-drain mark — restoring it verbatim would silently
+;; DISCARD the flow-written elision declaration, and a flow-derived sensitive
+;; path would egress RAW until the next successful drain re-propagated. We model
+;; the flow's in-drain `refresh-flow-output-declarations!` write with `add-marks`
+;; from an `:after` interceptor — both reach the SAME `[:rf.runtime/elision]`
+;; slot via `elision/swap-elision-slot!`, the exact out-of-band write the
+;; forward-path comment names, running in-chain after `runtime-before` is fixed.
+(deftest schema-rollback-preserves-flow-written-elision-marks
+  (testing "a post-commit schema rollback PRESERVES an elision mark written
+            out-of-band during the :after chain (the mark the forward path
+            preserves) — forward/rollback symmetry (rf2-qzs1y9)"
+    (when (late-bind/get-fn :schemas/validate-app-schema!)
+      (rf/reg-frame :pc/rb-elision {:doc "rb-elision"})
+      ;; seed a coherent pre-handler frame-state with NO elision registry — the
+      ;; mark must be born DURING the chain, so it is absent from `runtime-before`.
+      (rf/replace-frame-state! :pc/rb-elision {:rf.db/app {:n 0}
+                                               :rf.db/runtime {}})
+      (is (= {} (elision/sensitive-declarations :pc/rb-elision))
+          "precondition: no flow-written sensitive declaration before dispatch")
+      ;; app schema demanding :n stay a non-negative int — the bad handler
+      ;; violates it, forcing the post-commit rollback.
+      (rf/with-frame :pc/rb-elision
+        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+      ;; An :after interceptor that writes a sensitive elision mark into the LIVE
+      ;; runtime-db — the stand-in for a flow drain propagating an output-
+      ;; sensitivity mark mid-chain. It runs after `runtime-before` was captured,
+      ;; so the mark exists ONLY in the live runtime-db, never in the snapshot.
+      (rf/reg-interceptor* :pc/flow-mark-writer
+        {:after (fn [ctx]
+                  (marks/add-marks :pc/rb-elision {[:secret] :sensitive})
+                  ctx)})
+      (rf/reg-event :pc/bad-elision
+        {:doc "schema-violating handler that triggers the rollback"
+         :interceptors [:pc/flow-mark-writer]}
+        (fn [_ _]
+          {:db {:n -5}}))                                ;; violates the schema → rollback
+      (rf/dispatch-sync [:pc/bad-elision] {:frame :pc/rb-elision})
+      (is (= {:n 0} (rf/app-db-value :pc/rb-elision))
+          "app-db rolled back to the pre-handler value (the schema rejection held)")
+      ;; THE REGRESSION: before the fix the rollback restored `runtime-before`
+      ;; verbatim and this mark was gone, so `[:secret]` would egress RAW.
+      (is (= {[:secret] {:source :marks}}
+             (elision/sensitive-declarations :pc/rb-elision))
+          "the flow-written elision mark SURVIVES the rollback — the rollback
+           mirrors the forward path's privacy fail-safe (rf2-qzs1y9)"))))
