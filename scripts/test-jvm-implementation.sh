@@ -67,8 +67,10 @@ artefacts=(
   # one-form event PUBLIC contract: `reg-event` as the single form with
   # reg-event-fx semantics, the three retired names as throwing stubs
   # raising their exact hard errors (production-survivable), the single
-  # `:rf/event-handler` wrapper (no `:event/kind`), and preserved
-  # realm-routing.
+  # `:rf/event-handler` wrapper (no `:event/kind`), and frame-scoped event
+  # routing (an image-loaded frame routes to its image, an image-less frame
+  # to the global registrar). The EP-0013 multi-realm substrate was retired
+  # under EP-0023/EP-0024 (rf2-afdlyr / rf2-tu2vr7) — no realm-routing here.
   implementation/event-conformance
 )
 
