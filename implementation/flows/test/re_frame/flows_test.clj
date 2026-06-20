@@ -51,13 +51,13 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): `reg-flow` / `clear-flow` are context-required
-  ;; frame-local — an ambient call under NO established scope now raises
-  ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor). `init!`
-  ;; no longer creates `:rf/default`; register it as an ordinary frame and
-  ;; pin `*current-frame*` so the ambient `reg-flow` / `dispatch-sync` calls
-  ;; in the bodies below carry a scope stamp. Fixture-level equivalent of
-  ;; wrapping each body in `(rf/with-frame :rf/default …)`.
+  ;; EP-0002: `reg-flow` / `clear-flow` are context-required frame-local — an
+  ;; ambient call under NO established scope raises `:rf.error/no-frame-context`
+  ;; (there is no `:rf/default` floor; `init!` does not create `:rf/default`).
+  ;; Register it as an ordinary frame and pin `*current-frame*` so the ambient
+  ;; `reg-flow` / `dispatch-sync` calls in the bodies below carry a scope
+  ;; stamp. Fixture-level equivalent of wrapping each body in
+  ;; `(rf/with-frame :rf/default …)`.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
     (test-fn)))
@@ -81,9 +81,9 @@
 
 (deftest clear-flow-removes-from-registry-and-vacates-output-slot
   (testing "clear-flow removes the flow and dissoc-in's its output path"
-    ;; rf2-aqt7: clear-flow's update-in path math is off-by-one for
-    ;; single-element :output-path vectors. Use a two-element :output-path here so
-    ;; the working branch (>= 2 elements) is exercised.
+    ;; clear-flow's update-in path math takes a different branch for
+    ;; single-element :output-path vectors. Use a two-element :output-path here
+    ;; so the (>= 2 elements) branch is exercised.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:rect :w] [:rect :h]]
@@ -101,12 +101,11 @@
     (flows/clear-flow :no-such-flow)))
 
 (deftest clear-flow-prunes-empty-frame-slot-from-registry
-  ;; rf2-4bbaw: clearing the LAST flow on a frame must dissoc the frame-id
-  ;; key from the per-frame `@flows` registry entirely, not leave a
-  ;; `{frame-id {}}` husk. (Distinct from the leaf-only app-db vacation
-  ;; husk covered by the next deftest — this is about the registry map,
-  ;; not app-db.) Symmetric with `teardown-on-frame-destroy!`'s
-  ;; `(swap! flows dissoc frame-id)`.
+  ;; Clearing the LAST flow on a frame dissocs the frame-id key from the
+  ;; per-frame `@flows` registry entirely, not leaving a `{frame-id {}}` husk.
+  ;; (Distinct from the leaf-only app-db vacation husk covered by the next
+  ;; deftest — this is about the registry map, not app-db.) Symmetric with
+  ;; `teardown-on-frame-destroy!`'s `(swap! flows dissoc frame-id)`.
   (testing "clearing the sole flow on a frame removes the frame-id key from flows-snapshot"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
@@ -119,13 +118,13 @@
         "the frame-id key is GONE from @flows — no {frame-id {}} husk remains")))
 
 (deftest clear-flow-vacates-leaf-only-leaving-empty-parent-husk
-  ;; rf2-ee38b.9: clear-flow's vacation contract is LEAF-ONLY. When the
-  ;; cleared flow's leaf was the sole key under its parent, an empty
-  ;; parent map remains — deliberate, not a leak. Pruning empty ancestor
-  ;; maps would risk deleting unrelated sibling slots that happen to be
-  ;; empty, so the leaf-only behaviour is the correct contract. The
-  ;; flow's *value* is fully gone (the spec's "vacate the slot"
-  ;; requirement); only the structural empty-map parent persists.
+  ;; clear-flow's vacation contract is LEAF-ONLY. When the cleared flow's leaf
+  ;; was the sole key under its parent, an empty parent map remains —
+  ;; deliberate, not a leak. Pruning empty ancestor maps would risk deleting
+  ;; unrelated sibling slots that happen to be empty, so the leaf-only
+  ;; behaviour is the correct contract. The flow's *value* is fully gone (the
+  ;; spec's "vacate the slot" requirement); only the structural empty-map
+  ;; parent persists.
   (testing "clearing a flow whose leaf is the sole key under its parent leaves an empty parent map"
     (rf/reg-event :seed-wizard (fn [{:keys [db]} _] {:db {:wizard {}}}))
     (rf/reg-flow {:id     :wizard/result
@@ -148,13 +147,13 @@
           "only the empty husk (plus unrelated sibling :seed) remains under the parent"))))
 
 (deftest clear-flow-nested-path-before-first-compute-does-not-write-nil-parent
-  ;; Regression for rf2-q25os Repro 1. When a flow with a nested `:output-path`
-  ;; (e.g. `[:step-2 :result]`) is cleared BEFORE any drain has run the
-  ;; flow's output, the parent slot `:step-2` doesn't exist in app-db.
-  ;; Pre-fix, the naïve `(update-in cur [:step-2] dissoc :result)`
-  ;; returned `(dissoc nil :result) ⇒ nil`, producing `{:step-2 nil}` — a
-  ;; spurious nil parent. The robust path (`dissoc-in-safe`) leaves
-  ;; app-db unchanged when the parent was never materialised.
+  ;; When a flow with a nested `:output-path` (e.g. `[:step-2 :result]`) is
+  ;; cleared BEFORE any drain has run the flow's output, the parent slot
+  ;; `:step-2` doesn't exist in app-db. A naïve
+  ;; `(update-in cur [:step-2] dissoc :result)` would return
+  ;; `(dissoc nil :result) ⇒ nil`, producing `{:step-2 nil}` — a spurious nil
+  ;; parent. The robust path (`dissoc-in-safe`) leaves app-db unchanged when
+  ;; the parent was never materialised.
   (testing "clear-flow on nested-path flow before first compute leaves app-db unchanged"
     (rf/reg-flow {:id     :pending
                   :inputs [[:n]]
@@ -169,12 +168,11 @@
             "no spurious `:step-2 nil` parent was created")))))
 
 (deftest clear-flow-noop-dissoc-does-not-rewrite-the-container
-  ;; Regression for rf2-2vpac. `clear-flow` skips `replace-container!`
-  ;; when the dissoc branch was a no-op (the slot was never materialised
-  ;; / already absent). Without the guard, clearing an absent slot would
-  ;; install a value-equal-but-fresh db reference and trigger a needless
-  ;; O(n) reactive sub-graph invalidation walk — costly during teardown,
-  ;; where clearing absent slots is common.
+  ;; `clear-flow` skips `replace-container!` when the dissoc branch was a no-op
+  ;; (the slot was never materialised / already absent). Without that guard,
+  ;; clearing an absent slot would install a value-equal-but-fresh db reference
+  ;; and trigger a needless O(n) reactive sub-graph invalidation walk — costly
+  ;; during teardown, where clearing absent slots is common.
   ;;
   ;; The value-equality test above (`...before-first-compute...`) proves
   ;; the db VALUE is unchanged; this test proves the db REFERENCE is
@@ -234,19 +232,18 @@
             "and the leaf is gone from the installed value")))))
 
 (deftest clear-flow-non-map-intermediate-is-noop
-  ;; Regression for rf2-q25os Repro 2. When an intermediate path step
-  ;; holds a non-map value (e.g. someone wrote a scalar at `:step-2`
-  ;; before the flow's output ever materialised), pre-fix
-  ;; `(update-in cur [:step-2] dissoc :result)` called `(dissoc 1 :result)`
-  ;; and threw `ClassCastException`. The robust path treats this as a
-  ;; no-op — the flow's `:output-path` never materialised, so there's nothing
-  ;; to clear.
+  ;; When an intermediate path step holds a non-map value (e.g. someone wrote
+  ;; a scalar at `:step-2` before the flow's output ever materialised), a
+  ;; naïve `(update-in cur [:step-2] dissoc :result)` would call
+  ;; `(dissoc 1 :result)` and throw `ClassCastException`. The robust path
+  ;; treats this as a no-op — the flow's `:output-path` never materialised, so
+  ;; there's nothing to clear.
   (testing "clear-flow on a flow whose intermediate path step holds a scalar is a no-op (no throw)"
     ;; Seed a scalar at the parent slot. NO flow is active during this
     ;; drain — a flow whose `:output-path` is `[:step-2 :result]` would
     ;; `assoc-in` over the scalar (which throws on the JVM) and, per the
-    ;; atomicity contract (rf2-u0zz5), abort the whole drain. The scalar-
-    ;; intermediate case is about `clear-flow` robustness, not flow
+    ;; atomicity contract, abort the whole drain. The scalar-intermediate
+    ;; case is about `clear-flow` robustness, not flow
     ;; evaluation, so we register the flow AFTER seeding and never drain
     ;; it — its `:output-path` stays un-materialised, which is exactly the
     ;; non-map-intermediate case `clear-flow` must treat as a no-op.
@@ -269,9 +266,10 @@
 
 (deftest clear-flow-handles-single-element-path
   (testing "rf2-aqt7: clear-flow with a single-element :output-path dissocs the top-level key"
-    ;; The repro from rf2-aqt7: a flow whose :output-path is a one-element vector
-    ;; [:area]. Before the fix, clear-flow's (update-in cur [] dissoc :area)
-    ;; left :area in app-db (and silently introduced an {nil nil} entry).
+    ;; A flow whose :output-path is a one-element vector [:area]. A naïve
+    ;; (update-in cur [] dissoc :area) would leave :area in app-db (and
+    ;; silently introduce an {nil nil} entry); the length-1 special-case
+    ;; dissocs the top-level key directly.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
@@ -324,7 +322,7 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-missing-id (:rf.error/id data))
           ":rf.error/id carries the missing-id discriminator")
-      ;; rf2-vvixub — message is the human :reason sentence + the trailing
+      ;; The message is the human :reason sentence + the trailing
       ;; [:rf.error/<id>] token; assert the token substring, not equality.
       (is (re-find #"\[:rf\.error/flow-missing-id\]" (ex-message ex))
           "message carries the [:rf.error/flow-missing-id] token")
@@ -338,21 +336,21 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-output (:rf.error/id data))
           ":rf.error/id carries the bad-output discriminator")
-      ;; rf2-vvixub — assert the [:rf.error/<id>] token substring, not equality.
+      ;; Assert the [:rf.error/<id>] token substring, not equality.
       (is (re-find #"\[:rf\.error/flow-bad-output\]" (ex-message ex))
           "message carries the [:rf.error/flow-bad-output] token")
       (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition"))))
 
 (deftest reg-flow-id-must-be-a-keyword
-  ;; rf2-ihfz9o issue 2: the public FlowMeta schema requires `[:id :keyword]`
-  ;; (Spec-Schemas §FlowMeta) and the `:flow-id` slot is emitted unchanged into
-  ;; `:rf.flow/*` trace + error payloads, so a non-keyword id leaks an
-  ;; arbitrary shape downstream. `reg-flow` rejects a present-but-non-keyword
-  ;; id at the API boundary with the dedicated `:rf.error/flow-bad-id`
-  ;; discriminator (a fifth member of the `:rf.error/flow-bad-*` family).
-  ;; nil/absent stays `:rf.error/flow-missing-id` (the absent-id case fires
-  ;; first); a keyword id passes.
+  ;; The public FlowMeta schema requires `[:id :keyword]` (Spec-Schemas
+  ;; §FlowMeta) and the `:flow-id` slot is emitted unchanged into `:rf.flow/*`
+  ;; trace + error payloads, so a non-keyword id would leak an arbitrary shape
+  ;; downstream. `reg-flow` rejects a present-but-non-keyword id at the API
+  ;; boundary with the dedicated `:rf.error/flow-bad-id` discriminator (a
+  ;; member of the `:rf.error/flow-bad-*` family). nil/absent is
+  ;; `:rf.error/flow-missing-id` (the absent-id case fires first); a keyword
+  ;; id passes.
   (testing "a nil :id throws :rf.error/flow-missing-id (absent), NOT flow-bad-id"
     (let [ex (try (rf/reg-flow {:id nil :inputs [[:n]] :derive identity :output-path [:x]})
                   (catch Throwable t t))]
@@ -365,7 +363,7 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-id (:rf.error/id data))
           ":rf.error/id carries the bad-id discriminator")
-      ;; rf2-vvixub — assert the [:rf.error/<id>] token substring, not equality.
+      ;; Assert the [:rf.error/<id>] token substring, not equality.
       (is (re-find #"\[:rf\.error/flow-bad-id\]" (ex-message ex))
           "message carries the [:rf.error/flow-bad-id] token")
       (is (= 'rf/reg-flow (:where data))         ":where names the user-facing surface")
@@ -388,27 +386,27 @@
         "a keyword id registers cleanly and reg-flow returns the id")))
 
 ;; ---------------------------------------------------------------------------
-;; 1b. validate-flow well-formedness (rf2-gnl7q)
+;; 1b. validate-flow well-formedness
 ;;
-;; Per audit rf2-o3hok findings Q5 / TE4 — the prior `validate-flow` only
-;; checked `(vector? (:inputs flow))` and `(vector? (:output-path flow))`, so:
+;; `validate-flow` fully checks `:inputs` and `:output-path` shape up front
+;; rather than letting a malformed value boom deep in topo-sort. Without the
+;; full check:
 ;;
 ;;   - `:inputs [:foo :bar]` (vector of bare keywords, NOT vector-of-paths)
-;;     passed validation and then threw deep inside topo-sort's `prefix?`
-;;     when it called `(count :foo)`.
-;;   - `:inputs [[:foo] :bar]` (mixed) likewise passed, then exploded on
+;;     would pass and then throw inside topo-sort's `prefix?` on `(count :foo)`.
+;;   - `:inputs [[:foo] :bar]` (mixed) would likewise pass, then explode on
 ;;     the bare-keyword entry.
-;;   - `:output-path []` passed; `(prefix? [] anything)` returns true, silently
-;;     making the empty-path flow a depends-on prerequisite of EVERY other
-;;     flow in the frame.
+;;   - `:output-path []` would pass; `(prefix? [] anything)` returns true,
+;;     silently making the empty-path flow a depends-on prerequisite of EVERY
+;;     other flow in the frame.
 ;;
-;; These tests pin the tightened contract: each malformation is rejected
-;; up front with a stable error id (`:rf.error/flow-bad-inputs` or
-;; `:rf.error/flow-bad-path`) and ex-data that names the offending entries
-;; so callers can fix their flow map without a stack-trace scavenger hunt.
+;; These tests pin the contract: each malformation is rejected up front with a
+;; stable error id (`:rf.error/flow-bad-inputs` or `:rf.error/flow-bad-path`)
+;; and ex-data that names the offending entries so callers can fix their flow
+;; map without a stack-trace scavenger hunt.
 
-;; rf2-vvixub — branch on the canonical :rf.error/id discriminator, never
-;; on the (now human-sentence) message string.
+;; Branch on the canonical :rf.error/id discriminator, never on the
+;; (human-sentence) message string.
 (defn- flow-bad-inputs? [^Throwable t]
   (= :rf.error/flow-bad-inputs (:rf.error/id (ex-data t))))
 
@@ -429,7 +427,7 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-inputs (:rf.error/id data))
           ":rf.error/id slot carries the discriminator keyword")
-      ;; rf2-vvixub — assert the [:rf.error/<id>] token substring, not equality.
+      ;; Assert the [:rf.error/<id>] token substring, not equality.
       (is (re-find #"\[:rf\.error/flow-bad-inputs\]" (ex-message ex))
           "message carries the [:rf.error/flow-bad-inputs] token")
       (is (nil? (:error data))
@@ -451,8 +449,8 @@
 
 (deftest reg-flow-rejects-bare-keyword-inputs
   (testing ":inputs [:foo :bar] is rejected (vector of bare keywords, not vector-of-paths)"
-    ;; Pre-fix this would pass validate-flow and then throw with
-    ;; (count :foo) somewhere deep in topo's prefix?.
+    ;; Without the up-front check this would pass validate-flow and then throw
+    ;; with (count :foo) somewhere deep in topo's prefix?.
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [:foo :bar]
@@ -505,9 +503,9 @@
 
 (deftest reg-flow-rejects-empty-path
   (testing ":output-path [] is rejected (would make this flow a prerequisite of every other flow)"
-    ;; Pre-fix: (prefix? [] anything) returns true, so an empty-path flow
-    ;; becomes depends-on for every other flow in the frame. Per Spec 013
-    ;; §Dependency rule this is never what the caller means.
+    ;; (prefix? [] anything) returns true, so an empty-path flow would become
+    ;; depends-on for every other flow in the frame. Per Spec 013 §Dependency
+    ;; rule this is never what the caller means, so it is rejected.
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [[:n]]
@@ -539,14 +537,13 @@
             (keyword / string / integer / symbol / boolean — and, after the
             rf2-t3cfil widening to re-frame.path/segment?, UUID / instant /
             nil too)"
-    ;; rf2-t3cfil: flow `valid-path-element?` delegates to the shared
-    ;; `re-frame.path/segment?` rather than a flows-private scalar
-    ;; enumeration, so a flow path may focus through any concrete EDN
-    ;; identity segment the `:rf/path` algebra already supports — including a
-    ;; UUID-keyed map (`{:by-id {#uuid "…" …}}`), an instant key, and the nil
-    ;; key. Each round-trips through reg-flow without throwing; tighter (and
-    ;; now shared) validation must not regress the common scalar case nor the
-    ;; newly-admitted ones.
+    ;; Flow `valid-path-element?` delegates to the shared
+    ;; `re-frame.path/segment?` rather than a flows-private scalar enumeration,
+    ;; so a flow path may focus through any concrete EDN identity segment the
+    ;; `:rf/path` algebra supports — including a UUID-keyed map
+    ;; (`{:by-id {#uuid "…" …}}`), an instant key, and the nil key. Each
+    ;; round-trips through reg-flow without throwing; the shared validation
+    ;; admits the common scalar case alongside these.
     (doseq [[label elt] [[:kw      :kw]
                          [:string  "str"]
                          [:int     42]
@@ -586,13 +583,11 @@
         "cycle-detection rolls back the partial registration of :b")))
 
 (deftest reg-flow-cycle-error-carries-ordered-cycle-path
-  ;; Regression for rf2-sny6o. The cycle-error ex-data contract
-  ;; (per Spec 013 §Cycle detection / Spec 009 §Error contract) is:
-  ;; `:cycle` is an ordered vector of flow ids with a closing repeat
-  ;; — e.g. `[:a :b :a]` for the cycle :a → :b → :a. Pre-fix the impl
-  ;; threw `(vec (keys @remaining))` (an unordered subset of stuck
-  ;; nodes) which was useless for tooling rendering the offending
-  ;; chain. This test pins the resolved shape.
+  ;; The cycle-error ex-data contract (per Spec 013 §Cycle detection /
+  ;; Spec 009 §Error contract): `:cycle` is an ordered vector of flow ids with
+  ;; a closing repeat — e.g. `[:a :b :a]` for the cycle :a → :b → :a. (An
+  ;; unordered subset of stuck nodes would be useless for tooling rendering
+  ;; the offending chain.) This test pins the ordered-closing-repeat shape.
   (testing "two-flow cycle: :cycle is [start ... start], length 3"
     (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
     (let [ex (try
@@ -609,8 +604,8 @@
       (is (= #{:a :b} (set cycle))
           ":cycle names both offending flow ids")
       ;; Spec 013 example: {:cycle [:a :b :a]}. Either :a or :b may
-      ;; legally be the starting node (impl picks deterministically
-      ;; via sort-by hash; spec leaves the starting node
+      ;; legally be the starting node (the impl picks deterministically
+      ;; via sort-by hash; the spec leaves the starting node
       ;; implementation-defined) — assert one of the two valid
       ;; closures.
       (is (contains? #{[:a :b :a] [:b :a :b]} cycle)
@@ -637,15 +632,13 @@
           "all three offending ids appear in the path"))))
 
 (deftest reg-flow-replacement-that-introduces-cycle-preserves-prior-registration
-  ;; Regression for rf2-7csri (bug) / rf2-cdh9h (this test). Pinned per
-  ;; audit rf2-o3hok finding Exec#2 (TE2). The bug: `reg-flow`'s former
-  ;; rollback path wrote the new entry FIRST then ran cycle detection;
-  ;; on a cyclic re-registration the rollback dissoc'd by id, which
-  ;; DELETED the prior registration as well as the just-written one. A
-  ;; hot-reload that accidentally introduced a cycle therefore silently
-  ;; vacated the previously-working flow. The fix (rf2-7csri) runs cycle
-  ;; detection on a PROSPECTIVE flow-map BEFORE mutating; on failure
-  ;; nothing is written and the prior registration stays intact.
+  ;; `reg-flow` runs cycle detection on a PROSPECTIVE flow-map BEFORE
+  ;; mutating; on failure nothing is written and the prior registration stays
+  ;; intact. A rollback path that wrote the new entry FIRST and then dissoc'd
+  ;; by id on a detected cycle would DELETE the prior registration as well as
+  ;; the just-written one — so a hot-reload that accidentally introduced a
+  ;; cycle would silently vacate the previously-working flow. This test pins
+  ;; that the prior registration survives.
   (testing "a cyclic reg-flow REPLACEMENT must not silently delete the prior registration"
     ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
     ;; closes the cycle. Cannot use a self-cycle on :b (topo-sort skips
@@ -901,8 +894,8 @@
         ":rf.fx/clear-flow dissoc-in'd the output path")))
 
 (deftest fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround
-  ;; rf2-1smwp — pin the LEAST-OBVIOUS flow behaviour as an explicit
-  ;; contract: a flow registered mid-event via `:rf.fx/reg-flow` does NOT
+  ;; Pin the LEAST-OBVIOUS flow behaviour as an explicit contract: a flow
+  ;; registered mid-event via `:rf.fx/reg-flow` does NOT
   ;; compute on THAT event's drain (the `:fx` walk runs after the flow
   ;; transform — Spec 013 §Sequencing / §Drain integration), and the
   ;; documented workaround (a follow-up no-op `:dispatch` from the SAME
@@ -957,11 +950,11 @@
     (is (nil? (registrar/lookup :flow :two)))))
 
 (deftest reset-flows-clears-both-flows-and-last-inputs
-  ;; Per rf2-mb65w. `reset-flows!` must reset BOTH the flow registry
-  ;; AND the dirty-check `last-inputs` map. Pre-fix it cleared only
-  ;; `flows`; a fixture / harness calling `reset-flows!` standalone
-  ;; then re-registering the same flow-id would silently no-op the
-  ;; first evaluation when new-inputs =-equalled a leftover entry.
+  ;; `reset-flows!` resets BOTH the flow registry AND the dirty-check
+  ;; `last-inputs` map. Clearing only `flows` would let a fixture / harness
+  ;; calling `reset-flows!` standalone then re-registering the same flow-id
+  ;; silently no-op the first evaluation when new-inputs =-equal a leftover
+  ;; entry.
   (testing "reset-flows! drops both flow registry AND last-inputs in lockstep"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-flow {:id     :double
@@ -980,11 +973,11 @@
         "last-inputs is ALSO empty after reset-flows! (rf2-mb65w)")))
 
 (deftest reset-flows-allows-re-registration-without-stale-skip
-  ;; The footgun: re-register the same flow id with the same inputs
-  ;; after a `reset-flows!`. Pre-fix, the stale `last-inputs` entry
+  ;; The footgun guard: re-register the same flow id with the same inputs
+  ;; after a `reset-flows!`. A stale `last-inputs` entry surviving the reset
   ;; would =-equal new inputs and the first drain would silently emit
-  ;; `:rf.flow/skip` instead of `:rf.flow/computed` — the new body
-  ;; never ran.
+  ;; `:rf.flow/skip` instead of `:rf.flow/computed` — the new body never
+  ;; running.
   (testing "after reset-flows! the re-registered flow re-evaluates on next drain"
     (let [calls (atom 0)]
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
@@ -1021,11 +1014,8 @@
 ;; ---------------------------------------------------------------------------
 ;; 7. clear-flow :frame opt routing — multi-frame registrar-slot retention
 ;;
-;; Per audit rf2-0b2eh §TC-2 / rf2-otbub. The cross-artefact
-;; `smoke_test.clj` exercises frame-scoped flow REGISTRATION end-to-end,
-;; but the flows artefact's own test alias did not pin `clear-flow`'s
-;; `:frame` opt routing — three branches in registry.cljc went unverified
-;; here:
+;; This deftest pins `clear-flow`'s `:frame` opt routing within the flows
+;; artefact's own test alias — three branches in registry.cljc:
 ;;
 ;; 1. Frame opt routing: `(clear-flow :foo {:frame :left})` removes the
 ;;    flow from `:left`'s per-frame map only; sibling frame `:right`'s
@@ -1090,9 +1080,8 @@
     ;; Branch 4: the cleared flow truly stops firing. Re-seed both
     ;; frames and confirm :left's slot stays absent (no flow to run)
     ;; while :right's still-registered :compute recomputes off the new
-    ;; input. Folded in from the former `flows-are-frame-scoped` test
-    ;; (rf2-zqar3) — the dissoc-only assertion above does not prove the
-    ;; flow stopped firing on subsequent drains.
+    ;; input. The dissoc-only assertion above does not prove the flow stopped
+    ;; firing on subsequent drains; this does.
     (rf/dispatch-sync [:seed 7] {:frame :left})
     (rf/dispatch-sync [:seed 7] {:frame :right})
     (is (not (contains? (rf/app-db-value :left) :result))
@@ -1118,16 +1107,15 @@
 ;; ---------------------------------------------------------------------------
 ;; 8. `_hot-reload-hook` defonce-idempotency on namespace reload
 ;;
-;; Per audit rf2-0b2eh §TC-3 / rf2-5ay09. The flows registry installs a
-;; registrar replacement-hook (`invalidate-flow-on-replace!`) once at
-;; namespace load via `(defonce ^:private _hot-reload-hook
-;; (registrar/add-replacement-hook! ...))`. If the `defonce` protection
-;; ever regressed to a plain `def`, every namespace reload would push a
-;; duplicate hook into `re-frame.registrar/replacement-hooks` — every
-;; subsequent flow re-registration would invalidate `last-inputs` twice
-;; (functionally harmless because `dissoc` is idempotent, but a silent
-;; bookkeeping leak that would compound across many hot-reload cycles in
-;; long dev sessions).
+;; The flows registry installs a registrar replacement-hook
+;; (`invalidate-flow-on-replace!`) once at namespace load via
+;; `(defonce ^:private _hot-reload-hook
+;; (registrar/add-replacement-hook! ...))`. A plain `def` would push a
+;; duplicate hook into `re-frame.registrar/replacement-hooks` on every
+;; namespace reload — and every subsequent flow re-registration would
+;; invalidate `last-inputs` twice (functionally harmless because `dissoc` is
+;; idempotent, but a silent bookkeeping leak that would compound across many
+;; hot-reload cycles in long dev sessions).
 ;;
 ;; Pin the idempotency: `(require 're-frame.flows.registry :reload)`
 ;; MUST NOT push a duplicate hook.
@@ -1145,20 +1133,17 @@
 ;; ---------------------------------------------------------------------------
 ;; 9. Frame-scoping coverage lives in `clear-flow-routes-via-frame-opt`
 ;; above (registration routing, app-db dissoc, registrar-slot retention,
-;; AND the post-clear re-drain check). The former `flows-are-frame-scoped`
-;; smoke (relocated from core/smoke_test.clj per rf2-zqar3) duplicated that
-;; setup near-verbatim; its only unique assertion — the re-drain-after-clear
-;; check — has been folded into the artefact-native test, so it is dropped.
+;; AND the post-clear re-drain check).
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; 9a. invalidate-flow-on-replace! is frame-scoped (rf2-jfpf3 regression)
+;; 9a. invalidate-flow-on-replace! is frame-scoped
 ;;
-;; Spec 013 §Re-registration scopes the invalidation to
-;; `[frame-id flow-id]`. Pre-fix, the replacement hook wiped every
-;; frame's row under the flow id. A re-registration on frame `:left`
-;; cleared `:right`'s last-inputs row too, causing unnecessary
-;; recompute on `:right`'s next drain and weakening frame isolation.
+;; Spec 013 §Re-registration scopes the invalidation to `[frame-id flow-id]`.
+;; A replacement hook that wiped every frame's row under the flow id would
+;; have a re-registration on frame `:left` clear `:right`'s last-inputs row
+;; too, causing unnecessary recompute on `:right`'s next drain and weakening
+;; frame isolation.
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-on-one-frame-does-not-invalidate-sibling-frames-last-inputs
@@ -1200,17 +1185,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 9b. :flow registrar slot carries last-registered frame's metadata
-;;     (Spec 013 §Frame-scoping line 105) — rf2-twi6k.
+;;     (Spec 013 §Frame-scoping line 105).
 ;;
 ;; Spec 013 §Frame-scoping line 105 states: "the registrar slot carries
 ;; the most-recently-registered frame's flow-map with `:frame frame-id`
 ;; stamped into the metadata". The destroy-frame teardown tests
 ;; (flows_destroy_frame_teardown_test.clj) exercise registrar prune
-;; behaviour, but the "last-registration-wins" invariant for the
-;; metadata's `:frame` slot was never pinned. A regression that flipped
-;; the registrar-write order (e.g. only-stamping-on-first-registration)
-;; would silently break Xray / re-frame-10x's per-flow frame
-;; attribution.
+;; behaviour; this pins the "last-registration-wins" invariant for the
+;; metadata's `:frame` slot. A registrar-write order that only stamped on
+;; first registration would silently break Xray / re-frame-10x's per-flow
+;; frame attribution.
 ;; ---------------------------------------------------------------------------
 
 (deftest registrar-slot-carries-last-registered-frame-metadata
@@ -1241,16 +1225,15 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 9b-i. Registrar slot re-points to a LIVE owner when the slot's current
-;;       (last-registered) frame is cleared / destroyed (rf2-73pi1 finding 1).
+;;       (last-registered) frame is cleared / destroyed.
 ;;
 ;; The `:flow` registrar slot carries the most-recently-registered frame's
-;; metadata (Spec 013 §Frame-scoping line 105). Pre-fix, clearing /
-;; destroying THAT frame while a sibling still held the id left the slot
-;; pointing at the dead frame: registrar-backed tooling / hot-reload went
-;; stale, and the next surviving-frame re-registration computed
-;; `:different-fn?` against the dead frame's stale `:handler-fn` /
-;; metadata. The fix re-points the slot to a surviving owner (or
-;; unregisters when none survive).
+;; metadata (Spec 013 §Frame-scoping line 105). When THAT frame is cleared /
+;; destroyed while a sibling still holds the id, the slot re-points to a
+;; surviving owner (or unregisters when none survive). Leaving it pointing at
+;; the dead frame would stale registrar-backed tooling / hot-reload, and the
+;; next surviving-frame re-registration would compute `:different-fn?` against
+;; the dead frame's stale `:handler-fn` / metadata.
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-of-registrar-owner-repoints-to-surviving-frame
@@ -1319,13 +1302,13 @@
         "registrar slot unregistered — no surviving frame holds :solo")))
 
 ;; ---------------------------------------------------------------------------
-;; 9b-ii. Same-frame re-registration with a CHANGED :output-path vacates the old
-;;        output path from app-db (rf2-73pi1 finding 2).
+;; 9b-ii. Same-frame re-registration with a CHANGED :output-path vacates the
+;;        old output path from app-db.
 ;;
 ;; Re-registering an existing flow-id on the SAME frame with a DIFFERENT
-;; :output-path moves the flow's output. Pre-fix, the previous output path stayed
-;; materialised in app-db — downstream reads saw stale derived state at the
-;; abandoned slot. The fix vacates the old path on same-frame :output-path change.
+;; :output-path moves the flow's output and vacates the old path. Leaving the
+;; previous output path materialised in app-db would let downstream reads see
+;; stale derived state at the abandoned slot.
 ;; ---------------------------------------------------------------------------
 
 (deftest same-frame-reregister-changed-path-vacates-old-path
@@ -1375,27 +1358,21 @@
 ;;
 ;; Two layered contracts converge here:
 ;;
-;;   (1) rf2-v5ttb — `:handler-fn` must be stamped on the flow registry
-;;       metadata so the registrar's `:different-fn?` calculation
-;;       actually compares the flow body across re-registrations.
-;;       Pre-fix the registrar compared `(:handler-fn previous)` to
-;;       `(:handler-fn metadata)` but the flows registration site stored
-;;       the body under `:derive` only — both reads were nil and
-;;       `:different-fn?` was always `false`. `reg-flow` now stamps
-;;       `:handler-fn` alongside `:derive` so the cross-kind registrar
-;;       trace surface (Spec 001) works for flows too.
+;;   (1) `:handler-fn` is stamped on the flow registry metadata so the
+;;       registrar's `:different-fn?` calculation compares the flow body
+;;       across re-registrations. `reg-flow` stamps `:handler-fn` alongside
+;;       `:derive`, so the cross-kind registrar trace surface (Spec 001) works
+;;       for flows too. (Storing the body only under `:derive` would leave both
+;;       `:handler-fn` reads nil and `:different-fn?` always `false`.)
 ;;
-;;   (2) rf2-g1b2m — Spec 009 B4 ruling, hot-reload dedup by shape
-;;       (#2135 spec landing, #2139 impl). The registrar consults the
-;;       trace.tooling dedup-by-shape table on every emit: identical
-;;       shape on re-register emits ZERO `:rf.registry/handler-replaced`
-;;       events; a real body change emits exactly one. This supersedes
-;;       the rf2-v5ttb-era "every re-registration emits one" assertion
-;;       for identity reloads.
+;;   (2) Spec 009 B4 hot-reload dedup by shape. The registrar consults the
+;;       trace.tooling dedup-by-shape table on every emit: identical shape on
+;;       re-register emits ZERO `:rf.registry/handler-replaced` events; a real
+;;       body change emits exactly one.
 ;;
 ;; Together: identity reload → 0 emits (B4 dedup-suppressed); real
-;; `:derive` body swap → 1 emit with `:different-fn? true` (rf2-v5ttb
-;; stamping makes the comparison meaningful).
+;; `:derive` body swap → 1 emit with `:different-fn? true` (the `:handler-fn`
+;; stamp makes the comparison meaningful).
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
@@ -1415,8 +1392,8 @@
           ;; (a) Real body swap — different `:handler-fn` identity, so
           ;; the B4 dedup table sees a shape change and allows the emit.
           ;; Exactly one `:rf.registry/handler-replaced` fires with
-          ;; `:different-fn? true` (rf2-v5ttb made the comparison
-          ;; meaningful by stamping `:handler-fn` on the flow metadata).
+          ;; `:different-fn? true` (the `:handler-fn` stamp on the flow
+          ;; metadata makes the comparison meaningful).
           (rf/reg-flow {:id     :double
                         :inputs [[:n]]
                         :derive (fn [n] (* 100 n))
@@ -1427,10 +1404,8 @@
               ":different-fn? true on real body change (rf2-v5ttb fix)")
           ;; (b) Idempotent reload — re-register with the SAME fn
           ;; identity as the previous registration. The B4 dedup table
-          ;; (rf2-g1b2m) has already recorded that shape, so the re-emit
-          ;; is suppressed: ZERO `:rf.registry/handler-replaced` events.
-          ;; This supersedes the prior rf2-v5ttb-era assertion of "one
-          ;; emit with `:different-fn? false`" for the idempotent case.
+          ;; has already recorded that shape, so the re-emit is suppressed:
+          ;; ZERO `:rf.registry/handler-replaced` events.
           (reset! captured [])
           (let [body-v2 (fn [n] (* 3 n))]
             (rf/reg-flow {:id     :double
@@ -1477,12 +1452,11 @@
         "after re-registration the flow body re-evaluates on the next drain")))
 
 ;; ---------------------------------------------------------------------------
-;; 10. New ordering: flows transform the pending `:db` effect as the
-;;     OUTERMOST `:after` — after the rest of the `:after` chain reshapes
-;;     the db, and BEFORE the `:db` install + BEFORE `:fx` (rf2-u0zz5,
-;;     Spec 013 §Drain integration).
+;; 10. Ordering: flows transform the pending `:db` effect as the OUTERMOST
+;;     `:after` — after the rest of the `:after` chain reshapes the db, and
+;;     BEFORE the `:db` install + BEFORE `:fx` (Spec 013 §Drain integration).
 ;;
-;; These pin the observable consequences of the relocation:
+;; These pin the observable consequences of that ordering:
 ;;   (a) `:fx` sees the flow-derived app-db (preserved guarantee);
 ;;   (b) the reactive cascade (subs) sees the flow-derived db;
 ;;   (c) flows run BEFORE the `:db` install (the value installed already
