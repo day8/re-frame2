@@ -4,7 +4,7 @@
 ;;;; bencode is a ~40-line protocol and nREPL speaks it directly over TCP,
 ;;;; so inlining the codec is simpler than bolting on a dependency.
 ;;;;
-;;;; Shared by BOTH halves of the bash-shim transport (rf2-qq7w2k):
+;;;; Shared by BOTH halves of the bash-shim transport:
 ;;;;   - scripts/ops.clj           ENCODES requests + DECODES responses
 ;;;;   - tests/shim/stub_nrepl.clj DECODES requests + ENCODES canned replies
 ;;;; They are mirror halves of the same protocol, so the codec lives once.

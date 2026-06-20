@@ -22,8 +22,8 @@
 
 ;; The minimal bencode codec is shared with the production shim
 ;; (scripts/ops.clj); it lives in scripts/bencode.clj and is loaded off
-;; this file's own location so cwd doesn't matter (rf2-qq7w2k). The stub
-;; DECODES requests + ENCODES canned replies — the mirror of ops.clj.
+;; this file's own location so cwd doesn't matter. The stub DECODES
+;; requests + ENCODES canned replies — the mirror of ops.clj.
 (load-file (str (.getParent (.getParentFile (.getParentFile (java.io.File. *file*))))
                 "/scripts/bencode.clj"))
 
@@ -85,8 +85,8 @@
         ;; ops.clj wraps every cljs-eval as
         ;;   (shadow.cljs.devtools.api/cljs-eval :app "<form>" {})
         ;; but JVM-side evals (e.g. the running-build enumeration
-        ;;   (vec (shadow.cljs.devtools.api/active-builds))
-        ;; from rf2-ivlb3) are sent raw, with no inner string literal.
+        ;;   (vec (shadow.cljs.devtools.api/active-builds)))
+        ;; are sent raw, with no inner string literal.
         cljs?    (str/includes? code "cljs-eval")
         ;; Extract the inner form (best-effort substring) for table lookup.
         inner    (let [start (.indexOf ^String code "\"")
