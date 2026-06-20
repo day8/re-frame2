@@ -534,15 +534,13 @@
 ;;
 ;; RAW back-fill under CAS contention. `back-fill-event!` mutates the single
 ;; global `histories` atom under `swap!`. Per EP-0015 §15 + open-issue 6
-;; (RULED, hardened) the back-fill stores the RAW delta — storage-side
-;; redaction was REMOVED (the ring is causal replay material; the
-;; `:redact-fn` advanced override runs projection-side only). The swap
-;; update fn (the pure splice inside `back-fill-event!`, rf2-c0rv4v) is
-;; therefore PURE — it invokes no injected
-;; fn, so a JVM CAS retry re-runs only the pure splice. The pre-removal
-;; redact-outside-swap dance (rf2-7i872) is gone by construction: there is
-;; no per-back-fill redact invocation, hence no double-invoke / duplicate-
-;; warning hazard.
+;; (RULED, hardened) the back-fill stores the RAW delta — the ring is causal
+;; replay material, so it stays raw; the `:redact-fn` advanced override runs
+;; projection-side only. The swap update fn (the pure splice inside
+;; `back-fill-event!`, rf2-c0rv4v) is therefore PURE — it invokes no injected
+;; fn, so a JVM CAS retry re-runs only the pure splice. With no per-back-fill
+;; redact invocation there is no double-invoke / duplicate-warning hazard
+;; inside the swap.
 ;;
 ;; This scenario drives N threads, each performing M post-settle sub-run
 ;; back-fills (`state/back-fill-sub-run!`) against its OWN frame's settled
@@ -601,9 +599,9 @@
                             (dotimes [i stress-iters]
                               (let [sid (keyword (str "s" i))]
                                 ;; Production post-settle path: the back-fill
-                                ;; stores the RAW delta — no redact arg (the
-                                ;; storage-side hook was removed; redaction is
-                                ;; projection-side, in `projected-record`).
+                                ;; stores the RAW delta — no redact arg
+                                ;; (redaction is projection-side, in
+                                ;; `projected-record`).
                                 (state/back-fill-sub-run!
                                   frame-id epoch-id
                                   (sub-run-event frame-id sid i)
@@ -640,12 +638,12 @@
 ;;
 ;; BACK-FILL vs INTERLEAVED EVICTION at ring cap. `back-fill-event!` fires at
 ;; React commit / deref / teardown time, OUTSIDE any drain, so a cascade
-;; `record!` for the SAME frame can interleave with it. Pre-fix the back-fill
-;; resolved the target record's ring index against ONE `@histories` deref, then
-;; read / spliced against later derefs; at ring CAP an interleaved append EVICTS
-;; the front record and shifts every index down by one, so the stale up-front
-;; index spliced the WRONG record. The fix re-derives the index from the SINGLE
-;; CAS-retried `@histories` value inside the one `swap!`.
+;; `record!` for the SAME frame can interleave with it. The back-fill must
+;; re-derive the target record's ring index from the SINGLE CAS-retried
+;; `@histories` value inside the one `swap!`: resolving the index against one
+;; deref and then splicing against a later deref would splice the WRONG record,
+;; because at ring CAP an interleaved append EVICTS the front record and shifts
+;; every index down by one.
 ;;
 ;; This scenario pins ONE frame at a small ring cap and runs two contending
 ;; thread groups against it:

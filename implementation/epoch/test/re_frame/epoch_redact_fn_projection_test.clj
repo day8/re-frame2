@@ -227,8 +227,8 @@
 ;; Per Spec-Schemas §`:rf/epoch-record` and Security.md §Epoch privacy
 ;; posture: each assembled record carries an integer count of
 ;; frame-declared sensitive paths whose value differs between :db-before
-;; and :db-after. Computed inside `build-record` from the RAW dbs (now
-;; always raw — storage-side redaction was removed). Closes the
+;; and :db-after. Computed inside `build-record` from the RAW dbs (the
+;; stored record is always raw). Closes the
 ;; "redact-fn ⇒ empty diff but something changed" gap for projected egress.
 ;;
 ;; Coverage matrix:

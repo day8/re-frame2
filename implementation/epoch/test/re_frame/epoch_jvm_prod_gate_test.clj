@@ -140,8 +140,8 @@
 
 ;; ---- EP-0015 §15 / open-issue 6 :redact-fn surface JVM coverage ----------
 ;;
-;; Post-ruling the `:redact-fn` is the PROJECTION-SIDE advanced override —
-;; storage-side mutation was REMOVED. It is NEVER invoked by `settle!` /
+;; The `:redact-fn` is the PROJECTION-SIDE advanced override, never a
+;; storage-side mutation. It is NEVER invoked by `settle!` /
 ;; `replace-app-db!` / the back-fill (regardless of gate); it runs ONLY
 ;; inside `projected-record`, applied to the projected egress copy. The
 ;; ring is causal replay material, delivered raw.
