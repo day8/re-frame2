@@ -380,7 +380,7 @@
   "Reset the PROCESS-DEFAULT source store and the namespace-string pool. Test
   fixtures use this between cases, alongside `registrar/clear-all!`.
 
-  Resets only the process-default store (not a bound realm store) — fixtures
+  Resets only the process-default store (not a bound store) — fixtures
   run against the default store. The ns-string pool is reset too so a fixture
   asserting pool behaviour starts clean; pool entries are harmless to retain in
   production (the pool is never reset there).
@@ -388,29 +388,29 @@
   PROCESS-DEFAULT-ONLY BY CONTRACT (EP-0023 §Image co-fix F2): this always
   targets `kind->id->ns->descriptor` and bumps that store's generation directly,
   IGNORING any bound `*source-store*` — it is a fixture-reset surface that runs
-  against the default store. A realm-bound store is reset via its own seating
+  against the default store. A bound store is reset via its own seating
   path, not here; the targeted-mutation surfaces (`record-descriptor!` /
   `forget-*` / `clear-kind!`) all honor the `active-source-store` binding and bump
-  the bound store's generation, so a realm store's cache still invalidates on its
+  the bound store's generation, so a bound store's cache still invalidates on its
   own mutations.
 
   The contract is ENFORCED, not merely documented: a `*source-store*` binding in
   flight when `clear-all!` runs would silently clear+bump the WRONG (default)
   store, leaving the bound store stale with an un-bumped generation. So this
-  FAILS LOUD if invoked under a realm binding (`:rf.error/source-store-clear-all-under-realm-binding`).
-  Recovery: reset the realm store via its own seating path, not this surface."
+  FAILS LOUD if invoked under a bound store (`:rf.error/source-store-clear-all-under-bound-store`).
+  Recovery: reset the bound store via its own seating path, not this surface."
   []
   (when (some? *source-store*)
     (error/throw-error!
-      :rf.error/source-store-clear-all-under-realm-binding
+      :rf.error/source-store-clear-all-under-bound-store
       'source-store/clear-all!
-      (str "source-store/clear-all! was invoked while a realm `*source-store*` "
+      (str "source-store/clear-all! was invoked while a bound `*source-store*` "
            "binding is in flight. clear-all! is a PROCESS-DEFAULT-ONLY fixture "
            "reset (EP-0023 §Image co-fix F2): it always targets the default store "
            "and would silently clear+bump the WRONG store here, leaving the bound "
-           "realm store stale with an un-bumped generation. Reset a realm store via "
+           "store stale with an un-bumped generation. Reset a bound store via "
            "its own seating path, not this surface.")
-      {:recovery :reset-the-realm-store-via-its-own-seating-path}))
+      {:recovery :reset-the-bound-store-via-its-own-seating-path}))
   (reset! kind->id->ns->descriptor {})
   (reset! ns-string-pool {})
   ;; Bump the PROCESS-DEFAULT store's generation (clear-all! always targets it,
