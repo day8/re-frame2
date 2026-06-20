@@ -23,7 +23,7 @@
             ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
             ;; live-app↔Story-shell hash router + React-root handle, and
             ;; (rf2-77wqzi) the open-in-editor project-root config via the
-            ;; `:story-subdir` opt.
+            ;; `:source-subdir` opt.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -108,10 +108,10 @@
   ;; root is frame-scoped via `live-app-root` (the
   ;; `frame-provider-existing` wrapper — scope-only into the already-
   ;; registered `:rf/default` frame).
-  ;; The `:story-subdir` opt (rf2-77wqzi) hands the host this testbed's
+  ;; The `:source-subdir` opt (rf2-77wqzi) hands the host this testbed's
   ;; tool-relative source subdir; the host resolves the on-disk
-  ;; open-in-editor project-root (build-env define or `?project-root=`
+  ;; open-in-editor project-root (build-env define or `?checkout-root=`
   ;; override, cross-platform) and calls `story/configure!` itself — which
   ;; also bridges the root into Xray's slot. Replaces the former inline
-  ;; `resolve-project-root` + `story/configure!`.
-  (story-host/mount-with-hash-routing! live-app-root {:story-subdir "tools/story/testbeds"}))
+  ;; `resolve-source-root` + `story/configure!`.
+  (story-host/mount-with-hash-routing! live-app-root {:source-subdir "tools/story/testbeds"}))

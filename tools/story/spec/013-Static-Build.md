@@ -80,9 +80,9 @@ open-in-editor project-root is the one dev-time affordance that could
 otherwise leak such a path:
 
 - The dev testbeds resolve their open-in-editor project-root from the
-  build environment (`re-frame.testbed.config/resolve-project-root`,
+  build environment (`re-frame.testbed.config/resolve-source-root`,
   seeded by the `RF2_TESTBED_PROJECT_ROOT` env var via a
-  `re-frame.testbed.config/repo-root` goog-define). That root is an
+  `re-frame.testbed.config/checkout-root` goog-define). That root is an
   absolute checkout path — frequently a `C:/Users/<name>/…` home path.
 - A `vscode://`/`cursor://`/`idea://` URI does **not** resolve from a
   published HTML page anyway, so the affordance is dev-only on a static
@@ -91,7 +91,7 @@ otherwise leak such a path:
 So the static export is fail-closed on this slot, at two layers:
 
 1. **Build:** the `:story-static/*` build does **not** seed
-   `re-frame.testbed.config/repo-root` from `RF2_TESTBED_PROJECT_ROOT`.
+   `re-frame.testbed.config/checkout-root` from `RF2_TESTBED_PROJECT_ROOT`.
    Its only `:closure-define` is `static-mode? true`. The `:advanced`
    compiler inlines goog-define string constants, so omitting the seed
    keeps the build-machine checkout path out of the bundle string-table
@@ -116,7 +116,7 @@ is acceptable) flips the opt-in deliberately:
 ```
 
 The opt-in is **distinct** from the dev testbed root helper — passing
-`resolve-project-root`'s result into a static export is exactly the
+`resolve-source-root`'s result into a static export is exactly the
 accidental-leak case the guard closes.
 
 The sanity test (`npm run test:story-static`, below) builds with a

@@ -1,12 +1,29 @@
 (ns re-frame.testbed.config
-  "Shared testbed-config helper — derives the on-disk project-root the
+  "Shared testbed-config helper — derives the on-disk source-root the
   Xray / Story testbeds hand to their 'open in editor' resolvers
   (rf2-5dphw).
+
+  ## Two roots, named for what they are
+
+  Two concepts ride this helper, and they are deliberately named apart:
+
+  - a **checkout root** — the absolute path to a clone of this repo
+    (`<checkout>`). This is the *input*: the build-env-seeded
+    `checkout-root` goog-define and the `?checkout-root=` query override
+    both name one.
+  - a **source root** — the checkout root with the caller's tool-relative
+    testbed subdir appended (`<checkout>/tools/xray/testbeds`). This is
+    the *output* `resolve-source-root` returns — the root the editor-URI
+    composer prepends to a classpath-relative `:file` slot.
+
+  Keeping the two names distinct removes the overload that an earlier
+  `project-root`-everywhere vocabulary forced on the reader (input and
+  output both spelled 'root').
 
   ## Why this exists
 
   Xray and Story turn a source-coord (`standard_epochs/core.cljs:42`) into an
-  editor URI by prepending an on-disk *project-root*. SHIPPED code reads
+  editor URI by prepending an on-disk *source root*. SHIPPED code reads
   that root from host config (`xray-config/configure!` /
   `story/configure!`); there is no baked default. But the dev testbeds
   that drive Xray / Story have to PASS a root to `configure!`, and they
@@ -18,23 +35,23 @@
 
   ## The fix (cross-platform, build-env derived)
 
-  `repo-root` is a `goog-define`d string, default `\"\"`. The dev launcher
+  `checkout-root` is a `goog-define`d string, default `\"\"`. The dev launcher
   (`implementation/scripts/dev-testbed.cjs`, wired as the `dev` npm
-  script) resolves the repo root from its OWN location via node's
+  script) resolves the checkout root from its OWN location via node's
   `path` module — which works identically on Windows, macOS, and Linux —
   exports it as the `RF2_TESTBED_PROJECT_ROOT` env var, and spawns
   `shadow-cljs`. Every testbed build in `implementation/shadow-cljs.edn`
   (the Xray testbeds plus the Story testbeds + static build) seeds the
   define from that env var via `#shadow/env`, so the absolute root is the
-  ACTUAL repo root of whatever checkout did the build — never a literal.
+  ACTUAL checkout root of whatever clone did the build — never a literal.
 
-  `resolve-project-root` then joins that root with the tool-relative
-  testbed subdir (`\"tools/xray/testbeds\"` /  `\"tools/story/testbeds\"`)
-  the caller passes. A `?project-root=<checkout>` query string still wins
+  `resolve-source-root` then joins that checkout root with the
+  tool-relative testbed subdir (`\"tools/xray/testbeds\"` /  `\"tools/story/testbeds\"`)
+  the caller passes. A `?checkout-root=<checkout>` query string still wins
   as the per-session escape hatch (CI, a reader on a different machine, a
   testbed served from a copied bundle) — it names the same thing as the
   build-time root (a CHECKOUT root) and has the subdir appended the same
-  way, so the composed editor URI reaches the tool source-path root
+  way, so the composed editor URI reaches the tool source root
   (`<checkout>/tools/xray/testbeds`) the classpath-relative source coords
   resolve against (rf2-w4yw9q). When neither the override nor the
   build-time root is present, this returns `nil` and the testbed simply
@@ -44,22 +61,22 @@
 
   ## Why a goog-define and not a literal
 
-  The repo root cannot be known when the source is authored (it differs
+  The checkout root cannot be known when the source is authored (it differs
   per clone), so it must be supplied at build time. A goog-define seeded
   from the build environment is the smallest cross-platform-correct
   mechanism: one define + one shared helper, no per-file string, no
   OS-specific path assumptions."
   (:require [clojure.string :as str]))
 
-;; ---- the compile-time, build-env-derived repo root -----------------------
+;; ---- the compile-time, build-env-derived checkout root -------------------
 ;;
 ;; @define {string}
 ;; Defaults to "" (no root known). Seeded per build from the
 ;; RF2_TESTBED_PROJECT_ROOT env var via `#shadow/env` in
 ;; implementation/shadow-cljs.edn :closure-defines. The `dev` npm script
 ;; (implementation/scripts/dev-testbed.cjs) exports that env var with the
-;; node-resolved repo root before spawning shadow-cljs.
-(goog-define repo-root "")
+;; node-resolved checkout root before spawning shadow-cljs.
+(goog-define checkout-root "")
 
 (defn- non-blank
   "Return `s` when it is a non-blank string, else nil."
@@ -84,7 +101,7 @@
   Decoding semantics (rf2-xdsat.1): a literal `+` in the value is preserved
   VERBATIM, NOT decoded to a space. The override names an on-disk checkout
   root, so a checkout at e.g. `/home/dev/re-frame2+wip` must round-trip
-  through `?project-root=/home/dev/re-frame2+wip` with the `+` intact. We
+  through `?checkout-root=/home/dev/re-frame2+wip` with the `+` intact. We
   therefore split the query string manually and decode each component with
   `js/decodeURIComponent` (which does NOT map `+` → space) rather than
   `js/URLSearchParams` (form-urlencoded: `+` → space, silent path
@@ -113,7 +130,7 @@
   when a `js/window` exists, then delegates the parse/decode/trim/non-blank
   contract to the pure `query-param-from-search`. Outside a browser (e.g.
   `:node-test`) there is no `js/window`, so this returns nil and the
-  build-time `repo-root` tier governs (the intended non-browser degradation)."
+  build-time `checkout-root` tier governs (the intended non-browser degradation)."
   [param-name]
   (when (exists? js/window)
     (query-param-from-search (-> js/window .-location .-search) param-name)))
@@ -146,7 +163,7 @@
   Both sides are first canonicalised so any `\\` separator (a raw or
   `%5C`-decoded Windows override root, e.g.
   `C:\\Users\\me\\code\\re-frame2\\`) becomes `/` — so a Windows
-  `?project-root=` value joins exactly like a POSIX one rather than
+  `?checkout-root=` value joins exactly like a POSIX one rather than
   yielding a `\\/` boundary (`C:\\...\\/tools/xray/testbeds`) that relied
   on downstream tolerant path normalisation. `root` then has any single
   trailing slash stripped (so `/repo/` + `sub` never yields `/repo//sub`);
@@ -179,40 +196,40 @@
         (str normalized-root "/" normalized-subdir))
       normalized-root)))
 
-(defn resolve-project-root
-  "Resolve the on-disk project-root a testbed should hand to its
+(defn resolve-source-root
+  "Resolve the on-disk source root a testbed should hand to its
   open-in-editor resolver, for the given tool-relative testbed subdir
   (e.g. `\"tools/xray/testbeds\"` or `\"tools/story/testbeds\"`).
 
-  Both root tiers name a *checkout root* and have the caller's `subdir`
-  appended, because the editor URI is built by prepending the resolved
-  root to a *classpath-relative* source coord (the form-meta `:file`
-  slot, e.g. `\"standard_epochs/core.cljs\"`, relative to the testbed
-  source-path root `<checkout>/tools/xray/testbeds`). The root must
-  therefore reach down to that source-path root, or the composed editor
-  URI misses the tool source-root segment and points at a nonexistent
+  Both input tiers name a *checkout root* and have the caller's `subdir`
+  appended to yield the *source root*, because the editor URI is built by
+  prepending the resolved source root to a *classpath-relative* source
+  coord (the form-meta `:file` slot, e.g. `\"standard_epochs/core.cljs\"`,
+  relative to the testbed source root `<checkout>/tools/xray/testbeds`).
+  The result must therefore reach down to that source root, or the composed
+  editor URI misses the tool source-root segment and points at a nonexistent
   file (rf2-w4yw9q). The override and the build-time define mean the
   same thing — a checkout root — so they share one join.
 
   Resolution order:
 
-    1. `?project-root=<checkout>` query string — the per-session escape
+    1. `?checkout-root=<checkout>` query string — the per-session escape
        hatch (CI, a reader on a different machine, a copied bundle served
        elsewhere). Wins over the build-time tier. Paste the checkout root
        unencoded, a literal `+` included (it is preserved, NOT decoded to
        a space; see `query-param-from-search`); a Windows root may use
        `\\` separators (raw or `%5C`-encoded) and is canonicalised to `/`
        (see `join-root+subdir`); `subdir` is appended just like tier 2.
-    2. The build-time `repo-root` goog-define — the default for a normal
+    2. The build-time `checkout-root` goog-define — the default for a normal
        `npm run dev ...` launch; `subdir` is appended.
-    3. `nil` — neither root is available. The caller configures no root
-       and open-in-editor is a graceful no-op (matching
+    3. `nil` — neither checkout root is available. The caller configures no
+       root and open-in-editor is a graceful no-op (matching
        `set-project-root!`'s blank-input contract).
 
-  Both root tiers and `subdir` are normalised to the canonical
+  Both input tiers and `subdir` are normalised to the canonical
   forward-slash form (`\\` → `/`, trim, trailing/leading-slash strip) so
   callers may pass either separator style with or without a leading
   slash, and the result carries exactly one separator at every boundary."
   [subdir]
-  (when-let [root (non-blank (or (query-param "project-root") repo-root))]
+  (when-let [root (non-blank (or (query-param "checkout-root") checkout-root))]
     (join-root+subdir root subdir)))

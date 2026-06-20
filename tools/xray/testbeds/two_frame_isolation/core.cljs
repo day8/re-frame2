@@ -211,17 +211,17 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 ;; The open-in-editor project-root is derived from the build environment
-;; (the build-time `re-frame.testbed.config/repo-root` goog-define joined
+;; (the build-time `re-frame.testbed.config/checkout-root` goog-define joined
 ;; with this testbed's tool-relative subdir), not a hardcoded personal
-;; path. `?project-root=<path>` still overrides per session. See
+;; path. `?checkout-root=<path>` still overrides per session. See
 ;; `re-frame.testbed.config` for the cross-platform mechanism.
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/xray/testbeds"))
+(defn- resolve-source-root []
+  (testbed-config/resolve-source-root "tools/xray/testbeds"))
 
 (defn ^:export run []
   ;; Configure Xray BEFORE `rf/init!` so the preload's auto-open reads
   ;; the right project-root on its first paint of any chip.
-  (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
+  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Register the two frames. There is no routing in the standard-epochs
   ;; deck, so neither frame owns the URL — both are plain isolated

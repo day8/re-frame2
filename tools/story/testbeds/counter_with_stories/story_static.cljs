@@ -50,7 +50,7 @@
   ;; page and (b) would bake the BUILD machine's checkout root into a
   ;; publicly-served bundle. A static export must be self-contained, so it
   ;; does NOT inherit the dev testbed root helper
-  ;; (`re-frame.testbed.config/resolve-project-root`, which is for dev
+  ;; (`re-frame.testbed.config/resolve-source-root`, which is for dev
   ;; testbeds) — and the framework guard in `re-frame.story.config/
   ;; set-project-root!` fails closed in `static-mode?` regardless. A
   ;; downstream "published site that links back into the author's editor"

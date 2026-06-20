@@ -3,8 +3,9 @@
 A small **dev-only** support library shared by the Xray and Story
 browser testbeds. Three namespaces:
 
-- `re-frame.testbed.config` — derives the on-disk project root those
-  testbeds hand to their "open in editor" source-coord resolvers,
+- `re-frame.testbed.config` — derives the on-disk source root those
+  testbeds hand to their "open in editor" source-coord resolvers (a
+  build-env-seeded **checkout root** plus the caller's tool subdir),
   cross-platform and with no hardcoded checkout path.
 - `re-frame.testbed.story-host` — the live-app ↔ Story-shell hash-toggle
   host harness the Story showcase testbeds share.
@@ -31,26 +32,26 @@ other clone and every Mac/Linux maintainer (rf2-5dphw).
 
 `re-frame.testbed.config` replaces that with a single shared helper:
 
-- **`repo-root`** — a `goog-define`d string (default `""`). Seeded per
+- **`checkout-root`** — a `goog-define`d string (default `""`). Seeded per
   build via `#shadow/env` from the `RF2_TESTBED_PROJECT_ROOT` env var,
   which the dev launcher (`implementation/scripts/dev-testbed.cjs`,
   wired as the `dev` npm script) resolves from its own location using
   node's `path` module — identical on Windows, macOS, and Linux.
-- **`resolve-project-root`** — joins a checkout root with the
+- **`resolve-source-root`** — joins a **checkout root** input with the
   tool-relative testbed subdir the caller passes (e.g.
-  `"tools/xray/testbeds"`). A `?project-root=<checkout>` query string
-  wins over the build-time root as a per-session escape hatch (CI, a
-  reader on another machine, a copied bundle). It names the same thing
-  as the build-time root — a **checkout root**, not the final source-path
-  root — and the subdir is appended the same way, so the composed editor
+  `"tools/xray/testbeds"`) to produce the **source root** output. A
+  `?checkout-root=<checkout>` query string wins over the build-time
+  `checkout-root` define as a per-session escape hatch (CI, a reader on
+  another machine, a copied bundle). Both input tiers name a checkout
+  root and have the subdir appended the same way, so the composed editor
   URI reaches `<checkout>/tools/xray/testbeds` where the classpath-relative
   source coords resolve (rf2-w4yw9q). Paste the checkout root unencoded,
-  including a literal `+` (e.g. `?project-root=/home/dev/re-frame2+wip`);
+  including a literal `+` (e.g. `?checkout-root=/home/dev/re-frame2+wip`);
   the parser decodes percent-escapes but preserves `+` rather than
   mapping it to a space (rf2-xdsat.1). Both tiers and the subdir are
   normalised to a canonical forward-slash form (`\` → `/`, trailing /
   leading slash stripped), so a Windows override
-  (`?project-root=C:\Users\me\code\re-frame2\`, raw or `%5C`-encoded)
+  (`?checkout-root=C:\Users\me\code\re-frame2\`, raw or `%5C`-encoded)
   resolves to a clean single-separator path rather than a `\/` boundary —
   matching the launcher's build-env normalisation and the
   separator-agnostic editor-URI composer (rf2-d01s6s). When neither tier
@@ -96,9 +97,9 @@ the shell fine but their Story source links resolved against a nil root, so
 OS editor handlers could not open the file (a false green).
 
 The optional second arg to `mount-with-hash-routing!` closes that gap: a
-consumer declares its tool-relative source subdir via `:story-subdir` (e.g.
-`{:story-subdir "examples/reagent"}`) and the host resolves the on-disk root
-through `resolve-project-root` (build-env define or `?project-root=` override,
+consumer declares its tool-relative source subdir via `:source-subdir` (e.g.
+`{:source-subdir "examples/reagent"}`) and the host resolves the on-disk root
+through `resolve-source-root` (build-env define or `?checkout-root=` override,
 cross-platform) and calls `story/configure!` itself — which also bridges the
 root into Xray's slot. Omit the opt (or use the 1-arity call) when the
 consumer drives `story/configure!` itself. A blank subdir, or a checkout with
@@ -113,7 +114,7 @@ tools/testbed-support/
 ├── README.md                                 ; this file
 ├── deps.edn                                  ; JVM :test classpath for the open-in-editor server (test-only, not a published jar)
 ├── src/re_frame/testbed/
-│   ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
+│   ├── config.cljs                           ; resolve-source-root + the checkout-root goog-define
 │   ├── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
 │   └── open_in_editor_server.clj             ; JVM-only :dev-http open-in-editor endpoint handler
 └── test/re_frame/testbed/
@@ -129,7 +130,7 @@ This library is **not a published jar** — it carries no Clojars coord.
 The CLJS halves are consumed purely as an extra source path: the testbed
 builds add `../tools/testbed-support/src` to their source paths
 in [`implementation/shadow-cljs.edn`](../../implementation/shadow-cljs.edn),
-and seed `re-frame.testbed.config/repo-root` via that file's
+and seed `re-frame.testbed.config/checkout-root` via that file's
 `:closure-defines`. The sibling `../tools/testbed-support/test` path is
 also listed so the always-on `:node-test` build discovers the unit
 suites (see below). Bundle-isolation holds: nothing under
@@ -148,7 +149,7 @@ Four suites under `test/` — three CLJS, one JVM:
 
 - `config_cljs_test.cljs` — the resolver: param parsing, cross-platform
   path joining (Windows / POSIX, including the lone-`/` filesystem-root
-  edge), and the build-time-vs-`?project-root=` tier precedence.
+  edge), and the build-time-vs-`?checkout-root=` tier precedence.
 - `story_host_cljs_test.cljs` — the host harness's `hashchange`-listener
   lifecycle / hot-reload idempotence and the project-root config contract,
   with the mount switch stubbed to count-only no-ops (listener-identity

@@ -943,11 +943,11 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/xray/testbeds"))
+(defn- resolve-source-root []
+  (testbed-config/resolve-source-root "tools/xray/testbeds"))
 
 (defn ^:export run []
-  (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
+  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register the SHELL frame explicitly and scope the boot

@@ -64,9 +64,9 @@
 
   To make that impossible to forget, the project-root config is now a
   HOST responsibility: a consumer declares its tool-relative source
-  subdir via the `:story-subdir` opt and `mount-with-hash-routing!`
+  subdir via the `:source-subdir` opt and `mount-with-hash-routing!`
   resolves the root (through the shared `re-frame.testbed.config`
-  cross-platform mechanism — build-env define or `?project-root=`
+  cross-platform mechanism — build-env define or `?checkout-root=`
   override) and calls `story/configure!` itself. `story/configure!`
   with `:rf.story/project-root` also bridges the root into Xray's slot
   (`xray-preset/propagate-project-root!`), so the Xray-as-RHS chips
@@ -150,21 +150,21 @@
 ;; can no longer mount the shell while silently forgetting the project-root
 ;; config — the omission rf2-77wqzi found in the two `examples/reagent`
 ;; showcases. A blank subdir, or a checkout where neither the build-time
-;; define nor a `?project-root=` override is present, resolves to nil and
+;; define nor a `?checkout-root=` override is present, resolves to nil and
 ;; configures no root (graceful no-op, matching `set-project-root!`).
 
-(defn- configure-story-project-root!
-  "Resolve the open-in-editor project-root for the given tool-relative
-  `story-subdir` and hand it to `story/configure!`. `story/configure!`
+(defn- configure-story-source-root!
+  "Resolve the open-in-editor source root for the given tool-relative
+  `source-subdir` and hand it to `story/configure!`. `story/configure!`
   with `:rf.story/project-root` also bridges the root into Xray's slot, so
   Xray-as-RHS source-coord chips resolve against the same root. A nil /
-  blank `story-subdir` skips configuration entirely; a resolved nil root
-  (no build-time define, no `?project-root=` override) is passed through
+  blank `source-subdir` skips configuration entirely; a resolved nil root
+  (no build-time define, no `?checkout-root=` override) is passed through
   and `set-project-root!` clears it — open-in-editor degrades to a no-op."
-  [story-subdir]
-  (when (and (string? story-subdir) (not (str/blank? story-subdir)))
+  [source-subdir]
+  (when (and (string? source-subdir) (not (str/blank? source-subdir)))
     (story/configure!
-     {:rf.story/project-root (testbed-config/resolve-project-root story-subdir)})))
+     {:rf.story/project-root (testbed-config/resolve-source-root source-subdir)})))
 
 ;; -- The hash router -------------------------------------------------------
 
@@ -204,12 +204,12 @@
 
   The optional second arg is a map. Recognised key:
 
-  - `:story-subdir` — the tool-relative source subdir whose
+  - `:source-subdir` — the tool-relative source subdir whose
     classpath-relative Story coords need an on-disk root prepended for
     'open in editor' (e.g. `\"examples/reagent\"`,
     `\"tools/story/testbeds\"`). When supplied, the host resolves the root
-    via `re-frame.testbed.config/resolve-project-root` (build-env define or
-    `?project-root=` override, cross-platform) and calls `story/configure!`
+    via `re-frame.testbed.config/resolve-source-root` (build-env define or
+    `?checkout-root=` override, cross-platform) and calls `story/configure!`
     with `:rf.story/project-root` — which also bridges the root into Xray's
     slot. This is the ONE host-owned contract for Story-host project-root
     config (rf2-77wqzi): declare the subdir and the host wires the rest, so
@@ -227,6 +227,6 @@
   listener. Remove-then-add keeps exactly one listener active across any
   number of re-`run`s, however the listener fn's identity churns."
   ([root-view] (mount-with-hash-routing! root-view nil))
-  ([root-view {:keys [story-subdir]}]
-   (configure-story-project-root! story-subdir)
+  ([root-view {:keys [source-subdir]}]
+   (configure-story-source-root! source-subdir)
    (mount-router! root-view)))

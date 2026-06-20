@@ -105,7 +105,7 @@ function flushDiagnostics(diagnostics) {
 
 // A sentinel absolute checkout root, injected as RF2_TESTBED_PROJECT_ROOT
 // into the static build's environment. The static export MUST NOT consume
-// this env var (the dev-testbed `repo-root` goog-define is not seeded for the
+// this env var (the dev-testbed `checkout-root` goog-define is not seeded for the
 // :story-static/* build), so this string must NOT survive into the emitted
 // bundle or manifest. `assertNoSentinelLeak` below enforces that.
 const PROJECT_ROOT_SENTINEL =
@@ -120,7 +120,7 @@ function runBuild(diagnostics) {
   diagnostics.add(`Process: ${process.execPath} ${script}`);
   // Inject the sentinel checkout root the same way a dev launcher would
   // (`RF2_TESTBED_PROJECT_ROOT`). The static-export build deliberately does
-  // NOT seed `re-frame.testbed.config/repo-root` from this env var, so the
+  // NOT seed `re-frame.testbed.config/checkout-root` from this env var, so the
   // sentinel must not appear anywhere in the published artifact — the
   // self-containment contract (a published bundle carries no build-machine
   // checkout path). `assertNoSentinelLeak` verifies it post-build.
@@ -146,7 +146,7 @@ function runBuild(diagnostics) {
 // build-time RF2_TESTBED_PROJECT_ROOT sentinel. The published export must
 // carry NO ambient machine-local checkout path baked in. The advanced bundle
 // inlines goog-define string constants, so a regression that re-seeds
-// `re-frame.testbed.config/repo-root` from the env var would surface here as
+// `re-frame.testbed.config/checkout-root` from the env var would surface here as
 // the sentinel string embedded in main.js.
 function assertNoSentinelLeak(diagnostics) {
   const filesToScan = ['main.js', 'manifest.json', 'index.html'];
@@ -158,7 +158,7 @@ function assertNoSentinelLeak(diagnostics) {
       throw new Error(
         `static-export self-containment violated: the build-machine checkout ` +
           `sentinel ("${PROJECT_ROOT_SENTINEL}") leaked into ${fileName}. The ` +
-          `:story-static/* build must NOT seed re-frame.testbed.config/repo-root ` +
+          `:story-static/* build must NOT seed re-frame.testbed.config/checkout-root ` +
           `from RF2_TESTBED_PROJECT_ROOT — a published bundle carries no ` +
           `machine-local checkout path.`,
       );

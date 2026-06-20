@@ -557,13 +557,13 @@
 
 ;; The open-in-editor project-root is derived from the build environment,
 ;; not a hardcoded personal path (mirrors standard_epochs).
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/xray/testbeds"))
+(defn- resolve-source-root []
+  (testbed-config/resolve-source-root "tools/xray/testbeds"))
 
 (defn ^:export run []
   ;; Configure Xray BEFORE `rf/init!` so any source-coord chip a panel
   ;; surfaces resolves its classpath-relative `:file` to an on-disk URI.
-  (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
+  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register the single, plain host frame, scope the boot
