@@ -273,6 +273,7 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
   (fn [{:keys [slug] :as article} _ctx]
     {:request {:method :put :url (str "/api/articles/" slug) :body article}
      :decode  :app/article}))
+```
 
 **Required keys**:
 
