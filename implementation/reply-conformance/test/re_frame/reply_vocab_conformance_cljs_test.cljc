@@ -171,6 +171,15 @@
      :current-epoch   2
      :frame           :app/main}))
 
+;; The machine `:after` timer's FIRED (live) completion. A fired `:after`
+;; timer's transition can mutate machine snapshot `:data`, so per
+;; Managed-Effects §Causal completion metadata it threads the durable causal
+;; `:completed-at` when the firing dispatch supplied one (rf2-hawtjr —
+;; `m-reply/after-fired-reply` `(some? completed-at) (assoc …)`). The no-time
+;; variant (the `families` `:success` row, which is held only to
+;; status/work-id/value shape) omits it; the with-time variant feeds the
+;; EP-0017 `completion-time-families` tier (rf2-suwuqo — the timer family was
+;; the one success-producing family the completion-time tier never exercised).
 (defn- after-fired-reply []
   (m-reply/after-fired-reply
     {:machine-id :a/multi
@@ -179,6 +188,16 @@
      :decl-path  [:loading]
      :epoch      1
      :frame      :app/main}))
+
+(defn- after-fired-reply-with-time []
+  (m-reply/after-fired-reply
+    {:machine-id   :a/multi
+     :state        :loading
+     :delay        30000
+     :decl-path    [:loading]
+     :epoch        1
+     :frame        :app/main
+     :completed-at completion-time-ms}))
 
 (defn- route-stale-reply []
   (:reply (route-reply/suppress {:route-id  :route/article
@@ -403,10 +422,17 @@
 ;; shape (the umbrella regression the bead names — rf2-ear61v).
 ;;
 ;; The families whose SUCCESS fixture seeds a completion time: HTTP, resource,
-;; mutation, machine, and route (the route live-reply threads `:completed-at`
-;; uniformly — rf2-bphg8v / rf2-2avo53). (The timer's success builder shapes
-;; only the stale path here; its success row is N/A — but the absence half
-;; below holds EVERY success-producing family to the omit-when-absent rule.)
+;; mutation, machine, route, AND timer (rf2-suwuqo). The route live-reply
+;; threads `:completed-at` uniformly (rf2-bphg8v / rf2-2avo53); the machine
+;; `:after` timer's FIRED completion threads it too (rf2-hawtjr —
+;; `after-fired-reply` `(some? completed-at) (assoc …)`), because a fired
+;; timer's transition can mutate durable machine `:data`. The timer family was
+;; the one success-producing family the completion-time tier had never
+;; exercised (the `families` `:success` row used the NO-time `after-fired-reply`
+;; and `completion-time-families` omitted `:timer`), so a timer builder that
+;; dropped or nil-filled `:completed-at` while preserving status/work-id shape
+;; would have left this cross-family tier green — exactly the umbrella gap the
+;; bead names. The with-time / no-time timer pair below closes it.
 ;; ---------------------------------------------------------------------------
 
 ;; Parallel "no completion time supplied" success builders — the SAME family
@@ -442,7 +468,16 @@
    {:family :machine  :with-time #(m-reply/success-reply machine-ctx {:user-id "u-42"})
     :no-time machine-success-no-time}
    {:family :route    :with-time route-live-reply
-    :no-time route-success-no-time}])
+    :no-time route-success-no-time}
+   ;; rf2-suwuqo — the machine `:after` timer's FIRED completion. The with-time
+   ;; variant seeds the causal `:completed-at` (a fired timer's transition can
+   ;; mutate durable machine `:data`); the no-time variant is the plain
+   ;; `after-fired-reply` (an unscripted / no-cofx fire path), which OMITS the
+   ;; slot. This holds the timer family to BOTH halves of the EP-0017 tier:
+   ;; uniform propagation when supplied, omit-when-absent (no nil sentinel)
+   ;; when not — and feeds it into the completion-time adversarial control.
+   {:family :timer    :with-time after-fired-reply-with-time
+    :no-time after-fired-reply}])
 
 (deftest completion-time-propagates-uniformly-across-families
   (testing "EP-0017 — every family supplied a causal completion time threads
