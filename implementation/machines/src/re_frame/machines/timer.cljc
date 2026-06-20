@@ -258,6 +258,50 @@
                  (dissoc m frame-id)
                  (assoc m frame-id inner)))))))
 
+(defn- reap-fired-entry!
+  "Reap a one-shot `:after` entry whose host-clock timer has just FIRED —
+  release its sub-reaction watcher + subscription registration and drop the
+  inner-table slot. Distinct from `cancel-after-timer-entry!`: a fired timer
+  was NOT cancelled (the host clock ran to completion), so this emits NO
+  `:rf.machine.timer/cancelled` trace — the fired/stale-after trace already
+  records the synthetic event's fate. This is the host-clock counterpart of
+  the cancellation paths: it exists so the COMMON case where a fire is
+  guard-suppressed (the synthetic event is discarded, the state does NOT
+  exit, so no `:on-exit` cancel ever runs) does not strand the entry — a leak
+  of the add-watch + held subscription ref-count, and — worse — a live
+  watcher that would re-arm a fresh timer for a one-shot that already
+  fired-and-was-discarded the next time the sub-vec delay's value changes.
+  Per XState v5 semantics a delayed transition's timer fires once per arming;
+  a guard-rejected fire does NOT re-schedule.
+
+  EPOCH-GUARDED. The reap runs only when the slot still holds THIS fire's
+  entry — same `:epoch` as the one the timer was armed at. A real-transition
+  fire exits the state, runs `:on-exit` cancel, and re-entry installs a FRESH
+  entry under the same key at a strictly-greater per-decl-path epoch; the
+  guard refuses to clobber that successor (and refuses to double-reap an
+  already-cancelled slot). Returns nil.
+
+  `vec`-snapshots nothing — a single `get-in` + a compare-and-dissoc swap that
+  re-reads the epoch inside the swap fn so a concurrent re-arm between the
+  read and the swap is not clobbered on the JVM target."
+  [frame-id k fired-epoch]
+  (when-let [entry (get-in @after-timers [frame-id k])]
+    (when (= fired-epoch (:epoch entry))
+      (release-entry-resources! frame-id entry (:delay k))
+      (swap! after-timers
+             (fn [m]
+               ;; Re-read the entry inside the swap: only dissoc when the slot
+               ;; STILL carries this fire's epoch, so a concurrent re-arm that
+               ;; landed a fresh entry between the outer read and this swap is
+               ;; preserved rather than dropped.
+               (if (= fired-epoch (:epoch (get-in m [frame-id k])))
+                 (let [inner (dissoc (get m frame-id) k)]
+                   (if (empty? inner)
+                     (dissoc m frame-id)
+                     (assoc m frame-id inner)))
+                 m)))))
+  nil)
+
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
   changes. Per Spec 005 §Dynamic delay re-resolution: cancel the prior
@@ -403,7 +447,24 @@
                       (dispatch! [parent-id [:rf.machine.timer/after-elapsed
                                               delay-key epoch (vec invoke-id)]]
                                  {:frame              frame-id
-                                  :source             :after-timer})))
+                                  :source             :after-timer}))
+                    ;; A one-shot `:after` timer fires exactly once per arming
+                    ;; (XState v5 §delayed transitions). Reap THIS fire's entry
+                    ;; — release the sub-reaction watcher + held subscription
+                    ;; ref-count and drop the slot — epoch-guarded so a
+                    ;; real-transition exit's re-armed successor (fresh entry,
+                    ;; strictly-greater epoch) is not clobbered. Without this,
+                    ;; a GUARD-SUPPRESSED fire (state does not exit, so no
+                    ;; `:on-exit` cancel runs) would strand the entry AND let a
+                    ;; later sub-vec value change re-arm a spent one-shot via
+                    ;; `on-sub-changed!`. The reap is silent — a fired timer
+                    ;; was not cancelled, so no `:cancelled` trace is emitted.
+                    ;; Runs AFTER the dispatch returns: in dispatch-sync the
+                    ;; transition (and its `:on-exit` cancel, if any) has
+                    ;; already executed, so the epoch guard sees the settled
+                    ;; slot; in async dispatch the guard still distinguishes
+                    ;; this entry from any future re-arm by epoch.
+                    (reap-fired-entry! frame-id k epoch))
                   resolved-ms)
                 watch-key (when (= :sub delay-source)
                             [::after-watch frame-id parent-id invoke-id delay-key])]
