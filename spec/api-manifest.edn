@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 488,
+ :var-count 485,
  :tier-vocab
  [:front-porch
   :advanced
@@ -78,7 +78,6 @@
   {:namespace "re-frame.core", :var "active-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "adapter-disposed?", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "app-db-value", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "assert-process-local-frame-id!", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "clear-event", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "clear-fx", :tier :advanced, :kind :fn, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "clear-http-interceptor", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
@@ -132,8 +131,6 @@
   {:namespace "re-frame.core", :var "machine-has-tag?", :tier :advanced, :kind :fn, :owner "005", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame", :tier :advanced, :kind :fn, :owner "002", :status "EP-0024", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame-handle", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal frame-handle constructor)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "migration-explain", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "migration-map", :tier :advanced, :kind :var, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-meta", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-state", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutations", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}

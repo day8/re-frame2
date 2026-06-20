@@ -448,18 +448,10 @@
   ;; via `:images`. Status `EP-0023` (proposal-stage surface; the row exists
   ;; ahead of the spec/API.md projection, which EP-0023 graduates separately).
   ["re-frame.core" "image"]               {:tier :advanced    :owner "002" :status "EP-0023"}
-  ;; EP-0023 (rf2-32siq3.11): the EP-0013 -> EP-0023 migration shims +
-  ;; diagnostics. `migration-map` / `migration-explain` are the inspectable
-  ;; surface dispositions; `assert-process-local-frame-id!` is the cross-realm
-  ;; duplicate-frame-id migration diagnostic. Advanced tier (migration tooling,
-  ;; not beginner front-porch), owned by 002 (Frames — EP-0023's normative home,
-  ;; the sibling of `image` / `make-frame`). Status `EP-0023` (proposal-stage).
-  ;; The make-frame OBJECT/RECORD name-collapse has LANDED (rf2-32siq3.48):
-  ;; `rf/make-frame` is repointed onto the OBJECT constructor and the facade
-  ;; exports exactly one `make-frame`, the object one.
-  ["re-frame.core" "migration-map"]               {:tier :advanced :owner "002" :status "EP-0023"}
-  ["re-frame.core" "migration-explain"]           {:tier :advanced :owner "002" :status "EP-0023"}
-  ["re-frame.core" "assert-process-local-frame-id!"] {:tier :advanced :owner "002" :status "EP-0023"}
+  ;; (rf2-udl74a: the EP-0013 -> EP-0023 migration facade exports — migration-map /
+  ;; migration-explain / assert-process-local-frame-id! — were REMOVED with the
+  ;; atomic re-frame.realm/migration substrate removal. There is no
+  ;; retained-for-migration facade tier in pre-alpha.)
   ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}
   ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "004" :status "v1"}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"}
