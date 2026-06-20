@@ -159,6 +159,12 @@ Frame construction proceeds in this order:
 Initial events are dispatched to the frame being constructed. The caller does
 not pass `{:frame ...}` for each step.
 
+Each setup step is an ordinary synchronous event dispatch into that frame. It
+uses the frame's resolved image generation, runs the normal event pipeline, opens
+the normal cascade/epoch boundary for that event, and records the event in the
+frame's event stream. Child dispatches emitted by a setup event follow the same
+queue/drain semantics as child dispatches emitted by any other event.
+
 If a synchronous setup step fails, construction fails loud. If the frame was
 registered before the failure, the implementation must tear it down or unregister
 it so failed construction does not leave a live half-created frame.
@@ -196,7 +202,9 @@ and is always the frame under construction. This prevents setup scripts from
 accidentally mutating a sibling frame.
 
 Per-event opts are ordinary dispatch opts, subject to the accepted dispatch
-grammar. That includes causal facts:
+grammar. They are still per-cascade data: they do not mutate the frame's
+recorded construction script, resolved image generation, or durable state except
+through effects returned by the event pipeline. That includes causal facts:
 
 ```clojure
 (rf/make-frame
@@ -283,7 +291,7 @@ harder to teach. One event is already expressible as a one-element
 
 This preserves the re-frame ethos: state changes go through events when you want
 the event pipeline, but data stays data. A setup script is not a callback; it is
-a small event program that constructs a scenario.
+the first explicit segment of the frame's event stream.
 
 ## Backwards Compatibility
 

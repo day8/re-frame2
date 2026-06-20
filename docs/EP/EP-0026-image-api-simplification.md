@@ -159,6 +159,11 @@ The image-selected namespaces are the union of all clause results. Exclusions
 are local to the include clause that contains them; they are not one global
 subtraction set.
 
+Selecting the same source namespace through more than one clause is idempotent:
+the descriptor is considered once. A same `[kind id]` collision between two
+different selected descriptors remains a collision inside the image and fails as
+described below.
+
 The glob grammar remains the EP-0023 grammar:
 
 - namespace strings are dot-separated;
@@ -183,11 +188,15 @@ Image composition is ordered data. A frame created with:
 builds a resolved generation using this precedence:
 
 ```text
-dispatch registrations
-  dominate frame registrations
+dispatch-local registration overlay
+  dominates frame registration overlay
   dominate image inline registrations, later image wins inside the tier
   dominate image namespace-selected registrations, later image wins inside the tier
 ```
+
+These are resolution layers, not mutations of the global registrar, the image
+value, or the frame's recorded image composition. Each layer contributes
+descriptor values to the resolved-generation calculation for its scope.
 
 Within one image:
 
@@ -203,6 +212,11 @@ order of the `:images` vector.
 
 Tooling must retain enough provenance to show which descriptors were shadowed,
 which layer won, and why. Layer dominance should be inspectable, not invisible.
+This is a deliberate amendment to EP-0023's exact replacement maps: the API
+gains a smaller data shape, and gives up the old coordinate-level winner
+declaration. The mitigation is that order is explicit in `:images`, collisions
+inside one selection clause still fail loud, and shadowed descriptors remain
+visible to diagnostics and tools.
 
 ### Inline registration grammar
 
@@ -312,16 +326,22 @@ image :registrations
   = inline local definitions in the image
 
 frame :registrations
-  = an implicit final image layer owned by the frame
+  = a frame-owned overlay in the frame's resolved generation
 
 dispatch :registrations
-  = an implicit final image layer owned by the dispatch envelope
+  = a cascade-local overlay owned by the dispatch envelope
 ```
 
 Frame-level `:registrations` use the same tuple grammar as image-level
 registrations. Dispatch-level `:registrations` use the same syntactic shape, but
 the exact allowed kind set is an open issue because overriding the triggering
 event handler itself may be too magical.
+
+Dispatch-level overlays are part of one event cascade's resolution context. They
+must not update the frame's recorded construction data, must not rewrite the
+image value, and must not affect unrelated cascades. If child dispatches inherit
+the overlay, that inheritance must be specified explicitly rather than falling
+out of queue implementation details.
 
 ### `:rf.cofx` is not a registration overlay
 
@@ -353,31 +373,20 @@ ordinary registration resolution, frame configuration, or host adapter setup. If
 a future host dependency cannot be modeled cleanly by registrations and frame
 configuration, it can return through a specific EP with concrete examples.
 
-### Naming note: `rf/program`
+### Program vocabulary boundary
 
-This EP deliberately uses `rf/image` because that is the current EP-0023 and
-code vocabulary. The emerging naming preference is to rename the value to
-`rf/program`, because it is the vocabulary of behavior that a frame can run:
-events, subscriptions, effects, coeffects, views, routes, flows, resources, and
-so on.
-
-If accepted separately, the likely spellings become:
-
-```clojure
-rf/program
-rf/program*
-:programs
-```
-
-Guide language can then say:
+This EP deliberately keeps `rf/image`. EP-0023 uses `program` for the event
+stream executed by a frame, and warns against using `program` for registration
+sets. The distinction remains useful here:
 
 ```text
-The program is the vocabulary of the application.
-The frame is one running instance of that vocabulary over state.
+image        = selected registration vocabulary loaded by a frame
+frame        = live execution context over state and runtime partitions
+event stream = the program executed by that frame
 ```
 
-This proposal does not bundle that rename. It keeps the API cleanup reviewable
-against the current `rf/image` surface.
+Any future rename from `rf/image` would need to explicitly revise that EP-0023
+vocabulary. This proposal does not do so.
 
 ## Rationale
 
