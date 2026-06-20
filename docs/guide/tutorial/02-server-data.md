@@ -44,25 +44,25 @@ A **resource** is a server read registered once — you describe the read here, 
 (rf/reg-resource :conduit/articles
   {:params-schema  [:map [:page {:optional true} [:maybe :int]]]
    :scope          :rf.scope/global          ; a public list — every viewer gets the same answer
-   :request        (fn [{:keys [page]} _ctx]
-                     {:request {:method :get
-                                :url    (str api/api-base "/articles")
-                                :params {:limit 10 :offset (* 10 (dec (or page 1)))}}
-                      :decode  :json})
    :stale-after-ms 60000
    :tags           (fn [_params data]
                      (into #{[:article-list]}
-                           (map (fn [a] [:article (:slug a)]) (:articles data))))})
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [{:keys [page]} _ctx]
+    {:request {:method :get
+               :url    (str api/api-base "/articles")
+               :params {:limit 10 :offset (* 10 (dec (or page 1)))}}
+     :decode  :json}))
 
 (rf/reg-resource :conduit/article
   {:params-schema  [:map [:slug :string]]
    :scope          :rf.scope/global
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get
-                                :url    (str api/api-base "/articles/" slug)}
-                      :decode  :json})
    :stale-after-ms 60000
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})})
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get
+               :url    (str api/api-base "/articles/" slug)}
+     :decode  :json}))
 ```
 
 Four keys carry the model. `:params-schema` is the read's *identity* — every variable that changes the server's answer belongs in params, because that's what the cache keys on. `:scope :rf.scope/global` is an explicit, auditable claim that this read is the same for everyone; scopes that aren't global are a leak boundary you'll meet in Part 3. `:tags` name the facts in the data — the list carries `[:article-list]` plus one `[:article <slug>]` per article it contains, and the detail carries `[:article <slug>]`. And `:stale-after-ms` is the freshness policy: fresh for a minute, then the next ensure refetches.
@@ -82,19 +82,19 @@ A resource doesn't fetch until something *causes* it, and the cleanest cause is 
 ```clojure
 (rf/reg-route :conduit/home
   {:doc       "The home page: the global article feed."
-   :path      "/"
    :resources [{:resource       :conduit/articles
                 :params         (fn [_route] {})
                 :blocking?      false
-                :keep-previous? true}]})
+                :keep-previous? true}]}
+  "/")
 
 (rf/reg-route :conduit.article/show
   {:doc       "One article, addressed by its slug."
-   :path      "/article/:slug"
    :params    [:map [:slug :string]]
    :resources [{:resource  :conduit/article
                 :params    (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking? true}]})
+                :blocking? true}]}
+  "/article/:slug")
 ```
 
 On entry the runtime ensures each listed resource with the **route as owner**, and on leave (or a superseding navigation) it releases them. The flags are the interesting part:

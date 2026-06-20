@@ -19,12 +19,12 @@ Add two routes first. Each `:on-match` seeds its form's slice — its little cor
 
 ```clojure
 (rf/reg-route :conduit.auth/login
-  {:path     "/login"
-   :on-match [[:auth.login-form/initialise]]})
+  {:on-match [[:auth.login-form/initialise]]}
+  "/login")
 
 (rf/reg-route :conduit.auth/register
-  {:path     "/register"
-   :on-match [[:auth.register-form/initialise]]})
+  {:on-match [[:auth.register-form/initialise]]}
+  "/register")
 ```
 
 Every form lives at one app-db path with one standard shape. The initialise event — an event being just a named thing-that-happened your app reacts to — doubles as its own documentation:
@@ -284,9 +284,9 @@ Settings and the editor should refuse to open while signed out. Route protection
 
 ```clojure
 (rf/reg-route :conduit.user/settings
-  {:path     "/settings"
-   :tags     #{:requires-auth}
-   :on-match [[:settings/load]]})
+  {:tags     #{:requires-auth}
+   :on-match [[:settings/load]]}
+  "/settings")
 ```
 
 There's one trap here, and it's the kind that passes every casual test. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf/url-requested`), and the URL bar or back-button (`:rf.route/handle-url-change`).
