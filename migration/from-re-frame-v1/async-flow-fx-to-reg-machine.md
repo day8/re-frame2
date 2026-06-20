@@ -10,7 +10,7 @@
 
 `day8.re-frame/async-flow-fx` ([repo](https://github.com/day8/re-frame-async-flow-fx)) is a v1-era add-on lib that ships a single fx — `:async-flow` — implementing a rule-engine for orchestrating multi-step asynchronous boot / wizard / init sequences. The engine tracks events as they pass through the router, fires rules whose `:when` predicates have become true, and tears itself down when a rule with `:halt? true` fires.
 
-re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md](../../spec/005-StateMachines.md)): the boot sequence is modelled as an explicit FSM whose `:states` correspond to phases of the flow, whose `:on` maps consume the same HTTP-completion events the async-flow's `:when :events` watched for, and whose `:final?` states correspond to the async-flow's `:halt?` termination. The machine snapshot lives in `app-db` (per Spec 005), so it inherits revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility — none of which the v1 add-on offered.
+re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md](../../spec/005-StateMachines.md)): the boot sequence is modelled as an explicit FSM whose `:states` correspond to phases of the flow, whose `:on` maps consume the same HTTP-completion events the async-flow's `:when :events` watched for, and whose `:final?` states correspond to the async-flow's `:halt?` termination. The machine snapshot lives at `[:rf.runtime/machines :snapshots <id>]` in the frame's runtime-db partition (per Spec 005), so it inherits revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility — none of which the v1 add-on offered.
 
 ## Why the rewrite is opt-in
 
@@ -21,7 +21,7 @@ re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md
 
 The rule is opt-in (O-rule, not M-rule) because (1) remains valid for the engine itself once the surrounding handlers are on `reg-event`. The migration agent does NOT auto-rewrite — every flow is surfaced for operator approval per call site, because the rewrite is semantic (the FSM shape is a re-thinking of the rule-set, not a structural lift).
 
-The agent SHOULD recommend (2) when the codebase is otherwise adopting re-frame2 idioms — machine snapshots in `app-db` integrate with every other v2 surface (trace, epoch, schemas, SSR, 10x / Xray); async-flow's internal atom (or per-flow `:db-path`) is opaque to all of them.
+The agent SHOULD recommend (2) when the codebase is otherwise adopting re-frame2 idioms — machine snapshots in the frame's runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) integrate with every other v2 surface (trace, epoch, schemas, SSR, 10x / Xray); async-flow's internal atom (or per-flow `:db-path`) is opaque to all of them.
 
 ## Detection
 
