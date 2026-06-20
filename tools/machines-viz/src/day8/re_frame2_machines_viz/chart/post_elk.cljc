@@ -1,8 +1,8 @@
 (ns day8.re-frame2-machines-viz.chart.post-elk
   "Post-ELK layout subsystem for the MachineChart — the adaptive-aspect
   rebalance + back-edge return-route detour that close the two structural
-  Stately-parity residuals ELK alone cannot reach (rf2-lamdfl + rf2-gnrkke;
-  `001-Topology-Parity.md` §4.3.1 + §4.3.2).
+  Stately-parity residuals ELK alone cannot reach (`001-Topology-Parity.md`
+  §4.3.1 + §4.3.2).
 
   ## OPT-IN — the default render is UNTOUCHED
 
@@ -11,10 +11,9 @@
   for the adaptive pass via `:direction :auto`. With the DEFAULT
   `:direction :tb` (or an explicit `:tb` / `:lr`), `chart.cljs` does NOT
   resolve a heuristic direction and does NOT run `apply-post-elk` — the ELK
-  result flows to the projector byte-for-byte the way it does on main. The
-  reverted first build (#3453) made `:auto` the DEFAULT and re-laid EVERY
-  machine; this redo keeps every existing machine pixel-identical unless it
-  opts in. `chart.post-elk/adaptive?` is the single gate predicate.
+  result flows to the projector byte-for-byte. The #1 contract here is that
+  a machine's render is unchanged unless it explicitly opts in.
+  `chart.post-elk/adaptive?` is the single gate predicate.
 
   ## Why a SEPARATE stage (the §4.3 verdict)
 
@@ -30,14 +29,14 @@
       (column vs landscape per machine) PLUS a post-ELK coordinate
       transpose for parallel regions.
 
-    - **§4.3.1 G-ROUTE** — under events-as-nodes (rf2-qo5xy) a back-edge
+    - **§4.3.1 G-ROUTE** — under events-as-nodes a back-edge
       `alarming → reset → locked` is two ELK edges through a synthetic
       `reset` event-node; ELK ranks `reset` one layer BELOW the deepest
       state (it is a forward target of the already-deepest source), so the
       return reads as a long detour to the canvas bottom. GREEDY cycle-
-      breaking lifts it but inverts the initial-on-top spine (rf2-ly51l).
-      The only non-regressing path is a CUSTOM post-ELK reroute of the
-      back-edge's segments.
+      breaking lifts it but inverts the initial-on-top spine. The only
+      non-regressing path is a CUSTOM post-ELK reroute of the back-edge's
+      segments.
 
   ## What this ns owns — the opt-in gate + three PURE composable steps
 
@@ -92,41 +91,41 @@
   (:require [day8.re-frame2-machines-viz.chart.projection :as projection]))
 
 ;; ============================================================================
-;; Step 0 — the OPT-IN gate (rf2-lamdfl + rf2-gnrkke redo)
+;; Step 0 — the OPT-IN gate
 ;; ============================================================================
 ;;
-;; The #1 acceptance criterion of this redo: the DEFAULT render is byte-
-;; identical to main. So the whole post-ELK subsystem is gated behind an
-;; explicit opt-in `:direction :auto`. `chart.cljs` calls `adaptive?` once;
-;; on a falsey result it takes the historical path (no heuristic, no
+;; The #1 contract: the DEFAULT render is byte-identical to a plain ELK
+;; layout. So the whole post-ELK subsystem is gated behind an explicit
+;; opt-in `:direction :auto`. `chart.cljs` calls `adaptive?` once; on a
+;; falsey result it takes the non-adaptive path (no heuristic, no
 ;; apply-post-elk). Only `:auto` opts in. An explicit `:tb` / `:lr` is a
 ;; FORCED direction (the host's layout intent) — it skips the heuristic AND
-;; the transpose/reroute, exactly as a default `:tb` does today.
+;; the transpose/reroute, exactly as a default `:tb` does.
 
 (def adaptive-direction
   "The single sentinel `:direction` value that OPTS A MACHINE IN to the
-  adaptive post-ELK pass (rf2-lamdfl + rf2-gnrkke). A host passes
-  `:direction :auto` (e.g. resolved from a machine's `:layout {:aspect
-  :adaptive}` hint) to request per-machine aspect + the parallel-region
-  transpose + the back-edge reroute. Every other value (`:tb`, `:lr`, nil,
-  the default) takes the historical non-adaptive path."
+  adaptive post-ELK pass. A host passes `:direction :auto` (e.g. resolved
+  from a machine's `:layout {:aspect :adaptive}` hint) to request
+  per-machine aspect + the parallel-region transpose + the back-edge
+  reroute. Every other value (`:tb`, `:lr`, nil, the default) takes the
+  non-adaptive path."
   :auto)
 
 (defn adaptive?
-  "rf2-lamdfl + rf2-gnrkke — the OPT-IN predicate: does this `:direction`
-  prop value request the adaptive post-ELK pass? True ONLY for the explicit
-  `:auto` sentinel. Pure.
+  "The OPT-IN predicate: does this `:direction` prop value request the
+  adaptive post-ELK pass? True ONLY for the explicit `:auto` sentinel.
+  Pure.
 
   This is the single gate `chart.cljs` consults: a falsey result means the
   ENTIRE post-ELK subsystem (heuristic direction + parallel transpose +
-  back-edge reroute) is skipped and the render is byte-identical to main.
-  The default `:direction :tb`, an explicit `:tb` / `:lr`, and nil all
-  return false (non-adaptive); only `:auto` returns true."
+  back-edge reroute) is skipped and the render is a plain ELK layout. The
+  default `:direction :tb`, an explicit `:tb` / `:lr`, and nil all return
+  false (non-adaptive); only `:auto` returns true."
   [host-direction]
   (= host-direction adaptive-direction))
 
 ;; ============================================================================
-;; Step 1 — adaptive layout aspect: the orientation heuristic (rf2-lamdfl)
+;; Step 1 — adaptive layout aspect: the orientation heuristic
 ;; ============================================================================
 ;;
 ;; §4.3.2 wall 1: there is no ELK *balance* lever for Layered, and wrapping a
@@ -151,9 +150,9 @@
 ;; agrees with the Stately reference per the §4.3.2 measurements.
 
 (def landscape-branch-threshold
-  "rf2-lamdfl — the max single-state out-degree (distinct transition
-  TARGETS leaving one state) at or above which a flat machine is judged
-  BRANCHY enough to read better landscape (`:lr`) than as a column.
+  "The max single-state out-degree (distinct transition TARGETS leaving
+  one state) at or above which a flat machine is judged BRANCHY enough to
+  read better landscape (`:lr`) than as a column.
 
   3 captures the genuinely-branchy corpus machines (the gate `:gate/check`
   3-way guarded fork; the quiz / modal hubs that fan to several distinct
@@ -173,9 +172,8 @@
   (or (:target edge) (:source edge)))
 
 (defn max-out-degree
-  "rf2-lamdfl — the maximum, over all REAL statechart states, of the number
-  of DISTINCT transition targets leaving that state. Pure: parsed graph →
-  int.
+  "The maximum, over all REAL statechart states, of the number of DISTINCT
+  transition targets leaving that state. Pure: parsed graph → int.
 
   Counts only edges leaving a genuine state node (a synthetic machine-root /
   parallel-root anchor's machine-level fallback is not a state's own fan-out,
@@ -201,10 +199,10 @@
          (reduce max 0))))
 
 (defn aspect-direction
-  "rf2-lamdfl — the adaptive-aspect ORIENTATION heuristic: choose the ELK
-  layout direction for `parsed` so a large machine reads in a screen-
-  friendly proportion (the §4.3.2 G-ASPECT close). Pure: parsed graph →
-  `:tb` (column / DOWN) or `:lr` (landscape / RIGHT).
+  "The adaptive-aspect ORIENTATION heuristic: choose the ELK layout
+  direction for `parsed` so a large machine reads in a screen-friendly
+  proportion (the §4.3.2 G-ASPECT close). Pure: parsed graph → `:tb`
+  (column / DOWN) or `:lr` (landscape / RIGHT).
 
   Only consulted on the OPT-IN path (`adaptive?` true). Rules (in order):
 

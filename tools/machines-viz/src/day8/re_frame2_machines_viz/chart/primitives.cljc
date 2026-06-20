@@ -1,10 +1,8 @@
 (ns day8.re-frame2-machines-viz.chart.primitives
   "Reusable SVG glyph primitives — `countdown-ring` and `sparkline`.
 
-  rf2-gpzb4 (2026-05-21) — relocated from the now-deleted
-  `chart/svg.cljc` in the xyflow migration. The xyflow chart owns
-  node + edge rendering; these primitives remain because they are
-  consumed OUTSIDE the chart canvas:
+  The xyflow chart owns node + edge rendering; these primitives live
+  here because they are consumed OUTSIDE the chart canvas:
 
     - `countdown-ring` — Xray's `panels/machine_after_rings.cljs`
       overlay paints rings ON TOP of the chart for the focused
@@ -19,7 +17,7 @@
   Both fns produce hiccup forms; substrate-agnostic; JVM-testable.
 
   Per `tools/machines-viz/spec/000-Vision.md` §Decision trace
-  §Interactive renderer (2026-05-21 xyflow override)."
+  §Interactive renderer."
   (:require [clojure.string :as str]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
 
@@ -65,11 +63,11 @@
         arc-len   (* f circ)
         gap-len   (- circ arc-len)
         token-key (get ring-color->token color :text-tertiary)
-        ;; rf2-uv1on — resolve through `var(--rf-xray-<key>, <hex>)`
-        ;; so light + dark themes both flow through the host's CSS
-        ;; custom-property surface (the xyflow overlay paints from the
-        ;; same palette the chart + host do). Falls back to the dark-
-        ;; palette hex for standalone embeds + the JVM hiccup tests.
+        ;; Resolve through `var(--rf-xray-<key>, <hex>)` so light + dark
+        ;; themes both flow through the host's CSS custom-property surface
+        ;; (the xyflow overlay paints from the same palette the chart +
+        ;; host do). Falls back to the dark-palette hex for standalone
+        ;; embeds + the JVM hiccup tests.
         stroke    (tokens/css-var token-key)
         opacity   (if cancelled? 0.4 0.85)]
     [:g {:data-testid    (or testid "rf-mv-chart-countdown-ring")

@@ -1,22 +1,20 @@
 (ns day8.re-frame2-machines-viz.chart.layout-error
-  "rf2-4lyvh — pure helpers for the ELK layout-failure surface.
+  "Pure helpers for the ELK layout-failure surface.
 
-  Before rf2-4lyvh, `chart/compute-layout!` swallowed both the sync
-  `(catch :default _ nil)` around `(.layout elk-instance input)` AND
-  the async `(.catch (fn [_e] (done-fn nil)))` on the returned promise.
-  The downstream `(when result ...)` guard at the callsite then no-
-  op'd, leaving `layout-state` at its initial empty shape; every
-  rendered node fell back to (0, 0). Operators saw stacked boxes with
-  no diagnostic.
+  When `chart/compute-layout!` hits an ELK error — either the sync
+  throw around `(.layout elk-instance input)` or an async promise
+  rejection — it hands `done-fn` a non-nil result-map carrying a
+  `:layout-error`, so the downstream `(when result ...)` guard still
+  fires and the projector paints an in-panel diagnostic banner rather
+  than silently falling back to (0, 0)-stacked boxes.
 
-  This namespace owns the pure side of the fix — the input-summary,
-  the JS-error → CLJS-data adapter, and the result-map builder the
-  `done-fn` callback receives on failure. The side-effects (trace
-  emit + dev-only `console.error`) stay in `chart.cljs` next to the
-  elkjs interop; this ns is split out so the .cljc test corpus can
-  pin the data shape without loading xyflow / elkjs (mirroring the
-  rf2-0gmwp split that moved the pure projector into
-  `chart.projection`).
+  This namespace owns the pure side of that surface — the
+  input-summary, the JS-error → CLJS-data adapter, and the result-map
+  builder the `done-fn` callback receives on failure. The side-effects
+  (trace emit + dev-only `console.error`) stay in `chart.cljs` next to
+  the elkjs interop; this ns is split out so the .cljc test corpus can
+  pin the data shape without loading xyflow / elkjs (the same split
+  posture that keeps the pure projector in `chart.projection`).
 
   ## Shapes
 
@@ -95,9 +93,9 @@
   commit) plus `:layout-error` so the chart can paint the in-panel
   indicator banner. Pure fn.
 
-  rf2-rlq97 — `:edge-labels` mirrors the success-path
-  `elk-result->positions` shape (elk's computed edge-label positions);
-  empty on failure, same as `:edge-points`."
+  `:edge-labels` mirrors the success-path `elk-result->positions` shape
+  (elk's computed edge-label positions); empty on failure, same as
+  `:edge-points`."
   [error parsed direction layout-options]
   {:positions    {}
    :edge-points  {}

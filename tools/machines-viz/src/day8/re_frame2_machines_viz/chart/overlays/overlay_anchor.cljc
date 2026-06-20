@@ -1,7 +1,7 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
   "Pure anchoring geometry shared by the xyflow chart's HTML/SVG
-  overlays (rf2-3ow55 · xyflow Phase 2 — the `:spawn-all` join
-  inspector + the cancellation-cascade visualiser).
+  overlays (the `:spawn-all` join inspector + the cancellation-cascade
+  visualiser).
 
   ## Why a separate .cljc
 
@@ -35,9 +35,8 @@
   <id>\")` contract. Returns nil for a nil / blank node-id so the
   overlay skips rather than querying a garbage selector.
 
-  rf2-ee38b.21 — this is the SINGLE canonical helper for the
-  node-id → testid string. `after_rings_geometry` previously carried a
-  byte-identical `state->node-testid`; it now points here."
+  This is the SINGLE canonical helper for the node-id → testid string;
+  every overlay routes through it so the selector is minted one way."
   [node-id]
   (when (and node-id (not (str/blank? (str node-id))))
     (str "rf-mv-chart-node-" node-id)))
@@ -46,7 +45,7 @@
    (defn rect->map
      "JS `DOMRect` → the `{:left :top :width :height}` map the anchoring
      helpers consume. Returns nil for a nil rect. CLJS-only (DOM
-     interop); the overlays share this single seam (rf2-ed099)."
+     interop); the overlays share this single seam."
      [^js dom-rect]
      (when dom-rect
        {:left   (.-left dom-rect)
@@ -60,8 +59,7 @@
      the matched element's bounding rect as a `rect->map`, or nil when
      `root` / `testid` is missing or the node isn't in the DOM
      (off-screen / not yet mounted / compound parent without a leaf).
-     CLJS-only; the shared DOM-measurement seam for every chart overlay
-     (rf2-ed099)."
+     CLJS-only; the shared DOM-measurement seam for every chart overlay."
      [^js root testid]
      (when (and root testid)
        (let [el (.querySelector root (str "[data-testid=\"" testid "\"]"))]
@@ -76,7 +74,7 @@
      Returns nil when `root` / `node-id` is missing or the node isn't
      in the DOM. CLJS-only (DOM interop); the shared measurement seam
      the card overlays (cancellation-cascade, spawn-all-join) share so
-     each ns keeps only its anchor-fn choice (rf2-jkake.16)."
+     each ns keeps only its anchor-fn choice."
      [anchor-fn ^js root node-id]
      (when (and root node-id)
        (let [container (rect->map (.getBoundingClientRect root))

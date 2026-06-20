@@ -1,6 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.context-redaction
-  "EP-0015 local-redacted projection for the chart's root Context band
-  (rf2-27e38h).
+  "EP-0015 local-redacted projection for the chart's root Context band.
 
   ## Why this exists
 

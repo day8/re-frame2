@@ -1,15 +1,13 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.spawn-all-join
-  "xyflow `:spawn-all` join-inspector overlay (rf2-3ow55 · xyflow
-  Phase 2).
+  "xyflow `:spawn-all` join-inspector overlay.
 
   ## Why this exists
 
-  xyflow Phase 1 (#1806) deferred the cross-cutting Xray machine
-  surfaces. This overlay restores the `:spawn-all` join inspector
-  (Xray 003 §M.4 — `:spawn-all` never joins): when a state declares
-  `:spawn-all`, the inspector shows the N spawned children + their
-  per-child join state (done / running / failed) and whether the join
-  condition has resolved, anchored beside the spawn-all-bearing state.
+  This overlay is the `:spawn-all` join inspector (Xray 003 §M.4 —
+  `:spawn-all` never joins): when a state declares `:spawn-all`, the
+  inspector shows the N spawned children + their per-child join state
+  (done / running / failed) and whether the join condition has
+  resolved, anchored beside the spawn-all-bearing state.
 
   ## Pure-presentation, host-projected (mirrors after-rings)
 
@@ -45,9 +43,8 @@
 ;; ---- DOM measurement ----------------------------------------------------
 ;;
 ;; The join card anchors to the RIGHT of the bearing state; the DOM walk +
-;; container re-base is the shared `anchor/measure-anchor` seam
-;; (rf2-jkake.16) — this overlay supplies only the `anchor-right-of`
-;; placement.
+;; container re-base is the shared `anchor/measure-anchor` seam — this
+;; overlay supplies only the `anchor-right-of` placement.
 
 ;; ---- child-row glyph ----------------------------------------------------
 

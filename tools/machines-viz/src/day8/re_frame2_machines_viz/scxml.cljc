@@ -1,6 +1,6 @@
 (ns day8.re-frame2-machines-viz.scxml
   "SCXML (W3C State Chart XML) import/export for re-frame2 machine
-  definitions (rf2-6urjd · v1.1).
+  definitions.
 
   SCXML is the W3C standard for statecharts. Round-tripping through
   SCXML lets re-frame2 machines be shared with non-CLJS tooling —
@@ -41,20 +41,20 @@
   | `:final? true`                        | `<final id=\"...\">` |
   | `:on {:event :target}`                | `<transition event=\"event\" target=\"target\"/>` |
   | `:on {:event {:target ... :guard G}}` | `<transition cond=\"G\" .../>` |
-  | `:on {:event {:action A}}` — INTERNAL (no `:target`) | `<transition event=\"event\"><!-- action: A --></transition>` — round-trips to `{:action A}`, NOT the `{}` forbidden block (rf2-mnp93.5) |
-  | Self-target (`:target :same-state`, or a keyword naming the state's OWN key) (rf2-0pp6as) | `<transition … target=\"<source-id>\" type=\"internal\"/>` — references the SOURCE state's REAL declared id (NEVER the dangling `same_2dstate` phantom); `type=\"internal\"` is the explicit XState-v5 internal default. Round-trips to the canonical `:same-state`. |
-  | `:reenter? true` (any target) (rf2-9dj21r) | `type=\"external\"` — the EXTERNAL restart axis (re-run `:exit`+`:entry`). A target-bearing transition WITHOUT `:reenter?` carries `type=\"internal\"`. |
+  | `:on {:event {:action A}}` — INTERNAL (no `:target`) | `<transition event=\"event\"><!-- action: A --></transition>` — round-trips to `{:action A}`, NOT the `{}` forbidden block |
+  | Self-target (`:target :same-state`, or a keyword naming the state's OWN key) | `<transition … target=\"<source-id>\" type=\"internal\"/>` — references the SOURCE state's REAL declared id; `type=\"internal\"` is the explicit XState-v5 internal default. Round-trips to the canonical `:same-state`. |
+  | `:reenter? true` (any target) | `type=\"external\"` — the EXTERNAL restart axis (re-run `:exit`+`:entry`). A target-bearing transition WITHOUT `:reenter?` carries `type=\"internal\"`. |
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
-  | Parallel-ROOT `:on` / `:after` (the ancestor fallback — rf2-656ivk / rf2-m3otj2) | `<transition event=\"event\"\\|\"after.ms\" target=\"a___x b___y\"/>` as a DIRECT `<parallel>` child. A MULTI-region target is a SPACE-SEPARATED id list (W3C `target` grammar); a targetless / action-only root transition emits NO `target`. Round-trips back to the region-qualified grammar (`[:a :x]` / `[[:a :x] [:b :y]]`). |
-  | `{:type :history :deep? <b> :default-target <t>}` (rf2-m285a) | W3C `<history type=\"shallow\\|deep\">` inside the owning compound; a `:default-target` rides a default `<transition target=\"…\"/>`. Round-trips back to `:type :history`. A history pseudo-state is NEVER occupiable — it is a transition TARGET that resolves to the recorded/default leaf — so it emits `<history>`, never `<state>`/`<final>`. |
+  | Parallel-ROOT `:on` / `:after` (the ancestor fallback) | `<transition event=\"event\"\\|\"after.ms\" target=\"a___x b___y\"/>` as a DIRECT `<parallel>` child. A MULTI-region target is a SPACE-SEPARATED id list (W3C `target` grammar); a targetless / action-only root transition emits NO `target`. Round-trips back to the region-qualified grammar (`[:a :x]` / `[[:a :x] [:b :y]]`). |
+  | `{:type :history :deep? <b> :default-target <t>}` | W3C `<history type=\"shallow\\|deep\">` inside the owning compound; a `:default-target` rides a default `<transition target=\"…\"/>`. Round-trips back to `:type :history`. A history pseudo-state is NEVER occupiable — it is a transition TARGET that resolves to the recorded/default leaf — so it emits `<history>`, never `<state>`/`<final>`. |
   | Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns/name) |
   | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (dots in the ns are escaped to `_2e`) |
   | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path segments) |
   | Nested-state ids                      | FULLY QUALIFIED (root→leaf, `___`-joined) — unique xsd:ID |
 
-  ## Id codec — injective, xsd:ID-conformant (rf2-mnp93.1/.7)
+  ## Id codec — injective, xsd:ID-conformant
 
   SCXML state ids are `xsd:ID` (XML NCName): letters / digits / `-` `.`
   `_`, NO `:`. The codec hex-escapes every keyword ns/name char to
@@ -64,36 +64,35 @@
 
   - ANY keyword round-trips EXACTLY, regardless of how many dots its
     namespace or name has (`:my.app.auth/login` ≠ `:my/app.auth.login`
-    now produce DISTINCT ids — the pre-mnp93.1 `.`-as-ns/name scheme
-    collided them; csq75's `:`-as-path was not a valid xsd:ID char).
+    produce DISTINCT ids).
   - State ids are FULLY QUALIFIED with their nesting path, so two
     same-named nested states emit UNIQUE xsd:IDs and transition targets
-    reference those same unique ids (rf2-mnp93.7 — conformant for
-    external SCXML tooling).
-  - User events named `after.*` / `done.state.*` no longer collide with
+    reference those same unique ids — conformant for external SCXML
+    tooling.
+  - User events named `after.*` / `done.state.*` do not collide with
     the synthetic timer / `:on-done` encodings: those carry a LITERAL
-    `.` the codec never emits for a real keyword (rf2-mnp93.3).
+    `.` the codec never emits for a real keyword.
 
   ## Not supported (lossy or omitted)
 
   - `:spawn-all` rows — omitted; the parent state renders without
     spawn affordances.
   - INTERNAL-default self / proper-ancestor SELF-TRANSITION semantics
-    (rf2-0pp6as) — re-frame2 / XState v5 make a targeted transition
-    INTERNAL by default (the targeted state's OWN `:exit` / `:entry` do
-    NOT re-run); W3C SCXML's `type=\"internal\"` only changes the
-    transition domain for a COMPOUND source whose target is a PROPER
-    DESCENDANT (the one case where the export IS the exact equivalent).
-    For a self-target (source == target) or a proper-ancestor target,
-    SCXML ALWAYS re-enters the source regardless of `type`, so the
-    re-frame2 internal default has no exact SCXML equivalent. The export
-    emits `type=\"internal\"` to record the intended axis and references
-    the source state's REAL declared id (never the pre-fix dangling
-    `same_2dstate` phantom), and the local `scxml->spec` round-trips the
-    `:same-state` sentinel exactly — but a STRICT external SCXML engine
-    executing the imported chart will re-run the source's exit/entry on
-    the self-target where re-frame2 would not. This is the irreducible
-    loss; it is documented here rather than papered over.
+    — re-frame2 / XState v5 make a targeted transition INTERNAL by
+    default (the targeted state's OWN `:exit` / `:entry` do NOT re-run);
+    W3C SCXML's `type=\"internal\"` only changes the transition domain
+    for a COMPOUND source whose target is a PROPER DESCENDANT (the one
+    case where the export IS the exact equivalent). For a self-target
+    (source == target) or a proper-ancestor target, SCXML ALWAYS
+    re-enters the source regardless of `type`, so the re-frame2 internal
+    default has no exact SCXML equivalent. The export emits
+    `type=\"internal\"` to record the intended axis and references the
+    source state's REAL declared id, and the local `scxml->spec`
+    round-trips the `:same-state` sentinel exactly — but a STRICT
+    external SCXML engine executing the imported chart will re-run the
+    source's exit/entry on the self-target where re-frame2 would not.
+    This is the irreducible loss; it is documented here rather than
+    papered over.
   - Machine-level (top-level) `:on` fallback transitions — W3C SCXML
     has no clean root-fallback slot (`<scxml>` does not host
     `<transition>` children per the schema, and the import side drops
@@ -104,23 +103,23 @@
     `cond=\"name\"` for guards; a transition `:action` name rides an
     `<!-- action: name -->` comment, the only SCXML-tolerable slot, since
     SCXML proper has no transition-action-id attribute). An INLINE-FN
-    `:guard` / `:action` (the Spec 005 escape hatch) is LOSSY-not-crash
-    (rf2-m285a): `ref->label` surfaces the fn's `:name` meta or a stable
-    `\"fn\"` fallback (consistent with chart/Mermaid; matches the API
-    promise that fn bodies are lossy, not unsupported) — it does NOT
-    round-trip back to the original fn. The action name
-    **round-trips** (rf2-mnp93.5): `scxml->spec` lifts the action comment
-    back into the candidate's `:action` BEFORE comments are stripped, so an
-    internal `:on {:tick {:action :log}}` returns `{:action :log}` — a valid
-    Spec-005 internal action transition — NOT the empty `{}` FORBIDDEN BLOCK
-    a naive comment-strip would synthesise (a semantic inversion). FN
-    BODIES are still lost (only the name survives). Entry/exit actions would
-    require an evaluation context, so their names are preserved as XML
-    comments but are not part of this round-trip.
+    `:guard` / `:action` (the Spec 005 escape hatch) is LOSSY-not-crash:
+    `ref->label` surfaces the fn's `:name` meta or a stable `\"fn\"`
+    fallback (consistent with chart/Mermaid; matches the API promise that
+    fn bodies are lossy, not unsupported) — it does NOT round-trip back to
+    the original fn. The action name **round-trips**: `scxml->spec` lifts
+    the action comment back into the candidate's `:action` BEFORE comments
+    are stripped, so an internal `:on {:tick {:action :log}}` returns
+    `{:action :log}` — a valid Spec-005 internal action transition — NOT
+    the empty `{}` FORBIDDEN BLOCK a naive comment-strip would synthesise
+    (a semantic inversion). FN BODIES are still lost (only the name
+    survives). Entry/exit actions would require an evaluation context, so
+    their names are preserved as XML comments but are not part of this
+    round-trip.
   - Source-coord metadata — stripped at export time (same posture as
     share-URL encoding; see `Principles.md` §No session data in shares).
   - Consumer-attachment `:rf.cofx/requires` (EP-0017 — the replay-critical
-    host facts a named guard / action / entry / exit consumes; rf2-skhlw2.1):
+    host facts a named guard / action / entry / exit consumes):
     INTENTIONALLY OMITTED. W3C SCXML has no native attribute for re-frame2
     coeffect requirements, and the requirements ride the `:guards` /
     `:actions` named-entry registry, which SCXML does not carry (only the
@@ -140,20 +139,20 @@
   Per [`API.md`](../../spec/API.md) §SCXML import/export."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
-            ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
-            ;; the three emitters route through, so they address every node
-            ;; identically (one escape codec, one source of truth). The SCXML
-            ;; DECODE side (unescape / decode-target) + the root-grammar-aware
+            ;; The SHARED grammar walker + injective id codec the three
+            ;; emitters route through, so they address every node identically
+            ;; (one escape codec, one source of truth). The SCXML DECODE side
+            ;; (unescape / decode-target) + the root-grammar-aware
             ;; `root-transition-candidates` stay LOCAL — they are genuinely
             ;; distinct from the shared emit-side walker.
             [day8.re-frame2-machines-viz.grammar :as g]
-            ;; rf2-bs3us — share the canonical parallel-root done-state id
-            ;; with the chart projector so the two emitters agree on the
-            ;; `done.state.<id>` label (single source of truth).
+            ;; Share the canonical parallel-root done-state id with the chart
+            ;; projector so the two emitters agree on the `done.state.<id>`
+            ;; label (single source of truth).
             [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---------------------------------------------------------------------------
-;; Value-free error diagnostics (rf2-8nzxib)
+;; Value-free error diagnostics
 ;;
 ;; EP-0015 / Spec 015 §exception-path residual — a thrown error must NOT
 ;; carry the raw rejected payload. A machine spec can carry a `:data`
@@ -182,26 +181,24 @@
     {:type (cond (nil? input) :nil (map? input) :map :else :value)}))
 
 ;; ---------------------------------------------------------------------------
-;; Id codec — FULLY INJECTIVE, xsd:ID-conformant (rf2-mnp93.1)
+;; Id codec — FULLY INJECTIVE, xsd:ID-conformant
 ;;
 ;; Re-frame2 ids are keywords (`:idle`, `:auth/login-flow`,
 ;; `:my.app.auth/login`) or vector paths (`[:authenticated :browsing]`).
 ;; SCXML state ids are `xsd:ID` (XML NCName): the leading char must be a
 ;; letter / `_`, subsequent chars letters / digits / `-` `.` `_`. A `:`
-;; is NOT a valid NCName char — so the pre-mnp93.1 `:`-as-path-separator
-;; scheme (rf2-csq75) emitted non-conformant ids that strict external
-;; SCXML consumers reject (rf2-mnp93.7), and the `.`-as-ns/name scheme
-;; was NON-INJECTIVE: a keyword namespace may itself contain dots
-;; (`:my.app.auth/login` → `"my.app.auth.login"`), so the decoder could
-;; not recover where the namespace ended (rf2-mnp93.1).
+;; is NOT a valid NCName char, and a `.`-as-ns/name scheme would be
+;; NON-INJECTIVE: a keyword namespace may itself contain dots
+;; (`:my.app.auth/login` → `"my.app.auth.login"`), so a decoder could not
+;; recover where the namespace ended.
 ;;
-;; FIX — hex-escape codec (the same injective scheme `chart/layout`'s
-;; `node-id` uses for xyflow ids). EVERY non-alphanumeric char in a
-;; segment is escaped to `_<2-hex>` (so a literal `_` → `_5f`, `.` →
-;; `_2e`, `?` → `_3f`). After escaping, an `_` appears ONLY as the lead
-;; of a `_XX` hex triple — never two underscores in a row — so we can use
-;; consecutive-underscore RESERVED MARKERS the escaper can provably never
-;; emit:
+;; The hex-escape codec (the same injective scheme `chart/layout`'s
+;; `node-id` uses for xyflow ids) handles this. EVERY non-alphanumeric
+;; char in a segment is escaped to `_<2-hex>` (so a literal `_` → `_5f`,
+;; `.` → `_2e`, `?` → `_3f`). After escaping, an `_` appears ONLY as the
+;; lead of a `_XX` hex triple — never two underscores in a row — so we can
+;; use consecutive-underscore RESERVED MARKERS the escaper can provably
+;; never emit:
 ;;
 ;; - `__`  (DOUBLE underscore) joins a keyword's NAMESPACE and NAME:
 ;;   `:auth/login`         → `"auth__login"`
@@ -220,28 +217,24 @@
 ;; the codec is fully injective and every emitted id is a valid xsd:ID.
 
 (def ^:private ns-name-sep
-  "rf2-mnp93.1 — the keyword NAMESPACE↔NAME boundary in an SCXML id. `__`
-  (double underscore) is impossible for `escape-id-segment` to emit (it
-  only ever emits `_` + 2 hex digits), so it is the injective ns/name
-  marker. Supersedes csq75's `.`-as-ns/name (non-injective for multi-dot
-  namespaces)."
+  "The keyword NAMESPACE↔NAME boundary in an SCXML id. `__` (double
+  underscore) is impossible for `escape-id-segment` to emit (it only ever
+  emits `_` + 2 hex digits), so it is the injective ns/name marker."
   "__")
 
 (def ^:private path-segment-sep
-  "rf2-mnp93.1 — the vector-PATH segment boundary in an SCXML id. `___`
-  (triple underscore) the escaper can never emit and is distinct from the
-  `__` ns/name marker, so a vector path can never collide with a single
-  namespaced keyword. Supersedes csq75's `:` (not a valid xsd:ID char —
-  rf2-mnp93.7)."
+  "The vector-PATH segment boundary in an SCXML id. `___` (triple
+  underscore) the escaper can never emit and is distinct from the `__`
+  ns/name marker, so a vector path can never collide with a single
+  namespaced keyword. A valid xsd:ID."
   "___")
 
-;; rf2-b2ygd2 — the xsd:ID-safe injective escape is the SHARED
-;; `grammar/escape-id-segment` (every char outside `[A-Za-z0-9]` → `_<2-hex>`,
-;; the underscore itself → `_5f`; no two consecutive underscores, so the
-;; `__` / `___` reserved markers can never arise from segment content). The
-;; SINGLE injective scheme across all machines-viz id emitters, so the SCXML
-;; codec mints byte-identical segment escapes to the chart `node-id` + mermaid
-;; `sanitise-id`.
+;; The xsd:ID-safe injective escape is the SHARED `grammar/escape-id-segment`
+;; (every char outside `[A-Za-z0-9]` → `_<2-hex>`, the underscore itself →
+;; `_5f`; no two consecutive underscores, so the `__` / `___` reserved markers
+;; can never arise from segment content). The SINGLE injective scheme across
+;; all machines-viz id emitters, so the SCXML codec mints byte-identical
+;; segment escapes to the chart `node-id` + mermaid `sanitise-id`.
 (def ^:private escape-id-segment g/escape-id-segment)
 
 (defn- unescape-id-segment
@@ -258,26 +251,22 @@
   "Map a single keyword to its injective, xsd:ID-conformant SCXML id
   string. Namespace and name are each `escape-id-segment`-escaped and
   joined with `__` (`ns-name-sep`); a bare keyword emits just its escaped
-  name. rf2-mnp93.1 — exact round-trip for ANY keyword (multi-dot ns,
-  dotted name, `?`/`-`/`_` in either)."
+  name. Exact round-trip for ANY keyword (multi-dot ns, dotted name,
+  `?`/`-`/`_` in either)."
   [k]
   (if-let [ns (namespace k)]
     (str (escape-id-segment ns) ns-name-sep (escape-id-segment (name k)))
     (escape-id-segment (name k))))
 
 (defn- ref->label
-  "rf2-m285a — render a transition `:guard` / `:action` REF as an SCXML
-  attribute label, tolerating inline fns the SAME way `chart/layout` +
-  `mermaid` already do.
+  "Render a transition `:guard` / `:action` REF as an SCXML attribute
+  label, tolerating inline fns the SAME way `chart/layout` + `mermaid` do.
 
   A keyword ref keeps the injective, round-tripping `keyword->id-string`
   codec (the supported subset). An INLINE FN ref is LOSSY by design — the
   machine grammar permits `:guard (fn …)` / `:action (fn …)` (Spec 005
   §Guards / §Actions), and the API promise is that fn BODIES are
-  lossy/opaque, NOT unsupported. Pre-fix, `spec->scxml` passed the fn
-  straight to `keyword->id-string`, which calls `(namespace f)` on it and
-  throws a `ClassCastException` — crashing SCXML export for a valid
-  machine. We instead surface the fn's `:name` meta (a named
+  lossy/opaque, NOT unsupported. We surface the fn's `:name` meta (a named
   `(fn name […] …)` / `defn`) or a stable `\"fn\"` fallback, mirroring
   `chart/layout/name-of`. No attempt is made to serialise the executable
   body."
@@ -293,7 +282,7 @@
   string. A keyword uses `keyword->id-string`; a vector path joins its
   per-segment id strings with `___` (`path-segment-sep`). The `__`
   ns/name and `___` path markers never collide with each other or with
-  segment content (rf2-mnp93.1), so the codec is fully injective."
+  segment content, so the codec is fully injective."
   [id]
   (cond
     (keyword? id) (keyword->id-string id)
@@ -306,8 +295,8 @@
   path separator). Splits on the `__` ns/name marker (at most once),
   `_XX`-unescaping each part: `\"auth__login\"` → `:auth/login`,
   `\"my_2eapp_2eauth__login\"` → `:my.app.auth/login`, bare
-  `\"name\"` → `:name`. rf2-mnp93.1 / rf2-mnp93.2 — the symmetric inverse
-  used by BOTH the id decoder and the guard `cond=` decoder."
+  `\"name\"` → `:name`. The symmetric inverse used by BOTH the id decoder
+  and the guard `cond=` decoder."
   [s]
   (when s
     (let [idx (str/index-of s ns-name-sep)]
@@ -333,7 +322,7 @@
   [depth]
   (apply str (repeat depth "  ")))
 
-;; rf2-b2ygd2 — the generic per-state transition-spec walker is the SHARED
+;; The generic per-state transition-spec walker is the SHARED
 ;; `grammar/transition-candidates` (chart + mermaid share it). NOTE the
 ;; parallel-ROOT SCXML emitter uses its OWN `root-transition-candidates`
 ;; (below) instead — there a vector-of-VECTORS is a SINGLE multi-region
@@ -341,25 +330,24 @@
 ;; walker. That divergence is PRESERVED.
 (def ^:private transition-candidates g/transition-candidates)
 
-;; --- path qualification (rf2-mnp93.7) ------------------------------------
+;; --- path qualification --------------------------------------------------
 ;;
 ;; W3C SCXML state ids are `xsd:ID` — they MUST be unique across the whole
-;; document. The pre-mnp93.7 emitter wrote BARE local-state names, so two
-;; states sharing a name under different compound parents collided
-;; (duplicate `<state id="idle">`) — invalid SCXML a conformant external
-;; consumer rejects. We now emit the FULLY-QUALIFIED path id (root → leaf,
-;; `___`-joined via `path->id-string`) for every state, `initial`, and
-;; transition `target`, so every id is unique. The decoder reverses the
-;; qualification: a state block's local `:states` key is the LAST segment
-;; of its qualified id, and a target resolves back to the relative form
-;; (a sibling keyword when it shares the source's parent, else the
-;; absolute vector path) so the round-trip is exact.
+;; document. Two states sharing a name under different compound parents
+;; would collide on a bare local-state name (duplicate `<state id="idle">`)
+;; — invalid SCXML a conformant external consumer rejects. We emit the
+;; FULLY-QUALIFIED path id (root → leaf, `___`-joined via `path->id-string`)
+;; for every state, `initial`, and transition `target`, so every id is
+;; unique. The decoder reverses the qualification: a state block's local
+;; `:states` key is the LAST segment of its qualified id, and a target
+;; resolves back to the relative form (a sibling keyword when it shares the
+;; source's parent, else the absolute vector path) so the round-trip is
+;; exact.
 
-;; rf2-b2ygd2 — grammar primitives aliased from the SHARED `grammar` ns. W3C
-;; SCXML emits a first-class `<history>` element for a `:type :history`
-;; pseudo-state (Spec 005 §History states); pre-fix `emit-state` emitted a
-;; `<state>` / `<final>`, losing the history semantics + making round-trip
-;; produce a DIFFERENT machine.
+;; Grammar primitives aliased from the SHARED `grammar` ns. W3C SCXML emits
+;; a first-class `<history>` element for a `:type :history` pseudo-state
+;; (Spec 005 §History states), so `emit-state` routes a history child to
+;; `<history>` rather than `<state>` / `<final>` to keep round-trip exact.
 (def ^:private target-path? g/target-path?)
 (def ^:private history-node? g/history-node?)
 (def ^:private parent-path g/parent-path)
@@ -373,17 +361,11 @@
     (`re-frame.machines.transition/target-path`) and the chart / Mermaid
     projectors (`chart.layout/resolve-target-path`,
     `mermaid/resolve-target-path`), which ALL special-case `:same-state`
-    to the declaring state's own path. rf2-0pp6as — pre-fix the SCXML
-    resolver had NO `:same-state` arm, so the sentinel fell through to the
-    keyword branch and produced the ABSOLUTE path `[:same-state]` — a
-    DANGLING `target=\"same_2dstate\"` referencing a state the document
-    never declares. The local `scxml->spec` decoded that phantom id back
-    to `:same-state`, so the round-trip oracle false-greened over invalid
-    W3C SCXML. Resolving to `source-path` emits the SOURCE state's real
-    unique id, exactly as a sibling-keyword self-target (`:target :a` on
-    state `:a`) already did — the two are the SAME self-transition per
-    Spec 005, and SCXML has no self-sentinel, only a target referencing
-    the state's own id.
+    to the declaring state's own path. Resolving to `source-path` emits
+    the SOURCE state's real unique id, exactly as a sibling-keyword
+    self-target (`:target :a` on state `:a`) does — the two are the SAME
+    self-transition per Spec 005, and SCXML has no self-sentinel, only a
+    target referencing the state's own id.
   - a keyword target is a SIBLING of the source state (Spec 005).
   - a vector-path target is absolute."
   [source-path target]
@@ -394,27 +376,26 @@
     :else                  nil))
 
 (defn- qualified-id
-  "The unique xsd:ID for a state at absolute `path` (rf2-mnp93.7)."
+  "The unique xsd:ID for a state at absolute `path`."
   [path]
   (path->id-string (vec path)))
 
 (defn- emit-transition
   "Emit a `<transition>` line for one candidate. `source-path` is the
   absolute path of the OWNING state; targets are path-qualified against
-  it so the emitted `target` is the unique xsd:ID of the destination
-  (rf2-mnp93.7).
+  it so the emitted `target` is the unique xsd:ID of the destination.
 
-  rf2-9dj21r / rf2-0pp6as — the re-frame2 `:reenter? true` axis (Spec 005
-  §Self-transitions / XState v5: a TARGETED transition is INTERNAL by
-  default; `:reenter?` opts into the EXTERNAL restart) maps onto W3C
-  SCXML's `<transition type=\"internal|external\">`, which is the SAME
-  external-vs-internal axis. Spec 005 §Self-transitions L332 records the
-  inversion: SCXML's targeted-transition DEFAULT is `external`
-  (`type=\"internal\"` opts out); XState v5 / re-frame2 FLIPPED it
-  (internal default, `:reenter?` opts IN). So a target-bearing re-frame2
-  transition must be EXPLICIT about the type — leaving it absent would let
-  the export silently inherit SCXML's EXTERNAL default and mis-state the
-  re-frame2 internal-default intent (the rf2-0pp6as drift). We therefore:
+  The re-frame2 `:reenter? true` axis (Spec 005 §Self-transitions /
+  XState v5: a TARGETED transition is INTERNAL by default; `:reenter?`
+  opts into the EXTERNAL restart) maps onto W3C SCXML's `<transition
+  type=\"internal|external\">`, which is the SAME external-vs-internal
+  axis. Spec 005 §Self-transitions L332 records the inversion: SCXML's
+  targeted-transition DEFAULT is `external` (`type=\"internal\"` opts
+  out); XState v5 / re-frame2 use the opposite convention (internal
+  default, `:reenter?` opts IN). So a target-bearing re-frame2 transition
+  must be EXPLICIT about the type — leaving it absent would let the export
+  silently inherit SCXML's EXTERNAL default and mis-state the re-frame2
+  internal-default intent. We therefore:
 
   - emit `type=\"external\"` for a target-bearing `:reenter? true`
     candidate (the external restart — re-run exit/entry); and
@@ -443,22 +424,22 @@
         parts (cond-> []
                 event-name (conj (str "event=\"" (escape-xml-attr event-name) "\""))
                 target-id  (conj (str "target=\"" (escape-xml-attr target-id) "\""))
-                ;; rf2-9dj21r — the external-restart axis. Emitted ONLY for a
+                ;; The external-restart axis. Emitted ONLY for a
                 ;; target-bearing `:reenter? true` candidate (a targetless
                 ;; transition has no state to re-enter; SCXML's `external` is
                 ;; meaningless without a target).
                 (and target reenter?)
                 (conj "type=\"external\"")
-                ;; rf2-0pp6as — the internal default is EXPLICIT. A
-                ;; target-bearing transition WITHOUT `:reenter?` emits
-                ;; `type=\"internal\"` so the export does NOT inherit SCXML's
-                ;; EXTERNAL targeted-transition default (which would mis-state
-                ;; the re-frame2 / XState-v5 internal default — see docstring).
+                ;; The internal default is EXPLICIT. A target-bearing
+                ;; transition WITHOUT `:reenter?` emits `type=\"internal\"` so
+                ;; the export does NOT inherit SCXML's EXTERNAL
+                ;; targeted-transition default (which would mis-state the
+                ;; re-frame2 / XState-v5 internal default — see docstring).
                 (and target (not reenter?))
                 (conj "type=\"internal\"")
-                ;; rf2-m285a — `ref->label` tolerates an inline-fn guard
-                ;; (lossy name/`fn` label) instead of crashing in
-                ;; `keyword->id-string` on a non-keyword.
+                ;; `ref->label` tolerates an inline-fn guard (lossy name/`fn`
+                ;; label) rather than calling `keyword->id-string` on a
+                ;; non-keyword.
                 guard      (conj (str "cond=\"" (escape-xml-attr (ref->label guard)) "\"")))
         attrs (str/join " " parts)
         self-close? (nil? action)]
@@ -466,7 +447,7 @@
          (if self-close?
            (str "<transition " attrs "/>")
            (str "<transition " attrs ">"
-                ;; rf2-m285a — likewise tolerate an inline-fn action.
+                ;; Likewise tolerate an inline-fn action.
                 "<!-- action: " (escape-xml-attr (ref->label action)) " -->"
                 "</transition>")))))
 
@@ -493,24 +474,24 @@
        (map #(emit-transition nil % source-path depth))))
 
 (defn- emit-transitions-for-on-done
-  "rf2-41goo — emit the compound / parallel `:on-done` (XState `onDone`)
-  as W3C SCXML's `<transition event=\"done.state.<id>\" .../>`, placed
-  inside the done node's own `<state>` element (SCXML §3.7: reaching a
-  `<final>` child generates `done.state.<id>` into the internal queue; an
-  enclosing transition takes it). `done-event` is the precomputed
+  "Emit the compound / parallel `:on-done` (XState `onDone`) as W3C
+  SCXML's `<transition event=\"done.state.<id>\" .../>`, placed inside
+  the done node's own `<state>` element (SCXML §3.7: reaching a `<final>`
+  child generates `done.state.<id>` into the internal queue; an enclosing
+  transition takes it). `done-event` is the precomputed
   `\"done.state.<id-str>\"` for THIS node. A target-less candidate
   (action/fx-only — the parallel-root shape) emits a transition with NO
   `target` (the action survives as the emitter's `<!-- action -->`
   comment), faithful to the action-only completion the engine fires.
-  `source-path` qualifies any target (rf2-mnp93.7)."
+  `source-path` qualifies any target."
   [done-event on-done source-path depth]
   (->> (transition-candidates on-done)
        (map #(emit-transition done-event % source-path depth))))
 
 (defn- emit-history
-  "rf2-m285a — emit a W3C SCXML `<history>` pseudo-state element for a
-  re-frame2 `:type :history` node (Spec 005 §History states). `path` is
-  the history node's absolute path (its unique xsd:ID).
+  "Emit a W3C SCXML `<history>` pseudo-state element for a re-frame2
+  `:type :history` node (Spec 005 §History states). `path` is the history
+  node's absolute path (its unique xsd:ID).
 
   W3C SCXML §3.10: `<history type=\"shallow|deep\">` carries an OPTIONAL
   default `<transition target=\"…\"/>` used when the parent has no stored
@@ -520,8 +501,7 @@
   `type=\"shallow\"`. The `:default-target` resolves relative to the
   history node's own level (a keyword target is a sibling — i.e. a direct
   child of the owning compound — per Spec 005), path-qualified to the
-  destination's unique id (rf2-mnp93.7), and round-trips back via
-  `decode-target`."
+  destination's unique id, and round-trips back via `decode-target`."
   [path {:keys [deep? default-target]} depth]
   (let [id-str    (qualified-id path)
         type-str  (if deep? "deep" "shallow")
@@ -552,10 +532,10 @@
 (defn- emit-state
   "Emit a `<state>` (or `<final>`) block for one state-node. `path` is
   the absolute path (root → this state) used to emit unique xsd:IDs and
-  to qualify transition targets (rf2-mnp93.7).
+  to qualify transition targets.
 
-  rf2-m285a — a `:type :history` child of this state is emitted as a W3C
-  `<history>` element (`emit-history`), NOT a nested `<state>`.
+  A `:type :history` child of this state is emitted as a W3C `<history>`
+  element (`emit-history`), NOT a nested `<state>`.
 
   EP-0011 — a `:final? true :error? true` leaf is an ERROR terminal; its
   `<final>` carries the `data_rf_error_final=\"true\"` carrier so the
@@ -567,8 +547,8 @@
         tag    (if final? "final" "state")
         attrs  (cond-> (str "id=\"" (escape-xml-attr id-str) "\"")
                  (and (not final?) initial)
-                 ;; rf2-mnp93.7 — `initial` references a CHILD by its
-                 ;; unique qualified id (the child's absolute path).
+                 ;; `initial` references a CHILD by its unique qualified id
+                 ;; (the child's absolute path).
                  (str " initial=\"" (escape-xml-attr (qualified-id (conj (vec path) initial))) "\"")
                  ;; EP-0011 — a `:final? true :error? true` leaf is an ERROR
                  ;; terminal: it lowers to the uniform reply envelope as
@@ -588,14 +568,14 @@
           (emit-transitions-for-on on path (inc depth))
           (emit-transitions-for-after after path (inc depth))
           (emit-transitions-for-always always path (inc depth))
-          ;; rf2-41goo — the `done.state.<this-id>` completion transition
-          ;; (XState `onDone`). Emitted INSIDE this node's own <state>.
+          ;; The `done.state.<this-id>` completion transition (XState
+          ;; `onDone`). Emitted INSIDE this node's own <state>.
           (when on-done
             (emit-transitions-for-on-done (str "done.state." id-str)
                                           on-done path (inc depth)))
           (mapcat (fn [[child-id child-node]]
-                    ;; rf2-m285a — a `:type :history` child is a W3C
-                    ;; `<history>` pseudo-state, not a nested `<state>`.
+                    ;; A `:type :history` child is a W3C `<history>`
+                    ;; pseudo-state, not a nested `<state>`.
                     (if (history-node? child-node)
                       (emit-history (conj (vec path) child-id) child-node (inc depth))
                       (emit-state (conj (vec path) child-id) child-node (inc depth))))

@@ -1,19 +1,14 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.after-rings
-  "xyflow `:after`-timer countdown-ring overlay (rf2-uv1on · xyflow
-  Phase 2).
+  "xyflow `:after`-timer countdown-ring overlay.
 
   ## Why this exists
 
-  The rf2-gpzb4 xyflow migration ported the MachineChart from
-  ELK+hand-rolled-SVG to `@xyflow/react`. Under the old renderer the
-  chart published a positioned graph (`{:nodes [{:x :y :width
-  :height}]}`) and the after-rings overlay (Xray-side) read positions
-  straight off that data. xyflow owns node positions in the rendered
-  DOM instead — so the overlay can no longer read a positioned graph;
-  it must WALK THE DOM to find each bearing node's bounding box.
+  xyflow owns node positions in the rendered DOM, so the overlay
+  cannot read a positioned graph off the chart data; it WALKS THE DOM
+  to find each bearing node's bounding box.
 
-  This ns is the machines-viz home for that overlay (per the bead's
-  Surface §). It is pure presentation + DOM measurement:
+  This ns is the machines-viz home for that overlay. It is pure
+  presentation + DOM measurement:
 
     - It takes a vector of presentation-ready `ring-specs` (each
       carrying `:node-id` + the `countdown-ring` payload — `:fraction`
@@ -43,9 +38,8 @@
   xyflow lays the DOM out in final on-screen coordinates (its pan +
   zoom are baked into the rendered node rects), so the overlay reads
   the rects AS RENDERED and positions rings at those exact screen
-  positions. The rf2-obp4z `translate(tx,ty) scale(s)` machinery the
-  SVG renderer needed is gone — there is no separate viewport to
-  mirror.
+  positions. There is no separate viewport to mirror — no
+  `translate(tx,ty) scale(s)` transform is needed.
 
   ## Re-measure triggers (Lock #8 — 60Hz when visible)
 
@@ -84,7 +78,7 @@
   `[data-testid=\"rf-mv-chart-node-<id>\"]`. Returns the rect map or
   nil when the node isn't in the DOM (off-screen / not yet mounted /
   compound parent without a leaf). Uses the shared `overlay-anchor`
-  DOM seam (rf2-ed099)."
+  DOM seam."
   [^js root node-id]
   (when (and root node-id)
     (anchor/query-node-rect-by-testid root (anchor/node->testid node-id))))
@@ -196,10 +190,10 @@
          (reset! latest-specs (vec (or ring-specs [])))
          (when (seq ring-specs)
            (let [rings @positioned]
-             ;; rf2-idx41 — the after-rings overlay sits at z-index 3 (one
-             ;; below the card overlays) so the rings tuck under any
-             ;; anchored card; `:pointer-events none` lets clicks fall
-             ;; through to the chart, and individual rings opt back in.
+             ;; The after-rings overlay sits at z-index 3 (one below the
+             ;; card overlays) so the rings tuck under any anchored card;
+             ;; `:pointer-events none` lets clicks fall through to the
+             ;; chart, and individual rings opt back in.
              [:div (merge (scaffold/overlay-root-props root-ref 3)
                           {:data-testid     testid
                            :data-ring-count (str (count ring-specs))
