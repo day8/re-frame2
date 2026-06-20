@@ -90,6 +90,21 @@ and vendor/build dirs are excluded; the tracked `spec/` source is the
 authoritative copy. `docs/EP` rides under `docs/` but is allowlisted as a whole
 (the EP docs ARE the retirement record).
 
+ROOT-SUPPORT COVERAGE (rf2-2c8zq6)
+
+The dir-tree scan above reaches docs/spec/skills markdown only. The root
+support surfaces a reader sees FIRST — README.md, TESTING.md, CHANGELOG.md,
+SKILL-REDIRECT.md, AGENTS.md, CLAUDE.md — plus the JVM gate scripts whose
+comments explain what each tier protects (scripts/test-*.sh) are scanned too
+(`_ROOT_SUPPORT_PROSE_FILES`). On those files the SYMBOL families still fire on
+any fenced Clojure, and a third PROSE-architecture family
+(`retired-architecture-prose`) fires on two distinctive multi-word phrases —
+`event[- ]program` and `realm[- ]routing` — wherever they teach the previous
+model rather than discuss its removal. A removed-context marker on the same
+line (`retired`, `removed`, `no longer`, `no realm-routing`, …) suppresses the
+hit, mirroring the symbol rules' prose/comment tolerance. The phrase set is
+kept TINY on purpose: bare `program` / `app` / `realm` words are far too noisy.
+
 Exit code:
     0  no live retired composition vocabulary on the teaching surface
     1  at least one live retired symbol (results printed file:line)
@@ -116,6 +131,43 @@ from typing import Iterable, NamedTuple
 DEFAULT_SCAN_DIRS = ("docs/api", "docs/guide", "docs/EP", "spec", "skills")
 
 _DOC_SUFFIXES = (".md",)
+
+# rf2-2c8zq6 — root-support surfaces the dir-tree scan above DOES NOT reach.
+# These are the first support files a reader/maintainer sees (the root README,
+# the testing matrix, the changelog, the skill redirect, the AI-agent
+# instruction files) plus the JVM gate scripts whose comments explain what each
+# tier protects. The dir scan covers docs/spec/skills markdown only, so without
+# this list a retired ARCHITECTURE phrase ("the event program", "preserved
+# realm-routing") can drift back onto root support without a CI failure.
+#
+# The prose-architecture family (`_PROSE_PATTERN`) runs over these files; the
+# symbol families ALSO run over the markdown ones (they carry fenced Clojure).
+# Listed as repo-relative forward-slash paths. KEEP HIGH-SIGNAL: each file is a
+# root-level support surface that teaches the public model or documents a gate.
+_ROOT_SUPPORT_MARKDOWN = (
+    "README.md",
+    "TESTING.md",
+    "CHANGELOG.md",
+    "SKILL-REDIRECT.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+)
+
+# Root support SCRIPTS whose comments explain the gates. Non-markdown, so only
+# the prose-architecture family runs (line-by-line; a shell comment is the
+# "prose" surface). The JVM gate scripts are where 2f1x2x found the stale
+# "preserved realm-routing" claim.
+_ROOT_SUPPORT_SCRIPTS = (
+    "scripts/test-jvm-implementation.sh",
+    "scripts/test-jvm-tools.sh",
+    "scripts/test-fast-pr.sh",
+    "scripts/test-rigorous-local.sh",
+)
+
+# Everything the prose-architecture family scans (markdown + scripts).
+_ROOT_SUPPORT_PROSE_FILES = frozenset(
+    _ROOT_SUPPORT_MARKDOWN + _ROOT_SUPPORT_SCRIPTS
+)
 
 # Directory names whose contents are never an authoritative teaching surface.
 # `docs/spec/` is the generated CI mirror of `spec/` (rm -rf + cp -r), so it
@@ -320,14 +372,75 @@ _RETIRED_FACADE_CALL_RE = re.compile(
     r"\(\s*rf/(?:app|module|realm)(?![\w.+!?<>=-])"
 )
 
+# (c) Retired ARCHITECTURE-TEACHING prose phrases (rf2-2c8zq6). The root-support
+#     surfaces (README, TESTING, the JVM gate comments) drifted not by planting
+#     a retired SYMBOL in a code fence but by teaching the previous model in
+#     PROSE: an app's event stream described as "the event program", a JVM gate
+#     comment claiming "realm-routing" is a preserved contract. The canonical
+#     public model is image -> frame -> event stream, so these two distinctive
+#     multi-word phrases read as live architecture vocabulary wherever they are
+#     NOT discussing the retirement itself.
+#
+#     Scope is DELIBERATELY two phrases only — `event[- ]program` and
+#     `realm[- ]routing`. They are multi-word and architecture-specific, so the
+#     false-positive surface is tiny (unlike a bare `program`, `app`, or `realm`
+#     word). A removed-context marker on the same line (`retired`, `removed`,
+#     `no longer`, `collapsed`, `superseded`, `deprecated`, `no <phrase>`, …)
+#     SUPPRESSES the hit: a sentence that says "this tier carries no
+#     realm-routing section" or "the event-program field was renamed" is
+#     discussing the removal, not teaching the model — exactly the same
+#     removed-context exemption the symbol rules grant prose + masked comments.
+_RETIRED_PROSE_RE = re.compile(
+    r"\b(?:event[- ]program|realm[- ]routing)\b",
+    re.IGNORECASE,
+)
+
+# Phrases that mark a line as DISCUSSING the retirement (removed-context), so a
+# retired prose phrase on that line is a name being named, not live teaching.
+# Mirrors the symbol rules' removed-context tolerance (prose + masked comments
+# never fire there either).
+_REMOVED_CONTEXT_RE = re.compile(
+    r"\b(?:retired|removed|remove|no longer|"
+    r"collapsed?|superseded?|supersedes|deprecated?|"
+    r"renamed|was\s+the|formerly|legacy|"
+    r"no\s+(?:realm[- ]routing|event[- ]program)|"
+    r"not?\s+(?:a\s+)?(?:realm[- ]routing|event[- ]program))\b",
+    re.IGNORECASE,
+)
+
+
+def _prose_hits(line: str, context: str = "") -> bool:
+    """True iff `line` teaches a retired architecture phrase as LIVE model prose.
+
+    A retired phrase (`event[- ]program` / `realm[- ]routing`) fires unless a
+    removed-context marker (`retired`, `removed`, `no longer`, `no
+    realm-routing`, …) appears in `context` — the line itself PLUS its immediate
+    neighbours. Prose wraps across lines, so a sentence like "…carries no\\n
+    realm-routing section." carries its removed-context marker on the PREVIOUS
+    line; the small window keeps the gate from firing on wrapped removed-context
+    prose while staying narrow enough not to swallow an unrelated nearby
+    sentence.
+    """
+    if not _RETIRED_PROSE_RE.search(line):
+        return False
+    haystack = context if context else line
+    return not _REMOVED_CONTEXT_RE.search(haystack)
+
+
 # Each family is a (kind, predicate) pair where the predicate maps a single
 # (masked) line to True iff it carries that family's drift. The strong family
 # uses `_strong_hits` (capture + internal-namespace filter); the facade-noun
-# family is a plain regex search.
+# family is a plain regex search. The prose family (`_prose_hits`) runs over
+# PROSE lines (outside fenced code) on the root-support surfaces, not the
+# fenced-code lines the symbol families consume.
 _RETIRED_PATTERNS = (
     ("retired-construction-symbol", _strong_hits),
     ("retired-facade-noun-call", lambda line: bool(_RETIRED_FACADE_CALL_RE.search(line))),
 )
+
+# The prose family is scanned separately (over non-fenced lines), so it is its
+# own (kind, predicate) entry rather than part of `_RETIRED_PATTERNS`.
+_PROSE_PATTERN = ("retired-architecture-prose", _prose_hits)
 
 
 class Finding(NamedTuple):
@@ -405,6 +518,53 @@ def _code_fence_lines(text: str) -> list[tuple[int, str]]:
     return out
 
 
+# Inline `code span` masking (single/double backtick runs). Length-preserving.
+# A retired phrase inside an inline span is a NAME being named (`event-program`
+# the schema field), not live model prose — masked out before the prose rule
+# runs, mirroring the symbol rules' inline-span tolerance.
+_INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1")
+
+
+def _mask_inline_code(line: str) -> str:
+    """Blank inline `code spans`, length-preserving, so a span name cannot fire."""
+    return _INLINE_CODE_SPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
+
+
+def _prose_lines(text: str) -> list[tuple[int, str]]:
+    """Return (1-based-line-no, masked-content) for PROSE lines (outside fences).
+
+    The complement of `_code_fence_lines`: lines INSIDE a fenced code block are
+    omitted (the symbol families own those), and on the prose lines inline code
+    spans are masked (a `code-span` mention is a name, not live model prose).
+    Used only by the prose-architecture family on the root-support surfaces.
+    """
+    out: list[tuple[int, str]] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line_no, raw in enumerate(text.splitlines(), start=1):
+        m = _FENCE_RE.match(raw)
+        if m:
+            marks = m.group(2)
+            char = marks[0]
+            length = len(marks)
+            if not in_fence:
+                in_fence = True
+                fence_char = char
+                fence_len = length
+                continue
+            if char == fence_char and length >= fence_len:
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+                continue
+            # A content line inside a fence: not prose.
+            continue
+        if not in_fence:
+            out.append((line_no, _mask_inline_code(raw)))
+    return out
+
+
 # --------------------------------------------------------------------------
 # File iteration
 # --------------------------------------------------------------------------
@@ -442,8 +602,9 @@ def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
 
     Allowlisted files (the historical / internal / migration surface) are
     skipped entirely — a worked example of the retired surface is correct
-    there. For every other file, scan only the masked fenced-code lines for a
-    retired symbol.
+    there. For every other file the SYMBOL families scan the masked fenced-code
+    lines; on the root-support surfaces the PROSE-architecture family also
+    scans the prose lines (`_prose_lines`) for a retired architecture phrase.
     """
     if _is_allowlisted(rel_posix):
         return []
@@ -454,6 +615,40 @@ def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
             if predicate(masked):
                 snippet = raw[line_no - 1].strip() if 0 <= line_no - 1 < len(raw) else ""
                 findings.append(Finding(path, line_no, f"live-retired:{kind}", snippet))
+    if rel_posix in _ROOT_SUPPORT_PROSE_FILES:
+        findings.extend(_scan_root_support_prose(path, text, rel_posix))
+    return findings
+
+
+def _scan_root_support_prose(path: Path, text: str, rel_posix: str) -> list[Finding]:
+    """Scan a root-support file's prose for retired architecture phrases.
+
+    Markdown root-support files are scanned over their PROSE lines (outside
+    fenced code, inline spans masked). Non-markdown scripts have no markdown
+    fences, so every line is the prose surface — a shell comment is exactly
+    where the gate-explanation prose lives.
+    """
+    kind, _predicate = _PROSE_PATTERN
+    raw = text.splitlines()
+    is_markdown = path.suffix in _DOC_SUFFIXES
+    if is_markdown:
+        lines = _prose_lines(text)
+    else:
+        # Scripts: scan every line, inline `spans` masked the same way so a
+        # `event-program` field name in a comment is a name, not live prose.
+        lines = [(i, _mask_inline_code(s)) for i, s in enumerate(raw, start=1)]
+    # Index masked content by line-no so the removed-context window can read the
+    # immediate neighbours (prose wraps across lines).
+    masked_by_no = {ln: m for ln, m in lines}
+    findings: list[Finding] = []
+    for line_no, masked in lines:
+        context = " ".join(
+            masked_by_no.get(n, "")
+            for n in (line_no - 1, line_no, line_no + 1)
+        )
+        if _prose_hits(masked, context):
+            snippet = raw[line_no - 1].strip() if 0 <= line_no - 1 < len(raw) else ""
+            findings.append(Finding(path, line_no, f"live-retired:{kind}", snippet))
     return findings
 
 
@@ -469,6 +664,25 @@ def scan(scan_root: Path, repo_root: Path | None = None) -> list[Finding]:
             rel_posix = path.as_posix()
         text = path.read_text(encoding="utf-8", errors="replace")
         findings.extend(_scan_text(path, text, rel_posix))
+    return findings
+
+
+def scan_root_support(repo_root: Path) -> list[Finding]:
+    """Scan the root-support surfaces (`_ROOT_SUPPORT_PROSE_FILES`) for drift.
+
+    These individual files live at the repo root / under scripts/ and are not
+    reached by the dir-tree scan. Each is scanned via `_scan_text` (the symbol
+    families fire on any fenced Clojure; the prose-architecture family fires on
+    the prose surface). Missing files are skipped (a repo may not carry every
+    one).
+    """
+    findings: list[Finding] = []
+    for rel in sorted(_ROOT_SUPPORT_PROSE_FILES):
+        path = repo_root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        findings.extend(_scan_text(path, text, rel))
     return findings
 
 
@@ -498,6 +712,19 @@ _FIX_HINTS = {
         "instead. (`app-db` is a sanctioned EXISTING term — EP-0023:204 — and "
         "ordinary English `application` is fine; only the `rf/`-facade noun "
         "CALL is the drift.)"
+    ),
+    "retired-architecture-prose": (
+        "The phrases \"event program\" / \"event-program\" and \"realm "
+        "routing\" / \"realm-routing\" teach the RETIRED model in prose. The "
+        "canonical public model is image -> frame -> event stream: an image "
+        "loads behavior into a frame, and a frame processes its events as an "
+        "EVENT STREAM (not a 'program'); routing is FRAME-scoped (the EP-0013 "
+        "multi-realm substrate collapsed under EP-0023/EP-0024, so there is no "
+        "'realm routing'). Rewrite to 'event stream' (or, for a Story replay "
+        "artifact, the localized field name in an inline `code span`). If the "
+        "sentence is DISCUSSING the removal, say so on the same line "
+        "('retired', 'removed', 'no longer', 'no realm-routing', …) and the "
+        "gate will treat it as removed-context."
     ),
 }
 
@@ -594,6 +821,22 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"scanning {n} markdown file(s) under {d}...\n")
         all_findings.extend(scan(scan_root, repo_root=repo_root))
 
+    # rf2-2c8zq6 — the root-support surfaces (README/TESTING/CHANGELOG/the JVM
+    # gate scripts, …) are individual files outside any scan dir. Cover them on
+    # the DEFAULT invocation (an explicit --scan-dir is a targeted run and skips
+    # them so the override stays predictable).
+    if not args.scan_dir:
+        if args.verbose:
+            present = [
+                r for r in sorted(_ROOT_SUPPORT_PROSE_FILES)
+                if (repo_root / r).is_file()
+            ]
+            sys.stderr.write(
+                f"scanning {len(present)} root-support file(s) for retired "
+                "architecture prose...\n"
+            )
+        all_findings.extend(scan_root_support(repo_root))
+
     if all_findings:
         _report(all_findings, repo_root)
         return 1
@@ -626,6 +869,12 @@ def _run_self_tests(verbose: bool = False) -> int:
     rewritten image/frame teaching, and the internal `re-frame.realm/` /
     `re-frame.frame/` namespace reads. A dedicated allowlist case scans a
     positive fixture AS IF it were an EP doc and asserts it does NOT fire.
+
+    A second block (rf2-2c8zq6) exercises the root-support PROSE-architecture
+    family: it scans the prose fixtures AS IF they were a root-support file
+    (rel_posix=README.md) so the prose family activates, asserting the live
+    "event program" / "realm-routing" teaching FIRES and every removed-context
+    / inline-span / in-fence counterpart stays GREEN.
     """
     cases: list[tuple[str, int]] = [
         # (fixture relative to fixture-root, expected finding count)
@@ -699,11 +948,47 @@ def _run_self_tests(verbose: bool = False) -> int:
         )
         failures += 1
 
+    # rf2-2c8zq6 — the root-support PROSE-architecture family. Scanned AS IF the
+    # fixture were a root-support file (rel_posix=README.md) so the prose family
+    # activates (it is gated to `_ROOT_SUPPORT_PROSE_FILES`).
+    prose_cases: list[tuple[str, int]] = [
+        # --- positives: live retired architecture prose must FIRE ---
+        ("positive/live_event_program_prose.md",       1),
+        ("positive/live_realm_routing_prose.md",        1),
+        # --- negatives: removed-context / inline-span / in-fence stay GREEN ---
+        ("negative/removed_context_prose_phrases.md",   0),
+        ("negative/inline_span_field_name.md",          0),
+        ("negative/phrase_in_fence_not_prose.md",       0),
+    ]
+    for fixture, expected in prose_cases:
+        path = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not path.is_file():
+            sys.stderr.write(
+                f"self-test FAIL: prose fixture {fixture!r} missing at {path}\n"
+            )
+            failures += 1
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        # rel_posix=README.md makes `_scan_text` run the prose family.
+        got = len(_scan_text(path, text, rel_posix="README.md"))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(
+                    f"self-test PASS: {fixture} (prose findings={got})\n"
+                )
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected prose findings={expected}, "
+                f"got {got}\n"
+            )
+            failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
+    total = len(cases) + 1 + len(prose_cases)
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 1} self-tests passed.\n")
+        sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
 
 
