@@ -199,8 +199,8 @@
 ;; ============================================================================
 ;;
 ;; The view consumes the same names a slice-form reader would: `:tags/data`
-;; for the items, `:tags/error` for the error map. The `:loading?` /
-;; `:fetching?` booleans are gone — views ask the tag instead:
+;; for the items, `:tags/error` for the error map. There are no `:loading?` /
+;; `:fetching?` booleans — views ask the tag instead:
 ;;
 ;;     @(rf/machine-has-tag? :realworld/tags :tags/loading)     ;; truly empty + in-flight
 ;;     @(rf/machine-has-tag? :realworld/tags :tags/in-flight)   ;; any in-flight (loading OR fetching)

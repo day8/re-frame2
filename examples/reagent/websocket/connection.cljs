@@ -323,7 +323,7 @@
                  ;; :authenticating under :active — a bare keyword would
                  ;; resolve to [:active :failed] (which does not exist), so
                  ;; the absolute vector target [:failed] is required
-                 ;; (transition-target validation now rejects the bare keyword).
+                 ;; (transition-target validation rejects the bare keyword).
                  :ws/auth-failed {:target [:failed]
                                   :action :record-error}}}
 

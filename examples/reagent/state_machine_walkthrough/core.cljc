@@ -207,7 +207,7 @@
 ;; point onto that path (see re-frame.machines §framework-shipped subs);
 ;; the named subs below chain off it to project out the convenient
 ;; pieces. The "in :submitting?" / "in :authed?" / "in :locked-out?"
-;; predicates moved to the `rf/machine-has-tag?` queries in views.cljs
+;; predicates live as the `rf/machine-has-tag?` queries in views.cljs
 ;; (ch.12 §State tags) — discriminating on the machine's runtime-projected
 ;; `:tags` set decouples view code from individual state-keyword identity.
 
