@@ -268,11 +268,13 @@
 ;; points through the late-bind hook registry; consumers look the fns
 ;; up at call time.
 ;;
-;; The stub-family hooks (`:http/install-managed-request-stubs!`,
-;; `:http/uninstall-managed-request-stubs!`, `:http/with-managed-request-stubs*`)
-;; publish from `re-frame.http.test-support` per rf2-lwmgw — the stub
+;; The stub-family late-bind hook (`:http/with-managed-request-stubs*`)
+;; publishes from `re-frame.http.test-support` per rf2-lwmgw — the stub
 ;; macros and the canned-stub fxs share one require gate, symmetric with
-;; the test-support naming.
+;; the test-support naming. The raw `install-managed-request-stubs!` /
+;; `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core` re-export
+;; (rf2-ntwwyt) and publishes no late-bind hook — tests call it directly from
+;; `re-frame.http.test-support`.
 
 (late-bind/set-fn! :http/abort-in-flight!                 registry/abort-in-flight!)
 (late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
