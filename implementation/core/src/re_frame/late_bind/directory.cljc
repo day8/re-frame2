@@ -137,6 +137,22 @@
     :design-bead "rf2-x3m8c"
     :description "Dispose every cached subscription in a destroyed frame's sub-cache, emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason :frame-destroy`. Invoked by `frame/destroy-frame!` via late-bind so `re-frame.frame` carries no static dep on `re-frame.subs.cache` (which requires `frame`)."}
 
+   ;; ---- re-frame.fx (:dispatch-later host-timer side table) -----------------
+   ;; Core (NOT an optional artefact): `re-frame.fx` is side-effect-required at
+   ;; boot, so these hooks are bound in every canonical build. Reached via
+   ;; late-bind because `re-frame.frame/destroy-frame!` (and the test-support
+   ;; reset fixture) cannot static-require `re-frame.fx` — fx requires nothing
+   ;; of frame, and a back-require would invert the load order — exactly the
+   ;; `:subs.cache/dispose-all-for-frame-destroy!` cycle-break above.
+   {:key         :fx/on-frame-destroyed!
+    :producer-ns 're-frame.fx
+    :design-bead "rf2-uxz52g"
+    :description "Cancel + drop the destroyed frame's still-pending `:dispatch-later` host timers (re-frame.fx/dispatch-later-timers, keyed by [frame-id timer-id] → host handle). Each `:dispatch-later` arms a host-clock timer whose thunk dispatches the deferred event into the frame; left armed across destroy it fires a dead-on-arrival dispatch into a torn-down frame and its armed handle + captured closure leak until the delay elapses (unbounded under frame churn). Host-side transient state (NOT runtime-db, off the epoch/SSR egress wire), mirroring the resources / machines timer tables. Invoked by `frame/destroy-frame!` by key."}
+   {:key         :fx/reset-dispatch-later-timers!
+    :producer-ns 're-frame.fx
+    :design-bead "rf2-uxz52g"
+    :description "Test-isolation reset: cancel + drop EVERY frame's pending `:dispatch-later` host timers (re-frame.fx/dispatch-later-timers). Host-side transient state the runtime / frames reset does not touch; the shared CLJS make-reset-runtime-fixture reset-hooks table fires it per test so a stale armed timer from a sibling test can't fire mid-next-test (mirrors :machines/reset-timers!)."}
+
    ;; ===========================================================================
    ;; GROUP 2 — CROSS-ARTEFACT
    ;;
