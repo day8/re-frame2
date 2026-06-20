@@ -5,10 +5,21 @@
    six dominoes, the same `:counter/*` events and subs. The only
    intentional divergence is the substrate beneath: every user-facing
    Reagent import points at `reagent2.*` instead of stock `reagent.*`,
-   and `(rf/init!)` is called with the slim adapter Var
-   `re-frame.adapter.reagent-slim/adapter`. Read this file as the
-   teaching example — it is plain, idiomatic re-frame2 with nothing but
-   the example's own dataflow.
+   and `(rf/init!)` is called with the slim adapter Var. Read this file
+   as the teaching example — it is plain, idiomatic re-frame2 with
+   nothing but the example's own dataflow.
+
+   IN-TREE NAMESPACE vs PUBLISHED ABI: the require below is the *in-tree*
+   namespace `re-frame.adapter.reagent-slim`, used only because the
+   unrenamed monorepo build shares a classpath with the stock adapter and
+   must avoid an ns clash. The PUBLISHED `day8/reagent-slim` jar ships the
+   adapter Var at the canonical, stock-identical `re-frame.adapter.reagent`
+   (renamed at publication). An adopter therefore wires
+   `(rf/init! re-frame.adapter.reagent/adapter)` exactly as for stock —
+   slim is selected by deps coordinate, not by import line. Do not
+   cargo-cult the in-tree `-slim` namespace into a published app. See
+   docs/guide/how-to/use-uix-helix-or-slim.md and
+   implementation/adapters/reagent-slim/DESIGN-RATIONALE.md §7.
 
    The slim adapter's bundle-isolation proof is NOT here: it is kept out
    of this teaching surface entirely, behind the gate-owned entrypoint
@@ -22,6 +33,8 @@
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
             [re-frame.views]
+            ;; In-tree namespace (see ns docstring): published adopters
+            ;; require the canonical `re-frame.adapter.reagent` instead.
             [re-frame.adapter.reagent-slim      :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
