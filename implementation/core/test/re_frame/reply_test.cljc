@@ -7,7 +7,7 @@
        value/error conventions incl `:partial` (usable value AND
        structured error); the data-only invariant (NO host handles).
     2. functor LAWS for reply-target mapping — identity + composition,
-       plus the naturality law `(complete (map-target f t) r) ==
+       plus the naturality law `(complete (map-completed-event f t) r) ==
        (f (complete t r))`, and the proof that mapping changes ONLY the
        completed event (not work id / status / cancellation / stale /
        tracing).
@@ -210,7 +210,7 @@
 ;; (Managed-Effects §The reply target). A descriptor missing `:event`, or
 ;; carrying a non-vector / empty / non-keyword-headed `:event`, must FAIL
 ;; CLOSED at normalization rather than travel on to `complete` and become a
-;; bogus dispatch shape. `map-target` must preserve the nil/no-continuation
+;; bogus dispatch shape. `map-completed-event` must preserve the nil/no-continuation
 ;; semantics rather than fabricate an eventless `{::post f}` descriptor.
 ;; ---------------------------------------------------------------------------
 
@@ -251,16 +251,16 @@
         "complete fails closed on a malformed descriptor (never (vec :x))")
     (is (invalid-target? #(reply/target->short-form {})))))
 
-(deftest map-target-preserves-nil-no-continuation
+(deftest map-completed-event-preserves-nil-no-continuation
   (testing "mapping a nil target stays nil — NOT a bogus {::post f} eventless descriptor"
-    (is (nil? (reply/map-target identity nil)))
-    (is (nil? (reply/map-target (fn [e] [:wrap e]) nil))
+    (is (nil? (reply/map-completed-event identity nil)))
+    (is (nil? (reply/map-completed-event (fn [e] [:wrap e]) nil))
         "mapping the absence of a continuation is still the absence of a continuation")
-    (is (nil? (reply/complete (reply/map-target (fn [e] [:wrap e]) nil)
+    (is (nil? (reply/complete (reply/map-completed-event (fn [e] [:wrap e]) nil)
                               {:status :ok :value 1}))
         "and completing that mapped-nil target yields nil (no delivery)"))
   (testing "mapping a well-formed target still relocates it (the nil guard does not weaken mapping)"
-    (let [mapped (reply/map-target (fn [e] [:parent e]) [:x {:id 1}])]
+    (let [mapped (reply/map-completed-event (fn [e] [:parent e]) [:x {:id 1}])]
       (is (some? mapped))
       (is (= [:parent [:x {:id 1} {:status :ok :value 7}]]
              (reply/complete mapped {:status :ok :value 7}))))))
@@ -282,7 +282,7 @@
            (reply/durable-target {:event [:x] :suppress {:g 1}})))
     (is (nil? (reply/durable-target nil)) "nil target ⇒ nil (nothing to persist)"))
   (testing "a MAPPED target carries the ::post fn — NOT data-only — and durable projection strips it"
-    (let [mapped (reply/map-target (fn [e] e) [:x 1])]
+    (let [mapped (reply/map-completed-event (fn [e] e) [:x 1])]
       (is (false? (reply/data-only-target? mapped))
           "the functor accumulator is a fn — a mapped target is not safe to persist")
       (let [durable (reply/durable-target mapped)]
@@ -359,41 +359,41 @@
   [:parent/relay event])
 
 (deftest functor-identity-law
-  (testing "(map-target identity target) completes identically to target — identity law"
+  (testing "(map-completed-event identity target) completes identically to target — identity law"
     (is (= (reply/complete target a-reply)
-           (reply/complete (reply/map-target identity target) a-reply)))))
+           (reply/complete (reply/map-completed-event identity target) a-reply)))))
 
 (deftest functor-naturality-law
-  (testing "(complete (map-target f t) r) == (f (complete t r)) — the mapping law"
-    (is (= (reply/complete (reply/map-target select-article-event target) a-reply)
+  (testing "(complete (map-completed-event f t) r) == (f (complete t r)) — the mapping law"
+    (is (= (reply/complete (reply/map-completed-event select-article-event target) a-reply)
            (select-article-event (reply/complete target a-reply))))
-    (is (= (reply/complete (reply/map-target wrap-in-parent target) a-reply)
+    (is (= (reply/complete (reply/map-completed-event wrap-in-parent target) a-reply)
            (wrap-in-parent (reply/complete target a-reply))))))
 
 (deftest functor-composition-law
-  (testing "(map-target f (map-target g t)) == (map-target (comp f g) t) — composition law"
+  (testing "(map-completed-event f (map-completed-event g t)) == (map-completed-event (comp f g) t) — composition law"
     ;; Both transforms preserve the appended-reply event shape, so they
     ;; compose in either order — exercising composition both ways.
     (let [f select-article-event
           g retarget-event-id]
-      (is (= (reply/complete (reply/map-target f (reply/map-target g target)) a-reply)
-             (reply/complete (reply/map-target (comp f g) target) a-reply)))
-      (is (= (reply/complete (reply/map-target g (reply/map-target f target)) a-reply)
-             (reply/complete (reply/map-target (comp g f) target) a-reply)))
+      (is (= (reply/complete (reply/map-completed-event f (reply/map-completed-event g target)) a-reply)
+             (reply/complete (reply/map-completed-event (comp f g) target) a-reply)))
+      (is (= (reply/complete (reply/map-completed-event g (reply/map-completed-event f target)) a-reply)
+             (reply/complete (reply/map-completed-event (comp g f) target) a-reply)))
       ;; And the composed result is the expected event: renamed id + selected value.
       (is (= [:parent/relay {:id 42} {:status :ok :value {:id 42 :title "Welcome"}
                                       :work/id [:rf.work/http :article/by-id 42 1]}]
-             (reply/complete (reply/map-target (comp f g) target) a-reply))))))
+             (reply/complete (reply/map-completed-event (comp f g) target) a-reply))))))
 
 (deftest mapping-changes-only-the-event
   (testing "mapping the target does NOT change the reply's work id / status / correlation"
-    (let [mapped    (reply/map-target select-article-event target)
+    (let [mapped    (reply/map-completed-event select-article-event target)
           completed (reply/complete mapped a-reply)
           delivered (peek completed)]
       ;; The COMPLETED EVENT changed (value→article); the reply's identity facts did not.
       (is (= [:rf.work/http :article/by-id 42 1] (:work/id delivered)))
       (is (= :ok (:status delivered)))
-      ;; And issuance/correlation are unaffected — `map-target` stores no work-id /
+      ;; And issuance/correlation are unaffected — `map-completed-event` stores no work-id /
       ;; status / suppression on the target (the functor law's structural guarantee):
       ;; the only difference between mapped and unmapped completion is the event payload.
       (is (= {:article {:id 42 :title "Welcome"}}

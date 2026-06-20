@@ -239,10 +239,10 @@ Managed async families MUST emit trace rows from the reply-envelope facts, not f
 Because the reply target is plain data, relocating or wrapping a continuation is a pure data transform — the role `Cmd.map` plays in Elm's command algebra. The runtime SHOULD expose pure helpers for transforming reply targets (public or implementation-internal), but the law is normative: **mapping a target changes only the completed event — not issuance, work id, status classification, cancellation, stale checks, or tracing.**
 
 ```text
-complete(map-target(f, target), reply) == f(complete(target, reply))
+complete(map-completed-event(f, target), reply) == f(complete(target, reply))
 
-map-target(identity, target)      == target
-map-target(comp(f, g), target)    == map-target(f, map-target(g, target))
+map-completed-event(identity, target)      == target
+map-completed-event(comp(f, g), target)    == map-completed-event(f, map-completed-event(g, target))
 ```
 
 Implementations need not store arbitrary functions in effect maps to satisfy this: a helper may rewrite source forms to named adapter events, or the law may be exercised in tests over the internal completion function. The required property is that reply-target wrappers compose predictably and create no hidden callback semantics.

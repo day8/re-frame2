@@ -236,11 +236,11 @@
 ;; ===========================================================================
 
 (deftest reply-target-functor-law
-  (testing "complete(map-target(f, t), reply) == f(complete(t, reply)) — naturality"
+  (testing "complete(map-completed-event(f, t), reply) == f(complete(t, reply)) — naturality"
     (let [target [:search/timer-elapsed {:q "re-frame"}]
           reply  (probe/complete-elapsed base-args {:fired-at 1} {:completed-at 1})
           f      (fn [event] [:wrapped event])]
-      (is (= (reply/complete (reply/map-target f target) reply)
+      (is (= (reply/complete (reply/map-completed-event f target) reply)
              (f (reply/complete target reply)))
           "mapping the target then completing equals completing then mapping")))
   (testing "the identity + composition functor laws hold over the timer target"
@@ -248,18 +248,18 @@
           reply  (probe/complete-elapsed base-args {:fired-at 1} {:completed-at 1})
           f      (fn [e] [:f e])
           g      (fn [e] [:g e])]
-      (is (= (reply/complete (reply/map-target identity target) reply)
+      (is (= (reply/complete (reply/map-completed-event identity target) reply)
              (reply/complete target reply))
-          "map-target identity is the identity on completion")
-      (is (= (reply/complete (reply/map-target f (reply/map-target g target)) reply)
-             (reply/complete (reply/map-target (comp f g) target) reply))
+          "map-completed-event identity is the identity on completion")
+      (is (= (reply/complete (reply/map-completed-event f (reply/map-completed-event g target)) reply)
+             (reply/complete (reply/map-completed-event (comp f g) target) reply))
           "composition: map f ∘ map g == map (f ∘ g)")))
   (testing "mapping changes ONLY the completed event — not work id / status / stale facts"
     ;; The work id, status, and stale facts live on the REPLY (and the
-    ;; suppression outcome), never on the target — so map-target structurally
+    ;; suppression outcome), never on the target — so map-completed-event structurally
     ;; cannot touch them. Prove the suppression outcome is identical whether
     ;; or not the target was mapped.
-    (let [mapped   (reply/map-target (fn [e] [:wrapped e])
+    (let [mapped   (reply/map-completed-event (fn [e] [:wrapped e])
                                      {:event [:search/timer-elapsed]})
           plain-out  (probe/suppress base-args 2 {:completed-at 1} [:search/timer-elapsed])
           mapped-out (probe/suppress base-args 2 {:completed-at 1} mapped)]

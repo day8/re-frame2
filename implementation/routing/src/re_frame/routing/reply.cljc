@@ -173,7 +173,7 @@
   "Complete the `:rf/reply-to` `target` for a LIVE route-loader completion:
   build the `:status :ok` reply map (`live-reply`) and append it to the
   target's event via the shared `re-frame.reply/complete` — the pure functor
-  the EP-0011 mapping law (`complete (map-target f t) == f (complete t)`) is
+  the EP-0011 mapping law (`complete (map-completed-event f t) == f (complete t)`) is
   stated over. Returns the dispatchable completed event vector (the target
   event with the reply map appended, then the target's `::post` transform
   applied), or nil when `target` is nil (no continuation).

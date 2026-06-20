@@ -47,7 +47,7 @@
        and the completed reply egress projects the wire slots.
 
   Pure-fn + live-frame conformance over `re-frame.reply` (`trace-summary`,
-  `complete`, `map-target`, `durable-target`) and `re-frame.core`
+  `complete`, `map-completed-event`, `durable-target`) and `re-frame.core`
   (`project-egress`) against a frame whose elision registry classifies reply
   value / error sub-paths. Lives in the cross-artefact `reply-conformance/`
   surface alongside the vocab + functor tiers.
@@ -334,11 +334,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-relocated-reply-target-has-no-unprojected-durable-representation
-  (testing "EP-0011/EP-0015 — a relocated (map-target) reply target carries the
+  (testing "EP-0011/EP-0015 — a relocated (map-completed-event) reply target carries the
             ephemeral accumulator (NOT data-only); its DURABLE projection strips
             it and is data-only, so a stored continuation / ledger row / replay
             log never durably captures a function or a host handle"
-    (let [relayed (reply/map-target (fn [event] [:parent/relay event])
+    (let [relayed (reply/map-completed-event (fn [event] [:parent/relay event])
                                     [:article/loaded {:id 42}])]
       (is (false? (reply/data-only-target? relayed))
           "a relocated target is NOT data-only (it carries the ::post accumulator)")
