@@ -162,6 +162,24 @@
               "schema.cljs registers a whole-app-db schema")
           (is (.contains schema-text "CounterDb")
               "schema.cljs ships the CounterDb Malli schema")
+          ;; -- Emitted source must not teach the retired positional
+          ;;    reg-app-schema grammar (rf2-wvh95f F2 :schema-in-metadata).
+          ;; The schema lives in the metadata map's :schema key; a bare
+          ;; positional schema now throws :rf.error/bad-app-schema-metadata.
+          ;; Scan emitted source comments too — events.cljs's schema-load
+          ;; comment previously cited the stale (reg-app-schema [] CounterDb).
+          (is (not (.contains events-text "(reg-app-schema [] CounterDb)"))
+              "events.cljs must NOT cite the retired positional
+               (reg-app-schema [] CounterDb) form in a comment — the
+               canonical grammar is the metadata map
+               (reg-app-schema [] {:schema CounterDb})")
+          (is (not (.contains schema-text "(rf/reg-app-schema [] CounterDb)"))
+              "schema.cljs must NOT emit the retired positional
+               (rf/reg-app-schema [] CounterDb) call — the canonical grammar
+               is the metadata map (rf/reg-app-schema [] {:schema CounterDb})")
+          (is (.contains schema-text "{:schema CounterDb}")
+              "schema.cljs emits the canonical schema-in-metadata grammar
+               (rf/reg-app-schema [] {:schema CounterDb})")
 
           ;; -- EP-0011: HTTP exemplar names the uniform reply envelope
           ;;    lowering + the compat-sugar distinction (rf2-rzsxrk) --
