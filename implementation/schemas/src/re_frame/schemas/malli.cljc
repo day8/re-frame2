@@ -16,7 +16,7 @@
   CLJS has no runtime `resolve` (the symbol is a compile-time analyzer
   affordance only); the `if-let`'s `nil` branch always fired and the
   default validator returned `true` for every value. Malli was never
-  consulted on CLJS — `(rf/reg-app-schema [:user :age] :int)` then a
+  consulted on CLJS — `(rf/reg-app-schema [:user :age] {:schema :int})` then a
   commit of `\"twenty-three\"` produced no
   `:rf.error/schema-validation-failure` trace.
 

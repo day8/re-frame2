@@ -704,7 +704,7 @@
   (rf2-5ifai) — the value-side rf2-3k3o7 enum gate's key-side mirror:
   hostile URLs composed of N-unique keys would otherwise burn N
   permanent JVM keyword slots, and a bare
-  `(reg-route :route/x {:path \"/x\"})` is the high-cardinality
+  `(reg-route :route/x {} \"/x\")` is the high-cardinality
   public-surface case where this hits hardest. Authors who want keyword
   keys declare them via `:query` / `:query-defaults` / `:query-retain` —
   author-named intent is the trust boundary.
