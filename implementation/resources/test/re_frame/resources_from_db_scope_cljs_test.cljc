@@ -73,9 +73,9 @@
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/session}
      :params-schema [:map [:page :int]]
-     :request       (fn [{:keys [page]} _ctx]
-                      {:request {:method :get :url "/feed" :params {:page page}}})
-     :tags          (fn [_p _v] #{[:feed]})})
+     :tags          (fn [_p _v] #{[:feed]})}
+    (fn [{:keys [page]} _ctx]
+      {:request {:method :get :url "/feed" :params {:page page}}}))
   ;; an app event that writes the logged-in user (the resolver's db input)
   (rf/reg-event :t/login (fn [{:keys [db]} [_ username]] {:db (assoc-in db [:auth :user :username] username)}))
   (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :auth dissoc :user)})))
@@ -133,8 +133,8 @@
   ;; a from-caller resource read with an explicit {:from-db …} PAYLOAD scope
   (rf/reg-resource :t/notes
     {:scope         :rf.scope/from-caller
-     :params-schema [:map]
-     :request       (fn [_p _ctx] {:request {:method :get :url "/notes"}})})
+     :params-schema [:map]}
+    (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
   (testing "a {:from-db …} payload :scope resolves against app-db at use time"
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
                                             :scope {:from-db :t/session}
@@ -371,8 +371,8 @@
   ;; :scope (the use site interprets it — never an implicit global).
   (rf/reg-resource :t/notes
     {:scope         :rf.scope/from-caller
-     :params-schema [:map]
-     :request       (fn [_p _ctx] {:request {:method :get :url "/notes"}})})
+     :params-schema [:map]}
+    (fn [_p _ctx] {:request {:method :get :url "/notes"}}))
   (let [rows (record-scope-resolved!
                (fn []
                  ;; no :t/login — the resolver's :username input is absent → nil.

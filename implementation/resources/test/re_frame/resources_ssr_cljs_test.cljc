@@ -93,12 +93,12 @@
   ([id] (reg! id {}))
   ([id overrides]
    (rf/clear-resource id)
-   (rf/reg-resource id
-     (merge {:scope         :rf.scope/global
-             :params-schema [:map [:slug :string]]
-             :request       (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-             :tags          (fn [{:keys [slug]} _] #{[:article slug]})}
-            overrides))))
+   (let [spec (merge {:scope         :rf.scope/global
+                      :params-schema [:map [:slug :string]]
+                      :request       (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
+                      :tags          (fn [{:keys [slug]} _] #{[:article slug]})}
+                     overrides)]
+     (rf/reg-resource id (dissoc spec :request) (:request spec)))))
 
 (defn- entry
   "A loaded durable entry under a scoped key, with the supplied status /

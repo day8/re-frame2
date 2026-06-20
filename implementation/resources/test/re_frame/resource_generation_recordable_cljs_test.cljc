@@ -82,9 +82,9 @@
   (rf/reg-resource :gen/article
     {:scope          :rf.scope/global
      :params-schema  [:map [:slug :string]]
-     :stale-after-ms 60000
-     :request        (fn [{:keys [slug]} _ctx]
-                       {:request {:method :get :url (str "/api/articles/" slug)}})}))
+     :stale-after-ms 60000}
+    (fn [{:keys [slug]} _ctx]
+      {:request {:method :get :url (str "/api/articles/" slug)}})))
 
 (def ^:private scoped-key
   (delay (state/scoped-resource-key :rf.scope/global :gen/article {:slug "w"})))
@@ -252,9 +252,9 @@
             instance-id / work-id) regardless of the live host high-water."
     (rf/reg-mutation :gen/save
       {:params-schema [:map [:slug :string]]
-       :scope :rf.scope/global
-       :request (fn [{:keys [slug]} _] {:request {:method :post
-                                                  :url (str "/api/save/" slug)}})})
+       :scope :rf.scope/global}
+      (fn [{:keys [slug]} _] {:request {:method :post
+                                        :url (str "/api/save/" slug)}}))
     (let [generated (atom [])]
       (trace-tooling/register-listener!
         ::mgen-rec

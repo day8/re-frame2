@@ -140,18 +140,22 @@
 (defn- article-spec []
   {:scope         :rf.scope/global
    :params-schema [:map [:slug :string]]
-   ;; The DOMAIN request only — no auth header here. Decoration is the
-   ;; frame's managed-HTTP policy, applied by the interceptor.
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :get :url (str "/api/articles/" slug)}})
    :tags          (fn [{:keys [slug]} _v] #{[:article slug]})})
+
+;; The DOMAIN request only — no auth header here. Decoration is the
+;; frame's managed-HTTP policy, applied by the interceptor.
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- save-spec []
   {:params-schema [:map [:slug :string]]
-   :request       (fn [{:keys [slug]} _ctx]
-                    {:request {:method :put :url (str "/api/articles/" slug)
-                               :body  {:slug slug}}})
    :invalidates   (fn [{:keys [slug]} _r] #{[:article slug]})})
+
+(def ^:private save-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug)
+               :body  {:slug slug}}}))
 
 (defn- seed-token! [token]
   (rf/reg-event :test/login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] token)}))
@@ -164,7 +168,7 @@
 (deftest resource-read-receives-frame-decoration
   (seed-token! "abc123")
   (reg-auth-interceptor!)
-  (rf/reg-resource :rd/article (article-spec))
+  (rf/reg-resource :rd/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :rd/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rd/article :scope :rf.scope/global
@@ -193,7 +197,7 @@
 (deftest mutation-receives-same-frame-decoration
   (seed-token! "xyz789")
   (reg-auth-interceptor!)
-  (rf/reg-mutation :md/save (save-spec))
+  (rf/reg-mutation :md/save (save-spec) save-spec-request)
   (rf/dispatch-sync [:rf.mutation/execute
                      {:mutation :md/save :params {:slug "w"} :instance :md/save-1}])
   (testing "Spec 016 §Request decoration — a mutation lowers through the SAME
@@ -218,7 +222,7 @@
   ;; NO token seeded — the interceptor must read the (empty) frame app-db and
   ;; leave the request untouched (the `cond->` no-token branch).
   (reg-auth-interceptor!)
-  (rf/reg-resource :na/article (article-spec))
+  (rf/reg-resource :na/article (article-spec) article-spec-request)
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :na/article :scope :rf.scope/global
                       :params {:slug "w"} :owner [:lease :na 1]}])
@@ -238,7 +242,7 @@
 (deftest decoration-composes-with-stale-suppression
   (seed-token! "tok")
   (reg-auth-interceptor!)
-  (rf/reg-resource :sp/article (article-spec))
+  (rf/reg-resource :sp/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sp/article :scope :rf.scope/global
@@ -272,7 +276,7 @@
     {:frame  :rf/default
      :before (fn [ctx]
                (update-in ctx [:request :url] #(str "https://api.example.com" %)))})
-  (rf/reg-resource :bu/article (article-spec))
+  (rf/reg-resource :bu/article (article-spec) article-spec-request)
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :bu/article :scope :rf.scope/global
                       :params {:slug "w"} :owner [:lease :bu 1]}])
@@ -326,8 +330,8 @@
   (let [token "abc123"]
     (seed-token! token)
     (reg-auth-interceptor!)
-    (rf/reg-resource :rl/article (article-spec))
-    (rf/reg-mutation :ml/save (save-spec))
+    (rf/reg-resource :rl/article (article-spec) article-spec-request)
+    (rf/reg-mutation :ml/save (save-spec) save-spec-request)
     (let [rows (record-resource+mutation-traces!
                  (fn []
                    ;; a decorated READ — lower + settle

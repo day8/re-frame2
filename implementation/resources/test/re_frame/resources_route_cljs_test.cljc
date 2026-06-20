@@ -92,10 +92,12 @@
 (defn- article-spec [overrides]
   (merge {:scope         :rf.scope/global
           :params-schema [:map [:slug :string]]
-          :request       (fn [{:keys [slug]} _ctx]
-                           {:request {:method :get :url (str "/api/articles/" slug)}})
           :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
          overrides))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- settle-success! [scoped-key data]
   (let [e (entry scoped-key)]
@@ -136,7 +138,7 @@
 
 (deftest resources-route-key-is-accepted-when-both-artefacts-load
   (testing ":resources is an accepted bare route key once resources loads"
-    (rf/reg-resource :article/by-slug (article-spec {}))
+    (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
     (is (= :route/article
            (rf/reg-route :route/article
                          {:params    [:map [:slug :string]]
@@ -149,7 +151,7 @@
 ;; ===========================================================================
 
 (deftest route-entry-ensures-with-route-owner-and-cause
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
@@ -170,7 +172,7 @@
 ;; ===========================================================================
 
 (deftest blocking-resource-holds-route-transition-until-it-settles
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -192,7 +194,7 @@
           "the blocking slot drained on settle"))))
 
 (deftest non-blocking-resource-does-not-hold-the-transition
-  (rf/reg-resource :comments/list (article-spec {}))
+  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :comments/list
@@ -212,7 +214,7 @@
   ;; IMMEDIATELY on the cache-hit (no fetch, no reply will ever drain the
   ;; blocking slot) — otherwise the route hangs forever.
   ;; no :stale-after-ms → the entry is always fresh once loaded
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -246,7 +248,7 @@
 ;; ===========================================================================
 
 (deftest blocking-first-load-failure-flips-route-to-error
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -266,7 +268,7 @@
 ;; ===========================================================================
 
 (deftest route-leave-releases-prior-route-owner
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
@@ -293,7 +295,7 @@
   (work-ledger/get-record (rf/runtime-db-value :rf/default) (:current-work (entry scoped-key))))
 
 (deftest route-resupersede-same-key-does-not-join-abort-requested-non-blocking
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
@@ -323,7 +325,7 @@
               "the re-entry nav-token owns the fresh attempt"))))))
 
 (deftest route-resupersede-same-key-blocking-transition-drains
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -354,7 +356,7 @@
 ;; ===========================================================================
 
 (deftest when-false-gates-the-resource-out
-  (rf/reg-resource :comments/list (article-spec {}))
+  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :comments/list
@@ -371,13 +373,15 @@
 (deftest after-orders-dependent-resources-by-local-id
   (let [order (atom [])]
     (rf/reg-resource :article/by-slug
-                     (article-spec {:request (fn [_p _]
-                                               (swap! order conj :article)
-                                               {:request {:method :get :url "/a"}})}))
+                     (article-spec {})
+                     (fn [_p _]
+                       (swap! order conj :article)
+                       {:request {:method :get :url "/a"}}))
     (rf/reg-resource :comments/list
-                     (article-spec {:request (fn [_p _]
-                                               (swap! order conj :comments)
-                                               {:request {:method :get :url "/c"}})}))
+                     (article-spec {})
+                     (fn [_p _]
+                       (swap! order conj :comments)
+                       {:request {:method :get :url "/c"}}))
     (rf/reg-route :route/article
                   {:params    [:map [:slug :string]]
                    :resources [{:resource :comments/list
@@ -399,7 +403,7 @@
 (deftest params-planning-failure-surfaces-on-route-slice
   ;; a :rf.scope/from-caller scope with no route resolver is a fail-closed
   ;; planning error at route entry (no silent cache miss).
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (rf/reg-route :route/secret
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc
@@ -417,7 +421,8 @@
 
 (deftest keep-previous-projects-prior-key-without-polluting-new-key
   (rf/reg-resource :articles/list (article-spec {:params-schema [:map [:page :int]]
-                                                 :tags (fn [{:keys [page]} _] #{[:list page]})}))
+                                                 :tags (fn [{:keys [page]} _] #{[:list page]})})
+                   article-spec-request)
   (rf/reg-route :route/list
                 {:query     [:map [:page :int]]
                  :resources [{:resource       :articles/list
@@ -450,7 +455,7 @@
   ;; The route slice already carries the structured :error (section 4); this
   ;; proves the SAME failure is ALSO published on the trace/error stream as
   ;; `:rf.error/resource-route-blocking` with ResourceRouteBlockingTags shape.
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -489,7 +494,7 @@
   ;; blocking entry forever, because reply-driven drain only fires on a
   ;; settle that still names the old owner. Leaving the route releases the
   ;; prior owner, which MUST now deterministically clear the stale slot.
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -510,7 +515,7 @@
 (deftest superseded-blocking-slot-does-not-block-future-navigation
   ;; Prove the stale slot cannot bleed into the LIVE route-blocking? predicate
   ;; for a later navigation — old-token state must not gate new transitions.
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
@@ -538,7 +543,7 @@
 (deftest scope-resolved-from-ctx-uses-the-ctx-seam
   ;; The ctx seam is REAL: a :scope resolver reads (:current-session-scope ctx)
   ;; and the resolved scope is used as the cache scope (not a global fallback).
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (let [plan (route/route-resource-plan
                {:id :route/secret :params {:slug "x"}
                 :resources [{:resource :secret/doc
@@ -557,7 +562,7 @@
 (deftest nil-ctx-fails-closed
   ;; A nil ctx (a routing↔resources seam bug) must throw — not silently
   ;; proceed with an empty ctx that a session-scope resolver would read as nil.
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (testing "route-resource-plan throws on a nil ctx"
     (is (thrown? #?(:clj Throwable :cljs :default)
                  (route/route-resource-plan
@@ -578,7 +583,7 @@
 (deftest nil-params-resolver-is-a-planning-error
   ;; A PRESENT :params resolver returning nil is NOT a silent empty-param read
   ;; — it is a fail-closed planning error (conditional resources use :when).
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
@@ -597,7 +602,7 @@
 (deftest nil-scope-resolver-is-a-planning-error
   ;; A PRESENT :scope resolver returning nil must NOT silently fall through to
   ;; the spec policy / a global read — the scope is the leak boundary.
-  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (rf/reg-route :route/secret
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc
@@ -613,7 +618,7 @@
 (deftest throwing-when-predicate-is-a-planning-error
   ;; A :when predicate that THROWS must be a planning error caught at the
   ;; fail-closed boundary, not an escape that crashes the whole commit.
-  (rf/reg-resource :article/by-slug (article-spec {}))
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
@@ -632,7 +637,7 @@
 (deftest after-missing-target-is-a-planning-error
   ;; :after naming an id no entry declares is a typo'd dependency — a
   ;; planning error, NOT silent declaration-order fallthrough.
-  (rf/reg-resource :comments/list (article-spec {}))
+  (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
                  :resources [{:resource :comments/list
@@ -651,8 +656,8 @@
 (deftest after-cycle-is-a-planning-error
   ;; A cyclic :after dependency degrades NEITHER silently nor into an infinite
   ;; loop — it is a fail-closed planning error.
-  (rf/reg-resource :a/res (article-spec {}))
-  (rf/reg-resource :b/res (article-spec {}))
+  (rf/reg-resource :a/res (article-spec {}) article-spec-request)
+  (rf/reg-resource :b/res (article-spec {}) article-spec-request)
   (rf/reg-route :route/cyc
                 {:resources [{:resource :a/res :id :a :params (fn [_] {:slug "a"}) :after #{:b}}
                              {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]} "/cyc")
@@ -666,12 +671,12 @@
   ;; The kept dispatch-order semantics: a dependent's ensure is dispatched
   ;; AFTER every id it names (a 3-node chain, declared out of order).
   (let [order (atom [])]
-    (rf/reg-resource :a/res (article-spec {:request (fn [_ _] (swap! order conj :a)
-                                                      {:request {:method :get :url "/a"}})}))
-    (rf/reg-resource :b/res (article-spec {:request (fn [_ _] (swap! order conj :b)
-                                                      {:request {:method :get :url "/b"}})}))
-    (rf/reg-resource :c/res (article-spec {:request (fn [_ _] (swap! order conj :c)
-                                                      {:request {:method :get :url "/c"}})}))
+    (rf/reg-resource :a/res (article-spec {}) (fn [_ _] (swap! order conj :a)
+                                               {:request {:method :get :url "/a"}}))
+    (rf/reg-resource :b/res (article-spec {}) (fn [_ _] (swap! order conj :b)
+                                               {:request {:method :get :url "/b"}}))
+    (rf/reg-resource :c/res (article-spec {}) (fn [_ _] (swap! order conj :c)
+                                               {:request {:method :get :url "/c"}}))
     (rf/reg-route :route/chain
                   {;; declared c, a, b — :after must reorder to a → b → c
                    :resources [{:resource :c/res :id :c :params (fn [_] {:slug "c"}) :after #{:b}}

@@ -103,15 +103,15 @@
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}))
+     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})))
 
 (defn- reg-feed-resource! []
   (rf/reg-resource :r/feed
     {:scope {:from-db :t/session}
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/feed"}})
-     :tags (fn [_p _] #{[:feed] [:article-list]})}))
+     :tags (fn [_p _] #{[:feed] [:article-list]})}
+    (fn [_p _] {:request {:method :get :url "/feed"}})))
 
 (defn- own-loaded!
   "Ensure + load an entry so it has an ACTIVE owner (so a subsequent
@@ -144,11 +144,11 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      ;; map-form target with a concrete :scope (EP-0016 Rider 2 — the only
      ;; public input form). No prior ensure — the populate SEEDS the entry.
      :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})})
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :p1}])
   (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
   (testing "the map-form populate seeded the EXACT canonical scoped key,
@@ -175,9 +175,9 @@
   (rf/reg-mutation :m/save-feed
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :put :url "/feed"}})
      :populates (fn [_p result]
-                  {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})})
+                  {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})}
+    (fn [_p _] {:request {:method :put :url "/feed"}}))
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-feed :params {} :instance :pf1}])
   (reply-success! @last-managed-args {:articles [:x]})
@@ -206,19 +206,19 @@
   (rf/reg-resource :r/article-list
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/articles"}})
-     :tags (fn [_p _] #{[:article-list]})})
+     :tags (fn [_p _] #{[:article-list]})}
+    (fn [_p _] {:request {:method :get :url "/articles"}}))
   (own-loaded! {:resource :r/article-list :scope :rf.scope/global :params {} :owner [:v :list]})
   (rf/reg-mutation :m/favorite
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
      ;; populate the detail key authoritatively from the reply…
      :populates (fn [{:keys [slug]} result]
                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
      ;; …then invalidate the broad article-list tag (which ALSO matches the
      ;; just-populated detail key, since the article resource carries it).
-     :invalidates (fn [_p _r] #{[:article-list]})})
+     :invalidates (fn [_p _r] #{[:article-list]})}
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
   (let [list-key (state/scoped-resource-key :rf.scope/global :r/article-list {})
         trace    (succeeded-trace
                    #(do (rf/dispatch-sync [:rf.mutation/execute
@@ -251,12 +251,12 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      :populates (fn [{:keys [slug]} result]
                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
      ;; the descriptor opts the populated key BACK into the same-mutation refetch
      :invalidates (fn [{:keys [slug]} _r]
-                    [{:scope :rf.scope/global :tags #{[:article slug]} :refetch-populated? true}])})
+                    [{:scope :rf.scope/global :tags #{[:article slug]} :refetch-populated? true}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (let [trace (succeeded-trace
                 #(do (rf/dispatch-sync [:rf.mutation/execute
                                         {:mutation :m/save :params {:slug "w"} :instance :rp1}])
@@ -286,7 +286,6 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      :populates (fn [{:keys [slug]} result]
                   {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
      ;; descriptor 0 (opt-in, refetches the populated key) on [:article-list];
@@ -294,7 +293,8 @@
      ;; tags match the populated detail key (the article resource carries both).
      :invalidates (fn [{:keys [slug]} _r]
                     [{:scope :rf.scope/global :tags #{[:article-list]} :refetch-populated? true}
-                     {:scope :rf.scope/global :tags #{[:article slug]}}])})
+                     {:scope :rf.scope/global :tags #{[:article slug]}}])}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (let [trace (succeeded-trace
                 #(do (rf/dispatch-sync [:rf.mutation/execute
                                         {:mutation :m/save :params {:slug "w"} :instance :mx1}])
@@ -339,12 +339,12 @@
     (rf/reg-mutation :m/favorite
       {:scope :rf.scope/global
        :params-schema [:map [:slug :string]]
-       :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
        :populates (fn [{:keys [slug]} result]
                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
        :invalidates (fn [{:keys [slug]} _r]
                       [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
-                       {:scope {:from-db :t/session} :tags #{[:feed]}}])})
+                       {:scope {:from-db :t/session} :tags #{[:feed]}}])}
+      (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :c1
                                              :reply-to [:test/saved]}])
     (reply-success! @last-managed-args {:slug "w" :favorited true})
@@ -370,9 +370,9 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})})
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   ;; execute, capture its reply args, then SUPERSEDE by re-executing under the
   ;; same instance id (new generation / work-id) — the first reply is now stale.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
@@ -396,10 +396,10 @@
   (rf/reg-mutation :m/patch
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      :patches (fn [{:keys [slug]} result]
                 {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                 (fn [old _r] (merge old result))})})
+                 (fn [old _r] (merge old result))})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   ;; seed real data on the owned entry (a single ensure + reply)
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
@@ -424,9 +424,9 @@
   (rf/reg-mutation :m/save-feed
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :put :url "/feed"}})
      :populates (fn [_p result]
-                  {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})})
+                  {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})}
+    (fn [_p _] {:request {:method :put :url "/feed"}}))
   ;; NOT logged in — the resolver's :inputs are absent, so {:from-db :t/session}
   ;; resolves nil.
   (let [trace (succeeded-trace

@@ -101,10 +101,12 @@
   ([overrides]
    (merge {:scope         :rf.scope/from-caller
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- ensure! [resource scope slug owner]
   (rf/dispatch-sync [:rf.resource/ensure
@@ -141,7 +143,7 @@
 ;; ===========================================================================
 
 (deftest invalidate-tags-is-scoped-by-default
-  (rf/reg-resource :iv/article (article-spec))
+  (rf/reg-resource :iv/article (article-spec) article-spec-request)
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :iv/article {:slug "w"})
         kb (state/scoped-resource-key sb :iv/article {:slug "w"})]
@@ -162,7 +164,7 @@
       (is (nil?  (:invalidated-at (entry kb))) "scope B entry NOT invalidated"))))
 
 (deftest invalidate-tags-cross-scope-opt-in
-  (rf/reg-resource :ivx/article (article-spec))
+  (rf/reg-resource :ivx/article (article-spec) article-spec-request)
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :ivx/article {:slug "w"})
         kb (state/scoped-resource-key sb :ivx/article {:slug "w"})]
@@ -187,7 +189,7 @@
   ;; causal world input), NOT an ambient clock read in the reducer. Scripting
   ;; the dispatch's :rf.cofx pins the value; replaying the SAME token
   ;; rewrites the SAME :invalidated-at (replay-stable, not the live clock).
-  (rf/reg-resource :ivt/article (article-spec))
+  (rf/reg-resource :ivt/article (article-spec) article-spec-request)
   (let [sa {:user "a"}
         ka (state/scoped-resource-key sa :ivt/article {:slug "w"})
         t1 1781078400123
@@ -248,7 +250,7 @@
   ;; the dispatch path (no throw → the matched entries are marked stale).
   ;; rf2-7r8kgd: cross-scope is the AUDITED escape, so it MUST still carry
   ;; :cause even when it carries no :scope (scope-agnostic ≠ cause-free).
-  (rf/reg-resource :ivxn/article (article-spec))
+  (rf/reg-resource :ivxn/article (article-spec) article-spec-request)
   (let [sa {:user "a"} sb {:user "b"}
         ka (state/scoped-resource-key sa :ivxn/article {:slug "w"})
         kb (state/scoped-resource-key sb :ivxn/article {:slug "w"})]
@@ -350,7 +352,7 @@
             [:rf.resource/clear-scope {:scope :rf.scope/glabal :cause :logout}])))))
 
 (deftest invalidate-tags-refetches-active-leaves-inactive-stale
-  (rf/reg-resource :ivr/article (article-spec))
+  (rf/reg-resource :ivr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         kact  (state/scoped-resource-key scope :ivr/article {:slug "active"})
         kin   (state/scoped-resource-key scope :ivr/article {:slug "inactive"})]
@@ -375,7 +377,8 @@
   (rf/reg-resource :tagrep/article
                    (article-spec {:tags (fn [{:keys [slug]} data]
                                           ;; tags depend on the DATA's version
-                                          #{[:article slug] [:rev (:rev data)]})}))
+                                          #{[:article slug] [:rev (:rev data)]})})
+                   article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :tagrep/article {:slug "w"})]
     (ensure! :tagrep/article scope "w" [:lease :t 1])
@@ -403,7 +406,7 @@
 ;; ===========================================================================
 
 (deftest release-owner-does-not-abort-shared-in-flight
-  (rf/reg-resource :sh/article (article-spec))
+  (rf/reg-resource :sh/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :sh/article {:slug "w"})]
     ;; two owners ensure the SAME in-flight key (dedupe joins)
@@ -442,7 +445,7 @@
 ;; the joinability boundary, not the pointer.)
 
 (deftest re-ensure-after-owner-release-does-not-join-abort-requested
-  (rf/reg-resource :nj/article (article-spec))
+  (rf/reg-resource :nj/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :nj/article {:slug "w"})]
     ;; load attempt in flight, single owner
@@ -469,7 +472,7 @@
               "the new owner is attached to the fresh attempt"))))))
 
 (deftest re-ensure-after-internal-aborted-settle-does-not-join-terminal
-  (rf/reg-resource :njt/article (article-spec))
+  (rf/reg-resource :njt/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :njt/article {:slug "w"})]
     (ensure! :njt/article scope "w" [:lease :a 1])
@@ -493,7 +496,7 @@
 ;; ===========================================================================
 
 (deftest clear-scope-suppresses-late-reply
-  (rf/reg-resource :clr/article (article-spec))
+  (rf/reg-resource :clr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :clr/article {:slug "w"})]
     (ensure! :clr/article scope "w" [:lease :c 1])
@@ -523,7 +526,7 @@
 ;; ===========================================================================
 
 (deftest succeeded-arms-stale-and-gc-timers
-  (rf/reg-resource :tm/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}))
+  (rf/reg-resource :tm/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :tm/article {:slug "w"})]
     (reset! scheduled-timers [])
@@ -539,7 +542,7 @@
         (is (= 300000 (:gc-delay-ms args)))))))
 
 (deftest no-policy-arms-no-timers
-  (rf/reg-resource :np/article (article-spec)) ;; no :stale-after-ms / :gc-after-ms
+  (rf/reg-resource :np/article (article-spec) article-spec-request) ;; no :stale-after-ms / :gc-after-ms
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :np/article {:slug "w"})]
     (reset! scheduled-timers [])
@@ -586,7 +589,7 @@
       (timers/cancel-for-key! :rf/default k))))
 
 (deftest gc-fired-rechecks-before-removing
-  (rf/reg-resource :gc/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :gc/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gc/article {:slug "w"})]
     ;; load + release owner → owner-free + idle → GC-eligible
@@ -605,7 +608,7 @@
   ;; the frame's life). The `:error` settle MUST now arm a GC timer (mirroring
   ;; the success-path arming), and once owner-free + idle the fired GC re-check
   ;; collects it.
-  (rf/reg-resource :gce/article (article-spec {:gc-after-ms 5000}))
+  (rf/reg-resource :gce/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gce/article {:slug "w"})]
     (reset! scheduled-timers [])
@@ -634,7 +637,7 @@
   ;; and returns to `:loaded`) is NOT a first-load error: its stale/GC timers
   ;; were armed on the prior success, and `entry-failed` makes no freshness
   ;; change, so the refresh-failure settle re-arms NOTHING (no double-arm).
-  (rf/reg-resource :gcb/article (article-spec {:gc-after-ms 5000}))
+  (rf/reg-resource :gcb/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gcb/article {:slug "w"})]
     (ensure! :gcb/article scope "w" [:route :r 1])
@@ -655,7 +658,7 @@
           "no schedule-timers re-armed on the background-refresh failure"))))
 
 (deftest gc-fired-skips-when-owner-reattached
-  (rf/reg-resource :gck/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :gck/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gck/article {:slug "w"})]
     (ensure! :gck/article scope "w" [:lease :gck 1])
@@ -668,7 +671,7 @@
       (is (= :loaded (:status (entry k)))))))
 
 (deftest gc-fired-skips-when-in-flight
-  (rf/reg-resource :gcf/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :gcf/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gcf/article {:slug "w"})]
     ;; ensure without ever succeeding → in flight (owner released, still
@@ -685,7 +688,7 @@
 ;; ---- rf2-07693y: a GC skip RESCHEDULES so a later release/settle is GC'd ---
 
 (deftest gc-skip-while-owned-reschedules-and-collects-after-release
-  (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gcr/article {:slug "w"})]
     (ensure! :gcr/article scope "w" [:lease :gcr 1])
@@ -709,7 +712,7 @@
       (is (nil? (entry k)) "the rescheduled GC re-check collected the now-inactive entry"))))
 
 (deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
-  (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :gci/article {:slug "w"})]
     ;; in flight + owner-free (owner released while loading)
@@ -741,7 +744,7 @@
       (is (nil? (entry k)) "the rescheduled GC re-check collected the now-idle entry"))))
 
 (deftest gc-skip-no-entry-does-not-reschedule
-  (rf/reg-resource :gcn/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :gcn/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [k (state/scoped-resource-key {:user "u"} :gcn/article {:slug "gone"})]
     (reset! scheduled-timers [])
     (testing "rf2-07693y — a GC timer firing for an entry that no longer exists
@@ -751,7 +754,7 @@
       (is (empty? @scheduled-timers) "no reschedule fx for a vanished entry"))))
 
 (deftest stale-fired-rechecks-durable-fact-no-write
-  (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}))
+  (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :sf/article {:slug "w"})]
     (ensure! :sf/article scope "w" [:lease :sf 1])
@@ -765,7 +768,7 @@
         (is (= before (entry k)) "stale-fired made no durable entry change")))))
 
 (deftest frame-destroy-cancels-resource-timers
-  (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}))
+  (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
   (let [fa :fd/frame-a
         k  (state/scoped-resource-key {:user "u"} :fd/article {:slug "w"})]
     (rf/reg-frame fa {:doc "frame-destroy timer frame"})
@@ -787,7 +790,7 @@
 ;; ===========================================================================
 
 (deftest remove-cancels-instance-timers
-  (rf/reg-resource :rmt/article (article-spec {:gc-after-ms 1000}))
+  (rf/reg-resource :rmt/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :rmt/article {:slug "w"})]
     (ensure! :rmt/article scope "w" [:lease :rmt 1])

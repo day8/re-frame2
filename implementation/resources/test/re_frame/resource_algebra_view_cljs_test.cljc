@@ -58,10 +58,12 @@
   ([] (article-spec {}))
   ([overrides]
    (merge {:scope         :rf.scope/global
-           :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})}
+           :params-schema [:map [:slug :string]]}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 ;; The fixed classifications EVERY resource algebra node carries
 ;; (Derivations §Resources expose process nodes: the canonical runtime-db /
@@ -105,7 +107,8 @@
 (deftest resource-exposes-its-full-process-node
   (testing "a reg-resource exposes the full process / runtime-db / remote node"
     (rf/reg-resource :article/by-slug (article-spec {:data-schema :app/article
-                                                     :doc "an article by slug"}))
+                                                     :doc "an article by slug"})
+                     article-spec-request)
     (let [node (resources-tooling/resource-algebra-view :article/by-slug)]
       (is (some? node) "the resource is present in the static view")
       (is (has-fixed-classifications? node)
@@ -141,8 +144,8 @@
 
 (deftest zero-arity-projects-every-resource
   (testing "(resource-algebra-view) lowers every registered resource"
-    (rf/reg-resource :a/x (article-spec))
-    (rf/reg-resource :b/y (article-spec))
+    (rf/reg-resource :a/x (article-spec) article-spec-request)
+    (rf/reg-resource :b/y (article-spec) article-spec-request)
     (let [view (resources-tooling/resource-algebra-view)]
       (is (= #{:a/x :b/y} (set (keys view))))
       (is (every? has-fixed-classifications? (vals view)))
@@ -157,7 +160,8 @@
     ;; inspection NEVER runs a scope resolver. A throwing fn proves it.
     (rf/reg-resource :fn/scoped
                      (article-spec {:scope (fn [_route _ctx]
-                                             (throw (ex-info "must not run in static view" {})))}))
+                                             (throw (ex-info "must not run in static view" {})))})
+                     article-spec-request)
     (let [node (resources-tooling/resource-algebra-view :fn/scoped)]
       (is (= [[:param :rf.params] [:scope :rf.scope/resolver]] (:inputs node))
           "the fn scope lowers to the opaque resolver marker — the fn is never executed")
@@ -176,7 +180,8 @@
                             :resolve (fn [{:keys [tenant-id]} _ctx]
                                        [:rf.scope/session {:tenant-id tenant-id}])})
     (rf/reg-resource :tenant/article
-                     (article-spec {:scope {:from-db :session/current-tenant}}))
+                     (article-spec {:scope {:from-db :session/current-tenant}})
+                     article-spec-request)
     (let [node (resources-tooling/resource-algebra-view :tenant/article)]
       (is (= [[:param :rf.params] [:scope {:from-db :session/current-tenant}]]
              (:inputs node))
@@ -224,7 +229,7 @@
 
 (deftest live-entry-exposes-its-process-node
   (testing "a live cache entry projects to a process node keyed by its scoped key"
-    (rf/reg-resource :article/by-slug (article-spec))
+    (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
     (let [scope      :rf.scope/global
           params     {:slug "welcome"}
           scoped-key (install-live-entry! :rf/default :article/by-slug scope params
@@ -253,7 +258,7 @@
 
 (deftest live-in-flight-entry-links-work-ledger-and-host-transient
   (testing "an in-flight entry links its work-ledger record + names the host-transient handle"
-    (rf/reg-resource :article/by-slug (article-spec))
+    (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
     (let [scope      :rf.scope/global
           params     {:slug "loading"}
           scoped-key (install-live-entry! :rf/default :article/by-slug scope params
@@ -276,7 +281,7 @@
             VECTORS but CEDN-distinct (distinct byte key-ids). The cache
             algebra view must report TWO distinct nodes (one per byte-keyed
             runtime entry), NOT collapse them onto one `=`-colliding key"
-    (rf/reg-resource :article/by-slug (article-spec))
+    (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
     (let [scope  :rf.scope/global
           pv     {:xs [1 2 3]}
           pl     {:xs '(1 2 3)}
@@ -332,7 +337,8 @@
             survive and no raw secret egresses"
     (rf/reg-resource :secret/article
                      (article-spec {:sensitive?    true
-                                    :params-schema [:map [:auth-token :string]]}))
+                                    :params-schema [:map [:auth-token :string]]})
+                     article-spec-request)
     (let [scope      [:rf.scope/tenant secret]
           params     {:auth-token secret}
           scoped-key (install-live-entry! :rf/default :secret/article scope params
@@ -355,7 +361,7 @@
 (deftest live-view-preserves-non-sensitive-identity
   (testing "rf2-0t0l3w guard: a NON-sensitive resource still rides its scope /
             params verbatim (projection must not over-redact the common case)"
-    (rf/reg-resource :plain/article (article-spec))
+    (rf/reg-resource :plain/article (article-spec) article-spec-request)
     (let [scope  :rf.scope/global
           params {:slug "welcome"}
           scoped-key (install-live-entry! :rf/default :plain/article scope params
@@ -383,7 +389,8 @@
                                        (when tenant-id [:rf.scope/tenant tenant-id]))})
     ;; a tenant-scoped resource — NOT itself declared :sensitive?
     (rf/reg-resource :derived/article
-                     (article-spec {:scope {:from-db :session/tenant}}))
+                     (article-spec {:scope {:from-db :session/tenant}})
+                     article-spec-request)
     (let [scope      [:rf.scope/tenant secret]
           params     {:slug "x"}
           scoped-key (install-live-entry! :sens/frame :derived/article scope params
@@ -397,8 +404,8 @@
 
 (deftest cleared-resource-is-removed-from-the-static-view
   (testing "(clear-resource id) removes the resource from the static view"
-    (rf/reg-resource :a/x (article-spec))
-    (rf/reg-resource :b/y (article-spec))
+    (rf/reg-resource :a/x (article-spec) article-spec-request)
+    (rf/reg-resource :b/y (article-spec) article-spec-request)
     (is (contains? (resources-tooling/resource-algebra-view) :a/x))
     (rf/clear-resource :a/x)
     (let [view (resources-tooling/resource-algebra-view)]
@@ -408,7 +415,7 @@
 #?(:clj
    (deftest jvm-alias-mirrors-the-tooling-fn
      (testing "the JVM re-frame.resources/resource-algebra-view alias is the tooling fn"
-       (rf/reg-resource :article/by-slug (article-spec))
+       (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
        (is (= (resources-tooling/resource-algebra-view)
               (re-frame.resources/resource-algebra-view))
            "the JVM convenience alias projects identically to the tooling sibling"))))

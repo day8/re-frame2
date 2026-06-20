@@ -67,9 +67,9 @@
     {:scope         {:from-db :t/tenant}
      :params-schema [:map [:page :int]]
      :gc-after-ms   60000
-     :request       (fn [{:keys [page]} _ctx]
-                      {:request {:method :get :url "/feed" :params {:page page}}})
-     :tags          (fn [_p _v] #{[:feed]})})
+     :tags          (fn [_p _v] #{[:feed]})}
+    (fn [{:keys [page]} _ctx]
+      {:request {:method :get :url "/feed" :params {:page page}}}))
   (rf/reg-event :t/switch-tenant
     (fn [{:keys [db]} [_ tenant]] {:db (assoc-in db [:viewer :tenant-id] tenant)})))
 

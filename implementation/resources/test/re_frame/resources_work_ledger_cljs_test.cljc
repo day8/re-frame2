@@ -111,17 +111,19 @@
   ([overrides]
    (merge {:scope         :rf.scope/global
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 ;; ===========================================================================
 ;; 1. ensure writes a serializable work record keyed by work id
 ;; ===========================================================================
 
 (deftest ensure-writes-work-record
-  (rf/reg-resource :wl/article (article-spec))
+  (rf/reg-resource :wl/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :wl/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :wl/article :scope :rf.scope/global
@@ -160,7 +162,7 @@
   ;; test reading through it would silently miss the live row, making any
   ;; `(when rec …)` assertion vacuous. This pins the one home so the drift
   ;; cannot reappear.
-  (rf/reg-resource :wlbk/article (article-spec))
+  (rf/reg-resource :wlbk/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlbk/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :wlbk/article :scope :rf.scope/global
@@ -186,7 +188,7 @@
   ;; `:started-at` + the configured `:timeout-ms` policy — NOT an ambient
   ;; clock read in the reducer. Scripting the dispatch's `:rf.cofx`
   ;; pins both; the same token mints the same row (replay-stable).
-  (rf/reg-resource :wlt/article (article-spec {:timeout-ms 5000}))
+  (rf/reg-resource :wlt/article (article-spec {:timeout-ms 5000}) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlt/article {:slug "w"})
         t1 1781078400123]
     (rf/dispatch-sync [:rf.resource/ensure
@@ -200,7 +202,7 @@
         (is (= (+ t1 5000) (:deadline-at r))))))
   ;; a resource declaring NO timeout policy has a nil :deadline-at, and its
   ;; :started-at still tracks the token (replay-stable, no ambient read).
-  (rf/reg-resource :wlnt/article (article-spec))
+  (rf/reg-resource :wlnt/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlnt/article {:slug "w"})
         t2 1781079000000]
     (rf/dispatch-sync [:rf.resource/ensure
@@ -218,7 +220,7 @@
 ;; ===========================================================================
 
 (deftest host-handle-in-side-table-not-runtime-db
-  (rf/reg-resource :hh/article (article-spec))
+  (rf/reg-resource :hh/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :hh/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :hh/article :scope :rf.scope/global
@@ -239,7 +241,7 @@
 ;; ===========================================================================
 
 (deftest succeeded-completes-and-prunes-record
-  (rf/reg-resource :sc/article (article-spec))
+  (rf/reg-resource :sc/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sc/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sc/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :sc 1]}])
@@ -257,7 +259,7 @@
         (is (nil? (work-ledger/get-handle :rf/default wid)))))))
 
 (deftest succeeded-prunes-old-terminal-rows-beyond-tail
-  (rf/reg-resource :pr/article (article-spec))
+  (rf/reg-resource :pr/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :pr/article {:slug "w"})]
     ;; run several attempts so terminal rows accumulate, then assert the
     ;; ledger is bounded (default tail = 3 terminal rows per key)
@@ -282,7 +284,7 @@
 ;; ===========================================================================
 
 (deftest failed-settles-record-terminal
-  (rf/reg-resource :fa/article (article-spec))
+  (rf/reg-resource :fa/article (article-spec) article-spec-request)
   (let [scoped-key   (state/scoped-resource-key :rf.scope/global :fa/article {:slug "w"})
         completed-at  1781649764112]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fa/article :scope :rf.scope/global
@@ -308,7 +310,7 @@
         (is (nil? (work-ledger/get-handle :rf/default wid)))))))
 
 (deftest aborted-settles-record-cancelled
-  (rf/reg-resource :ab/article (article-spec))
+  (rf/reg-resource :ab/article (article-spec) article-spec-request)
   (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab/article {:slug "w"})
         completed-at  1781649764112]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ab/article :scope :rf.scope/global
@@ -336,7 +338,7 @@
   ;; longer correlate with the live entry) settles the row :suppressed, NOT
   ;; an accepted :cancelled. Stale validation wins over the natural
   ;; cancellation status (Managed-Effects §Stale suppression).
-  (rf/reg-resource :sa/article (article-spec))
+  (rf/reg-resource :sa/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sa/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sa/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :sa 1]}])
@@ -363,7 +365,7 @@
   ;; (the durable user-visible state is the correctness boundary — the work-
   ;; ledger row, like succeeded/failed cross-frame, lowers to :suppressed at
   ;; the colliding work-id, never an accepted :cancelled).
-  (rf/reg-resource :cfa/article (article-spec))
+  (rf/reg-resource :cfa/article (article-spec) article-spec-request)
   (let [fa :cfa/frame-a
         fb :cfa/frame-b
         scoped-key (state/scoped-resource-key :rf.scope/global :cfa/article {:slug "w"})]
@@ -396,7 +398,7 @@
 ;; ===========================================================================
 
 (deftest stale-reply-suppressed-and-row-terminal
-  (rf/reg-resource :ss/article (article-spec))
+  (rf/reg-resource :ss/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ss/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :ss 1]}])
@@ -424,7 +426,7 @@
 ;; ===========================================================================
 
 (deftest dedupe-joins-existing-record
-  (rf/reg-resource :dd/article (article-spec))
+  (rf/reg-resource :dd/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :dd/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :dd/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:route :r 1]
@@ -446,7 +448,7 @@
 ;; ===========================================================================
 
 (deftest release-owner-aborts-only-when-orphaned
-  (rf/reg-resource :ro/article (article-spec))
+  (rf/reg-resource :ro/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ro/article {:slug "w"})]
     ;; two owners on one in-flight attempt (ensure dedupes)
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
@@ -471,7 +473,7 @@
 ;; ===========================================================================
 
 (deftest clear-scope-cancels-in-flight-rows
-  (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (let [scope-a {:user "a"}
         ka (state/scoped-resource-key scope-a :cs/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
@@ -485,7 +487,7 @@
         (is (contains? (set @aborts) (req wid)))))))
 
 (deftest remove-cancels-in-flight-row
-  (rf/reg-resource :rm/article (article-spec))
+  (rf/reg-resource :rm/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :rm 1]}])
@@ -502,7 +504,7 @@
 ;; ===========================================================================
 
 (deftest frame-destroy-clears-side-tables
-  (rf/reg-resource :fd/article (article-spec))
+  (rf/reg-resource :fd/article (article-spec) article-spec-request)
   (let [fa :fd/frame-a
         scoped-key (state/scoped-resource-key :rf.scope/global :fd/article {:slug "w"})]
     (rf/reg-frame fa {:doc "teardown frame"})
@@ -604,7 +606,7 @@
 ;; ===========================================================================
 
 (deftest cross-frame-request-id-does-not-collide
-  (rf/reg-resource :xf/article (article-spec))
+  (rf/reg-resource :xf/article (article-spec) article-spec-request)
   ;; capture every lowered managed-HTTP args map (not just the last) so we can
   ;; inspect BOTH frames' request-ids.
   (let [all-args (atom [])]

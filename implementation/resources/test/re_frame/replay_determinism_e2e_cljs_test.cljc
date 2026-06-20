@@ -151,9 +151,9 @@
     {:scope          :rf.scope/global
      :params-schema  [:map [:slug :string]]
      :stale-after-ms stale-after-ms
-     :request        (fn [{:keys [slug]} _ctx]
-                       {:request {:method :get :url (str "/api/articles/" slug)}})
-     :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}))
+     :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
+    (fn [{:keys [slug]} _ctx]
+      {:request {:method :get :url (str "/api/articles/" slug)}})))
 
 (defn- reply-success!
   "Dispatch the captured `:on-success` reply with the transport's success

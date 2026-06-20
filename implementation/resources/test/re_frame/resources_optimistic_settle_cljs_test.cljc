@@ -92,8 +92,8 @@
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}))
+     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})))
 
 (defn- own-loaded! [payload value]
   (rf/dispatch-sync [:rf.resource/ensure payload])
@@ -103,12 +103,14 @@
 (def ^:private favorite-plan
   {:scope :rf.scope/global
    :params-schema [:map [:slug :string]]
-   :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
    :optimistic (fn [{:keys [slug]}]
                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
                   (fn [a] (-> a
                               (assoc-in [:article :favorited] true)
                               (update-in [:article :favoritesCount] inc)))})})
+
+(def ^:private favorite-plan-request
+  (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
 
 (defn- trace-of
   "Run `body-fn`; return the LAST trace event with `op` (its top-level data map;
@@ -149,10 +151,10 @@
     (rf/reg-mutation :m/competing
       {:scope :rf.scope/global
        :params-schema [:map [:slug :string]]
-       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
        :populates (fn [{:keys [slug]} result]
                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                     result})})
+                     result})}
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/competing :params {:slug "w"}
                                              :instance :competing}])
     (reply-success! @last-managed-args value)
@@ -173,7 +175,8 @@
            ;; the authoritative populate overwrites the optimistic value.
            :populates (fn [{:keys [slug]} result]
                         {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result})))
+                         result}))
+    favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (testing "the optimistic value is in the cache before the reply"
     (is (= true (get-in (entry article-key) [:data :article :favorited])))
@@ -209,7 +212,7 @@
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
   (let [before (entry article-key)]
-    (rf/reg-mutation :m/favorite favorite-plan)
+    (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
     (testing "the optimistic value is applied before the reply"
       (is (= true (get-in (entry article-key) [:data :article :favorited]))))
@@ -239,7 +242,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan)        ;; :on-conflict defaults to :invalidate
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)        ;; :on-conflict defaults to :invalidate
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (testing "the optimistic value is applied; its recorded revision is captured"
     (is (= true (get-in (entry article-key) [:data :article :favorited]))))
@@ -290,7 +293,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite (assoc favorite-plan :on-conflict :force))
+  (rf/reg-mutation :m/favorite (assoc favorite-plan :on-conflict :force) favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   ;; competing authoritative write moves the revision.
   (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
@@ -339,7 +342,7 @@
 
 (deftest restore-dangle-rolls-back-the-optimistic-apply-inside-the-reconciler
   ;; the mutation must be registered so the dangle can read its :on-conflict.
-  (rf/reg-mutation :m/favorite favorite-plan)        ;; defaults :invalidate
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)        ;; defaults :invalidate
   (testing "NO CONFLICT — the recorded :before is restored INSIDE the reconcile pass"
     (let [before (merge (state/empty-entry :r/article article-key)
                         {:status :loaded :data {:article {:favorited false :favoritesCount 9}}

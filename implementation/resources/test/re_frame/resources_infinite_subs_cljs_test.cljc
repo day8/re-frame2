@@ -76,22 +76,26 @@
    {:items items :page-info {:next-cursor next-c :prev-cursor prev-c}}))
 
 (defn- feed-spec
-  "A minimal valid infinite-feed resource spec — enveloped pages with a
-  :page->items accessor (the common non-vector case)."
+  "A minimal valid infinite-feed resource METADATA map — enveloped pages with a
+  :page->items accessor (the common non-vector case). The `:request` fn lives
+  separately in `feed-spec-request` (the 3-slot grammar's third positional
+  arg); pass it as the trailing arg at each reg-resource call site."
   ([] (feed-spec {}))
   ([overrides]
    (merge {:scope            :rf.scope/global
            :infinite         true
            :params-schema    [:map [:filter :keyword]]
-           :request          (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
-                               {:request {:method :get :url "/api/feed"
-                                          :params (cond-> {:filter filter :page-index page-index}
-                                                    page-param (assoc :cursor page-param))}})
            :next-page-param  next-cursor
            :prev-page-param  prev-cursor
            :page->items      :items
            :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})}
           overrides)))
+
+(def ^:private feed-spec-request
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get :url "/api/feed"
+               :params (cond-> {:filter filter :page-index page-index}
+                         page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [resource]
   (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
@@ -111,7 +115,7 @@
 (defn- load-page-0!
   "Register + ensure a feed and settle page-0 with `pg`. Returns the resource."
   [resource pg]
-  (rf/reg-resource resource (feed-spec))
+  (rf/reg-resource resource (feed-spec) feed-spec-request)
   (ensure! resource)
   (reply-success! pg)
   resource)
@@ -121,7 +125,7 @@
 ;; ===========================================================================
 
 (deftest empty-feed-projections
-  (rf/reg-resource :is1/feed (feed-spec))
+  (rf/reg-resource :is1/feed (feed-spec) feed-spec-request)
   (testing "before any load the infinite projections are the empty-feed shape"
     (is (= [] @(rf/subscribe [:rf.resource/items (q :is1/feed)])))
     (is (= [] @(rf/subscribe [:rf.resource/pages (q :is1/feed)])))
@@ -156,7 +160,7 @@
 
 (deftest scalar-has-data?-false-for-empty-infinite-feed
   (testing "an EMPTY (never-loaded) infinite feed has a live entry with :data []"
-    (rf/reg-resource :is1b/feed (feed-spec))
+    (rf/reg-resource :is1b/feed (feed-spec) feed-spec-request)
     (ensure! :is1b/feed)                       ;; entry now exists, :status :loading
     (let [e (entry (feed-key :is1b/feed))]
       (is (some? e) "ensure created the durable feed entry")
@@ -214,7 +218,8 @@
       (dissoc (feed-spec {:next-page-param (fn [_last-page all-pages]
                                              (when (< (count all-pages) 2)
                                                (str "p" (count all-pages))))})
-              :page->items))
+              :page->items)
+      feed-spec-request)
     (ensure! :isv/feed) (reply-success! [:a :b])
     (is (= [:a :b] @(rf/subscribe [:rf.resource/items (q :isv/feed)]))
         "a vector page IS its items — no :page->items needed")
@@ -226,8 +231,8 @@
   (testing "a (fn [page] …) :page->items accessor is honoured"
     (rf/reg-resource :isf/feed
       (feed-spec {:page->items (fn [p] (:rows p))
-                  :next-page-param (fn [_ _] nil)
-                  :request (fn [_ _] {:request {:method :get :url "/f"}})}))
+                  :next-page-param (fn [_ _] nil)})
+      (fn [_ _] {:request {:method :get :url "/f"}}))
     (ensure! :isf/feed) (reply-success! {:rows [:x :y]})
     (is (= [:x :y] @(rf/subscribe [:rf.resource/items (q :isf/feed)])))))
 
@@ -251,7 +256,7 @@
 
 (deftest has-prev-false-when-no-mirror
   (testing "has-prev? is false when the feed declares no :prev-page-param"
-    (rf/reg-resource :isnp/feed (dissoc (feed-spec) :prev-page-param))
+    (rf/reg-resource :isnp/feed (dissoc (feed-spec) :prev-page-param) feed-spec-request)
     (ensure! :isnp/feed) (reply-success! (page [:a] "c1"))
     (is (false? @(rf/subscribe [:rf.resource/has-prev-page? (q :isnp/feed)])))))
 
@@ -349,7 +354,8 @@
     ;; valid registration (no :page->items declared); the page is enveloped, so
     ;; the MERGE is where the missing accessor is detected.
     (rf/reg-resource :iserr/feed
-      (dissoc (feed-spec) :page->items))        ;; non-vector pages, no accessor
+      (dissoc (feed-spec) :page->items)         ;; non-vector pages, no accessor
+      feed-spec-request)
     (ensure! :iserr/feed)
     (reply-success! (page [:a :b] "c1"))         ;; an enveloped (map) page
     (let [e (entry (feed-key :iserr/feed))]

@@ -118,10 +118,12 @@
   ([overrides]
    (merge {:scope         :rf.scope/global
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 ;; ===========================================================================
 ;; 1. Reply-addressing rejection (the runtime OWNS reply addressing)
@@ -149,11 +151,11 @@
             stale suppression is unrepresentable, so the transport is NEVER
             lowered (no managed-HTTP request reaches the wire)"
     (rf/reg-resource :rr/article
-                     (article-spec
-                       {:request (fn [{:keys [slug]} _]
-                                   {:request {:method :get :url (str "/a/" slug)}
-                                    ;; an app trying to grab the reply target
-                                    :on-success [:my/handler]})}))
+                     (article-spec {})
+                     (fn [{:keys [slug]} _]
+                       {:request {:method :get :url (str "/a/" slug)}
+                        ;; an app trying to grab the reply target
+                        :on-success [:my/handler]}))
     ;; The reject throws inside the event handler; the cascade routes a
     ;; handler throw into an interceptor-error (it does not re-throw through
     ;; dispatch-sync). The observable fail-closed guarantee: no managed-HTTP
@@ -171,14 +173,14 @@
 
 (deftest lowering-supplies-reply-addressing-and-passes-spec014-keys
   (rf/reg-resource :lo/article
-                   (article-spec
-                     {:request (fn [{:keys [slug]} _]
-                                 ;; Spec 014 top-level keys MUST pass through
-                                 {:request {:method :get :url (str "/a/" slug)}
-                                  :decode  :app/article
-                                  :accept  identity
-                                  :retry   {:on #{:rf.http/http-5xx}
-                                            :max-attempts 3}})}))
+                   (article-spec {})
+                   (fn [{:keys [slug]} _]
+                     ;; Spec 014 top-level keys MUST pass through
+                     {:request {:method :get :url (str "/a/" slug)}
+                      :decode  :app/article
+                      :accept  identity
+                      :retry   {:on #{:rf.http/http-5xx}
+                                :max-attempts 3}}))
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :lo/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :lo/article :scope :rf.scope/global
@@ -211,7 +213,7 @@
 ;; ===========================================================================
 
 (deftest success-reply-reads-decoded-value-from-transport-result
-  (rf/reg-resource :sv/article (article-spec))
+  (rf/reg-resource :sv/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sv/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sv/article :scope :rf.scope/global
@@ -227,7 +229,7 @@
         (is (nil? (:current-work e)))))))
 
 (deftest failure-reply-reads-envelope-from-transport-result
-  (rf/reg-resource :fe/article (article-spec))
+  (rf/reg-resource :fe/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :fe/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :fe/article :scope :rf.scope/global
@@ -241,7 +243,7 @@
         (is (= {:kind :rf.http/http-5xx :status 503} (:error e)))))))
 
 (deftest background-refresh-failure-keeps-data-via-transport-shape
-  (rf/reg-resource :bg/article (article-spec))
+  (rf/reg-resource :bg/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :bg/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :bg/article :scope :rf.scope/global
@@ -267,7 +269,7 @@
 ;; ===========================================================================
 
 (deftest stale-transport-reply-suppressed
-  (rf/reg-resource :sp/article (article-spec))
+  (rf/reg-resource :sp/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sp/article :scope :rf.scope/global
@@ -307,7 +309,7 @@
   {:kind :rf.http/aborted :request-id request-id :reason reason :actor-id nil})
 
 (deftest first-load-abort-settles-non-error-not-failure
-  (rf/reg-resource :ab1/article (article-spec))
+  (rf/reg-resource :ab1/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :ab1/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab1/article :scope :rf.scope/global
@@ -331,7 +333,7 @@
           (is (= :aborted (:reason (:outcome rec)))))))))
 
 (deftest refresh-abort-preserves-prior-loaded-data
-  (rf/reg-resource :ab2/article (article-spec))
+  (rf/reg-resource :ab2/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab2/article :scope :rf.scope/global
@@ -367,7 +369,7 @@
         (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid))))))))
 
 (deftest stale-abort-reply-cannot-mutate-newer-entry
-  (rf/reg-resource :ab3/article (article-spec))
+  (rf/reg-resource :ab3/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab3/article :scope :rf.scope/global
@@ -402,7 +404,7 @@
   ;; the end-to-end orphan path: an in-flight first load whose last owner is
   ;; released emits a best-effort abort; when that abort reply lands it must
   ;; NOT surface as a resource error (rf2-z70ujl acceptance).
-  (rf/reg-resource :ab4/article (article-spec))
+  (rf/reg-resource :ab4/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :ab4/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab4/article :scope :rf.scope/global
@@ -434,7 +436,7 @@
                     {:frame frame-id}))
 
 (deftest lowering-stamps-receiving-frame-into-reply-payload
-  (rf/reg-resource :ff/article (article-spec))
+  (rf/reg-resource :ff/article (article-spec) article-spec-request)
   (let [fa :ff/frame-a]
     (rf/reg-frame fa {:doc "frame stamp frame A"})
     (rf/dispatch-sync [:rf.resource/ensure
@@ -449,7 +451,7 @@
     (frame/destroy-frame! fa)))
 
 (deftest cross-frame-reply-rejected-without-mutating-receiving-frame
-  (rf/reg-resource :xf/article (article-spec))
+  (rf/reg-resource :xf/article (article-spec) article-spec-request)
   (let [fa :xf/frame-a
         fb :xf/frame-b
         k  (state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
@@ -488,7 +490,7 @@
 ;; ===========================================================================
 
 (deftest ensure-while-in-flight-joins-and-dedupes
-  (rf/reg-resource :dj/article (article-spec))
+  (rf/reg-resource :dj/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :dj/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :dj/article :scope :rf.scope/global
@@ -562,7 +564,7 @@
   ;; §Cancellation is opportunistic), not just clear the work-handle side-table
   ;; slot. The abort fires by the frame-qualified request-id and the HTTP
   ;; in-flight registry entry is gone afterwards.
-  (rf/reg-resource :crab/article (article-spec))
+  (rf/reg-resource :crab/article (article-spec) article-spec-request)
   (let [k (state/scoped-resource-key :rf.scope/global :crab/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :crab/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :crab 1]}])
@@ -592,7 +594,7 @@
   ;; work for the frame BEFORE dropping the generation high-water (Spec 016
   ;; [Runtime-Subsystems] clause 5). A surviving host request would otherwise
   ;; outlive the frame and could satisfy a future same-id frame's reply gate.
-  (rf/reg-resource :fdab/article (article-spec))
+  (rf/reg-resource :fdab/article (article-spec) article-spec-request)
   (let [fa :fdab/frame-a
         k  (state/scoped-resource-key :rf.scope/global :fdab/article {:slug "w"})]
     (rf/reg-frame fa {:doc "teardown-abort frame"})
@@ -637,7 +639,7 @@
   ;; models the real transport: the seeded request's abort-fn delivers the
   ;; abort's :on-failure reply (what the live transport does on cancel), and we
   ;; assert that reply does NOT mutate the re-registered frame's fresh entry.
-  (rf/reg-resource :rab/article (article-spec))
+  (rf/reg-resource :rab/article (article-spec) article-spec-request)
   (let [fr :rab/reused
         k  (state/scoped-resource-key :rf.scope/global :rab/article {:slug "w"})]
     ;; ---- first incarnation: start a load; capture the reply addressing ----

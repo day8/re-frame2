@@ -102,10 +102,12 @@
   ([overrides]
    (merge {:scope         :rf.scope/global
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 ;; ===========================================================================
 ;; 1. Canonical params + scope identity
@@ -446,7 +448,7 @@
 ;; ===========================================================================
 
 (deftest scope-resolution-fail-closed
-  (rf/reg-resource :sr/from-caller (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :sr/from-caller (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (testing "from-caller with no payload scope is a loud use-time error
             (Spec 016 §Scope resolution — no global fallthrough)"
     (is (thrown-with-msg?
@@ -461,13 +463,13 @@
              {:payload-scope {:user "u-1"}} 'test))))
   (testing "an explicit :rf.scope/global policy resolves to global (its
             declared policy, not a fallthrough)"
-    (rf/reg-resource :sr/global (article-spec))
+    (rf/reg-resource :sr/global (article-spec) article-spec-request)
     (is (= :rf.scope/global
            (registry/resolve-scope-for-event
              :sr/global (registry/resource-meta :sr/global) {} 'test)))))
 
 (deftest sub-side-scope-fail-closed
-  (rf/reg-resource :ss/from-caller (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :ss/from-caller (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (testing "a sub that cannot resolve a scope raises
             :rf.error/resource-sub-unresolved-scope (never a silent global
             read / :idle) — Spec 016 §Subscription-side scope resolution"
@@ -495,7 +497,7 @@
 ;; ===========================================================================
 
 (deftest ensure-then-success-loaded
-  (rf/reg-resource :a/article (article-spec))
+  (rf/reg-resource :a/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :a/article {:slug "welcome"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :a/article :scope :rf.scope/global
@@ -532,7 +534,7 @@
           (is (not (contains? e :has-data?))))))))
 
 (deftest structural-sharing-preserves-identical-data
-  (rf/reg-resource :ss/article (article-spec))
+  (rf/reg-resource :ss/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})
         data1      {:title "Welcome" :body [1 2 3]}]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ss/article :scope :rf.scope/global
@@ -558,7 +560,7 @@
 ;; ===========================================================================
 
 (deftest refresh-failure-keeps-data
-  (rf/reg-resource :rf2/article (article-spec))
+  (rf/reg-resource :rf2/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :rf2/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rf2/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :rf2 1]}])
@@ -584,7 +586,7 @@
         (is (nil? (:error e)))))))
 
 (deftest first-load-failure-error
-  (rf/reg-resource :fl/article (article-spec))
+  (rf/reg-resource :fl/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :fl/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fl/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :fl 1]}])
@@ -603,7 +605,7 @@
 ;; ===========================================================================
 
 (deftest stale-reply-is-suppressed
-  (rf/reg-resource :st/article (article-spec))
+  (rf/reg-resource :st/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :st/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :st/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :st 1]}])
@@ -628,7 +630,7 @@
 ;; ===========================================================================
 
 (deftest ensure-dedupes-in-flight
-  (rf/reg-resource :dd/article (article-spec))
+  (rf/reg-resource :dd/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :dd/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :dd/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:route :r 1]}])
@@ -647,7 +649,7 @@
 ;; ===========================================================================
 
 (deftest per-frame-isolation
-  (rf/reg-resource :iso/article (article-spec))
+  (rf/reg-resource :iso/article (article-spec) article-spec-request)
   (let [fa :iso/frame-a
         fb :iso/frame-b
         scoped-key (state/scoped-resource-key :rf.scope/global :iso/article {:slug "w"})]
@@ -674,7 +676,7 @@
 ;; ===========================================================================
 
 (deftest passive-subs-project-the-entry
-  (rf/reg-resource :sub/article (article-spec))
+  (rf/reg-resource :sub/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sub/article {:slug "w"})
         q          {:resource :sub/article :scope :rf.scope/global :params {:slug "w"}}]
     (testing "before any load the state projection is the idle empty-state
@@ -698,7 +700,7 @@
       (is (= {:title "Welcome"} @(rf/subscribe [:rf.resource/data q]))))))
 
 (deftest stale-sub-derives-from-facts
-  (rf/reg-resource :stl/article (article-spec {:stale-after-ms 60000}))
+  (rf/reg-resource :stl/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :stl/article {:slug "w"})
         q          {:resource :stl/article :scope :rf.scope/global :params {:slug "w"}}]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :stl/article :scope :rf.scope/global
@@ -728,7 +730,7 @@
   ;; :stale-at = :loaded-at + :stale-after-ms — NOT an ambient clock read in
   ;; the reply handler. Scripting the reply dispatch's :rf.cofx pins
   ;; both; the same reply token rewrites the same durable timestamps.
-  (rf/reg-resource :lra/article (article-spec {:stale-after-ms 60000}))
+  (rf/reg-resource :lra/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
         completed-at 1781078400456]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :lra/article :scope :rf.scope/global
@@ -756,7 +758,7 @@
 ;; scripted `:stale-at`, so a replay always re-read the live clock and could
 ;; flip serve-cache → refetch, minting a DIVERGENT work-ledger row.
 (deftest fresh-skip-decision-reads-causal-time-ms-not-ambient-clock
-  (rf/reg-resource :fsd/article (article-spec {:stale-after-ms 60000}))
+  (rf/reg-resource :fsd/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scoped-key  (state/scoped-resource-key :rf.scope/global :fsd/article {:slug "w"})
         t0          1000000          ;; a SMALL scripted epoch-ms (a "recorded
         ;; run" basis far below the live host clock). The entry loads at t0 and
@@ -812,7 +814,7 @@
 ;; ===========================================================================
 
 (deftest release-owner-drops-the-lease
-  (rf/reg-resource :ro/article (article-spec))
+  (rf/reg-resource :ro/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :ro/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :ro 1]}])
@@ -824,7 +826,7 @@
       (is (nil? (get-in (runtime-db) (conj (state/owner-index-path) [:lease :ro 1])))))))
 
 (deftest clear-scope-removes-scoped-entries
-  (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (let [scope-a {:user "a"}
         scope-b {:user "b"}
         ka (state/scoped-resource-key scope-a :cs/article {:slug "w"})
@@ -842,7 +844,7 @@
       (is (some? (entry kb)) "scope B untouched"))))
 
 (deftest invalidate-tags-marks-stale-and-refetches-active
-  (rf/reg-resource :it/article (article-spec))
+  (rf/reg-resource :it/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :it/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :it/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:route :r 1]}])
@@ -862,7 +864,7 @@
         (is (= {:title "W"} (:data e)) "prior data kept during refetch")))))
 
 (deftest remove-evicts-the-entry
-  (rf/reg-resource :rm/article (article-spec))
+  (rf/reg-resource :rm/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :rm 1]}])
@@ -1003,7 +1005,7 @@
 ;; ===========================================================================
 
 (deftest reserved-scope-typo-rejected-at-concrete-boundaries
-  (rf/reg-resource :tp/article (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :tp/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (let [spec (registry/resource-meta :tp/article)]
     (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on an
               EVENT payload is rejected fail-closed (never a silent wrong
@@ -1055,7 +1057,7 @@
   (testing "rf2-bwwk6l — a sub payload carrying the wrapped [:rf.scope/global]
             spelling fails closed too (never a silent read of the bare global
             entry)"
-    (rf/reg-resource :gv/article (article-spec))
+    (rf/reg-resource :gv/article (article-spec) article-spec-request)
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
           (subs/resolve-scoped-key {:resource :gv/article
@@ -1068,7 +1070,7 @@
 ;; ===========================================================================
 
 (deftest clear-resource-disposes-runtime-state
-  (rf/reg-resource :cr/article (article-spec))
+  (rf/reg-resource :cr/article (article-spec) article-spec-request)
   (let [loaded-key  (state/scoped-resource-key :rf.scope/global :cr/article {:slug "loaded"})
         inflight-key (state/scoped-resource-key :rf.scope/global :cr/article {:slug "inflight"})]
     ;; one LOADED entry (with tags + an active owner → indexed)
@@ -1149,7 +1151,7 @@
 ;; ===========================================================================
 
 (deftest resource-state-fails-closed-without-frame
-  (rf/reg-resource :rs/article (article-spec))
+  (rf/reg-resource :rs/article (article-spec) article-spec-request)
   (testing "rf2-c8lgy3 — a frameless resource-state call raises
             :rf.error/no-frame-context (never a silent nil that is
             indistinguishable from an absent entry)"
@@ -1189,7 +1191,7 @@
             resource-id params]` for destructure / filter. Rekeying onto the
             `=`-colliding scoped-key vector (the original rf2-jtlq7l approach)
             collapsed a list-params and a vector-params entry onto one map key"
-    (rf/reg-resource :intro/article (article-spec))
+    (rf/reg-resource :intro/article (article-spec) article-spec-request)
     (let [k1 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "one"})
           k2 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
       ;; Install two entries with DISTINCT scoped keys (distinct byte key-ids).
@@ -1239,7 +1241,7 @@
             CEDN-distinct but Clojure-= scoped-key vectors (vector params vs
             list params). The former vector-rekey `assoc`'d one entry OVER the
             other (the `=`-collapse), reporting ONE entry for TWO live ones"
-    (rf/reg-resource :intro/article (article-spec))
+    (rf/reg-resource :intro/article (article-spec) article-spec-request)
     (let [kv (state/scoped-resource-key :rf.scope/global :intro/article {:xs [1 2 3]})
           kl (state/scoped-resource-key :rf.scope/global :intro/article {:xs '(1 2 3)})
           ev (assoc (state/empty-entry :intro/article kv) :status :loaded :data {:v 1})
@@ -1268,7 +1270,7 @@
 (deftest resources-introspection-without-frame-returns-empty-entries
   (testing "rf2-jtlq7l — `(resources)` (no frame) still returns
             `{:resource-ids [...] :entries {}}` (no ambient fallback)"
-    (rf/reg-resource :introf/article (article-spec))
+    (rf/reg-resource :introf/article (article-spec) article-spec-request)
     (let [{:keys [resource-ids entries]} (re-frame.resources/resources)]
       (is (contains? (set resource-ids) :introf/article))
       (is (= {} entries) "frameless call yields an empty entries map"))))
@@ -1312,11 +1314,11 @@
                     (late-bind/get-fn :resources/reset-resources!))
         "the published hook IS test-support/reset-resources!"))
   ;; Seed every surface the reset must clear.
-  (rf/reg-resource :rst/article (article-spec))
+  (rf/reg-resource :rst/article (article-spec) article-spec-request)
   (rf/reg-mutation :rst/save
-                   {:params-schema [:map [:slug :string]]
-                    :request (fn [{:keys [slug]} _ctx]
-                               {:request {:method :post :url (str "/api/articles/" slug)}})})
+                   {:params-schema [:map [:slug :string]]}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :post :url (str "/api/articles/" slug)}}))
   (state/commit-generation! :rf/default 7)
   (let [k       (state/scoped-resource-key :rf.scope/global :rst/article {:slug "w"})
         work-id (work-ledger/resource-work-id k 1)]
@@ -1387,7 +1389,7 @@
     k))
 
 (deftest scope-mismatch-warning-fires-on-genuine-mismatch
-  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (testing "rf2-rsmiru — a from-caller sub at a scope with ZERO active owners,
             while a DIFFERENT scope for the same resource IS active, emits the
             dev-only :rf.warning/resource-sub-scope-mismatch warning"
@@ -1424,7 +1426,7 @@
                                                :params {:slug "w"}}]))))))
 
 (deftest scope-mismatch-warning-does-not-fire-when-scopes-match
-  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}))
+  (rf/reg-resource :sm/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (testing "rf2-rsmiru — NO warning when the sub scope MATCHES the active
             ensure scope (the correct, ergonomic case)"
     (load-under! {:user "a"} [:route :r 1])
@@ -1455,7 +1457,7 @@
   (testing "rf2-rsmiru — a :rf.scope/global resource never trips the heuristic
             (global resolves the SAME scope sub-side and ensure-side, so a sub
             cannot land on a different key than the ensure did)"
-    (rf/reg-resource :smg/article (article-spec)) ; :rf.scope/global
+    (rf/reg-resource :smg/article (article-spec) article-spec-request) ; :rf.scope/global
     (let [k (state/scoped-resource-key :rf.scope/global :smg/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :smg/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:route :g 1]}])

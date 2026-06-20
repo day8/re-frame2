@@ -303,10 +303,10 @@
   ;; a route-owned resource so the route gets a :param activation edge.
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :request       (fn [{:keys [slug]} _ctx]
-                                     {:request {:method :get
-                                                :url    (str "/api/articles/" slug)}})})
+                    :params-schema [:map [:slug :string]]}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get
+                                :url    (str "/api/articles/" slug)}}))
   ;; :routes — a route fact (runtime-db / on-route), owning the resource.
   (rf/reg-route :route/article
                 {:resources [{:resource :article/by-slug :blocking? true}]} "/articles/:slug")

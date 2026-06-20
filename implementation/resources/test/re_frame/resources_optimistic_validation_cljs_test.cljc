@@ -91,8 +91,8 @@
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}))
+     :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})))
 
 (defn- own-loaded! [payload value]
   (rf/dispatch-sync [:rf.resource/ensure payload])
@@ -102,12 +102,14 @@
 (def ^:private favorite-plan
   {:scope :rf.scope/global
    :params-schema [:map [:slug :string]]
-   :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
    :optimistic (fn [{:keys [slug]}]
                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
                   (fn [a] (-> a
                               (assoc-in [:article :favorited] true)
                               (update-in [:article :favoritesCount] inc)))})})
+
+(def ^:private favorite-plan-request
+  (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
 
 (defn- mutation-state [instance-id]
   @(rf/subscribe [:rf.mutation/state {:instance instance-id}]))
@@ -147,10 +149,10 @@
     (rf/reg-mutation :m/competing
       {:scope :rf.scope/global
        :params-schema [:map [:slug :string]]
-       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
        :populates (fn [{:keys [slug]} result]
                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                     result})})
+                     result})}
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/competing :params {:slug "w"}
                                              :instance :competing}])
     (reply-success! @last-managed-args value)
@@ -165,7 +167,7 @@
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
   (let [rev-before (:revision (entry article-key))]
-    (rf/reg-mutation :m/favorite favorite-plan)
+    (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
     (testing "the optimistic forward patch is in the cache BEFORE any reply"
       (is (= true (get-in (entry article-key) [:data :article :favorited])))
@@ -191,7 +193,8 @@
     (assoc favorite-plan
            :populates (fn [{:keys [slug]} result]
                         {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result})))
+                         result}))
+    favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (let [recon (trace-of :rf.mutation/optimistic-reconciled
                 #(reply-success! @last-managed-args
@@ -216,7 +219,7 @@
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
   (let [before (entry article-key)]
-    (rf/reg-mutation :m/favorite favorite-plan)
+    (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
     (let [rb (trace-of :rf.mutation/optimistic-rolled-back
                #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))]
@@ -239,7 +242,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan)        ;; :on-conflict defaults to :invalidate
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)        ;; :on-conflict defaults to :invalidate
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   ;; a CONCURRENT authoritative write moves the entry's :revision past the apply.
   (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
@@ -269,7 +272,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite (assoc favorite-plan :on-conflict :force))
+  (rf/reg-mutation :m/favorite (assoc favorite-plan :on-conflict :force) favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
   (let [traces (traces-of [:rf.mutation/optimistic-rolled-back
@@ -301,7 +304,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan)
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
   ;; FIRST execute — its optimistic apply takes count 9 -> 10; capture its reply.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (let [stale-args @last-managed-args
@@ -348,12 +351,12 @@
   (rf/reg-mutation :m/inc
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/inc")}})
      :optimistic (fn [{:keys [slug]}]
                    {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
                     (fn [a] (update-in a [:article :favoritesCount] inc))})
      :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})})
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/inc")}}))
   ;; write :a applies (9 -> 10); capture its reply args.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/inc :params {:slug "w"} :instance :a}])
   (let [a-args @last-managed-args
@@ -408,13 +411,13 @@
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+     :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (rf/reg-resource :r/feed
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/feed"}})
-     :tags (fn [_p _] #{[:feed-w]})})
+     :tags (fn [_p _] #{[:feed-w]})}
+    (fn [_p _] {:request {:method :get :url "/feed"}}))
   (let [feed-key (state/scoped-resource-key :rf.scope/global :r/feed {})]
     (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                  {:article {:favorited false}})
@@ -424,13 +427,13 @@
       (rf/reg-mutation :m/favorite-everywhere
         {:scope :rf.scope/global
          :params-schema [:map [:slug :string]]
-         :request (fn [{:keys [slug]} _] {:request {:method :post :url "/fav"}})
          ;; TWO descriptors, disjoint tags — both matched entries are patched.
          :optimistic-tags (fn [{:keys [slug]}]
                             [{:scope :rf.scope/global :tags #{[:article slug]}
                               :patch (fn [d] (assoc d :touched true))}
                              {:scope :rf.scope/global :tags #{[:feed-w]}
-                              :patch (fn [d] (assoc d :touched true))}])})
+                              :patch (fn [d] (assoc d :touched true))}])}
+        (fn [{:keys [slug]} _] {:request {:method :post :url "/fav"}}))
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite-everywhere
                                                :params {:slug "w"} :instance :fe1}])
       (testing "BOTH tag-matched entries were optimistically patched + each recorded an inverse"
@@ -447,9 +450,9 @@
         (rf/reg-mutation :m/touch-feed
           {:scope :rf.scope/global
            :params-schema [:map]
-           :request (fn [_p _] {:request {:method :put :url "/feed"}})
            :populates (fn [_p result]
-                        {{:resource :r/feed :params {} :scope :rf.scope/global} result})})
+                        {{:resource :r/feed :params {} :scope :rf.scope/global} result})}
+          (fn [_p _] {:request {:method :put :url "/feed"}}))
         (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/touch-feed :params {} :instance :tf}])
         (reply-success! @last-managed-args {:items 99 :server true})
         (reset! last-managed-args saved))
@@ -478,15 +481,15 @@
   (rf/reg-resource :r/feed
     {:scope {:from-db :t/session}
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/feed"}})
-     :tags (fn [_p _] #{[:feed]})})
+     :tags (fn [_p _] #{[:feed]})}
+    (fn [_p _] {:request {:method :get :url "/feed"}}))
   (rf/reg-mutation :m/touch-feed
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :post :url "/feed/touch"}})
      :optimistic (fn [_p]
                    {{:resource :r/feed :params {} :scope {:from-db :t/session}}
-                    (fn [d] (assoc d :touched true))})})
+                    (fn [d] (assoc d :touched true))})}
+    (fn [_p _] {:request {:method :post :url "/feed/touch"}}))
   ;; NO :t/login — the {:from-db :t/session} resolver returns nil.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/touch-feed :params {} :instance :tf1}])
   (testing "no entry was written (fail-closed drop, never an implicit global)"
@@ -506,8 +509,8 @@
                  {:scope :rf.scope/global
                   :params-schema [:map [:slug :string]]
                   :invalidate-timing :before-request
-                  :request (fn [_p _] {:request {:method :post :url "/x"}})
-                  :optimistic (fn [_p] {})})
+                  :optimistic (fn [_p] {})}
+                 (fn [_p _] {:request {:method :post :url "/x"}}))
                nil
                (catch #?(:clj Exception :cljs :default) e e))]
       (is (some? ex))
@@ -518,8 +521,8 @@
                (rf/reg-mutation :m/bad2
                  {:scope :rf.scope/global :params-schema [:map]
                   :invalidate-timing :before-request
-                  :request (fn [_p _] {:request {:method :post :url "/x"}})
-                  :optimistic-tags (fn [_p] [])})
+                  :optimistic-tags (fn [_p] [])}
+                 (fn [_p _] {:request {:method :post :url "/x"}}))
                nil
                (catch #?(:clj Exception :cljs :default) e e))]
       (is (= :rf.error/mutation-optimistic-before-request (:rf.error/id (ex-data ex)))))))
@@ -541,7 +544,8 @@
     (assoc favorite-plan
            :populates (fn [{:keys [slug]} result]
                         {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result})))
+                         result}))
+    favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"}
                                            :instance :f1 :reply-to [:test/replied]}])
   (testing "the optimistic apply landed but dispatched NO continuation (apply is not a reply)"
@@ -566,7 +570,7 @@
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
   (let [rev-before (:revision (entry article-key))]
-    (rf/reg-mutation :m/favorite favorite-plan)
+    (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
     (testing "optimistic-applied carries the snapshot id + per-key revision + forward op"
       (let [applied (trace-of :rf.mutation/optimistic-applied
                       #(rf/dispatch-sync [:rf.mutation/execute
@@ -605,7 +609,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan)
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
   (testing "a :pending optimistic write carries the recorded inverse the dangle replays"
     (is (= :pending (:status (instance :f1))))
@@ -626,7 +630,8 @@
     (assoc favorite-plan
            :populates (fn [{:keys [slug]} result]
                         {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result})))
+                         result}))
+    favorite-plan-request)
   (testing "an idle (no-instance) state is :optimistic? false"
     (is (= false (:optimistic? (mutation-state :f1)))))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
@@ -647,9 +652,9 @@
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
      :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})})
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
   (testing "a pessimistic write (no :optimistic plan) is :optimistic? false while pending"
     (let [s (mutation-state :s1)]
@@ -663,7 +668,7 @@
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false}})
-  (rf/reg-mutation :m/favorite favorite-plan)
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
   ;; {:optimistic? false} forces the pessimistic path — no apply, so no flag.
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"}
                                            :instance :f1 :optimistic? false}])
@@ -683,13 +688,13 @@
   (rf/reg-resource :r/article
     {:scope :rf.scope/global
      :params-schema [:map [:slug :string]]
-     :request (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}})
-     :tags (fn [{:keys [slug]} _] #{[:article slug]})})
+     :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
   (rf/reg-resource :r/feed
     {:scope :rf.scope/global
      :params-schema [:map]
-     :request (fn [_p _] {:request {:method :get :url "/feed"}})
-     :tags (fn [_p _] #{[:feed-w]})})
+     :tags (fn [_p _] #{[:feed-w]})}
+    (fn [_p _] {:request {:method :get :url "/feed"}}))
   (let [feed-key (state/scoped-resource-key :rf.scope/global :r/feed {})]
     (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                  {:article {:favorited false}})
@@ -699,12 +704,12 @@
       (rf/reg-mutation :m/bad-patch
         {:scope :rf.scope/global
          :params-schema [:map [:slug :string]]
-         :request (fn [_p _] {:request {:method :post :url "/fav"}})
          ;; FIRST descriptor is malformed (no :patch); SECOND is well-formed.
          :optimistic-tags (fn [{:keys [slug]}]
                             [{:scope :rf.scope/global :tags #{[:article slug]}}
                              {:scope :rf.scope/global :tags #{[:feed-w]}
-                              :patch (fn [d] (assoc d :touched true))}])})
+                              :patch (fn [d] (assoc d :touched true))}])}
+        (fn [_p _] {:request {:method :post :url "/fav"}}))
       (let [warn (trace-of :rf.warning/optimistic-tags-descriptor-skipped
                    #(rf/dispatch-sync [:rf.mutation/execute
                                        {:mutation :m/bad-patch :params {:slug "w"}
@@ -725,10 +730,10 @@
       (rf/reg-mutation :m/bad-tags
         {:scope :rf.scope/global
          :params-schema [:map [:slug :string]]
-         :request (fn [_p _] {:request {:method :post :url "/fav2"}})
          :optimistic-tags (fn [_p]
                             [{:scope :rf.scope/global :tags :not-a-coll
-                              :patch (fn [d] (assoc d :touched2 true))}])})
+                              :patch (fn [d] (assoc d :touched2 true))}])}
+        (fn [_p _] {:request {:method :post :url "/fav2"}}))
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/bad-tags :params {:slug "w"}
                                                :instance :bt1}])
       (is (= :pending (:status (instance :bt1)))
@@ -739,8 +744,8 @@
       (rf/reg-mutation :m/bad-shape
         {:scope :rf.scope/global
          :params-schema [:map [:slug :string]]
-         :request (fn [_p _] {:request {:method :post :url "/fav3"}})
-         :optimistic-tags (fn [_p] [:not-a-map])})
+         :optimistic-tags (fn [_p] [:not-a-map])}
+        (fn [_p _] {:request {:method :post :url "/fav3"}}))
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/bad-shape :params {:slug "w"}
                                                :instance :bs1}])
       (is (= :pending (:status (instance :bs1)))

@@ -74,14 +74,16 @@
   (merge {:scope            :rf.scope/global
           :infinite         true
           :params-schema    [:map [:filter :keyword]]
-          :request          (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
-                              {:request {:method :get :url "/api/feed"
-                                         :params (cond-> {:filter filter :page-index page-index}
-                                                   page-param (assoc :cursor page-param))}})
           :next-page-param  next-cursor
           :page->items      :items
           :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})}
          overrides))
+
+(def ^:private feed-spec-request
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get :url "/api/feed"
+               :params (cond-> {:filter filter :page-index page-index}
+                         page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [resource]
   (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
@@ -98,7 +100,7 @@
 (deftest initial-page-param-rides-into-page-0-request
   (testing "a non-nil :initial-page-param is threaded into the page-0 FETCH —
             the request carries it as the derived page-0 cursor (R8)"
-    (rf/reg-resource :ipp/feed (feed-spec {:initial-page-param "p0"}))
+    (rf/reg-resource :ipp/feed (feed-spec {:initial-page-param "p0"}) feed-spec-request)
     (ensure! :ipp/feed)
     (let [req-params (get-in @last-managed-args [:request :params])]
       (is (= 0 (:page-index req-params)) "still the page-0 fetch (index 0)")
@@ -108,7 +110,7 @@
 (deftest initial-page-param-recorded-as-page-0-param
   (testing "after the page-0 reply settles, :page-params records the OVERRIDE
             (not nil) for page 0 — the durable cursor fact (R8)"
-    (rf/reg-resource :ipp2/feed (feed-spec {:initial-page-param "p0"}))
+    (rf/reg-resource :ipp2/feed (feed-spec {:initial-page-param "p0"}) feed-spec-request)
     (ensure! :ipp2/feed)
     (reply-success! (page [:a :b] "c1"))
     (let [e (entry (feed-key :ipp2/feed))]
@@ -121,7 +123,7 @@
 (deftest default-initial-page-param-is-nil-baseline
   (testing "BASELINE — with no override the page-0 request carries no cursor +
             records nil (so the override assertions above are meaningful)"
-    (rf/reg-resource :ippd/feed (feed-spec {}))
+    (rf/reg-resource :ippd/feed (feed-spec {}) feed-spec-request)
     (ensure! :ippd/feed)
     (is (not (contains? (get-in @last-managed-args [:request :params]) :cursor))
         "no override → page-0 request carries no cursor")

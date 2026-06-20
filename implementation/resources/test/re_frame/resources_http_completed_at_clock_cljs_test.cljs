@@ -59,9 +59,11 @@
   {:scope          :rf.scope/global
    :params-schema  [:map [:slug :string]]
    :stale-after-ms stale-after-ms
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (str "/api/articles/" slug)}})
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})})
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (deftest live-completed-at-is-wall-clock-not-immediately-stale
   (testing "rf2-2elcw3 — a resource loaded through the LIVE managed-HTTP
@@ -83,7 +85,7 @@
             orig       (.-fetch js/globalThis)
             entry      #(get-in (rf/runtime-db-value :rf/default)
                                 (state/entry-path scoped-key))]
-        (rf/reg-resource :clk/article (article-spec))
+        (rf/reg-resource :clk/article (article-spec) article-spec-request)
         (set! (.-fetch js/globalThis)
               (fn [_url _init] (js/Promise.resolve (json-200 "{\"title\":\"Welcome\"}"))))
         (rf/dispatch-sync [:rf.resource/ensure

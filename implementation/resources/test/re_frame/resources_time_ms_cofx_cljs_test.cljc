@@ -67,13 +67,17 @@
   {:scope          :rf.scope/global
    :params-schema  [:map [:slug :string]]
    :stale-after-ms 60000
-   :request        (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (str "/api/articles/" slug)}})
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})})
 
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
+
 (defn- mutation-spec []
-  {:scope   :rf.scope/global
-   :request (fn [_args _ctx] {:request {:method :post :url "/api/save"}})})
+  {:scope   :rf.scope/global})
+
+(def ^:private mutation-spec-request
+  (fn [_args _ctx] {:request {:method :post :url "/api/save"}}))
 
 ;; ===========================================================================
 ;; rf2-601ife — handler-meta declares :rf/time-ms for the time-consuming
@@ -124,7 +128,7 @@
             `:rf/time-ms` (declared via :rf.cofx/requires) for the durable
             :loaded-at — scripting the reply token's :rf.cofx :rf/time-ms
             lands it flat and the durable write picks it up"
-    (rf/reg-resource :tm/article (article-spec))
+    (rf/reg-resource :tm/article (article-spec) article-spec-request)
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :tm/article {:slug "w"})
           completed-at 1781078400456]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/article :scope :rf.scope/global
@@ -142,7 +146,7 @@
 (deftest started-at-from-flat-time-ms
   (testing "rf2-601ife: the ensure handler reads the DELIVERED FLAT
             `:rf/time-ms` for the durable work-ledger :started-at"
-    (rf/reg-resource :tm/started (article-spec))
+    (rf/reg-resource :tm/started (article-spec) article-spec-request)
     (let [scoped-key (state/scoped-resource-key :rf.scope/global :tm/started {:slug "w"})
           started-at 1781000000000]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/started :scope :rf.scope/global
@@ -159,7 +163,7 @@
             to :fetching and clearing :invalidated-at — correct framework
             behaviour, not the fact under test), so the durable :invalidated-at
             persists and pins the causal time."
-    (rf/reg-resource :tm/inv (article-spec))
+    (rf/reg-resource :tm/inv (article-spec) article-spec-request)
     (let [scoped-key     (state/scoped-resource-key :rf.scope/global :tm/inv {:slug "w"})
           loaded-at      1781000000000
           invalidated-at 1781000099999]
@@ -187,7 +191,7 @@
   (testing "rf2-rl27r2: a first-load FAILURE settles the work row terminal
             :failed carrying the reply token's causal :completed-at (delivered
             flat) alongside the error envelope — symmetric with success"
-    (rf/reg-resource :fail/article (article-spec))
+    (rf/reg-resource :fail/article (article-spec) article-spec-request)
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :fail/article {:slug "w"})
           completed-at 1781111111111]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fail/article :scope :rf.scope/global
@@ -207,7 +211,7 @@
   (testing "rf2-rl27r2: a CANCELLED completion (an :rf.http/aborted failure
             reply) settles the work row terminal :cancelled carrying the
             reply token's causal :completed-at"
-    (rf/reg-resource :ab2/article (article-spec))
+    (rf/reg-resource :ab2/article (article-spec) article-spec-request)
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})
           completed-at 1781222222222]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :ab2/article :scope :rf.scope/global
@@ -226,7 +230,7 @@
   (testing "rf2-rl27r2: the standalone :rf.resource.internal/aborted handler
             settles the work row :cancelled carrying the reply token's causal
             :completed-at (previously dropped — only :reason rode)"
-    (rf/reg-resource :ab3/article (article-spec))
+    (rf/reg-resource :ab3/article (article-spec) article-spec-request)
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})
           completed-at 1781333333333]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :ab3/article :scope :rf.scope/global
@@ -243,7 +247,7 @@
 (deftest stale-suppressed-failure-carries-completed-at
   (testing "rf2-rl27r2: a SUPPRESSED (superseded) failure reply records the
             causal :completed-at in its terminal :suppressed outcome too"
-    (rf/reg-resource :sf/article (article-spec))
+    (rf/reg-resource :sf/article (article-spec) article-spec-request)
     (let [scoped-key   (state/scoped-resource-key :rf.scope/global :sf/article {:slug "w"})
           completed-at 1781444444444]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :sf/article :scope :rf.scope/global

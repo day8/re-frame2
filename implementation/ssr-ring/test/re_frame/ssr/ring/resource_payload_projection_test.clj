@@ -79,9 +79,9 @@
   ;; a session-scoped feed resource — NOT itself declared :sensitive?.
   (rf/reg-resource :p026f5/feed
     {:scope         {:from-db :p026f5/session}
-     :params-schema [:map [:page :int]]
-     :request       (fn [{:keys [page]} _ctx]
-                      {:request {:method :get :url "/feed" :params {:page page}}})})
+     :params-schema [:map [:page :int]]}
+    (fn [{:keys [page]} _ctx]
+      {:request {:method :get :url "/feed" :params {:page page}}}))
   (rf/reg-view* :p026f5/root
     (fn [] [:main [:h1 "Feed"]])))
 
@@ -204,8 +204,8 @@
                   (when locale [:rf.scope/locale {:locale locale}]))})
     (rf/reg-resource :p026f5/prefs
       {:scope         {:from-db :p026f5/locale}
-       :params-schema [:map]
-       :request       (fn [_ _] {:request {:method :get :url "/prefs"}})})
+       :params-schema [:map]}
+      (fn [_ _] {:request {:method :get :url "/prefs"}}))
     (rf/reg-view* :p026f5/root2 (fn [] [:main [:h1 "Prefs"]]))
     (let [fid :p026f5/req-frame-2]
       ;; frame declares a DIFFERENT path sensitive — the locale input does NOT

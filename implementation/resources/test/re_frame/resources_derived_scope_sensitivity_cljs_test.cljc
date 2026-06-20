@@ -59,9 +59,9 @@
   ;; a session-scoped feed resource — NOT declared :sensitive?
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/session}
-     :params-schema [:map [:page :int]]
-     :request       (fn [{:keys [page]} _ctx]
-                      {:request {:method :get :url "/feed" :params {:page page}}})}))
+     :params-schema [:map [:page :int]]}
+    (fn [{:keys [page]} _ctx]
+      {:request {:method :get :url "/feed" :params {:page page}}})))
 
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture
@@ -153,8 +153,8 @@
        :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
     (rf/reg-resource :t/prefs
       {:scope         {:from-db :t/locale}
-       :params-schema [:map]
-       :request       (fn [_ _] {:request {:method :get :url "/prefs"}})})
+       :params-schema [:map]}
+      (fn [_ _] {:request {:method :get :url "/prefs"}}))
     (let [spec (rf/resource-meta :t/prefs)]
       (is (= :serialize (classification/whole-entry-disposition-for spec frame-id))))))
 
@@ -164,8 +164,8 @@
     (rf/reg-resource :t/secret-feed
       {:scope         {:from-db :t/session}
        :sensitive?    true
-       :params-schema [:map [:page :int]]
-       :request       (fn [_ _] {:request {:method :get :url "/secret"}})})
+       :params-schema [:map [:page :int]]}
+      (fn [_ _] {:request {:method :get :url "/secret"}}))
     (let [spec (rf/resource-meta :t/secret-feed)]
       (is (= :redact (classification/whole-entry-disposition-for spec frame-id)))
       (is (= :redact (classification/whole-entry-disposition spec))
@@ -174,8 +174,8 @@
             — its disposition is exactly the owner boundary"
     (rf/reg-resource :t/public-article
       {:scope         :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       :request       (fn [_ _] {:request {:method :get :url "/a"}})})
+       :params-schema [:map [:slug :string]]}
+      (fn [_ _] {:request {:method :get :url "/a"}}))
     (let [spec (rf/resource-meta :t/public-article)]
       (is (= :serialize (classification/whole-entry-disposition-for spec frame-id)))))
   (testing "derived-sensitive wins over coarse :large? (sensitive is the more
@@ -183,8 +183,8 @@
     (rf/reg-resource :t/big-feed
       {:scope         {:from-db :t/session}
        :large?        true
-       :params-schema [:map [:page :int]]
-       :request       (fn [_ _] {:request {:method :get :url "/big"}})})
+       :params-schema [:map [:page :int]]}
+      (fn [_ _] {:request {:method :get :url "/big"}}))
     (let [spec (rf/resource-meta :t/big-feed)]
       (is (= :redact (classification/whole-entry-disposition-for spec frame-id))
           "derived-sensitive upgrades the coarse :large? omit to redact"))))
@@ -225,8 +225,8 @@
        :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
     (rf/reg-resource :t/prefs
       {:scope         {:from-db :t/locale}
-       :params-schema [:map]
-       :request       (fn [_ _] {:request {:method :get :url "/prefs"}})})
+       :params-schema [:map]}
+      (fn [_ _] {:request {:method :get :url "/prefs"}}))
     (let [k   (state/scoped-resource-key [:rf.scope/locale {:locale :en}] :t/prefs {})
           e   (entry :t/prefs {:theme "dark"})
           proj (rf/with-frame frame-id
@@ -244,8 +244,8 @@
        :resolve (fn [{:keys [username]} _] (when username [:rf.scope/session {:username username}]))})
     (rf/reg-resource :t/public-feed
       {:scope         {:from-db :t/declassified}
-       :params-schema [:map [:page :int]]
-       :request       (fn [_ _] {:request {:method :get :url "/pub"}})})
+       :params-schema [:map [:page :int]]}
+      (fn [_ _] {:request {:method :get :url "/pub"}}))
     (let [k   (state/scoped-resource-key [:rf.scope/session {:username "jake"}] :t/public-feed {:page 1})
           e   (entry :t/public-feed {:articles [:x]})
           proj (rf/with-frame frame-id

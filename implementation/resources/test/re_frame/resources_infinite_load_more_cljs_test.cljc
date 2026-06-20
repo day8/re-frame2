@@ -106,15 +106,17 @@
    (merge {:scope            :rf.scope/global
            :infinite         true
            :params-schema    [:map [:filter :keyword]]
-           :request          (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
-                               {:request {:method :get :url "/api/feed"
-                                          :params (cond-> {:filter filter :page-index page-index}
-                                                    page-param (assoc :cursor page-param))}})
            :next-page-param  next-cursor
            :prev-page-param  prev-cursor
            :page->items      :items
            :tags             (fn [{:keys [filter]} _data] #{[:feed filter]})}
           overrides)))
+
+(def ^:private feed-spec-request
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get :url "/api/feed"
+               :params (cond-> {:filter filter :page-index page-index}
+                         page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [resource]
   (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
@@ -147,7 +149,7 @@
 (defn- load-page-0!
   "Ensure (page-0) a feed and settle it with `pg`. Returns the scoped key."
   [resource pg]
-  (rf/reg-resource resource (feed-spec))
+  (rf/reg-resource resource (feed-spec) feed-spec-request)
   (ensure! resource)
   (reply-success! pg)
   (feed-key resource))
@@ -159,7 +161,7 @@
 (deftest ensure-infinite-seeds-feed-and-page-0-ctx
   (testing "ensure of an infinite resource seeds an empty infinite entry +
             fetches page 0 with the reserved page ctx (R8)"
-    (rf/reg-resource :inf1/feed (feed-spec))
+    (rf/reg-resource :inf1/feed (feed-spec) feed-spec-request)
     (ensure! :inf1/feed)
     (let [e (entry (feed-key :inf1/feed))]
       (is (state/infinite-entry? e) "seeded an infinite entry (R1)")
@@ -244,7 +246,7 @@
 
 (deftest load-more-no-feed-is-noop
   (testing "load-more before page-0 exists is a no-op (the first page is ensure's)"
-    (rf/reg-resource :nf/feed (feed-spec))
+    (rf/reg-resource :nf/feed (feed-spec) feed-spec-request)
     (reset! last-managed-args nil)
     (load-more! :nf/feed)
     (is (nil? @last-managed-args) "no request when there is no accumulated feed")
@@ -346,7 +348,7 @@
 
 (defn- accumulate-3! [resource spec-overrides]
   "Register + load page 0 + two load-mores → a 3-page feed. Returns key."
-  (rf/reg-resource resource (feed-spec spec-overrides))
+  (rf/reg-resource resource (feed-spec spec-overrides) feed-spec-request)
   (ensure! resource) (reply-success! (page [:a] "c1"))
   (load-more! resource) (reply-success! (page [:b] "c2"))
   (load-more! resource) (reply-success! (page [:c] "c3"))

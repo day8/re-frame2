@@ -106,10 +106,12 @@
   ([overrides]
    (merge {:scope         :rf.scope/from-caller
            :params-schema [:map [:slug :string]]
-           :request       (fn [{:keys [slug]} _ctx]
-                            {:request {:method :get :url (str "/api/articles/" slug)}})
            :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
           overrides)))
+
+(def ^:private article-spec-request
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- ensure! [resource scope slug owner]
   (rf/dispatch-sync [:rf.resource/ensure
@@ -156,7 +158,7 @@
 ;; ===========================================================================
 
 (deftest poll-enabled-active-owner-arms-poll-timer-on-settle
-  (rf/reg-resource :pl/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :pl/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :pl/poll {:slug "w"})]
     (ensure! :pl/poll scope "w" [:route :r 1])
@@ -168,7 +170,7 @@
         (is (= 5000 (:poll-delay-ms args)) "poll delay = :poll-interval-ms")))))
 
 (deftest no-poll-policy-arms-no-poll-timer
-  (rf/reg-resource :pl/nopoll (article-spec {:stale-after-ms 1000}))
+  (rf/reg-resource :pl/nopoll (article-spec {:stale-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :pl/nopoll {:slug "w"})]
     (ensure! :pl/nopoll scope "w" [:route :r 1])
@@ -184,7 +186,7 @@
   ;; A poll never pins an owner-free entry: if the entry settles with no active
   ;; owner (the load was caused without a lease, or the owner released before
   ;; the reply landed), no poll timer arms.
-  (rf/reg-resource :pl/of (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}))
+  (rf/reg-resource :pl/of (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :pl/of {:slug "w"})]
     (ensure! :pl/of scope "w" [:lease :x 1])
@@ -206,7 +208,7 @@
   ;; fresh-skip attached the owner but emitted NO schedule-timers, so the
   ;; `refetchInterval` analogue never started. It MUST now (re)arm polling,
   ;; mirroring the success-path arming.
-  (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :fs/poll {:slug "w"})]
     (ensure! :fs/poll scope "w" [:lease :x 1])
@@ -234,7 +236,7 @@
   ;; Guard against double-arm: a fresh-skip onto an entry that ALREADY has an
   ;; active owner adds a second lease but its poll is already live, so the
   ;; fresh-skip re-arms nothing (the success-path settle armed it).
-  (rf/reg-resource :fa/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :fa/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :fa/poll {:slug "w"})]
     (ensure! :fa/poll scope "w" [:route :r 1])
@@ -259,7 +261,7 @@
   ;; The entry is FRESH (no stale policy → never stale). The poll tick MUST
   ;; STILL refetch — the interval IS the cadence (Q3 ruling (a)), not gated on
   ;; :stale?.
-  (rf/reg-resource :pt/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :pt/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :pt/poll {:slug "w"})]
     (ensure! :pt/poll scope "w" [:route :r 1])
@@ -280,7 +282,7 @@
           (is (= 5000 (:poll-delay-ms args)) "next poll re-armed at the interval"))))))
 
 (deftest poll-tick-records-poll-cause-never-owner
-  (rf/reg-resource :pc/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :pc/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :pc/poll {:slug "w"})]
     (ensure! :pc/poll scope "w" [:route :r 1])
@@ -298,7 +300,7 @@
 ;; ===========================================================================
 
 (deftest last-owner-release-cancels-poll-timer
-  (rf/reg-resource :or/poll (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}))
+  (rf/reg-resource :or/poll (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :or/poll {:slug "w"})]
     (ensure! :or/poll scope "w" [:lease :x 1])
@@ -316,7 +318,7 @@
   ;; Belt-and-braces: even if a poll timer fires AFTER the owner released (a
   ;; race the proactive cancel narrows but the advisory re-check must still
   ;; close), the tick refetches nothing and does not re-arm.
-  (rf/reg-resource :os/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :os/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :os/poll {:slug "w"})]
     (ensure! :os/poll scope "w" [:lease :x 1])
@@ -336,7 +338,7 @@
 ;; ===========================================================================
 
 (deftest hidden-tab-pauses-tick-but-rearms
-  (rf/reg-resource :hd/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :hd/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :hd/poll {:slug "w"})]
     (ensure! :hd/poll scope "w" [:route :r 1])
@@ -352,7 +354,7 @@
         (is (= 5000 (:poll-delay-ms args)) "re-armed (resumes on tab return)")))))
 
 (deftest visible-tick-after-hidden-resumes-refetch
-  (rf/reg-resource :hr/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :hr/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :hr/poll {:slug "w"})]
     (ensure! :hr/poll scope "w" [:route :r 1])
@@ -370,7 +372,7 @@
   ;; A slow endpoint: the FIRST poll tick starts a refetch that has not yet
   ;; replied; the SECOND tick finds live in-flight work and SKIPS the refetch
   ;; (no second generation, no overlap) but RE-ARMS.
-  (rf/reg-resource :if/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :if/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :if/poll {:slug "w"})]
     (ensure! :if/poll scope "w" [:route :r 1])
@@ -401,7 +403,7 @@
   ;; A tab return both fires focus revalidation AND resumes the poll. The
   ;; in-flight coalescing gate makes the overlap idempotent: whichever starts
   ;; work first sets :current-work, the other becomes a no-op.
-  (rf/reg-resource :fp/poll (article-spec {:poll-interval-ms 5000 :stale-after-ms 0}))
+  (rf/reg-resource :fp/poll (article-spec {:poll-interval-ms 5000 :stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :fp/poll {:slug "w"})]
     (ensure! :fp/poll scope "w" [:route :r 1])
@@ -422,7 +424,7 @@
 ;; ===========================================================================
 
 (deftest late-poll-reply-is-suppressed
-  (rf/reg-resource :lp/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :lp/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :lp/poll {:slug "w"})]
     (ensure! :lp/poll scope "w" [:route :r 1])
@@ -448,7 +450,7 @@
   ;; A poll tick that settles reschedules the poll (cancel-then-arm). The
   ;; schedule-timers fx is cancel-then-arm by construction (timers/schedule!),
   ;; so a re-load emits a fresh schedule rather than stacking timers.
-  (rf/reg-resource :rs/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :rs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :rs/poll {:slug "w"})]
     (ensure! :rs/poll scope "w" [:route :r 1])
@@ -467,7 +469,7 @@
 ;; ===========================================================================
 
 (deftest background-poll-failure-keeps-prior-data-and-keeps-polling
-  (rf/reg-resource :bf/poll (article-spec {:poll-interval-ms 5000}))
+  (rf/reg-resource :bf/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (state/scoped-resource-key scope :bf/poll {:slug "w"})]
     (ensure! :bf/poll scope "w" [:route :r 1])
