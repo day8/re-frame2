@@ -166,7 +166,7 @@ A mutation is a named WRITE that, on success, patches / populates / invalidates 
 @(rf/subscribe [:rf.mutation/state {:instance :form/save-1}])   ;; {:status :pending? :success? :result :error …}
 ```
 
-`:patches` / `:populates` (optional) transform / seed resource entries before the success-time invalidation. Optimistic rollback is a deferred slice — do not hand-roll it against reserved keys.
+`:patches` / `:populates` (optional) transform / seed resource entries before the success-time invalidation. For a write whose effect should show *immediately* — before the reply lands — declare an **optimistic plan** (`:optimistic` / `:optimistic-tags`); the runtime records the inverse and commits / rolls back / reconciles on settle (see [§Optimistic mutations](#optimistic-mutations-apply-before-the-reply)). Do **not** hand-roll optimistic rollback against the reserved cache keys.
 
 ### Two axes a mutation carries: cache consequences vs workflow
 
@@ -273,6 +273,47 @@ Populate is an **authoritative load**: a key seeded from an accepted reply becom
 
 `:populates` / `:patches` / `:removes` / `:invalidates` all receive `(params result)` — the one canonical mutation-consequence signature. Derive a db-relative scope through a **named resolver reference** (`{:from-db …}`), never by threading `db`/`ctx` into the callback.
 
+### Optimistic mutations (apply before the reply)
+
+When a write's effect should show *the instant the user clicks* — the heart flips, the count increments, the card disappears — declare an **optimistic plan**. The runtime applies it to the cache *before* the request is sent, records a truthful inverse, and deterministically **commits**, **rolls back**, or **reconciles** when the reply settles. This is re-frame2's analogue of TanStack Query's `onMutate` + rollback context, but the inverse is **runtime-recorded, not author-written** — so it can never drift from the forward patch.
+
+Two forward forms — the optimistic twins of `:patches` and tag-addressed `:invalidates`:
+
+```clojure
+(rf/reg-mutation :article/favorite
+  {:scope :rf.scope/global
+
+   ;; :optimistic — exact-target twin of :patches. (fn [params] -> {target patch-fn})
+   ;; NOTE: no `result` arg — the apply runs before any reply exists.
+   :optimistic
+   (fn [{:keys [slug]}]
+     {{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global}
+      (fn [old-data] (update old-data :favorites-count inc))})    ;; (old-data) only
+
+   ;; :optimistic-tags — tag-addressed twin, for cross-view consistency you can't enumerate by key.
+   ;; (fn [params] -> [{:scope … :tags #{…} :patch (fn [old-data] new-data)}])
+   :optimistic-tags
+   (fn [{:keys [slug]}]
+     [{:scope :rf.scope/same
+       :tags  #{[:article slug]}
+       :patch (fn [old-data] (assoc old-data :favorited? true))}])
+
+   :on-conflict :invalidate}                ;; default; | :force
+
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
+     :decode  :app/article}))
+```
+
+Load-bearing rules:
+
+- **The runtime records the inverse, not you.** Each touched entry's whole pre-patch state (or an `:rf.optimistic/absent` sentinel for a key with no entry) is snapshotted, so a rollback restores *exactly* what was there — never a reconstructed approximation. A `nil` patch-fn value is an **optimistic remove**; a patch over an **absent** key is an **optimistic seed**.
+- **Settle is deterministic, keyed on the per-entry `:revision`** (a canonical-identity comparison, never a wall-clock race or value diff): an accepted **`:ok`** reply **commits** (the authoritative `:populates` / `:patches` overwrite the optimistic value, then `:invalidates` runs; the inverse is discarded); an accepted **`:error` / `:cancelled`** reply **rolls back**; a **stale / superseded** reply rolls back nothing.
+- **`:on-conflict`** governs a rollback when a competing write moved the entry's revision since the apply: **`:invalidate`** (default, recommended) marks the entry stale and lets the read path refetch the authoritative value — re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore; **`:force`** restores the (possibly stale) inverse anyway (single-writer last-write-wins) with a tooling warning. An out-of-enum value is a loud `reg-mutation` error.
+- **Scope is fail-closed.** An optimistic `{:from-db …}` target that resolves nil is **dropped** (`:target-unresolved`), never an implicit global write — the same leak boundary a read has. There is no `:cross-scope?` optimistic form by construction: optimistic patching is exact-key or tag-within-named-scope only.
+- **Incompatible with `:invalidate-timing :before-request`** — a before-request invalidation stales the very entries the optimistic apply re-populates (stale-then-optimistic-fresh). Declaring both is a loud registration error (`:rf.error/mutation-optimistic-before-request`); optimistic plans use the default `:after-success` timing.
+- **Per-call opt-out** `{:optimistic? false}` on `[:rf.mutation/execute …]` forces the pessimistic path for one call (a boolean disable, never a per-call forward plan). The `[:rf.mutation/state …]` sub exposes a derived `:optimistic?` boolean — true while a live optimistic apply is showing — so a view can render "pending, but showing my optimistic value."
+
 ### Request decoration — auth headers, retry (the managed-HTTP seam)
 
 A resource/mutation request fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers, default retry — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register a frame-level HTTP interceptor and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
@@ -342,7 +383,7 @@ The two compose: a resource's transport **is** managed HTTP (Spec 014). Resource
 - **Threading `db`/`ctx` into a `:populates`/`:invalidates` callback** to compute a scope. The callback signature is `(params result)`; derive db-relative scope through a named resolver reference `{:from-db …}`, which tooling can name and which gives descriptors a stable reference.
 - **`:cross-scope? true` as the ergonomic mixed-scope path.** It is the audited escape for scopes the call site *can't* enumerate. When you can name the scopes, use per-target **descriptors** — `:cross-scope?` invalidates a tag across *every* viewer (a privacy-relevant broad op).
 - **`:snapshot-db` on a logout/clear-scope payload.** There is no such key. Resolve the concrete old scope from the handler's coeffect db via `resolve-resource-scope`, before removing the user. A whole-db snapshot on an event is an egress-bearing record.
-- **Hand-rolling optimistic rollback** against the reserved mutation keys — it is a deferred slice; the runtime does not ship it yet.
+- **Hand-rolling optimistic cache writes + rollback** against the reserved mutation keys. Optimistic mutations ship — declare a `reg-mutation` `:optimistic` / `:optimistic-tags` plan and let the runtime record the inverse and commit / roll back / reconcile on settle (see [§Optimistic mutations](#optimistic-mutations-apply-before-the-reply)). A hand-written inverse drifts from the forward patch and `assoc`-es into framework-owned runtime-db.
 
 ## Worked examples
 
@@ -362,4 +403,4 @@ For the hand-rolled-slice shape Resources *supersedes* (the before-picture), `ex
 
 ---
 
-*Derived from `spec/016-Resources.md` (optional capability `day8/re-frame2-resources`) @ main. The first public-beta surface (read-resource MVP + `reg-mutation` + focus/reconnect revalidation) plus the EP-0016 completion surface (call-site `:reply-to`, per-target scoped invalidation descriptors, `reg-resource-scope` named resolvers, populate-as-authoritative-load + `:refetch-populated?`, map-form exact targets, managed-HTTP request decoration) are landed. Optimistic rollback, tag-addressed patching, polling, and GraphQL are deferred slices. Re-verify the surface after later resource slices land.*
+*Derived from `spec/016-Resources.md` (optional capability `day8/re-frame2-resources`) @ main. The first public-beta surface (read-resource MVP + `reg-mutation` + focus/reconnect revalidation) plus the EP-0016 completion surface (call-site `:reply-to`, per-target scoped invalidation descriptors, `reg-resource-scope` named resolvers, populate-as-authoritative-load + `:refetch-populated?`, map-form exact targets, managed-HTTP request decoration) are landed, as are optimistic mutations (`:optimistic` / `:optimistic-tags` / `:on-conflict` / per-call `:optimistic? false`), tag-addressed patching, and polling. GraphQL remains a deferred slice. Re-verify the surface after later resource slices land.*
