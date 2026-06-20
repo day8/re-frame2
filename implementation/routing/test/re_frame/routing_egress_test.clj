@@ -117,9 +117,8 @@
   (testing "rf2-1wmni6/rf2-pbbo68: :rf.nav/scroll's :rf.fx/handled trace has
             :from/:to :params/:query and :fragment redacted; :strategy + the
             route :id ride verbatim"
-    (rf/reg-route :route/articles {:path "/articles"})
-    (rf/reg-route :route/article  {:path   "/articles/:id"
-                                   :params [:map [:id :string]]})
+    (rf/reg-route :route/articles {} "/articles")
+    (rf/reg-route :route/article  {:params [:map [:id :string]]} "/articles/:id")
     ;; Make the fx invoke on the JVM so :rf.fx/handled emits — but KEEP the
     ;; production `:sensitive` marks (the thing under test).
     (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta   (fn [_ _] nil))
@@ -148,8 +147,7 @@
   (testing "rf2-1wmni6/rf2-pbbo68: the marks projection touches ONLY the trace
             egress copy — the in-process handler still receives the raw args
             (scroll restoration / fragment scrolling unaffected)"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [seen (atom nil)]
       ;; Capture what the HANDLER actually receives (not the trace).
       (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta
@@ -170,8 +168,7 @@
             assert the ACTUAL routed URL. Carrier-bearing route-miss / blocked
             URLs are scrubbed at their diagnostic emit sites instead, so
             push-url's :rf.fx/handled trace shows the real same-origin URL."
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (reg-jvm-fx! :rf.nav/scroll   scroll/scroll-fx-meta (fn [_ _] nil))
     (reg-jvm-fx! :rf.nav/push-url nav-fx/push-url-meta  (fn [_ _] nil))
     (let [args (handled-trace-for
@@ -191,7 +188,7 @@
             :rf.error/no-such-handler trace has the carrier VALUES redacted
             (path + :reason kept for app error handling)"
     ;; No route registered for /oauth → route-miss → fallback to not-found.
-    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (rf/reg-route :rf.route/not-found {} "/404")
     (let [traces (atom [])]
       (rf/register-listener! :trace ::miss (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/transitioned
@@ -220,10 +217,9 @@
   "Land on an editor route guarded by a blocking :can-leave."
   []
   (rf/reg-route :editor/article
-                {:path      "/editor/articles/:id"
-                 :params    [:map [:id :string]]
-                 :can-leave :editor/can-leave?})
-  (rf/reg-route :route/cart {:path "/cart"})
+                {:params    [:map [:id :string]]
+                 :can-leave :editor/can-leave?} "/editor/articles/:id")
+  (rf/reg-route :route/cart {} "/cart")
   (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
   (rf/reg-sub :editor/can-leave? (fn [db _] (not (get-in db [:editor :dirty?]))))
   (rf/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))

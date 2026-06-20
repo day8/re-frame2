@@ -54,11 +54,10 @@
     ;; slices don't leak in.
     (let [f (frame/make-anon-frame-record! {:doc "isolated frame for this test"})]
       (rf/reg-route :route.cljs/home
-                    {:path "/cljs/home"})
+                    {} "/cljs/home")
       (rf/reg-route :route.cljs/article
-                    {:path     "/cljs/articles/:id"
-                     :params   [:map [:id :string]]
-                     :on-match [[:cljs/article-load]]})
+                    {:params   [:map [:id :string]]
+                     :on-match [[:cljs/article-load]]} "/cljs/articles/:id")
       (rf/reg-event :cljs/article-load
                        (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
@@ -96,10 +95,9 @@
     ;; per frame. Subscriptions resolve per-frame. This is the contract React
     ;; context-aware routing components rely on (story-variant frames,
     ;; devcards, per-test fixtures).
-    (rf/reg-route :route.cljs2/home          {:path "/cljs2/"})
-    (rf/reg-route :route.cljs2/articles      {:path "/cljs2/articles"})
-    (rf/reg-route :route.cljs2/article       {:path   "/cljs2/articles/:id"
-                                              :params [:map [:id :string]]})
+    (rf/reg-route :route.cljs2/home          {} "/cljs2/")
+    (rf/reg-route :route.cljs2/articles      {} "/cljs2/articles")
+    (rf/reg-route :route.cljs2/article       {:params [:map [:id :string]]} "/cljs2/articles/:id")
     (subs/reg-runtime-sub :rf.cljs2/route (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
     (let [left  (frame/make-anon-frame-record! {:doc "left tab frame"})

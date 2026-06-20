@@ -172,7 +172,7 @@
     ;; A registered route so a registry exists; the request URL below
     ;; matches NONE of them, so url-change-fx falls back to not-found and
     ;; emits the drain-time :rf.error/no-such-handler.
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     (rf/reg-event :init/route-to-missing
       {:platforms #{:server}}
       (fn [_ _]
@@ -239,14 +239,13 @@
             artefact navigate-reject regression at the ssr-ring boundary."
     (let [restore (with-stub-validator)]
       (try
-        (rf/reg-route :route/home {:path "/"})
+        (rf/reg-route :route/home {} "/")
         ;; A route whose :params predicate rejects any :id not starting
         ;; "a" — navigating with a bad :id makes route-url throw →
         ;; navigate.cljc emits :rf.error/schema-validation-failure.
         (rf/reg-route :route/article
-                      {:path   "/articles/:id"
-                       :params (fn [{:keys [id]}]
-                                 (str/starts-with? (or id "") "a"))})
+                      {:params (fn [{:keys [id]}]
+                                 (str/starts-with? (or id "") "a"))} "/articles/:id")
         ;; Server-platform push-url so the navigate fx assembly resolves
         ;; on a :platform :server frame (no-op sink — the reject path
         ;; never pushes).
@@ -315,7 +314,7 @@
             request's response only — sibling concurrent requests to a
             valid route stay 200. No cross-frame bleed (the two-frame
             attribution regression, at the ssr-ring boundary)."
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     ;; The :on-create reads the request URI via the :rf.server/request
     ;; cofx and routes a URL-change to it. A `/missing/*` URI matches no
     ;; route → drain-time 404; a `/` URI matches :route/home → 200.

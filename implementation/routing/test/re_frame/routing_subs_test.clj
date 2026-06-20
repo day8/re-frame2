@@ -21,11 +21,9 @@
     ;; framework-registered; the registry-level contract — :parent is
     ;; enumerable via handler-meta — IS implemented and is what tooling
     ;; queries. This test pins that registry-level contract.
-    (rf/reg-route :route/account             {:path "/account"})
-    (rf/reg-route :route/account.settings    {:path   "/account/settings"
-                                              :parent :route/account})
-    (rf/reg-route :route/account.billing     {:path   "/account/billing"
-                                              :parent :route/account})
+    (rf/reg-route :route/account             {} "/account")
+    (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
+    (rf/reg-route :route/account.billing     {:parent :route/account} "/account/billing")
     (let [settings-meta (rf/handler-meta :route :route/account.settings)
           billing-meta  (rf/handler-meta :route :route/account.billing)
           account-meta  (rf/handler-meta :route :route/account)]
@@ -45,7 +43,7 @@
 
 (deftest sub-rf-route-fragment
   (testing ":rf.route/fragment reads the slice's :fragment"
-    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (rf/reg-route :route/docs {} "/docs/:page")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -61,11 +59,9 @@
 
 (deftest sub-rf-route-chain
   (testing ":rf.route/chain returns the :parent-chain [parent-most ... current]"
-    (rf/reg-route :route/account             {:path "/account"})
-    (rf/reg-route :route/account.settings    {:path   "/account/settings"
-                                              :parent :route/account})
-    (rf/reg-route :route/account.profile     {:path   "/account/settings/profile"
-                                              :parent :route/account.settings})
+    (rf/reg-route :route/account             {} "/account")
+    (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
+    (rf/reg-route :route/account.profile     {:parent :route/account.settings} "/account/settings/profile")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -88,10 +84,9 @@
 (deftest sub-rf-pending-navigation
   (testing ":rf/pending-navigation reads the pending-nav slot"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
@@ -125,7 +120,7 @@
 (deftest route-slice-keyed-route-id-sub-id-unchanged
   (testing "the durable route slice is keyed :route-id (not bare :id);
             the :rf.route/id sub-id is unchanged and reads the new key"
-    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -151,8 +146,8 @@
 (deftest route-activated-deactivated-trace-on-navigation
   (testing ":rf.route/deactivated + :rf.route/activated fire on cross-route
             navigation (rf2-dn26r). Same-id navigation emits NEITHER."
-    (rf/reg-route :route/from {:path "/from"})
-    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-route :route/from {} "/from")
+    (rf/reg-route :route/to   {} "/to")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))

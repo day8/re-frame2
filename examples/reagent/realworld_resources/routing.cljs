@@ -98,12 +98,11 @@
            keeps the prior page visible while the next first-loads (no
            flicker). The tag filter is its own `/tag/:tag` PATH route below
            (rf2-e90vfv route-shape conformance — no `?tag=` query)."
-   :path  "/"
    :query [:map
            [:feed {:optional true} :string]
            [:page {:optional true} :int]]
    :scroll   :top
-   :resources (home-resources (fn [_route] nil))})
+   :resources (home-resources (fn [_route] nil))} "/")
 
 (rf/reg-route :realworld/home-tag
   {:doc   "The tag-filtered article list at the official RealWorld `/tag/:tag`
@@ -111,17 +110,16 @@
            active tag is a route PARAM that flows into the articles resource's
            params, so each tag is a distinct cache entry; `?page=` paginates
            within it (`/tag/:tag?page=2`). Same three reads as the home route."
-   :path   "/tag/:tag"
    :params [:map [:tag :string]]
    :query  [:map [:page {:optional true} :int]]
    :scroll :top
-   :resources (home-resources (fn [route] (get-in route [:params :tag])))})
+   :resources (home-resources (fn [route] (get-in route [:params :tag])))} "/tag/:tag")
 
 (rf/reg-route :realworld.auth/login
-  {:doc "Login page." :path "/login"})
+  {:doc "Login page."} "/login")
 
 (rf/reg-route :realworld.auth/register
-  {:doc "Register page." :path "/register"})
+  {:doc "Register page."} "/register")
 
 (rf/reg-route :realworld.user/settings
   {:doc  "User settings page (requires auth). `:on-match` seeds the settings
@@ -130,35 +128,31 @@
           route also `:on-match [[:settings/load]]`). The settings view is then
           a pure Form-1 that NEVER dispatches out of band, so a re-render can no
           longer re-run the load and clobber in-progress field edits."
-   :path "/settings"
    :on-match [[:settings/load]]
-   :tags #{:requires-auth}})
+   :tags #{:requires-auth}} "/settings")
 
 (rf/reg-route :realworld.editor/new
   {:doc       "Create a new article (requires auth). `:on-match` resets the
                editor slice + registers the can-submit flow; `:can-leave` blocks
                a navigate-away while the draft is dirty (Spec 012 §Redirects and
                guards). No route `:resources` — create starts from a blank draft."
-   :path      "/editor"
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
-   :can-leave [:editor/can-leave?]})
+   :can-leave [:editor/can-leave?]} "/editor")
 
 (rf/reg-route :realworld.editor/edit
   {:doc       "Edit an existing article (requires auth). `:on-match` seeds the
                editor from the article read under a releaseable lease (the
                editor page's load reaction copies the settled data into the
                draft + baseline); `:can-leave` blocks a dirty navigate-away."
-   :path      "/editor/:slug"
    :params    [:map [:slug :string]]
    :tags      #{:requires-auth}
    :on-match  [[:editor/load-article]]
-   :can-leave [:editor/can-leave?]})
+   :can-leave [:editor/can-leave?]} "/editor/:slug")
 
 (rf/reg-route :realworld.article/show
   {:doc    "Article detail + its comments. Both load on entry; the comments
             are a sub-resource keyed by the same slug."
-   :path   "/article/:slug"
    :params [:map [:slug :string]]
    :scroll :top
    :resources
@@ -169,12 +163,11 @@
      :params    (fn [route] {:slug (get-in route [:params :slug])})
      :when      (fn [route _ctx] (some? (get-in route [:params :slug])))
      :blocking? false
-     :keep-previous? true}]})
+     :keep-previous? true}]} "/article/:slug")
 
 (rf/reg-route :realworld.profile/show
   {:doc    "A user's profile banner + the articles they AUTHORED (the default
             profile tab). The `?page=` query paginates the authored list."
-   :path   "/profile/:username"
    :params [:map [:username :string]]
    :query  [:map [:page {:optional true} :int]]
    :resources
@@ -186,7 +179,7 @@
      :params    (fn [route] {:username (get-in route [:params :username])
                              :page     (or (get-in route [:query :page]) 1)})
      :blocking? false
-     :keep-previous? true}]})
+     :keep-previous? true}]} "/profile/:username")
 
 (rf/reg-route :realworld.profile/favorites
   {:doc    "A user's profile banner + the articles they FAVORITED (the second
@@ -196,7 +189,6 @@
             paginates it. Favoriting / unfavoriting from this tab invalidates
             `[:article slug]`, which this list carries, so it refetches and the
             article drops out on unfavorite (Spec 016 §Mutations)."
-   :path   "/profile/:username/favorites"
    :params [:map [:username :string]]
    :query  [:map [:page {:optional true} :int]]
    :resources
@@ -208,10 +200,10 @@
      :params    (fn [route] {:username (get-in route [:params :username])
                              :page     (or (get-in route [:query :page]) 1)})
      :blocking? false
-     :keep-previous? true}]})
+     :keep-previous? true}]} "/profile/:username/favorites")
 
 (rf/reg-route :rf.route/not-found
-  {:doc "Fallback when no other route matches." :path "/_404"})
+  {:doc "Fallback when no other route matches."} "/_404")
 
 ;; ============================================================================
 ;; AUTH GUARD  (Spec 012 §Redirects and guards)

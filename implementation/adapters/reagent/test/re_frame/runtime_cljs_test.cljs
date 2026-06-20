@@ -263,7 +263,7 @@
 
 (deftest match-and-unparse-routes
   (testing "match-url and route-url round-trip on CLJS"
-    (rf/reg-route :user/show {:path "/users/:id"})
+    (rf/reg-route :user/show {} "/users/:id")
     (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42"       (:id (:params m)))))

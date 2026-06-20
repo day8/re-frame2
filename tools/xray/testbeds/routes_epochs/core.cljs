@@ -142,59 +142,51 @@
 ;;   :rf.route/not-found              /_404                   (fallback)
 
 (rf/reg-route :routes-epochs/home
-  {:doc  "Landing page — the ladder's first navigation target."
-   :path "/"})
+  {:doc  "Landing page — the ladder's first navigation target."} "/")
 
 (rf/reg-route :routes-epochs/articles
   {:doc  "Articles list — the nested-route PARENT (step #5's child sits
-          under it, so the ROUTE TABLE draws the indented tree)."
-   :path "/articles"})
+          under it, so the ROUTE TABLE draws the indented tree)."} "/articles")
 
 (rf/reg-route :routes-epochs/article
   {:doc    "Article detail — carries a `:id` path param (step #3) and is
             NESTED under `:routes-epochs/articles` (step #5) so the
             ROUTE TABLE indents it and the current-row highlight walks the
             parent chain."
-   :path   "/articles/:id"
    :parent :routes-epochs/articles
-   :params [:map [:id :string]]})
+   :params [:map [:id :string]]} "/articles/:id")
 
 (rf/reg-route :routes-epochs/search
   {:doc   "Search — declares a `:query` schema so the query keys round-trip
            into the route slice (step #4)."
-   :path  "/search"
    :query [:map
            [:q {:optional true} :string]
-           [:sort {:optional true} :string]]})
+           [:sort {:optional true} :string]]} "/search")
 
 (rf/reg-route :routes-epochs/old-home
   {:doc      "A retired URL that REDIRECTS to `:routes-epochs/home` via its
               `:on-match` (step #6) — navigating here lands the slice on
               home, one cascade later."
-   :path     "/old-home"
-   :on-match [[:routes-epochs/redirect-to-home]]})
+   :on-match [[:routes-epochs/redirect-to-home]]} "/old-home")
 
 (rf/reg-route :routes-epochs/profile
   {:doc      "A profile route whose `:on-match` LOADER writes app-db from
               the route params (step #8): transition runs :loading → :idle
               while the loader fills `:profile`."
-   :path     "/profile/:user"
    :params   [:map [:user :string]]
-   :on-match [[:routes-epochs/load-profile]]})
+   :on-match [[:routes-epochs/load-profile]]} "/profile/:user")
 
 (rf/reg-route :routes-epochs/settings
   {:doc       "Settings — GUARDED by a `:can-leave` gate (step #11). The
                gate refuses to leave while `:settings-dirty?` is set, so a
                navigation AWAY is blocked and `:rf/pending-navigation` fills."
-   :path      "/settings"
-   :can-leave :routes-epochs/can-leave-settings?})
+   :can-leave :routes-epochs/can-leave-settings?} "/settings")
 
 ;; The runtime emits :rf.route/not-found for unmatched URLs (step #7).
 (rf/reg-route :rf.route/not-found
   {:doc  "Fallback page for unmatched URLs — CURRENT ROUTE reads
           `:rf.route/not-found`; NAVIGATION THIS EPOCH's outcome chip
-          reads `not-found`."
-   :path "/_404"})
+          reads `not-found`."} "/_404")
 
 ;; ============================================================================
 ;; APP-DB SEED

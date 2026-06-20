@@ -488,13 +488,13 @@
 
 (deftest route-url-encoding
   (testing "route-url percent-encodes named params; match-url decodes them"
-    (rf/reg-route :user/show {:path "/users/:id"})
+    (rf/reg-route :user/show {} "/users/:id")
     (is (= "/users/hello%20world"
            (routing/route-url :user/show {:id "hello world"})))
     (let [m (routing/match-url "/users/hello%20world")]
       (is (= "hello world" (:id (:params m))))))
   (testing "splat value preserves '/' between segments but encodes within"
-    (rf/reg-route :files/get {:path "/files/*rest"})
+    (rf/reg-route :files/get {} "/files/*rest")
     (is (= "/files/a/b%20c/d"
            (routing/route-url :files/get {:rest "a/b c/d"})))
     (let [m (routing/match-url "/files/a/b%20c/d")]
@@ -502,7 +502,7 @@
   (testing "query keys and values are encoded / decoded. rf2-5ifai:
             the bare route declares no :query vocabulary, so the key
             stays a string."
-    (rf/reg-route :search {:path "/search"})
+    (rf/reg-route :search {} "/search")
     (is (= "/search?q=hello%20world"
            (routing/route-url :search {} {:q "hello world"})))
     (let [m (routing/match-url "/search?q=hello%20world")]
@@ -510,7 +510,7 @@
 
 (deftest match-and-route-url
   (testing "match-url and route-url round-trip"
-    (rf/reg-route :user/show {:path "/users/:id"})
+    (rf/reg-route :user/show {} "/users/:id")
     (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))
@@ -938,7 +938,7 @@
        :states  {:idle {}}})
 
     ;; ---- :route -------------------------------------------------------
-    (rf/reg-route :rf2-o1bp/route1 {:path "/rf2-o1bp/landing"})
+    (rf/reg-route :rf2-o1bp/route1 {} "/rf2-o1bp/landing")
 
     ;; ---- :flow --------------------------------------------------------
     (rf/reg-flow {:id     :rf2-o1bp/flow1

@@ -65,7 +65,7 @@
 (deftest match-url-plus-literal-in-path-capture
   (testing "a `+` in a path-capture segment decodes to a literal `+`
             on every host (RFC-3986 path semantics) — rf2-9a9ix"
-    (rf/reg-route :route/files {:path "/files/:name"})
+    (rf/reg-route :route/files {} "/files/:name")
     (let [m (routing/match-url "/files/a+b")]
       (is (some? m) "the route matches")
       (is (= "a+b" (get-in m [:params :name]))
@@ -74,7 +74,7 @@
 (deftest match-url-plus-literal-in-query
   (testing "a `+` in a query value decodes to a literal `+` on every
             host (NOT a space) — rf2-9a9ix"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (let [m (routing/match-url "/search?q=a+b")]
       (is (some? m) "the route matches")
       (is (= "a+b" (get-in m [:query "q"]))
@@ -83,7 +83,7 @@
 (deftest match-url-percent-20-is-space-in-query
   (testing "`%20` still decodes to a real space in a query value on every
             host — the fix removes only the `+`→space swap, not %20 decode"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (let [m (routing/match-url "/search?q=a%20b")]
       (is (some? m) "the route matches")
       (is (= "a b" (get-in m [:query "q"]))
@@ -94,7 +94,7 @@
 (deftest match-url-trailing-question-mark-no-empty-key
   (testing "a trailing `?` yields an EMPTY :query, not `{\"\" \"\"}`
             (rf2-9a9ix finding 2)"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (let [m (routing/match-url "/search?")]
       (is (some? m) "the route matches")
       (is (= {} (:query m))
@@ -103,7 +103,7 @@
 (deftest match-url-doubled-ampersand-no-empty-key
   (testing "a doubled `&&` / leading `&` does not inject a `{\"\" \"\"}`
             pair (rf2-9a9ix finding 2)"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (let [m (routing/match-url "/search?a=1&&b=2")]
       (is (some? m) "the route matches")
       (is (= {"a" "1" "b" "2"} (:query m))
@@ -116,7 +116,7 @@
   (testing "an explicit empty VALUE (`?foo=`) is NOT a blank pair — the
             key survives with an empty-string value (distinct from the
             blank-pair filter above) — rf2-9a9ix regression guard"
-    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :route/search {} "/search")
     (let [m (routing/match-url "/search?foo=")]
       (is (some? m) "the route matches")
       (is (= {"foo" ""} (:query m))

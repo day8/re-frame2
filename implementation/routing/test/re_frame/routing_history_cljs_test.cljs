@@ -249,11 +249,10 @@
   ;; non-default owner re-register `:rf/default {:url-bound? false}` AFTER
   ;; this call, so their override wins.
   (rf/reg-frame :rf/default {:url-bound? true})
-  (rf/reg-route :hist/home     {:path "/"})
-  (rf/reg-route :hist/cart     {:path "/cart"})
-  (rf/reg-route :hist/checkout {:path "/checkout"})
-  (rf/reg-route :hist/article  {:path   "/articles/:id"
-                                :params [:map [:id :string]]}))
+  (rf/reg-route :hist/home     {} "/")
+  (rf/reg-route :hist/cart     {} "/cart")
+  (rf/reg-route :hist/checkout {} "/checkout")
+  (rf/reg-route :hist/article  {:params [:map [:id :string]]} "/articles/:id"))
 
 ;; =========================================================================
 ;; 1. pushState round-trip
@@ -614,10 +613,9 @@
     ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner so the restore `:rf.nav/replace-url` fx fires.
     (rf/reg-frame :rf/default {:url-bound? true})
-    (rf/reg-route :hist/cart   {:path "/cart"})
-    (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
-                                :params    [:map [:id :string]]
-                                :can-leave :hist/can-leave?})
+    (rf/reg-route :hist/cart   {} "/cart")
+    (rf/reg-route :hist/editor {:params    [:map [:id :string]]
+                                :can-leave :hist/can-leave?} "/editor/articles/:id")
     (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _]
@@ -681,10 +679,9 @@
     ;; as the URL owner (the assertion that NO replace-url fires is only
     ;; meaningful when the frame COULD own the URL).
     (rf/reg-frame :rf/default {:url-bound? true})
-    (rf/reg-route :hist/cart   {:path "/cart"})
-    (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
-                                :params    [:map [:id :string]]
-                                :can-leave :hist/can-leave?})
+    (rf/reg-route :hist/cart   {} "/cart")
+    (rf/reg-route :hist/editor {:params    [:map [:id :string]]
+                                :can-leave :hist/can-leave?} "/editor/articles/:id")
     (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
@@ -726,10 +723,9 @@
     ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner so the continue `:rf.nav/replace-url` fx fires.
     (rf/reg-frame :rf/default {:url-bound? true})
-    (rf/reg-route :hist/cart   {:path "/cart"})
-    (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
-                                :params    [:map [:id :string]]
-                                :can-leave :hist/can-leave?})
+    (rf/reg-route :hist/cart   {} "/cart")
+    (rf/reg-route :hist/editor {:params    [:map [:id :string]]
+                                :can-leave :hist/can-leave?} "/editor/articles/:id")
     (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
@@ -863,7 +859,7 @@
   (testing "rf2-4ic0f: malformed %-encoding fails closed on the CLJS
             decodeURIComponent path — match-url returns nil, never throws"
     (register-routes!)
-    (rf/reg-route :hist/search {:path "/search"})
+    (rf/reg-route :hist/search {} "/search")
     ;; Path segment — bare `%`, incomplete pair, non-hex pair.
     (is (nil? (routing/match-url "/articles/%"))
         "bare `%` in path → route-miss (no decodeURIComponent throw escapes)")
@@ -905,8 +901,7 @@
             lenient `js/parseInt` partial-numeric coercion is closed so the
             client agrees with the JVM"
     (register-routes!)
-    (rf/reg-route :hist/list {:path  "/list"
-                              :query [:map [:page :int]]})
+    (rf/reg-route :hist/list {:query [:map [:page :int]]} "/list")
     (is (= 12 (get-in (routing/match-url "/list?page=12") [:query :page]))
         "clean integer literal coerces to a number")
     (is (= -7 (get-in (routing/match-url "/list?page=-7") [:query :page]))
@@ -936,7 +931,7 @@
   (testing "rf2-cylse.1: oversized :int literals pass through as STRINGS on
             CLJS (was a lossy double under js/parseInt), matching the JVM"
     (register-routes!)
-    (rf/reg-route :hist/items {:path "/items" :query [:map [:page :int]]})
+    (rf/reg-route :hist/items {:query [:map [:page :int]]} "/items")
     (testing "within the safe-integer range still coerces"
       (is (= 42 (get-in (routing/match-url "/items?page=42") [:query :page])))
       (is (= 9007199254740991
@@ -964,8 +959,8 @@
   (testing "rf2-cylse.5: :int / :uuid PATH params coerce against the
             :params schema before validation on CLJS"
     (register-routes!)
-    (rf/reg-route :hist/page    {:path "/page/:n"      :params [:map [:n :int]]})
-    (rf/reg-route :hist/article {:path "/articles/:id" :params [:map [:id :uuid]]})
+    (rf/reg-route :hist/page    {:params [:map [:n :int]]} "/page/:n")
+    (rf/reg-route :hist/article {:params [:map [:id :uuid]]} "/articles/:id")
     (is (= 42 (get-in (routing/match-url "/page/42") [:params :n]))
         ":int path param coerced to a number")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
@@ -985,12 +980,11 @@
   (testing "optioned :query scalars coerce equivalently to bare forms on CLJS"
     (register-routes!)
     (rf/reg-route :hist/items
-                  {:path  "/items"
-                   :query [:map
+                  {:query [:map
                            [:page [:int {:min 1}]]
                            [:ratio [:double {:min 0.0}]]
                            [:id [:uuid {}]]
-                           [:archived [:boolean {}]]]})
+                           [:archived [:boolean {}]]]} "/items")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
           m (routing/match-url
               (str "/items?page=2&ratio=1.5&id=" uuid-str "&archived=true"))]
@@ -1004,8 +998,8 @@
           "coerced typed values conform to their optioned schemas — no 404")))
 
   (testing "optioned :params (path) scalars coerce equivalently on CLJS"
-    (rf/reg-route :hist/opt-page    {:path "/op/:n"  :params [:map [:n [:int {:min 1}]]]})
-    (rf/reg-route :hist/opt-article {:path "/oa/:id" :params [:map [:id [:uuid {}]]]})
+    (rf/reg-route :hist/opt-page    {:params [:map [:n [:int {:min 1}]]]} "/op/:n")
+    (rf/reg-route :hist/opt-article {:params [:map [:id [:uuid {}]]]} "/oa/:id")
     (is (= 2 (get-in (routing/match-url "/op/2") [:params :n]))
         "[:int {:min 1}] path param coerces to 2")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
@@ -1016,8 +1010,7 @@
 
   (testing "optioned `[:enum {...} :a :b]` keeps the keyword allowlist gate"
     (rf/reg-route :hist/sorted
-                  {:path  "/sorted"
-                   :query [:map [:sort [:enum {:default :asc} :asc :desc]]]})
+                  {:query [:map [:sort [:enum {:default :asc} :asc :desc]]]} "/sorted")
     (is (= :asc (get-in (routing/match-url "/sorted?sort=asc") [:query :sort]))
         "declared enum value interns even with an opts map")
     (is (= "nope" (get-in (routing/match-url "/sorted?sort=nope") [:query :sort]))
@@ -1025,8 +1018,7 @@
 
   (testing "[:maybe inner] coerces the present value against the inner type"
     (rf/reg-route :hist/maybe
-                  {:path  "/maybe"
-                   :query [:map [:page [:maybe [:int {:min 1}]]]]})
+                  {:query [:map [:page [:maybe [:int {:min 1}]]]]} "/maybe")
     (let [m (routing/match-url "/maybe?page=7")]
       (is (= 7 (get-in m [:query :page]))
           "[:maybe [:int {:min 1}]] coerces through wrapper + option")
@@ -1039,7 +1031,7 @@
   (testing "rf2-zmcq6: navigate {:fragment \"\"} writes :fragment nil and
             pushes a fragment-less URL on CLJS"
     (register-routes!)
-    (rf/reg-route :hist/docs {:path "/docs/:page"})
+    (rf/reg-route :hist/docs {} "/docs/:page")
     (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment ""}])
     (is (nil? (get-in (rf/runtime-db-value :rf/default)
                       [:rf.runtime/routing :current :fragment]))

@@ -149,8 +149,7 @@
                    {:title (str "Article " (:id params))}))
     (rf/reg-route :route/article
                   {:doc  "Article page"
-                   :path "/articles/:id"
-                   :head :head/article})
+                   :head :head/article} "/articles/:id")
     (let [f (frame/make-anon-frame-record! {:doc "active-route frame" :platform :server})]
       (rf/dispatch-sync
         [::seed-route] {:frame f})
@@ -169,8 +168,7 @@
 (deftest active-head-falls-back-to-default-when-route-omits-head
   (testing "no :head on the route → default-head fires (viewport only)"
     (rf/reg-route :route/no-head
-                  {:doc  "Bare route"
-                   :path "/"})
+                  {:doc  "Bare route"} "/")
     (let [f (frame/make-anon-frame-record! {:doc "Default-head probe" :platform :server})]
       (rf/reg-event ::seed-route-no-head
                        (fn [{rt :rf.db/runtime} _]
@@ -591,8 +589,7 @@
                                           (:id params))}]})))
     (rf/reg-route :route/article
                   {:doc  "Article page"
-                   :path "/articles/:id"
-                   :head :head/article})
+                   :head :head/article} "/articles/:id")
     (let [f (frame/make-anon-frame-record! {:doc "article frame" :platform :server})]
       (rf/dispatch-sync [:seed-article] {:frame f})
       (let [model (rf/active-head f)
@@ -631,8 +628,7 @@
                     :body-attrs {:class "page-article"}}))
     (rf/reg-route :route/article-fr
                   {:doc  "French article page"
-                   :path "/fr/articles/:id"
-                   :head :head/with-attrs})
+                   :head :head/with-attrs} "/fr/articles/:id")
     (rf/reg-event :seed-fr
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]

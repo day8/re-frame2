@@ -139,10 +139,9 @@
     (rf/reg-resource :article/by-slug (article-spec {}))
     (is (= :route/article
            (rf/reg-route :route/article
-                         {:path      "/articles/:slug"
-                          :params    [:map [:slug :string]]
+                         {:params    [:map [:slug :string]]
                           :resources [{:resource :article/by-slug
-                                       :params   (fn [route] {:slug (get-in route [:params :slug])})}]}))
+                                       :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug"))
         "reg-route with :resources does not throw — the key is accepted")))
 
 ;; ===========================================================================
@@ -152,10 +151,9 @@
 (deftest route-entry-ensures-with-route-owner-and-cause
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [nav-token  (:nav-token (slice))
         scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
@@ -174,11 +172,10 @@
 (deftest blocking-resource-holds-route-transition-until-it-settles
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
+                              :blocking? true}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [nav-token  (:nav-token (slice))
         scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
@@ -197,11 +194,10 @@
 (deftest non-blocking-resource-does-not-hold-the-transition
   (rf/reg-resource :comments/list (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :comments/list
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? false}]})
+                              :blocking? false}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (testing "a non-blocking resource fetches in the background; the route is :idle"
     (is (= :idle (:transition (slice)))
@@ -218,12 +214,11 @@
   ;; no :stale-after-ms → the entry is always fresh once loaded
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
-  (rf/reg-route :route/home {:path "/"})
+                              :blocking? true}]} "/articles/:slug")
+  (rf/reg-route :route/home {} "/")
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
     ;; first entry: blocking resource fetches, then settles :loaded (fresh)
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
@@ -253,11 +248,10 @@
 (deftest blocking-first-load-failure-flips-route-to-error
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
+                              :blocking? true}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
     (settle-failure! scoped-key {:status 503 :message "upstream down"})
@@ -274,11 +268,10 @@
 (deftest route-leave-releases-prior-route-owner
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
-  (rf/reg-route :route/home {:path "/"})
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
+  (rf/reg-route :route/home {} "/")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [token-1    (:nav-token (slice))
         scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
@@ -302,11 +295,10 @@
 (deftest route-resupersede-same-key-does-not-join-abort-requested-non-blocking
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
-  (rf/reg-route :route/home {:path "/"})
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
+  (rf/reg-route :route/home {} "/")
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
     ;; enter route A: the resource is in flight under token-1's route owner
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
@@ -333,12 +325,11 @@
 (deftest route-resupersede-same-key-blocking-transition-drains
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
-  (rf/reg-route :route/home {:path "/"})
+                              :blocking? true}]} "/articles/:slug")
+  (rf/reg-route :route/home {} "/")
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
     (let [wid1 (:current-work (entry scoped-key))]
@@ -365,11 +356,10 @@
 (deftest when-false-gates-the-resource-out
   (rf/reg-resource :comments/list (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :comments/list
                               :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :when     (fn [_route _ctx] false)}]})
+                              :when     (fn [_route _ctx] false)}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (testing ":when false admits no resource (NOT sentinel nil params)"
     (is (empty? (entries)) "the gated-out resource was not ensured")))
@@ -389,15 +379,14 @@
                                                (swap! order conj :comments)
                                                {:request {:method :get :url "/c"}})}))
     (rf/reg-route :route/article
-                  {:path      "/articles/:slug"
-                   :params    [:map [:slug :string]]
+                  {:params    [:map [:slug :string]]
                    :resources [{:resource :comments/list
                                 :id       :comments
                                 :params   (fn [route] {:slug (get-in route [:params :slug])})
                                 :after    #{:article}}
                                {:resource :article/by-slug
                                 :id       :article
-                                :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
+                                :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
     (testing ":after #{local-id} orders the dependent resource AFTER its dep"
       (is (= [:article :comments] @order)
@@ -412,10 +401,9 @@
   ;; planning error at route entry (no silent cache miss).
   (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
   (rf/reg-route :route/secret
-                {:path      "/secret/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]})
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/secret/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/secret {:slug "x"}])
   (testing "a fail-closed scope/params resolution is a route PLANNING error"
     (is (= :rf.error/resource-route-plan
@@ -431,11 +419,10 @@
   (rf/reg-resource :articles/list (article-spec {:params-schema [:map [:page :int]]
                                                  :tags (fn [{:keys [page]} _] #{[:list page]})}))
   (rf/reg-route :route/list
-                {:path      "/list"
-                 :query     [:map [:page :int]]
+                {:query     [:map [:page :int]]
                  :resources [{:resource       :articles/list
                               :params         (fn [route] {:page (get-in route [:query :page])})
-                              :keep-previous? true}]})
+                              :keep-previous? true}]} "/list")
   (rf/dispatch-sync [:rf.route/navigate :route/list {} {:query {:page 1}}])
   (let [k1 (state/scoped-resource-key :rf.scope/global :articles/list {:page 1})]
     (settle-success! k1 [{:id 1 :title "Old page"}]))
@@ -465,11 +452,10 @@
   ;; `:rf.error/resource-route-blocking` with ResourceRouteBlockingTags shape.
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
+                              :blocking? true}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
         nav-token  (:nav-token (slice))
@@ -505,12 +491,11 @@
   ;; prior owner, which MUST now deterministically clear the stale slot.
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
-  (rf/reg-route :route/home {:path "/"})
+                              :blocking? true}]} "/articles/:slug")
+  (rf/reg-route :route/home {} "/")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
   (let [token-1    (:nav-token (slice))
         scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
@@ -527,13 +512,12 @@
   ;; for a later navigation — old-token state must not gate new transitions.
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource  :article/by-slug
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]})
+                              :blocking? true}]} "/articles/:slug")
   ;; a plain (no-resources) route — its entry has nothing blocking
-  (rf/reg-route :route/home {:path "/"})
+  (rf/reg-route :route/home {} "/")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "a"}])
   (let [token-1 (:nav-token (slice))]
     ;; supersede WITHOUT settling — then land on the plain route
@@ -596,11 +580,10 @@
   ;; — it is a fail-closed planning error (conditional resources use :when).
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
                               ;; resolver INTENDS params but returns nil
-                              :params   (fn [_route] nil)}]})
+                              :params   (fn [_route] nil)}]} "/articles/:slug")
   (let [traces (record-error-traces!
                  #(rf/dispatch-sync [:rf.route/navigate :route/article {:slug "x"}]))]
     (testing "the nil-params resolver surfaces a route planning error"
@@ -616,11 +599,10 @@
   ;; the spec policy / a global read — the scope is the leak boundary.
   (rf/reg-resource :secret/doc (article-spec {:scope :rf.scope/from-caller}))
   (rf/reg-route :route/secret
-                {:path      "/secret/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :secret/doc
                               :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :scope    (fn [_route _ctx] nil)}]})  ;; resolver returns nil
+                              :scope    (fn [_route _ctx] nil)}]} "/secret/:slug")  ;; resolver returns nil
   (rf/dispatch-sync [:rf.route/navigate :route/secret {:slug "x"}])
   (testing "a nil :scope resolver result is a fail-closed planning error"
     (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice))))
@@ -633,11 +615,10 @@
   ;; fail-closed boundary, not an escape that crashes the whole commit.
   (rf/reg-resource :article/by-slug (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :article/by-slug
                               :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :when     (fn [_route _ctx] (throw (ex-info "boom" {})))}]})
+                              :when     (fn [_route _ctx] (throw (ex-info "boom" {})))}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "x"}])
   (testing "a throwing :when is a route planning error"
     (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
@@ -653,12 +634,11 @@
   ;; planning error, NOT silent declaration-order fallthrough.
   (rf/reg-resource :comments/list (article-spec {}))
   (rf/reg-route :route/article
-                {:path      "/articles/:slug"
-                 :params    [:map [:slug :string]]
+                {:params    [:map [:slug :string]]
                  :resources [{:resource :comments/list
                               :id       :comments
                               :params   (fn [route] {:slug (get-in route [:params :slug])})
-                              :after    #{:nope}}]})  ;; :nope is declared by no entry
+                              :after    #{:nope}}]} "/articles/:slug")  ;; :nope is declared by no entry
   (let [traces (record-error-traces!
                  #(rf/dispatch-sync [:rf.route/navigate :route/article {:slug "x"}]))]
     (testing "a missing :after target surfaces a planning error"
@@ -674,9 +654,8 @@
   (rf/reg-resource :a/res (article-spec {}))
   (rf/reg-resource :b/res (article-spec {}))
   (rf/reg-route :route/cyc
-                {:path      "/cyc"
-                 :resources [{:resource :a/res :id :a :params (fn [_] {:slug "a"}) :after #{:b}}
-                             {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]})
+                {:resources [{:resource :a/res :id :a :params (fn [_] {:slug "a"}) :after #{:b}}
+                             {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]} "/cyc")
   (rf/dispatch-sync [:rf.route/navigate :route/cyc])
   (testing "a cyclic :after is a planning error (no hang, no silent fallthrough)"
     (is (= :rf.error/resource-route-plan (:rf.error/id (:error (slice)))))
@@ -694,11 +673,10 @@
     (rf/reg-resource :c/res (article-spec {:request (fn [_ _] (swap! order conj :c)
                                                       {:request {:method :get :url "/c"}})}))
     (rf/reg-route :route/chain
-                  {:path "/chain"
-                   ;; declared c, a, b — :after must reorder to a → b → c
+                  {;; declared c, a, b — :after must reorder to a → b → c
                    :resources [{:resource :c/res :id :c :params (fn [_] {:slug "c"}) :after #{:b}}
                                {:resource :a/res :id :a :params (fn [_] {:slug "a"})}
-                               {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]})
+                               {:resource :b/res :id :b :params (fn [_] {:slug "b"}) :after #{:a}}]} "/chain")
     (rf/dispatch-sync [:rf.route/navigate :route/chain])
     (testing ":after topologically orders the ensure dispatches by local id"
       (is (nil? (:error (slice))) "no planning error — all :after targets are valid")

@@ -22,8 +22,7 @@
                      (fn [{:keys [db]} _]
                        {:db (throw (ex-info "boom" {:reason :test}))}))
     (rf/reg-route :route/dashboard
-                  {:path     "/dashboard"
-                   :on-match [[:load/throw]]})
+                  {:on-match [[:load/throw]]} "/dashboard")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -52,9 +51,8 @@
                        (let [err (get-in rt [:rf.runtime/routing :current :error])]
                          {:db (assoc db :handled-error err)})))
     (rf/reg-route :route/cart
-                  {:path     "/cart"
-                   :on-match [[:load/throw2]]
-                   :on-error [:route/cart-load-failed]})
+                  {:on-match [[:load/throw2]]
+                   :on-error [:route/cart-load-failed]} "/cart")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -77,8 +75,7 @@
                      (fn [{:keys [db]} _]
                        {:db (throw (ex-info "x" {}))}))
     (rf/reg-route :route/page
-                  {:path     "/page"
-                   :on-match [[:load/throw3]]})
+                  {:on-match [[:load/throw3]]} "/page")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -99,10 +96,9 @@
                      (fn [{:keys [db]} _]
                        {:db (assoc db :handled? true)}))
     (rf/reg-route :route/p
-                  {:path     "/p"
-                   :on-match [[:load/throw4]]
+                  {:on-match [[:load/throw4]]
                    ;; bare keyword form
-                   :on-error :handle/error})
+                   :on-error :handle/error} "/p")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -128,8 +124,7 @@
                      (fn [{:keys [db]} _]
                        {:db (throw (ex-info "attributed-boom" {:why :test}))}))
     (rf/reg-route :route/attributed
-                  {:path     "/attributed"
-                   :on-match [[:load/throw-attribute]]})
+                  {:on-match [[:load/throw-attribute]]} "/attributed")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -162,8 +157,7 @@
                      (fn [{:keys [db]} _]
                        {:db (throw (ex-info "source-boom" {:why :test}))}))
     (rf/reg-route :route/source-attributed
-                  {:path     "/source-attributed"
-                   :on-match [[:load/throw-source]]})
+                  {:on-match [[:load/throw-source]]} "/source-attributed")
     (rf/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
@@ -221,9 +215,8 @@
       (rf/reg-event :app/route-on-error
                        (fn [{:keys [db]} _] (reset! on-error-fired? true) {:db db}))
       (rf/reg-route :route/collide
-                    {:path     "/collide"
-                     :on-match [[:app/load-x "route"]]
-                     :on-error [:app/route-on-error]})
+                    {:on-match [[:app/load-x "route"]]
+                     :on-error [:app/route-on-error]} "/collide")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
@@ -250,11 +243,10 @@
       (rf/reg-event :app/genuine-on-error
                        (fn [{:keys [db]} _] (reset! on-error-fired? true) {:db db}))
       (rf/reg-route :route/genuine
-                    {:path     "/genuine"
-                     ;; on-match carries args — the failing dispatch must
+                    {;; on-match carries args — the failing dispatch must
                      ;; match the FULL vector, not just the id.
                      :on-match [[:app/genuine-load 42]]
-                     :on-error [:app/genuine-on-error]})
+                     :on-error [:app/genuine-on-error]} "/genuine")
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))

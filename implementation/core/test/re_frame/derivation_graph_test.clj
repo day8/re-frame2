@@ -116,7 +116,7 @@
                                      {:request {:method :get
                                                 :url    (str "/api/articles/" slug)}})})
   ;; :routes — a route fact (runtime-db / on-route).
-  (rf/reg-route :route/article {:path "/articles/:slug"})
+  (rf/reg-route :route/article {} "/articles/:slug")
   ;; :machines — a process node (runtime-db / on-transition).
   (rf/reg-machine :upload/main
                   {:initial :idle
@@ -249,9 +249,8 @@
     ;; The Resources artefact publishes :resources as an accepted route key;
     ;; both façades are loaded in this core test, so reg-route accepts it.
     (rf/reg-route :route/article
-                  {:path      "/articles/:slug"
-                   :resources [{:resource :article/by-slug
-                                :blocking? true}]})
+                  {:resources [{:resource :article/by-slug
+                                :blocking? true}]} "/articles/:slug")
     (rf/reg-resource :article/by-slug
                      {:scope         :rf.scope/global
                       :params-schema [:map [:slug :string]]
@@ -386,7 +385,7 @@
 
 (deftest live-graph-realizes-the-route-slice
   (testing "the live graph carries the materialized route slice node"
-    (rf/reg-route :route/article {:path "/articles/:slug"})
+    (rf/reg-route :route/article {} "/articles/:slug")
     ;; Drive a navigation so the route slice is materialized in runtime-db.
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
     (let [g     (graph/live-derivation-graph :rf/default all-contributors)

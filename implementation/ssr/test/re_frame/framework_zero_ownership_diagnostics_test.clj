@@ -107,16 +107,14 @@
 
 (deftest routing-flows-fire-no-ownership-diagnostic
   (testing "navigate / transitioned / handle-url-change / settle / can-leave stay silent"
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
-    (rf/reg-route :route/search  {:path "/search"})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+    (rf/reg-route :route/search  {} "/search")
     ;; `:on-match` route → drives the FIFO settle handler
     ;; (`:rf.route.internal/settle-transition`), which writes the
     ;; `:transition` state into the runtime-db slice via `:rf.db/runtime`.
     (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-route :route/loaded  {:path     "/loaded"
-                                  :on-match [[:load/noop]]})
+    (rf/reg-route :route/loaded  {:on-match [[:load/noop]]} "/loaded")
     (stub-push-url!)
     (let [diags (record-ownership-diagnostics! ::routing)]
       ;; (1) :rf.route/navigate — programmatic navigation.
@@ -150,10 +148,9 @@
 (deftest can-leave-pending-nav-fires-no-ownership-diagnostic
   (testing "the pending-nav protocol (url-requested / cancel / continue) stays silent"
     (rf/reg-route :editor/article
-                  {:path      "/editor/articles/:id"
-                   :params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?})
-    (rf/reg-route :route/cart {:path "/cart"})
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-route :route/cart {} "/cart")
     (rf/reg-event :editor/dirty
                      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?

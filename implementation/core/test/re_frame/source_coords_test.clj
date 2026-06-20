@@ -179,7 +179,7 @@
 
 (deftest source-coords-on-reg-route
   (testing "reg-route stamps :ns / :line / :file"
-    (rf/reg-route :rf2-k84s/reg-route-sample {:path "/k84s"})
+    (rf/reg-route :rf2-k84s/reg-route-sample {} "/k84s")
     (assert-coords (rf/handler-meta :route :rf2-k84s/reg-route-sample)
                    :route :rf2-k84s/reg-route-sample)))
 

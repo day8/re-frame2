@@ -53,7 +53,7 @@
   (testing ":rf.nav/push-url skips on a non-URL-bound frame and emits
             :rf.fx/skipped-on-platform with :reason :frame-not-url-bound"
     (rf/reg-frame :story/variant-A {})
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
     ;; Register :rf.nav/push-url with a capture spy AND :platforms
     ;; #{:server :client} so the JVM path doesn't already skip on
     ;; platform.
@@ -110,7 +110,7 @@
     ;; a spy that consults the REAL `url-owner-frame-id` (NOT a
     ;; reimplemented gate — a reimplemented gate cannot catch a regression
     ;; in the resolution itself, which is the bug rf2-6qgbs.3 surfaced).
-    (rf/reg-route :route/home {:path "/home"})
+    (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}
@@ -225,7 +225,7 @@
             claims after :rf/default, so :rf/default stays owner and the
             newcomer loses."
     (rf/reg-frame :second-owner {:url-bound? true})   ;; conflicts with :rf/default
-    (rf/reg-route :route/home {:path "/home"})
+    (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
       ;; Re-register the production-gated fx that consults the REAL
       ;; url-owner-frame-id resolver (a reimplemented gate can't catch a
@@ -282,7 +282,7 @@
             url-owner-frame-id resolver (a reimplemented gate cannot catch a
             resolution regression — cf rf2-lo28u)."
     (rf/reg-frame :aaa-early {:url-bound? true})       ;; sorts before :rf/default
-    (rf/reg-route :route/home {:path "/home"})
+    (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
       ;; Production-gated fx consulting the REAL resolver.
       (rf/reg-fx :rf.nav/push-url
@@ -307,7 +307,7 @@
     ;; No duplicate registered; :rf/default is the lone owner.
     (is (= :rf/default (routing/url-owner-frame-id))
         "the sole :url-bound? true frame is the owner")
-    (rf/reg-route :route/home {:path "/home"})
+    (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}

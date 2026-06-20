@@ -220,13 +220,13 @@
       ;; ---- Routing: :rf.warning/route-shadowed-by-equal-score -------------
       ;; Two routes with the same structural rank (same path shape, both
       ;; concrete). The second registration sees the first and warns.
-      (rf/reg-route :route/a {:path "/foo"})
-      (rf/reg-route :route/b {:path "/foo"})
+      (rf/reg-route :route/a {} "/foo")
+      (rf/reg-route :route/b {} "/foo")
 
       ;; ---- Routing: :rf.route.nav-token/allocated + :rf.route/fragment-changed ----
       ;; A reg-route + dispatch [:rf.route/transitioned url] threads through the
       ;; allocate-token + match-url emit path.
-      (rf/reg-route :user/show {:path "/users/:id"})
+      (rf/reg-route :user/show {} "/users/:id")
       (rf/dispatch-sync [:rf.route/transitioned "/users/42"] {:frame :test/main})
       ;; Now repeat with a fragment change only — emits :rf.route/fragment-changed
       ;; with prev/next-fragment shape.
@@ -235,7 +235,7 @@
       ;; ---- Routing: :rf.route/navigation-blocked --------------------------
       ;; Set up a :can-leave sub that returns false, then request a URL.
       (rf/reg-sub :always-block (fn [_ _] false))
-      (rf/reg-route :nav/blocker {:path "/blockable" :can-leave :always-block})
+      (rf/reg-route :nav/blocker {:can-leave :always-block} "/blockable")
       ;; Move "into" the blockable route so its :can-leave guards the next nav.
       (rf/dispatch-sync [:rf.route/transitioned "/blockable"] {:frame :test/main})
       (rf/dispatch-sync [:rf/url-requested {:url "/users/42"}] {:frame :test/main})

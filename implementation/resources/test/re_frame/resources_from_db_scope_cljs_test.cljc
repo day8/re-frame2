@@ -165,9 +165,8 @@
 (deftest route-entry-from-db-scope-resolves-and-ensures
   (rf/dispatch-sync [:t/login "jake"])
   (rf/reg-route :t/home
-    {:path "/"
-     :resources [{:resource :t/feed :params (fn [_] {:page 1})
-                  :scope {:from-db :t/session} :blocking? true}]})
+    {:resources [{:resource :t/feed :params (fn [_] {:page 1})
+                  :scope {:from-db :t/session} :blocking? true}]} "/")
   (testing "route entry resolves the {:from-db} route-resource scope against
             app-db BEFORE planning, ensuring under the session scope"
     (rf/dispatch-sync [:rf.route/navigate :t/home])
@@ -180,10 +179,9 @@
 (deftest route-leave-releases-owner-under-resolved-scope
   (rf/dispatch-sync [:t/login "jake"])
   (rf/reg-route :t/home
-    {:path "/"
-     :resources [{:resource :t/feed :params (fn [_] {:page 1})
-                  :scope {:from-db :t/session}}]})
-  (rf/reg-route :t/other {:path "/other"})
+    {:resources [{:resource :t/feed :params (fn [_] {:page 1})
+                  :scope {:from-db :t/session}}]} "/")
+  (rf/reg-route :t/other {} "/other")
   (rf/dispatch-sync [:rf.route/navigate :t/home])
   (let [k     (session-key "jake" 1)
         owner [:route :t/home (:nav-token (slice))]]
@@ -196,9 +194,8 @@
 (deftest route-entry-from-db-nil-is-a-planning-error
   ;; no login — the route-resource {:from-db} scope resolves nil
   (rf/reg-route :t/home
-    {:path "/"
-     :resources [{:resource :t/feed :params (fn [_] {:page 1})
-                  :scope {:from-db :t/session}}]})
+    {:resources [{:resource :t/feed :params (fn [_] {:page 1})
+                  :scope {:from-db :t/session}}]} "/")
   (testing "a {:from-db} route scope resolving nil surfaces as a route
             PLANNING error on the slice, never a silent global ensure"
     (rf/dispatch-sync [:rf.route/navigate :t/home])

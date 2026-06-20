@@ -262,7 +262,7 @@
   "#6 Routing in SSR —
    :rf.nav/push-url and :rf.nav/replace-url are no-ops on :server; the
    route slice itself is just app-db so it hydrates trivially."
-  (rf/reg-route :user/show {:path "/users/:id"})
+  (rf/reg-route :user/show {} "/users/:id")
   (rf/reg-frame :req {:preset :ssr-server})
   ;; Re-register the framework nav fx (reset-runtime cleared the
   ;; registrar) so this test exercises the same platform-gating shape
@@ -293,7 +293,7 @@
   "#7 Route-not-found under SSR —
    match-url returns nil-id for an unmatched URL; route-not-found is
    normal control flow, not an :rf.error trace."
-  (rf/reg-route :user/show {:path "/users/:id"})
+  (rf/reg-route :user/show {} "/users/:id")
   (let [m (routing/match-url "/no-such-thing")]
     (is (nil? (:route-id m))
         "match-url surfaces no route-id for an unmatched URL"))

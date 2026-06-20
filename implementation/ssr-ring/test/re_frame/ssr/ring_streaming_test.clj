@@ -843,8 +843,7 @@
                                    {:reason :test}))))
     (rf/reg-route :test.stream/route-head-throws
                   {:doc  "Streaming route whose head fn throws"
-                   :path "/stream-head-throws"
-                   :head :test.stream/head-throws})
+                   :head :test.stream/head-throws} "/stream-head-throws")
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
     (rf/reg-event :rf.test.stream/seed-throwing-head-route
       {:platforms #{:server}}

@@ -52,9 +52,8 @@
 
 (deftest route-link-href-from-route-id
   (testing "the rendered <a> :href matches route-url for the given :to"
-    (rf/reg-route :route/cart    {:path "/cart"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/cart    {} "/cart")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
     (let [render  routing/route-link-render-ssr
           [tag attrs] (render {:to :route/cart})]
@@ -71,8 +70,7 @@
   (testing ":query and :fragment are appended to the href"
     ;; :q is optional so /search is reachable without a query (exercised by
     ;; the empty-:fragment sub-case below); when present it must be a string.
-    (rf/reg-route :route/search {:path  "/search"
-                                 :query [:map [:q {:optional true} :string]]})
+    (rf/reg-route :route/search {:query [:map [:q {:optional true} :string]]} "/search")
 
     (let [[_ attrs] (routing/route-link-render-ssr
                      {:to    :route/search
@@ -97,7 +95,7 @@
 
 (deftest route-link-passes-html-attrs-through
   (testing "props other than :to / :params / :query / :fragment / :on-click pass through"
-    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/home {} "/")
 
     (let [[_ attrs children] (routing/route-link-render-ssr
                               {:to    :route/home
@@ -148,9 +146,8 @@
     ;; and dispatches `:rf.route/transitioned`, which updates the :rf/route
     ;; slice. This test pins the round-trip without a DOM event — the
     ;; CLJS test covers the click branching that produces the dispatch.
-    (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/home    {} "/")
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
     ;; Suppress the :client-only :rf.nav/push-url fx on the JVM (matches
     ;; the pattern in routing_test.clj).

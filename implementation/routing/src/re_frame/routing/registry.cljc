@@ -240,6 +240,17 @@
   (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
   the conflict."
   [id metadata path]
+  ;; Reject non-map metadata FIRST (rf2-45b95 authoring-boundary guard) with
+  ;; the canonical `:rf.error/invalid-route-metadata`. Under the 3-slot
+  ;; grammar (rf2-wvh95f F1) the metadata slot may be any value, so this must
+  ;; run before the `contains?`/`assoc` below — both of which throw a raw
+  ;; ClassCastException/IllegalArgumentException on a non-associative value.
+  (when-not (map? metadata)
+    (throw (route-error
+             :rf.error/invalid-route-metadata
+             'rf/reg-route
+             (str "route " id "'s metadata must be a map, got " (pr-str (type metadata)))
+             {:route-id id :value metadata})))
   ;; rf2-wvh95f F1 — the path pattern is the 3-slot VALUE. A `:path` left
   ;; INSIDE the metadata map is a mislocated key (the third slot is its one
   ;; home); reject it loudly so the grammar change cannot be half-applied.

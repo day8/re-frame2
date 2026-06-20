@@ -500,9 +500,8 @@
             handler's pending :db; the flow at the outermost :after
             transforms that pending value, then a single deferred install
             commits the slice + flow output together"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
-    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+    (rf/reg-route :route/home    {} "/")
     ;; A flow over the route id derives a human label into a plain app-db
     ;; path. Logging the input it observed proves it ran on the SETTLED
     ;; post-transition slice, not the pre-transition one.
@@ -579,10 +578,9 @@
       ;; handler will return `[:dispatch [:route/load-article]]` inside :fx
       ;; for a successful transition. The flow throw must skip that :fx.
       (rf/reg-route :route/article
-                    {:path     "/articles/:id"
-                     :params   [:map [:id :string]]
-                     :on-match [[:route/load-article]]})
-      (rf/reg-route :route/home {:path "/"})
+                    {:params   [:map [:id :string]]
+                     :on-match [[:route/load-article]]} "/articles/:id")
+      (rf/reg-route :route/home {} "/")
 
       ;; Land on /home cleanly (no throwing flow registered yet).
       (rf/dispatch-sync [:rf.route/transitioned "/"])
@@ -654,9 +652,8 @@
             [:rf.db/runtime …] route-slice path — the dirty-check keys on
             BOTH partitions (EP-0001 §542-544), so the flow does NOT silently
             stop updating when app-db is value-identical"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
-    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+    (rf/reg-route :route/home    {} "/")
     (let [flow-evals (atom [])]
       ;; The flow's ONLY input is the qualified runtime-db route id. Its
       ;; output writes to a plain app-db path (writes are app-db only).
@@ -726,9 +723,8 @@
   (testing "a single flow with one bare app-db input and one qualified
             [:rf.db/runtime …] runtime-db input resolves each against its own
             partition, and recomputes when EITHER changes"
-    (rf/reg-route :route/article {:path   "/articles/:id"
-                                  :params [:map [:id :string]]})
-    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+    (rf/reg-route :route/home    {} "/")
     (rf/reg-event :set-greeting (fn [{:keys [db]} [_ g]] {:db (assoc db :greeting g)}))
     (let [flow-evals (atom [])]
       ;; Bare [:greeting] reads app-db; qualified route id reads runtime-db.

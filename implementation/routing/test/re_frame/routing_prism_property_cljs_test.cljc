@@ -131,7 +131,7 @@
             with :query in CEDN-1 canonical key order on BOTH legs"
     ;; A route with two string path captures and an undeclared (string-keyed)
     ;; query vocabulary — the prism surfaces both as strings.
-    (rf/reg-route :route/item {:path "/items/:a/:b"})
+    (rf/reg-route :route/item {} "/items/:a/:b")
     (let [failure
           (loop [i 0, s 24680]
             (if (= i 300)
@@ -180,7 +180,7 @@
   (testing "two inbound URLs spelling one generated query in DIFFERENT key
             orders yield = :query with identical (canonical) key order —
             both prism legs share ONE canonical order"
-    (rf/reg-route :route/list {:path "/list"})
+    (rf/reg-route :route/list {} "/list")
     (let [failure
           (loop [i 0, s 13579]
             (if (= i 200)

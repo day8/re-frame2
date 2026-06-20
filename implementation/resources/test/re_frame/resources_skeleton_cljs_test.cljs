@@ -212,8 +212,7 @@
     (is (= :test/route
            (routing-registry/reg-route
              :test/route
-             {:path      "/x/:slug"
-              :params    [:map [:slug :string]]
+             {:params    [:map [:slug :string]]
               :resources [{:resource :test/article
-                           :params   (fn [route] {:slug (get-in route [:params :slug])})}]})))
+                           :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/x/:slug")))
     (registrar/clear-kind! :route)))

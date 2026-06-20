@@ -185,30 +185,26 @@
 ;; never fetches — it only reads.
 
 (rf/reg-route :resources.app/home
-  {:doc  "Landing page."
-   :path "/"})
+  {:doc  "Landing page."} "/")
 
 (rf/reg-route :resources.app/articles
   {:doc   "Articles list — loads the :articles/list resource on entry."
-   :path  "/articles"
    :resources
    [{:resource  :articles/list
      :params    (fn [_route] {})
-     :blocking? true}]})
+     :blocking? true}]} "/articles")
 
 (rf/reg-route :resources.app/article-detail
   {:doc    "Article detail — loads :article/by-slug for the URL slug."
-   :path   "/articles/:slug"
    :params [:map [:slug :string]]
    :resources
    [{:resource  :article/by-slug
      ;; Route params → resource params: the URL slug identifies the read.
      :params    (fn [route] {:slug (get-in route [:params :slug])})
-     :blocking? true}]})
+     :blocking? true}]} "/articles/:slug")
 
 (rf/reg-route :rf.route/not-found
-  {:doc  "Fallback for unmatched URLs."
-   :path "/_404"})
+  {:doc  "Fallback for unmatched URLs."} "/_404")
 
 ;; ============================================================================
 ;; EVENT-DRIVEN ENSURE + MANUAL REFRESH

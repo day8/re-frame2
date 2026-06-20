@@ -38,8 +38,8 @@
   (testing "rf2-oosjmh: a navigation mints a nav-token but leaves NO
             nav-token-counter / pending-nav-counter in the runtime-db
             routing partition — the counters live host-side"
-    (rf/reg-route :route/a {:path "/a"})
-    (rf/reg-route :route/b {:path "/b"})
+    (rf/reg-route :route/a {} "/a")
+    (rf/reg-route :route/b {} "/b")
     (rf/dispatch-sync [:rf.route/transitioned "/a"])
     (rf/dispatch-sync [:rf.route/transitioned "/b"])
     (let [routing-rt (get-in (rf/runtime-db-value :rf/default)
@@ -61,8 +61,7 @@
             host-side counter is a high-water mark untouched by restore — so
             the NEXT navigation mints a token that exceeds any pre-restore
             in-flight token and CANNOT recycle one"
-    (rf/reg-route :route/article {:path "/articles/:id"
-                                  :params [:map [:id :string]]})
+    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
     ;; Three navigations advance the host counter to its high-water mark.
     (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])  ;; nav-1
@@ -116,7 +115,7 @@
             token. The host-side counter is consulted instead, so even a
             restored runtime-db carrying a STALE counter cannot drive a
             recycle"
-    (rf/reg-route :route/x {:path "/x/:id" :params [:map [:id :string]]})
+    (rf/reg-route :route/x {:params [:map [:id :string]]} "/x/:id")
     (rf/dispatch-sync [:rf.route/transitioned "/x/1"])  ;; nav-1
     (rf/dispatch-sync [:rf.route/transitioned "/x/2"])  ;; nav-2
 
@@ -157,9 +156,8 @@
             to runtime-db (subscribable via :rf/pending-navigation) and mints
             a pending-nav id from the HOST counter — leaving NO
             pending-nav-counter in runtime-db"
-    (rf/reg-route :route/editor {:path "/editor"
-                                 :can-leave [:editor/can-leave?]})
-    (rf/reg-route :route/home {:path "/home"})
+    (rf/reg-route :route/editor {:can-leave [:editor/can-leave?]} "/editor")
+    (rf/reg-route :route/home {} "/home")
     ;; :can-leave returns false → BLOCK (the editor is dirty; the closed
     ;; contract reads literal false as "block").
     (rf/reg-sub :editor/can-leave? (fn [_ _] false))
@@ -224,7 +222,7 @@
             scroll cache) so a long-running per-request-frame process does
             not leak one counter entry per destroyed frame"
     (rf/reg-frame :rf.test/scratch {:url-bound? true})
-    (rf/reg-route :route/s {:path "/s"})
+    (rf/reg-route :route/s {} "/s")
     (rf/with-frame :rf.test/scratch
       (rf/dispatch-sync [:rf.route/transitioned "/s"]))
     (is (= 1 (:nav-token-counter (nav-counters/counter-snapshot :rf.test/scratch)))

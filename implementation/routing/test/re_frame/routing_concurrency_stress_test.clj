@@ -168,8 +168,7 @@
       (registrar/clear-kind! :route)
       (doseq [{:keys [idx tick-event]} per-thread]
         (rf/reg-route (keyword "ksbur.stress" (str "route-" idx))
-                      {:path     (str "/p" idx "/:slug")
-                       :on-match [[tick-event]]}))
+                      {:on-match [[tick-event]]} (str "/p" idx "/:slug")))
 
       (let [latch   (CountDownLatch. 1)
             futures (vec
@@ -276,8 +275,7 @@
                            {:db (update db :n (fnil inc 0))})))
       (doseq [{:keys [idx tick-event]} per-thread]
         (rf/reg-route (keyword "ksbur.pop" (str "route-" idx))
-                      {:path     (str "/q" idx "/:slug")
-                       :on-match [[tick-event]]}))
+                      {:on-match [[tick-event]]} (str "/q" idx "/:slug")))
 
       (let [latch   (CountDownLatch. 1)
             futures (vec
@@ -410,11 +408,10 @@
       (registrar/clear-kind! :route)
       (doseq [{:keys [idx tick-event]} per-thread]
         (rf/reg-route (keyword "ksbur.race" (str "stable-" idx))
-                      {:path     (str "/r" idx "/:slug")
-                       :on-match [[tick-event]]}))
+                      {:on-match [[tick-event]]} (str "/r" idx "/:slug")))
       ;; Sentinel: a single id we explicitly do not touch in the
       ;; churn thread, so we can assert it remains registered post-test.
-      (rf/reg-route stable-route {:path "/sentinel"})
+      (rf/reg-route stable-route {} "/sentinel")
 
       (let [latch   (CountDownLatch. 1)
             stop?   (atom false)
@@ -434,9 +431,9 @@
                             id (nth noise-ids (mod p (count noise-ids)))]
                         (if (even? p)
                           (rf/reg-route id
-                                        {:path (str "/noise-"
+                                        {} (str "/noise-"
                                                     (mod p (count noise-ids))
-                                                    "/:x")})
+                                                    "/:x"))
                           (registrar/unregister! :route id)))
                       (Thread/yield)))
                   (catch Throwable t
