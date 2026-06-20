@@ -731,38 +731,29 @@
   wins over large at the same path.
 
   No-op early-exit: when both path sets are empty, returns `v`
-  unchanged with no allocation. Matches the schema-first elision
-  walker's recursion semantics (`re-frame.elision/walk`) but uses
-  only the ad-hoc paths the caller supplied."
+  unchanged with no allocation. Shares the map/vec/set/seq recursion
+  skeleton with the schema-first elision walker via
+  `re-frame.elision/walk-tree` (rf2-cywzkh) — this ns supplies only the
+  literal-path-match decider (the ad-hoc paths the caller gave) and a
+  bare-`path` traversal state, where the wire walker supplies its forked
+  declaration-coordinate decider and a `[path decl-paths]` state. Sensitive
+  wins over large at the same path; map keys / positional indices advance the
+  path, set elements carry it unchanged (the skeleton's fixed set arm)."
   [v sensitive-paths large-paths]
   (if (and (empty? sensitive-paths) (empty? large-paths))
     v
     (let [sensitive-set (set (map vec sensitive-paths))
           large-set     (set (map vec large-paths))]
-      (letfn [(walk* [v path]
-                (let [path (vec path)]
-                  (cond
-                    (contains? sensitive-set path) privacy/redacted-sentinel
-                    (contains? large-set path)    (large-marker v path)
-                    (map? v) (reduce-kv (fn [acc k vv]
-                                          (assoc acc k (walk* vv (conj path k))))
-                                        (empty v) v)
-                    (vector? v)
-                    (let [n (count v)]
-                      (loop [i 0 acc (transient [])]
-                        (if (< i n)
-                          (recur (inc i) (conj! acc (walk* (nth v i) (conj path i))))
-                          (persistent! acc))))
-                    (set? v) (into #{} (map #(walk* % path)) v)
-                    (seq? v)
-                    (let [idx (volatile! -1)]
-                      (persistent!
-                        (reduce (fn [acc vv]
-                                  (vswap! idx inc)
-                                  (conj! acc (walk* vv (conj path @idx))))
-                                (transient []) v)))
-                    :else v)))]
-        (walk* v [])))))
+      (elision/walk-tree
+        v []
+        {:decide  (fn [path v]
+                    (cond
+                      (contains? sensitive-set path) privacy/redacted-sentinel
+                      (contains? large-set path)     (large-marker v path)
+                      :else                          elision/walk-recur))
+         :map-key (fn [path k] (conj path k))
+         :index   (fn [path i] (conj path i))
+         :leaf    (fn [_path v] v)}))))
 
 (defn redact-with-paths
   "Public projection helper. Walks `v` and substitutes sentinels at the
