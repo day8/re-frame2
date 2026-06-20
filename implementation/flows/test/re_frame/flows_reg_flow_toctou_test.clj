@@ -1,37 +1,25 @@
 (ns re-frame.flows-reg-flow-toctou-test
-  "Per rf2-qxwib — JVM regression coverage for the reg-flow
-  check-and-insert TOCTOU.
+  "JVM regression coverage for the reg-flow check-and-insert atomicity.
 
-  THE BUG (pre-fix): `reg-flow`'s cycle detection was check-THEN-act.
-  It read `@flows` once, built a PROSPECTIVE flow-map, ran
-  `topo/topo-sort` on it, and — in a SEPARATE step — committed via
-  `swap!`. Two threads registering on the SAME frame two flows that
-  together form a dependency cycle (T1 registers A whose `:inputs` read
-  B's `:output-path`; T2 registers B whose `:inputs` read A's `:output-path`) could
-  interleave so that BOTH read the frame's pre-cycle state, BOTH pass
-  their individual prospective check (neither sees the other's
-  not-yet-committed flow), and BOTH commit — leaving a CYCLIC registry.
-  Drain-time topo-sort then throws `:rf.error/flow-cycle` on every drain
-  of that frame, defeating the Spec 013 §Cycle detection promise that a
-  cycle is caught AT REGISTRATION.
-
-  THE FIX: fold the cycle check INTO the `swap!` update fn so the
-  read-validate-commit is one atomic compare-and-set. The update fn
-  reads the committed frame-map, runs topo-sort on the prospective map,
-  and only returns the assoc'd map if that passes. `swap!` re-invokes
-  the update fn (re-reading committed state, re-validating) on
-  contention, so once ONE of the racing pair commits, the OTHER's retry
-  sees the committed edge and its topo-sort throws — exactly one of the
-  pair is admitted, and the committed registry is NEVER cyclic.
+  `reg-flow`'s cycle check and commit are ONE atomic compare-and-set: the
+  `swap!` update fn reads the committed frame-map, runs `topo/topo-sort` on
+  the prospective map, and only returns the assoc'd map if that passes.
+  `swap!` re-invokes the update fn (re-reading committed state, re-validating)
+  on contention, so two threads registering on the SAME frame two flows that
+  together form a dependency cycle (T1 registers A whose `:inputs` read B's
+  `:output-path`; T2 registers B whose `:inputs` read A's `:output-path`)
+  cannot both commit: once ONE of the racing pair commits, the OTHER's retry
+  sees the committed edge and its topo-sort throws. Exactly one of the pair is
+  admitted, and the committed registry is NEVER cyclic — upholding the Spec
+  013 §Cycle detection promise that a cycle is caught AT REGISTRATION (a
+  cyclic registry would otherwise throw `:rf.error/flow-cycle` on every drain).
 
   CLJS is single-threaded; this race is JVM-only by construction. The
-  rf2-ztw5p concurrency-stress test deliberately partitions by frame
-  (each thread owns its own frame, and runs its own cyc-a/cyc-b probe
-  sequentially within that frame), so the SAME-frame interleaving this
-  bug needs is out of its scope by design. This namespace targets it
-  directly: two threads, ONE shared frame, the cycle-forming pair
-  registered in lockstep, asserting the committed registry never holds
-  an admitted cycle.
+  concurrency-stress test partitions by frame (each thread owns its own frame),
+  so the SAME-frame interleaving is out of its scope by design. This namespace
+  targets it directly: two threads, ONE shared frame, the cycle-forming pair
+  registered in lockstep, asserting the committed registry never holds an
+  admitted cycle.
 
   Many rounds under a `CyclicBarrier` release maximise the interleaving
   window; round count is env-overridable via
@@ -59,9 +47,9 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow is context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
+  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
+  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
+  ;; ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
     (test-fn)))
@@ -69,16 +57,16 @@
 (use-fixtures :each reset-runtime)
 
 ;; Round count. Each round opens a fresh interleaving window on the
-;; shared frame; the pre-fix race needs only ONE round where both
-;; threads read the pre-cycle state before either commits, so a few
-;; thousand rounds surface it reliably across box/JVM scheduling. CI
-;; can dial down via the env override for a smoke pass.
+;; shared frame; the race needs only ONE round where both threads read
+;; the pre-cycle state before either commits, so a few thousand rounds
+;; surface it reliably across box/JVM scheduling. CI can dial down via
+;; the env override for a smoke pass.
 (def ^:private rounds
   (or (some-> (System/getenv "RF2_QXWIB_TOCTOU_ROUNDS") Long/parseLong)
       4000))
 
 (deftest concurrent-same-frame-reg-flow-cannot-admit-a-cycle
-  ;; rf2-qxwib — the atomic check-and-insert regression.
+  ;; The atomic check-and-insert guarantee.
   ;;
   ;; Per round, on ONE shared frame, two threads simultaneously register
   ;; the two halves of a cycle-forming pair:
@@ -90,14 +78,12 @@
   ;; per-round flow-ids are namespaced by round so a stale registrar /
   ;; flows entry from a prior round cannot mask the race.
   ;;
-  ;; INVARIANT (the one that catches the bug): after each round, the
-  ;; frame's COMMITTED flow-map — read via `flows/flows-snapshot` —
-  ;; must NOT be cyclic. We assert this by running `topo/topo-sort` on
-  ;; the committed map: it must not throw. Pre-fix, a round that
-  ;; interleaved the check-then-act admitted BOTH flows, so the
-  ;; committed map was cyclic and this topo-sort throws — the test
-  ;; fails. Post-fix the atomic swap admits at most one of the pair, so
-  ;; the committed map is always acyclic.
+  ;; INVARIANT (the load-bearing one): after each round, the frame's
+  ;; COMMITTED flow-map — read via `flows/flows-snapshot` — must NOT be
+  ;; cyclic. We assert this by running `topo/topo-sort` on the committed
+  ;; map: it must not throw. The atomic swap admits at most one of the
+  ;; pair, so the committed map is always acyclic; a round that admitted
+  ;; both halves would leave a cyclic map and this topo-sort would throw.
   ;;
   ;; SECONDARY INVARIANT: EXACTLY one of the two registrations must be
   ;; REJECTED with `:rf.error/flow-cycle` (the loser of the CAS race, or
