@@ -1,71 +1,56 @@
 # 026 — Module-view Panel
 
-> The Xray-side consumer contract for **two** runtime-structure models, side
-> by side: the EP-0023 **`image -> frame -> event stream`** public model
-> (images as registration-set values, frames as execution contexts,
-> frame-derived resolution as the lookup path), and the retained EP-0013
-> internal substrate (the **disposition-6 demand-trigger** for per-module
-> descriptor provenance). (The (realm, frame) address-space section was removed
-> under rf2-70owfr — single default realm.)
+> The Xray-side consumer contract for the EP-0023 **`image -> frame -> event
+> stream`** public model: images as registration-set values, frames as
+> execution contexts, frame-derived resolution as the lookup path. (The
+> EP-0013 realm / app-value / install substrate this tab once also surfaced
+> was **deleted in full** — no public facade under EP-0023, then removed
+> outright by EP-0024; see the framework [`spec/Spec-Schemas.md`
+> §`:rf/realm`](../../../spec/Spec-Schemas.md). The MODULES + REALMS sections
+> that read it are gone.)
 
-Status: **shipped** — rf2-wtg9z4 + rf2-at0oen (per-module provenance) +
-**rf2-32siq3.12** (the EP-0023 image/frame model). The MODULES section reads real
-per-module provenance off the default realm's installed app value via the
-internal substrate seam `re-frame.realm/installed-app` (EP-0013 disposition 6,
-PR #4061; EP-0023 retained the realm machinery as the internal installation
-substrate and removed the `rf/*` facade arities — pl97nd.2), and the FRAMES
-section presents each EP-0023 live image-loaded frame as an execution context
-carrying its resolved image (the generation's `[kind id]` descriptors). A process
-running entirely on the `reg-*` sugar / load-order path carries no constructed app
-value, so its MODULES section shows the honest no-module caption; a process not
-using image-loaded frames shows the honest no-image caption in the FRAMES
-section. The (realm, frame) address-space REALMS section was removed under
-rf2-70owfr — the afdlyr realm-substrate collapse leaves a single default realm,
-so grouping frames by realm was dead ceremony.
+Status: **shipped** — rf2-wtg9z4 + **rf2-32siq3.12** (the EP-0023 image/frame
+model). The tab presents each EP-0023 live image-loaded frame as an execution
+context carrying its resolved image (the generation's `[kind id]` descriptors).
+A process not using image-loaded frames shows the honest no-image caption. The
+former MODULES section (per-module provenance read off a realm's installed app
+value via `re-frame.realm/installed-app`) and the (realm, frame) REALMS section
+(`re-frame.realm/realm-ids` × `re-frame.frame/frame-realm`) were **removed** with
+the realm substrate (no public facade under EP-0023, deleted outright by
+EP-0024). There is no `re-frame.realm` namespace; the live panel
+(`panels/module_view.cljs`) reads only the EP-0023 image-loaded-frame registry.
 
-## EP-0023 partial supersession (rf2-32siq3.12)
+## EP-0023 / EP-0024 — the public model is `image -> frame -> event stream`
 
 [EP-0023](../../../docs/EP/EP-0023-image-loaded-frames.md) makes the PUBLIC
-architecture `image -> frame -> event stream`, **partially superseding** the
-EP-0013 app/realm surface while RETAINING the realm machinery as the internal
-installation substrate. This tab is the cohesive home for BOTH:
+architecture `image -> frame -> event stream`, **superseding** the EP-0013
+app/realm surface. [EP-0024](../../../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)
+then **deleted the realm substrate in full** — there is no `re-frame.realm`
+namespace, no installed-app value, no realm coordinate on any wire record, and a
+frame's event / subscription / fx / cofx handlers resolve directly against the
+process registrar (framework [`spec/Spec-Schemas.md` §`:rf/realm`](../../../spec/Spec-Schemas.md)).
 
-- the EP-0023 PUBLIC model (the FRAMES/IMAGES section, §8) — rendered FIRST,
-  because it is the public model the operator reasons in;
-- the EP-0013 internal substrate (the MODULES section, §4) — retained below as
-  the implementation structure the public model rides on. (The (realm, frame)
-  address-space REALMS section, §3, was removed under rf2-70owfr — single default
-  realm.)
-
-The two read DIFFERENT surfaces and are each demand-gated: a process using one
-and not the other renders only the section it has. §8 is the normative contract
-for the EP-0023 model on this tab.
+This tab is the cohesive home for the EP-0023 public model — the FRAMES/IMAGES
+section (§8), which is the model the operator reasons in. The earlier MODULES
+section (the retained EP-0013 installation substrate) and REALMS section (the
+(realm, frame) address space) are gone with the substrate they read.
 
 ## §1 Purpose & scope
 
-EP-0013 (app values and runtime realms — framework
-[`spec/Runtime-Subsystems.md`](../../../spec/Runtime-Subsystems.md) §Runtime
-realms, [`docs/EP/EP-0013-app-values-and-runtime-realms.md`](../../../docs/EP/EP-0013-app-values-and-runtime-realms.md))
-makes the **realm** the owner of the registrar / adapter / frame-registry.
-A frame belongs to exactly one realm; the `(realm, frame)` pair is the
-**full address** of a runtime context (disposition 3). An *app value* is the
-immutable, composable description of a program (built from feature
-*modules*); a *realm* is the container an app value is installed into.
-
-The Module-view tab is the **cohesive home** for app-value / realm / module
-inspection — per Mike's *cohesive-sub-domains-get-their-own-tab* ruling,
-realm/module structure earns its own L4 tab rather than piling into App-db.
-It is a **browse surface** (registry-wide, like the Static surfaces), not an
+The Module-view tab is the **cohesive home** for runtime-structure inspection —
+per Mike's *cohesive-sub-domains-get-their-own-tab* ruling, the image/frame
+runtime structure earns its own L4 tab rather than piling into App-db. It is a
+**browse surface** (registry-wide, like the Static surfaces), not an
 event-coupled lens.
 
-It is also the **named demand trigger** of EP-0013 disposition 6: the EP
-keeps per-module descriptor **provenance** / metadata internal *until an
-Xray module-view demands it*. This is that view (see §4).
+It surfaces the EP-0023 public nouns — image, frame, and frame-derived
+resolution (§8) — reading the live image-loaded-frame registry. It dispatches
+nothing and pins nothing.
 
 ## §2 Layout
 
-Two stacked sections (the shared `theme/section` rhythm) — the EP-0023
-public model FIRST (§8), then the retained EP-0013 module substrate (§4):
+A single section (the shared `theme/section` rhythm) — the EP-0023 public
+model (§8):
 
 ```
 │ ▼ FRAMES  (N)                                                   │
@@ -75,118 +60,45 @@ public model FIRST (§8), then the retained EP-0013 module substrate (§4):
 │     resolves  this frame resolves (kind id) through its image   │
 │       event :counter/inc    docs.counter.v2                     │
 │       sub   :counter/value  docs.counter.v2                     │
-│ ─────────────────────────────────────────────────────────────  │
-│ ▼ MODULES                                                       │
-│   :shop/cart                                                    │
-│     owns      :app-db [:cart]   :routes :shop/checkout          │
-│     requires  :rf.capability/http                               │
-│     registers 2 descriptors (event · sub)                       │
-│     source    shop.cart:12                                      │
 ```
 
 The FRAMES section presents the EP-0023 `image -> frame` model (an image as
 its `[kind id]` descriptor set, a frame as the execution context running it);
 see §8.
 
-## §3 REALMS section — REMOVED (rf2-70owfr)
+## §3 REALMS section — REMOVED (realm substrate deleted)
 
 The REALMS section (the (realm, frame) address space — one row per installed
-realm, frames grouped by realm) was **removed** under rf2-70owfr. The afdlyr
-realm-substrate collapse leaves a single default realm, so grouping frames by
-realm was dead ceremony — there was never more than one realm row. With it went
-the per-frame realm-membership helpers (`realm-frames`, `project-realm-row`,
-`re-frame.frame/frame-realm`, `:multi-realm?`). The per-module provenance the
-MODULES section shows now reads the default realm's installed app value directly
-(`re-frame.realm/installed-app`, §4); the frame/image dimension is the FRAMES
-section's concern (§8).
+realm, frames grouped by realm) is **gone** with the realm substrate it read.
+There is no `re-frame.realm` namespace, no `realm-ids`, and no
+`re-frame.frame/frame-realm` (the realm coordinate was removed from frames under
+EP-0024). The frame/image dimension is the FRAMES section's concern (§8); there
+is no realm dimension to group it by.
 
-## §4 MODULES section — the disposition-6 demand trigger (shipped)
+## §4 MODULES section — REMOVED (installed-app substrate deleted)
 
-The per-module facts EP-0013 disposition 6 rules public — **ownership**
-(`:rf.module/owns`), **capability requirements** (`:rf.module/requires`), and
-**descriptor provenance** (which module owns which descriptors, owner-stamped;
-source coords) — read off each realm's installed app value via the internal
-substrate seam `re-frame.realm/installed-app` (graduated by rf2-imquoq →
-rf2-at0oen, PR #4061; EP-0023 retained this as internal substrate — pl97nd.2).
-The module FACT keys are owner-qualified (`:rf.module/*`, EP-0007 / EP-0017 v5 —
-rf2-yk6u2x); the panel's internal module-row shape keeps the bare row keys
-`:owns` / `:requires`.
+The MODULES section — per-module ownership / capability requirements /
+descriptor provenance read off a realm's installed app value via
+`re-frame.realm/installed-app` — is **gone**. The EP-0013 app-value / module /
+install substrate it read was deleted in full (no public facade under EP-0023,
+removed outright by EP-0024): there is no installed app value, no `:modules`
+map, no `re-frame.realm/installed-app` seam. Registration provenance is now a
+per-descriptor fact carried on the resolved image generation (a source namespace
+or inline coordinate), surfaced per descriptor in the FRAMES section (§8), not
+projected off a module-owned `:registrations` table.
 
-The seam yields a running realm's installed app value **without installing
-anything**:
-
-- a realm seated by composing an app from modules and installing it (via the
-  retained-internal app-composition substrate) returns the **rich constructed
-  value** whose `:modules` map (`{module-id module}`) carries each module's
-  `:rf.module/owns` / `:rf.module/requires` and its `:owner`-stamped
-  `:registrations`;
-- a realm seated only through the `reg-*` sugar / load-order path returns the
-  registrar **projection** — registrations by kind, but **no `:modules`**
-  (load-order registrations declare no module). That is the honest
-  no-provenance case: the MODULES section renders the calm **no-module
-  caption** (`module_view_helpers/no-modules-caption`), naming the remedy —
-  compose an app from modules and install it via the retained-internal
-  app-composition substrate — rather than fabricating rows.
-
-### The three-way empty-state decision (rf2-e0mq7a)
-
-The core app-value contract distinguishes a **projected / load-order** app
-(no `:modules` slot) from an app **CONSTRUCTED from zero modules** (an explicit
-empty `:modules {}` map). The MODULES section preserves that distinction so a
-genuinely-installed zero-module app is never mislabelled as the load-order case:
-
-- the installed app carries **module rows** (`any-modules?` true) → render the
-  module list;
-- the installed app carries **provenance** (`any-provenance?` true — a
-  CONSTRUCTED, installed app whose `:modules` projects to a **vector**, `[]` for
-  zero modules) but no modules → render the **zero-module-app caption**
-  (`module_view_helpers/zero-module-app-caption`): the honest
-  installed-but-empty state, naming the remedy — add a module to the composed
-  app (via the retained-internal app-composition substrate);
-- no provenance at all (`:modules` nil — load-order / sugar-only) → render the
-  **no-module caption** (`no-modules-caption`).
-
-`project-app-modules` keys provenance off the **presence** of the `:modules`
-key, not its non-emptiness: an explicit `:modules {}` projects to an empty
-**vector** `[]` (constructed, zero modules), while an absent/nil `:modules`
-projects to **nil** (no provenance). Collapsing `{}` to nil — the prior
-`(when (seq modules) …)` bug — falsely rendered the load-order caption over an
-installed zero-module app.
-
-The pure projection (`module_view_helpers`):
-
-- `project-module-row` — one module value → `{:module-id :owns :requires
-  :registration-kinds :registration-count :source}`;
-- `project-app-modules` — an app value → its sorted module rows + union
-  `:requires`. `:modules` is **nil** when the app carries no `:modules` slot
-  (no provenance), an empty **vector** `[]` when `:modules {}` (constructed,
-  zero modules), or a non-empty row vector;
-- `project-module-view` — takes the default realm's installed app value
-  (`(re-frame.realm/installed-app)`), projects its `:modules` / `:requires`, and
-  sets `:provenance-available?` **true** (the 0-arity, no app, is module-less);
-- `any-provenance?` — true when the app's projected `:modules` is a vector (a
-  constructed app, including a zero-module one); separates the zero-module-app
-  caption from the no-provenance caption;
-- `any-modules?` — true when the projected `:modules` carries at least one
-  module row.
-
-(The realm-grouping helpers `realm-frames` / `project-realm-row` /
-`realm-summary-line` / `:multi-realm?` were removed under rf2-70owfr — the
-single default realm makes per-realm grouping meaningless.)
-
-**EP-0015 classification is NOT a per-module fact.** Durable data
-classification is **frame-owned** — declared on `reg-frame` / `make-frame` and
-installed by `re-frame.frame-classification` (Spec 015 §Frame-owned durable
-classification) — not carried on a module value (a composed module has no
-`:classification` slot). So the MODULES section surfaces ownership, capability
-requirements, and descriptor provenance; the classification dimension lives on
-the frame side, not here.
+**EP-0015 classification is frame-owned, not module-owned.** Durable data
+classification is declared on `reg-frame` / `make-frame` and installed by
+`re-frame.frame-classification` (Spec 015 §Frame-owned durable classification) —
+it was never a module fact. The classification dimension lives on the frame
+side; this tab shows the image (the instruction set), and frame state /
+classification lives on the App-db tab.
 
 ## §5 Tab registration
 
 A **Dynamic L4 tab** registered via `panel-registry/reg-l4-tab!` in
 `panels/module_view.cljs`'s `install!`: id `:module-view`, label
-**"Modules"**, mnemonic `u`, order **9** (after the Derivation-Graph at 8,
+**"Frames"**, mnemonic `u`, order **9** (after the Derivation-Graph at 8,
 keeping the cross-feature runtime-structure tabs adjacent).
 
 Like the Derivation-Graph tab this is an **L4-only** surface — it exposes
@@ -198,34 +110,25 @@ Cmd-K palette picks it up automatically (the palette reads
 
 ## §6 Data sources & privacy
 
-- `:rf.xray/module-view` — the view composite; reads
-  `re-frame.realm/installed-app` (the default realm) at recompute time and
-  projects via the pure helper. **Read-only** — reading the installed app value
-  pins nothing and dispatches nothing (`re-frame.realm/installed-app` is a
-  *static* read of the install-time value, not a routing path).
-- The surface carries module **ids and declarations** — module ids,
-  `:rf.module/owns` paths/routes, `:rf.module/requires` capability keywords,
-  registry kinds, and source coordinates (ns/line). These are **structural
-  descriptors**, not app-db values. No handler values or app-db data egress
-  through this surface. (Should a future slice surface value-bearing module
-  metadata, the off-box egress posture — the
+- `:rf.xray/image-view` — the FRAMES/IMAGES composite (see §8.3). Reads the
+  live image-loaded frames + each frame's sealed generation at recompute time.
+  **Read-only** — enumerating image-loaded frames and reading sealed
+  generations pins nothing and dispatches nothing.
+- The surface carries frame/image **ids and structural descriptors** — frame
+  ids, image ids, `[kind id]` pairs, provenance namespace strings / inline
+  coordinates, and capability keywords. These are **structural descriptors**,
+  not app-db values. No handler values or app-db data egress through this
+  surface (frame STATE — app-db / runtime-db — is the App-db tab's concern;
+  this tab shows the IMAGE, the instruction set). Should a future slice surface
+  value-bearing metadata, the off-box egress posture — the
   [`025`](025-Derivation-Graph-Panel.md) §egress redaction pattern — would
-  apply to it.)
+  apply to it.
 
 ## §7 Implementation
 
-- `panels/module_view.cljs` — the panel view + `install!` (sub + tab); the sub
-  reads `re-frame.realm/installed-app` (the default realm).
-- `panels/module_view_helpers.cljc` — the pure `data → data` projection
-  (`project-module-row` · `project-app-modules` · `project-module-view` ·
-  `any-provenance?` · `any-modules?` · `no-modules-caption` ·
-  `zero-module-app-caption`); JVM-testable. (The realm-grouping helpers were
-  removed under rf2-70owfr — single default realm.)
-- Tests: `panels/module_view_helpers_cljs_test.cljc` (the module-row shape + the
-  seam-fed `project-module-view` + the three-way empty-state decision: module
-  list / zero-module-app caption / no-provenance caption via
-  `any-provenance?` / `any-modules?`, incl. the explicit `:modules {}`
-  constructed app — rf2-e0mq7a).
+- `panels/module_view.cljs` — the panel view + `install!` (the
+  `:rf.xray/image-view` sub + the L4 tab). The view renders only the FRAMES /
+  IMAGES section (§8); there is no realm or installed-app read.
 
 ## §8 FRAMES / IMAGES section — the EP-0023 public model (rf2-32siq3.12)
 
@@ -273,7 +176,7 @@ registration-disjoint from a target frame's image, AND
 image** via `rf/make-frame {:id … :images [(xray-image)]}` — true runtime
 self-seating in genuine registration ISOLATION (the seated frame resolves ONLY
 Xray's `:rf.xray/*` registrations plus the framework standards the assembly
-unions into every generation, not the shared default registrar). This is the
+unions into every generation, not the shared process registrar). This is the
 literal `(rf/make-frame {:id … :images [(xray-image)] …})` shape the EP names,
 and the production-singleton mount path (`mount/ensure-xray-frame!`) calls it for
 the `:rf/xray` frame.
@@ -284,9 +187,10 @@ EP-0023 OBJECT constructor and honours only the frame-creation opts (`:images` /
 `:id` / `:initial-db` / …), rejecting the record-config flag, so the gate is set
 directly through `re-frame.trace/set-frame-no-emit!` (the same canonical seam
 `reg-frame` routed it through) — asserted on every seat / re-seat. The seating is
-idempotent: `make-frame {:id …}` is fail-loud on a duplicate live `:id`, so a
-re-open / hot-reload / repeated testbed mount finds the frame already live
-(`xray-frame-seated?`) and skips the re-create, re-asserting only the gate.
+idempotent: `make-frame {:id …}` on a duplicate live `:id` is idempotent
+replacement (EP-0024, rf2-tu2vr7), so a re-open / hot-reload / repeated testbed
+mount finds the frame already live (`xray-frame-seated?`) and skips the
+re-create, re-asserting only the gate.
 
 **The test-namespace collision and its fix (rf2-rjml45).** Flipping the singleton
 exposed a selector-grain blocker: `xray-image`'s `day8.re-frame2-xray.**`
@@ -322,22 +226,18 @@ registrations. The inspector then saw only its own handlers / routes / resources
 the Routing panel rendered `currentId:null` with an empty route table (the
 `routes-epochs` nightly xray-feature-gate scenario), the palette listed only
 Xray's own handlers, the Static/Resources/Machines/Epoch panels lost the host
-registry. The node-test suite did NOT catch it (a frame-only / single-realm
-node-fixture path; the failure is browser-only). This is correct framework
-behaviour (a frame resolves its own image) and exactly the wrong thing for an
-INSPECTOR, which reads the registry of the INSPECTED app — the process-global
-DEFAULT-REALM registrar — not its own image's resolver. The fix is the
-`day8.re-frame2-xray.host-registry` helper: it reads the host registry via the
-internal substrate seam (`re-frame.realm/realm-registrations` /
-`re-frame.realm/realm-handler-meta` against the default realm), which resolves
-through the default realm's OWN registrar atom directly
-(`re-frame.realm/realm-registrar`), BYPASSING any bound `*generation*`. (The
-former public `(rf/registrations {:realm nil :kind k})` facade spelling was
-removed in rf2-10nggz — a registrar-query map is now ALWAYS a frame-targeted
-read — so the honestly-named internal seam is the generation-bypass home.)
-Every Xray host-registry read that happens
-inside a sub computation routes through it; view-time reads (no generation bound)
-are unaffected. With this in place the production singleton ships flipped and the
+registry. The node-test suite did NOT catch it (a frame-only node-fixture path;
+the failure is browser-only). This is correct framework behaviour (a frame
+resolves its own image) and exactly the wrong thing for an INSPECTOR, which reads
+the registry of the INSPECTED app — the **process-global registrar** — not its
+own image's resolver. The fix is the `day8.re-frame2-xray.host-registry` helper:
+it reads the process-global registrar atom
+(`re-frame.registrar/kind->id->metadata`) directly, BYPASSING any bound
+`*generation*`. (A registrar-query map is ALWAYS a frame-targeted read — there is
+no realm-scoped query spelling — so the generation-bypass home is the direct
+registrar-atom read.) Every Xray host-registry read that happens inside a sub
+computation routes through it; view-time reads (no generation bound) are
+unaffected. With this in place the production singleton ships flipped and the
 `routes-epochs` gate is green.
 
 Xray therefore models its registration set as a **separate image**, NOT as
@@ -394,10 +294,9 @@ the leak comparison — the assertion the .29 dogfooding review verifies.
 
 ### §8.2 Demand-gating & empty state
 
-The EP-0023 sections are demand-gated like the realm dimension. EP-0023's
-public model is OPT-IN over the retained EP-0013 substrate: a process that
-never calls `rf/make-frame` with `:images` has no image-loaded frames (no
-`frames` record carries a `:generation` — EP-0024, rf2-tu2vr7), so
+The EP-0023 sections are demand-gated. EP-0023's public model is OPT-IN: a
+process that never calls `rf/make-frame` with `:images` has no image-loaded
+frames (no `frames` record carries a `:generation` — EP-0024, rf2-tu2vr7), so
 `project-image-view` reports `:images?` false and the FRAMES section renders
 the calm **no-image caption** (`image_view_helpers/no-images-caption`) naming
 the `rf/image` / `rf/make-frame` remedy — the honest *not-using-images-yet*
@@ -430,7 +329,7 @@ does not flip `:images?` (there is no image content to show).
   `provenance-summary` · `image-row-summary` · `no-images-caption`);
   JVM-testable.
 - `panels/image_view_reads.cljs` — the READ-TIME fail-soft live read seam
-  (`live-frames` — now over `re-frame.live-frame/image-view-frames`, the EP-0024
+  (`live-frames` — over `re-frame.live-frame/image-view-frames`, the EP-0024
   one-registry read · `resolve-descriptor` · `image-view-data`) over the core
   surfaces (`re-frame.live-frame` / `re-frame.image` /
   `re-frame.image-assembly`), PLUS the Xray-as-its-own-image constructor +
@@ -472,27 +371,24 @@ does not flip `:images?` (there is no image content to show).
   production descriptor and assembles without a dup-id).
 - `host_registry.cljs` — the host-app registry read seam that survives Xray
   running in its OWN image-loaded frame (`registrations` · `handler-meta`). Reads
-  the process-global DEFAULT-REALM registrar via the internal substrate seam
-  (`re-frame.realm/realm-registrations` / `re-frame.realm/realm-handler-meta`
-  against the default realm), which resolves through the default realm's own
-  registrar atom directly, BYPASSING any bound `re-frame.registrar/*generation*`.
-  (The former public `(rf/registrations {:realm nil :kind k})` facade spelling
-  was removed in rf2-10nggz — a registrar-query map is now ALWAYS a frame-
-  targeted read.) Every Xray host-registry read INSIDE a sub
+  the process-global registrar atom (`re-frame.registrar/kind->id->metadata`)
+  directly, BYPASSING any bound `re-frame.registrar/*generation*`. (A
+  registrar-query map is ALWAYS a frame-targeted read — there is no realm-scoped
+  query spelling — so the generation-bypass home is the direct registrar-atom
+  read.) Every Xray host-registry read INSIDE a sub
   computation (the Routing route table, the palette handler index, the
   Static Flows / Interceptors / Schemas registries, the Resources registry, the
   Machine Inspector machine list + definitions, the Epoch pipeline's INTERCEPTORS
   + RECORDABLE COEFFECTS resolvers) routes through it — without it those reads
   resolve through Xray's OWN image generation (no host registrations) when the
-  singleton is image-loaded. Fail-soft: a core too old for the map-shaped form
-  degrades to the bare `(rf/registrations kind)` / `(rf/handler-meta kind id)`.
+  singleton is image-loaded. Fail-soft: a throw degrades to the bare
+  `(rf/registrations kind)` / `(rf/handler-meta kind id)` facade reads.
 - `mount.cljs/ensure-xray-frame!` — seats the production singleton in its OWN
   image-loaded frame via `image_view_reads/seat-xray-frame!` (`seat-xray-frame!
-  :rf/xray` → `rf/make-frame {:id :rf/xray :images [(xray-image)]}`), replacing
-  the legacy realm seating (`reg-frame {:rf.trace/frame-no-emit? true}`). The
-  dup-id blocker is resolved by the `:exclude-ns` selector on `xray-image` (§8.1),
-  and the host-registry read regression under image-loaded seating is resolved by
-  `host_registry.cljs` (the realm-targeted, generation-bypassing reads above);
+  :rf/xray` → `rf/make-frame {:id :rf/xray :images [(xray-image)]}`). The dup-id
+  blocker is resolved by the `:exclude-ns` selector on `xray-image` (§8.1), and
+  the host-registry read regression under image-loaded seating is resolved by
+  `host_registry.cljs` (the generation-bypassing process-registrar reads above);
   both node-test and the `routes-epochs` nightly xray-feature-gate are green with
   the flip. The runtime-reset test fixture
   (`re-frame.test-support/make-reset-runtime-fixture`) clears the ONE
@@ -500,8 +396,9 @@ does not flip `:images?` (there is no image content to show).
   dissolved into it; an image-loaded frame is a record carrying a `:generation`),
   so a frame seated via `make-frame {:id …}` in one test does not leak into the
   next.
-- `panels/module_view.cljs` — extended with the FRAMES section (`frame-row` ·
-  `descriptor-rows` · `frames-section-body`) + the `:rf.xray/image-view` sub.
+- `panels/module_view.cljs` — renders the FRAMES section (`frame-row` ·
+  `descriptor-rows` · `frames-section-body`) + registers the `:rf.xray/image-view`
+  sub.
 - Tests: `panels/image_view_helpers_cljs_test.cljc` (the generation/image
   projection, the frame-row shape, the frame-derived resolution — same id /
   different image → different descriptor, the demand-gated `:images?`

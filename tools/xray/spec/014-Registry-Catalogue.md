@@ -563,24 +563,24 @@ remain deferred.)
 | `:rf.xray/set-registered-machines-override-for-test` | `[_ ov]` | Test-only override hook. |
 | `:rf.xray/set-machine-snapshots-override-for-test` | `[_ ov]` | Test-only override hook. |
 
-## Module-view tab (EP-0013 substrate + EP-0023 image/frame model)
+## Module-view tab (EP-0023 image/frame model)
 
 Spec: [`026-Module-View-Panel.md`](./026-Module-View-Panel.md). The cohesive
 home for runtime-structure inspection: the EP-0023 `image -> frame` PUBLIC
-model (the FRAMES/IMAGES section, §8) plus the retained EP-0013 `(realm,
-frame)` / module substrate (the REALMS + MODULES sections, §3/§4). A BROWSE
-surface (registry-wide, not event-coupled) — read-only, dispatches nothing.
+model (the FRAMES/IMAGES section, §8). A BROWSE surface (registry-wide, not
+event-coupled) — read-only, dispatches nothing. (The retired EP-0013 `(realm,
+frame)` / module substrate this tab once also surfaced — the REALMS + MODULES
+sections — was deleted in full; there is no `re-frame.realm` namespace.)
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/module-view` | Composite — the EP-0013 `(realm, frame)` address space + per-module provenance. Reads the internal substrate seams `re-frame.realm/realm-ids` · `re-frame.frame/frame-realm` · `re-frame.realm/installed-app` directly off their owning namespaces, plus the retained-public `rf/frame-ids`, at recompute; projects via `module_view_helpers/project-module-view`. (rf2-wtg9z4 / rf2-at0oen; EP-0023 retained the realm family as internal installation substrate and removed the `rf/*` realm facade arities — pl97nd.2.) |
 | `:rf.xray/image-view` | Composite — the EP-0023 `image -> frame` model (rf2-32siq3.12). `{:frames [<frame-row> …] :frame-count :images?}` over the image-loaded frames: each as an execution context carrying its resolved image (the generation's `[kind id]` descriptors + per-descriptor provenance). EP-0024 (rf2-tu2vr7): the registries collapsed — an image-loaded frame is a single `re-frame.frame/frames` record carrying a `:generation`; the read goes through `re-frame.live-frame/image-view-frames` (which projects each such record into an inert frame view) + sealed generations (`re-frame.image-assembly/resolve-descriptor`) via the fail-soft `image_view_reads` seam; projects via `image_view_helpers/project-image-view`. `:images?` false → the no-image caption (the image/frame model is opt-in). Xray inspects the target frame as DATA here; Xray's OWN image (`image_view_reads/xray-image`) is a separate registration set that never mixes with a target frame's image (EP-0023 §Xray Beside The Target). |
 
-Both subs are L4-tab-internal — `module_view.cljs` registers no panel-internal
+This sub is L4-tab-internal — `module_view.cljs` registers no panel-internal
 events (a browse surface). The tab is registered via `reg-l4-tab!` (id
-`:module-view`, label **"Modules"**), so it is NOT in `panel_enum.cljc`.
+`:module-view`, label **"Frames"**), so it is NOT in `panel_enum.cljc`.
 
 ## Static mode
 
@@ -593,15 +593,15 @@ was removed). The mode pill mounts at ribbon-left, `Cmd-Shift-M` /
 selected mode + sub-tab persist to localStorage. Per rf2-o5f5f.1 +
 rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
-**Realm-awareness (rf2-dfaey7 · a15n62).** The static browse panels qualify
-their registrations by realm via the shared `static/shared/realm.cljs`
-helper (`realm-qualified-registrations` / `realm-of` / `cross-realm-ids` /
-`realm-badge`) — see [`007-UX-IA.md`](./007-UX-IA.md) §EP-0013
-realm-awareness. The named first consumer is the Static Interceptors sub-tab,
-which adds the `:rf.xray.static.interceptors/realm-pairs` sub (the
-realm-qualified `:event` pairs feeding `tab-data`). Single-realm hosts read
-the default-realm path and render byte-identically; the realm dimension
-materialises only when >1 realm is installed.
+**Process-registrar browse.** The static browse panels read their
+registrations off the process-global registrar via
+`host-registry/registrations` (the generation-bypassing read — see
+[`026`](./026-Module-View-Panel.md) §8.4 and [`007-UX-IA.md`](./007-UX-IA.md)
+§Runtime-structure awareness). There is no realm dimension to qualify by: a
+registration belongs to the process registrar, full stop. The former
+realm-qualified browse (`static/shared/realm.cljs` and the Static Interceptors
+`:rf.xray.static.interceptors/realm-pairs` sub) was removed with the realm
+substrate.
 
 ### Subscriptions
 
