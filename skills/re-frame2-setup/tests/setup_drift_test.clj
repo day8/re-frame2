@@ -872,7 +872,11 @@
   (testing "first-counter.md + entry-namespace.md seed via dispatch-sync under with-frame, not :on-create"
     (doseq [[label body] [["first-counter.md" @first-counter-md]
                           ["entry-namespace.md" @entry-namespace-md]]]
-      (is (re-find #"with-frame[^\n]*\n[^\n]*dispatch-sync\s+\[:(counter|your-app)/initialise\]"
+      ;; `with-frame` opens the seed scope; the seed dispatch-sync follows on a
+      ;; later line. A frame-local `(register-schema!)` attach MAY sit between
+      ;; them (it shares the same `with-frame` scope — see first-counter.md
+      ;; §Schema), so tolerate a few intervening body lines, not exactly one.
+      (is (re-find #"with-frame[^\n]*(?:\n[^\n]*){0,4}?dispatch-sync\s+\[:(counter|your-app)/initialise\]"
                    body)
           (str label " no longer seeds the manual counter via "
                "`(rf/with-frame ... (rf/dispatch-sync [...initialise]))`. The "
