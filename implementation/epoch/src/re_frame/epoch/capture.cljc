@@ -115,13 +115,13 @@
 ;; render and a reactive sub-run it fires post-settle (no in-flight cascade
 ;; for its frame) and carries a `:frame` tag but NO `:rf.trace/dispatch-id`.
 ;;
-;; Pre-rf2-59hx3 it fell through to the orphan-drop branch below (no
-;; in-flight cascade AND no `:dispatch-id`) and was SILENTLY DROPPED — so a
-;; view unmount produced NO signal anywhere in the epoch record, and Xray's
-;; VIEWS-step `unmounted-views-rows` (which reads it off `:trace-events`)
-;; had nothing to surface. The teardown was an invisible absence.
+;; With no in-flight cascade AND no `:dispatch-id`, it would otherwise fall
+;; through the orphan-drop branch below and leave a view unmount with NO
+;; signal anywhere in the epoch record — so Xray's VIEWS-step
+;; `unmounted-views-rows` (which reads it off `:trace-events`) would have
+;; nothing to surface.
 ;;
-;; The fix attributes it through the SAME post-settle back-fill mechanism
+;; Instead it is attributed through the SAME post-settle back-fill mechanism
 ;; renders + sub-runs use (no parallel correlate-by-render-key path): it is
 ;; back-filled into the cascade that CAUSED the teardown — the frame's
 ;; most-recently-settled epoch — via the `:epoch/record-unmount!` hook. The
@@ -187,18 +187,18 @@
   no in-flight cascade is back-filled into the causing epoch via the
   `:epoch/record-sub-run!` hook (sibling of `:epoch/record-render!`). An
   in-flight sub-run (a handler that subscribes, an SSR render) belongs to
-  the in-flight cascade and is buffered as before.
+  the in-flight cascade and is buffered like any other in-flight emit.
 
   Per rf2-59hx3: the same post-settle timing applies to a view UNMOUNT
   (`:rf.view/unmounted`) — it fires at React teardown time, AFTER the
-  cascade that removed the view settled. Pre-fix it fell through to the
-  orphan-drop branch (no in-flight cascade + no `:dispatch-id`) and was
-  silently dropped, so a view teardown produced no signal. It is now
-  back-filled into the causing cascade (the most-recently-settled epoch)
-  via the `:epoch/record-unmount!` hook (sibling of the two above), where
-  it rides the epoch's `:trace-events` so Xray's VIEWS step can surface it.
-  An in-flight unmount (a synchronous teardown inside a drain) belongs to
-  that cascade and is buffered as before."
+  cascade that removed the view settled. With no in-flight cascade and no
+  `:dispatch-id` it would otherwise fall through the orphan-drop branch and
+  leave a view teardown with no signal, so it is back-filled into the
+  causing cascade (the most-recently-settled epoch) via the
+  `:epoch/record-unmount!` hook (sibling of the two above), where it rides
+  the epoch's `:trace-events` so Xray's VIEWS step can surface it. An
+  in-flight unmount (a synchronous teardown inside a drain) belongs to that
+  cascade and is buffered like any other in-flight emit."
   [event]
   (when interop/debug-enabled?
     (let [op       (:operation event)
@@ -247,8 +247,8 @@
           ;; A `:rf.view/unmounted` fires at React teardown time, AFTER the
           ;; cascade that removed the view settled, so it carries a `:frame`
           ;; tag but no `:dispatch-id` and arrives with an empty buffer.
-          ;; Pre-fix it hit the orphan-drop branch below and was silently
-          ;; dropped — the view teardown was an invisible absence. Back-fill
+          ;; Without this arm it would hit the orphan-drop branch below and
+          ;; leave the view teardown unrecorded. Back-fill
           ;; it into the causing cascade (the most-recently-settled epoch)
           ;; via `:epoch/record-unmount!` so it lands in that epoch's
           ;; `:trace-events`, where Xray's VIEWS-step `unmounted-views-rows`
@@ -273,12 +273,10 @@
           ;; listener fan-out (those run independently of this capture seam);
           ;; only the epoch-record capture buffer skips it.
           ;;
-          ;; Pre-rf2-avvwm such an orphan was buffered, then the NEXT
-          ;; dequeued event's harvest vacuumed it in as the first
-          ;; `:trace-events` entry (the per-event-epoch boundary from
-          ;; rf2-nj6p7 left it stranded; the post-settle render/sub-run
-          ;; branches above already gate on the same `in-flight-cascade?`
-          ;; signal — this is the third out-of-cascade emit class).
+          ;; This is the third out-of-cascade emit class: the post-settle
+          ;; render/sub-run branches above gate on the same
+          ;; `in-flight-cascade?` signal, and an orphan emit with no cascade
+          ;; in flight is left uncorrelated here.
           ;;
           ;; A `:dispatch-id`-bearing emit is ALWAYS buffered even when no
           ;; cascade is in flight for THIS frame at the instant of the emit:
@@ -417,9 +415,8 @@
 ;; post-settle back-fill in `re-frame.epoch.listeners` (which projects a
 ;; single late-arriving event into the same row shape). Keeping the row
 ;; literal in ONE place means a future field added to the `:sub/run` /
-;; `:view/render` projection lands on both surfaces automatically — the
-;; rf2-ee38b clarity review flagged the prior verbatim duplication as a
-;; lockstep maintenance hazard.
+;; `:view/render` projection lands on both surfaces automatically, avoiding
+;; a lockstep maintenance hazard across two duplicate row literals.
 
 (defn sub-run-row
   "Project a `:rf.sub/run` trace event into its structured `:sub-runs`
@@ -544,11 +541,11 @@
   `{:sub-runs <v> :renders <v> :effects <v>}` with each value a
   persistent vector built via transient accumulators.
 
-  Per rf2-ecu37 (audit rf2-fzrav §M1): the prior shape was three
-  independent `into []` transducer walks of the same buffer — for an
-  N-event cascade that's 3·N operation reads where N suffice. The
-  fused reducer mirrors `find-trigger-event`'s style (rf2-txrq9):
-  one traversal, multiple accumulators, single allocation budget.
+  Fusing the three projections into one reducer pass keeps the buffer walk
+  to N operation reads for an N-event cascade (three independent `into []`
+  transducer walks would cost 3·N). Mirrors `find-trigger-event`'s style
+  (rf2-txrq9): one traversal, multiple accumulators, single allocation
+  budget.
 
   Per-projection contracts preserved verbatim (no schema change):
 
@@ -678,16 +675,14 @@
   must NOT depend on `:trace-events` (which `:trace-events-keep` elides
   on older records and the post-settle reactive back-fill pads with
   nil-`:dispatch-id` events). Xray's `:rf.xray/focus` epoch-id
-  correlation walks this slot; pre-rf2-rly4a it walked `:trace-events`
-  tags, which returned nil whenever the focused cascade's epoch had its
-  raw stream elided — starving the epoch-scoped Views + Trace panels.
+  correlation walks this slot rather than `:trace-events` tags, which
+  return nil whenever the focused cascade's epoch has its raw stream
+  elided — that would starve the epoch-scoped Views + Trace panels.
 
-  Per rf2-txrq9: single-walk reduction over `events` — the original
-  two-pass `or`-of-`some` reordered both walks across the buffer
-  on the degenerate path. We accumulate the first `:event/run-start`,
-  the first fallback `:event-id`, AND (rf2-cheez6.1, below) the
-  cascade's mid-drain machine-minted generator facts in one traversal
-  and prefer the run-start.
+  Per rf2-txrq9: single-walk reduction over `events`. We accumulate the
+  first `:event/run-start`, the first fallback `:event-id`, AND
+  (rf2-cheez6.1, below) the cascade's mid-drain machine-minted generator
+  facts in one traversal and prefer the run-start.
 
   Per rf2-cheez6.1 / rf2-08br0v — augment the run-start's `:rf.cofx`
   replay token with generator facts MINTED MID-DRAIN. The run-start
@@ -699,10 +694,10 @@
   `ensure-raised-cofx` in-drain for a raise-selected guard), AFTER
   run-start was emitted, and are written onto the engine-local machine
   def — they never flow back to the ctx coeffects the run-start read.
-  So the pre-fix token carried only externally-supplied facts, and a
-  `:strict` replay (mint-policy-aware, rf2-n0myjq) of a machine decision
-  gated on such a fact diverged: the missing fact → missing-required
-  while the live run minted a value.
+  Without this merge the token would carry only externally-supplied facts,
+  and a `:strict` replay (mint-policy-aware, rf2-n0myjq) of a machine
+  decision gated on such a fact would diverge: the missing fact →
+  missing-required while the live run minted a value.
 
   Every actual recordable mint — pre-handler in `assemble-initial-ctx`
   AND mid-drain in the machine ensure steps — emits a dev-only
@@ -734,8 +729,8 @@
             (let [op   (:operation ev)
                   tags (:tags ev)]
               (cond
-                ;; run-start beats the fallback. We DO NOT short-circuit
-                ;; (the prior `reduced`): the cascade's `:rf.cofx/generated`
+                ;; run-start beats the fallback. We DO NOT short-circuit:
+                ;; the cascade's `:rf.cofx/generated`
                 ;; mint traces fire AFTER run-start, so the walk must
                 ;; continue to gather them (below). A second run-start for
                 ;; the same buffer is impossible (one per cascade), so the
@@ -777,11 +772,11 @@
                 ;; `:event/run-start` tag … absent when the cascade carried
                 ;; no dispatch-id (rejected dispatch / pre-run-start halt)"
                 ;; — the strictly-spec shape for a no-run-start cascade is
-                ;; ABSENT. The prior fallback could surface the dispatch-id
+                ;; ABSENT. Pinning `:dispatch-id` here would surface the id
                 ;; of an arbitrary non-run-start trace (e.g. an error trace
-                ;; from a rejected dispatch), which the run-start arm
-                ;; (rf2-rly4a) is the canonical source for. Only the
-                ;; run-start arm above pins `:dispatch-id`.
+                ;; from a rejected dispatch); the run-start arm (rf2-rly4a)
+                ;; is the canonical source for it, so only that arm above
+                ;; pins `:dispatch-id`.
                 (and (nil? (:fallback acc)) (some? (:rf.trace/event-id tags)))
                 (assoc acc :fallback {:event-id (:rf.trace/event-id tags)
                                       :event    (:rf.event/v tags)})

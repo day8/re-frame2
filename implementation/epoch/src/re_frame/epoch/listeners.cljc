@@ -141,9 +141,9 @@
                          frame-id target render-key))
           ;; EP-0015 §15 + open-issue 6 (RULED, hardened): the back-fill
           ;; appends the RAW render event (to `:trace-events`) + the RAW
-          ;; projected row (to `:renders`). Storage-side redaction was
-          ;; REMOVED — the ring is causal replay material; the `:redact-fn`
-          ;; advanced override runs projection-side only, inside
+          ;; projected row (to `:renders`). The ring is causal replay
+          ;; material, so it stays raw; the `:redact-fn` advanced override
+          ;; runs projection-side only, inside
           ;; `projected-record`, so the off-box egress (Xray-MCP
           ;; `watch-epochs`, recorders) sees the redacted shape while the
           ;; ring + this listener fan-out deliver the raw record. No
@@ -201,12 +201,11 @@
   `useEffect`-cleanup time — AFTER the cascade that removed the view settled
   — so it cannot ride the in-flight cascade buffer (there is none).
 
-  Pre-rf2-59hx3 the unmount fell through `capture-event!`'s orphan-drop
-  branch (no in-flight cascade + no `:dispatch-id`) and was silently
-  dropped, so a view teardown produced NO signal in the epoch record and
-  Xray's VIEWS-step `unmounted-views-rows` — which reads `:rf.view/unmounted`
-  off `:trace-events` — had nothing to surface. The teardown was an
-  invisible absence.
+  With no in-flight cascade and no `:dispatch-id`, the unmount would
+  otherwise fall through `capture-event!`'s orphan-drop branch and leave
+  no signal in the epoch record — so Xray's VIEWS-step
+  `unmounted-views-rows`, which reads `:rf.view/unmounted` off
+  `:trace-events`, would have nothing to surface.
 
   This back-fills the unmount into the frame's most-recently-settled epoch
   (the cascade that drove the teardown). Unlike `record-render!` there is NO
@@ -281,7 +280,7 @@
        conforms the record to Spec-Schemas §`:rf/epoch-record` §Outcomes,
        which documents `:halted-destroy` as carrying the pre-cascade
        snapshot as `:frame-state-before` and the destroy-time/partial state
-       as `:frame-state-after` — NOT the prior nil / nil. The record is delivered
+       as `:frame-state-after`. The record is delivered
        to LISTENERS ONLY — it is NOT appended to the ring buffer, because
        step 3 drops the destroyed frame's ring and `(rf/epoch-history
        destroyed)` returns `[]` per the rf2-d656 read-empty contract.
@@ -334,8 +333,8 @@
     ;; mid-drain case. Per rf2-9neiq the `:db-before` / `:db-after`
     ;; slots carry the real pre-cascade + destroy-time snapshots
     ;; `destroy-frame!` threaded (captured before the container was
-    ;; torn down), so the record matches the documented contract rather
-    ;; than the prior nil / nil. The record is delivered to listeners
+    ;; torn down), so the record matches the documented contract. The
+    ;; record is delivered to listeners
     ;; only — the ring buffer gets dropped in step 3 (rf2-d656).
     ;; Mid-drain detection reuses the canonical
     ;; `capture/in-flight-cascade?` gate (the same predicate the
@@ -347,9 +346,9 @@
         ;; Per EP-0015 §15 + open-issue 6 (RULED, hardened): the
         ;; halted-destroy partial record is delivered RAW to listeners
         ;; (the same posture as the :ok / :halted-depth ring records).
-        ;; Storage-side redaction was REMOVED — epoch records are causal
-        ;; replay material; the `:redact-fn` advanced override runs
-        ;; projection-side only, inside `projected-record`. A listener
+        ;; Epoch records are causal replay material, so they stay raw; the
+        ;; `:redact-fn` advanced override runs projection-side only, inside
+        ;; `projected-record`. A listener
         ;; that forwards off-box projects at its egress boundary.
         (let [record (assembly/build-record frame-id fs-before fs-after buffered-events
                                             committed-at
