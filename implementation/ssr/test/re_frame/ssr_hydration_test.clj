@@ -858,6 +858,67 @@
             (is (= :some/other-frame (-> mismatch :tags :payload-frame-id))
                 ":payload-frame-id is the payload's (server) frame stamp")))))))
 
+;; ===========================================================================
+;; rf2-7qbxbm / rf2-mrtis6 census B5 — the always-on corpus leg of the
+;; frame-id-mismatch rejection routes the UNTRUSTED deserialised
+;; :payload-frame-id through project-egress, so a frame that declares it
+;; sensitive does NOT ship it raw to off-box corpus listeners (Sentry /
+;; Datadog). The dev trace (DCE'd in production) keeps the raw value.
+;; ===========================================================================
+
+(deftest mismatch-always-on-record-redacts-sensitive-payload-frame-id
+  (testing "rf2-7qbxbm/B5: when the rejected frame declares the
+            :payload-frame-id path :sensitive, the ALWAYS-ON corpus record
+            (the production-surviving off-box-shipper leg) carries the value
+            REDACTED — it routes through project-egress — even though the dev
+            trace keeps it raw. The sensitive deserialised payload value never
+            fans out to a corpus listener raw."
+    (register-baseline-handlers!)
+    (let [;; the rejected client frame declares the untrusted payload slot
+          ;; :sensitive — so project-egress redacts it on the off-box leg.
+          client-frame (frame/make-anon-frame-record!
+                         {:doc       "B5 sensitive payload-frame-id client"
+                          :platform  :client
+                          :sensitive {:app-db [[:payload-frame-id]]}})
+          ;; the corpus-listener stand-in (the off-box shipper) records the
+          ;; ALWAYS-ON union record.
+          corpus       (atom [])
+          _            (rf/register-listener! :errors ::b5-corpus
+                         (fn [record] (swap! corpus conj record)))
+          payload      {:rf/frame-id    :secret/other-frame
+                        :rf/app-db      {:count 42}
+                        :rf/render-hash "deadbeef"}
+          dev-traces   (capture-traces!
+                         (fn []
+                           (rf/dispatch-sync [:rf/hydrate payload]
+                                             {:frame client-frame})))]
+      (try
+        (let [record   (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                          (:error %))
+                                      @corpus))
+              dev-trace (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                           (:operation %))
+                                       dev-traces))]
+          (is (some? record)
+              (str "the frame-id-mismatch fanned out on the ALWAYS-ON axis; "
+                   "saw: " (pr-str (mapv :error @corpus))))
+          (when record
+            (testing "the ALWAYS-ON corpus record redacts the untrusted payload value"
+              (is (= :rf/redacted (:payload-frame-id record))
+                  (str ":payload-frame-id is redacted on the always-on record "
+                       "(routed through project-egress); got "
+                       (pr-str (:payload-frame-id record))))
+              (is (not= :secret/other-frame (:payload-frame-id record))
+                  "the raw deserialised payload frame-id does NOT ride the corpus record")
+              (is (not (re-find #"secret/other-frame" (pr-str record)))
+                  "no raw :secret/other-frame value survives anywhere in the corpus record")))
+          (when dev-trace
+            (testing "the dev trace (DCE'd in production) keeps the raw value for local fidelity"
+              (is (= :secret/other-frame (-> dev-trace :tags :payload-frame-id))
+                  "the dev-trace tags carry the raw payload frame-id (the leak is off-box, not local)"))))
+        (finally
+          (rf/unregister-listener! :errors ::b5-corpus))))))
+
 (deftest direct-dispatch-matching-frame-id-hydrates-normally
   (testing "rf2-nv3mua: a direct dispatch whose :rf/frame-id MATCHES the
             dispatch target installs the slice normally (the validation is
