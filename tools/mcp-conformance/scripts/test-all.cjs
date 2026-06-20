@@ -42,6 +42,16 @@ const ROOT = path.resolve(HERE, '..');
 // server. SKIP-by-default tests (live-re-frame2-pair-overflow) live near
 // the end so a green run reads as "real conformance passed, one
 // gracefully skipped".
+//
+// This array is the SINGLE SOURCE OF TRUTH for the conformance
+// inventory. It is exported (see the bottom of this file) so derived
+// runners can select a subset without re-listing — notably
+// `scripts/test-unit.cjs`, which runs the pure-Node unit cluster
+// (every row whose `argv[0] === '--test'`) in one `node --test`
+// invocation for the PR CI Node-regression gate (rf2-md05gp). Because
+// that runner DERIVES its set from this array, a new `--test` row added
+// here is automatically picked up by PR CI — no second list to keep in
+// sync.
 const TESTS = [
   {
     name: 'exec-safety unit tests',
@@ -118,45 +128,59 @@ function banner(line) {
   process.stdout.write('\n' + sep + '\n' + line + '\n' + sep + '\n');
 }
 
-const results = [];
-let firstFailure = null;
+function main() {
+  const results = [];
+  let firstFailure = null;
 
-for (const test of TESTS) {
-  banner('▶ ' + test.name + '\n  ' + test.argv.join(' '));
-  // `process.execPath` is always absolute; `spawnSync` inherits stdio
-  // so the child's stdout/stderr stream through verbatim (matching
-  // every historical caller's posture). `shell: false` keeps the
-  // accident-gating from the lib/exec-safety.cjs preamble: no
-  // shell-interpolation of test names.
-  const child = spawnSync(process.execPath, test.argv, {
-    cwd: ROOT,
-    stdio: 'inherit',
-    env: process.env,
-  });
-  const status = child.status === null ? 'signal:' + child.signal : child.status;
-  results.push({ name: test.name, status });
-  if (child.status !== 0 && firstFailure === null) {
-    firstFailure = { test: test.name, status: child.status, signal: child.signal };
-    break;
+  for (const test of TESTS) {
+    banner('▶ ' + test.name + '\n  ' + test.argv.join(' '));
+    // `process.execPath` is always absolute; `spawnSync` inherits stdio
+    // so the child's stdout/stderr stream through verbatim (matching
+    // every historical caller's posture). `shell: false` keeps the
+    // accident-gating from the lib/exec-safety.cjs preamble: no
+    // shell-interpolation of test names.
+    const child = spawnSync(process.execPath, test.argv, {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: process.env,
+    });
+    const status = child.status === null ? 'signal:' + child.signal : child.status;
+    results.push({ name: test.name, status });
+    if (child.status !== 0 && firstFailure === null) {
+      firstFailure = { test: test.name, status: child.status, signal: child.signal };
+      break;
+    }
   }
+
+  banner('mcp-conformance summary');
+  for (const r of results) {
+    const tick = r.status === 0 ? 'OK  ' : 'FAIL';
+    process.stdout.write(`  [${tick}] ${r.name} (exit=${r.status})\n`);
+  }
+
+  if (firstFailure) {
+    process.stdout.write(
+      `\nFAIL: ${firstFailure.test} exited ${firstFailure.status}` +
+        (firstFailure.signal ? ' (signal ' + firstFailure.signal + ')' : '') +
+        '\n',
+    );
+    // Forward the inner exit code verbatim. `null` (signal-terminated)
+    // becomes 1 so the parent shell still sees a non-zero exit.
+    process.exit(firstFailure.status === null ? 1 : firstFailure.status);
+  }
+
+  process.stdout.write('\nALL CONFORMANCE TESTS GREEN\n');
+  process.exit(0);
 }
 
-banner('mcp-conformance summary');
-for (const r of results) {
-  const tick = r.status === 0 ? 'OK  ' : 'FAIL';
-  process.stdout.write(`  [${tick}] ${r.name} (exit=${r.status})\n`);
-}
+// Export the authoritative inventory so derived runners (e.g.
+// `scripts/test-unit.cjs`) can select a subset without re-listing.
+// `ROOT` rides along so a derived runner resolves test paths against the
+// same artefact root. The orchestrator only auto-runs when invoked
+// directly (`node scripts/test-all.cjs` / `npm test`), not when required
+// as a module — so importing this file has no side effects.
+module.exports = { TESTS, ROOT };
 
-if (firstFailure) {
-  process.stdout.write(
-    `\nFAIL: ${firstFailure.test} exited ${firstFailure.status}` +
-      (firstFailure.signal ? ' (signal ' + firstFailure.signal + ')' : '') +
-      '\n',
-  );
-  // Forward the inner exit code verbatim. `null` (signal-terminated)
-  // becomes 1 so the parent shell still sees a non-zero exit.
-  process.exit(firstFailure.status === null ? 1 : firstFailure.status);
+if (require.main === module) {
+  main();
 }
-
-process.stdout.write('\nALL CONFORMANCE TESTS GREEN\n');
-process.exit(0);

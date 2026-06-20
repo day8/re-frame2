@@ -2743,13 +2743,23 @@ jobs:
       - name: Install mcp-conformance deps
         run: npm ci
 
-      # exec-safety helpers (rf2-33vvc): unit-test the
-      # trusted-PATH-resolution + symlink-safe-unlink helpers that the
-      # hermetic orchestrator + story-mcp harness route through. The
-      # symlink-rejection branches need a runner that allows symlinkSync
-      # — Ubuntu GHA does; Windows would soft-skip them.
-      - name: Run mcp-conformance exec-safety unit tests
-        run: npm run test:exec-safety
+      # Node unit-regression cluster (rf2-md05gp). Runs the FULL pure-Node
+      # unit set from the authoritative inventory in `scripts/test-all.cjs`
+      # — every `node --test` row: exec-safety (rf2-33vvc, the
+      # trusted-PATH-resolution + symlink-safe-unlink helpers), the runner
+      # watchdog teardown, the awaited hermetic cleanup, the bounded
+      # setup-command timeout, the symlink-safe port-file read, the
+      # dedup-envelope decoder, and the call-coverage / classification
+      # ratchets. These are the harness's OWN regression nets; pre-rf2-md05gp
+      # only exec-safety ran in CI, so a regression in the other seven could
+      # ship green. `test:unit` DERIVES its set from `test-all.cjs` (the
+      # single source of truth), so a new `node --test` row is picked up
+      # automatically — no second list to drift. Boots no server / nREPL /
+      # clojure / Chromium; whole cluster is ~2-5s. The symlink-rejection
+      # branches need a runner that allows symlinkSync — Ubuntu GHA does;
+      # Windows would soft-skip them (so they run for real here).
+      - name: Run mcp-conformance Node unit-regression cluster
+        run: npm run test:unit
 
       - name: Run re-frame2-pair-mcp end-to-end MCP-client conformance
         run: npm run test:re-frame2-pair
