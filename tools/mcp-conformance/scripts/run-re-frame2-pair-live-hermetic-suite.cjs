@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 /*
- * Hermetic orchestrator for the live-re-frame2-pair-overflow conformance test
+ * Hermetic orchestrator for the re-frame2-pair LIVE conformance SUITE
  * (rf2-uw6d6, follow-on from rf2-ynaoc).
  *
- * The sibling test (`test/live-re-frame2-pair-overflow.cjs`) is gated on
- * $SHADOW_CLJS_NREPL_PORT. Without that env var it exits 0 with a SKIP
- * marker because the re-frame2-pair-mcp server runs degraded — no real eval, no
- * cap-trigger, no overflow marker.
+ * This is the CI entry point for the WHOLE hermetic live suite — it runs
+ * EVERY live inner test in the `INNER_TESTS` inventory (see ~:200), not
+ * just the overflow gate. Overflow is one member of that inventory
+ * alongside subscribe/progress, redaction, isError, EP-0017 cofx, and
+ * EP-0018 event-metadata. The runner is named for the suite, not for the
+ * overflow gate, so test selection / CI triage / future conformance work
+ * find a suite-shaped name.
+ *
+ * Each live inner test (e.g. `test/live-re-frame2-pair-overflow.cjs`) is
+ * gated on $SHADOW_CLJS_NREPL_PORT. Without that env var it exits 0 with
+ * a SKIP marker because the re-frame2-pair-mcp server runs degraded — no
+ * real eval, no cap-trigger, no overflow marker.
  *
  * This script makes the live path *actually* fire on CI by:
  *

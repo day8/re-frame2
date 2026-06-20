@@ -80,7 +80,7 @@
 // and `dispatch` / `handler-meta` / `list-handlers` return the
 // `:nrepl-port-not-found` envelope, so the EP-0017 surface is unreachable.
 // The hermetic orchestrator
-// (`scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`) boots
+// (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`) boots
 // shadow-cljs + Chromium against `skills/re-frame2-pair/tests/fixture/`
 // and wires the env so this gate fires on CI.
 

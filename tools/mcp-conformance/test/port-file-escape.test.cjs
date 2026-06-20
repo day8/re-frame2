@@ -7,7 +7,7 @@
 //
 // ## The bug this pins
 //
-// `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` wipes stale
+// `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` wipes stale
 // nREPL port files through `safeUnlinkInside`, which CORRECTLY refuses
 // (throws) when a candidate (or its parent dir) is a symlink whose
 // realpath escapes FIXTURE_DIR. Pre-fix, the cleanup logged that refusal
@@ -52,7 +52,7 @@ const ORCH = path.join(
   __dirname,
   '..',
   'scripts',
-  'run-live-re-frame2-pair-overflow-hermetic.cjs',
+  'run-re-frame2-pair-live-hermetic-suite.cjs',
 );
 
 // Requiring is side-effect-free: the orchestrator guards its auto-run

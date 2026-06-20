@@ -2820,14 +2820,14 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # rf2-e6enf — backstop the orchestrator's own internal watchdog
-      # (HERMETIC_TIMEOUT_MS = 9 min in run-live-re-frame2-pair-overflow-hermetic.cjs,
+      # (HERMETIC_TIMEOUT_MS = 9 min in run-re-frame2-pair-live-hermetic-suite.cjs,
       # which `process.exit(2)`s on elapse). 12 min leaves margin for the
       # process-tree teardown after that watchdog fires, so a wedged
       # shadow-cljs JVM or orphaned Chromium can't hold the step open past
       # the orchestrator's own cap.
-      - name: Run re-frame2-pair-mcp live-overflow conformance (HERMETIC — spawns shadow-cljs)
+      - name: Run re-frame2-pair-mcp live conformance suite (HERMETIC — spawns shadow-cljs)
         timeout-minutes: 12
-        run: npm run test:re-frame2-pair-live-overflow-hermetic
+        run: npm run test:re-frame2-pair-live-hermetic-suite
 
   mcp-conformance-story:
     name: MCP conformance tools/story-mcp (rf2-cum40)

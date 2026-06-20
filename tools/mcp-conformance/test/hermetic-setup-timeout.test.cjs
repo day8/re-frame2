@@ -14,7 +14,7 @@
 //
 // ## The bug this pins
 //
-// `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` installs a
+// `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` installs a
 // `HERMETIC_TIMEOUT_MS` `setTimeout` watchdog meant to bound the WHOLE run.
 // But the fixture dependency setup (`npm install`) ran through
 // `crossSpawn.sync` in `runTrusted` — a SYNCHRONOUS spawn that blocks the
@@ -60,7 +60,7 @@ const ORCH = path.join(
   __dirname,
   '..',
   'scripts',
-  'run-live-re-frame2-pair-overflow-hermetic.cjs',
+  'run-re-frame2-pair-live-hermetic-suite.cjs',
 );
 
 // Shrink the per-command cap AND the post-SIGTERM SIGKILL grace BEFORE

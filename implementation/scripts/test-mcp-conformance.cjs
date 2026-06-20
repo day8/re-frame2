@@ -39,11 +39,11 @@
  * The hermetic live conformance gate (which boots shadow-cljs + Playwright
  * Chromium against `skills/re-frame2-pair/tests/fixture/` and runs the
  * SKIP-gated live probes against it — its `INNER_TESTS` array in
- * `tools/mcp-conformance/scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`
+ * `tools/mcp-conformance/scripts/run-re-frame2-pair-live-hermetic-suite.cjs`
  * is the authoritative list) is intentionally NOT chained here. That gate
  * lives in CI's `mcp-conformance-re-frame2-pair` job and burns ~2 min of
  * wall-clock on a cold-cache run. Operators who want it run
- * `cd tools/mcp-conformance && npm run test:re-frame2-pair-live-overflow-hermetic`
+ * `cd tools/mcp-conformance && npm run test:re-frame2-pair-live-hermetic-suite`
  * directly.
  */
 'use strict';

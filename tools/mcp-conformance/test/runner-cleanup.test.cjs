@@ -9,7 +9,7 @@
 // ## The bug this pins
 //
 // The pre-fix `cleanup` in
-// `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` was SYNCHRONOUS:
+// `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` was SYNCHRONOUS:
 //
 //   const cleanup = () => {
 //     if (browser) { try { browser.close(); } catch {} }   // NOT awaited
@@ -61,7 +61,7 @@ const ORCH = path.join(
   __dirname,
   '..',
   'scripts',
-  'run-live-re-frame2-pair-overflow-hermetic.cjs',
+  'run-re-frame2-pair-live-hermetic-suite.cjs',
 );
 
 const { makeCleanup, settledWithin, waitForChildExit } = require(ORCH);

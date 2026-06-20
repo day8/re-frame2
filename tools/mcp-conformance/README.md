@@ -252,8 +252,8 @@ replacement.
   the same `:nrepl-port-not-found` envelope for every live-runtime tool, so
   the live event-metadata wire was never inspected). Gated on
   `$SHADOW_CLJS_NREPL_PORT`.
-- `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` — hermetic
-  orchestrator (rf2-uw6d6) that boots shadow-cljs against the re-frame2-pair
+- `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` — hermetic
+  live-suite orchestrator (rf2-uw6d6) that boots shadow-cljs against the re-frame2-pair
   fixture (`skills/re-frame2-pair/tests/fixture/`), launches headless
   Chromium so the runtime preload lands, then runs every live inner test
   (`live-re-frame2-pair-overflow.cjs`, `live-re-frame2-pair-subscribe.cjs`,
@@ -415,10 +415,12 @@ shapes the SDK's strict `CallToolResultSchema` doesn't yet
 recognise; keyword renames (`:cap-tokens` → `:cap_tokens`,
 `:rf.mcp/overflow` → `:rf.mcp/overflows`) at the live emission site.
 
-### `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`  (rf2-uw6d6)
+### `scripts/run-re-frame2-pair-live-hermetic-suite.cjs`  (rf2-uw6d6)
 
-Hermetic orchestrator that makes the live path above run on CI
-without any external nREPL.
+Hermetic live-SUITE orchestrator that makes the live path above run on CI
+without any external nREPL. It runs the WHOLE `INNER_TESTS` inventory
+(overflow plus subscribe/progress, redaction, isError, cofx, and
+event-metadata), not just the overflow gate.
 
 1. Wipes any stale `target/shadow-cljs/nrepl.port` under the re-frame2-pair
    fixture (`skills/re-frame2-pair/tests/fixture/`).
@@ -541,12 +543,13 @@ The `mcp-conformance-re-frame2-pair` job runs four steps in sequence:
 2. **`test:re-frame2-pair-live-overflow`** — the gated live variant. Runs
    without `$SHADOW_CLJS_NREPL_PORT` so the SKIP path is exercised
    on every CI run (a regression that broke SKIP would surface here).
-3. **`test:re-frame2-pair-live-overflow-hermetic`** (rf2-uw6d6) — boots
-   shadow-cljs against the re-frame2-pair fixture and runs the live overflow
-   path with a real over-budget eval. This is the path that catches
-   cap-trigger threshold drift, marker shape regressions on real
-   payloads, and SDK strict-schema rejection of cap-marker shapes
-   under CI's clean ephemeral runtime — not just on Mike's machine. The
+3. **`test:re-frame2-pair-live-hermetic-suite`** (rf2-uw6d6) — boots
+   shadow-cljs against the re-frame2-pair fixture and runs the WHOLE live
+   inner-test suite (overflow is one member). The overflow path runs a
+   real over-budget eval; this is the path that catches cap-trigger
+   threshold drift, marker shape regressions on real payloads, and SDK
+   strict-schema rejection of cap-marker shapes under CI's clean
+   ephemeral runtime — not just on Mike's machine. The
    hermetic suite also runs `live-re-frame2-pair-subscribe.cjs`, which
    (booting non-degraded WITH `--no-eval`) pins pair-mcp's eval-cljs
    opt-out wire envelope (`:rf.error/eval-cljs-disabled`) post-rf2-a0z0h;
