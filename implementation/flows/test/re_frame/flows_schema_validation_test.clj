@@ -51,10 +51,9 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
-  ;; EP-0002 (rf2-5q7um6): reg-flow / reg-app-schema are context-required
-  ;; frame-local — an ambient call under no scope raises
-  ;; :rf.error/no-frame-context. Pin :rf/default (an ordinary frame) as the
-  ;; established scope for the body.
+  ;; EP-0002: reg-flow / reg-app-schema are context-required frame-local — an
+  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
+  ;; :rf/default (an ordinary frame) as the established scope for the body.
   (frame/ensure-default-frame!)
   (let [captured (atom [])]
     (binding [*captured*           captured
@@ -131,7 +130,7 @@
         (is (= :area        (:rf.flow/id tags))    ":rf.flow/id names the failing flow")
         (is (= :area        (:failing-id tags))    ":failing-id mirrors the flow id")
         (is (= [:rect :area] (:path tags))         ":path is the flow's output path")
-        ;; rf2-u9bjgr (EP-0015 fail-closed) — the flow's `:schema` here is a
+        ;; EP-0015 fail-closed — the flow's `:schema` here is a
         ;; PREDICATE FN (`(fn [v] ...)`), which is OPAQUE to the pure-data
         ;; walker (`walker/schema-opaque?`: non-vector, non-keyword). The
         ;; shared redaction seam (`:schemas/redact-validation-tags`) the

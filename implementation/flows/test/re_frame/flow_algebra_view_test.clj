@@ -125,8 +125,8 @@
 
 (deftest runtime-qualified-input-lowers-to-a-runtime-read
   (testing "a [:rf.db/runtime …] input lowers to a [:runtime …rest] declared input"
-    ;; EP-0001 §535-551 (rf2-4eisfr): any flow may READ runtime-db via an
-    ;; explicit partition-qualified input; only the write side is reserved.
+    ;; EP-0001 §535-551: any flow may READ runtime-db via an explicit
+    ;; partition-qualified input; only the write side is reserved.
     (rf/reg-flow {:id     :route/derived
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]
                            [:local :seed]]
