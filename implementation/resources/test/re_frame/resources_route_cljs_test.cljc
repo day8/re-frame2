@@ -32,6 +32,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.error :as error]
    ;; load-bearing side-effecting requires: register the routing + resources
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
@@ -413,6 +414,12 @@
     (is (= :rf.error/resource-route-plan
            (:rf.error/id (:error (slice))))
         ":rf.route/error carries the planning error, not a silent cache miss")
+    ;; rf2-9g3qzi: the route-slice error map (built by plan-error) carries NO
+    ;; :operation slot duplicating :rf.error/id — that dead-weight slot is gone.
+    (is (not (contains? (:error (slice)) :operation))
+        "the slice error map has no :operation slot shadowing :rf.error/id")
+    (is (string? (:reason (:error (slice)))) "a human :reason sentence is present")
+    (is (some? (:recovery (:error (slice)))) "a :recovery disposition is present")
     (is (empty? (entries)) "no entry was written for the unplannable resource")))
 
 ;; ===========================================================================
@@ -568,7 +575,32 @@
                  (route/route-resource-plan
                    {:id :route/secret :resources []}
                    nil
-                   {:nav-token 1})))))
+                   {:nav-token 1}))))
+  ;; rf2-9g3qzi: the thrown planning-error routes through error/thrown-ex-info,
+  ;; so its message LEADS with a human sentence and TRAILS with the
+  ;; [:rf.error/resource-route-plan] greppability token, and the ex-data carries
+  ;; the canonical :where / :recovery slots (the conformant shape its sibling
+  ;; registry/registration-error already follows).
+  (testing "the thrown planning-error carries the canonical thrown-error shape"
+    (let [thrown (try (route/route-resource-plan
+                        {:id :route/secret :resources []} nil {:nav-token 1})
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e e))
+          data   (ex-data thrown)
+          msg    (ex-message thrown)]
+      (is (some? thrown))
+      (is (= :rf.error/resource-route-plan (:rf.error/id data)))
+      (is (error/message-has-id-token? msg)
+          "message carries the trailing [:rf.error/resource-route-plan] token (rule 4)")
+      (is (not (error/keyword-only-message? msg))
+          "message is a human sentence, not a bare keyword (rule 1)")
+      (is (= 'rf/route-resource-plan (:where data))
+          ":where names the planning boundary helper")
+      (is (= :fix-route-integration (:recovery data))
+          ":recovery carries the site-specific disposition (overriding the default)")
+      (is (not (contains? data :operation))
+          "no dead :operation slot duplicating :rf.error/id"))))
 
 (deftest missing-nav-token-fails-closed
   ;; The nav-token IS the route owner identity; planning without one would
