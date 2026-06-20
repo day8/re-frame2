@@ -3,7 +3,7 @@
 ;; A minimal shadow-cljs build that mounts the counter view and preloads
 ;; `re-frame2-pair.runtime`. Used by re-frame2-pair's tests/shim, tests/e2e, and
 ;; tests/prompts surfaces, plus tools/mcp-conformance's hermetic
-;; orchestrator (`run-live-re-frame2-pair-overflow-hermetic.cjs`).
+;; live-suite orchestrator (`run-re-frame2-pair-live-hermetic-suite.cjs`).
 ;;
 ;; The two re-frame2-pair-specific bits are:
 ;;

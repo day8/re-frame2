@@ -204,8 +204,8 @@ jobs:
         working-directory: implementation
         run: npx playwright install --with-deps chromium
 
-      - name: Run re-frame2-pair live-overflow conformance
-        run: npm run test:re-frame2-pair-live-overflow-hermetic
+      - name: Run re-frame2-pair live conformance suite (hermetic)
+        run: npm run test:re-frame2-pair-live-hermetic-suite
 
   jvm-slow-tests:
     # rf2-bv2qqm — the heavy `^:slow` / `^:stress` JVM tests (the SSR

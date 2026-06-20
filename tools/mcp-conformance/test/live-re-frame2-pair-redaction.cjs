@@ -118,7 +118,7 @@
 // without a live nREPL the server runs degraded and every tool returns
 // the same `:nrepl-port-not-found` envelope — no `:db-*` ever crosses, so
 // the redaction surface is unreachable. The hermetic orchestrator
-// (`scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`) boots
+// (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`) boots
 // shadow-cljs + Chromium against `skills/re-frame2-pair/tests/fixture/`
 // and wires the env so the live path fires on CI.
 

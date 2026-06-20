@@ -91,7 +91,7 @@
 // degraded and `subscribe` returns `isError: true` rather than
 // streaming. On CI the gate is unset by default → exits 0 with a SKIP
 // marker. The hermetic orchestrator
-// (`scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`) wires the env when
+// (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`) wires the env when
 // run as part of the hermetic suite.
 
 // ## DRY-on-3 resolution (rf2-1bwph → rf2-0ogn7)
