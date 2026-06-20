@@ -1288,11 +1288,29 @@
   regions per Spec 005 §Parallel regions and region-emitted
   raises re-broadcast through the parent macrostep's internal-event queue.
   Flat / compound machines drop straight into the
-  single-machine engine in `re-frame.machines.transition`."
+  single-machine engine in `re-frame.machines.transition`.
+
+  ## Guard-throw → `result/fail` (XState v5 alignment, rf2-18mox0)
+
+  A user GUARD body that throws during transition selection surfaces the
+  error and ABORTS the macrostep (XState v5 does not swallow guard
+  exceptions). The throw rides up as a tagged signal
+  (`transition/guard-threw-signal?`) from the candidate-walk; this single
+  pure-engine boundary catches it ONCE and converts it to a `result/fail`,
+  so a guard throw routes through the SAME failed-macrostep / atomic-
+  rollback surface a thrown ACTION (and a bounded-depth abort) already
+  takes. The original exception rides in the failure `::info` so the
+  lifecycle handler emits the machine-scoped error trace and rolls back —
+  the guard throw is never demoted to a lower-priority candidate."
   [machine snapshot event]
-  (if (parallel? machine)
-    (parallel-machine-transition machine snapshot event)
-    (transition/machine-transition-single machine snapshot event)))
+  (try
+    (if (parallel? machine)
+      (parallel-machine-transition machine snapshot event)
+      (transition/machine-transition-single machine snapshot event))
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (transition/guard-threw-signal? e)
+        (result/fail (transition/guard-threw->fail-info e))
+        (throw e)))))
 
 ;; ---- birth-time `:always` + raise settle ----------------------------------
 ;;
@@ -1403,6 +1421,8 @@
         0
         false))))
 
+(declare apply-initial-entry-cascade*)
+
 (defn apply-initial-entry-cascade
   "The machine's INITIAL MACROSTEP (XState v5 / SCXML parity):
   the initial-entry cascade THEN the eventless (`:always`) + raise settle,
@@ -1432,7 +1452,26 @@
   A no-`:always`, no-`:raise` machine settles in zero microsteps —
   `settle-birth` finds no matching `:always`, drains no raises, and returns
   the post-cascade snapshot + the entry fx verbatim with the tag union
-  re-stamped."
+  re-stamped.
+
+  Guard-throw → `result/fail` (XState v5 alignment, rf2-18mox0): a guard
+  body that throws during the birth-time `:always` selection surfaces the
+  error and aborts the birth macrostep through the SAME failed-macrostep
+  surface a thrown initial-`:entry` action takes. The tagged guard-throw
+  signal (`transition/guard-threw-signal?`) is caught at this birth
+  boundary — the second pure-engine entry point alongside
+  `machine-transition` — and converted to a `result/fail`."
+  [machine initial-snapshot]
+  (try
+    (apply-initial-entry-cascade* machine initial-snapshot)
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (transition/guard-threw-signal? e)
+        (result/fail (transition/guard-threw->fail-info e))
+        (throw e)))))
+
+(defn- apply-initial-entry-cascade*
+  "Inner body of `apply-initial-entry-cascade` — wrapped by it for the
+  guard-throw → `result/fail` conversion at the birth boundary."
   [machine initial-snapshot]
   (let [entry-r (run-initial-cascade machine initial-snapshot)]
     (if (result/fail? entry-r)

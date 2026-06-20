@@ -348,6 +348,63 @@
 ;; evaluations — `evaluate-guard` / `run-action` only emit when
 ;; `guard-ref` / `action-ref` is non-nil.
 
+;; ---- guard-throw signal (XState v5 alignment) -----------------------------
+;;
+;; Per Spec 005 §`:rf.machine/guard-evaluated` (gold-standard alignment,
+;; rf2-18mox0): XState v5 does NOT swallow a guard exception. A throwing
+;; guard SURFACES the error and ABORTS transition selection — it is never
+;; silently demoted to a lower-priority candidate, a wildcard tier, or an
+;; ancestor edge. re-frame2 aligns by routing a guard throw through the
+;; SAME failure surface a THROWING ACTION takes: a `result/fail` macrostep
+;; (atomic rollback — no snapshot write reaches runtime-db; the handler
+;; short-circuits to `{}`). This is the exact contract the bounded-depth
+;; abort already uses (XState v5 THROWS on a runaway cycle → re-frame2's
+;; `result/depth-abort` `:fail`), so a guard throw, an action throw, and a
+;; depth abort all converge on one failed-macrostep semantic.
+;;
+;; `evaluate-guard` is invoked DEEP inside the candidate-walk (`some` over
+;; the `:on` / `:after` / `:always` candidate vector, leaf→root path walk).
+;; Threading a Result up through every `some` would smear the failure
+;; surface across the whole engine. Instead the throw is rethrown as a
+;; TAGGED signal that the two pure-engine entry boundaries
+;; (`parallel/machine-transition` + `parallel/apply-initial-entry-cascade`)
+;; catch once and convert to a `result/fail` — the same single-chokepoint
+;; shape the engine already uses, and symmetric with how `run-action`
+;; returns its `result/fail` straight out of the cascade.
+
+(def ^:private guard-threw-key
+  "Marker key stamped on the `ex-data` of the tagged guard-throw signal so
+  the engine boundary can recognise it (vs. an unrelated `ex-info` such as
+  the bad-form / unresolved-ref registration throws, which must keep
+  propagating as raw exceptions)."
+  ::guard-threw)
+
+(defn guard-threw-signal?
+  "True iff `e` is the tagged guard-throw signal `evaluate-guard` rethrows
+  when a user guard body throws — distinguishing it from the bad-form /
+  unresolved-ref `ex-info`s (which propagate as raw exceptions, never
+  demoted to a `result/fail`)."
+  [e]
+  (and #?(:clj (instance? clojure.lang.ExceptionInfo e)
+          :cljs (instance? cljs.core/ExceptionInfo e))
+       (get (ex-data e) guard-threw-key)))
+
+(defn guard-threw->fail-info
+  "Project a tagged guard-throw signal's `ex-data` into a `result/fail`
+  `::info` map — carrying the original `:exception`, the throwing
+  `:guard-ref`, and the `:state-path` — for the engine boundary to wrap
+  via `result/fail`. The shape mirrors `run-action`'s failure info
+  (`:exception` is the key `trace-action-failure!` reads) so a guard throw
+  routes through the SAME `:rf.error/machine-action-exception` handler
+  surface as an action throw, per the XState-v5 alignment ruling."
+  [e]
+  (let [d (ex-data e)]
+    {:exception  (:exception d)
+     :guard-ref  (:guard-ref d)
+     :action-ref (:guard-ref d) ;; `trace-action-failure!` reads `:action-ref`
+     :state-path (:state d)
+     :rf.machine/guard-threw? true}))
+
 (defn- evaluate-guard
   "Resolve and invoke a user-declared guard, emitting
   `:rf.machine/guard-evaluated` for cascade-discoverability. Returns the
@@ -355,17 +412,21 @@
   synthesised always-true — skip the trace (it is not a user-declared
   evaluation) and return true.
 
-  When the guard fn throws, emit
-  `:rf.machine/guard-evaluated` with `:outcome :threw` and the
-  `:exception` slot, then treat the guard as failed (return `false`)
-  so the candidate-walk continues evaluating siblings. This surfaces the
-  failure on the trace stream rather than letting it propagate silently.
-  Treating throw as `:fail` matches the
-  documented `:action`-threw convention (the action that throws emits
-  one trace and the cascade halts; for guards the cascade should walk
-  past the throwing candidate to the next one, which is the
-  `:rf/transition` candidate-walk semantic — \"this candidate
-  declined; try the next\")."
+  When the guard fn body throws, emit `:rf.machine/guard-evaluated` with
+  `:outcome :threw` and the `:exception` slot (the observability trace is
+  preserved), then RETHROW a tagged guard-throw signal (`ex-data` carries
+  `guard-threw-key`, the `:guard-ref`, the original `:exception`, and the
+  active `:state`). Per Spec 005 §`:rf.machine/guard-evaluated`
+  (rf2-18mox0): XState v5 SURFACES a guard error and aborts transition
+  selection — it is never swallowed and demoted to a lower-priority
+  candidate. The engine boundaries (`parallel/machine-transition` /
+  `apply-initial-entry-cascade`) catch the tagged signal and convert it to
+  a `result/fail`, routing it through the SAME failed-macrostep /
+  atomic-rollback surface a throwing ACTION takes (and the bounded-depth
+  abort takes for the XState-v5-throws runaway cycle). This makes a guard
+  throw, an action throw, and a depth abort converge on one failure
+  semantic rather than the old asymmetry (guard throw → silent `:fail`
+  demotion; action throw → halt)."
   [machine guard-ref snapshot event]
   (if (nil? guard-ref)
     true
@@ -415,7 +476,18 @@
                         :outcome    :threw
                         :exception  e
                         :frame      frame-id})
-          false)))))
+          ;; XState v5 alignment (rf2-18mox0): SURFACE the guard error and
+          ;; abort selection — do NOT swallow it as `:fail` and walk to the
+          ;; next candidate. Rethrow a TAGGED signal the engine boundary
+          ;; converts to a `result/fail` (the same failed-macrostep surface
+          ;; an action throw / depth abort takes). The original exception
+          ;; rides under `:exception` so the boundary's failure info matches
+          ;; `run-action`'s shape.
+          (throw (ex-info "Machine guard body threw."
+                          {guard-threw-key true
+                           :guard-ref      guard-ref
+                           :state          state
+                           :exception      e})))))))
 
 ;; ---- spawn-id allocator (in-snapshot) -------------------------------------
 ;;

@@ -6,9 +6,13 @@
        `:exit / :transition / :entry / :always / :after-action /
        :initial-entry / :destroy-exit`.
     2. `:rf.machine/guard-evaluated` carries `:outcome :threw` with
-       `:exception` when the guard fn throws. The throwing guard is
-       treated as `:fail` (the candidate walk continues), preserving
-       Spec 005 §Guards candidate semantics.
+       `:exception` when the guard fn throws. Per Spec 005
+       §`:rf.machine/guard-evaluated` (XState v5 alignment, rf2-18mox0):
+       a throwing guard SURFACES the error and ABORTS the macrostep — the
+       candidate walk does NOT continue past it, no transition fires, the
+       snapshot rolls back atomically, and a
+       `:rf.error/machine-action-exception` error trace fires (the same
+       failed-macrostep / atomic-rollback surface a thrown ACTION takes).
     3. `:rf.machine.timer/cancelled` (single canonical event id) is
        emitted on every cancellation path with `:reason` from the
        closed set `:on-exit / :on-destroy / :on-resolution /
@@ -144,9 +148,14 @@
 ;; (2) :rf.machine/guard-evaluated outcome :threw
 ;; =====================================================================
 
-(deftest guard-evaluated-threw-emits-outcome-and-exception
-  (testing "a throwing guard emits :outcome :threw + :exception slot;
-            the candidate walk continues (treated as :fail)"
+(deftest guard-evaluated-threw-surfaces-error-and-aborts-selection
+  (testing "XState v5 alignment (rf2-18mox0): a throwing guard emits
+            :outcome :threw + :exception (observability preserved) but
+            then ABORTS transition selection — the candidate walk does NOT
+            continue to the next sibling, and a
+            :rf.error/machine-action-exception error trace fires. XState v5
+            surfaces a guard error and aborts selection; it never swallows
+            the throw and silently demotes to a lower-priority candidate."
     (rf/reg-machine :rf2-82a0u/guard-throws
       {:initial :idle
        :guards  {:boom (fn [_] (throw (ex-info "guard boom" {})))
@@ -155,27 +164,40 @@
                                    {:guard :ok   :target :B}]}}
                  :A     {}
                  :B     {}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rf2-82a0u/guard-throws [:go]])))
-          gs  (ops evs :rf.machine/guard-evaluated)]
-      (is (= 2 (count gs))
-          "two guards evaluated — the throwing one + the next sibling")
-      (let [g1 (first gs)
-            g2 (second gs)]
+    ;; Boot first so the atomic-rollback target is the committed :idle
+    ;; snapshot (a guard throw on the SAME macrostep as a lazy boot rolls
+    ;; the boot back too — there would be no committed snapshot at all).
+    (rf/dispatch-sync [:rf2-82a0u/guard-throws [:rf.machine/start]])
+    (let [evs   (record-traces!
+                  (fn [] (rf/dispatch-sync [:rf2-82a0u/guard-throws [:go]])))
+          gs    (ops evs :rf.machine/guard-evaluated)
+          errs  (ops evs :rf.error/machine-action-exception)]
+      ;; The throwing guard's observability trace still fires...
+      (is (= 1 (count gs))
+          "ONLY the throwing guard evaluated — selection aborted, the next
+           sibling was NEVER reached (XState v5: surface + abort, not demote)")
+      (let [g1 (first gs)]
         (is (= :boom (-> g1 :tags :guard-id)))
         (is (= :threw (-> g1 :tags :outcome))
             ":threw outcome marker on the throwing guard")
         (is (instance? Throwable (-> g1 :tags :exception))
-            ":exception slot carries the thrown Throwable")
-        (is (= :ok (-> g2 :tags :guard-id))
-            "candidate walk continued to the next sibling")
-        (is (= :pass (-> g2 :tags :outcome))
-            ":ok guard passed and the transition fired")))))
+            ":exception slot carries the thrown Throwable"))
+      ;; ...and the guard throw surfaces as a FAILED macrostep through the
+      ;; same machine-scoped error category a thrown action takes.
+      (is (= 1 (count errs))
+          "the guard throw surfaces a :rf.error/machine-action-exception
+           (the machine-scoped throw category — same surface as an action throw)")
+      ;; Atomic rollback: no transition fired, the snapshot stays at :idle.
+      (let [db   (frame/frame-runtime-db-value :rf/default)
+            snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/guard-throws])]
+        (is (= :idle (:state snap))
+            "macrostep aborted atomically — neither :A nor :B was entered")))))
 
-(deftest guard-throw-treated-as-fail-not-cascade-abort
-  (testing "a throwing guard does NOT abort the cascade — the engine
-            walks past it to the next candidate. The transition still
-            fires (via the second candidate)"
+(deftest guard-throw-aborts-macrostep-not-demote-to-next-candidate
+  (testing "XState v5 alignment (rf2-18mox0): a throwing guard ABORTS the
+            macrostep — it is NOT walked past to a lower-priority candidate.
+            The unguarded fallback candidate does NOT fire; the snapshot
+            rolls back atomically (no transition, no action side effect)."
     (rf/reg-machine :rf2-82a0u/threw-fall
       {:initial :idle
        :guards  {:boom (fn [_] (throw (ex-info "boom" {})))}
@@ -185,15 +207,19 @@
                                   {:target :done :action :bump}]}}
                  :nope {}
                  :done {}}})
+    ;; Boot first so the rollback target is the committed :idle snapshot.
+    (rf/dispatch-sync [:rf2-82a0u/threw-fall [:rf.machine/start]])
     (rf/dispatch-sync [:rf2-82a0u/threw-fall [:go]])
-    ;; The snapshot is now in :done — the throwing-guard candidate
-    ;; failed-and-was-walked-past; the unguarded candidate fired.
+    ;; The throwing-guard candidate aborts the macrostep — the engine does
+    ;; NOT walk past it to the unguarded fallback. Atomic rollback: the
+    ;; snapshot stays at :idle and :bump never ran.
     (let [db   (frame/frame-runtime-db-value :rf/default)
           snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/threw-fall])]
-      (is (= :done (:state snap))
-          "transition reached the second candidate's target")
-      (is (= 1 (-> snap :data :n))
-          ":bump action ran from the firing candidate"))))
+      (is (= :idle (:state snap))
+          "the guard throw aborted the macrostep — the fallback candidate
+           did NOT fire (no silent demotion past the throwing guard)")
+      (is (= 0 (-> snap :data :n))
+          ":bump never ran — the macrostep rolled back atomically"))))
 
 (deftest guard-evaluated-pass-fail-outcomes-unchanged
   (testing "pass / fail outcomes still emit the same shape (no
