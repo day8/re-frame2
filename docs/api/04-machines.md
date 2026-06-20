@@ -4,7 +4,9 @@ A state machine in re-frame2 is registered with one call (`reg-machine`) and *is
 
 The point of the machine surface isn't novelty — Statecharts have been around since 1987 — it's that the same trace bus, time-travel, and override surfaces that work for plain event handlers also work for machines, *because the machine is an event handler*. There's no parallel runtime to debug, no second store to inspect, no separate event log. Xray shows the machine state alongside `app-db`; the epoch buffer captures the snapshot the same way it captures everything else.
 
-This chapter covers the registration surface (`reg-machine`, `reg-machine*`, `make-machine-handler`), the inspection / subscription surface (the `[:rf/machine machine-id]` subscription vector, `machines`, `machine-meta`, `machine-by-system-id`, `machine-has-tag?`), the dispatch sugar (`dispatch-to-system`, `:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.machine/dispatch-to-system`), and the post-v1 tooling exports (`machine->xstate-json`, `machine->mermaid`).
+This chapter covers the registration surface (the `reg-machine` / `defmachine` macros on `re-frame.core`, plus the `re-frame.machines`-owned `reg-machine*` / `make-machine-handler` / `machine-transition`), the inspection / subscription surface (the `[:rf/machine machine-id]` subscription vector, the `re-frame.core` facade `machine-has-tag?`, and the `re-frame.machines`-owned `machines` / `machine-meta` / `machine-by-system-id`), the in-machine dispatch sugar (`:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.machine/dispatch-to-system`), and the JVM machine-tooling exports (`machine-algebra-view`, `machine-instance-algebra-view`).
+
+> **Front-porch shrink (rf2-wad2fl / rf2-gkt25a).** Only `reg-machine` / `defmachine` and the `machine-has-tag?` subscription sugar are `re-frame.core` facade exports. The plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the `dispatch-to-system` fn live in their owned namespace `re-frame.machines` — reach them as `re-frame.machines/<name>`, not `rf/<name>`. The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple. `re-frame.machines` is the `day8/re-frame2-machines` artefact.
 
 For the *why* — the design rationale, the v1 vs post-v1 split, the capability matrix — see [005-StateMachines.md](../../spec/005-StateMachines.md).
 
@@ -20,30 +22,30 @@ For the *why* — the design rationale, the v1 vs post-v1 split, the capability 
 - **Description**: The canonical macro. Walks the literal spec form at expansion time and co-locates per-element source on each `:guards` / `:actions` entry (`{:fn .. :source-coords .. :source-code ..}`) plus a reference-site `:source-coords` on each `:states`-tree map node (state-node / transition map) — Xray uses these to navigate from a snapshot back to the guard/action definition or the state-node. Top-level call-site coords land on `handler-meta`.
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) · [websocket](https://github.com/day8/re-frame2/tree/main/examples/reagent/websocket)
 
-### `reg-machine*`
+### `re-frame.machines/reg-machine*`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (reg-machine* machine-id machine-spec)
+  (re-frame.machines/reg-machine* machine-id machine-spec)
   ```
 - **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data.
 
-### `make-machine-handler`
+### `re-frame.machines/make-machine-handler`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (make-machine-handler spec) → event-handler fn
+  (re-frame.machines/make-machine-handler spec) → event-handler fn
   ```
 - **Description**: Compiles a transition table into the event-handler fn that `reg-machine` would register. Useful when you want to inspect the compiled fn or compose it manually.
 
-### `machine-transition`
+### `re-frame.machines/machine-transition`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (machine-transition definition snapshot event) → [next-snapshot effects]
+  (re-frame.machines/machine-transition definition snapshot event) → [next-snapshot effects]
   ```
 - **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns the next snapshot and the effect map. JVM-runnable; the conformance harness uses this as its primary test surface for machine behaviour.
 
@@ -81,31 +83,31 @@ The canonical machine read is the framework-registered subscription vector `[:rf
   ```
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
 
-### `machines`
+### `re-frame.machines/machines`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (machines) → seq of machine-ids
+  (re-frame.machines/machines) → seq of machine-ids
   ```
 - **Description**: "What machines have been registered?" Derived view over `(registrations :event)` filtered by `:rf/machine? true`.
 
-### `machine-meta`
+### `re-frame.machines/machine-meta`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (machine-meta machine-id) → registration-metadata map
+  (re-frame.machines/machine-meta machine-id) → registration-metadata map
   ```
 - **Description**: "What did `reg-machine` stamp at this machine's id?" Returns the transition table, doc, schemas, and the per-element source-coords. Equivalent to `(handler-meta :event machine-id)`.
 
-### `machine-by-system-id`
+### `re-frame.machines/machine-by-system-id`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (machine-by-system-id system-id)
-  (machine-by-system-id system-id frame-id)
+  (re-frame.machines/machine-by-system-id system-id)
+  (re-frame.machines/machine-by-system-id system-id frame-id)
   ```
 - **Description**: Reverse-lookup: given a `system-id`, what's the spawned machine bound to it? Returns the spawned-machine id or `nil`.
 
@@ -128,19 +130,27 @@ This subscription vector is the canonical machine read — see [005 §Subscribin
 
 ## Cross-machine messaging
 
-### `dispatch-to-system`
+### `[:rf.machine/dispatch-to-system [system-id event]]` — the canonical surface
 
-- **Kind**: function
+The action-side way one machine addresses its spawned child actor by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id is the reserved fx tuple — emit it from a machine action's (or any event handler's) `:fx` vector:
+
+```clojure
+{:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
+```
+
+It resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when the `system-id` is unbound. This is the surface to reach for — a **machine action** can't read app-db and its `:on-spawn` return is dropped, so the fx form is the spec-blessed way an action sends a message to a named actor. See [The actor-lifecycle fx](#the-actor-lifecycle-fx) and [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
+
+When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`; naming by `system-id` lets the parent address the child by role without threading that id.
+
+### `re-frame.machines/dispatch-to-system` (implementation-tier fn)
+
+- **Kind**: function (owned by `re-frame.machines`, implementation tier — **demoted off the `re-frame.core` facade**, rf2-gkt25a / rf2-80mmlf)
 - **Signature**:
   ```clojure
-  (dispatch-to-system system-id event)
-  (dispatch-to-system system-id event frame-id)
+  (re-frame.machines/dispatch-to-system system-id event)
+  (re-frame.machines/dispatch-to-system system-id event frame-id)
   ```
-- **Description**: Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`. No-op when the `system-id` is unbound. The two-arity form resolves the frame from the carried scope it runs under; the three-arity form names the frame explicitly — there is no `:rf/default` fallback, and looking up under no scope raises `:rf.error/no-frame-context` (EP-0002).
-
-When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
-
-From a **machine action** (which can't read app-db and whose `:on-spawn` return is dropped), emit the fx counterpart `[:rf.machine/dispatch-to-system [system-id event]]` from the action's `:fx` vector — same name-resolution, same no-op-when-unbound semantics, expressed as an effect. See [The actor-lifecycle fx](#the-actor-lifecycle-fx).
+- **Description**: The direct-call twin of the fx above — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`, no-op when the `system-id` is unbound. The two-arity form resolves the frame from the carried scope it runs under; the three-arity form names the frame explicitly — there is no `:rf/default` fallback, and looking up under no scope raises `:rf.error/no-frame-context` (EP-0002). Retained as an implementation-tier helper; new app code should emit the `[:rf.machine/dispatch-to-system [system-id event]]` fx instead.
 
 ## The actor-lifecycle fx
 
@@ -184,32 +194,36 @@ The pattern: a spawn-shaped sub-process completes, the parent receives the resul
 
 See [005 §Final states](../../spec/005-StateMachines.md#final-states-final--on-done--output-key).
 
-## Post-v1 tooling exports
+## Machine-tooling exports (JVM)
 
-### `machine->xstate-json`
+The shipped machine-tooling exports live in `re-frame.machines` and are JVM-only (Xray + conformance consume them directly; no `re-frame.core` facade export). They render the machine *algebra view* that Xray / re-frame-pair navigate — there is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge (those are owned by the separate `day8/re-frame2-machines-viz` library; see [Spec 005 §Future](../../spec/005-StateMachines.md) and the [Machines-Viz design rationale](../../tools/machines-viz/spec/DESIGN-RATIONALE.md)).
 
-- **Kind**: function
+### `re-frame.machines/machine-algebra-view`
+
+- **Kind**: function (owned by `re-frame.machines`, JVM-only — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (machine->xstate-json definition) → JSON string
+  (re-frame.machines/machine-algebra-view definition) → algebra-view map
   ```
-- **Description**: Export a machine definition to XState JSON. The XState visualiser consumes it; useful for design review and documentation.
+- **Description**: The static algebra view over a machine *definition* — the structure Xray's machine inspector and the docs/visualisation lane read. JVM-only.
 
-### `machine->mermaid`
+### `re-frame.machines/machine-instance-algebra-view`
 
-- **Kind**: function
+- **Kind**: function (owned by `re-frame.machines`, JVM-only — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (machine->mermaid definition) → string
+  (re-frame.machines/machine-instance-algebra-view definition snapshot) → algebra-view map
   ```
-- **Description**: Export to Mermaid state-diagram syntax. Drops cleanly into Markdown docs that render Mermaid (this site does).
+- **Description**: The algebra view for a live machine *instance* — definition plus current snapshot, so the view can highlight the active state. JVM-only.
 
-### `:child-machine`
+### Post-v1 / future surfaces (not shipped)
 
-- **Kind**: transition-table key (declarative)
-- **Description**: Declarative state-scoped child-machine binding. A state node can declare a child machine that lives only while the parent is in that state. Symmetric with the imperative `:spawn` / `:destroy` cycle.
+The following are **not** part of the shipped v1 surface — they are forward-pointers in [Spec 005 §Future](../../spec/005-StateMachines.md), owned by the post-v1 `day8/re-frame2-machines` and `day8/re-frame2-machines-viz` libraries:
 
-The post-v1 surfaces live in `day8/re-frame2-machines` (the scaffolding library). The v1 foundation in `re-frame.core` covers the machine-as-event-handler primitive; the scaffolding library layers the higher-level features on top.
+- `machine->mermaid` / `machine->xstate-json` — diagram/JSON exporters, owned by `day8/re-frame2-machines-viz` (Machines-Viz), not the framework.
+- `:child-machine` — a possible future declarative state-scoped child-machine binding (desugaring to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`). Pure sugar over the v1 surface; not yet shipped. Use the imperative `:spawn` / `:destroy` cycle today.
+
+The v1 foundation covers the machine-as-event-handler primitive (`reg-machine` on `re-frame.core`, the engine in `day8/re-frame2-machines`); the post-v1 libraries layer the higher-level features and visualisers on top.
 
 ## Capability matrix
 

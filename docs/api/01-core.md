@@ -207,14 +207,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```
 - **In the wild**: [state_machine_walkthrough](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough)
 
-### `reg-machine*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-machine* machine-id machine-spec)
-  ```
-- **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines or REPL workflows.
+> **`reg-machine*` is not a core facade export.** The plain-fn machine-registration surface lives in `re-frame.machines` (`re-frame.machines/reg-machine*`), not `re-frame.core` (rf2-wad2fl — front-porch shrink). Only the `reg-machine` / `defmachine` macros are on the `re-frame.core` facade. See [04 — Machines](04-machines.md#re-framemachinesreg-machine).
 
 ### `reg-app-schema`
 
@@ -490,9 +483,9 @@ The family has two sub-shapes that look alike on first read but answer different
 
 **Stamping pair** (`dispatch` / `dispatch*` and `dispatch-sync` / `dispatch-sync*`). The pair-shape question is "do you want call-site stamping or not?" The macro captures source coords for `:rf.trace/call-site`; the `*` fn-form skips the stamping for HoF composition. Both route through the same dispatcher.
 
-**Named-target sugar** (`dispatch-to-system`, per [04 — Machines](04-machines.md)). The question is "do you have a `:system-id` instead of a target machine-id?" `dispatch-to-system` resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then calls `dispatch`. It's *not* a different kind of dispatch — it's named-addressing sugar on top of the same dispatcher.
+**Named-target addressing** (the `[:rf.machine/dispatch-to-system [system-id event]]` fx, per [04 — Machines](04-machines.md)). The question is "do you have a `:system-id` instead of a target machine-id?" The fx resolves through the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and then dispatches. It's *not* a different kind of dispatch — it's named-addressing on top of the same dispatcher. (This is **not** a `re-frame.core` facade verb: the direct-call fn `re-frame.machines/dispatch-to-system` was demoted to an implementation-tier helper in the machines artefact — the fx tuple is the canonical surface.)
 
-The two sub-families compose: `dispatch-to-system` ultimately calls `dispatch`, so the same trace stamping fires (at the `dispatch-to-system` invocation, since that's the macro you wrote).
+The two compose: the named-target fx ultimately dispatches, so the same trace stamping fires on the resulting event.
 
 ### See also
 
