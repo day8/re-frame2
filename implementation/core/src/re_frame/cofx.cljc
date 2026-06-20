@@ -837,22 +837,15 @@
 
 (def default-mint-policy
   "The mint policy when no binding point selects one — the router's `:live`
-  default (EP-0017 §6). `:live` generates declared-absent generator-backed
+  default (EP-0017 §6). The valid mint policies are `:live`, `:strict`, and
+  `:explicit-live`. `:live` generates declared-absent generator-backed
   recordable values; the binding points (`resolve-mint-policy`) select
   `:strict` (the `:test` preset default; hard-wired for replay) or
-  `:explicit-live` (the declared-nondeterminism escape)."
+  `:explicit-live` (the declared-nondeterminism escape). An unrecognised value
+  is treated CONSERVATIVELY as non-generating (see `mint-policy-generates?`) —
+  an unknown policy must never silently mint a nondeterministic value into the
+  durable ledger."
   :live)
-
-(def mint-policies
-  "The closed set of EP-0017 §6 mint-policy values. `:live` (router default)
-  and `:explicit-live` (declared-nondeterminism escape) generate a
-  declared-absent generator-backed recordable fact; `:strict` (the `:test`
-  preset default; hard-wired for replay) does not. An unrecognised value is
-  treated CONSERVATIVELY as non-generating (see `mint-policy-generates?`) — an
-  unknown policy must never silently mint a nondeterministic value into the
-  durable ledger — but the registration/dispatch boundary uses this set to
-  reject typos loudly where it can."
-  #{:live :strict :explicit-live})
 
 (defn resolve-mint-policy
   "Resolve the effective cofx mint policy for a dispatch, MOST-SPECIFIC-WINS

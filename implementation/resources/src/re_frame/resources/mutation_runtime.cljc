@@ -103,16 +103,6 @@
 ;; stores FACTS, not derived booleans (`:pending?` / `:settled?` are public
 ;; derived sub values, computed in the subs layer, never stored).
 
-(def mutation-statuses
-  "The closed set of mutation-instance lifecycle states. A mutation is a
-  one-shot causal write (NOT a stale-while-revalidate cache), so the
-  lifecycle is simpler than a resource entry's: `:idle` (created, not yet
-  dispatched — rare; an execute settles directly to `:pending`),
-  `:pending` (in flight), `:success` (settled with a result),
-  `:error` (settled with a failure envelope). Per EP-0003 §Mutations
-  (mutation pending / error / result state)."
-  #{:idle :pending :success :error})
-
 (def terminal-statuses
   "The terminal mutation-instance statuses (the write has settled). A
   terminal instance is cleared by an explicit causal `:rf.mutation/clear`
