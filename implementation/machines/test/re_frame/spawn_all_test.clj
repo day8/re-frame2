@@ -562,18 +562,29 @@
                (:join-event (:data snap)))
             "resolution event carries decisive child-id and forwarded payload")))))
 
-;; ---- late-completion safety net ------------------------------------------
+;; ---- late-completion under :cancel-on-decision? false --------------------
 ;;
-;; intercept-spawn-all-event has a post-resolution branch (join.cljc:134-141)
-;; that fires when a child-done event arrives AFTER the join already
-;; resolved. The contract surface is the :rf.machine.spawn-all/late-completion
-;; trace — the return-value is a no-op {:db db :fx []}.
+;; intercept-spawn-all-event has a post-resolution branch (the
+;; `(:resolved? join-state)` cond arm) that fires when a child-done event
+;; arrives AFTER the join already resolved. It emits the
+;; :rf.machine.spawn-all/late-completion trace.
 ;;
-;; To exercise the branch we use :cancel-on-decision? false so siblings
-;; survive past resolution and can fire their terminal-state dispatches.
+;; XState v5 alignment (rf2-obczvv) — when `:cancel-on-decision? false`,
+;; surviving siblings RUN TO COMPLETION and "their results land in the
+;; join-state" (Spec 005 §Cancel-on-decision), so a tool observing the
+;; join-state sees the FULL late-completion record. The late child's result
+;; therefore FOLDS into :done / :failed (the record updates) while the
+;; :resolved? latch stays true and NO further parent event / cancellation
+;; fires (the completion is suppressed from RE-RESOLVING the join). The old
+;; behaviour FROZE :done at resolution and dropped every late completion —
+;; the divergence this bead aligns away.
 
-(deftest late-completion-after-resolution-emits-trace-and-is-no-op
-  (testing "child-done events arriving after join resolution emit late-completion trace"
+(deftest late-completion-cancel-off-folds-into-record
+  (testing "rf2-obczvv: with :cancel-on-decision? false, child-done events
+            arriving after join resolution FOLD into the join-state record
+            (so tools see the full late record) — :resolved? stays latched,
+            no further parent event fires, and the late-completion trace
+            still fires"
     (let [traces (atom [])
           child  (mk-child :sup/late :asset/loaded :asset/failed)
           ;; Parent stays in :hydrating across resolution by NOT
@@ -608,23 +619,90 @@
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating]])]
             (is (true? (:resolved? j)) ":any resolved on first :go")
             (is (= #{:a} (:done j))))
-          ;; Sibling b completes AFTER resolution — late-completion path.
+          ;; Sibling b completes AFTER resolution — with cancel OFF its
+          ;; result FOLDS into :done (the full late record is observable).
           (rf/dispatch-sync [(:b ids) [:go]])
           (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating]])]
-            (is (= #{:a} (:done j))
-                "late-completion does NOT mutate :done")
-            (is (true? (:resolved? j)) ":resolved? stays true")))
+            (is (= #{:a :b} (:done j))
+                "rf2-obczvv: late completion FOLDS into :done (cancel-off) —
+                 the join-state is no longer frozen at resolution")
+            (is (true? (:resolved? j)) ":resolved? stays true — no re-resolution"))
+          ;; A third late sibling folds too — :done accretes the full record.
+          (rf/dispatch-sync [(:c ids) [:go]])
+          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/late [:hydrating]])]
+            (is (= #{:a :b :c} (:done j))
+                "every surviving sibling's late completion lands in the record")
+            (is (true? (:resolved? j)) ":resolved? still latched")))
         (let [late-traces (->> @traces
                                (filter #(= :rf.machine.spawn-all/late-completion
-                                           (:operation %))))]
-          (is (= 1 (count late-traces))
-              "exactly one late-completion trace fired")
-          (is (= :b (:child-id (:tags (first late-traces))))
-              "trace carries the late child's id")
-          (is (= :done (:kind (:tags (first late-traces))))
-              "trace carries the resolution kind"))
+                                           (:operation %))))
+              ;; No further resolution / parent event fires for the late folds.
+              resolution-traces (->> @traces
+                                     (filter #(= :rf.machine.spawn-all/some-completed
+                                                 (:operation %))))]
+          (is (= 2 (count late-traces))
+              "one late-completion trace per late sibling (b and c)")
+          (is (= #{:b :c} (set (map #(:child-id (:tags %)) late-traces)))
+              "traces carry the late children's ids")
+          (is (every? #(true? (:folded? (:tags %))) late-traces)
+              "rf2-obczvv: each late trace marks :folded? true (cancel-off)")
+          (is (every? #(= :stale (:rf.reply/status (:tags %))) late-traces)
+              "the completion is still classified stale — suppressed from re-resolving")
+          (is (= 1 (count resolution-traces))
+              "the join resolves EXACTLY ONCE — no late fold re-fires the parent event"))
         (finally
           (rf/unregister-listener! :trace ::late-cb))))))
+
+;; Negative control: with :cancel-on-decision? true (the default) the
+;; surviving siblings are DESTROYED at resolution (the cancellation cascade
+;; fires :rf.machine/destroy + :rf.machine.spawn/cancelled-on-join-resolution
+;; per survivor). The record stays frozen at resolution — the fold-on-late
+;; behaviour is gated on cancel-OFF, so the default path is unchanged. This
+;; pins that the rf2-obczvv fold does NOT bleed into the cancel-on default.
+
+(deftest late-completion-cancel-on-default-cancels-siblings-record-frozen
+  (testing "rf2-obczvv negative control: with :cancel-on-decision? true the
+            surviving siblings are cancelled at resolution and the join-state
+            record stays frozen at :a — the late-fold path is cancel-off only,
+            so the default behaviour is unchanged"
+    (let [traces (atom [])
+          child  (mk-child :sup/cancel :asset/loaded :asset/failed)
+          parent {:initial :idle
+                  :states
+                  {:idle      {:on {:start :hydrating}}
+                   :hydrating
+                   {:spawn-all
+                    {:children            [{:id :a :machine-id :child/ca :start [:set-id :a]}
+                                           {:id :b :machine-id :child/cb :start [:set-id :b]}]
+                     :join                :any
+                     ;; cancel-on-decision? defaults to true (omitted)
+                     :on-child-done       :asset/loaded
+                     :on-child-error      :asset/failed
+                     :on-some-complete    [:race/won]}}}}]
+      (rf/reg-machine :child/ca child)
+      (rf/reg-machine :child/cb child)
+      (rf/reg-machine :sup/cancel parent)
+      (rf/register-listener! :trace ::cancel-cb
+                             (fn [ev] (swap! traces conj ev)))
+      (try
+        (rf/dispatch-sync [:sup/cancel [:start]])
+        (let [ids (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating] :children])]
+          (rf/dispatch-sync [(:a ids) [:go]])
+          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating]])]
+            (is (true? (:resolved? j)) ":any resolved on first :go")
+            (is (= #{:a} (:done j)) "record holds the decisive child only at resolution")))
+        (let [cancel-traces (->> @traces
+                                 (filter #(= :rf.machine.spawn/cancelled-on-join-resolution
+                                             (:operation %))))]
+          (is (pos? (count cancel-traces))
+              "cancel-on (default): surviving sibling :b is cancelled at resolution")
+          ;; The record stays frozen at :a — the cancel-off late-fold path
+          ;; never runs for the default cancel-on join (the survivor is gone).
+          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating]])]
+            (is (= #{:a} (:done j))
+                "rf2-obczvv: the record stays frozen — fold is cancel-OFF only")))
+        (finally
+          (rf/unregister-listener! :trace ::cancel-cb))))))
 
 ;; ---- forged child-id rejection -------------------------------------------
 ;;
