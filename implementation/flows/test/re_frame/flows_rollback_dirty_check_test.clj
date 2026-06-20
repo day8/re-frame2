@@ -113,8 +113,8 @@
       ;; NEXT drain (registration does not drain).
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
-                    :output (fn [n] (* 2 (or n 0)))
-                    :path   [:out]})
+                    :derive (fn [n] (* 2 (or n 0)))
+                    :output-path   [:out]})
       (reset! reject-out? true)
 
       ;; A drain whose handler does NOT touch :n. The flow transform computes
@@ -168,8 +168,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:out]})
+                  :derive (fn [n] (* 2 (or n 0)))
+                  :output-path   [:out]})
     ;; Schema always accepts.
     (rf/reg-app-schema [:out] {:schema (fn [_] true) :frame :rf/default})
     (rf/dispatch-sync [:seed])

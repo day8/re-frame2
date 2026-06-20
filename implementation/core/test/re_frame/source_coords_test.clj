@@ -172,8 +172,8 @@
   (testing "reg-flow stamps :ns / :line / :file"
     (rf/reg-flow {:id     :rf2-k84s/reg-flow-sample
                   :inputs [[:source]]
-                  :output (fn [v] v)
-                  :path   [:dest]})
+                  :derive (fn [v] v)
+                  :output-path   [:dest]})
     (assert-coords (rf/handler-meta :flow :rf2-k84s/reg-flow-sample)
                    :flow :rf2-k84s/reg-flow-sample)))
 

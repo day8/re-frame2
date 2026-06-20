@@ -106,8 +106,8 @@
   ;; :flows — a materialized after-event derivation.
   (rf/reg-flow {:id     :cart/materialized-total
                 :inputs [[:cart :items]]
-                :output count
-                :path   [:cart :total]})
+                :derive count
+                :output-path   [:cart :total]})
   ;; :resources — a process node (runtime-db / remote authority).
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
@@ -210,7 +210,7 @@
 
 (deftest same-flow-id-on-two-frames-stays-distinct
   ;; rf2-k0meap.2 point-1: a flow is FRAME-SCOPED — the same flow-id may
-  ;; register against two frames with different :inputs / :output / :path.
+  ;; register against two frames with different :inputs / :derive / :output-path.
   ;; The composed graph must preserve the frame dimension so one frame's
   ;; flow does NOT overwrite another's when their ids match.
   (testing "the SAME flow-id registered on two frames yields TWO distinct
@@ -221,13 +221,13 @@
     (rf/with-frame :app/a
       (rf/reg-flow {:id     :shared/total
                     :inputs [[:cart :items]]
-                    :output count
-                    :path   [:a-total]}))
+                    :derive count
+                    :output-path   [:a-total]}))
     (rf/with-frame :app/b
       (rf/reg-flow {:id     :shared/total
                     :inputs [[:basket :lines]]
-                    :output count
-                    :path   [:b-total]}))
+                    :derive count
+                    :output-path   [:b-total]}))
     (let [g     (graph/derivation-graph all-contributors)
           nodes (:nodes g)
           a-id  [:flow :app/a :shared/total]

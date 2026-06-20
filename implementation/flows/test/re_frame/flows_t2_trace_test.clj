@@ -63,8 +63,8 @@
    `:after` transformed the pending :db value the handler returned"
     (rf/reg-flow {:id     :doubled
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:doubled]})
     (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 7)}))
     (let [acc (collect-traces! ::t2-emit)]
       (try
@@ -90,8 +90,8 @@
    same inputs hits the skip branch."
     (rf/reg-flow {:id     :doubled
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:doubled]})
     (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
     (rf/dispatch-sync [:t2/set-n])      ; prime
     (let [acc (collect-traces! ::t2-skip)]
@@ -114,8 +114,8 @@
    commit). Mirrors the t1 contract — t1 leads the flow walk, t2 trails it."
     (rf/reg-flow {:id     :sum
                   :inputs [[:a] [:b]]
-                  :output +
-                  :path   [:sum]})
+                  :derive +
+                  :output-path   [:sum]})
     (rf/reg-event :t2/seed (fn [{:keys [db]} _] {:db {:a 3 :b 4}}))
     (let [acc (collect-traces! ::t2-order)]
       (try
@@ -143,8 +143,8 @@
    the flow-augmented :db. Mike's ruling — full values, no diff."
     (rf/reg-flow {:id     :len
                   :inputs [[:items]]
-                  :output (fn [items] (count items))
-                  :path   [:item-count]})
+                  :derive (fn [items] (count items))
+                  :output-path   [:item-count]})
     (rf/reg-event :t2/add-items (fn [{:keys [db]} _] {:db {:items [:a :b :c]}}))
     (let [acc (collect-traces! ::t1-t2-pair)]
       (try
@@ -172,8 +172,8 @@
    recorded what the handler returned, before the throw."
     (rf/reg-flow {:id     :boom
                   :inputs [[:x]]
-                  :output (fn [_] (throw (ex-info "boom" {})))
-                  :path   [:boom]})
+                  :derive (fn [_] (throw (ex-info "boom" {})))
+                  :output-path   [:boom]})
     (rf/reg-event :t2/trigger-boom (fn [{:keys [db]} _] {:db {:x 1}}))
     (let [acc (collect-traces! ::t2-throw)]
       (try

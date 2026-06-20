@@ -171,7 +171,7 @@ Transient payloads are owned by the registration that introduces the shape. Regi
   :auth/session-summary
   {:inputs {:token [:auth :token]
             :user  [:auth :user]}
-   :output [:auth :session-summary]
+   :output-path [:auth :session-summary]
    :sensitive [[:token-hash]]
    :derive (fn [{:keys [token user]}]
              {:user-id    (:id user)

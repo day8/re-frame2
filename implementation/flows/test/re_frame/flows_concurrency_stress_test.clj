@@ -11,7 +11,7 @@
   single-shot; this namespace pins the surface under parallel
   registration, dirty-evaluation, and clear from many threads. The
   invariants carry over from rf2-35rgj / rf2-1gpx8: every dispatched
-  event ran exactly once (no drops) and every flow `:output` invocation
+  event ran exactly once (no drops) and every flow `:derive` invocation
   fired exactly once per dirty evaluation (no doubles).
 
   The shape — per Spec 013 §Frame-scoping + Spec 002 §Rules rule 1
@@ -29,17 +29,17 @@
       013 §Frame-scoping line 105.
     - **Per iter**, the thread runs the reg-flow → dispatch-drain →
       clear-flow cycle against a per-thread namespaced flow id
-      (`:ztw5p.stress/double-f<i>`) whose `:output` action increments a
+      (`:ztw5p.stress/double-f<i>`) whose `:derive` action increments a
       per-thread counter atom AND a shared `AtomicLong` global counter
       both bumping exactly once per dirty evaluation.
         1. `(rf/reg-flow ...)` against the per-thread frame —
-           per-thread namespaced `:id` keeps each thread's `:output`
+           per-thread namespaced `:id` keeps each thread's `:derive`
            closure binding independent (registrar is GLOBAL; one
            shared `:id` would only bind the last closure).
         2. `(rf/dispatch-sync [:bump-input] {:frame F})` — drives one
-           dirty evaluation. The `:output` fn bumps the global atomic
+           dirty evaluation. The `:derive` fn bumps the global atomic
            AND the per-thread counter atom. Both bump exactly once
-           per dirty evaluation (the dirty-check guarantees `:output`
+           per dirty evaluation (the dirty-check guarantees `:derive`
            runs once per input change).
         3. `(rf/clear-flow ...)` against the per-thread frame — must
            dissoc both the per-frame registry slot AND (since this is
@@ -54,10 +54,10 @@
        no thread silently lost work.
 
     2. **No double-action (global atomic counter).** `AtomicLong` is
-       bumped once per `:output` invocation. After all threads finish,
+       bumped once per `:derive` invocation. After all threads finish,
        its value must EXACTLY match `(N × iters)`. Higher = a flow ran
        twice for one dispatch (double-action); lower = a dirty
-       evaluation was dropped before `:output` ran.
+       evaluation was dropped before `:derive` ran.
 
     3. **Ordering stable / cycle detection works under contention.**
        Per-thread cycle-detection probe: each thread, mid-stress, does
@@ -152,7 +152,7 @@
   ;;
   ;; The two pinned counter invariants are the same as rf2-35rgj /
   ;; rf2-1gpx8: every dispatched event ran exactly once (no drops) and
-  ;; every transition / `:output` invocation fired exactly once per
+  ;; every transition / `:derive` invocation fired exactly once per
   ;; dispatch (no doubles). Two distinct counter views (per-thread
   ;; atom + global AtomicLong) detect them independently — divergence
   ;; between the two would indicate the per-thread observation lost
@@ -175,7 +175,7 @@
           ;; Independent frames parallelise across CPUs (Spec 002
           ;; §Rules rule 1 — frames are independent state machines,
           ;; their drain-locks don't share). Per-thread flow-ids let
-          ;; each thread's `:output` fn close over THIS thread's
+          ;; each thread's `:derive` fn close over THIS thread's
           ;; per-thread counter atom — `reg-flow` writes the GLOBAL
           ;; registrar; each id binds independently in the registrar.
           per-thread
@@ -217,16 +217,16 @@
                           ;; many dirty evaluations → clear flow.
                           ;; `dispatch-sync` settles the drain
                           ;; (including the outermost-`:after` flow
-                          ;; transform) before returning so the `:output` fn runs to
+                          ;; transform) before returning so the `:derive` fn runs to
                           ;; completion before this thread observes
                           ;; the next iter.
                           (rf/reg-flow {:id     flow-id
                                         :inputs [[:n]]
-                                        :output (fn [n]
+                                        :derive (fn [n]
                                                   (.incrementAndGet global-counter)
                                                   (swap! counter inc)
                                                   (* 2 (or n 0)))
-                                        :path   [:doubled]}
+                                        :output-path   [:doubled]}
                                        {:frame frame-id})
                           ;; Drive `stress-iters` dirty evaluations.
                           ;; Use the loop counter (i+1) as the input
@@ -248,14 +248,14 @@
                           ;; atomic counts every confirmed throw.
                           (rf/reg-flow {:id     cyc-a
                                         :inputs [[cyc-b]]
-                                        :output identity
-                                        :path   [cyc-a]}
+                                        :derive identity
+                                        :output-path   [cyc-a]}
                                        {:frame frame-id})
                           (try
                             (rf/reg-flow {:id     cyc-b
                                           :inputs [[cyc-a]]
-                                          :output identity
-                                          :path   [cyc-b]}
+                                          :derive identity
+                                          :output-path   [cyc-b]}
                                          {:frame frame-id})
                             ;; If we reach here, the cycle was NOT
                             ;; detected — leave cycle-hits unbumped
@@ -307,7 +307,7 @@
           ;; This per-thread check rules that out.
           (is (every? #(= stress-iters %) per-thread-totals)
               (str "Each thread must have processed exactly "
-                   stress-iters " :output invocations; got "
+                   stress-iters " :derive invocations; got "
                    per-thread-totals)))
 
         ;; --- Invariant 2: no double-action (global atomic) --------
@@ -315,7 +315,7 @@
               global-expected (* n-threads stress-iters)]
           (is (= global-expected global-actual)
               (str "Global AtomicLong: expected "
-                   global-expected " :output invocations (no double-"
+                   global-expected " :derive invocations (no double-"
                    "action); got " global-actual)))
 
         ;; --- Invariant 3: cycle detection stable under contention --

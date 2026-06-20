@@ -22,7 +22,7 @@
       \"the draft is valid AND differs from the loaded baseline\" into app-db at
       `[:editor :can-submit?]`. The submit handler reads it as plain data (no
       mid-handler subscribe); the submit button reads it through a plain sub over
-      the flow's `:path` (Spec 013 §Sub integration). The flow is registered
+      the flow's `:output-path` (Spec 013 §Sub integration). The flow is registered
       per-frame from `:editor/initialise` via `:rf.fx/reg-flow` so it binds to
       whatever frame the app booted on.
 
@@ -120,7 +120,7 @@
 ;; `:editor/submit` handler reads this value as plain app-db data to gate the
 ;; submit (the \"other event handlers read the value\" criterion); a sub would
 ;; force the handler to subscribe mid-handler. The submit button reads the same
-;; materialised value through a plain sub over the `:path`.
+;; materialised value through a plain sub over the `:output-path`.
 ;;
 ;; Registered per-frame via `:rf.fx/reg-flow` from `:editor/initialise` (not at
 ;; ns-load) so it binds to whatever frame the app booted on (Spec 013 §Dynamic
@@ -133,10 +133,10 @@
             loaded baseline). Materialised into app-db so the submit handler
             reads it as plain data."
    :inputs [[:editor :draft] [:editor :baseline]]
-   :output (fn [draft baseline]
+   :derive (fn [draft baseline]
              (and (empty? (validate-draft draft))
                   (not= draft baseline)))
-   :path   [:editor :can-submit?]})
+   :output-path [:editor :can-submit?]})
 
 ;; ============================================================================
 ;; THE WRITE — mutations (POST create / PUT edit / DELETE)
@@ -356,7 +356,7 @@
       (get-in e [:errors field]))))
 
 (rf/reg-sub :editor/can-submit?
-  {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db `:path`
+  {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db `:output-path`
          (Spec 013 §Sub integration (b)) — a flow's output is ordinary app-db
          state read through a plain sub. Drives the submit button. nil until the
          flow's first walk lands, which `(boolean …)` normalises to false."}

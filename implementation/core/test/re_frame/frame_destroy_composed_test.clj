@@ -448,8 +448,8 @@
     (rf/reg-event :composed/seed-leak (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :composed/area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]}
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]}
                  {:frame :composed/leak-audit})
 
     ;; --- epoch: register a listener BEFORE the cascade so the cb's

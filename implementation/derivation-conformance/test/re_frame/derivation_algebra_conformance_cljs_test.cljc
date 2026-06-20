@@ -297,8 +297,8 @@
   ;; into app-db `:after-event`.
   (rf/reg-flow {:id     :cart/materialized-total
                 :inputs [[:cart :items]]
-                :output sum-cart
-                :path   [:cart :total]})
+                :derive sum-cart
+                :output-path   [:cart :total]})
   ;; :resources — a process node (runtime-db / external authority); declares
   ;; a route-owned resource so the route gets a :param activation edge.
   (rf/reg-resource :article/by-slug
@@ -1587,16 +1587,16 @@
     (rf/reg-sub ::ssn-sub (fn [db _] (get-in db [:user :ssn])))
     ;; FLOW — the policy twin: reads the same sensitive input, materializes a
     ;; derived copy into app-db; default-inherit ⇒ the propagated whole-output
-    ;; declaration installs at the flow's :path.
+    ;; declaration installs at the flow's :output-path.
     (rf/reg-flow {:id     ::ssn-copy-flow
                   :inputs [[:user :ssn]]
-                  :output (fn [ssn] {:copy ssn})
-                  :path   [:derived :ssn-copy]}))
+                  :derive (fn [ssn] {:copy ssn})
+                  :output-path   [:derived :ssn-copy]}))
   (testing "the flow inherited a propagated whole-output sensitive declaration
-            at its :path (the derived output is tainted by default)"
+            at its :output-path (the derived output is tainted by default)"
     (is (contains? (set (keys (privacy-decls sens-frame)))
                    [:derived :ssn-copy])
-        "the default-inherit flow output :path carries a propagated sensitive mark"))
+        "the default-inherit flow output :output-path carries a propagated sensitive mark"))
   (rf/dispatch-sync [::seed-user "123-45-6789"] {:frame sens-frame})
   (testing "the flow's materialized derived output redacts at the trust boundary
             (the frame-sensitive value did not leave raw)"
@@ -1620,15 +1620,15 @@
     ;; FLOW — public input :n, but force-marked sensitive output.
     (rf/reg-flow {:id     ::forced-flow
                   :inputs [[:n]]
-                  :output (fn [n] {:derived n})
-                  :path   [:derived :forced]
+                  :derive (fn [n] {:derived n})
+                  :output-path   [:derived :forced]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     ;; SUB — public input, force-marked sensitive via register-marks
     ;; (`reg-sub` stashes the leading meta map's output-sensitivity claim).
     (rf/reg-sub ::forced-sub {:rf.egress/output-sensitivity :rf.egress/sensitive}
                 (fn [db _] (:n db))))
   (testing "the force-marked flow output installs a whole-output sensitive
-            declaration at its :path despite the PUBLIC input"
+            declaration at its :output-path despite the PUBLIC input"
     (is (contains? (set (keys (privacy-decls sens-frame))) [:derived :forced])
         "explicit :rf.egress/sensitive force-marks the output even from a public input"))
   (rf/dispatch-sync [::seed-n 42] {:frame sens-frame})
@@ -1654,14 +1654,14 @@
     ;; (de-sensitised) output.
     (rf/reg-flow {:id     ::hashed-flow
                   :inputs [[:secret]]
-                  :output (fn [s] (hash s))      ; author de-sensitised
-                  :path   [:derived :secret-hash]
+                  :derive (fn [s] (hash s))      ; author de-sensitised
+                  :output-path   [:derived :secret-hash]
                   :rf.egress/output-sensitivity :rf.egress/public})
     ;; SUB — declassified output over a sensitive frame.
     (rf/reg-sub ::hashed-sub {:rf.egress/output-sensitivity :rf.egress/public}
                 (fn [db _] (hash (:secret db)))))
   (testing "the :rf.egress/public flow installs NO whole-output declaration at
-            its :path — the declassify suppresses the propagated mark"
+            its :output-path — the declassify suppresses the propagated mark"
     (is (not (contains? (set (keys (privacy-decls sens-frame))) [:derived :secret-hash]))
         ":rf.egress/public declassifies — no propagated sensitive mark installed"))
   (rf/dispatch-sync [::seed-secret "top-secret"] {:frame sens-frame})

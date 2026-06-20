@@ -78,7 +78,7 @@
   :flow {:cart/materialized-total
          {:doc    "The subscription's policy TWIN — same whole-value fn, materialized into app-db :after-event."
           :inputs [[:cart :items]]
-          :path   [:cart :total]}}
+          :output-path [:cart :total]}}
   ;; a resource — the canonical :process member (runtime-db local storage +
   ;; external authority). The runner synthesizes the required :request fn
   ;; (EDN cannot carry a fn); the static graph never runs it (the opaque
@@ -108,7 +108,7 @@
  {:sub {:cart/items [[:get [:cart :items]]]
         :cart/total [[:reduce-input :cart/items [:fn :+] [:fn :identity]]]}}
 
- ;; The flow :output fn — opaque in the static graph (the :derive token,
+ ;; The flow :derive fn — opaque in the static graph (the :derive token,
  ;; never serialized / never run by static inspection). A simple identity
  ;; body keeps registration valid; the flow VALUE law is pinned elsewhere
  ;; (flow-recompute-on-input-change.edn + the reference whole-value tests).

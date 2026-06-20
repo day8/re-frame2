@@ -79,8 +79,8 @@
   (testing "the JVM `re-frame.flows/flow-algebra-view` alias is the tooling fn"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]})
     (is (= (flows-tooling/flow-algebra-view)
            (flows/flow-algebra-view))
         "the JVM convenience alias projects identically to the tooling sibling")))
@@ -91,8 +91,8 @@
   (testing "a reg-flow exposes the full materialized / after-event / frame node"
     (rf/reg-flow {:id     :cart/materialized-total
                   :inputs [[:cart :items] [:pricing :discounts]]
-                  :output (fn [items discounts] [items discounts])
-                  :path   [:cart :total]})
+                  :derive (fn [items discounts] [items discounts])
+                  :output-path   [:cart :total]})
     (let [node (get-in (flows-tooling/flow-algebra-view)
                        [:rf/default :cart/materialized-total])]
       (is (some? node) "the flow is present under its owning frame's slot")
@@ -101,20 +101,20 @@
       (is (= :cart/materialized-total (:id node)))
       (is (= {:kind :reg-flow :id :cart/materialized-total} (:source-form node)))
       (is (= [:db [:cart :total]] (:output node))
-          "the output materializes the whole value into app-db at the flow's :path")
+          "the output materializes the whole value into app-db at the flow's :output-path")
       (is (= [[:db [:cart :items]] [:db [:pricing :discounts]]] (:inputs node))
           "each bare :inputs path lowers to a [:db path] declared input, in declaration order")
       (is (= [:frame :rf/default] (:owner node))
           "the owner is the frame the flow registered against")
       (is (fn? (:derive node))
-          "the :output body fn is surfaced as an opaque :derive token"))))
+          "the :derive body fn is surfaced as an opaque :derive token"))))
 
 (deftest single-frame-arity-returns-that-frames-flows
   (testing "(flow-algebra-view frame-id) returns {flow-id node} for one frame"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]})
     (let [per-frame (flows-tooling/flow-algebra-view :rf/default)]
       (is (= #{:area} (set (keys per-frame))))
       (is (= (get-in (flows-tooling/flow-algebra-view) [:rf/default :area])
@@ -130,8 +130,8 @@
     (rf/reg-flow {:id     :route/derived
                   :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]
                            [:local :seed]]
-                  :output (fn [route-id seed] [route-id seed])
-                  :path   [:derived :slug]})
+                  :derive (fn [route-id seed] [route-id seed])
+                  :output-path   [:derived :slug]})
     (let [node (get-in (flows-tooling/flow-algebra-view)
                        [:rf/default :route/derived])]
       (is (has-fixed-classifications? node))
@@ -146,12 +146,12 @@
   (testing "every registered flow on a frame projects to its own node"
     (rf/reg-flow {:id     :a
                   :inputs [[:w]]
-                  :output (fn [w] w)
-                  :path   [:out :a]})
+                  :derive (fn [w] w)
+                  :output-path   [:out :a]})
     (rf/reg-flow {:id     :b
                   :inputs [[:h]]
-                  :output (fn [h] h)
-                  :path   [:out :b]})
+                  :derive (fn [h] h)
+                  :output-path   [:out :b]})
     (let [per-frame (flows-tooling/flow-algebra-view :rf/default)]
       (is (= #{:a :b} (set (keys per-frame))))
       (is (every? has-fixed-classifications? (vals per-frame)))
@@ -161,17 +161,17 @@
 (deftest same-flow-id-on-two-frames-projects-per-frame
   (testing "the same flow-id on two frames yields two distinct nodes (frame-scoped)"
     ;; Flows are frame-scoped — the same id may carry different :inputs /
-    ;; :path on different frames. The view preserves the frame dimension.
+    ;; :output-path on different frames. The view preserves the frame dimension.
     (rf/reg-frame :other {:doc "second frame for the frame-scoped view test"})
     (rf/reg-flow {:id     :shared
                   :inputs [[:a]]
-                  :output (fn [a] a)
-                  :path   [:out :default]}
+                  :derive (fn [a] a)
+                  :output-path   [:out :default]}
                  {:frame :rf/default})
     (rf/reg-flow {:id     :shared
                   :inputs [[:b]]
-                  :output (fn [b] b)
-                  :path   [:out :other]}
+                  :derive (fn [b] b)
+                  :output-path   [:out :other]}
                  {:frame :other})
     (let [view (flows-tooling/flow-algebra-view)]
       (is (= [:db [:out :default]] (get-in view [:rf/default :shared :output])))
@@ -186,8 +186,8 @@
   (testing ":ns / :line / :file captured by reg-flow surface under :source"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]})
     (let [node   (get-in (flows-tooling/flow-algebra-view) [:rf/default :area])
           source (:source node)]
       (is (some? source) ":source map is present when the registration carried coords")
@@ -201,8 +201,8 @@
                   :doc    "a priced total"
                   :schema :app.money/amount
                   :inputs [[:price]]
-                  :output (fn [p] p)
-                  :path   [:cart :total]})
+                  :derive (fn [p] p)
+                  :output-path   [:cart :total]})
     (let [node (get-in (flows-tooling/flow-algebra-view) [:rf/default :priced])]
       (is (= :app.money/amount (:schema node))
           "the declared output :schema surfaces as a node fact")
@@ -212,8 +212,8 @@
   (testing ":schema / :doc are absent when the registration didn't supply them"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]})
     (let [node (get-in (flows-tooling/flow-algebra-view) [:rf/default :area])]
       (is (not (contains? node :schema)))
       (is (not (contains? node :doc))))))
@@ -224,12 +224,12 @@
   (testing "(clear-flow id) removes the flow from the algebra view"
     (rf/reg-flow {:id     :a
                   :inputs [[:w]]
-                  :output (fn [w] w)
-                  :path   [:out :a]})
+                  :derive (fn [w] w)
+                  :output-path   [:out :a]})
     (rf/reg-flow {:id     :b
                   :inputs [[:h]]
-                  :output (fn [h] h)
-                  :path   [:out :b]})
+                  :derive (fn [h] h)
+                  :output-path   [:out :b]})
     (is (contains? (flows-tooling/flow-algebra-view :rf/default) :a))
     (flows/clear-flow :a)
     (let [per-frame (flows-tooling/flow-algebra-view :rf/default)]

@@ -88,14 +88,14 @@
     ;; Frame A: a flow that always throws when it recomputes.
     (rf/reg-flow {:id     :flow-x
                   :inputs [[:n]]
-                  :output (fn [_] (throw (ex-info "boom-A" {})))
-                  :path   [:out]}
+                  :derive (fn [_] (throw (ex-info "boom-A" {})))
+                  :output-path   [:out]}
                  {:frame :a})
     ;; Frame B: the SAME flow id registered against B with a benign output.
     (rf/reg-flow {:id     :flow-x
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:out]}
+                  :derive (fn [n] (* 2 (or n 0)))
+                  :output-path   [:out]}
                  {:frame :b})
 
     ;; Simulate B having drained to completion: its dirty-check row is V2.
@@ -135,13 +135,13 @@
       ;; throws — so :A's advance must be rolled back.
       (rf/reg-flow {:id     :A
                     :inputs [[:n]]
-                    :output (fn [n] (* 10 (or n 0)))
-                    :path   [:a-out]}
+                    :derive (fn [n] (* 10 (or n 0)))
+                    :output-path   [:a-out]}
                    {:frame :solo})
       (rf/reg-flow {:id     :B
                     :inputs [[:a-out]]
-                    :output (fn [_] (throw (ex-info "boom-B" {})))
-                    :path   [:b-out]}
+                    :derive (fn [_] (throw (ex-info "boom-B" {})))
+                    :output-path   [:b-out]}
                    {:frame :solo})
       (is (thrown? Throwable (flows/run-flows-on-db :solo {:n 5} nil)))
       (reset! a-row-before (registry/get-frame-flow-last-inputs :solo :A))
@@ -158,13 +158,13 @@
 ;; Both run in lockstep on separate threads with no global serialization —
 ;; exactly the interleaving the per-frame drain-locks permit.
 ;;
-;; Invariant: B's flow `:output` fires EXACTLY ONCE across all of B's
+;; Invariant: B's flow `:derive` fires EXACTLY ONCE across all of B's
 ;; drains. The first drain recomputes (input changed from absent → [7]);
 ;; every subsequent drain has IDENTICAL inputs ([7] each time) so the
 ;; dirty-check MUST skip. Pre-fix, frame A's concurrent throwing-drain
 ;; would `reset!` the global atom and clobber B's just-advanced row, so
 ;; B's next same-input drain would spuriously recompute — driving the
-;; `:output` count above 1. With per-frame containers B's row is in its
+;; `:derive` count above 1. With per-frame containers B's row is in its
 ;; own atom and A's rollback can't reach it, so the count stays at 1.
 ;;
 ;; A secondary invariant pins the consequence chain: B emits exactly ONE
@@ -189,18 +189,18 @@
     ;; every iter so it ALWAYS recomputes (and therefore always rolls back).
     (rf/reg-flow {:id     :rf2-94ol5/throws
                   :inputs [[:n]]
-                  :output (fn [_] (throw (ex-info "boom-A" {})))
-                  :path   [:out]}
+                  :derive (fn [_] (throw (ex-info "boom-A" {})))
+                  :output-path   [:out]}
                  {:frame :rf2-94ol5/a})
 
     ;; Frame B: a successful flow with STABLE inputs after the first drain.
     (let [b-output-calls (AtomicLong. 0)]
       (rf/reg-flow {:id     :rf2-94ol5/doubles
                     :inputs [[:n]]
-                    :output (fn [n]
+                    :derive (fn [n]
                               (.incrementAndGet b-output-calls)
                               (* 2 (or n 0)))
-                    :path   [:out]}
+                    :output-path   [:out]}
                    {:frame :rf2-94ol5/b})
 
       ;; Count B's :rf.flow/computed traces (the spurious-recompute symptom).
@@ -245,10 +245,10 @@
 
           (trace/unregister-listener! ::b-computed-watch)
 
-          ;; THE INVARIANT: B's :output fired exactly once. Pre-fix, A's
+          ;; THE INVARIANT: B's :derive fired exactly once. Pre-fix, A's
           ;; concurrent rollback clobbering B's row would push this above 1.
           (is (= 1 (.get b-output-calls))
-              (str "B's flow :output must fire EXACTLY once (the genuine "
+              (str "B's flow :derive must fire EXACTLY once (the genuine "
                    "first recompute); every later same-input drain must "
                    "dirty-check-skip. Got " (.get b-output-calls)
                    " — a value > 1 means frame A's throwing-flow rollback "

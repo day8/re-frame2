@@ -43,8 +43,8 @@ Here is the example that makes the idea click — a cart total, expressed twice,
 (rf/reg-flow
   {:id     :cart/materialized-total
    :inputs [[:cart :items] [:pricing :discounts]]
-   :output (fn [items discounts] (sum-cart items discounts))
-   :path   [:cart :total]})
+   :derive (fn [items discounts] (sum-cart items discounts))
+   :output-path [:cart :total]})
 ```
 
 `sum-cart` is one whole-value function. The two algebra views differ **only in the policy fields**, not in the math:

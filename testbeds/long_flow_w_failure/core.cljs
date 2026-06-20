@@ -38,13 +38,13 @@
   input to all three flows. Every bump recomputes the three flows in
   topo order:
 
-    :flow-a — :inputs [[:input]]; :output multiplies by 2; :path
+    :flow-a — :inputs [[:input]]; :derive multiplies by 2; :output-path
               [:a-result].
-    :flow-b — :inputs [[:input]]; :output throws on the configured
-              tick index; otherwise multiplies by 3; :path
+    :flow-b — :inputs [[:input]]; :derive throws on the configured
+              tick index; otherwise multiplies by 3; :output-path
               [:b-result].
-    :flow-c — :inputs [[:a-result] [:b-result]]; :output sums
-              the two; :path [:c-result]. Only runs when :flow-a and
+    :flow-c — :inputs [[:a-result] [:b-result]]; :derive sums
+              the two; :output-path [:c-result]. Only runs when :flow-a and
               :flow-b both successfully advance.
 
   Two toggles configure the failure injection:
@@ -109,7 +109,7 @@
           :total-ticks  default-total-ticks
           :status       :idle                 ;; :idle | :running | :done
           ;; The runtime writes :a-result / :b-result / :c-result via
-          ;; the flows' :path slots — declared here only so the initial
+          ;; the flows' :output-path slots — declared here only so the initial
           ;; state is observable before the first drain.
           :a-result     0
           :b-result     0
@@ -119,7 +119,7 @@
 ;; Out-of-band closure capture for the failure threshold
 ;; ----------------------------------------------------------------------------
 ;;
-;; :flow-b's :output reads the failure threshold via this atom so the
+;; :flow-b's :derive reads the failure threshold via this atom so the
 ;; flow keeps `:inputs [[:input]]` (single-input, matches the
 ;; canonical "one upstream input is the failure trigger" shape). The
 ;; toggle button below `reset!`s this atom AND writes :fail-at into
@@ -134,7 +134,7 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Topology pin (rf2-sabm5). Spec 013 §Topological sort orders a flow
-;; map by path-prefix overlap between one flow's `:path` and another's
+;; map by path-prefix overlap between one flow's `:output-path` and another's
 ;; `:inputs` — two flows that don't share such an overlap are
 ;; topologically *parallel*, and Kahn's algorithm picks an unspecified
 ;; order between them. The atomicity contract distinguishes the flow
@@ -144,14 +144,14 @@
 ;; "ran-then-discarded" prior flow and :flow-c the "never-ran"
 ;; downstream flow, the testbed pins :flow-a → :flow-b → :flow-c in
 ;; topo order: listing `[:a-result]` in :flow-b's :inputs forces the
-;; path-prefix overlap edge with :flow-a's :path, and the
+;; path-prefix overlap edge with :flow-a's :output-path, and the
 ;; `[:a-result] [:b-result]` pair already pins :flow-c after both.
 ;;
 ;; The :input itself stays in :flow-b's :inputs so the read-from-app-
 ;; db dirty-check still fires when the tick handler bumps :input —
 ;; without that input edge, :flow-b would still re-evaluate on every
 ;; tick (because :a-result advanced), but the input value used inside
-;; :output would not be the trigger. Listing both keeps the value
+;; :derive would not be the trigger. Listing both keeps the value
 ;; flow honest and the ordering pinned.
 ;;
 ;; Atomicity evidence: when :flow-b throws on tick N, the WHOLE tick
@@ -181,25 +181,25 @@
   (rf/reg-flow
   {:id     ::flow-a
    :inputs [[:input]]
-   :output (fn flow-a [input]
+   :derive (fn flow-a [input]
              ;; Trivial pure transform. The point is the WRITE — on a
              ;; clean tick :a-result advances and commits; on a failing
              ;; tick :flow-a's :rf.flow/computed still fires (it ran)
              ;; but the write is DISCARDED when the tick aborts.
              (* 2 input))
-   :path   [:a-result]
+   :output-path [:a-result]
    :doc    "Doubles :input. Watched by :flow-b (topo-order pin) and
             :flow-c (math)."})
 
 (rf/reg-flow
   {:id     ::flow-b
    ;; Two inputs — :input drives the math; :a-result is the topo-
-   ;; order pin (see flows-block comment above). The :output fn
+   ;; order pin (see flows-block comment above). The :derive fn
    ;; ignores the a-result value; its only job is to declare the
    ;; dependency edge so :flow-a's write is observably PRIOR when
    ;; this flow throws.
    :inputs [[:input] [:a-result]]
-   :output (fn flow-b [input _a-result]
+   :derive (fn flow-b [input _a-result]
              ;; HOT PATH — the failure-injection site for the
              ;; cascade. The throw fires whenever this fn is called
              ;; with input ≥ :fail-at. The throw aborts the whole
@@ -230,7 +230,7 @@
                                   :input input
                                   :fail-at fail-at-input}))
                  (* 3 input))))
-   :path   [:b-result]
+   :output-path [:b-result]
    :doc    "Triples :input — UNLESS input ≥ fail-at, in which case
             throws every recompute past that threshold. Reads
             :a-result for topo-order only (math uses :input)."})
@@ -238,13 +238,13 @@
 (rf/reg-flow
   {:id     ::flow-c
    :inputs [[:a-result] [:b-result]]
-   :output (fn flow-c [a b]
+   :derive (fn flow-c [a b]
              ;; Watches :flow-a's and :flow-b's outputs. Only runs
              ;; when both upstreams have successfully advanced —
              ;; :flow-c does NOT run on the drain where :flow-b
              ;; throws (the cascade halts before it).
              (+ a b))
-   :path   [:c-result]
+   :output-path [:c-result]
    :doc    "Sums :a-result + :b-result. Watches :flow-a and
             :flow-b's outputs."}))
 

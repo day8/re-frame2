@@ -3,7 +3,7 @@
 
   Pure-data input, pure-data output. No atoms, no side effects, no
   trace emission — every call decides the evaluation order of one
-  frame's flows from the static `:inputs` / `:path` declarations alone.
+  frame's flows from the static `:inputs` / `:output-path` declarations alone.
 
   Per rf2-mnu8z this is the first leg of the flows split — pulled out
   of the original monolith so the algorithm is unit-testable in
@@ -13,7 +13,7 @@
   on every drain to fix evaluation order.
 
   Per Spec 013 §Topological sort the rule is: flow B depends on flow
-  A iff A's `:path` and any of B's `:inputs` share a path prefix in
+  A iff A's `:output-path` and any of B's `:inputs` share a path prefix in
   either direction. Kahn's algorithm produces the order; on cycle we
   reconstruct a DFS path through the stuck nodes and throw
   `:rf.error/flow-cycle` with a closing-repeat cycle vector
@@ -22,9 +22,9 @@
   This module also owns `detect-output-path-overlap!` — the symmetric
   check the registry runs alongside the cycle check at `reg-flow` time
   (Spec 013 §Disjoint output paths): two flows in one frame whose OUTPUT
-  `:path`s overlap (one a prefix of the other, identical included) have
-  no dependency edge between them (the edge rule compares `:path` vs
-  `:inputs`, never `:path` vs `:path`), so their relative evaluation
+  `:output-path`s overlap (one a prefix of the other, identical included) have
+  no dependency edge between them (the edge rule compares `:output-path` vs
+  `:inputs`, never `:output-path` vs `:output-path`), so their relative evaluation
   order is undefined and they would race for the shared slot under
   last-write-wins. That is an authoring footgun, not a valid topology,
   so it is rejected at registration with `:rf.error/flow-path-overlap`."
@@ -43,11 +43,11 @@
             [re-frame.path :as path]))
 
 (defn depends-on?
-  "Per Spec 013 §Topological sort: B depends on A iff A's :path and any
+  "Per Spec 013 §Topological sort: B depends on A iff A's :output-path and any
   of B's :inputs share a path prefix in either direction. The prefix
   relation is the shared `re-frame.path/prefix?` (rf2-t3cfil)."
   [b-flow a-flow]
-  (let [a-path (:path a-flow)]
+  (let [a-path (:output-path a-flow)]
     (boolean
       (some (fn [b-input]
               (or (path/prefix? a-path b-input)
@@ -55,7 +55,7 @@
             (:inputs b-flow)))))
 
 (defn output-paths-overlap?
-  "True iff two flows' OUTPUT `:path`s collide on the same app-db slot —
+  "True iff two flows' OUTPUT `:output-path`s collide on the same app-db slot —
   i.e. one path is a prefix of the other (identical paths included, since
   every vector is a prefix of itself). Per Spec 013 §Disjoint output
   paths: `[:x]` overlaps `[:x]` (identical), `[:x]` overlaps `[:x :y]`
@@ -73,7 +73,7 @@
 
 (defn- first-overlapping-pair
   "Scan the prospective per-frame `flow-map` (`{flow-id flow-map}`) for the
-  first pair of DISTINCT flows whose output `:path`s overlap (one a prefix
+  first pair of DISTINCT flows whose output `:output-path`s overlap (one a prefix
   of the other). Return `{:flow-ids [lo hi] :paths [lo-path hi-path]}` for
   the offending pair, or `nil` if every pair is disjoint.
 
@@ -95,8 +95,8 @@
     (some (fn [[i j]]
             (let [[a-id a-flow] (nth entries i)
                   [b-id b-flow] (nth entries j)
-                  a-path        (:path a-flow)
-                  b-path        (:path b-flow)]
+                  a-path        (:output-path a-flow)
+                  b-path        (:output-path b-flow)]
               (when (output-paths-overlap? a-path b-path)
                 (let [[lo-id hi-id]     (sort-by (juxt hash str) [a-id b-id])
                       [lo-path hi-path] (if (= lo-id a-id)
@@ -112,12 +112,12 @@
   "Symmetric with `topo-sort`'s cycle check (Spec 013 §Disjoint output
   paths). Given a prospective per-frame `flow-map` (`{flow-id flow-map}`),
   throw `:rf.error/flow-path-overlap` if any two distinct flows have
-  overlapping output `:path`s — otherwise return `flow-map` unchanged so
+  overlapping output `:output-path`s — otherwise return `flow-map` unchanged so
   the caller can thread it.
 
   WHY this is a registration error, not a topo edge: the dependency rule
-  (`depends-on?`) compares one flow's `:path` against another's `:inputs`,
-  never `:path` vs `:path`. Two same-frame flows whose outputs overlap but
+  (`depends-on?`) compares one flow's `:output-path` against another's `:inputs`,
+  never `:output-path` vs `:output-path`. Two same-frame flows whose outputs overlap but
   whose inputs are disjoint therefore get NO edge — both are 'ready' at
   topo-sort start and their relative order falls out of map-iteration
   order, a non-contract. The loser of that undefined order silently loses
@@ -127,7 +127,7 @@
 
   The `ex-info` carries the canonical thrown-error shape (per Spec 009
   §The thrown-error shape) — `:rf.error/id` / `:where` / `:recovery`
-  `:fix-registration` (the caller fixes one flow's `:path` and retries,
+  `:fix-registration` (the caller fixes one flow's `:output-path` and retries,
   exactly like the cycle / validate-flow rejections) / `:reason` — plus
   `:overlap`, the offending `{:flow-ids [id-a id-b] :paths [path-a
   path-b]}` pair, so tools (Xray's flow panel) name the colliding flows
@@ -140,7 +140,7 @@
   (when-let [overlap (first-overlapping-pair flow-map)]
     (error/throw-error!
       :rf.error/flow-path-overlap 'rf/reg-flow
-      "Two flows in the same frame have overlapping output :paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :path against :inputs, never :path against :path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :path."
+      "Two flows in the same frame have overlapping output :output-paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :output-path against :inputs, never :output-path against :output-path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :output-path."
       {:recovery :fix-registration
        :extra    {:overlap overlap}}))
   flow-map)
@@ -272,7 +272,7 @@
               ;; rejections: detected at `reg-flow` time on a PROSPECTIVE
               ;; map BEFORE any state mutates (rf2-7csri), so the prior
               ;; registration survives and the caller fixes their
-              ;; `:inputs` / `:path` and retries. Stamping `:no-recovery`
+              ;; `:inputs` / `:output-path` and retries. Stamping `:no-recovery`
               ;; would make an `:on-error` policy or tool that branches on
               ;; `:recovery` to decide "is this user-fixable?" treat a
               ;; fixable cycle as terminal — inconsistent with every other
@@ -281,7 +281,7 @@
               ;; genuine internal-invariant violation, not caller-fixable.)
               (error/throw-error!
                 :rf.error/flow-cycle 'rf/reg-flow
-                "Cyclic flow dependency — at least one pair of flows' :path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
+                "Cyclic flow dependency — at least one pair of flows' :output-path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
                 {:recovery :fix-registration
                  :extra    {:cycle (extract-cycle-path graph
                                                        (set (keys remaining)))}})

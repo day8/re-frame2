@@ -33,7 +33,7 @@
       `:db` is discarded, NO `db-changed`, no partial commit. The two
       recovery paths (schema-rollback vs flow-throw-abort) produce DISTINCT
       trace signatures.
-    - Under SSR's synchronous drain a sub over a flow's `:path` renders
+    - Under SSR's synchronous drain a sub over a flow's `:output-path` renders
       the flow-augmented value (the flow ran before install; render reads
       the installed flow-augmented db).
     - An event whose `:fx` `:dispatch`es child events gives EACH child its
@@ -201,10 +201,10 @@
       ;; us prove it saw the FINAL (settled) value, not an intermediate one.
       (rf/reg-flow {:id     :gauge/label
                     :inputs [[:rf.db/runtime :rf.runtime/machines :snapshots :gauge/flow :data :ticks]]
-                    :output (fn [ticks]
+                    :derive (fn [ticks]
                               (swap! flow-evals conj ticks)
                               (str "ticks=" ticks))
-                    :path   [:derived :gauge-label]})
+                    :output-path   [:derived :gauge-label]})
       ;; One dispatched event drives the whole macrostep:
       ;;   idle --start/bump-then-raise--> counting (ticks 1)
       ;;        --raise :tick/bump-------> counting (ticks 2)
@@ -275,8 +275,8 @@
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :doubler
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:derived :doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:derived :doubled]})
     ;; Seed a conforming baseline (n=1 → doubled=2, conforms).
     (rf/dispatch-sync [:seed])
     (is (= 2 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
@@ -344,8 +344,8 @@
         "baseline seeded before the throwing flow is registered")
     (rf/reg-flow {:id     :boom
                   :inputs [[:n]]
-                  :output (fn [_] (throw (ex-info "flow boom" {:why :test})))
-                  :path   [:derived :doomed]})
+                  :derive (fn [_] (throw (ex-info "flow boom" {:why :test})))
+                  :output-path   [:derived :doomed]})
     (reset! *captured* [])
     (rf/dispatch-sync [:bump])
 
@@ -367,25 +367,25 @@
 
 ;; ===========================================================================
 ;; 3. flow × SSR sync-drain — under SSR's synchronous drain, a sub over a
-;;    flow's :path renders the flow-augmented value.
+;;    flow's :output-path renders the flow-augmented value.
 ;;
 ;; The flow runs at the outermost :after and augments the pending :db before
 ;; the (synchronous) install; render-to-string then reads the INSTALLED
-;; flow-augmented db through a sub over the flow's :path. So the rendered
+;; flow-augmented db through a sub over the flow's :output-path. So the rendered
 ;; HTML carries the derived value, proving the flow ran before install and
 ;; the render observes the committed flow-augmented state.
 ;; ===========================================================================
 
 (deftest flow-augmented-value-renders-under-ssr-sync-drain
-  (testing "under SSR's synchronous drain a sub over a flow's :path renders
+  (testing "under SSR's synchronous drain a sub over a flow's :output-path renders
             the flow-augmented value into the output HTML — the flow ran
             before install; the render reads the installed flow-augmented db"
     (rf/reg-event :ssr/seed (fn [{:keys [db]} _] {:db {:user {:first "Ada" :last "Lovelace"}}}))
     ;; A flow derives a display name from the user map into [:derived :full-name].
     (rf/reg-flow {:id     :user/full-name
                   :inputs [[:user :first] [:user :last]]
-                  :output (fn [first last] (str first " " last))
-                  :path   [:derived :full-name]})
+                  :derive (fn [first last] (str first " " last))
+                  :output-path   [:derived :full-name]})
     ;; A sub reads the FLOW's output path (not the raw inputs) — so what it
     ;; returns proves the flow's write reached the installed db.
     (rf/reg-sub :full-name (fn [db _] (get-in db [:derived :full-name])))
@@ -429,8 +429,8 @@
       ;; that event's own db.
       (rf/reg-flow {:id     :tracker
                     :inputs [[:n]]
-                    :output (fn [n] (swap! flow-inputs conj n) (* 10 n))
-                    :path   [:derived :scaled]})
+                    :derive (fn [n] (swap! flow-inputs conj n) (* 10 n))
+                    :output-path   [:derived :scaled]})
       ;; The parent writes :n=1 then :fx :dispatches the child.
       (rf/reg-event :parent
                        (fn [{:keys [db]} _]
@@ -508,10 +508,10 @@
     (let [flow-inputs (atom [])]
       (rf/reg-flow {:id     :route/label
                     :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
-                    :output (fn [route-id]
+                    :derive (fn [route-id]
                               (swap! flow-inputs conj route-id)
                               (str "you are at " route-id))
-                    :path   [:derived :route-label]})
+                    :output-path   [:derived :route-label]})
 
       ;; Land on /home first so there is a known PRE-transition slice the
       ;; flow could potentially observe if it ran on the wrong value.
@@ -594,10 +594,10 @@
         ;; route whose :on-match would dispatch :route/load-article.
         (rf/reg-flow {:id     :route/boom
                       :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
-                      :output (fn [_]
+                      :derive (fn [_]
                                 (throw (ex-info "flow boom on route"
                                                 {:why :test})))
-                      :path   [:derived :route-doomed]})
+                      :output-path   [:derived :route-doomed]})
         (reset! *captured* [])
         (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
 
@@ -659,10 +659,10 @@
       ;; output writes to a plain app-db path (writes are app-db only).
       (rf/reg-flow {:id     :nav/breadcrumb
                     :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
-                    :output (fn [route-id]
+                    :derive (fn [route-id]
                               (swap! flow-evals conj route-id)
                               (str "at:" route-id))
-                    :path   [:nav :breadcrumb]})
+                    :output-path   [:nav :breadcrumb]})
 
       ;; Land on /home — the flow recomputes for the first runtime-only event.
       (rf/dispatch-sync [:rf.route/transitioned "/"])
@@ -731,10 +731,10 @@
       (rf/reg-flow {:id     :nav/banner
                     :inputs [[:greeting]
                              [:rf.db/runtime :rf.runtime/routing :current :route-id]]
-                    :output (fn [greeting route-id]
+                    :derive (fn [greeting route-id]
                               (swap! flow-evals conj [greeting route-id])
                               (str greeting " @ " route-id))
-                    :path   [:nav :banner]})
+                    :output-path   [:nav :banner]})
 
       ;; Seed app-db greeting (app-only event) — flow fires reading both
       ;; partitions; route id is nil until the first transition.

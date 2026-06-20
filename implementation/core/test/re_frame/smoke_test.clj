@@ -475,8 +475,8 @@
     (rf/reg-event :h! (fn [{:keys [db]} [_ h]] {:db (assoc db :height h)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:width] [:height]]
-                  :output (fn [w h] (* w h))
-                  :path   [:area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:area]})
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
@@ -943,8 +943,8 @@
     ;; ---- :flow --------------------------------------------------------
     (rf/reg-flow {:id     :rf2-o1bp/flow1
                   :inputs []
-                  :output (fn [_inputs] :computed)
-                  :path   [:rf2-o1bp/flow-output]})
+                  :derive (fn [_inputs] :computed)
+                  :output-path   [:rf2-o1bp/flow-output]})
 
     ;; ---- :http-interceptor --------------------------------------------
     ;; reg-http-interceptor uses its own per-frame atom (not the
@@ -1023,9 +1023,9 @@
       (let [m (rf/handler-meta :route :rf2-o1bp/route1)]
         (is (= "/rf2-o1bp/landing" (:path m))
             ":route metadata carries :path"))
-      ;; Flows carry :path and :inputs.
+      ;; Flows carry :output-path and :inputs.
       (let [m (rf/handler-meta :flow :rf2-o1bp/flow1)]
-        (is (= [:rf2-o1bp/flow-output] (:path m)))
+        (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))
       ;; Unknown id → nil.
       (is (nil? (rf/handler-meta :event :no-such-event))

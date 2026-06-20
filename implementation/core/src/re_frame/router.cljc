@@ -1944,7 +1944,7 @@
     :rolled-back — post-commit `:db` schema validation rejected the
                    new state and the container was restored to its
                    pre-handler value (Spec 010 row 4); :fx was skipped.
-    :flow-error  — a flow's `:output` threw (Spec 013 §Failure
+    :flow-error  — a flow's `:derive` threw (Spec 013 §Failure
                    semantics); the event aborted — no install, app-db
                    unchanged, no db-changed, :fx skipped.
 
@@ -1983,7 +1983,7 @@
     (cond
       error :error
       ;; Per Spec 013 §Failure semantics (atomicity contract, Mike
-      ;; 2026-05-24): a flow's `:output` threw during the outermost
+      ;; 2026-05-24): a flow's `:derive` threw during the outermost
       ;; `:after` flow transform. A flow throw is a PRE-INSTALL throw, so
       ;; the event ABORTS — no install, app-db unchanged, no
       ;; `:rf.event/db-changed`, no `:fx`. The `:after` already `dissoc`-ed

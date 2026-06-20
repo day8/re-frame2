@@ -72,8 +72,8 @@
   (testing "reg-flow stores the flow under [frame-id flow-id] in the per-frame registry"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]})
     (is (contains? (get (flows/flows-snapshot) :rf/default) :area)
         "the flow lives under :rf/default's slot of the per-frame registry")
     (is (some? (registrar/lookup :flow :area))
@@ -82,13 +82,13 @@
 (deftest clear-flow-removes-from-registry-and-vacates-output-slot
   (testing "clear-flow removes the flow and dissoc-in's its output path"
     ;; rf2-aqt7: clear-flow's update-in path math is off-by-one for
-    ;; single-element :path vectors. Use a two-element :path here so
+    ;; single-element :output-path vectors. Use a two-element :output-path here so
     ;; the working branch (>= 2 elements) is exercised.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:rect :w] [:rect :h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]})
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "flow ran on the drain after :seed and materialised :rect/:area")
@@ -96,7 +96,7 @@
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :area))
         "the per-frame registry no longer carries :area")
     (is (not (contains? (get (rf/app-db-value :rf/default) :rect) :area))
-        "clear-flow dissoc'd the leaf at the flow's :path"))
+        "clear-flow dissoc'd the leaf at the flow's :output-path"))
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
     (flows/clear-flow :no-such-flow)))
 
@@ -110,8 +110,8 @@
   (testing "clearing the sole flow on a frame removes the frame-id key from flows-snapshot"
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* (or w 0) (or h 0)))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* (or w 0) (or h 0)))
+                  :output-path   [:rect :area]})
     (is (contains? (flows/flows-snapshot) :rf/default)
         "precondition: the frame slot exists while a flow is registered")
     (flows/clear-flow :area)
@@ -130,8 +130,8 @@
     (rf/reg-event :seed-wizard (fn [{:keys [db]} _] {:db {:wizard {}}}))
     (rf/reg-flow {:id     :wizard/result
                   :inputs [[:wizard :seed]]
-                  :output (fn [_] 42)
-                  :path   [:wizard :result]})
+                  :derive (fn [_] 42)
+                  :output-path   [:wizard :result]})
     ;; Drive a drain so the flow materialises [:wizard :result].
     (rf/reg-event :touch-wizard (fn [{:keys [db]} _] {:db (assoc-in db [:wizard :seed] 1)}))
     (rf/dispatch-sync [:seed-wizard])
@@ -148,7 +148,7 @@
           "only the empty husk (plus unrelated sibling :seed) remains under the parent"))))
 
 (deftest clear-flow-nested-path-before-first-compute-does-not-write-nil-parent
-  ;; Regression for rf2-q25os Repro 1. When a flow with a nested `:path`
+  ;; Regression for rf2-q25os Repro 1. When a flow with a nested `:output-path`
   ;; (e.g. `[:step-2 :result]`) is cleared BEFORE any drain has run the
   ;; flow's output, the parent slot `:step-2` doesn't exist in app-db.
   ;; Pre-fix, the naïve `(update-in cur [:step-2] dissoc :result)`
@@ -158,8 +158,8 @@
   (testing "clear-flow on nested-path flow before first compute leaves app-db unchanged"
     (rf/reg-flow {:id     :pending
                   :inputs [[:n]]
-                  :output (fn [_] "never-runs")
-                  :path   [:step-2 :result]})
+                  :derive (fn [_] "never-runs")
+                  :output-path   [:step-2 :result]})
     (let [db-before (rf/app-db-value :rf/default)]
       (flows/clear-flow :pending)
       (let [db-after (rf/app-db-value :rf/default)]
@@ -181,18 +181,18 @@
   ;; unchanged — i.e. the container was not rewritten at all. On the JVM
   ;; persistent maps are immutable, so two `app-db-value` reads return the
   ;; IDENTICAL object iff no `replace-container!` ran between them.
-  ;; Precondition for the no-op branch: the flow's `:path` must never be
+  ;; Precondition for the no-op branch: the flow's `:output-path` must never be
   ;; materialised. We seed app-db FIRST, then register the flow, then
-  ;; clear it WITHOUT ever dispatching — so its `:output` never runs and
-  ;; its `:path` slot stays absent. (Driving a drain would compute the
+  ;; clear it WITHOUT ever dispatching — so its `:derive` never runs and
+  ;; its `:output-path` slot stays absent. (Driving a drain would compute the
   ;; flow and materialise the slot, turning the clear into a real dissoc.)
   (testing "clearing a never-materialised nested-path flow leaves the app-db container reference identical (no rewrite, no sub-cache invalidation)"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:other 1}}))
     (rf/dispatch-sync [:seed])
     (rf/reg-flow {:id     :pending
                   :inputs [[:n]]
-                  :output (fn [_] "never-runs")
-                  :path   [:step-2 :result]})
+                  :derive (fn [_] "never-runs")
+                  :output-path   [:step-2 :result]})
     (let [db-ref-before (rf/app-db-value :rf/default)]
       (flows/clear-flow :pending)
       (let [db-ref-after (rf/app-db-value :rf/default)]
@@ -206,8 +206,8 @@
     (rf/dispatch-sync [:seed2])
     (rf/reg-flow {:id     :absent-top
                   :inputs [[:n]]
-                  :output (fn [_] "never-runs")
-                  :path   [:never-written]}) ;; single-element path, never materialised
+                  :derive (fn [_] "never-runs")
+                  :output-path   [:never-written]}) ;; single-element path, never materialised
     (let [db-ref-before (rf/app-db-value :rf/default)]
       (flows/clear-flow :absent-top)
       (is (identical? db-ref-before (rf/app-db-value :rf/default))
@@ -220,8 +220,8 @@
     (rf/reg-event :seed3 (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
     (rf/reg-flow {:id     :area3
                   :inputs [[:rect :w] [:rect :h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]})
     (rf/dispatch-sync [:seed3])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "precondition: the flow materialised [:rect :area]")
@@ -239,25 +239,25 @@
   ;; before the flow's output ever materialised), pre-fix
   ;; `(update-in cur [:step-2] dissoc :result)` called `(dissoc 1 :result)`
   ;; and threw `ClassCastException`. The robust path treats this as a
-  ;; no-op — the flow's `:path` never materialised, so there's nothing
+  ;; no-op — the flow's `:output-path` never materialised, so there's nothing
   ;; to clear.
   (testing "clear-flow on a flow whose intermediate path step holds a scalar is a no-op (no throw)"
     ;; Seed a scalar at the parent slot. NO flow is active during this
-    ;; drain — a flow whose `:path` is `[:step-2 :result]` would
+    ;; drain — a flow whose `:output-path` is `[:step-2 :result]` would
     ;; `assoc-in` over the scalar (which throws on the JVM) and, per the
     ;; atomicity contract (rf2-u0zz5), abort the whole drain. The scalar-
     ;; intermediate case is about `clear-flow` robustness, not flow
     ;; evaluation, so we register the flow AFTER seeding and never drain
-    ;; it — its `:path` stays un-materialised, which is exactly the
+    ;; it — its `:output-path` stays un-materialised, which is exactly the
     ;; non-map-intermediate case `clear-flow` must treat as a no-op.
     (rf/reg-event :stamp-non-map (fn [{:keys [db]} _] {:db {:step-2 1 :foo 3 :bar 4}}))
     (rf/dispatch-sync [:stamp-non-map])
     ;; Register the flow (never drained) so the per-frame registry has the
-    ;; entry to clear; its `:path` [:step-2 :result] never materialised.
+    ;; entry to clear; its `:output-path` [:step-2 :result] never materialised.
     (rf/reg-flow {:id     :pending
                   :inputs [[:foo]]
-                  :output (fn [_] "never-stored")
-                  :path   [:step-2 :result]})
+                  :derive (fn [_] "never-stored")
+                  :output-path   [:step-2 :result]})
     ;; Clear must NOT throw, and must leave the scalar parent intact.
     (is (nil? (flows/clear-flow :pending))
         "clear-flow returns nil (no throw) when the intermediate is a non-map")
@@ -268,22 +268,22 @@
     (is (= 4 (:bar (rf/app-db-value :rf/default))))))
 
 (deftest clear-flow-handles-single-element-path
-  (testing "rf2-aqt7: clear-flow with a single-element :path dissocs the top-level key"
-    ;; The repro from rf2-aqt7: a flow whose :path is a one-element vector
+  (testing "rf2-aqt7: clear-flow with a single-element :output-path dissocs the top-level key"
+    ;; The repro from rf2-aqt7: a flow whose :output-path is a one-element vector
     ;; [:area]. Before the fix, clear-flow's (update-in cur [] dissoc :area)
     ;; left :area in app-db (and silently introduced an {nil nil} entry).
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:area]})
     (rf/dispatch-sync [:seed])
     (is (= 12 (get (rf/app-db-value :rf/default) :area))
         "flow ran on the drain after :seed and materialised :area")
     (flows/clear-flow :area)
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :area))
-          "single-element :path is dissoc'd cleanly")
+          "single-element :output-path is dissoc'd cleanly")
       (is (not (contains? db nil))
           "no spurious {nil nil} entry from update-in on empty path")
       (is (= {:w 3 :h 4} db)
@@ -292,19 +292,19 @@
 (deftest reg-flow-validates-required-keys
   (testing "missing :id throws"
     (is (thrown? Throwable
-                 (rf/reg-flow {:inputs [[:n]] :output identity :path [:x]}))))
+                 (rf/reg-flow {:inputs [[:n]] :derive identity :output-path [:x]}))))
   (testing ":inputs must be a vector"
     (is (thrown? Throwable
                  (rf/reg-flow {:id :bad :inputs :not-a-vec
-                               :output identity :path [:x]}))))
-  (testing ":output must be a fn"
+                               :derive identity :output-path [:x]}))))
+  (testing ":derive must be a fn"
     (is (thrown? Throwable
                  (rf/reg-flow {:id :bad :inputs [[:n]]
-                               :output 42 :path [:x]}))))
-  (testing ":path must be a vector"
+                               :derive 42 :output-path [:x]}))))
+  (testing ":output-path must be a vector"
     (is (thrown? Throwable
                  (rf/reg-flow {:id :bad :inputs [[:n]]
-                               :output identity :path :not-a-vec})))))
+                               :derive identity :output-path :not-a-vec})))))
 
 (deftest reg-flow-missing-id-and-bad-output-carry-canonical-error-ids
   ;; Companion to `reg-flow-error-carries-canonical-rf-error-id-slot`
@@ -318,7 +318,7 @@
   ;; canonical shape slots so the table's discriminator coverage is
   ;; total.
   (testing "a flow with no :id throws :rf.error/flow-missing-id"
-    (let [ex   (try (rf/reg-flow {:inputs [[:n]] :output identity :path [:x]})
+    (let [ex   (try (rf/reg-flow {:inputs [[:n]] :derive identity :output-path [:x]})
                     (catch Throwable t t))
           data (ex-data ex)]
       (is (some? ex) "registration threw")
@@ -331,8 +331,8 @@
       (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
       (is (string? (:reason data))           ":reason is a human-readable sentence")))
-  (testing "a flow whose :output is not a fn throws :rf.error/flow-bad-output"
-    (let [ex   (try (rf/reg-flow {:id :bad :inputs [[:n]] :output 42 :path [:x]})
+  (testing "a flow whose :derive is not a fn throws :rf.error/flow-bad-output"
+    (let [ex   (try (rf/reg-flow {:id :bad :inputs [[:n]] :derive 42 :output-path [:x]})
                     (catch Throwable t t))
           data (ex-data ex)]
       (is (some? ex) "registration threw")
@@ -354,12 +354,12 @@
   ;; nil/absent stays `:rf.error/flow-missing-id` (the absent-id case fires
   ;; first); a keyword id passes.
   (testing "a nil :id throws :rf.error/flow-missing-id (absent), NOT flow-bad-id"
-    (let [ex (try (rf/reg-flow {:id nil :inputs [[:n]] :output identity :path [:x]})
+    (let [ex (try (rf/reg-flow {:id nil :inputs [[:n]] :derive identity :output-path [:x]})
                   (catch Throwable t t))]
       (is (= :rf.error/flow-missing-id (:rf.error/id (ex-data ex)))
           "a nil id is the missing-id case (some? nil is false)")))
   (testing "a string :id throws :rf.error/flow-bad-id"
-    (let [ex   (try (rf/reg-flow {:id "creds" :inputs [[:n]] :output identity :path [:x]})
+    (let [ex   (try (rf/reg-flow {:id "creds" :inputs [[:n]] :derive identity :output-path [:x]})
                     (catch Throwable t t))
           data (ex-data ex)]
       (is (some? ex) "registration threw")
@@ -372,33 +372,33 @@
       (is (= :fix-registration (:recovery data))  ":recovery names the disposition")
       (is (string? (:reason data))               ":reason is a human-readable sentence")))
   (testing "a number :id throws :rf.error/flow-bad-id"
-    (let [ex (try (rf/reg-flow {:id 42 :inputs [[:n]] :output identity :path [:x]})
+    (let [ex (try (rf/reg-flow {:id 42 :inputs [[:n]] :derive identity :output-path [:x]})
                   (catch Throwable t t))]
       (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
           "a numeric id is rejected as bad-id")))
   (testing "a map :id throws :rf.error/flow-bad-id"
-    (let [ex (try (rf/reg-flow {:id {:k 1} :inputs [[:n]] :output identity :path [:x]})
+    (let [ex (try (rf/reg-flow {:id {:k 1} :inputs [[:n]] :derive identity :output-path [:x]})
                   (catch Throwable t t))]
       (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
           "a map id is rejected as bad-id")))
   (testing "a keyword :id is accepted (no throw)"
     (rf/reg-event :ok/init (fn [{:keys [db]} _] {:db db}))
     (is (= :ok/flow
-           (rf/reg-flow {:id :ok/flow :inputs [[:n]] :output identity :path [:x]}))
+           (rf/reg-flow {:id :ok/flow :inputs [[:n]] :derive identity :output-path [:x]}))
         "a keyword id registers cleanly and reg-flow returns the id")))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b. validate-flow well-formedness (rf2-gnl7q)
 ;;
 ;; Per audit rf2-o3hok findings Q5 / TE4 — the prior `validate-flow` only
-;; checked `(vector? (:inputs flow))` and `(vector? (:path flow))`, so:
+;; checked `(vector? (:inputs flow))` and `(vector? (:output-path flow))`, so:
 ;;
 ;;   - `:inputs [:foo :bar]` (vector of bare keywords, NOT vector-of-paths)
 ;;     passed validation and then threw deep inside topo-sort's `prefix?`
 ;;     when it called `(count :foo)`.
 ;;   - `:inputs [[:foo] :bar]` (mixed) likewise passed, then exploded on
 ;;     the bare-keyword entry.
-;;   - `:path []` passed; `(prefix? [] anything)` returns true, silently
+;;   - `:output-path []` passed; `(prefix? [] anything)` returns true, silently
 ;;     making the empty-path flow a depends-on prerequisite of EVERY other
 ;;     flow in the frame.
 ;;
@@ -423,7 +423,7 @@
   (testing "flow validation throw stamps :rf.error/id (canonical discriminator)"
     (let [ex (try
                (rf/reg-flow {:id :bad :inputs :not-a-vector
-                             :output (fn [_ _] nil) :path [:out]})
+                             :derive (fn [_ _] nil) :output-path [:out]})
                (catch Throwable t t))
           data (ex-data ex)]
       (is (some? ex) "registration threw")
@@ -440,9 +440,9 @@
   (testing "flow cycle throw stamps :rf.error/id"
     (flows/reset-flows!)
     (flows/reset-last-inputs!)
-    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
+    (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
     (let [ex (try
-               (rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
+               (rf/reg-flow {:id :b :inputs [[:a]] :derive identity :output-path [:b]})
                (catch Throwable t t))
           data (ex-data ex)]
       (is (= :rf.error/flow-cycle (:rf.error/id data))
@@ -456,8 +456,8 @@
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [:foo :bar]
-                             :output (fn [_ _] nil)
-                             :path   [:out]})
+                             :derive (fn [_ _] nil)
+                             :output-path   [:out]})
                (catch Throwable t t))]
       (is (some? ex) "registration threw")
       (is (flow-bad-inputs? ex)
@@ -470,8 +470,8 @@
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [[:foo] :bar]
-                             :output (fn [_ _] nil)
-                             :path   [:out]})
+                             :derive (fn [_ _] nil)
+                             :output-path   [:out]})
                (catch Throwable t t))]
       (is (some? ex) "registration threw")
       (is (flow-bad-inputs? ex)
@@ -484,8 +484,8 @@
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [[]]
-                             :output (fn [_] nil)
-                             :path   [:out]})
+                             :derive (fn [_] nil)
+                             :output-path   [:out]})
                (catch Throwable t t))]
       (is (some? ex) "registration threw")
       (is (flow-bad-inputs? ex)
@@ -496,23 +496,23 @@
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [[[:nested]]]
-                             :output (fn [_] nil)
-                             :path   [:out]})
+                             :derive (fn [_] nil)
+                             :output-path   [:out]})
                (catch Throwable t t))]
       (is (some? ex) "registration threw")
       (is (flow-bad-inputs? ex)
           "error id is :rf.error/flow-bad-inputs"))))
 
 (deftest reg-flow-rejects-empty-path
-  (testing ":path [] is rejected (would make this flow a prerequisite of every other flow)"
+  (testing ":output-path [] is rejected (would make this flow a prerequisite of every other flow)"
     ;; Pre-fix: (prefix? [] anything) returns true, so an empty-path flow
     ;; becomes depends-on for every other flow in the frame. Per Spec 013
     ;; §Dependency rule this is never what the caller means.
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [[:n]]
-                             :output identity
-                             :path   []})
+                             :derive identity
+                             :output-path   []})
                (catch Throwable t t))]
       (is (some? ex) "registration threw")
       (is (flow-bad-path? ex)
@@ -521,12 +521,12 @@
           "ex-data :reason mentions the non-empty requirement"))))
 
 (deftest reg-flow-rejects-collection-path-elements
-  (testing ":path [[:nested]] is rejected (path step is a vector, not a scalar key)"
+  (testing ":output-path [[:nested]] is rejected (path step is a vector, not a scalar key)"
     (let [ex (try
                (rf/reg-flow {:id     :bad
                              :inputs [[:n]]
-                             :output identity
-                             :path   [[:nested]]})
+                             :derive identity
+                             :output-path   [[:nested]]})
                (catch Throwable t t))]
       (is (some? ex) "registration threw")
       (is (flow-bad-path? ex)
@@ -558,8 +558,8 @@
       (let [flow-id (keyword "elt" (name label))]
         (is (some? (rf/reg-flow {:id     flow-id
                                  :inputs [[:root elt]]
-                                 :output identity
-                                 :path   [:out elt]}))
+                                 :derive identity
+                                 :output-path   [:out elt]}))
             (str "shared-domain path segment " (pr-str elt) " is accepted"))
         (flows/clear-flow flow-id)))))
 
@@ -572,15 +572,15 @@
     ;; legitimate empty-inputs case.
     (is (some? (rf/reg-flow {:id     :constant
                              :inputs []
-                             :output (fn [] 42)
-                             :path   [:k]})))))
+                             :derive (fn [] 42)
+                             :output-path   [:k]})))))
 
 (deftest reg-flow-detects-cycles-at-registration
   (testing ":a depends on :b, :b depends on :a — registering the second throws"
-    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
+    (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
     (is (thrown? Throwable
                  (rf/reg-flow {:id :b :inputs [[:a]]
-                               :output identity :path [:b]}))
+                               :derive identity :output-path [:b]}))
         "the cyclic registration unwinds and throws :rf.error/flow-cycle")
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :b))
         "cycle-detection rolls back the partial registration of :b")))
@@ -594,9 +594,9 @@
   ;; nodes) which was useless for tooling rendering the offending
   ;; chain. This test pins the resolved shape.
   (testing "two-flow cycle: :cycle is [start ... start], length 3"
-    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
+    (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
     (let [ex (try
-               (rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
+               (rf/reg-flow {:id :b :inputs [[:a]] :derive identity :output-path [:b]})
                (catch Throwable t t))
           data (ex-data ex)
           cycle (:cycle data)]
@@ -622,10 +622,10 @@
     ;; it — register :a, :b first (no cycle yet), then :c closes.
     (flows/reset-flows!)
     (flows/reset-last-inputs!)
-    (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
-    (rf/reg-flow {:id :b :inputs [[:c]] :output identity :path [:b]})
+    (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
+    (rf/reg-flow {:id :b :inputs [[:c]] :derive identity :output-path [:b]})
     (let [ex (try
-               (rf/reg-flow {:id :c :inputs [[:a]] :output identity :path [:c]})
+               (rf/reg-flow {:id :c :inputs [[:a]] :derive identity :output-path [:c]})
                (catch Throwable t t))
           cycle (:cycle (ex-data ex))]
       (is (some? ex) "three-flow cycle registration threw")
@@ -650,15 +650,15 @@
     ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
     ;; closes the cycle. Cannot use a self-cycle on :b (topo-sort skips
     ;; the `id = other` self-edge via `(not= id other)`), so we set
-    ;; :a's :inputs to point at :b's :path. After replacement of :b's
-    ;; inputs to point at :a's :path, the cycle :a → :b → :a closes.
+    ;; :a's :inputs to point at :b's :output-path. After replacement of :b's
+    ;; inputs to point at :a's :output-path, the cycle :a → :b → :a closes.
     ;;
     ;; 1. :a reads [:b], writes [:a]. Currently no cycle because :b is
     ;;    not yet registered.
     (rf/reg-flow {:id     :a
                   :inputs [[:b]]
-                  :output (fn [b] (str "A-from-B-" b))
-                  :path   [:a]})
+                  :derive (fn [b] (str "A-from-B-" b))
+                  :output-path   [:a]})
     (is (contains? (get (flows/flows-snapshot) :rf/default) :a)
         "initial :a registers cleanly")
 
@@ -671,8 +671,8 @@
     (let [original-b-output (fn [src] (str "B-of-" src))]
       (rf/reg-flow {:id     :b
                     :inputs [[:source]]
-                    :output original-b-output
-                    :path   [:b]})
+                    :derive original-b-output
+                    :output-path   [:b]})
       (is (contains? (get (flows/flows-snapshot) :rf/default) :b)
           "initial :b registers cleanly (reads [:source]; no cycle)")
 
@@ -682,8 +682,8 @@
       (is (thrown? Throwable
             (rf/reg-flow {:id     :b
                           :inputs [[:a]]
-                          :output (fn [a] (str "B-from-A-" a))
-                          :path   [:b]}))
+                          :derive (fn [a] (str "B-from-A-" a))
+                          :output-path   [:b]}))
           "the cyclic replacement of :b throws :rf.error/flow-cycle")
 
       ;; 4. THE KEY ASSERTION: the prior :b is STILL in the registry —
@@ -695,8 +695,8 @@
       (let [b-after (get-in (flows/flows-snapshot) [:rf/default :b])]
         (is (= [[:source]] (:inputs b-after))
             "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
-        (is (identical? original-b-output (:output b-after))
-            "prior :b's :output fn has the SAME identity (not the rejected new fn)"))
+        (is (identical? original-b-output (:derive b-after))
+            "prior :b's :derive fn has the SAME identity (not the rejected new fn)"))
       ;; And the registrar slot — flow-id-keyed — must still resolve.
       (is (some? (registrar/lookup :flow :b))
           "the :flow registrar slot for :b is still populated"))))
@@ -712,8 +712,8 @@
     (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]})
     (rf/dispatch-sync [:init])
     (is (= 0 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "first drain after :init fires the flow with 0 × 0 = 0")
@@ -731,10 +731,10 @@
       (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
-                    :output (fn [n]
+                    :derive (fn [n]
                               (swap! calls inc)
                               (* 2 n))
-                    :path   [:derived :doubled]})
+                    :output-path   [:derived :doubled]})
       (rf/dispatch-sync [:init])
       (is (= 1 @calls) "first drain fires the flow once (initial evaluation)")
       (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
@@ -757,10 +757,10 @@
       (rf/reg-event :bump-other (fn [{:keys [db]} _] {:db (update db :other inc)}))
       (rf/reg-flow {:id     :user/uppercase-name
                     :inputs [[:user :name]]
-                    :output (fn [n]
+                    :derive (fn [n]
                               (swap! calls inc)
                               (when n (.toUpperCase ^String n)))
-                    :path   [:user :uppercase-name]})
+                    :output-path   [:user :uppercase-name]})
       (rf/dispatch-sync [:init])
       (is (= 1 @calls) "first evaluation always fires")
       (is (= "ALICE" (get-in (rf/app-db-value :rf/default)
@@ -780,13 +780,13 @@
     ;; A: :area depends on :w :h, writes :rect/:area.
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]})
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]})
     ;; B: :area*2 depends on :rect/:area, writes :rect/:area*2.
     (rf/reg-flow {:id     :rect/area-doubled
                   :inputs [[:rect :area]]
-                  :output (fn [a] (* 2 a))
-                  :path   [:rect :area*2]})
+                  :derive (fn [a] (* 2 a))
+                  :output-path   [:rect :area*2]})
     (rf/dispatch-sync [:init])
     (let [db (rf/app-db-value :rf/default)]
       (is (= 6  (get-in db [:rect :area]))   "A fired with 2 × 3 = 6")
@@ -797,22 +797,22 @@
       (is (= 30 (get-in db [:rect :area*2])) "B saw A's new output and re-fired: 30"))))
 
 (deftest flow-topo-sort-handles-prefix-overlap
-  (testing "B's :inputs is a prefix of A's :path — A still runs before B (Spec 013 §Dependency rule)"
+  (testing "B's :inputs is a prefix of A's :output-path — A still runs before B (Spec 013 §Dependency rule)"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:user {:name "alice"} :note ""}}))
-    ;; A writes deep at [:user :uppercase] — its :path is rooted in
+    ;; A writes deep at [:user :uppercase] — its :output-path is rooted in
     ;; the same prefix as B's input.
     (rf/reg-flow {:id     :user/uppercase
                   :inputs [[:user :name]]
-                  :output (fn [n] (when n (.toUpperCase ^String n)))
-                  :path   [:user :uppercase]})
-    ;; B's input is [:user] — a prefix of A's :path. Per Spec 013,
+                  :derive (fn [n] (when n (.toUpperCase ^String n)))
+                  :output-path   [:user :uppercase]})
+    ;; B's input is [:user] — a prefix of A's :output-path. Per Spec 013,
     ;; the dependency rule fires in either prefix direction.
     (rf/reg-flow {:id     :user/note
                   :inputs [[:user]]
-                  :output (fn [u]
+                  :derive (fn [u]
                             (str "user-keys:"
                                  (pr-str (vec (sort (keys u))))))
-                  :path   [:summary :note]})
+                  :output-path   [:summary :note]})
     (rf/dispatch-sync [:init])
     (let [db (rf/app-db-value :rf/default)]
       (is (= "ALICE" (get-in db [:user :uppercase]))
@@ -831,8 +831,8 @@
     (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:derived :doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:derived :doubled]})
     (rf/dispatch-sync [:init])
     (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
     ;; Re-register with a body that produces the SAME output for the
@@ -840,8 +840,8 @@
     ;; re-evaluates; the user-visible output stays 10.
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (+ n n))
-                  :path   [:derived :doubled]})
+                  :derive (fn [n] (+ n n))
+                  :output-path   [:derived :doubled]})
     (rf/dispatch-sync [:tick])
     (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
         "value-equivalent re-registration leaves the output stable")))
@@ -852,15 +852,15 @@
     (rf/reg-event :tick  (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:derived :doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:derived :doubled]})
     (rf/dispatch-sync [:init])
     (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
     ;; Re-register with a 100x body; same input still 5.
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 100 n))
-                  :path   [:derived :doubled]})
+                  :derive (fn [n] (* 100 n))
+                  :output-path   [:derived :doubled]})
     (rf/dispatch-sync [:tick])
     (is (= 500 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
         "after re-registration the new body produces 5 × 100 = 500")))
@@ -876,8 +876,8 @@
                               {:fx [[:rf.fx/reg-flow
                                      {:id     :step-2/computed
                                       :inputs [[:wizard :foo] [:wizard :bar]]
-                                      :output (fn [foo bar] (+ foo bar))
-                                      :path   [:wizard :result]}]]}))
+                                      :derive (fn [foo bar] (+ foo bar))
+                                      :output-path   [:wizard :result]}]]}))
     (rf/reg-event :foo!  (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:wizard :foo] v)}))
     (rf/reg-event :leave (fn [_ _]
                               {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
@@ -915,16 +915,16 @@
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                               :inputs [[:wizard :foo] [:wizard :bar]]
-                              :output (fn [foo bar] (+ foo bar))
-                              :path   [:wizard :result]}]]}))
+                              :derive (fn [foo bar] (+ foo bar))
+                              :output-path   [:wizard :result]}]]}))
   ;; Register + a follow-up no-op `:dispatch` on the same handler — the
   ;; documented "I need the value now" workaround.
   (rf/reg-event :enter-with-settle
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                               :inputs [[:wizard :foo] [:wizard :bar]]
-                              :output (fn [foo bar] (+ foo bar))
-                              :path   [:wizard :result]}]
+                              :derive (fn [foo bar] (+ foo bar))
+                              :output-path   [:wizard :result]}]
             [:dispatch [:wizard/settle]]]}))
   (rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
 
@@ -948,8 +948,8 @@
 
 (deftest clear-all-clears-flow-registrar-slot
   (testing "registrar/clear-all! removes the :flow kind so subsequent reg-flow starts clean"
-    (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
-    (rf/reg-flow {:id :two :inputs [[:a]] :output identity :path [:slots :two]})
+    (rf/reg-flow {:id :one :inputs [[:a]] :derive identity :output-path [:slots :one]})
+    (rf/reg-flow {:id :two :inputs [[:a]] :derive identity :output-path [:slots :two]})
     (is (some? (registrar/lookup :flow :one)))
     (is (some? (registrar/lookup :flow :two)))
     (registrar/clear-all!)
@@ -966,8 +966,8 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:doubled]})
     (rf/dispatch-sync [:init])
     (is (= 10 (:doubled (rf/app-db-value :rf/default)))
         "flow evaluated; last-inputs row populated for [:double :rf/default]")
@@ -991,8 +991,8 @@
       ;; First registration + drain — populates last-inputs.
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
-                    :output (fn [n] (swap! calls inc) (* 2 n))
-                    :path   [:doubled]})
+                    :derive (fn [n] (swap! calls inc) (* 2 n))
+                    :output-path   [:doubled]})
       (rf/dispatch-sync [:init])
       (is (= 1 @calls) "flow body ran on the first drain")
       ;; Reset BOTH atoms via the public reset-flows! — then re-register
@@ -1000,21 +1000,21 @@
       (flows/reset-flows!)
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
-                    :output (fn [n] (swap! calls inc) (* 2 n))
-                    :path   [:doubled]})
+                    :derive (fn [n] (swap! calls inc) (* 2 n))
+                    :output-path   [:doubled]})
       (rf/dispatch-sync [:init])
       (is (= 2 @calls)
           "after reset-flows! the freshly-registered flow evaluates again — last-inputs was cleared so no stale skip"))))
 
 (deftest reset-flows-clears-per-frame-state
   (testing "(flows/reset-flows!) clears the per-frame registry; reg-flow repopulates fresh"
-    (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
+    (rf/reg-flow {:id :one :inputs [[:a]] :derive identity :output-path [:slots :one]})
     (is (contains? (get (flows/flows-snapshot) :rf/default) :one))
     (flows/reset-flows!)
     (schemas/clear-schemas-by-frame!)
     (is (empty? (get (flows/flows-snapshot) :rf/default))
         "per-frame map is empty after reset")
-    (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
+    (rf/reg-flow {:id :one :inputs [[:a]] :derive identity :output-path [:slots :one]})
     (is (contains? (get (flows/flows-snapshot) :rf/default) :one)
         "re-registration after reset works without raising")))
 
@@ -1048,17 +1048,17 @@
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    ;; Register :compute against both frames with DIFFERENT :output fns
+    ;; Register :compute against both frames with DIFFERENT :derive fns
     ;; so sibling-frame-untouched is observable in the materialised output.
     (rf/reg-flow {:id     :compute
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 2 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :left})
     (rf/reg-flow {:id     :compute
                   :inputs [[:n]]
-                  :output (fn [n] (* 100 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 100 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :right})
     (rf/dispatch-sync [:seed 5] {:frame :left})
     (rf/dispatch-sync [:seed 5] {:frame :right})
@@ -1169,13 +1169,13 @@
     ;; Register :shared against both frames with the same shape.
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 2 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :left})
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
-                  :output (fn [n] (* 100 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 100 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :right})
     ;; Drive a drain on each frame so both have last-inputs rows.
     (rf/dispatch-sync [:seed 5] {:frame :left})
@@ -1189,8 +1189,8 @@
     ;; :left's row ONLY.
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
-                  :output (fn [n] (* 7 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 7 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :left})
     (let [li (flows/last-inputs-snapshot)]
       (is (nil? (get-in li [:shared :left]))
@@ -1220,16 +1220,16 @@
     ;; First registration against :left — metadata's :frame should be :left.
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 2 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :left})
     (is (= :left (:frame (registrar/lookup :flow :shared)))
         ":left's metadata wins after first registration (the slot is empty before, so first-write wins)")
     ;; Re-register against :right — metadata's :frame must now be :right.
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
-                  :output (fn [n] (* 100 (or n 0)))
-                  :path   [:result]}
+                  :derive (fn [n] (* 100 (or n 0)))
+                  :output-path   [:result]}
                  {:frame :right})
     (is (= :right (:frame (registrar/lookup :flow :shared)))
         ":right's metadata wins after second registration — last-registration-wins per Spec 013 line 105")
@@ -1262,9 +1262,9 @@
     (let [f-left  (fn [n] (* 2 (or n 0)))
           f-right (fn [n] (* 100 (or n 0)))]
       ;; :left registers first, then :right — so the slot's :frame is :right.
-      (rf/reg-flow {:id :shared :inputs [[:n]] :output f-left  :path [:result]}
+      (rf/reg-flow {:id :shared :inputs [[:n]] :derive f-left  :output-path [:result]}
                    {:frame :left})
-      (rf/reg-flow {:id :shared :inputs [[:n]] :output f-right :path [:result]}
+      (rf/reg-flow {:id :shared :inputs [[:n]] :derive f-right :output-path [:result]}
                    {:frame :right})
       (is (= :right (:frame (registrar/lookup :flow :shared)))
           "precondition: slot's metadata names :right (last-registration-wins)")
@@ -1285,7 +1285,7 @@
           (fn [m] (when (and (= :flow (:kind m)) (= :shared (:id m)))
                     (swap! seen conj m))))
         (rf/reg-flow {:id :shared :inputs [[:n]]
-                      :output (fn [n] (* 9 (or n 0))) :path [:result]}
+                      :derive (fn [n] (* 9 (or n 0))) :output-path [:result]}
                      {:frame :left})
         (is (= 1 (count @seen))
             "the :left re-registration fired the replacement hook")
@@ -1298,9 +1298,9 @@
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
     ;; :left first, :right last → slot names :right.
-    (rf/reg-flow {:id :shared :inputs [[:n]] :output (fn [n] n) :path [:result]}
+    (rf/reg-flow {:id :shared :inputs [[:n]] :derive (fn [n] n) :output-path [:result]}
                  {:frame :left})
-    (rf/reg-flow {:id :shared :inputs [[:n]] :output (fn [n] n) :path [:result]}
+    (rf/reg-flow {:id :shared :inputs [[:n]] :derive (fn [n] n) :output-path [:result]}
                  {:frame :right})
     (is (= :right (:frame (registrar/lookup :flow :shared))))
     ;; Clear :left — NOT the slot owner. The slot must keep naming :right.
@@ -1312,39 +1312,39 @@
   (testing "Per rf2-73pi1: when the cleared frame was the LAST owner, the
             registrar slot is unregistered (the realign helper preserves
             the prior last-owner-release behaviour)"
-    (rf/reg-flow {:id :solo :inputs [[:n]] :output (fn [n] n) :path [:result]})
+    (rf/reg-flow {:id :solo :inputs [[:n]] :derive (fn [n] n) :output-path [:result]})
     (is (some? (registrar/lookup :flow :solo)))
     (flows/clear-flow :solo)
     (is (nil? (registrar/lookup :flow :solo))
         "registrar slot unregistered — no surviving frame holds :solo")))
 
 ;; ---------------------------------------------------------------------------
-;; 9b-ii. Same-frame re-registration with a CHANGED :path vacates the old
+;; 9b-ii. Same-frame re-registration with a CHANGED :output-path vacates the old
 ;;        output path from app-db (rf2-73pi1 finding 2).
 ;;
 ;; Re-registering an existing flow-id on the SAME frame with a DIFFERENT
-;; :path moves the flow's output. Pre-fix, the previous output path stayed
+;; :output-path moves the flow's output. Pre-fix, the previous output path stayed
 ;; materialised in app-db — downstream reads saw stale derived state at the
-;; abandoned slot. The fix vacates the old path on same-frame :path change.
+;; abandoned slot. The fix vacates the old path on same-frame :output-path change.
 ;; ---------------------------------------------------------------------------
 
 (deftest same-frame-reregister-changed-path-vacates-old-path
-  (testing "Per rf2-73pi1: re-registering on the same frame with a new :path
+  (testing "Per rf2-73pi1: re-registering on the same frame with a new :output-path
             clears the OLD path from app-db; the new path computes on the
             next drain"
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     ;; Register :move at [:old]; drain so [:old] materialises.
-    (rf/reg-flow {:id :move :inputs [[:n]] :output (fn [n] (* 2 (or n 0)))
-                  :path [:old]})
+    (rf/reg-flow {:id :move :inputs [[:n]] :derive (fn [n] (* 2 (or n 0)))
+                  :output-path [:old]})
     (rf/dispatch-sync [:seed 3])
     (is (= 6 (:old (rf/app-db-value :rf/default)))
         "precondition: :old materialised (3 * 2)")
     ;; Re-register the SAME id on the SAME frame at a DIFFERENT path.
-    (rf/reg-flow {:id :move :inputs [[:n]] :output (fn [n] (* 3 (or n 0)))
-                  :path [:new]})
+    (rf/reg-flow {:id :move :inputs [[:n]] :derive (fn [n] (* 3 (or n 0)))
+                  :output-path [:new]})
     (is (not (contains? (rf/app-db-value :rf/default) :old))
-        ":old was vacated from app-db on the same-frame :path change (rf2-73pi1)")
+        ":old was vacated from app-db on the same-frame :output-path change (rf2-73pi1)")
     ;; Drive a drain so the re-registered flow (last-inputs invalidated)
     ;; recomputes at the new path.
     (rf/dispatch-sync [:tick])
@@ -1355,19 +1355,19 @@
           ":old stays absent — no stale derived state at the abandoned slot"))))
 
 (deftest same-frame-reregister-same-path-leaves-app-db-untouched
-  (testing "Per rf2-73pi1: a same-frame re-registration that KEEPS the :path
-            does NOT vacate the value (negative control — only a :path
+  (testing "Per rf2-73pi1: a same-frame re-registration that KEEPS the :output-path
+            does NOT vacate the value (negative control — only a :output-path
             CHANGE triggers the vacate)"
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/reg-flow {:id :keep :inputs [[:n]] :output (fn [n] (* 2 (or n 0)))
-                  :path [:out]})
+    (rf/reg-flow {:id :keep :inputs [[:n]] :derive (fn [n] (* 2 (or n 0)))
+                  :output-path [:out]})
     (rf/dispatch-sync [:seed 4])
     (is (= 8 (:out (rf/app-db-value :rf/default))))
     ;; Re-register on the same frame with a NEW body but the SAME path.
-    (rf/reg-flow {:id :keep :inputs [[:n]] :output (fn [n] (* 5 (or n 0)))
-                  :path [:out]})
+    (rf/reg-flow {:id :keep :inputs [[:n]] :derive (fn [n] (* 5 (or n 0)))
+                  :output-path [:out]})
     (is (= 8 (:out (rf/app-db-value :rf/default)))
-        ":out is NOT vacated — same :path, so the prior value survives until the next recompute")))
+        ":out is NOT vacated — same :output-path, so the prior value survives until the next recompute")))
 
 ;; ---------------------------------------------------------------------------
 ;; 9c. :rf.registry/handler-replaced reflects real :flow body swaps and
@@ -1380,9 +1380,9 @@
 ;;       actually compares the flow body across re-registrations.
 ;;       Pre-fix the registrar compared `(:handler-fn previous)` to
 ;;       `(:handler-fn metadata)` but the flows registration site stored
-;;       the body under `:output` only — both reads were nil and
+;;       the body under `:derive` only — both reads were nil and
 ;;       `:different-fn?` was always `false`. `reg-flow` now stamps
-;;       `:handler-fn` alongside `:output` so the cross-kind registrar
+;;       `:handler-fn` alongside `:derive` so the cross-kind registrar
 ;;       trace surface (Spec 001) works for flows too.
 ;;
 ;;   (2) rf2-g1b2m — Spec 009 B4 ruling, hot-reload dedup by shape
@@ -1394,12 +1394,12 @@
 ;;       for identity reloads.
 ;;
 ;; Together: identity reload → 0 emits (B4 dedup-suppressed); real
-;; `:output` body swap → 1 emit with `:different-fn? true` (rf2-v5ttb
+;; `:derive` body swap → 1 emit with `:different-fn? true` (rf2-v5ttb
 ;; stamping makes the comparison meaningful).
 ;; ---------------------------------------------------------------------------
 
 (deftest flow-hot-reload-different-fn?-reflects-real-body-swap
-  (testing "Per rf2-v5ttb (`:handler-fn` stamping) + rf2-g1b2m B4 dedup-by-shape: a real `:output` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
+  (testing "Per rf2-v5ttb (`:handler-fn` stamping) + rf2-g1b2m B4 dedup-by-shape: a real `:derive` swap emits one `:rf.registry/handler-replaced` with `:different-fn? true`; an identity reload is suppressed (0 emits)."
     (let [captured (atom [])]
       (re-frame.trace/register-listener!
         ::handler-replaced-recorder
@@ -1410,8 +1410,8 @@
         (let [body-v1 (fn [n] (* 2 n))]
           (rf/reg-flow {:id     :double
                         :inputs [[:n]]
-                        :output body-v1
-                        :path   [:doubled]})
+                        :derive body-v1
+                        :output-path   [:doubled]})
           ;; (a) Real body swap — different `:handler-fn` identity, so
           ;; the B4 dedup table sees a shape change and allows the emit.
           ;; Exactly one `:rf.registry/handler-replaced` fires with
@@ -1419,8 +1419,8 @@
           ;; meaningful by stamping `:handler-fn` on the flow metadata).
           (rf/reg-flow {:id     :double
                         :inputs [[:n]]
-                        :output (fn [n] (* 100 n))
-                        :path   [:doubled]})
+                        :derive (fn [n] (* 100 n))
+                        :output-path   [:doubled]})
           (is (= 1 (count @captured))
               "one :rf.registry/handler-replaced fired for the body-swap registration")
           (is (true? (-> @captured first :tags :different-fn?))
@@ -1435,8 +1435,8 @@
           (let [body-v2 (fn [n] (* 3 n))]
             (rf/reg-flow {:id     :double
                           :inputs [[:n]]
-                          :output body-v2
-                          :path   [:doubled]})
+                          :derive body-v2
+                          :output-path   [:doubled]})
             ;; First registration of `body-v2` shape is genuine — allow.
             (is (= 1 (count @captured))
                 "baseline emit for the new shape so the dedup table records it")
@@ -1445,8 +1445,8 @@
             ;; meta. B4 dedup must suppress.
             (rf/reg-flow {:id     :double
                           :inputs [[:n]]
-                          :output body-v2
-                          :path   [:doubled]})
+                          :derive body-v2
+                          :output-path   [:doubled]})
             (is (empty? @captured)
                 "B4 dedup-by-shape (rf2-g1b2m) suppresses the re-emit for an identity reload — 0 :rf.registry/handler-replaced events")))
         (finally
@@ -1459,8 +1459,8 @@
     ;; v1 flow: doubles :n at [:doubled].
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:doubled]})
     (rf/dispatch-sync [:init])
     (is (= 10 (:doubled (rf/app-db-value :rf/default))))
     (rf/dispatch-sync [:inc-n])
@@ -1469,8 +1469,8 @@
     ;; flow body did, so the next drain should re-evaluate.
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 100 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 100 n))
+                  :output-path   [:doubled]})
     ;; Trigger ANY event to drive the drain (no input change).
     (rf/dispatch-sync [:inc-n])
     (is (= 700 (:doubled (rf/app-db-value :rf/default)))
@@ -1517,8 +1517,8 @@
         (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
-                    :output (fn [n] (* 2 n))
-                    :path   [:doubled]})
+                    :derive (fn [n] (* 2 n))
+                    :output-path   [:doubled]})
       ;; init: flow first-computes 0 * 2 = 0 into [:doubled].
       (rf/dispatch-sync [:init])
       (is (= 0 (:doubled (rf/app-db-value :rf/default)))
@@ -1555,21 +1555,21 @@
                           :fx [[:test/peek-db {}]]}))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
-                    :output (fn [n] (* 2 n))
-                    :path   [:doubled]})
+                    :derive (fn [n] (* 2 n))
+                    :output-path   [:doubled]})
       (rf/dispatch-sync [:init])
       (rf/dispatch-sync [:go 5])
       (is (= 10 (:doubled @fx-saw))
           ":fx read the flow-derived :doubled (5 * 2 = 10) from app-db"))))
 
 (deftest reactive-cascade-sees-flow-derived-db
-  (testing "rf2-u0zz5 (c): a subscription over the flow's :path sees the flow output"
+  (testing "rf2-u0zz5 (c): a subscription over the flow's :output-path sees the flow output"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
-                  :output (fn [n] (* 2 n))
-                  :path   [:doubled]})
+                  :derive (fn [n] (* 2 n))
+                  :output-path   [:doubled]})
     (rf/reg-sub :doubled (fn [db _] (:doubled db)))
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:set-n 9])
@@ -1591,8 +1591,8 @@
                      (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-flow {:id     :counter/doubled
                   :inputs [[:counter :n]]
-                  :output (fn [n] (* 2 (or n 0)))
-                  :path   [:counter :doubled]})
+                  :derive (fn [n] (* 2 (or n 0)))
+                  :output-path   [:counter :doubled]})
     (rf/dispatch-sync [:seed])
     (rf/dispatch-sync [:inc])
     (let [db (rf/app-db-value :rf/default)]
@@ -1632,8 +1632,8 @@
         (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
         (rf/reg-flow {:id     :double
                       :inputs [[:n]]
-                      :output (fn [n] (* 2 n))
-                      :path   [:doubled]})
+                      :derive (fn [n] (* 2 n))
+                      :output-path   [:doubled]})
         (rf/dispatch-sync [:init])
         (reset! db-at-changed :unset)
         (reset! changed-count 0)

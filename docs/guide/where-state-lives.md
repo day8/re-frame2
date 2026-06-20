@@ -49,13 +49,13 @@ This is the moment the value wants to be *part of the application's state*. That
 (rf/reg-flow
   {:id     :cart/total
    :inputs [[:cart :items]]
-   :output (fn [items] (reduce + (map :price items)))
-   :path   [:cart/total]})
+   :derive (fn [items] (reduce + (map :price items)))
+   :output-path [:cart/total]})
 ```
 
 The formula is identical. What changed is *where the value lives*. Your checkout handler now reads `(:cart/total db)` like any other state, and because the value is part of the frame's state, it rides time-travel and SSR. Dispatch a cart event with Xray open and you'll see the flow's recompute ride the same event row that changed its inputs — so the total becomes part of the event's outcome, not a render-time afterthought.
 
-The cost is an `app-db` write on every recompute, plus a piece of registered runtime. You pay it *because a handler needs the value as data*, and not before. As a rule of thumb, a typical app has dozens of subscriptions and a *handful* of flows. If no handler reads a flow's output, you've over-paid — go back to a sub. ([Flows](concepts/flows.md) covers the rules a flow's `:path` must obey and why you write the *inputs*, never the output; paths are ordinary [app-db paths](concepts/app-db.md).)
+The cost is an `app-db` write on every recompute, plus a piece of registered runtime. You pay it *because a handler needs the value as data*, and not before. As a rule of thumb, a typical app has dozens of subscriptions and a *handful* of flows. If no handler reads a flow's output, you've over-paid — go back to a sub. ([Flows](concepts/flows.md) covers the rules a flow's `:output-path` must obey and why you write the *inputs*, never the output; paths are ordinary [app-db paths](concepts/app-db.md).)
 
 ### Question 3 — does it come from a server and go stale? Then it's a resource
 

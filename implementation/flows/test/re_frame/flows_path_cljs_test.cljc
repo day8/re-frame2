@@ -1,5 +1,5 @@
 (ns re-frame.flows-path-cljs-test
-  "rf2-du585y — CLJS-host coverage for flow :path / overlap semantics
+  "rf2-du585y — CLJS-host coverage for flow :output-path / overlap semantics
   (EP-0012 §The :rf/path algebra).
 
   The flow path validation (`valid-path?` → `re-frame.path/segment?`) and the
@@ -75,8 +75,8 @@
       (let [flow-id (keyword "elt" (name label))]
         (is (some? (rf/reg-flow {:id     flow-id
                                  :inputs [[:root elt]]
-                                 :output identity
-                                 :path   [:out elt]}))
+                                 :derive identity
+                                 :output-path   [:out elt]}))
             (str "shared-domain segment " (pr-str elt) " is accepted on this host"))
         (flows/clear-flow flow-id)))))
 
@@ -97,8 +97,8 @@
                                 :cljs [:raw-js-object #js {:a 1}])]]
       (let [ex (reg-flow-throws {:id     :bad/seg
                                  :inputs [[:n]]
-                                 :output identity
-                                 :path   [:out bad-elt]})]
+                                 :derive identity
+                                 :output-path   [:out bad-elt]})]
         (is (some? ex)
             (str "a " (name label) " path segment must fail closed"))
         (is (= :rf.error/flow-bad-path (error-id ex))
@@ -112,11 +112,11 @@
   (testing "two same-frame flows with overlapping OUTPUT :paths but disjoint
             inputs are rejected at registration on this host
             (:rf.error/flow-path-overlap) — the prior registration survives"
-    (rf/reg-flow {:id :a :inputs [[:src-a]] :output identity :path [:dest]})
-    (let [ex (reg-flow-throws {:id :b :inputs [[:src-b]] :output identity :path [:dest :child]})]
+    (rf/reg-flow {:id :a :inputs [[:src-a]] :derive identity :output-path [:dest]})
+    (let [ex (reg-flow-throws {:id :b :inputs [[:src-b]] :derive identity :output-path [:dest :child]})]
       (is (some? ex) "the overlapping-output registration throws")
       (is (= :rf.error/flow-path-overlap (error-id ex))
           "structured :rf.error/flow-path-overlap"))
     ;; DISJOINT sibling outputs (the common, valid case) still register cleanly.
-    (is (some? (rf/reg-flow {:id :c :inputs [[:src-c]] :output identity :path [:other :x]}))
+    (is (some? (rf/reg-flow {:id :c :inputs [[:src-c]] :derive identity :output-path [:other :x]}))
         "disjoint sibling outputs still register")))

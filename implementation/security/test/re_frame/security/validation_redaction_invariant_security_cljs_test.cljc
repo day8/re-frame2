@@ -418,16 +418,16 @@
             arm makes this RED."
     (with-runtime*
       (fn []
-        ;; Seed an event that writes the flow's input; the flow's :output
-        ;; copies the sentinel-bearing value to its :path, where it fails
+        ;; Seed an event that writes the flow's input; the flow's :derive
+        ;; copies the sentinel-bearing value to its :output-path, where it fails
         ;; the :sensitive? output schema. The failing value carries the
         ;; sentinel so, absent redaction, it rides verbatim in :value /
         ;; :explain on the trace bus.
         (rf/reg-event :flow/seed (fn [{:keys [db]} _] {:db {:in failing-sensitive-value}}))
         (rf/reg-flow {:id     :flow/secret
                       :inputs [[:in]]
-                      :output (fn [in] in)            ;; pass the bad value through
-                      :path   [:derived]
+                      :derive (fn [in] in)            ;; pass the bad value through
+                      :output-path   [:derived]
                       :schema sensitive-map-schema})
         (let [trace (capture-failure
                       #(rf/dispatch-sync [:flow/seed]))]

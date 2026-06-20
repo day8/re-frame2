@@ -16,7 +16,7 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
   (reg-flow flow)
   (reg-flow flow opts)
   ```
-- **Description**: Register a flow. The flow map carries `:id`, `:inputs`, `:output`, `:path`. `opts` is a map (currently `{:frame frame-id}`) selecting the owning frame. Returns the flow's `:id` (per the `reg-*` return-value convention).
+- **Description**: Register a flow. The flow map carries `:id`, `:inputs`, `:derive`, `:output-path`. `opts` is a map (currently `{:frame frame-id}`) selecting the owning frame. Returns the flow's `:id` (per the `reg-*` return-value convention).
 
 ### `clear-flow`
 
@@ -26,7 +26,7 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
   (clear-flow id)
   (clear-flow id opts)
   ```
-- **Description**: Deregister the flow from the named frame and `dissoc-in` its `:path` from that frame's `app-db` only. Sibling frames' state is preserved.
+- **Description**: Deregister the flow from the named frame and `dissoc-in` its `:output-path` from that frame's `app-db` only. Sibling frames' state is preserved.
 
 ### A minimal flow
 
@@ -34,10 +34,10 @@ The normative source is [013-Flows.md](../../spec/013-Flows.md).
 (rf/reg-flow
   {:id     :cart/subtotal
    :inputs [[:cart :items] [:tax :rate]]      ;; vector of frame-state paths
-   :output (fn [items rate]                    ;; values arrive positionally
+   :derive (fn [items rate]                    ;; values arrive positionally
              (let [subtotal (reduce + (map :price items))]
                (* subtotal (+ 1 rate))))
-   :path   [:cart :subtotal]})
+   :output-path [:cart :subtotal]})
 
 ;; Now [:cart :subtotal] in app-db is always derived. Read it via a plain
 ;; sub or a plain handler. Adding an item triggers recompute; updating the
@@ -52,20 +52,20 @@ read. Outputs stay `app-db`-only.
 (rf/reg-flow
   {:id     :nav/on-checkout?
    :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] ;; runtime-db input
-   :output (fn [route-id] (= route-id :checkout))
-   :path   [:nav :on-checkout?]})                                    ;; app-db output
+   :derive (fn [route-id] (= route-id :checkout))
+   :output-path [:nav :on-checkout?]})                               ;; app-db output
 ```
 
-`:inputs` is a **positional vector** of frame-state paths; the values at those paths arrive as positional args to `:output` in the same order (a map-keyed `:inputs` form is a deferred design option per [Spec 013 §Open questions](../../spec/013-Flows.md#open-questions), not v1). Each path reads against the pending frame-state's two partitions — a **bare** path reads `app-db`, and a path led by `:rf.db/runtime` reads `runtime-db` (see [Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)). The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised frame-state.
+`:inputs` is a **positional vector** of frame-state paths; the values at those paths arrive as positional args to `:derive` in the same order (a map-keyed `:inputs` form is a deferred design option per [Spec 013 §Open questions](../../spec/013-Flows.md#open-questions), not v1). Each path reads against the pending frame-state's two partitions — a **bare** path reads `app-db`, and a path led by `:rf.db/runtime` reads `runtime-db` (see [Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)). The shape is data — no fn registration with a separate id, no interceptor wiring, no closure capture. The conformance harness validates flows by walking the registered data and applying it to a synthesised frame-state.
 
 ### The flow map
 
 | Key | Required | Notes |
 |---|---|---|
 | `:id` | yes | The registry key. Use a namespaced keyword. |
-| `:inputs` | yes | A vector of frame-state path vectors. Read positionally; the value at each path is passed to `:output` in order. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db` (see [Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)). |
-| `:output` | yes | `(fn [in-1 in-2 ...] new-output)`. Pure; receives the input values positionally; called every time inputs change; must be deterministic. |
-| `:path` | yes | Where to write the output in `app-db`. |
+| `:inputs` | yes | A vector of frame-state path vectors. Read positionally; the value at each path is passed to `:derive` in order. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db` (see [Spec 013 §Input partition](../../spec/013-Flows.md#input-partition--bare--app-db-rfdbruntime---runtime-db)). |
+| `:derive` | yes | `(fn [in-1 in-2 ...] new-output)`. Pure; receives the input values positionally; called every time inputs change; must be deterministic. |
+| `:output-path` | yes | Where to write the output in `app-db`. |
 | `:doc` | no | One-sentence what-and-why; surfaces in tooling. |
 | `:schema` | no | Malli schema for the **output value**. Validated on every recompute in dev (and elided in production, like all schema validation). On failure the runtime emits `:rf.error/schema-validation-failure :where :flow-output` — **observational**: the output is still written (a flow output is materialised state downstream already reads), the trace surfaces the producer bug. Routes through the registered validator, so an app without the schemas artefact pays nothing. See [Spec 013 §Flow output validation](../../spec/013-Flows.md#flow-output-validation). |
 
@@ -101,8 +101,8 @@ In the common case the lag is invisible — you register a flow in an `:enter`-s
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                             :inputs [[:step-2 :foo] [:step-2 :bar]]
-                            :output (fn [foo bar] (compute foo bar))
-                            :path   [:step-2 :result]}]
+                            :derive (fn [foo bar] (compute foo bar))
+                            :output-path [:step-2 :result]}]
           [:dispatch [:wizard/settle]]]}))   ;; flow computes on THIS drain
 
 (rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
@@ -112,7 +112,7 @@ This is a deliberate, explicit step — not a hidden one — and most apps never
 
 ## Failure semantics
 
-**Production-survivable.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is *not* trace-only; production deployments catch it.
+**Production-survivable.** A throw inside a flow's `:derive` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered `register-error-listener!` callbacks fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is *not* trace-only; production deployments catch it.
 
 See [Spec 013 §Failure semantics](../../spec/013-Flows.md#failure-semantics) rule 4 and [Spec 009 §Production builds](../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 

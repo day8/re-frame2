@@ -2,7 +2,7 @@
   "JVM coverage for Spec 013 §Flow output validation (rf2-ee38b.9).
 
   Pins the `:schema` flow-map key as load-bearing: a flow's computed
-  `:output` value is validated against its optional `:schema` on every
+  `:derive` value is validated against its optional `:schema` on every
   recompute, dev-only, via the pluggable validator seam the rest of
   Spec 010 uses (`:schemas/validate-with-registered-fn` /
   `:schemas/explain-with-registered-fn`). Before this slice the key was
@@ -94,8 +94,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]
                   :schema (fn [v] (and (integer? v) (pos? v)))})
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
@@ -114,8 +114,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h -4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]
                   :schema (fn [v] (and (integer? v) (not (neg? v))))})
     (rf/dispatch-sync [:seed])
     (is (= -12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
@@ -171,8 +171,8 @@
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
       (rf/reg-flow {:id     :area
                     :inputs [[:w] [:h]]
-                    :output (fn [w h] (* w h))
-                    :path   [:rect :area]})
+                    :derive (fn [w h] (* w h))
+                    :output-path   [:rect :area]})
       (rf/dispatch-sync [:seed])
       (is (zero? @validator-calls)
           "no :schema means the validator is never invoked")
@@ -191,8 +191,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]
                   :schema (fn [_] false)}) ;; would reject everything IF consulted
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
@@ -210,8 +210,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
-                  :output (fn [w h] (* w h))
-                  :path   [:rect :area]
+                  :derive (fn [w h] (* w h))
+                  :output-path   [:rect :area]
                   :schema (fn [_] false)}) ;; would reject IF the gate let it run
     (with-redefs [interop/debug-enabled? false]
       (rf/dispatch-sync [:seed]))
@@ -232,14 +232,14 @@
     ;; subtotal sums the (here intentionally negative-capable) prices.
     (rf/reg-flow {:id     :cart/subtotal
                   :inputs [[:cart :items]]
-                  :output (fn [items] (reduce + 0 (map :price items)))
-                  :path   [:cart :subtotal]
+                  :derive (fn [items] (reduce + 0 (map :price items)))
+                  :output-path   [:cart :subtotal]
                   :schema (fn [v] (and (integer? v) (not (neg? v))))})
     ;; total doubles the subtotal; demands a non-negative result too.
     (rf/reg-flow {:id     :cart/total
                   :inputs [[:cart :subtotal]]
-                  :output (fn [subtotal] (* 2 subtotal))
-                  :path   [:cart :total]
+                  :derive (fn [subtotal] (* 2 subtotal))
+                  :output-path   [:cart :total]
                   :schema (fn [v] (and (integer? v) (not (neg? v))))})
     (rf/dispatch-sync [:seed])
     ;; subtotal = 10 + -5 = 5 (conforms); total = 10 (conforms). No violation.

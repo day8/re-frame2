@@ -4,7 +4,7 @@
   trace surface. Under CLJS `:advanced` + `goog.DEBUG=false` the trace
   surface compile-time elides, but the corpus-wide
   `register-error-listener!` callbacks MUST still fire when a flow's
-  `:output` throws.
+  `:derive` throws.
 
   Pre-rf2-hrt5c, the cascade-level `:rf.error/flow-eval-exception`
   rode the trace path only. `trace/emit-error!` is gated by
@@ -67,11 +67,11 @@
                        (fn [{:keys [db]} _] {:db {:token "string-value"}}))
       (rf/reg-flow {:id     :str-len
                     :inputs [[:token]]
-                    :output (fn [t]
+                    :derive (fn [t]
                               (when (string? t)
                                 (throw (ex-info "no strings allowed" {})))
                               (count t))
-                    :path   [:str-len]})
+                    :output-path   [:str-len]})
       (rf/dispatch-sync [:prod/flow-throw])
       (is (= 1 (count @seen))
           "listener fired exactly once — prod-elision contract holds")

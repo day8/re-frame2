@@ -4,7 +4,7 @@
 ;; that writes the same value back to an input path does NOT re-fire
 ;; flows that depend on that path.
 ;;
-;; This fixture verifies the no-op path. The flow's :output is wired
+;; This fixture verifies the no-op path. The flow's :derive is wired
 ;; to :tick-counter — an external counter the test asserts hasn't
 ;; advanced when the input was rewritten with an =-equal value.
 
@@ -19,7 +19,7 @@
   :flow  {:doubled/value
           {:doc    "Doubles :n at [:doubled]."
            :inputs [[:n]]
-           :path   [:doubled]}}}
+           :output-path [:doubled]}}}
 
  :fixture/handlers
  {:event {:doubled/init      [[:set [:n] 5]]
@@ -44,7 +44,7 @@
    :doubled  14}
 
   ;; The dirty-check is per-flow: paths that did not change between
-  ;; drains do not trigger their flow's :output. The harness verifies
+  ;; drains do not trigger their flow's :derive. The harness verifies
   ;; the recompute count via instrumentation. v1 dispatch sequence:
   ;;
   ;;   on-create [:doubled/init]    — sets :n 5;   flow first-fires → :doubled 10

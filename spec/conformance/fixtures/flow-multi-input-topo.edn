@@ -1,6 +1,6 @@
 ;; Conformance fixture: flow/multi-input-topo
 ;; Per Spec 013 §Topological sort and cycle detection — flow B depends
-;; on flow A iff A's :path and any of B's :inputs share a path prefix
+;; on flow A iff A's :output-path and any of B's :inputs share a path prefix
 ;; in either direction. Mutating A's input cascades through B in a
 ;; single drain pass; the topological sort places A before B.
 ;;
@@ -22,11 +22,11 @@
   :flow  {:rect/area
           {:doc    "Width × height."
            :inputs [[:width] [:height]]
-           :path   [:area]}
+           :output-path [:area]}
           :rect/area-doubled
           {:doc    "Area × 2 — depends on :rect/area's output."
            :inputs [[:area]]
-           :path   [:area*2]}}}
+           :output-path [:area*2]}}}
 
  :fixture/handlers
  {:event {:rect/init  [[:set [:width]  2]
@@ -52,7 +52,7 @@
    :area   20
    :area*2 40}
 
-  ;; Per Spec 013 §Topological sort: B depends on A iff A's :path
+  ;; Per Spec 013 §Topological sort: B depends on A iff A's :output-path
   ;; intersects B's :inputs. The harness asserts the static dependency
   ;; graph topologies — A runs before B in a single drain pass.
   :flow-graph-topology

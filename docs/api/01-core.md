@@ -250,14 +250,14 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-flow flow)
   (reg-flow flow opts)
   ```
-- **Description**: Register a derived flow — `{:id :inputs :output :path}` — that auto-recomputes when its inputs change and writes the result into `:path` in `app-db`. `:inputs` is a positional vector of `app-db` paths; the values arrive as positional args to `:output`. See [05 — Flows](05-flows.md).
+- **Description**: Register a derived flow — `{:id :inputs :derive :output-path}` — that auto-recomputes when its inputs change and writes the result into `:output-path` in `app-db`. `:inputs` is a positional vector of `app-db` paths; the values arrive as positional args to `:derive`. See [05 — Flows](05-flows.md).
 - **Example**:
   ```clojure
   (rf/reg-flow
     {:id     :cart/total
      :inputs [[:cart :items]]
-     :output (fn [items] (reduce + (map :price items)))
-     :path   [:cart :total]})
+     :derive (fn [items] (reduce + (map :price items)))
+     :output-path [:cart :total]})
   ```
 
 ### `reg-route`
@@ -338,7 +338,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   (clear-flow id)
   (clear-flow id opts)
   ```
-- **Description**: Deregisters the flow from the named frame and `dissoc-in`s its `:path` from that frame's `app-db` only. See [05 — Flows](05-flows.md).
+- **Description**: Deregisters the flow from the named frame and `dissoc-in`s its `:output-path` from that frame's `app-db` only. See [05 — Flows](05-flows.md).
 
 #### `destroy-frame!`
 

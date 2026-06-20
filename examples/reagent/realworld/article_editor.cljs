@@ -88,7 +88,7 @@
 ;; A sub would force the handler to `subscribe` mid-handler (awkward and
 ;; non-idiomatic); the flow keeps the gate as ordinary state the handler
 ;; reads with `get-in`. The submit-button-disabled view still reads it
-;; through a plain sub over the flow's `:path` (Spec 013 §Sub integration).
+;; through a plain sub over the flow's `:output-path` (Spec 013 §Sub integration).
 ;;
 ;; The flow is registered per-frame via `:rf.fx/reg-flow` from
 ;; `:editor/initialise` (below) rather than at ns-load, so it registers
@@ -103,10 +103,10 @@
             loaded baseline). Materialised into app-db so the submit
             handler can read it as plain data."
    :inputs [[:editor :draft] [:editor :baseline]]
-   :output (fn [draft baseline]
+   :derive (fn [draft baseline]
              (and (empty? (validate-draft draft))
                   (not= draft baseline)))
-   :path   [:editor :can-submit?]})
+   :output-path [:editor :can-submit?]})
 
 (defn article-body [draft]
   {:article {:title       (:title draft)
@@ -397,7 +397,7 @@
     (not= (:draft editor) (:baseline editor))))
 
 (rf/reg-sub :editor/can-submit?
-  {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db :path
+  {:doc "Reads the `:editor/can-submit?` FLOW output at its app-db :output-path
          (Spec 013 §Sub integration (b)). No special flow sub-id — a flow's
          output is ordinary app-db state and consumers read it through a
          plain sub over the path. Drives the submit button's disabled

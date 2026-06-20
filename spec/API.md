@@ -814,11 +814,11 @@ The retired v1 public interceptor-authoring helpers and their replacements:
 
 ### `reg-flow` / `clear-flow` (Spec 013)
 
-`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`. Both surfaces take an optional opts map (`{:frame frame-id}`) selecting the owning frame: `(reg-flow flow)` / `(reg-flow flow opts)` and `(clear-flow id)` / `(clear-flow id opts)`. `clear-flow` is rowed canonically in [§Clearing registrations](#clearing-registrations); it deregisters the flow from the named frame and `dissoc-in`s its `:path` from that frame's `app-db` only (per Spec 013 §Frame-scoping).
+`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:derive`, `:output-path`. Both surfaces take an optional opts map (`{:frame frame-id}`) selecting the owning frame: `(reg-flow flow)` / `(reg-flow flow opts)` and `(clear-flow id)` / `(clear-flow id opts)`. `clear-flow` is rowed canonically in [§Clearing registrations](#clearing-registrations); it deregisters the flow from the named frame and `dissoc-in`s its `:output-path` from that frame's `app-db` only (per Spec 013 §Frame-scoping).
 
 **Frame-destroy teardown.** `destroy-frame!` releases every per-frame piece of flow state (registry slot, `last-inputs` rows, registrar entries for ids the destroyed frame was last owner of) per [Spec 013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown). Sibling frames' state is preserved.
 
-**Flow-eval failures in production.** A throw inside a flow's `:output` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered error-emit callbacks (the `:errors` stream of `register-listener!`) fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
+**Flow-eval failures in production.** A throw inside a flow's `:derive` fn surfaces as `:rf.error/flow-eval-exception` on the **always-on error-emit substrate** — registered error-emit callbacks (the `:errors` stream of `register-listener!`) fire under CLJS `:advanced` + `goog.DEBUG=false`. The error is NOT trace-only. Per [Spec 013 §Failure semantics](013-Flows.md#failure-semantics) rule 4 and [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code).
 
 Reserved fx-ids for runtime flow management via `:fx`:
 

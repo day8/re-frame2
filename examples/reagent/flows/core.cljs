@@ -42,7 +42,7 @@
    - flow-reads-flow topological cascade            (Spec 013 §Topological sort)
    - `:rf.fx/reg-flow` / `:rf.fx/clear-flow`        (Spec 013 §Dynamic toggle via fx)
    - reading a flow's output inside an event handler (Spec 013 §Sub integration (a))
-   - reading a flow's output via a plain sub over its `:path`  (Spec 013 §Sub integration (b))"
+   - reading a flow's output via a plain sub over its `:output-path`  (Spec 013 §Sub integration (b))"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Flows ship in day8/re-frame2-flows. Requiring re-frame.flows
@@ -61,9 +61,9 @@
 ;; ============================================================================
 ;;
 ;; `:inputs` is a vector of frame-state paths (a bare path reads app-db; a
-;; path led by `:rf.db/runtime` reads runtime-db); `:output` receives the
+;; path led by `:rf.db/runtime` reads runtime-db); `:derive` receives the
 ;; values at those paths positionally and returns the value written to the
-;; app-db `:path`.
+;; app-db `:output-path`.
 
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
@@ -80,8 +80,8 @@
    :doc    "Sum of every line item's price × qty. Materialised into app-db
             so the checkout handler can read it as plain data."
    :inputs [[:cart :items]]
-   :output (fn [items] (reduce + 0 (map line-total items)))
-   :path   [:cart :subtotal]})
+   :derive (fn [items] (reduce + 0 (map line-total items)))
+   :output-path [:cart :subtotal]})
 
 ;; `:cart/total` reads ANOTHER flow's output (`[:cart :subtotal]`) plus the
 ;; (optionally-registered) discount rate. The runtime derives the
@@ -91,7 +91,7 @@
 ;; (Spec 013 §Topological sort and cycle detection).
 ;;
 ;; `:cart/discount-rate` is NOT registered at boot. When absent, its path
-;; is nil and `:cart/total`'s `:output` treats it as 0% off. The "Apply
+;; is nil and `:cart/total`'s `:derive` treats it as 0% off. The "Apply
 ;; 10% discount" button registers it via `:rf.fx/reg-flow`; "Remove
 ;; discount" clears it via `:rf.fx/clear-flow` (which `dissoc-in`s the
 ;; path back to nil). While registered it derives a flat 10% off the live
@@ -103,10 +103,10 @@
    :doc    "Subtotal less the active discount. Reads :cart/subtotal's
             output and the runtime-toggleable discount rate."
    :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :output (fn [subtotal discount-rate]
+   :derive (fn [subtotal discount-rate]
              (let [rate (or discount-rate 0)]
                (Math/round (* subtotal (- 1 rate)))))
-   :path   [:cart :total]}))
+   :output-path [:cart :total]}))
 
 ;; ============================================================================
 ;; EVENTS
@@ -174,8 +174,8 @@
                      so the rule has somewhere to grow; today it is a flat
                      10% off."
             :inputs [[:cart :subtotal]]
-            :output (fn [_subtotal] 0.10)
-            :path   [:cart :discount-rate]}]
+            :derive (fn [_subtotal] 0.10)
+            :output-path [:cart :discount-rate]}]
           [:dispatch [:cart/touch]]]}))
 
 (rf/reg-event :cart/remove-discount
@@ -222,14 +222,14 @@
 ;;
 ;; Flows publish ZERO framework subs (Spec 013 §Sub integration). A flow's
 ;; output is "ordinary application state with a known producer" — consumers
-;; read it through whatever sub they prefer over the flow's `:path`. The
+;; read it through whatever sub they prefer over the flow's `:output-path`. The
 ;; view below reads the materialised :subtotal / :total via plain subs.
 
 (rf/reg-sub :cart/items
   (fn [db _] (get-in db [:cart :items])))
 
 (rf/reg-sub :cart/subtotal
-  {:doc "Reads the :cart/subtotal flow's output at its :path — pattern (b)
+  {:doc "Reads the :cart/subtotal flow's output at its :output-path — pattern (b)
          from Spec 013 §Sub integration. No special flow sub-id; just an
          app-db read."}
   (fn [db _] (get-in db [:cart :subtotal])))

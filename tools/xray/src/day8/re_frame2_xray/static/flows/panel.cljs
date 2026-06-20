@@ -6,7 +6,7 @@
   Per Lock #15 (two-verbs-two-homes — browse-all lives in Static) the
   Flows sub-tab is a flat catalogue of every flow registered via
   `re-frame.flows/reg-flow`. Each row surfaces the flow-id, its
-  `:inputs` paths, its `:output` `:path`, the owning frame (flows are
+  `:inputs` paths, its `:output-path`, the owning frame (flows are
   frame-scoped per Spec 013), and the doc-string (when present).
 
       ┌───────────────────────────────────────────────────┐
@@ -101,25 +101,25 @@
   (->> registry-snapshot
        (mapcat (fn [[frame-id by-id]]
                  (map (fn [[flow-id flow-map]]
-                        {:flow-id flow-id
-                         :frame   frame-id
-                         :inputs  (vec (:inputs flow-map))
-                         :path    (vec (:path flow-map))
-                         :doc     (:doc flow-map)})
+                        {:flow-id     flow-id
+                         :frame       frame-id
+                         :inputs      (vec (:inputs flow-map))
+                         :output-path (vec (:output-path flow-map))
+                         :doc         (:doc flow-map)})
                       by-id)))
        (sort-by (fn [{:keys [flow-id]}] (str flow-id)))
        vec))
 
-(defn- row-haystack [{:keys [flow-id frame inputs path doc]}]
+(defn- row-haystack [{:keys [flow-id frame inputs output-path doc]}]
   (str/lower-case
     (str (pr-str flow-id) " "
          (pr-str frame) " "
          (pr-str inputs) " "
-         (pr-str path) " "
+         (pr-str output-path) " "
          (or doc ""))))
 
 (defn filter-rows
-  "Substring filter against flow-id + frame + inputs + path + doc.
+  "Substring filter against flow-id + frame + inputs + output-path + doc.
   Empty / blank query returns rows verbatim."
   [rows query]
   (search-box/filter-rows row-haystack rows query))
@@ -179,7 +179,7 @@
 ;; ---- row -----------------------------------------------------------------
 
 (defn- flow-row
-  [{:keys [flow-id frame inputs path doc] :as _row}]
+  [{:keys [flow-id frame inputs output-path doc] :as _row}]
   ;; rf2-mq8wk — list semantics. Flow rows are non-interactive (no
   ;; row-level dispatch), so `role=listitem` is the right shape — they
   ;; are catalogue entries, not buttons. The interactive Static surface
@@ -237,7 +237,7 @@
        [:span {:style {:color (:text-tertiary tokens)
                        :flex  "0 0 auto"}}
         "output →"]
-       (edn/inspect path (str "static-flows/" flow-key "/output"))]
+       (edn/inspect output-path (str "static-flows/" flow-key "/output"))]
       (when doc
         [:div {:style {:margin-top  "4px"
                        :color       (:text-secondary tokens)

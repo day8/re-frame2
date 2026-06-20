@@ -14,7 +14,7 @@ A **flow** is a registered rule that says: "when these input paths change, run t
 
 Flows differ from subscriptions in *where the value lives*. A sub's value lives in the per-frame sub-cache and is consumed by views. A flow's value lives in `app-db` at a known path, where it survives SSR / hydration / time-travel revert, is visible in the app-db inspector, can be read by downstream event handlers and other flows, and is covered by registered schemas. When the derived value is part of the application's *state* (as opposed to part of a view's render input), use a flow.
 
-**Flows are frame-scoped.** A flow belongs to one frame: its registration, evaluation, output `app-db` path, and undo / time-travel boundaries are all frame-local. The same flow id can register against two different frames with two different `:output` functions and two different `:path` slots; clearing the flow on one frame leaves the other untouched. See [§Frame-scoping](#frame-scoping) for the rationale and API.
+**Flows are frame-scoped.** A flow belongs to one frame: its registration, evaluation, output `app-db` path, and undo / time-travel boundaries are all frame-local. The same flow id can register against two different frames with two different `:derive` functions and two different `:output-path` slots; clearing the flow on one frame leaves the other untouched. See [§Frame-scoping](#frame-scoping) for the rationale and API.
 
 ## When (and when not) to use a flow
 
@@ -48,8 +48,8 @@ Three use cases the reference implementation has hit repeatedly:
 (rf/reg-flow
   {:id     :rectangle/area
    :inputs [[:width] [:height]]            ;; vector of frame-state paths (bare = app-db)
-   :output (fn [w h] (* w h))               ;; pure: (in-1, in-2, ...) → output
-   :path   [:area]                          ;; where the result is written
+   :derive (fn [w h] (* w h))               ;; pure: (in-1, in-2, ...) → output
+   :output-path [:area]                      ;; where the result is written
    :doc    "Rectangle area computed from :width and :height."})
 ```
 
@@ -58,9 +58,9 @@ Required keys:
 | Key | Meaning |
 |---|---|
 | `:id` | Unique flow identifier. Per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention), namespace by feature. |
-| `:inputs` | Vector of frame-state paths read against the pending frame-state's two partitions (binary syntax — a bare path reads app-db; a `[:rf.db/runtime …]` path reads runtime-db; see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)). The order matches positional args to `:output`. |
-| `:output` | Pure function. Receives input values positionally. Must be deterministic (same inputs → same output). |
-| `:path` | App-db path to write the output to. Writes are **app-db only** — a flow never writes runtime-db. |
+| `:inputs` | Vector of frame-state paths read against the pending frame-state's two partitions (binary syntax — a bare path reads app-db; a `[:rf.db/runtime …]` path reads runtime-db; see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)). The order matches positional args to `:derive`. |
+| `:derive` | Pure function. Receives input values positionally. Must be deterministic (same inputs → same output). |
+| `:output-path` | App-db path to write the output to. Writes are **app-db only** — a flow never writes runtime-db. |
 
 Optional keys (per the [001-Registration §Registration grammar](001-Registration.md#registration-grammar) standard):
 
@@ -84,7 +84,7 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 - A **bare** path (any leading element other than `:rf.db/runtime`) reads the pending **app-db** partition, verbatim.
 - A path whose **first element is `:rf.db/runtime`** reads the pending **runtime-db** partition — the partition key is stripped before the `get-in`. There is **no** `[:rf.db/app …]` explicit-app form: bare *is* app-db.
 
-**Any** flow — user or framework — may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :route-id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:path` and its `:output` always write **app-db only** — a flow never writes runtime-db. Because flow outputs are always app-db paths, a `[:rf.db/runtime …]` input can never prefix-match another flow's output `:path`, so a qualified runtime input never creates a spurious topological dependency edge ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). The dirty-check keys on **both** partitions: a runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the resolved runtime value is part of the cached input vector ([§Dirty-check semantics](#dirty-check-semantics)).
+**Any** flow — user or framework — may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :route-id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:output-path` and its `:derive` always write **app-db only** — a flow never writes runtime-db. Because flow outputs are always app-db paths, a `[:rf.db/runtime …]` input can never prefix-match another flow's output `:output-path`, so a qualified runtime input never creates a spurious topological dependency edge ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). The dirty-check keys on **both** partitions: a runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the resolved runtime value is part of the cached input vector ([§Dirty-check semantics](#dirty-check-semantics)).
 
 **Never read a retired `[:rf.runtime/…]` *app-db* path.** Runtime state never lived in app-db under that scheme; the shipped syntax is the `[:rf.db/runtime …]` partition-qualified input above.
 
@@ -116,11 +116,11 @@ Flows are **frame-scoped**: registration, evaluation, and `clear-flow`'s `dissoc
 
 Three consequences follow:
 
-1. **Per-frame undo / time-travel boundaries.** Time-travel is a frame-local primitive (per [002 §Frames](002-Frames.md)). A flow's `:path` write is part of the owning frame's `app-db` history; reverting frame `:left` does not disturb flow outputs in frame `:right`.
+1. **Per-frame undo / time-travel boundaries.** Time-travel is a frame-local primitive (per [002 §Frames](002-Frames.md)). A flow's `:output-path` write is part of the owning frame's `app-db` history; reverting frame `:left` does not disturb flow outputs in frame `:right`.
 2. **Same flow-id, multiple frames, independent definitions.** Registering `:compute` against `:left` with `(fn [x] (* 2 x))` and against `:right` with `(fn [x] (* 100 x))` produces two independent flows. Each frame's flow walk (`run-flows-on-db`) visits only its own slot of the registry.
-3. **`clear-flow` is frame-local.** `(clear-flow :compute {:frame :left})` removes the flow's definition from frame `:left` and `dissoc-in`s its `:path` from `:left`'s `app-db` only. Frame `:right`'s `:compute` and its output keep working. The shared `:flow` registrar slot is only unregistered when the *last* frame holding the id releases it (so hot-reload tracking survives multi-frame setups).
+3. **`clear-flow` is frame-local.** `(clear-flow :compute {:frame :left})` removes the flow's definition from frame `:left` and `dissoc-in`s its `:output-path` from `:left`'s `app-db` only. Frame `:right`'s `:compute` and its output keep working. The shared `:flow` registrar slot is only unregistered when the *last* frame holding the id releases it (so hot-reload tracking survives multi-frame setups).
 
-**Registrar slot semantics under multi-frame registration.** The `:flow` registrar kind (per [001-Registration §Registration grammar](001-Registration.md#registration-grammar)) is keyed by `flow-id` only — the same flow id registered against multiple frames shares one registrar slot. The per-frame runtime registry `{frame-id {flow-id flow-map}}` is the source of truth for evaluation; the registrar slot is metadata used for hot-reload tracking and tooling introspection. When the same flow id is registered against two frames with different `:output` fns and `:path` slots, **the registrar slot carries the most-recently-registered frame's flow-map** with `:frame frame-id` stamped into the metadata. Callers reading the slot via the registrar (e.g. a Xray flow panel that wants to enumerate "all flows in the runtime") observe last-registration-wins on the metadata view while every frame's flow walk (`run-flows-on-db`) continues to evaluate against its own slot of the runtime registry unaffected.
+**Registrar slot semantics under multi-frame registration.** The `:flow` registrar kind (per [001-Registration §Registration grammar](001-Registration.md#registration-grammar)) is keyed by `flow-id` only — the same flow id registered against multiple frames shares one registrar slot. The per-frame runtime registry `{frame-id {flow-id flow-map}}` is the source of truth for evaluation; the registrar slot is metadata used for hot-reload tracking and tooling introspection. When the same flow id is registered against two frames with different `:derive` fns and `:output-path` slots, **the registrar slot carries the most-recently-registered frame's flow-map** with `:frame frame-id` stamped into the metadata. Callers reading the slot via the registrar (e.g. a Xray flow panel that wants to enumerate "all flows in the runtime") observe last-registration-wins on the metadata view while every frame's flow walk (`run-flows-on-db`) continues to evaluate against its own slot of the runtime registry unaffected.
 
 This asymmetry is **intentional for v1**: the runtime correctness (each frame's flows compute independently) is the load-bearing property; the registrar metadata is a tooling convenience. A future spec revision MAY introduce a frame-aware query surface (`flow-meta` / `(flows {:frame ...})`) or migrate the registrar slot to a frame-indexed shape, but doing so today would inflate the registrar API surface for a use case (tools enumerating cross-frame flows) that has not surfaced in v1. Apps targeting multi-tenant frames with shared flow ids and per-frame-different definitions should read the runtime registry through the public snapshot accessor `re-frame.flows/flows-snapshot` (returning the `{frame-id {flow-id flow-map}}` shape), **not** the private `@re-frame.flows/flows` atom and **not** the registrar slot, for full per-frame discovery. The `flows-snapshot` accessor is the encapsulation boundary: the per-frame registry atom is private (the facade re-exports the read accessor `flows-snapshot` and the reset fns), so consumers depending on the snapshot survive any future change to the atom's internal representation. (The raw `last-inputs-snapshot` re-export is retained `^:no-doc` as an internal / test / rollback seam only — it returns owner-local cached input values verbatim and is **not** an egress boundary. The raw dirty-check cache is never shipped off-box; tools and direct reads that cross a trust boundary ride the elided trace path — `:rf.flow/computed` `:input-values` / `:rf.flow/failed` `:inputs`, which elide each cached input under the owning frame's policy and fail closed for an unresolvable frame — EP-0015.)
 
@@ -168,12 +168,12 @@ process-event! (with flows as the outermost :after):
          For each flow in this frame's slot:
            new-inputs ← read input paths from pending-db
            if new-inputs ≠ last-inputs[[frame-id flow-id]]:
-             new-output ← (apply :output new-inputs)   ;; MAY throw
-             pending-db ← (assoc-in pending-db (:path flow) new-output)
+             new-output ← (apply :derive new-inputs)   ;; MAY throw
+             pending-db ← (assoc-in pending-db (:output-path flow) new-output)
              last-inputs[[frame-id flow-id]] ← new-inputs
          (:effects ctx) ← assoc :db pending-db   ;; flow-augmented :db effect
 
-         ;; FAILURE — a flow's :output threw (atomicity contract):
+         ;; FAILURE — a flow's :derive threw (atomicity contract):
          ;; DISCARD the pending :db effect (drop it from (:effects ctx))
          ;; and stash the throw under :rf/flow-error. The event ABORTS:
          ;; the single deferred install at step 3 installs nothing, so
@@ -210,9 +210,9 @@ Five properties this gives:
 
 ### Trace stream ordering on a flow throw
 
-When a flow's `:output` fn throws during the flow-transform `:after` (step 2 of the drain integration pseudocode above), the runtime emits a strict trace sequence — observable contract for off-box monitors, Xray, Story, and any consumer that lifts a flow failure off the trace stream. A flow throw is a **pre-install throw**: the event ABORTS before the `:db` install, so the failure stream carries **NO `:rf.event/db-changed`** (per [§Failure semantics](#failure-semantics) — the atomicity contract). A conformant port MUST emit these events in this order:
+When a flow's `:derive` fn throws during the flow-transform `:after` (step 2 of the drain integration pseudocode above), the runtime emits a strict trace sequence — observable contract for off-box monitors, Xray, Story, and any consumer that lifts a flow failure off the trace stream. A flow throw is a **pre-install throw**: the event ABORTS before the `:db` install, so the failure stream carries **NO `:rf.event/db-changed`** (per [§Failure semantics](#failure-semantics) — the atomicity contract). A conformant port MUST emit these events in this order:
 
-1. **`:rf.flow/computed`** for each flow that successfully computed before the throwing one — fires per prior flow as it rewrites the pending `:db` effect. (See §Failure semantics for the per-flow detail; these may be absent when the first flow throws.) Note: these traces fire even though the prior flows' writes are ultimately **discarded** by the abort — the trace records that the `:output` ran, not that the write was committed.
+1. **`:rf.flow/computed`** for each flow that successfully computed before the throwing one — fires per prior flow as it rewrites the pending `:db` effect. (See §Failure semantics for the per-flow detail; these may be absent when the first flow throws.) Note: these traces fire even though the prior flows' writes are ultimately **discarded** by the abort — the trace records that the `:derive` ran, not that the write was committed.
 2. **`:rf.flow/failed`** — the per-flow failure trace for the throwing flow, carrying `:flow-id`, a **structured, EDN-safe** exception summary (`:exception-message` + `:exception-data` — NOT a raw `Throwable`; rf2-iqh5yf), and the elided `:inputs` read just before the throw. The `:exception-data` slot is redacted fail-closed when the flow's frame declares sensitivity (per [009 §Flow trace events](009-Instrumentation.md#flow-trace-events)). Rides the dev-only trace surface; DCEs in CLJS production.
 3. **`:rf.error/flow-eval-exception`** — the cascade-level error, emitted onto the **always-on production error-emit substrate** per [§Failure semantics](#failure-semantics). Carries `:where :flow-eval` (distinguishing this path from `:rf.error/handler-exception`), the originating event under `:rf.event/v`, and `:flow-id` attribution stamped from the throwing flow's wrapped `ex-data`. Attribution is the flow id alone — there is no real flow *value* to carry, so the contract carries `:flow-id` and nothing more. The dev-only trace surface emits the same op concurrently; the production-substrate path survives CLJS `:advanced` + `goog.DEBUG=false` elision.
 4. **NO `:rf.event/db-changed`.** The event aborted before the install — neither the handler's `:db` nor any prior flow's write committed (no partial commit). `app-db` is unchanged, and the trace stream carries no `:rf.event/db-changed` for this event. This is the same abort signature every other pre-install throw (cofx / handler / interceptor `:after`) produces.
@@ -222,9 +222,9 @@ The contract is the ordering AND the gap — consumers can rely on "the flow fai
 
 ## Topological sort and cycle detection
 
-Flows form a static dependency graph derivable from their `:path` and `:inputs` declarations. The graph is **per-frame** — flows in different frames cannot depend on each other (their inputs read different `app-db`s). Each frame's topsort is computed independently over `(get @flows frame-id)`.
+Flows form a static dependency graph derivable from their `:output-path` and `:inputs` declarations. The graph is **per-frame** — flows in different frames cannot depend on each other (their inputs read different `app-db`s). Each frame's topsort is computed independently over `(get @flows frame-id)`.
 
-**Dependency rule.** Flow B depends on flow A iff A's `:path` and any of B's `:inputs` share a path prefix in either direction:
+**Dependency rule.** Flow B depends on flow A iff A's `:output-path` and any of B's `:inputs` share a path prefix in either direction:
 
 - Exact match: `A.path = [:foo]`, `B.inputs = [[:foo]]` — B reads exactly what A writes.
 - A's path is a prefix of B's input: `A.path = [:foo]`, `B.inputs = [[:foo :bar]]` — B reads inside A's value.
@@ -236,8 +236,8 @@ The runtime topologically sorts the registry by this dependency relation. The so
 
 ```clojure
 ;; This will throw at registration:
-(rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})
-(rf/reg-flow {:id :b :inputs [[:a]] :output identity :path [:b]})
+(rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
+(rf/reg-flow {:id :b :inputs [[:a]] :derive identity :output-path [:b]})
 ;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
 ```
 
@@ -245,23 +245,23 @@ The closing repeat is the contract: tools rendering the cycle (e.g. Xray) displa
 
 Cycles can also form *during* flow registration if the new flow completes a cycle that was incomplete before it was registered. The detection runs every `reg-flow` call.
 
-**Disjoint output paths.** Flows in the same frame **MUST** write to pairwise-disjoint output `:path`s — no two flows' `:path`s may stand in a prefix relationship (identical paths included). `reg-flow` throws `:rf.error/flow-path-overlap` at registration time when a new flow's `:path` overlaps an already-registered sibling's. This is checked on every `reg-flow` call, inside the same atomic check-and-insert as cycle detection — the error fires before any state mutates, and the prior registration survives.
+**Disjoint output paths.** Flows in the same frame **MUST** write to pairwise-disjoint output `:output-path`s — no two flows' `:output-path`s may stand in a prefix relationship (identical paths included). `reg-flow` throws `:rf.error/flow-path-overlap` at registration time when a new flow's `:output-path` overlaps an already-registered sibling's. This is checked on every `reg-flow` call, inside the same atomic check-and-insert as cycle detection — the error fires before any state mutates, and the prior registration survives.
 
-The reason this is an error and not merely a topological edge: the dependency rule above compares one flow's `:path` against another's **`:inputs`**, never `:path` against `:path`. Two flows whose *outputs* overlap but whose *inputs* are disjoint therefore get **no edge** between them — both are ready at topsort start, and their relative order falls out of map-iteration order, which is not a contract. The flow that runs second silently wins the shared slot under last-write-wins, with no detection and no documented ordering. Rejecting at registration removes the footgun rather than papering over it with a tie-break that would leave the collision silent.
+The reason this is an error and not merely a topological edge: the dependency rule above compares one flow's `:output-path` against another's **`:inputs`**, never `:output-path` against `:output-path`. Two flows whose *outputs* overlap but whose *inputs* are disjoint therefore get **no edge** between them — both are ready at topsort start, and their relative order falls out of map-iteration order, which is not a contract. The flow that runs second silently wins the shared slot under last-write-wins, with no detection and no documented ordering. Rejecting at registration removes the footgun rather than papering over it with a tie-break that would leave the collision silent.
 
 ```clojure
-;; All of these throw at registration — the second flow's :path
+;; All of these throw at registration — the second flow's :output-path
 ;; overlaps the first's (one is a prefix of the other, identical included):
-(rf/reg-flow {:id :a :inputs [[:w]] :output identity :path [:x]})
-(rf/reg-flow {:id :b :inputs [[:h]] :output identity :path [:x]})
+(rf/reg-flow {:id :a :inputs [[:w]] :derive identity :output-path [:x]})
+(rf/reg-flow {:id :b :inputs [[:h]] :derive identity :output-path [:x]})
 ;; → ex-info ":rf.error/flow-path-overlap"  (identical paths)
 
-(rf/reg-flow {:id :c :inputs [[:w]] :output identity :path [:x]})
-(rf/reg-flow {:id :d :inputs [[:h]] :output identity :path [:x :y]})
+(rf/reg-flow {:id :c :inputs [[:w]] :derive identity :output-path [:x]})
+(rf/reg-flow {:id :d :inputs [[:h]] :derive identity :output-path [:x :y]})
 ;; → ex-info ":rf.error/flow-path-overlap"  (:x is a prefix of [:x :y])
 ```
 
-The thrown `ex-info`'s `ex-data` carries `:overlap` — `{:flow-ids [id-a id-b] :paths [path-a path-b]}` naming the colliding pair (deterministically ordered so the report is stable across runs) — alongside the canonical `:rf.error/id` / `:where` `'rf/reg-flow` / `:recovery :fix-registration` slots ([009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)). The caller gives one of the two flows a disjoint `:path` and retries. Sibling paths that merely share a non-prefix element are **not** an overlap: `[:x :y]` and `[:x :z]` are disjoint (each writes its own leaf under a shared parent), and only the prefix relationship — where one write would clobber or be subsumed by the other — is rejected.
+The thrown `ex-info`'s `ex-data` carries `:overlap` — `{:flow-ids [id-a id-b] :paths [path-a path-b]}` naming the colliding pair (deterministically ordered so the report is stable across runs) — alongside the canonical `:rf.error/id` / `:where` `'rf/reg-flow` / `:recovery :fix-registration` slots ([009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)). The caller gives one of the two flows a disjoint `:output-path` and retries. Sibling paths that merely share a non-prefix element are **not** an overlap: `[:x :y]` and `[:x :z]` are disjoint (each writes its own leaf under a shared parent), and only the prefix relationship — where one write would clobber or be subsumed by the other — is rejected.
 
 ## Dirty-check semantics
 
@@ -285,18 +285,18 @@ Three implications:
 
 **The event-handling pipeline is atomic up to and including the frame-state install.** The install is the single, deferred, all-or-nothing commit boundary. ANY throw *before* it — in cofx, the handler body, an interceptor `:after`, or the flow transform — aborts the **entire** event across **both partitions**: the pending `:db` (app-db) effect AND the pending `:rf.db/runtime` (runtime-db) effect are both discarded, so neither partition installs, **app-db and runtime-db are left unchanged**, **no `:rf.event/db-changed`** (and no `:rf.event/frame-state-changed`) is emitted, and **no `:fx`** run. A flow throw is just one of these pre-install throws, and behaves identically to every other — even though a flow may *read* runtime-db via a `[:rf.db/runtime …]` input ([§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)), it writes app-db only, so the runtime-db partition is discarded on abort purely as part of the whole-event roll-back, not because a flow wrote it. `:fx` is the only post-install stage; an fx throw surfaces an error but does NOT wind back the installed frame-state (its side effects — http / nav / dispatch — may already have fired and are irreversible).
 
-When a flow's `:output` fn throws during the flow-transform `:after`, the runtime applies these rules atomically:
+When a flow's `:derive` fn throws during the flow-transform `:after`, the runtime applies these rules atomically:
 
 1. **No install — both partitions are unchanged.** There is **no partial commit**. The pending `:db` effect (the handler's write plus any prior successful flows' writes) is **discarded**: the flow-transform `:after` drops the `:db` effect from the chain context, so the single deferred install installs nothing — and the pending `:rf.db/runtime` effect is discarded in the same abort, so **runtime-db is left unchanged too**. Neither the handler's `:db`/`:rf.db/runtime` nor any earlier flow's output lands. The atomicity is **free**: because install was already deferred to one write, "wind back on a pre-install throw" is just "don't perform the one write" — no rollback machinery.
-2. **The failing flow's own output is not written, and `last-inputs` is rolled back.** The exception happened during `:output`; there is no usable new-output. The whole drain's dirty-check bookkeeping rolls back too: the `last-inputs` snapshot taken before the walk is restored, so **every** flow — prior-successful and failing alike — re-attempts on the next drain. (Without this, a prior flow whose `last-inputs` advanced would wrongly suppress its recompute next drain even though its output never reached `app-db` — silently losing the write.) **The rollback is scoped to the draining frame's own dirty-check bookkeeping.** Only `last-inputs` rows for `[frame-id …]` (the frame being drained) are snapshotted and restored — a sibling frame draining concurrently on another thread (frames have independent drain-locks per [002 §Rules rule 1](002-Frames.md#rules); there is no global cross-frame serialization) has its dirty-check rows left untouched. A throwing-flow rollback can no more revert a sibling frame's just-advanced `last-inputs` than it can revert a sibling frame's `app-db`; the per-frame dirty-check window from [§Dirty-check semantics](#dirty-check-semantics) holds under concurrent drains by construction.
+2. **The failing flow's own output is not written, and `last-inputs` is rolled back.** The exception happened during `:derive`; there is no usable new-output. The whole drain's dirty-check bookkeeping rolls back too: the `last-inputs` snapshot taken before the walk is restored, so **every** flow — prior-successful and failing alike — re-attempts on the next drain. (Without this, a prior flow whose `last-inputs` advanced would wrongly suppress its recompute next drain even though its output never reached `app-db` — silently losing the write.) **The rollback is scoped to the draining frame's own dirty-check bookkeeping.** Only `last-inputs` rows for `[frame-id …]` (the frame being drained) are snapshotted and restored — a sibling frame draining concurrently on another thread (frames have independent drain-locks per [002 §Rules rule 1](002-Frames.md#rules); there is no global cross-frame serialization) has its dirty-check rows left untouched. A throwing-flow rollback can no more revert a sibling frame's just-advanced `last-inputs` than it can revert a sibling frame's `app-db`; the per-frame dirty-check window from [§Dirty-check semantics](#dirty-check-semantics) holds under concurrent drains by construction.
 3. **The cascade halts.** Downstream flows scheduled later in topo order do NOT run on this drain. They re-attempt naturally on a later drain — one that completes without the flow throwing. The `:db` install and the `:fx` walk do NOT run for this drain.
 4. **The exception surfaces at the router as** `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). The cascade-level error is emitted onto the **always-on production error-emit substrate** ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)) — every error-emit (the `:errors` stream of `register-listener!`) callback fires. The substrate is NOT gated by `re-frame.interop/debug-enabled?`, so `:rf.error/flow-eval-exception` survives CLJS `:advanced` + `goog.DEBUG=false` elision: a flow-eval failure in a production build reaches every registered off-box error monitor (Sentry / Honeybadger / Rollbar / hosted observability). The tight listener record carries the failing event-id and frame; the per-flow `:rf.flow/failed` trace event fires first with the full flow-attributed detail (including `:flow-id`), but that trace rides the dev-only trace surface and DCEs in production.
 
 Worked example. Three flows in topo order — `:A`, `:B`, `:C`. Inputs change for all three. `:B` throws. After the drain:
 
-- `app-db` is **unchanged** — `:A`'s output is NOT written (rule 1, no partial commit), the handler's `:db` did NOT land, `:B`'s `:path` is unchanged, `:C` did not run.
+- `app-db` is **unchanged** — `:A`'s output is NOT written (rule 1, no partial commit), the handler's `:db` did NOT land, `:B`'s `:output-path` is unchanged, `:C` did not run.
 - **All** `last-inputs` are unchanged from before the drain (rule 2): `:A`'s advance was rolled back, `:B`'s never advanced (it threw), `:C` never ran. All three re-attempt next drain.
-- Two flow traces fired in order: `:rf.flow/computed` for `:A` (it *ran* — the trace records the `:output` call, not a committed write), then `:rf.flow/failed` for `:B`. Then the router emitted `:rf.error/flow-eval-exception` (rule 4). **No `:rf.event/db-changed` fired** (rule 1 — the event aborted before install; per [§Trace stream ordering on a flow throw](#trace-stream-ordering-on-a-flow-throw)).
+- Two flow traces fired in order: `:rf.flow/computed` for `:A` (it *ran* — the trace records the `:derive` call, not a committed write), then `:rf.flow/failed` for `:B`. Then the router emitted `:rf.error/flow-eval-exception` (rule 4). **No `:rf.event/db-changed` fired** (rule 1 — the event aborted before install; per [§Trace stream ordering on a flow throw](#trace-stream-ordering-on-a-flow-throw)).
 
 **Rationale.** The `:db` install is the atomic commit boundary, and atomicity must be uniform: a flow throw can no more leave a half-committed `app-db` than a handler throw or an interceptor-`:after` throw can. The earlier "preserve prior-flow writes" design committed a partial `app-db` on a flow throw — but that made flow throws behave *differently* from every other pre-install throw, and committed state from an event that the runtime simultaneously reported as failed. Discarding the whole pending write keeps one invariant true everywhere: **an event either commits in full or not at all.** Work that *would* have completed re-attempts on a later, clean drain; nothing half-done is ever observable in `app-db`.
 
@@ -321,35 +321,35 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 | `:operation` | Fires when |
 |---|---|
 | `:rf.flow/registered` | `reg-flow` (or `:rf.fx/reg-flow`) successfully registers a flow against a frame, after cycle detection passes. |
-| `:rf.flow/computed` | A flow's `:output` fn ran and the result was written to `:path` (dirty-check observed input value-difference). Carries `:before` (the value at `:path` immediately before this drain's write — `nil` when the slot had never been written) alongside `:result`, so consumers render the wrote-line "wrote `[:path]` `<before>` → `<after>`" without walking the surrounding epoch's `:db-before` snapshot. Both ride through `elide-wire-value` against the flow's `:path`. |
+| `:rf.flow/computed` | A flow's `:derive` fn ran and the result was written to its `:output-path` (dirty-check observed input value-difference). Carries `:before` (the value at `:path` immediately before this drain's write — `nil` when the slot had never been written) alongside `:result`, so consumers render the wrote-line "wrote `[:path]` `<before>` → `<after>`" without walking the surrounding epoch's `:db-before` snapshot. Both ride through `elide-wire-value` against the flow's `:path`. |
 | `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (§[Dirty-check semantics](#dirty-check-semantics) above; value-equal recompute suppression). |
 | `:rf.flow/cleared` | `clear-flow` (or `:rf.fx/clear-flow`) removed the flow from the per-frame registry and dissoc-in'd its output path. |
-| `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the atomicity contract (the event aborts — no install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped; `last-inputs` rolled back so every flow re-attempts; router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
+| `:rf.flow/failed` | A flow's `:derive` fn threw during recompute. The exception is re-thrown after the trace fires; see [§Failure semantics](#failure-semantics) for the atomicity contract (the event aborts — no install, `app-db` unchanged, no `:rf.event/db-changed`, `:fx` skipped; `last-inputs` rolled back so every flow re-attempts; router emits `:rf.error/flow-eval-exception` per [009 §Error contract](009-Instrumentation.md#error-contract)). |
 
 Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Xray's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
 
 **`:sensitive?` inheritance — TWO distinct mechanisms.** Two classification mechanisms touch a flow, at **different granularities**; they COEXIST and compose. Do not conflate them:
 
-- **(i) Handler-scope `:sensitive?` cascade stamp (coarse — whole trace event).** A flow's `:output` fn runs inside the after-interceptor of the surrounding handler scope; the dirty-check write and any thrown exception are framework-owned but the resolved input values and computed output ride from the **handler whose event triggered the drain**. The runtime stamps `:sensitive? true` at the top level of every `:rf.flow/*` trace event when the in-scope handler's registration meta carries `:sensitive? true` — per the inheritance rule at [009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key). At THIS mechanism the flow does not declare `:sensitive?` directly; the *whole-event* marker rides the cascade. An auth-handler dispatching `[:auth/signed-in token]` whose drain re-evaluates the `:auth/derived-user` flow emits a `:rf.flow/computed` carrying `:sensitive? true`, and the framework-published forwarders (Sentry / Honeybadger / re-frame2-pair / Xray-MCP) default-drop it.
+- **(i) Handler-scope `:sensitive?` cascade stamp (coarse — whole trace event).** A flow's `:derive` fn runs inside the after-interceptor of the surrounding handler scope; the dirty-check write and any thrown exception are framework-owned but the resolved input values and computed output ride from the **handler whose event triggered the drain**. The runtime stamps `:sensitive? true` at the top level of every `:rf.flow/*` trace event when the in-scope handler's registration meta carries `:sensitive? true` — per the inheritance rule at [009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key). At THIS mechanism the flow does not declare `:sensitive?` directly; the *whole-event* marker rides the cascade. An auth-handler dispatching `[:auth/signed-in token]` whose drain re-evaluates the `:auth/derived-user` flow emits a `:rf.flow/computed` carrying `:sensitive? true`, and the framework-published forwarders (Sentry / Honeybadger / re-frame2-pair / Xray-MCP) default-drop it.
 
-- **(ii) Input-path mark propagation (fine — per output path).** Independently, the flow's **output path** inherits its **input paths'** data-classification marks: a flow reading a sensitive `app-db` (or runtime-db-qualified `[:rf.db/runtime …]`, per [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)) input emits a sensitive output, redacted at the `:path` write and on the `:rf.flow/computed` `:result` slot, unless the author declassifies — per [015 §7 Flows](015-Data-Classification.md). At THIS mechanism the flow declares output-path classification with the registration-layer keys: `:rf.egress/output-sensitivity` (the closed declassify/force enum — `:rf.egress/inherit` default, `:rf.egress/sensitive` force the whole output sensitive, `:rf.egress/public` declassify), plus per-output-subpath `:sensitive` / `:large` vectors and the whole-output `:large?` boolean. The runtime additionally PROPAGATES the input-path sensitive marks onto the output by default. This is the path-level analogue of subscription propagation; `:sensitive` is propagated by default (transitive — derived-from-sensitive is sensitive unless declassified with `:rf.egress/output-sensitivity :rf.egress/public`), while `:large` is NOT auto-propagated (a flow typically shrinks a large input — count / summary / first-N — so `:large` comes only from explicit flow declarations). The boolean `:sensitive?` declassify/force spelling is **rejected** on a flow output (the registrar raises `:rf.error/flow-bad-marks` with a recovery hint naming the enum) — `:sensitive` already means "a collection of sensitive paths" at the registration layer, so overloading it to a boolean would break the [015 §`:sensitive` / `:sensitive?` cross-layer distinction](015-Data-Classification.md#the-sensitive--sensitive-cross-layer-distinction-ep-0007-rule-3).
+- **(ii) Input-path mark propagation (fine — per output path).** Independently, the flow's **output path** inherits its **input paths'** data-classification marks: a flow reading a sensitive `app-db` (or runtime-db-qualified `[:rf.db/runtime …]`, per [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)) input emits a sensitive output, redacted at the `:output-path` write and on the `:rf.flow/computed` `:result` slot, unless the author declassifies — per [015 §7 Flows](015-Data-Classification.md). At THIS mechanism the flow declares output-path classification with the registration-layer keys: `:rf.egress/output-sensitivity` (the closed declassify/force enum — `:rf.egress/inherit` default, `:rf.egress/sensitive` force the whole output sensitive, `:rf.egress/public` declassify), plus per-output-subpath `:sensitive` / `:large` vectors and the whole-output `:large?` boolean. The runtime additionally PROPAGATES the input-path sensitive marks onto the output by default. This is the path-level analogue of subscription propagation; `:sensitive` is propagated by default (transitive — derived-from-sensitive is sensitive unless declassified with `:rf.egress/output-sensitivity :rf.egress/public`), while `:large` is NOT auto-propagated (a flow typically shrinks a large input — count / summary / first-N — so `:large` comes only from explicit flow declarations). The boolean `:sensitive?` declassify/force spelling is **rejected** on a flow output (the registrar raises `:rf.error/flow-bad-marks` with a recovery hint naming the enum) — `:sensitive` already means "a collection of sensitive paths" at the registration layer, so overloading it to a boolean would break the [015 §`:sensitive` / `:sensitive?` cross-layer distinction](015-Data-Classification.md#the-sensitive--sensitive-cross-layer-distinction-ep-0007-rule-3).
 
-Apps that need finer-grained per-flow privacy classify the surrounding handler's event payload with registration-owned `:sensitive` (on `reg-event` — per [015 §Frame-owned durable classification](015-Data-Classification.md), scrubbed on the trace surface by the router's internal redaction plumbing), declare output marks per (ii), or scrub the `:output` fn's return value at the source.
+Apps that need finer-grained per-flow privacy classify the surrounding handler's event payload with registration-owned `:sensitive` (on `reg-event` — per [015 §Frame-owned durable classification](015-Data-Classification.md), scrubbed on the trace surface by the router's internal redaction plumbing), declare output marks per (ii), or scrub the `:derive` fn's return value at the source.
 
 The whole flow trace surface, like the rest of trace, is compile-time eliminated in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
 
 ## Flow output validation
 
-A flow's optional `:schema` key (per [§The registration shape](#the-registration-shape)) declares a Malli schema for the **output value**. When present, the runtime validates the flow's computed `:output` against it on every recompute, during the flow-transform `:after` (after the handler body, before the `:db` install — per [§Drain integration](#drain-integration)). This is the same dev-time, pluggable-validator mechanism the rest of [010 §Schemas](010-Schemas.md) uses; the flows artefact reaches the registered validator/explainer through the `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn` late-bind hooks, so an app that omits the schemas artefact (or registers no validator) pays nothing and the check soft-passes.
+A flow's optional `:schema` key (per [§The registration shape](#the-registration-shape)) declares a Malli schema for the **output value**. When present, the runtime validates the flow's computed `:derive` output against it on every recompute, during the flow-transform `:after` (after the handler body, before the `:db` install — per [§Drain integration](#drain-integration)). This is the same dev-time, pluggable-validator mechanism the rest of [010 §Schemas](010-Schemas.md) uses; the flows artefact reaches the registered validator/explainer through the `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn` late-bind hooks, so an app that omits the schemas artefact (or registers no validator) pays nothing and the check soft-passes.
 
-**Observational, not a rollback.** A flow `:schema` violation does **not** throw and does **not** unwind the write. This is distinct from a flow `:output` *throw* (which aborts the whole event — [§Failure semantics](#failure-semantics)): a schema violation is a soft, dev-time diagnostic. The flow computed a value successfully; the value simply fails its declared shape. By the time a violation could be observed, downstream flows in the same drain may already have read the value as their input, so retroactively unwinding one flow's write mid-walk would leave an inconsistent pending `:db` effect. So the output **is** written into the pending effect and the cascade proceeds normally (the event still commits if no flow throws); the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
+**Observational, not a rollback.** A flow `:schema` violation does **not** throw and does **not** unwind the write. This is distinct from a flow `:derive` *throw* (which aborts the whole event — [§Failure semantics](#failure-semantics)): a schema violation is a soft, dev-time diagnostic. The flow computed a value successfully; the value simply fails its declared shape. By the time a violation could be observed, downstream flows in the same drain may already have read the value as their input, so retroactively unwinding one flow's write mid-walk would leave an inconsistent pending `:db` effect. So the output **is** written into the pending effect and the cascade proceeds normally (the event still commits if no flow throws); the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:output-path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
 
 ```clojure
 (rf/reg-flow
   {:id     :cart/total
    :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :output (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0)))))
-   :path   [:cart :total]
+   :derive (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0)))))
+   :output-path [:cart :total]
    :schema [:int {:min 0}]})        ;; output must be a non-negative integer
 ```
 
@@ -357,11 +357,11 @@ Like the rest of the validation surface, flow output validation is dev-only: it 
 
 ## Sub integration
 
-Flows write to `app-db`; subs read `app-db`. **Flows therefore publish zero framework subscriptions.** This is a deliberate posture, not an oversight. The contract is: a flow's output value lives at its `:path` in the dispatching frame's `app-db`, and consumers read it through whatever sub registration they prefer — either a user-registered `(rf/reg-sub :my-app/area (fn [db _] (get-in db [:my-app/area])))` over the path, or a derived sub that closes over it. Because the flow transform rewrites the *pending* `:db` effect (per [§Drain integration](#drain-integration)), the flow-derived value reaches `app-db` through the cascade's single `:db` install — the one `replace-container!` + sub-cache invalidation the drain already performs — so reactivity is automatic and the cascade performs exactly one `app-db` write per event regardless of how many flows fired; there is no separate flow-output cache the substrate needs to track.
+Flows write to `app-db`; subs read `app-db`. **Flows therefore publish zero framework subscriptions.** This is a deliberate posture, not an oversight. The contract is: a flow's output value lives at its `:output-path` in the dispatching frame's `app-db`, and consumers read it through whatever sub registration they prefer — either a user-registered `(rf/reg-sub :my-app/area (fn [db _] (get-in db [:my-app/area])))` over the path, or a derived sub that closes over it. Because the flow transform rewrites the *pending* `:db` effect (per [§Drain integration](#drain-integration)), the flow-derived value reaches `app-db` through the cascade's single `:db` install — the one `replace-container!` + sub-cache invalidation the drain already performs — so reactivity is automatic and the cascade performs exactly one `app-db` write per event regardless of how many flows fired; there is no separate flow-output cache the substrate needs to track.
 
 ### What this means
 
-A flow named `:my-app/derived-area` with `:path [:my-app/area]` is **observable through any of these patterns**, none of them special-cased for flows:
+A flow named `:my-app/derived-area` with `:output-path [:my-app/area]` is **observable through any of these patterns**, none of them special-cased for flows:
 
 ```clojure
 ;; (a) plain app-db read inside another handler
@@ -369,7 +369,7 @@ A flow named `:my-app/derived-area` with `:path [:my-app/area]` is **observable 
   (fn [{:keys [db]} _]
     (let [area (get-in db [:my-app/area])] ...)))
 
-;; (b) user-registered sub over the flow's :path
+;; (b) user-registered sub over the flow's :output-path
 (rf/reg-sub :my-app/area (fn [db _] (get-in db [:my-app/area])))
 @(rf/subscribe [:my-app/area])
 
@@ -379,7 +379,7 @@ A flow named `:my-app/derived-area` with `:path [:my-app/area]` is **observable 
   (fn [area _] (* 2 area)))
 ```
 
-The flow's `:path` IS the contract surface. Consumers depend on the path, not on a `:rf.flow/<flow-id>` sub-id. This is the same shape as any other `app-db` value: a flow's output is "ordinary application state with a known producer" — exactly the framing at [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow).
+The flow's `:output-path` IS the contract surface. Consumers depend on the path, not on a `:rf.flow/<flow-id>` sub-id. This is the same shape as any other `app-db` value: a flow's output is "ordinary application state with a known producer" — exactly the framing at [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow).
 
 ### Asymmetry with routing
 
@@ -388,17 +388,17 @@ Routing publishes **nine framework subs** over its `:rf/route` slice (`:rf/route
 | Surface | Where output lives | Framework subs | Why |
 |---|---|---|---|
 | Routing | `:rf/route` slice in `app-db` | nine (`:rf/route` + eight derived) | The slice is **a single named map with a fixed shape** — every consumer wants `:id`, `:params`, `:query`, `:transition` as common destructures. Publishing the per-key subs once means every consumer reads the same canonical sub-id (`:rf.route/id`) rather than re-registering eight identically-shaped getters. |
-| Flows | An arbitrary path in `app-db` per flow | zero | Each flow's `:path` is **user-chosen** and **shape-arbitrary** (could be a number, a vector, a map of any shape, …). There is no canonical "every flow has these eight derived views" to publish. A consumer wanting `(:items @(subscribe [:my-app/cart]))` writes one sub over their cart's `:path`; the framework cannot do this for the user without knowing every flow's output shape. |
+| Flows | An arbitrary path in `app-db` per flow | zero | Each flow's `:output-path` is **user-chosen** and **shape-arbitrary** (could be a number, a vector, a map of any shape, …). There is no canonical "every flow has these eight derived views" to publish. A consumer wanting `(:items @(subscribe [:my-app/cart]))` writes one sub over their cart's `:path`; the framework cannot do this for the user without knowing every flow's output shape. |
 
-The asymmetry follows from the **shape-uniformity** difference: routing's slice has a fixed shape locked by [§The `:rf/route` slice](012-Routing.md#the-rfroute-slice); a flow's output shape is whatever the `:output` fn returns. Routing's shape uniformity makes framework subs cheap (one registration table, every app sees the same sub-ids); flows' shape arbitrariness makes them impossible (the framework would need a sub-id per flow with a layer-1 fn parameterised on each flow's `:path`, doubling the per-flow sub-cache footprint and polluting the registered-sub namespace).
+The asymmetry follows from the **shape-uniformity** difference: routing's slice has a fixed shape locked by [§The `:rf/route` slice](012-Routing.md#the-rfroute-slice); a flow's output shape is whatever the `:derive` fn returns. Routing's shape uniformity makes framework subs cheap (one registration table, every app sees the same sub-ids); flows' shape arbitrariness makes them impossible (the framework would need a sub-id per flow with a layer-1 fn parameterised on each flow's `:output-path`, doubling the per-flow sub-cache footprint and polluting the registered-sub namespace).
 
 ### Observability consequence
 
-A tool wanting to enumerate "which views/handlers depend on this route's id" reads the sub-graph via `(sub-cache-consumers :rf.route/id)` — the standard sub-topology surface gives the answer for free. A tool wanting to enumerate "which views/handlers depend on this flow's output" reads **`app-db` path consumers**, not flow-output consumers: the framework's sub-topology query surface (per [006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal)) returns subs whose layer-1 fn reads the flow's `:path`, not subs whose layer-1 fn reads "the flow with this id".
+A tool wanting to enumerate "which views/handlers depend on this route's id" reads the sub-graph via `(sub-cache-consumers :rf.route/id)` — the standard sub-topology surface gives the answer for free. A tool wanting to enumerate "which views/handlers depend on this flow's output" reads **`app-db` path consumers**, not flow-output consumers: the framework's sub-topology query surface (per [006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal)) returns subs whose layer-1 fn reads the flow's `:output-path`, not subs whose layer-1 fn reads "the flow with this id".
 
-This is an **observability asymmetry** the doc names but does not paper over. Tools rendering "flow consumer" panels (Xray's flow tab, post-v1 dashboards) compute the answer from `:path` overlap, not from a framework sub-id. The two enumerations — `(rf/registrations :flow)` (which flows exist) plus `(sub-cache-consumers-of-path [:my-app/area])` (which subs read this path) — together provide the full picture; neither is a framework sub family.
+This is an **observability asymmetry** the doc names but does not paper over. Tools rendering "flow consumer" panels (Xray's flow tab, post-v1 dashboards) compute the answer from `:output-path` overlap, not from a framework sub-id. The two enumerations — `(rf/registrations :flow)` (which flows exist) plus `(sub-cache-consumers-of-path [:my-app/area])` (which subs read this path) — together provide the full picture; neither is a framework sub family.
 
-An alternative — a framework sub family `:rf.flow/<flow-id>` whose layer-1 fn is `(fn [db _] (get-in db (:path flow)))` — was considered and rejected. It is the wrong direction for v1: it doubles the sub-cache footprint per flow (every registered flow gets a registered sub even when no consumer reads through it); it pollutes the registered-sub namespace (one sub-id per registered flow); and it conflates two surfaces (flows write app-db; subs read app-db) that the design deliberately keeps separated (per the [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow) framing). The zero-framework-sub posture is the locked v1 contract.
+An alternative — a framework sub family `:rf.flow/<flow-id>` whose layer-1 fn is `(fn [db _] (get-in db (:output-path flow)))` — was considered and rejected. It is the wrong direction for v1: it doubles the sub-cache footprint per flow (every registered flow gets a registered sub even when no consumer reads through it); it pollutes the registered-sub namespace (one sub-id per registered flow); and it conflates two surfaces (flows write app-db; subs read app-db) that the design deliberately keeps separated (per the [§When (and when not) to use a flow](#when-and-when-not-to-use-a-flow) framing). The zero-framework-sub posture is the locked v1 contract.
 
 ## Dynamic toggle via fx
 
@@ -407,15 +407,15 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 | Fx-id | Args | Effect |
 |---|---|---|
 | `:rf.fx/reg-flow` | A flow map (same shape as `reg-flow`'s argument) | Register the flow against the dispatching frame. Next drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). |
-| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:path` in that frame's `app-db`. Next drain's topsort observes the removal. |
+| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:output-path` in that frame's `app-db`. Next drain's topsort observes the removal. |
 
 ```clojure
 (rf/reg-event :wizard/enter-step-2
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                              :inputs [[:step-2 :foo] [:step-2 :bar]]
-                             :output (fn [foo bar] (compute foo bar))
-                             :path   [:step-2 :result]}]]}))
+                             :derive (fn [foo bar] (compute foo bar))
+                             :output-path [:step-2 :result]}]]}))
 
 (rf/reg-event :wizard/leave-step-2
   (fn [_ _]
@@ -439,8 +439,8 @@ This lag is a **structural consequence of the [§Drain integration](#drain-integ
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                             :inputs [[:step-2 :foo] [:step-2 :bar]]
-                            :output (fn [foo bar] (compute foo bar))
-                            :path   [:step-2 :result]}]
+                            :derive (fn [foo bar] (compute foo bar))
+                            :output-path [:step-2 :result]}]
           ;; The flow is in the registry by the time THIS dispatched event
           ;; drains — so the flow transform on :wizard/settle computes the
           ;; initial output. Without this, :step-2/result stays unset until
@@ -452,13 +452,13 @@ This lag is a **structural consequence of the [§Drain integration](#drain-integ
 
 This is a deliberate, explicit step — not a hidden one. Most apps never need it.
 
-**`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
+**`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:output-path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
 
 ## Re-registration
 
 `reg-flow` with an already-registered `:id` (against the same frame) performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old in `(get @flows frame-id)`; `last-inputs` for `[frame-id flow-id]` is reset (the new flow re-evaluates on the next event regardless of input change); the next drain's topsort observes the new dependency edges automatically (per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); v1 does not memoise the sort). In-flight events finish against the resolved handler at the time they entered the drain. Re-registering the same flow id against a *different* frame is not a replacement — it adds an independent definition to the second frame's slot.
 
-When the same-frame replacement also **moves the output `:path`** (the new definition declares a different `:path` than the old), the *old* path is vacated from the frame's `app-db` — the same `dissoc-in` cleanup `clear-flow` performs (per [§clear-flow cleanup](#frame-scoping) above). Otherwise the previous definition's last write would linger at the abandoned slot and downstream reads would see stale derived state that no live flow maintains. A same-frame replacement that keeps the `:path` does not vacate anything — the next recompute overwrites the slot in place.
+When the same-frame replacement also **moves the output `:output-path`** (the new definition declares a different `:output-path` than the old), the *old* path is vacated from the frame's `app-db` — the same `dissoc-in` cleanup `clear-flow` performs (per [§clear-flow cleanup](#frame-scoping) above). Otherwise the previous definition's last write would linger at the abandoned slot and downstream reads would see stale derived state that no live flow maintains. A same-frame replacement that keeps the `:output-path` does not vacate anything — the next recompute overwrites the slot in place.
 
 ## What flows are NOT
 
@@ -482,13 +482,13 @@ Flows are also explicitly *not*:
 |---|---|
 | `:id` | `:id` (unchanged) |
 | `:inputs` (map of keyword → path-or-`flow<-`) | `:inputs` (vector of paths). Map-keyed inputs that referenced other flows via `flow<-` collapse to plain paths — the topological sort handles dependency ordering automatically. |
-| `:output` (function of resolved-inputs map) | `:output` (function of positional inputs) |
-| `:path` | `:path` (unchanged) |
+| `:output` (function of resolved-inputs map) | `:derive` (function of positional inputs) |
+| `:path` | `:output-path` |
 | `:live?`, `:live-inputs` | Dropped. Use `:rf.fx/clear-flow` to toggle off; `:rf.fx/reg-flow` to toggle on. |
-| `:cleanup` | Dropped. Default is `dissoc-in` on `:path`; opt-out is not provided. |
+| `:cleanup` | Dropped. Default is `dissoc-in` on `:output-path`; opt-out is not provided. |
 | Per-flow `:fx` | Dropped. Dispatch an event from a handler if you need fx on flow output change. |
 | Lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) | Not applicable. Lifecycle policies are a sub-cache concern; flows have one cache state (registered-or-not). |
-| `flow<-` reified flow-to-flow input | Dropped. Flow B reads flow A by listing A's `:path` in its `:inputs`. |
+| `flow<-` reified flow-to-flow input | Dropped. Flow B reads flow A by listing A's `:output-path` in its `:inputs`. |
 | `:reg-flow` / `:clear-flow` (unprefixed fx-ids) | Renamed to `:rf.fx/reg-flow` / `:rf.fx/clear-flow` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned). |
 
 The migration agent rewrites mechanically; flow definitions that used `:live?` lift to a wrapping event-handler that calls `:rf.fx/clear-flow` when the predicate flips false.
@@ -504,7 +504,7 @@ The behaviours below are exercised by **realized** `spec/conformance/fixtures/fl
 | Multi-layer flows — A runs before B when B depends on A's output (topological order) | `flow-multi-input-topo.edn`; topo-sort unit tests `flows_topo_test.clj` |
 | Registering a cycle throws `:rf.error/flow-cycle` | unit tests `flows_topo_test.clj` / `flows_test.clj` (a registration-time throw is asserted directly, not via a corpus outcome) |
 | An `app-db` write producing a `=`-equal value does not re-fire dependent flows | `flow-noop-on-value-equal-input.edn` |
-| Same flow id registered against two frames with different `:output` fns yields two independent results; `clear-flow` on one frame leaves the other intact | `flow-frame-scoped.edn`; `flow-frame-destroy-teardown.edn` (per-frame teardown) |
+| Same flow id registered against two frames with different `:derive` fns yields two independent results; `clear-flow` on one frame leaves the other intact | `flow-frame-scoped.edn`; `flow-frame-destroy-teardown.edn` (per-frame teardown) |
 
 ## Open questions
 
@@ -512,7 +512,7 @@ The behaviours below are exercised by **realized** `spec/conformance/fixtures/fl
 
 ### Map-keyed `:inputs` instead of vector
 
-The vector form (`:inputs [[:width] [:height]] :output (fn [w h] ...)`) matches `on-changes` and is short. A map-keyed alternative (`:inputs {:w [:width] :h [:height]} :output (fn [{:keys [w h]}] ...)`) matches [Principles §Name over place](Principles.md#name-over-place). The vector is the v1 default; the map is the principled default. v2 ships the vector form for migration ergonomics; revisit if the map form proves preferable in practice. (This is purely a keying question — orthogonal to the per-path partition rule of [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db): either form's individual paths are still bare-for-app-db / `[:rf.db/runtime …]`-for-runtime-db.) **Status:** `:post-v1 tracked` — file a bead before considering implementation.
+The vector form (`:inputs [[:width] [:height]] :derive (fn [w h] ...)`) matches `on-changes` and is short. A map-keyed alternative (`:inputs {:w [:width] :h [:height]} :derive (fn [{:keys [w h]}] ...)`) matches [Principles §Name over place](Principles.md#name-over-place). The vector is the v1 default; the map is the principled default. v2 ships the vector form for migration ergonomics; revisit if the map form proves preferable in practice. (This is purely a keying question — orthogonal to the per-path partition rule of [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db): either form's individual paths are still bare-for-app-db / `[:rf.db/runtime …]`-for-runtime-db.) **Status:** `:post-v1 tracked` — file a bead before considering implementation.
 
 ### Synchronous re-walk after `:rf.fx/reg-flow`
 
@@ -522,7 +522,7 @@ A flow registered mid-event first fires on the next event drain (one-event lag f
 
 ### Topological sort over registration order (RESOLVED)
 
-Earlier sketch leaned on registration order; topological sort selected because dynamic registration via `:rf.fx/reg-flow` makes registration order dispatch-time-dependent and an unreliable contract. The dependency graph is statically derivable from each flow's `:path` and `:inputs`; recomputing the sort once per drain is cheap at v1's per-frame node counts (a handful of flows, Kahn's algorithm over them is cheaper than memo bookkeeping). The sort is not memoised — per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); an earlier memoised variant was removed under after measurement.
+Earlier sketch leaned on registration order; topological sort selected because dynamic registration via `:rf.fx/reg-flow` makes registration order dispatch-time-dependent and an unreliable contract. The dependency graph is statically derivable from each flow's `:output-path` and `:inputs`; recomputing the sort once per drain is cheap at v1's per-frame node counts (a handful of flows, Kahn's algorithm over them is cheaper than memo bookkeeping). The sort is not memoised — per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); an earlier memoised variant was removed under after measurement.
 
 ### One-pass evaluation, not fixed-point iteration (RESOLVED)
 

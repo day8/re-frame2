@@ -13,7 +13,7 @@
 
     Button A → :rf.error/handler-exception        (synchronous handler throw)
     Button B → :rf.error/fx-handler-exception     (fx body throw)
-    Button C → :rf.error/flow-eval-exception      (flow :output throw)
+    Button C → :rf.error/flow-eval-exception      (flow :derive throw)
     Button D → :rf.error/machine-action-exception (machine :actions throw)"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
@@ -69,7 +69,7 @@
      :fx [[::boom {}]]}))
 
 ;; ----------------------------------------------------------------------------
-;; Button C — throw inside flow :output
+;; Button C — throw inside flow :derive
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The flow is registered once at boot, inside `run` AFTER `rf/init!` has
@@ -79,7 +79,7 @@
 ;; non-live frame (rf2-zbxvqj guard), so it must NOT run at ns-load —
 ;; init! has not run yet there. Button C's handler bumps :flow-input; on
 ;; the post-handler flows pass, the runtime walks this flow, calls
-;; :output with the new input, and the throw fires there.
+;; :derive with the new input, and the throw fires there.
 ;;
 ;; Per [spec/013 §Failure semantics]: two trace events fire in order —
 ;; :rf.flow/failed (per-flow attribution) followed by the cascade-level
@@ -102,20 +102,20 @@
   rejects with :rf.error/flow-frame-not-live."
   []
   (rf/reg-flow
-    {:id     ::throws
-     :inputs [[:flow-input]]
-     :output (fn [_input]
-               ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
-               (throw (ex-info "deliberate-throw / flow" {:where :flow})))
-     :path   [:flow-output]
-     :doc    "Flow :output that throws every recompute."}))
+    {:id          ::throws
+     :inputs      [[:flow-input]]
+     :derive      (fn [_input]
+                    ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
+                    (throw (ex-info "deliberate-throw / flow" {:where :flow})))
+     :output-path [:flow-output]
+     :doc         "Flow :derive that throws every recompute."}))
 
 (rf/reg-event ::throw-in-flow
   (fn [{:keys [db]} _ev]
     {:db (-> db
              (update-in [:click-count :flow] inc)
              ;; Bumping :flow-input is what causes the flow to recompute.
-             ;; The flow's :output throws — see ::throws above.
+             ;; The flow's :derive throws — see ::throws above.
              (update :flow-input inc))}))
 
 ;; ----------------------------------------------------------------------------
