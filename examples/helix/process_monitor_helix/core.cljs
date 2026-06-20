@@ -10,7 +10,7 @@
      - signal-graph subscriptions (filter chips → visible process list,
        process selection → relevant log slice)
      - a recurring `:dispatch-later` tick that appends synthetic log
-       lines (`:monitor/tick`) — proves a real reactive loop, not a
+       lines (`:process-monitor/tick`) — proves a real reactive loop, not a
        static screenshot
      - per-row dispatch from inside a `defnc` row component
 
@@ -61,50 +61,50 @@
 ;; ============================================================================
 ;;
 ;; The tick chain is driven by `:dispatch-later`, which has no cancel API.
-;; If `run` / `:monitor/initialise` is invoked more than once in the same JS
+;; If `run` / `:process-monitor/initialise` is invoked more than once in the same JS
 ;; runtime (a shadow watch reload, a manual re-init, a future browser wrapper,
 ;; or any harness that calls the entrypoint repeatedly), a naive chain would
 ;; leave the prior chain's ticks still firing — every stale cascade would keep
-;; appending log entries and incrementing `:monitor/clock`, corrupting the
+;; appending log entries and incrementing `:process-monitor/clock`, corrupting the
 ;; visible cadence and clock. To stay idempotent — exactly one live tick per
 ;; interval regardless of re-init churn — each scheduled tick carries the
-;; `:monitor/tick-gen` it was armed under. `:monitor/initialise` bumps the
+;; `:process-monitor/tick-gen` it was armed under. `:process-monitor/initialise` bumps the
 ;; generation, so any in-flight tick from a retired chain no-ops when it
 ;; eventually fires. This mirrors the 7GUIs timer's `:tick-gen` guard
 ;; (examples/reagent/seven_guis/timer), the local precedent for the same
 ;; cancel-less `:dispatch-later` constraint.
 ;;
-;; The generation guard handles *re-init* (a fresh `:monitor/initialise`
+;; The generation guard handles *re-init* (a fresh `:process-monitor/initialise`
 ;; retires the prior chain). It does not, on its own, handle *teardown*:
 ;; unmounting or replacing the React root without a following initialise
 ;; would leave the last live chain dispatching into a frame nobody is
 ;; rendering, silently mutating app-db forever. So the loop is tied to the
 ;; Helix component lifecycle (see the `monitor` `use-effect` below): mount
-;; arms it via `:monitor/initialise`, unmount retires it via `:monitor/stop`.
-;; `:monitor/stop` simply bumps `:monitor/tick-gen` *without* rescheduling, so
+;; arms it via `:process-monitor/initialise`, unmount retires it via `:process-monitor/stop`.
+;; `:process-monitor/stop` simply bumps `:process-monitor/tick-gen` *without* rescheduling, so
 ;; the in-flight tick no-ops when it lands and the chain dies. Repeated
 ;; mount/unmount (e.g. a hot-reload teardown) therefore leaves at most one
 ;; live tick chain, and a teardown leaves none.
 
-(rf/reg-event :monitor/initialise
+(rf/reg-event :process-monitor/initialise
   (fn [{:keys [db]} _event]
-    (let [next-gen (inc (:monitor/tick-gen db 0))]
-      {:db {:monitor/processes initial-processes
-            :monitor/logs      initial-logs
-            :monitor/clock     11
-            :monitor/level-filter #{:info :warn :error}
-            :monitor/selected   nil
-            :monitor/tick-gen   next-gen}
-       :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick next-gen]}]]})))
+    (let [next-gen (inc (:process-monitor/tick-gen db 0))]
+      {:db {:process-monitor/processes initial-processes
+            :process-monitor/logs      initial-logs
+            :process-monitor/clock     11
+            :process-monitor/level-filter #{:info :warn :error}
+            :process-monitor/selected   nil
+            :process-monitor/tick-gen   next-gen}
+       :fx [[:dispatch-later {:ms 1800 :event [:process-monitor/tick next-gen]}]]})))
 
-(rf/reg-event :monitor/tick
+(rf/reg-event :process-monitor/tick
   (fn [{:keys [db]} [_ gen]]
-    (if (not= gen (:monitor/tick-gen db))
+    (if (not= gen (:process-monitor/tick-gen db))
       ;; Stale tick from a retired generation (a later initialise bumped
-      ;; :monitor/tick-gen). Drop it: no log append, no clock bump, no reschedule.
+      ;; :process-monitor/tick-gen). Drop it: no log append, no clock bump, no reschedule.
       {}
-      (let [tick      (:monitor/clock db)
-            processes (:monitor/processes db)
+      (let [tick      (:process-monitor/clock db)
+            processes (:process-monitor/processes db)
             ;; Pick a process round-robin for the synthetic log line.
             process   (nth processes (mod tick (count processes)))
             level     (cond
@@ -120,52 +120,52 @@
             msg       (nth phrases (mod tick (count phrases)))
             new-entry {:tick tick :pid (:pid process) :level level :msg msg}]
         {:db (-> db
-                 (update :monitor/logs (fn [logs]
+                 (update :process-monitor/logs (fn [logs]
                                          (vec (take-last 60 (conj logs new-entry)))))
-                 (update :monitor/clock inc))
+                 (update :process-monitor/clock inc))
          ;; Reschedule under the same generation, so the chain continues
          ;; while a fresher initialise can still retire it.
-         :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick gen]}]]}))))
+         :fx [[:dispatch-later {:ms 1800 :event [:process-monitor/tick gen]}]]}))))
 
-;; Teardown counterpart to `:monitor/initialise`. Bumping `:monitor/tick-gen`
+;; Teardown counterpart to `:process-monitor/initialise`. Bumping `:process-monitor/tick-gen`
 ;; without arming a fresh tick retires the live chain: the next scheduled
-;; `:monitor/tick` carries a now-stale generation and no-ops. Dispatched from
+;; `:process-monitor/tick` carries a now-stale generation and no-ops. Dispatched from
 ;; the `monitor` component's `use-effect` cleanup on unmount, so the loop
 ;; never outlives the rendered root.
-(rf/reg-event :monitor/stop
+(rf/reg-event :process-monitor/stop
   (fn [{:keys [db]} _event]
-    {:db (update db :monitor/tick-gen (fnil inc 0))}))
+    {:db (update db :process-monitor/tick-gen (fnil inc 0))}))
 
-(rf/reg-event :monitor/toggle-level
+(rf/reg-event :process-monitor/toggle-level
   (fn [{:keys [db]} [_ level]]
-    {:db (update db :monitor/level-filter
+    {:db (update db :process-monitor/level-filter
             (fn [levels] (if (contains? levels level)
                            (disj levels level)
                            (conj levels level))))}))
 
-(rf/reg-event :monitor/select-process
+(rf/reg-event :process-monitor/select-process
   (fn [{:keys [db]} [_ id]]
-    {:db (assoc db :monitor/selected
-              (if (= id (:monitor/selected db)) nil id))}))
+    {:db (assoc db :process-monitor/selected
+              (if (= id (:process-monitor/selected db)) nil id))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :monitor/processes
-  (fn [db _] (:monitor/processes db)))
+(rf/reg-sub :process-monitor/processes
+  (fn [db _] (:process-monitor/processes db)))
 
-(rf/reg-sub :monitor/logs
-  (fn [db _] (:monitor/logs db)))
+(rf/reg-sub :process-monitor/logs
+  (fn [db _] (:process-monitor/logs db)))
 
-(rf/reg-sub :monitor/level-filter
-  (fn [db _] (:monitor/level-filter db)))
+(rf/reg-sub :process-monitor/level-filter
+  (fn [db _] (:process-monitor/level-filter db)))
 
-(rf/reg-sub :monitor/selected
-  (fn [db _] (:monitor/selected db)))
+(rf/reg-sub :process-monitor/selected
+  (fn [db _] (:process-monitor/selected db)))
 
-(rf/reg-sub :monitor/totals
-  :<- [:monitor/processes]
+(rf/reg-sub :process-monitor/totals
+  :<- [:process-monitor/processes]
   (fn [processes _]
     {:running (count (filter #(= :running (:status %)) processes))
      :warn    (count (filter #(= :warn (:status %)) processes))
@@ -173,11 +173,11 @@
      :cpu     (reduce + 0 (map :cpu processes))
      :mem     (reduce + 0 (map :mem processes))}))
 
-(rf/reg-sub :monitor/visible-logs
-  :<- [:monitor/logs]
-  :<- [:monitor/level-filter]
-  :<- [:monitor/selected]
-  :<- [:monitor/processes]
+(rf/reg-sub :process-monitor/visible-logs
+  :<- [:process-monitor/logs]
+  :<- [:process-monitor/level-filter]
+  :<- [:process-monitor/selected]
+  :<- [:process-monitor/processes]
   (fn [[logs levels selected processes] _]
     (let [selected-pid (when selected
                          (some #(when (= (:id %) selected) (:pid %)) processes))]
@@ -210,7 +210,7 @@
     (d/div {:class "pm-tile-value"} value)))
 
 (defnc tiles []
-  (let [totals (helix-adapter/use-subscribe [:monitor/totals])]
+  (let [totals (helix-adapter/use-subscribe [:process-monitor/totals])]
     (d/div {:class "pm-tiles"}
       ($ tile {:label "Running" :value (:running totals) :tone :good})
       ($ tile {:label "Warning" :value (:warn    totals) :tone :warn})
@@ -219,7 +219,7 @@
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
 (defnc level-chips []
-  (let [active   (helix-adapter/use-subscribe [:monitor/level-filter])
+  (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
         dispatch (:dispatch (rf/frame-handle))]
     (d/div {:class "pm-chips"}
       (for [level [:info :warn :error]]
@@ -227,7 +227,7 @@
                    :class (str "pm-chip pm-chip-" (name level)
                                (when (contains? active level) " is-on"))
                    :data-testid (str "monitor-chip-" (name level))
-                   :on-click #(dispatch [:monitor/toggle-level level])}
+                   :on-click #(dispatch [:process-monitor/toggle-level level])}
           (name level))))))
 
 (defnc process-row [{:keys [process selected?]}]
@@ -238,7 +238,7 @@
                        " pm-row-" (name status)
                        (when selected? " is-selected"))
            :data-testid (str "monitor-row-" (name id))
-           :on-click #(dispatch [:monitor/select-process id])}
+           :on-click #(dispatch [:process-monitor/select-process id])}
       (d/span {:class (str "pm-dot pm-dot-" (name status))})
       (d/span {:class "pm-row-name"} process-name)
       (d/span {:class "pm-row-pid"} (str "[" pid "]"))
@@ -249,8 +249,8 @@
       (d/span {:class "pm-row-mem"} (str mem "M")))))
 
 (defnc process-list []
-  (let [processes (helix-adapter/use-subscribe [:monitor/processes])
-        selected  (helix-adapter/use-subscribe [:monitor/selected])]
+  (let [processes (helix-adapter/use-subscribe [:process-monitor/processes])
+        selected  (helix-adapter/use-subscribe [:process-monitor/selected])]
     (d/section {:class "pm-pane pm-pane-processes"}
       (d/header {:class "pm-pane-head"}
         (d/h3 "processes")
@@ -271,7 +271,7 @@
       (d/span {:class "pm-log-msg"}   msg))))
 
 (defnc log-stream []
-  (let [entries (helix-adapter/use-subscribe [:monitor/visible-logs])]
+  (let [entries (helix-adapter/use-subscribe [:process-monitor/visible-logs])]
     (d/section {:class "pm-pane pm-pane-logs"}
       (d/header {:class "pm-pane-head"}
         (d/h3 "log stream")
@@ -292,14 +292,14 @@
     (helix-hooks/use-effect
       ;; Empty deps ⇒ run once on mount, clean up once on unmount.
       []
-      ;; Mount: (re-)arm the loop. Idempotent — the `:monitor/tick-gen`
+      ;; Mount: (re-)arm the loop. Idempotent — the `:process-monitor/tick-gen`
       ;; guard retires any chain `run` already started, so exactly one
       ;; live chain survives, and a hot-reload re-mount re-arms cleanly.
-      (dispatch [:monitor/initialise])
+      (dispatch [:process-monitor/initialise])
       ;; Unmount: retire the live chain so it never dispatches into a frame
       ;; that is no longer rendered.
       (fn cleanup []
-        (dispatch [:monitor/stop]))))
+        (dispatch [:process-monitor/stop]))))
   (d/div {:class "pm-shell"}
     (d/header {:class "pm-shell-head"}
       (d/div {:class "pm-brand"}
@@ -337,10 +337,10 @@
   ;; Seed synchronously so the very first paint shows a populated UI rather
   ;; than a flash of empty panes. This also arms the first tick; the `monitor`
   ;; component's mount `use-effect` re-arms (idempotently, via the
-  ;; `:monitor/tick-gen` guard) so the loop is owned by the component
-  ;; lifecycle from then on — unmount stops it (see `:monitor/stop`).
+  ;; `:process-monitor/tick-gen` guard) so the loop is owned by the component
+  ;; lifecycle from then on — unmount stops it (see `:process-monitor/stop`).
   (rf/with-frame app-frame
-    (rf/dispatch-sync [:monitor/initialise]))
+    (rf/dispatch-sync [:process-monitor/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
