@@ -29,7 +29,7 @@
    does not re-copy the boot sequence — and passes a pre-mount hook that
    exercises the pure-CLJS SSR path the gate inspects; nothing about that
    fixture plumbing leaks into this namespace, and the two boot paths
-   cannot drift because there is only one (rf2-pe4u0g)."
+   cannot drift because there is only one."
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
             [re-frame.views]
@@ -83,13 +83,12 @@
 
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
-;; `with-frame`, and the client render is wrapped in a `frame-provider` so
-;; every in-tree `dispatch`/`subscribe` resolves to the app frame. Matches
-;; the canonical mount in examples/reagent/counter/core.cljs.
+;; The runtime never synthesises a frame from absence — an app must
+;; establish its frame explicitly. `init!` installs the adapter (it does
+;; NOT create the frame), `reg-frame` registers the app frame, the boot
+;; dispatch runs under `with-frame`, and the client render is wrapped in a
+;; `frame-provider` so every in-tree `dispatch`/`subscribe` resolves to the
+;; app frame. Matches the canonical mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn boot!

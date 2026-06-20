@@ -32,15 +32,13 @@
 ;; SCHEMAS
 ;; ============================================================================
 
-;; EP-0025 (rf2-398kql): schema-attached `:sensitive?` / `:large?` field
-;; classification is REMOVED — frame-declared `:sensitive` / `:large {:app-db …}`
-;; paths (`reg-frame`, EP-0015) are the SOLE app-db classification mechanism.
-;; The password never lands in app-db (it rides the machine EVENT-arg schema and
-;; the HTTP body), so there is no app-db path to frame-declare; the prior
-;; `{:sensitive? true}` slot prop was a documentary no-op and is dropped. The
-;; managed-HTTP request below still carries `:sensitive? true` to scrub the
-;; password off the wire — a DIFFERENT axis (Spec 014 §Privacy, KEPT) and the
-;; working, observable redaction. Parity across reagent/login + helix.
+;; Frame-declared `:sensitive` / `:large {:app-db …}` paths (`reg-frame`)
+;; are the sole app-db classification mechanism. The password never lands
+;; in app-db (it rides the machine EVENT-arg schema and the HTTP body), so
+;; there is no app-db path to frame-declare. The managed-HTTP request below
+;; carries `:sensitive? true` to scrub the password off the wire — a
+;; different axis (Spec 014 §Privacy) and the working, observable
+;; redaction. Parity across reagent/login + helix.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]

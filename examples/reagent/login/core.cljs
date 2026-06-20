@@ -105,22 +105,17 @@
 ;; the form. Open by default; the regex/min-length checks describe the
 ;; shape the inner handler relies on.
 ;;
-;; EP-0025 — schema-attached `:sensitive?` / `:large?` field
-;; classification is REMOVED. Frame-declared `:sensitive` / `:large {:app-db …}`
-;; paths (`reg-frame`, EP-0015) are now the SOLE app-db data-classification
-;; mechanism. `Credentials` is the machine's EVENT-arg schema (it rides
-;; `AuthLoginEvent` via the machine's event `:schema`); the password is never
-;; written to durable app-db or the machine `:data` slot, so there is NO app-db
-;; path to frame-declare for it — and the prior `{:sensitive? true}` slot prop
-;; was already a documentary no-op (it classified the event-arg shape but never
-;; redacted the dispatched vector; see the pre-EP-0025 HONEST-SCOPE note in the
-;; git history). It is dropped here.
+;; Frame-declared `:sensitive` / `:large {:app-db …}` paths (`reg-frame`)
+;; are the sole app-db data-classification mechanism. `Credentials` is the
+;; machine's EVENT-arg schema (it rides `AuthLoginEvent` via the machine's
+;; event `:schema`); the password is never written to durable app-db or the
+;; machine `:data` slot, so there is no app-db path to frame-declare for it.
 ;;
 ;; The password's real off-box egress path is the HTTP request body — redacted
 ;; by the per-request `:sensitive? true` flag on the managed-HTTP call in
-;; `:issue-request` below (Spec 014 §Privacy, a DIFFERENT axis from app-db
-;; classification and explicitly KEPT). That carrier-level flag is the WORKING,
-;; observable redaction for this login flow.
+;; `:issue-request` below (Spec 014 §Privacy, a different axis from app-db
+;; classification). That carrier-level flag is the working, observable
+;; redaction for this login flow.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
@@ -395,11 +390,8 @@
 ;; machine spec. `reg-machine` is the blessed registration home — it stamps
 ;; the `:rf/machine?` / `:rf/machine` metadata that `(machine-meta
 ;; :auth.login/flow)` reads, so the `:where :machine-data` walker resolves the
-;; `:data-schema` and it VALIDATES. (EP-0025: the home no longer
-;; bridges the `:data-schema`'s `:sensitive?` / `:large?` slots into snapshot-
-;; egress redaction — schema-field classification is removed; durable machine
-;; `:data` egress classification is frame-owned, like every other app-db path.)
-;; The former hand-stamped `reg-event` + `make-machine-handler` composition is gone.
+;; `:data-schema` and it VALIDATES. Durable machine `:data` egress
+;; classification is frame-owned, like every other app-db path.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}
