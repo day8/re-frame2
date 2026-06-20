@@ -23,8 +23,10 @@
       supplied payload's `:rf/app-db` replaces the client frame-state
       (app-db + serializable runtime-db).
     - The seven `:rf.server/*` response-shape fxs gated by `:platforms
-      #{:server}`; the accumulator at `[:rf/response]` is consumed by
-      the host adapter after drain. Per §HTTP response contract.
+      #{:server}`; the response accumulator (a framework-private side-
+      channel atom keyed by frame-id, read via `get-response`, NOT an
+      `app-db` path) is consumed by the host adapter after drain. Per
+      §HTTP response contract.
     - `reg-error-projector` + default `:rf.ssr/default-error-projector`,
       plus the SSR error path that calls the active projector when an
       error trace fires inside a server frame. Per §Server error

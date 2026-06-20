@@ -7,7 +7,7 @@
 
 ## Role
 
-A **convention**, not a Spec. The runtime gives you everything: `:on-create` event firing, run-to-completion drain, `:spawn-all` spawn-and-join, `:rf.http/managed` HTTP fx, the `[:rf/response]` accumulator. What this doc names is **the canonical way to compose them when an SSR render needs to load N pieces of data in parallel before producing HTML.**
+A **convention**, not a Spec. The runtime gives you everything: `:on-create` event firing, run-to-completion drain, `:spawn-all` spawn-and-join, `:rf.http/managed` HTTP fx, the side-channel response accumulator (read via `get-response`). What this doc names is **the canonical way to compose them when an SSR render needs to load N pieces of data in parallel before producing HTML.**
 
 The pattern exists because the obvious shape — "dispatch three loader events in series from `:on-create`" — serialises the wall-clock cost of every HTTP fetch. The drain runs to fixed point but it runs in a single thread; back-to-back blocking transport calls (JVM `java.net.http.HttpClient` on the server side of `:rf.http/managed`) add up. The fan-out idiom moves the fetches off the drain thread (each into its own spawned actor) and joins on a join-all-complete condition before the drain settles. Total wall-clock cost falls to `max(fetch-i) + overhead`, not `sum(fetch-i)`.
 

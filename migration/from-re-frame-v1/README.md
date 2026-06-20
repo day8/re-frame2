@@ -1531,15 +1531,15 @@ Any keyword outside this set in `:retry :on` (the three non-retryable `:rf.http/
 
 **Type A** (mechanical, dep-only).
 
-As the sixth per-feature artefact split (Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-app-db` semantics, the six `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`), the per-request HTTP response accumulator at `[:rf/response]`, the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame2-ssr`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
+As the sixth per-feature artefact split (Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-frame-state` semantics, the seven `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`, `safe-redirect`), the per-request HTTP response accumulator in a framework-private side-channel atom keyed by frame-id (read via `get-response`, not an `app-db` path), the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame2-ssr`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
 - Any call to `re-frame.core/render-to-string` / `render-tree-hash` / `reg-error-projector` / `project-error`.
-- Any `:rf.server/set-status` / `:rf.server/set-header` / `:rf.server/append-header` / `:rf.server/set-cookie` / `:rf.server/delete-cookie` / `:rf.server/redirect` entry inside an `:fx` vector or effect map.
+- Any `:rf.server/set-status` / `:rf.server/set-header` / `:rf.server/append-header` / `:rf.server/set-cookie` / `:rf.server/delete-cookie` / `:rf.server/redirect` / `:rf.server/safe-redirect` entry inside an `:fx` vector or effect map.
 - Any `[:rf/hydrate ...]` dispatch.
 - A direct `(:require [re-frame.ssr])` clause.
-- Any reference to `:rf/response` / `:rf/render-hash` / `:rf/app-db` payload keys consumed by SSR hosts.
+- Any reference to the `:rf/render-hash` / `:rf/app-db` payload keys consumed by SSR hosts, or to the per-request response accumulator (read via `re-frame.ssr/get-response` — a framework-private side-channel atom keyed by frame-id, NOT a payload key on `app-db`).
 
 **What to do.** Add the ssr artefact alongside the core dep:
 

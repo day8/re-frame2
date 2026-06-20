@@ -163,9 +163,10 @@ All server-only — `:platforms #{:server}`. These build the response accumulato
 
 | Sub | Returns | Spec |
 |---|---|---|
-| `:rf/response` | The current request's response accumulator (status / headers / cookies / redirect) | 011 |
 | `:rf/head` | The head model for the active route (resolved via `active-head` against the subscribed frame) | 011 |
 | `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise | 011 |
+
+The current request's **response accumulator** (status / headers / cookies / redirect) is *not* a registered subscription. It lives in a framework-private side-channel atom keyed by frame-id and is read exclusively by the runtime via `re-frame.ssr/get-response` (per [011 §Response storage substrate](../../spec/011-SSR.md#response-storage-substrate)); the host adapter consumes the resolved value to build the wire response.
 
 ## Standard SSR cofx
 

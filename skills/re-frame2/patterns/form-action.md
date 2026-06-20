@@ -1,6 +1,6 @@
 # Pattern — Form Action (SSR POST handling)
 
-The standard form-action convention for SSR: a browser submits an HTML form to a URL; the server parses the POST body, validates, dispatches a domain event, and returns either a redirect or a re-rendered page. **Convention, not Spec** — built on the host adapter, the `:rf.server/request` cofx, the `[:rf/response]` accumulator, and Pattern-Forms.
+The standard form-action convention for SSR: a browser submits an HTML form to a URL; the server parses the POST body, validates, dispatches a domain event, and returns either a redirect or a re-rendered page. **Convention, not Spec** — built on the host adapter, the `:rf.server/request` cofx, the side-channel response accumulator (read via `get-response`), and Pattern-Forms.
 
 > **Mental-model anchor:** this is the **Next.js Server Actions / Remix `action` export** shape, translated to re-frame2 primitives. The progressive-enhancement guarantee is the same: the form works with JS *off* (the server processes the POST and re-renders), and the identical handler tree runs with JS *on* (the client intercepts `:on-submit`, dispatches the same event, no full-page reload).
 
@@ -14,7 +14,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 2. **The host adapter receives the POST**, parses the body (form-urlencoded or multipart), binds it under `:form-params`, and creates a per-request frame.
 3. **`:rf/server-init` routes** by declaring `:rf.cofx/requires [:rf.server/request]` — on GET dispatch the page loader (Pattern-SSR-Loaders); on POST dispatch the domain event with `form-params`.
 4. **The domain handler validates** `form-params` against the registered schema. On failure → write structured errors into the form slice's `:errors`, let the drain settle, re-render the page with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
-5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises `[:rf/response]`.
+5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises the response accumulator (read via `get-response`).
 6. **Once JS hydrates**, the form's `:on-submit` calls `(.preventDefault e)` and dispatches the *same* event. Only the dispatch site differs.
 
 ## Canonical declaration
@@ -107,7 +107,7 @@ No standalone example app — the SSR worked apps are `examples/reagent/ssr/core
 ## Pointers
 
 - Spec: [`spec/Pattern-FormAction.md`](../../../spec/Pattern-FormAction.md) — full worked `/cart/add` page, the failure-path projector hook, multipart privacy, the server-vs-client handler-tree table, conformance checklist.
-- Substrate: `SKILL-REDIRECT.md` → *EP — SSR (011)* (`:rf.server/request` cofx, `[:rf/response]` accumulator, the six server-only fxs, `:platforms` gating, server error projection), *EP — Schemas (010)* (`:schema` boundary check, `:sensitive?`).
+- Substrate: `SKILL-REDIRECT.md` → *EP — SSR (011)* (`:rf.server/request` cofx, the side-channel response accumulator read via `get-response`, the seven server-only fxs, `:platforms` gating, server error projection), *EP — Schemas (010)* (`:schema` boundary check, `:sensitive?`).
 - Cross-cutting: `references/cross-cutting/ssr-authoring.md` (head/meta + the `:rf/hydrate` checks); `references/cross-cutting/privacy-and-elision.md` (the EP-0015 owner-classification model — frame `:sensitive {:app-db}` for durable app-db, per-slot `:sensitive?` schema props for owner-local schema'd data, registration `:sensitive` metadata for transient payloads; handler-meta `:sensitive?` is a no-op).
 - Compose: `patterns/forms.md` (the form-slice shape this reuses server-side), `patterns/ssr-loaders.md` (the GET-path sibling — a page uses Loaders for the initial render, FormAction for subsequent POSTs).
 
