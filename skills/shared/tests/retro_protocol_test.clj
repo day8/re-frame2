@@ -1,31 +1,27 @@
 ;;;; tests/retro_protocol_test.clj — structural regression for the shared
 ;;;; retro protocol.
 ;;;;
-;;;; The shared protocol carries three normative locks that the
-;;;; skills-shared security audit verified and that the hardening PRs
-;;;; implemented:
+;;;; The shared protocol carries three normative locks:
 ;;;;
-;;;;   1. Untrusted-evidence boundary  — Finding 1, High
-;;;;   2. Universal redaction          — Finding 2, Medium
-;;;;   3. Edit-gate split              — Finding 3, recommendation
+;;;;   1. Untrusted-evidence boundary  — High
+;;;;   2. Universal redaction          — Medium
+;;;;   3. Edit-gate split              — recommendation
 ;;;;
-;;;; Plus a fourth surface (Lock 4) the original suite left unguarded:
-;;;; the shell-safety / command-injection boundary on the `gh issue`
-;;;; surfaces the protocol grants, specified in `issue-filing.md`. It is
-;;;; the same untrusted-evidence threat model as Lock 1 projected onto the
-;;;; shell — across the body (`--body-file`, Lock 4), the title (inline
-;;;; `--title`, Lock 4b), the per-filing OS-temp body path (Lock 4c), and
-;;;; the search query (inline `gh issue list --search`, Lock 4d,
-;;;; rf2-7g9htq.1 — `--search` has no `--search-file`, so a query lifted
-;;;; from evidence re-opens the same transcript→shell injection the
-;;;; title/body rules close).
+;;;; Plus a fourth surface (Lock 4): the shell-safety / command-injection
+;;;; boundary on the `gh issue` surfaces the protocol grants, specified in
+;;;; `issue-filing.md`. It is the same untrusted-evidence threat model as
+;;;; Lock 1 projected onto the shell — across the body (`--body-file`,
+;;;; Lock 4), the title (inline `--title`, Lock 4b), the per-filing OS-temp
+;;;; body path (Lock 4c), and the search query (inline
+;;;; `gh issue list --search`, Lock 4d — `--search` has no `--search-file`,
+;;;; so a query lifted from evidence re-opens the same transcript→shell
+;;;; injection the title/body rules close).
 ;;;;
-;;;; The audit's Finding 4 was PARTIAL — the prose was in place but no
-;;;; regression suite asserted the locks. This file closes that gap by
-;;;; pinning the load-bearing phrasings as a structural drift detector.
+;;;; This file pins the load-bearing phrasings of all four locks as a
+;;;; structural drift detector.
 ;;;;
-;;;; This is the CHEAP class of drift the protocol can suffer: a future
-;;;; edit silently weakening the wording (e.g. dropping "MUST ignore",
+;;;; This catches the CHEAP class of drift the protocol can suffer: an edit
+;;;; silently weakening the wording (e.g. dropping "MUST ignore",
 ;;;; collapsing the four attacker classes into one, removing the
 ;;;; placeholder convention, deleting the "When in doubt, gate"
 ;;;; tie-break). A conversation-driving variant — actually replaying
@@ -134,8 +130,7 @@
 (deftest untrusted-evidence-enumerates-four-attacker-classes
   (testing "four attacker classes still enumerated"
     (let [s (section @protocol-md "Untrusted-evidence boundary")]
-      ;; The audit found the original protocol had ZERO of these. The
-      ;; lock requires all four classes named with at least a
+      ;; The lock requires all four classes named with at least a
       ;; representative phrasing. Alternation per class to survive
       ;; reasonable rewording.
       (testing "tool-use redirection class"
@@ -328,11 +323,10 @@
 ;; `--body-file` flag (which reads the body verbatim from disk, so no
 ;; shell expansion ever touches the transcript-derived text) rather than
 ;; interpolated inline. This is the same untrusted-evidence threat model
-;; as Lock 1, projected onto the shell. The structural test pinned the
-;; three prose locks but left this one — the actual destructive surface
-;; — unguarded; a silent weakening here (dropping the `--body-file`
-;; requirement, or the "never interpolate inline" rule) would re-open
-;; transcript→shell injection with no gate firing.
+;; as Lock 1, projected onto the shell — the actual destructive surface.
+;; A weakening here (dropping the `--body-file` requirement, or the "never
+;; interpolate inline" rule) would re-open transcript→shell injection with
+;; no gate firing.
 ;; ---------------------------------------------------------------------------
 
 (deftest issue-filing-shell-safety-section-exists
@@ -379,13 +373,12 @@
 ;; protects the body therefore cannot protect the title; an
 ;; evidence-/transcript-derived title can carry `$()`, backticks, `"`,
 ;; `\`, or a newline that the shell expands BEFORE `gh` receives argv,
-;; re-opening transcript→shell injection even though the body is safe
-;; (the half rf2-q8qu2/#3121 left uncovered — it hardened the body
-;; only). The title is safe ONLY because the agent authors it from a
-;; restricted safe alphabet and never pastes evidence text into it.
-;; These assertions pin that invariant in the same leaf and frontmatter
-;; that carry the body-safety locks, so a silent weakening of the title
-;; rule fails the suite alongside the body checks.
+;; re-opening transcript→shell injection even though the body is safe.
+;; The title is safe ONLY because the agent authors it from a restricted
+;; safe alphabet and never pastes evidence text into it. These assertions
+;; pin that invariant in the same leaf and frontmatter that carry the
+;; body-safety locks, so a weakening of the title rule fails the suite
+;; alongside the body checks.
 ;; ---------------------------------------------------------------------------
 
 (deftest issue-filing-carries-title-safety-rule
@@ -454,7 +447,7 @@
                "time, not just in the linked leaf.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 4c — Per-filing OS-temp body path (rf2-de7pqw → rf2-ca5v9s)
+;; Lock 4c — Per-filing OS-temp body path
 ;;
 ;; The `--body-file` target must be a FRESH, per-filing temp file in the
 ;; host OS's temp directory — never a fixed, predictable name like
@@ -463,17 +456,15 @@
 ;; after the user approved filing; and (b) is predictable, so two
 ;; concurrent retros / two rapid filings overwrite each other's redacted
 ;; body — filing the WRONG redacted text to GitHub or leaving sensitive
-;; evidence in a shared location longer than intended. rf2-de7pqw fixed
-;; the in-lane re-frame2-pair-retro/** leaves and deferred this structural
-;; regression + the shared-recipe propagation to rf2-ca5v9s. These
-;; assertions lock the fix in the SHARED canonical recipe and its consumer
-;; template: the published recipe MUST NOT prescribe `/tmp/issue-body.md`
-;; as the `--body-file` target, and MUST name a per-filing OS-temp path
-;; (TMPDIR / $env:TEMP). The "never a fixed /tmp/issue-body.md" PROHIBITION
-;; strings are tolerated — the regression fires only on the prescriptive
-;; command form (`--body-file /tmp/issue-body.md`) or the prescriptive
-;; "compose /tmp/issue-body.md" Write step, never on a prohibition that
-;; merely names the banned literal.
+;; evidence in a shared location longer than intended. These assertions
+;; lock the rule in the SHARED canonical recipe and its consumer template:
+;; the published recipe MUST NOT prescribe `/tmp/issue-body.md` as the
+;; `--body-file` target, and MUST name a per-filing OS-temp path (TMPDIR /
+;; $env:TEMP). The "never a fixed /tmp/issue-body.md" PROHIBITION strings
+;; are tolerated — the regression fires only on the prescriptive command
+;; form (`--body-file /tmp/issue-body.md`) or the prescriptive "compose
+;; /tmp/issue-body.md" Write step, never on a prohibition that merely names
+;; the banned literal.
 ;; ---------------------------------------------------------------------------
 
 (defn- prescribes-fixed-body-path?
@@ -548,7 +539,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 4d — Search-argument safety on the inline `gh issue list --search`
-;; recipe (rf2-7g9htq.1)
+;; recipe
 ;;
 ;; Search-before-file is mandatory, and the recipe is
 ;; `gh issue list --repo <owner/repo> --search "<keywords>"`. `--search`
@@ -663,11 +654,8 @@
 ;; `Write` and `Bash(gh issue create *)` PRESENT, and must NOT carry `Edit`
 ;; (it never rewrites source) or `Bash(bd *)` (the monorepo's internal tracker
 ;; has no place in a published skill — see `skills/README.md` §Published-skill
-;; allowed-tools baseline). A prior drift had `spec/design.md` claiming the
-;; block omits `Write`, which — if followed by a reauthoring pass — would
-;; remove the only documented shell-safe filing path. This test fails loudly
-;; if a future edit removes `Write`/`gh issue create` or smuggles in
-;; `Edit`/`Bash(bd *)`.
+;; allowed-tools baseline). This test fails loudly if an edit removes
+;; `Write`/`gh issue create` or smuggles in `Edit`/`Bash(bd *)`.
 ;; ---------------------------------------------------------------------------
 
 (defn- frontmatter
@@ -720,8 +708,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures present — the document-runnable behavioural scenarios live
-;; alongside this structural test. If they disappear, the prose-only
-;; portion of the regression goes back to PARTIAL.
+;; alongside this structural test. They are the behavioural counterpart to
+;; the structural drift detector; these checks keep them from disappearing.
 ;; ---------------------------------------------------------------------------
 
 (deftest fixtures-dir-exists
@@ -760,16 +748,15 @@
                  "maintainers will be confused."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Behavioral eval — the three security fixtures now have an EXECUTABLE
-;; scoring path (rf2-1inyqr finding 2). The fixtures were document-runnable
-;; only; a future wording / consumer / model-behaviour shift could pass every
+;; Behavioral eval — the three security fixtures have an EXECUTABLE scoring
+;; path. A wording / consumer / model-behaviour shift could pass every
 ;; structural grep while an agent actually runs `gh issue create`, leaks a
 ;; token, or applies an evidence-shaped Edit. `tests/evals/behavioral-evals.json`
 ;; encodes each fixture's §Expected / §Anti-expectation locks as machine-
 ;; checkable predicates, and `score-behavioral-eval.clj` scores a captured
 ;; transcript into a machine-readable pass/fail artifact. These structural
-;; tests keep the eval machinery + its workflow wiring from silently
-;; disappearing, and run the scorer's own self-test as a cheap always-on guard.
+;; tests keep the eval machinery + its workflow wiring from disappearing, and
+;; run the scorer's own self-test as a cheap always-on guard.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private behavioral-evals-file
@@ -837,19 +824,19 @@
                "release / checklist gate (rf2-1inyqr finding 2).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Pair-retro production/probe/filing drift (rf2-dhnixf)
+;; Pair-retro production/probe/filing drift
 ;;
-;; Finding 1 — the production-elision known-friction must not claim "every
-;; Tool-Pair surface elides"; the dev-gated surfaces (trace / epoch / schema
-;; / source-coord) go dark, but orientation / registry-frame shape, the
-;; direct-read primitives, and the always-on error-emit substrate still
-;; answer.
-;; Finding 2 — the attach-failure guidance + eval fixtures must teach the
-;; current diagnostic ladder (:nrepl-unreachable / :build-not-running /
-;; :no-runtime-connected / :runtime-loaded-but-preload-missing), not the
-;; legacy blanket :runtime-not-preloaded as the normal-case reason.
-;; Finding 3 — the README routing index must carry the optional-label /
-;; fail-open filing model, not a mandatory `pair-mcp` label.
+;; - the production-elision known-friction must not claim "every Tool-Pair
+;;   surface elides"; the dev-gated surfaces (trace / epoch / schema /
+;;   source-coord) go dark, but orientation / registry-frame shape, the
+;;   direct-read primitives, and the always-on error-emit substrate still
+;;   answer.
+;; - the attach-failure guidance + eval fixtures must teach the current
+;;   diagnostic ladder (:nrepl-unreachable / :build-not-running /
+;;   :no-runtime-connected / :runtime-loaded-but-preload-missing), with the
+;;   blanket :runtime-not-preloaded framed only as the fallback reason.
+;; - the README routing index must carry the optional-label / fail-open
+;;   filing model, not a mandatory `pair-mcp` label.
 ;; ---------------------------------------------------------------------------
 
 (deftest pair-retro-production-elision-not-blanket
