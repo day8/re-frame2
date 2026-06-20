@@ -28,7 +28,8 @@
   JVM-only by intent; the listener API is platform-agnostic.
 
   Per bead rf2-h5by."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -254,7 +255,21 @@
     ;; combined with the `:elision-probe` build (Spec 009 §Production-elision
     ;; verification) that exercises the surface in production, this protects
     ;; the elision contract.
-    (let [src (slurp "src/re_frame/trace.cljc")]
+    ;;
+    ;; Source is read via the CLASSPATH RESOURCE, not a cwd-relative path
+    ;; (rf2-55j4s3). The earlier `(slurp "src/re_frame/trace.cljc")` assumed
+    ;; the JVM cwd was `implementation/core/` (the canonical per-artefact
+    ;; gate, which CI runs); under the combined `implementation/deps.edn`
+    ;; `:test` alias the cwd is `implementation/` and the file lives at
+    ;; `core/src/...`, so the relative slurp threw FileNotFoundException.
+    ;; `io/resource` finds `re_frame/trace.cljc` on the classpath regardless
+    ;; of cwd.
+    (let [res (io/resource "re_frame/trace.cljc")
+          _   (assert res
+                      (str "emit-rides-debug-flag cannot locate "
+                           "re_frame/trace.cljc on the classpath — the core "
+                           "src dir must be on the test classpath."))
+          src (slurp res)]
       (is (re-find #"\(defn-? emit![\s\S]*?interop/debug-enabled\?" src)
           "emit! body is gated on interop/debug-enabled?")
       (is (re-find #"\(defn-? emit-error![\s\S]*?interop/debug-enabled\?" src)

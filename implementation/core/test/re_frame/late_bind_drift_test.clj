@@ -37,10 +37,36 @@
 
 (def ^:private repo-implementation-root
   "Absolute path to the `implementation/` directory at the repo root.
-  Resolved relative to this file's classpath location: tests run from
-  `implementation/core/`, so `..` reaches `implementation/`."
-  (-> (io/file "..")
-      .getCanonicalFile))
+
+  Anchored to a CLASSPATH RESOURCE, not the working directory (rf2-55j4s3).
+  The earlier `(io/file \"..\")` form assumed the JVM cwd was
+  `implementation/core/` so that `..` reached `implementation/`. That holds
+  for the canonical per-artefact gate (`clojure -M:test` run from
+  `implementation/core/`, which is what CI runs) but SILENTLY MIS-SCOPES the
+  scan under the combined `implementation/deps.edn :test` alias: run from
+  `implementation/`, `..` resolves to the REPO ROOT, so the source walk picks
+  up `set-fn!` sites under `tools/` (e.g. `:subs/resolve-sub-override` in
+  `tools/story/`) that the core directory legitimately does not document —
+  the scan then reports phantom orphans.
+
+  Resolving from `(io/resource \"re_frame/late_bind/directory.cljc\")` — the
+  on-disk location of the core source that DECLARES the directory under test —
+  pins the root to `implementation/` regardless of cwd or which alias loaded
+  the namespace. The five parents walk
+  `directory.cljc → late_bind → re_frame → src → core → implementation`."
+  (let [res (io/resource "re_frame/late_bind/directory.cljc")]
+    (assert res
+            (str "late-bind-drift-test cannot locate "
+                 "re_frame/late_bind/directory.cljc on the classpath — the "
+                 "core src dir must be on the test classpath for the drift "
+                 "scan to anchor its implementation root."))
+    (-> (io/file res)            ; .../core/src/re_frame/late_bind/directory.cljc
+        .getParentFile           ; .../core/src/re_frame/late_bind
+        .getParentFile           ; .../core/src/re_frame
+        .getParentFile           ; .../core/src
+        .getParentFile           ; .../core
+        .getParentFile           ; .../implementation
+        .getCanonicalFile)))
 
 (defn- source-files
   "Every `.clj`, `.cljc`, `.cljs` file under `implementation/<art>/src/`.

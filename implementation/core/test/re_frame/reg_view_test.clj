@@ -263,15 +263,42 @@
 ;; in `reg-view`'s expansion — that is the canonical view-registration
 ;; surface.
 
+(defn- reagent-slim-classifier-present?
+  "True iff `reagent2.impl.component/classify-form-body` is resolvable on the
+  CURRENT classpath — the exact precondition `expand-reg-view` keys its
+  compile-time fold on (`requiring-resolve` of the same symbol). Mirrors the
+  macro's own probe so this test reasons about the same classpath fact the
+  macro does."
+  []
+  (boolean
+    (when-let [v (try (requiring-resolve
+                        'reagent2.impl.component/classify-form-body)
+                      (catch Exception _ nil))]
+      (bound? v))))
+
 (deftest reg-view-fold-graceful-without-reagent-slim
-  (testing "expand-reg-view emits a usable form-tag-free expansion when
-            reagent2.impl.component is absent from the classpath"
-    ;; The core test classpath does NOT include reagent-slim, so
-    ;; expand-reg-view's requiring-resolve returns nil and the
-    ;; expansion stamps no :reagent2/form meta.
-    (rf/reg-view fold-no-rs [n] [:p n])
-    (let [slot-meta (registrar/lookup :view
-                      :re-frame.reg-view-test/fold-no-rs)]
-      (is (some? slot-meta) "the view is registered")
-      (is (nil? (:reagent2/form slot-meta))
-          "no form tag stamped — UIx/Helix-only build path"))))
+  ;; This test pins the classpath-sensitive fold contract of `expand-reg-view`
+  ;; (rf2-yfbx). It is conditioned on a CLASSPATH PRECONDITION rather than
+  ;; assuming one (rf2-55j4s3): the canonical per-artefact core gate has
+  ;; reagent-slim ABSENT, but the combined `implementation/deps.edn` `:test`
+  ;; alias puts `day8/reagent-slim` on the classpath — under which the
+  ;; macro DOES (and must) stamp the form tag, so a blanket
+  ;; `(nil? (:reagent2/form ...))` assertion fired a phantom failure. We
+  ;; branch on the live precondition so the test asserts the correct half of
+  ;; the contract under EITHER classpath, losing no coverage: absence ⇒
+  ;; no tag stamped; presence ⇒ a tag stamped.
+  (rf/reg-view fold-no-rs [n] [:p n])
+  (let [slot-meta (registrar/lookup :view
+                    :re-frame.reg-view-test/fold-no-rs)]
+    (is (some? slot-meta) "the view is registered")
+    (if (reagent-slim-classifier-present?)
+      (testing "reagent-slim ON classpath — expand-reg-view folds the form
+                shape into the slot meta (combined-alias / reagent-slim build)"
+        (is (some? (:reagent2/form slot-meta))
+            "form tag stamped when reagent2.impl.component is resolvable"))
+      (testing "reagent-slim ABSENT — expand-reg-view emits a form-tag-free
+                expansion (core / UIx / Helix-only build path)"
+        ;; expand-reg-view's requiring-resolve returns nil, so the
+        ;; expansion stamps no :reagent2/form meta.
+        (is (nil? (:reagent2/form slot-meta))
+            "no form tag stamped — UIx/Helix-only build path")))))
