@@ -2623,7 +2623,7 @@
            (assoc result :resolved event-v)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Dispatch dry-run (rf2-17hvp)
+;; Dispatch dry-run
 ;; ---------------------------------------------------------------------------
 ;;
 ;; "If I dispatch X, will it do what I expect?" answered without
@@ -2772,7 +2772,7 @@
                                           (the id we just produced is
                                           at the head of the ring).
 
-   Per rf2-17hvp this primitive is the framework-side surface; the MCP
+   This primitive is the framework-side surface; the MCP
    tool `dispatch-dry-run` wraps it. Bound by the registered fx set
    at call time — fx registered after the dry-run start (a rare race)
    would slip through the override; the cost is one un-stubbed fx
@@ -2782,7 +2782,7 @@
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
          _         (when-not frame-id
-                     ;; rf2-n58jxo — enriched ambiguous-frame context (see
+                     ;; Enriched ambiguous-frame context (see
                      ;; pair-dispatch-sync!); dry-run knows the event vector.
                      (throw (ex-info "ambiguous frame"
                                      (ambiguous-frame-error :dispatch-dry-run {:event event-v}))))
@@ -2838,7 +2838,7 @@
                      :before-epoch-id           before-id
                      ;; Project the would-be epoch into the same
                      ;; cascade-summary shape dispatch /
-                     ;; replace-app-db / restore-epoch use (rf2-6yqdl).
+                     ;; replace-app-db / restore-epoch use.
                      ;; Operators read one vocabulary across all four.
                      :cascade-summary           (cascade-summary target-epoch)
                      :would-fire-effects        recorded
@@ -2858,7 +2858,7 @@
 
 (defn- restore-cascade-summary
   "Build a cascade-summary projection for a successful `restore-epoch`
-   call (rf2-6yqdl). A restore is NOT a real cascade — the framework
+   call. A restore is NOT a real cascade — the framework
    rewinds the app-db in-place without recording a new epoch — so the
    normal `epoch-by-id` lookup wouldn't surface anything. Instead we
    project against the TARGET epoch (the one we restored TO) and
@@ -2881,7 +2881,7 @@
     (let [diff       (db-diff-summary pre-db (:db-after target))
           fx-fired   (->> (:effects target) (map :fx-id) distinct vec)
           transitions (machine-transitions-summary (:trace-events target))
-          ;; rf2-6nks4 (finding-2): a restore of a SENSITIVE historical
+          ;; A restore of a SENSITIVE historical
           ;; epoch must not ship the target's raw trigger-event under the
           ;; default off-box posture. Read the target epoch's
           ;; `:rf.epoch/sensitive?` rollup and redact the `:event-vector`
@@ -2912,8 +2912,7 @@
        :unreplayable-effects unreplayable})))
 
 (defn restore-epoch
-  "(rf/restore-epoch! frame-id epoch-id). Returns a structured envelope
-   per rf2-6yqdl:
+  "(rf/restore-epoch! frame-id epoch-id). Returns a structured envelope:
 
      - `{:ok? true :restored? true :epoch-id <id> :frame <id>
          :cascade-summary {...} :unreplayable-effects [...]}` on success.
@@ -2936,11 +2935,11 @@
        (let [extras (restore-cascade-summary pre-db frame-id epoch-id)]
          (merge {:ok? true :restored? true :epoch-id epoch-id :frame frame-id}
                 extras))
-       ;; Preserve the legacy `false` return on failure — the MCP
+       ;; Return the framework's `false` on failure — the MCP
        ;; restore-epoch tool turns that into a structured envelope at
-       ;; the wire boundary (the pre-rf2-6yqdl behaviour). Mirrors how
-       ;; replace-app-db! returns a soft-failure envelope on the runtime
-       ;; side but the tool can elide the framework's `false`.
+       ;; the wire boundary. Mirrors how replace-app-db! returns a
+       ;; soft-failure envelope on the runtime side but the tool can
+       ;; elide the framework's `false`.
        false))))
 
 (defn undo-step-back
@@ -2948,7 +2947,7 @@
    `{:ok? true :epoch-id <previous> :restored? true :cascade-summary
    {...} :unreplayable-effects [...]}` on success or
    `{:ok? false :reason :no-prior-epoch}` when there is no previous
-   record. Cascade-summary slot per rf2-6yqdl."
+   record. Carries a cascade-summary slot."
   ([] (undo-step-back (current-frame)))
   ([frame-id]
    (let [history (vec (rf/epoch-history frame-id))
@@ -2967,8 +2966,7 @@
 
 (defn undo-to-epoch
   "Restore a specific epoch by id. Returns the same shape as
-   `restore-epoch`'s success envelope. Cascade-summary slot per
-   rf2-6yqdl."
+   `restore-epoch`'s success envelope, carrying a cascade-summary slot."
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (let [pre-db (rf/app-db-value frame-id)
@@ -3003,9 +3001,9 @@
 
    Alias of the canonical `re-frame.source-coords/parse-source-coord`
    (the source-coord contract owner) — the inverse of
-   `format-source-coord`. This parser used to be reimplemented near-
-   byte-for-byte here and in Story's element_inspector.cljc; rf2-nr7vf2
-   collapsed both onto the one canonical impl in core. See that fn for
+   `format-source-coord`. The pair preload and Story's
+   element_inspector.cljc both route through this one canonical impl in
+   core. See that fn for
    the four-segment value format (Spec 006 §Attribute value format),
    the `?`-placeholder degradation, and the Tool-Pair opacity caveat
    (downstream callers MUST NOT depend on the parsed shape's stability
@@ -3017,10 +3015,9 @@
    (or the raw string for a non-keyword id), or nil.
 
    Alias of the canonical `re-frame.source-coords/parse-view-id` (the source-
-   coord contract owner) — the inverse of `format-view-id`. This reader used to
-   be reimplemented inline in `view-entity` here and in Xray's fallback view-
-   walker; rf2-ztxnm8 collapsed both onto the one canonical impl in core (the
-   data-rf-view analogue of rf2-nr7vf2's `parse-source-coord` work). See that fn
+   coord contract owner) — the inverse of `format-view-id`. `view-entity` here
+   and Xray's fallback view-walker both route through this one canonical impl
+   in core. See that fn
    for the value format (Spec 006 §View tagging contract §Attribute value
    format) and the Tool-Pair opacity caveat (downstream callers MUST NOT depend
    on the parsed shape's stability across re-frame2 versions)."
@@ -3171,10 +3168,10 @@
     {:ok? false :reason :no-element :selector selector}))
 
 ;; ---------------------------------------------------------------------------
-;; ui-read — view-plane RENDERED-CONTENT read + producing ENTITY (rf2-3bu3d.1)
+;; ui-read — view-plane RENDERED-CONTENT read + producing ENTITY
 ;; ---------------------------------------------------------------------------
 ;;
-;; The two DOM-read planes (rf2-q0r7e). `dom-read` (above) is the RAW DOM
+;; The two DOM-read planes. `dom-read` (above) is the RAW DOM
 ;; plane: a CSS selector → matched nodes, multi-node, NO re-frame2 awareness
 ;; — "what does this exact node SAY?". `ui-read` (here) is the re-frame2 VIEW
 ;; plane: it rides the `data-rf-view` map → content PLUS the producing ENTITY
