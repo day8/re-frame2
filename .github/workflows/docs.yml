@@ -310,7 +310,8 @@ jobs:
       # green). All with a narrow
       # self-documenting file allowlist for the historical / internal surface
       # (the EP docs, the migration skill, the implementor/Pair/Xray tooling
-      # skills that read the retained-internal substrate, and the spec
+      # skills that reference the now-deleted realm/app/module substrate
+      # (EP-0024 removed it in full), and the spec
       # meta-docs that map the removal). Removed-context prose + inline code
       # spans + masked `;` comments never fire; a `re-frame.*/`-qualified
       # internal read or an app's own `counter/install!` hook is not the retired
