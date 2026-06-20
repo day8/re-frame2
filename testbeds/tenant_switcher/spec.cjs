@@ -3,8 +3,8 @@
  * Part-2 leak-boundary scenario 5).
  *
  * The LIVE demonstration of the scoped-cache leak boundary as a multi-SCOPE
- * consumer: one app, one frame, two tenant scopes simultaneously live in one
- * cache, with the active scope deciding which entry a read can address. The
+ * consumer: one frame, two tenant scopes simultaneously live in one
+ * resource cache, with the active scope deciding which entry a read can address. The
  * executable leak-boundary GUARANTEES (cross-user logout leak, wrong-scope
  * fail-closed read, scoped-invalidation isolation, lease-lifecycle
  * non-interference) are pinned by the CLJS unit suites
