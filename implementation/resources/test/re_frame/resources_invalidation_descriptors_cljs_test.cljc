@@ -621,8 +621,9 @@
 (deftest lone-vector-tag-matches-the-right-resource-end-to-end
   ;; The adversarial end-to-end: a mutation whose :invalidates returns a LONE
   ;; vector tag `[:article slug]` must invalidate the entry carrying that tag.
-  ;; Pre-fix, `(set raw)` made it `#{:article "w"}`, matching NOTHING — the
-  ;; ownerless article stayed fresh (a silent no-op the author never sees).
+  ;; Wrapping it with `(set raw)` would make it `#{:article "w"}`, matching
+  ;; NOTHING — the ownerless article would stay fresh (a silent no-op the
+  ;; author never sees). This pins the tag is treated as a single tag.
   (reg-article-resource!)
   (rf/reg-mutation :m/save
     {:scope :rf.scope/global

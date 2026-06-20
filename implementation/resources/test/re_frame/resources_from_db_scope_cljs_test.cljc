@@ -398,7 +398,7 @@
   ;; `rf/resolve-resource-scope` is advertised PURE (the logout/account-switch
   ;; idiom resolves the old scope from the cofx db). A pure read must not
   ;; mutate observability state, so it emits NO :rf.resource/scope-resolved
-  ;; row — pre-fix it routed through the traced resolver core.
+  ;; row — it does not route through the traced resolver core.
   (rf/dispatch-sync [:t/login "jake"])
   (testing "the helper still resolves the concrete scope correctly"
     (let [rows (record-scope-resolved!

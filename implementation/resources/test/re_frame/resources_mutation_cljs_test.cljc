@@ -1706,9 +1706,10 @@
   ;; The adversarial phase-order pin: `:rf.mutation/replied` is emitted from
   ;; the settlement boundary AFTER `:rf.mutation/succeeded`, so its stream
   ;; position truthfully reflects phase 6 (continuation runs after cache
-  ;; consequences + instance settlement). Pre-fix it was emitted while BUILDING
-  ;; the dispatch effect (inside continuation-fx), so the row could appear
-  ;; BEFORE succeeded — misleading evidence of the phase order.
+  ;; consequences + instance settlement). Emitting it while BUILDING the
+  ;; dispatch effect (inside continuation-fx) would let the row appear BEFORE
+  ;; succeeded — misleading evidence of the phase order — which this pins
+  ;; against.
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [rows (record-mutation-traces!

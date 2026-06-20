@@ -74,8 +74,8 @@
             `js/Date.now()` — and the entry read STALE the instant it loaded."
     (async done
       (rf/init! reagent-adapter/adapter)
-      ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-      ;; and the managed-HTTP fxs require a carried frame stamp. Register
+      ;; EP-0002 (rf2-nn0jqa): `init!` does not synthesise a `:rf/default`
+      ;; frame, and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; the dispatch below carries `{:frame
       ;; :rf/default}` so the sync dispatch AND the async reply continuation
       ;; both target it.
@@ -107,8 +107,8 @@
                       "the live transport reply decoded + landed the data")
                   ;; The core regression assertion: freshness is checked
                   ;; against `js/Date.now` (the freshness readers' clock).
-                  ;; A just-loaded entry MUST NOT be stale. Pre-fix this is
-                  ;; TRUE (perf-clock :stale-at ≪ js/Date.now()).
+                  ;; A just-loaded entry MUST NOT be stale. A perf-clock
+                  ;; :stale-at (≪ js/Date.now()) would wrongly read as stale.
                   (is (false? (state/entry-stale? e now-epoch))
                       "a just-loaded resource is NOT stale against js/Date.now")
                   ;; :loaded-at must be a wall-clock epoch value (within a
@@ -120,7 +120,8 @@
                       ":loaded-at is a wall-clock epoch ms (within 10s of js/Date.now)")
                   ;; :stale-at = :loaded-at + window, and therefore lands in
                   ;; the FUTURE relative to js/Date.now() (the window has not
-                  ;; elapsed). Pre-fix :stale-at was already in the deep past.
+                  ;; elapsed). A perf-clock :stale-at would already be in the
+                  ;; deep past.
                   (is (= (+ loaded-at stale-after-ms) stale-at)
                       ":stale-at is :loaded-at + :stale-after-ms")
                   (is (> stale-at now-epoch)
