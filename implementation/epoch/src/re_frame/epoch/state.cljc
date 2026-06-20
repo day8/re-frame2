@@ -668,14 +668,11 @@
       record; the projected row is appended when non-nil.
 
   Per EP-0015 §15 + open-issue 6 (RULED, hardened): the back-fill appends
-  the RAW delta. Storage-side redaction was REMOVED — the ring is causal
-  replay material; the `:redact-fn` advanced override runs projection-side
-  only (inside `projected-record`), so the off-box egress sees the
-  redacted shape while the ring keeps the exact raw delta. The whole-record
-  redaction dance the old storage-side hook required (the rf2-82pcg leak
-  the back-fill once needed to plug, the rf2-qhxz6 once-per-slot narrowing,
-  the rf2-7i872 redact-outside-swap fix) is GONE: with no per-back-fill
-  redact invocation there is no leak to close on the storage path and no
+  the RAW delta. The ring is causal replay material, so it stays raw; the
+  `:redact-fn` advanced override runs projection-side only (inside
+  `projected-record`), so the off-box egress sees the redacted shape while
+  the ring keeps the exact raw delta. Because no redaction runs on the
+  storage path, there is no per-back-fill leak to close and no
   non-idempotent-fn hazard inside the swap.
 
   rf2-c0rv4v: the splice is a single PURE `swap!` update fn. It invokes no
