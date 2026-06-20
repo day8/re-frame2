@@ -1335,12 +1335,16 @@
 ;; ===========================================================================
 ;; ssr-handler / stream-handler — trusted shell-hook contract (rf2-o6ndb)
 ;;
-;; The four shell-envelope opts that get injected RAW into the rendered
-;; HTML response — `:head`, `:body-end`, `:script-src`, `:app-element-id`
-;; — are TRUSTED STRINGS per Spec 011 §Trusted shell hook contract. The
-;; framework names the trust boundary (so apps reading any of them from
-;; untrusted input know they are opting into an arbitrary-script-
-;; injection XSS vector) AND structurally validates the shape at
+;; The four shell-envelope opts that cross the trust boundary into the
+;; rendered HTML response — `:head`, `:body-end`, `:script-src`,
+;; `:app-element-id` — are TRUSTED STRINGS per Spec 011 §Trusted shell
+;; hook contract. They split by injection position: `:head` / `:body-end`
+;; are RAW content hooks (injected verbatim), while `:script-src` /
+;; `:app-element-id` are escaped attribute hooks (escape-attr'd into a
+;; quoted attribute value, rf2-7x0qk — pinned below). The framework names
+;; the trust boundary (so apps reading any of them from untrusted input
+;; know they are opting into an arbitrary-script-injection XSS vector via
+;; the raw content hooks) AND structurally validates the shape at
 ;; handler-construction time so a structural mistake (passing a map, a
 ;; vector, a symbol, a number) surfaces as a clean structured error at
 ;; boot, not as a ClassCastException deep in the rendering path on the
@@ -1434,8 +1438,10 @@
 (deftest stream-handler-construction-rejects-non-string-trusted-shell-opts
   (testing "rf2-o6ndb: stream-handler shares the trusted-shell-hook
             structural contract — mirror of the ssr-handler test for the
-            chunked host adapter. The streaming prefix/suffix injects
-            the same four opts RAW into the rendered HTML envelope."
+            chunked host adapter. The streaming prefix/suffix routes the
+            same four opts into the rendered HTML envelope (:head /
+            :body-end as raw content hooks, :script-src / :app-element-id
+            as escaped attribute hooks)."
     (rf/reg-event :init/trusted-opt-stream
                      {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/trusted-opt-stream (fn [] [:div]))

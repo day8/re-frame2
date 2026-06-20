@@ -397,11 +397,13 @@
        rf2-gtgf9 / rf2-pffil.
     3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
        `:app-element-id` are strings or nil) via
-       `trust/validate-trusted-shell-opts!` — both shells inject these
-       RAW into the HTML envelope, so a structural mistake (map / vector
-       / symbol / number) surfaces here as
-       `:rf.error/ssr-trusted-shell-opt-invalid` at boot rather than as a
-       `ClassCastException` deep in the rendering path (rf2-o6ndb).
+       `trust/validate-trusted-shell-opts!` — both shells route these
+       into the HTML envelope (`:head` / `:body-end` as raw content
+       hooks, `:script-src` / `:app-element-id` as escaped attribute
+       hooks), so a structural mistake (map / vector / symbol / number)
+       surfaces here as `:rf.error/ssr-trusted-shell-opt-invalid` at
+       boot rather than as a `ClassCastException` deep in the rendering
+       path (rf2-o6ndb).
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."

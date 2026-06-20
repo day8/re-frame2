@@ -56,10 +56,15 @@
 (set! *warn-on-reflection* true)
 
 (def trusted-shell-string-opts
-  "The four trusted-string opts the shell injects RAW into the
-  rendered HTML. Construction-time validation gates structural shape
-  only; the trust semantic is documented at the handler docstring and
-  in Spec 011 §Trusted shell hook contract."
+  "The four trusted shell-hook string opts — the structural
+  string-validation set, NOT a raw-injection set. They split by
+  injection position: `:head` / `:body-end` are RAW content hooks
+  (injected verbatim), while `:script-src` / `:app-element-id` are
+  escaped attribute hooks (`escape-attr`'d into a quoted attribute
+  value, rf2-7x0qk). Construction-time validation gates structural
+  shape only; the trust + injection semantics are documented at the
+  ns docstring above, the handler docstring, and Spec 011 §Trusted
+  shell hook contract."
   [:head :body-end :script-src :app-element-id])
 
 (defn validate-trusted-shell-opts!
@@ -89,10 +94,12 @@
             'rf.ssr/trusted-shell
             (str "ssr-handler / stream-handler " (pr-str k)
                  " must be a string (or nil) — the four "
-                 "trusted shell-hook opts ("
+                 "trusted shell-hook string opts ("
                  (str/join ", " (map pr-str trusted-shell-string-opts))
-                 ") are injected RAW into the rendered HTML "
-                 "envelope (trusted-string contract per "
+                 ") cross the trust boundary into the rendered HTML "
+                 "envelope (:head / :body-end as raw content hooks, "
+                 ":script-src / :app-element-id as escaped attribute "
+                 "hooks; trusted-string contract per "
                  "Spec 011 §Trusted shell hook contract). "
                  "Got: " (pr-str (type v)) ".")
             {:recovery :supply-string-or-nil
