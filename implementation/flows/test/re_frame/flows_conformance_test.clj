@@ -519,12 +519,15 @@
   (into #{} (keys (get (flows/last-inputs-snapshot) flow-id {}))))
 
 (defn- registrar-has-flow?
-  "True iff the cross-kind `:flow` registrar slot for `flow-id` is
-  present. Per Spec 013 §Frame-destroy teardown: the slot drops when
-  the destroyed frame was the last owner of the id; it survives when
-  a sibling frame still registers the id."
+  "True iff ANY frame still registers `flow-id` in the per-frame `flows`
+  store. SINGLE-STORE (rf2-en00bk): the frame-blind registrar `:flow` slot
+  is RESERVED-but-empty — never written — so the `:registrar-flow-slots-after`
+  matcher checks the user-visible equivalent the realignment workaround used to
+  preserve: 'does some frame still own the id?'. Per Spec 013 §Frame-destroy
+  teardown the id disappears from the store when the destroyed frame was the
+  last owner, and survives when a sibling frame still registers it."
   [flow-id]
-  (some? (registrar/lookup :flow flow-id)))
+  (boolean (some #(contains? % flow-id) (vals (flows/flows-snapshot)))))
 
 ;; ---- single-fixture execution -------------------------------------------
 

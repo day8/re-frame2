@@ -1,13 +1,27 @@
 (ns re-frame.flows.registry
   "Per-frame flow registry — owns the `flows` registry atom and the
   PER-FRAME `last-inputs` dirty-check containers, flow-map validation,
-  registration (`reg-flow` / `clear-flow`), and the registrar
-  replacement-hook that invalidates the dirty-check on hot reload.
+  registration (`reg-flow` / `clear-flow`), and the per-frame dirty-check
+  invalidation a same-frame re-registration triggers.
 
   Per Spec 013 flows are FRAME-SCOPED: same flow-id can register against
   two frames with different `:inputs` / `:derive` / `:output-path`, and
   undo / time-travel semantics belong to one frame's history. The
   registry shape is `{frame-id {flow-id flow-map}}`.
+
+  SINGLE-STORE (rf2-en00bk, applying the rf2-0frdi schemas precedent):
+  the per-frame `flows` atom is the SOLE authoritative store. Flows are
+  FRAME-DIVERGENT-PER-ID (the same flow-id can carry different
+  `:inputs` / `:derive` / `:output-path` per frame), so a frame-BLIND
+  `{flow-id metadata}` registrar slot is the wrong shape — it cannot hold
+  the authoritative state and had to be hand-REALIGNED to a surviving
+  owner on clear / frame-destroy. That double-write + realignment
+  workaround is GONE. The `:flow` registrar kind stays RESERVED in
+  `registrar/kinds` (Spec 001 §Registry model continuity) but the
+  registrar slot is intentionally **empty** — matching the `:app-schema`
+  (rf2-0frdi) and `:http-interceptor` precedents. Tools and source-coord
+  introspection read the frame-scoped `flow-meta-at` / `flows-snapshot`
+  surface, NOT `handler-meta :flow` / `handler-ids :flow`.
 
   Dirty-check storage is PER-FRAME by construction. Each frame owns its
   own `last-inputs` container (`atom {flow-id inputs}`), held in the
@@ -32,9 +46,9 @@
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.marks :as marks]
             [re-frame.path :as path]
-            [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -113,6 +127,73 @@
   Snapshot — observers MUST NOT mutate (the underlying atom is private)."
   []
   @flows)
+
+;; ---- per-frame flow introspection (the `handler-meta :flow` replacement) ---
+;;
+;; SINGLE-STORE (rf2-en00bk): flows are FRAME-DIVERGENT-PER-ID, so the
+;; frame-blind registrar `:flow` slot is the wrong shape and is no longer
+;; written (the `:flow` registrar kind is RESERVED-but-empty, mirroring
+;; `:app-schema` per rf2-0frdi). The canonical introspection surface is
+;; `flow-meta-at` — the flows analogue of `schemas/app-schema-meta-at` — which
+;; resolves the frame the read targets and returns that frame's flow-map for
+;; the id (carrying the registration's `:ns` / `:line` / `:file` source-coords,
+;; `:inputs`, `:derive`, `:output-path`, …). Pair-tools, 10x panels and
+;; source-coord tests read THIS rather than `(handler-meta :flow flow-id)`.
+
+(defn- coerce-flow-opts
+  "Permit the keyword-only sugar `(flow-meta-at id frame-id)` and the opts-map
+  form `(flow-meta-at id {:frame frame-id})`. A `nil` arg coerces to `{}` (no
+  override — resolve the frame from the carried-invariant scope). A keyword or
+  a frame VALUE coerces to `{:frame target}`. Mirrors
+  `schemas.storage/coerce-opts`; the frame-value branch precedes the generic
+  `map?` branch because a frame value IS a map (rf2-7pllal)."
+  [opts-or-frame-id]
+  (cond
+    (nil? opts-or-frame-id) {}
+    (or (keyword? opts-or-frame-id)
+        (frame/frame-value? opts-or-frame-id)) {:frame opts-or-frame-id}
+    (map? opts-or-frame-id) opts-or-frame-id
+    :else {:frame opts-or-frame-id}))
+
+(defn- resolve-read-frame
+  "Resolve the frame a flow READ targets. EP-0002 — the explicit `:frame` opt
+  (the *override*) wins, else the carried-invariant scope chain via
+  `frame/require-current-frame!`. Called under no scope and no explicit
+  `:frame`, it raises `:rf.error/no-frame-context` rather than defaulting to
+  `:rf/default`. The override is a frame TARGET (keyword id or frame value),
+  normalized to its frame-id via `frame/frame-target->id` — the same shape the
+  `reg-flow` / `clear-flow` `:frame` opt accepts."
+  [opts]
+  (let [override (:frame opts)]
+    (if (some? override)
+      (frame/frame-target->id override)
+      (frame/require-current-frame!
+        :flow-meta-at {:where 'rf/flow-meta-at}))))
+
+(defn flow-meta-at
+  "Return the registration metadata map for `flow-id` in a frame, or nil.
+
+  The canonical per-frame introspection surface for flows — the
+  `(handler-meta :flow flow-id)` replacement (rf2-en00bk, applying the
+  rf2-0frdi `schemas/app-schema-meta-at` precedent). Returns the full flow-map
+  stamped at `reg-flow` — including source-coords (`:ns` / `:line` / `:file`),
+  `:inputs`, `:derive`, `:output-path`, and any output-classification keys —
+  for the `(frame-id, flow-id)` entry in the authoritative per-frame `flows`
+  atom. Frame-divergent by construction: the SAME flow-id registered against
+  two frames returns each frame's OWN definition, where the frame-blind
+  registrar slot could only ever show the most-recent registrant (the very
+  reason the realignment workaround existed).
+
+  Arities:
+    (flow-meta-at flow-id)         ;; frame from the carried-invariant scope
+    (flow-meta-at flow-id opts)    ;; opts map; :frame names the frame target
+                                   ;; (keyword id or frame value; keyword sugar
+                                   ;; `(flow-meta-at flow-id frame-id)` accepted)"
+  ([flow-id] (flow-meta-at flow-id {}))
+  ([flow-id opts-or-frame-id]
+   (let [opts     (coerce-flow-opts opts-or-frame-id)
+         frame-id (resolve-read-frame opts)]
+     (get-in @flows [frame-id flow-id]))))
 
 (defn ^:no-doc last-inputs-snapshot
   "Return the dirty-check value re-aggregated to the canonical observation
@@ -292,22 +373,6 @@
   [frame-id flow-id]
   (when-let [a (get @frame-last-inputs frame-id)]
     (swap! a dissoc flow-id)))
-
-(defn- owning-frames
-  "The frame-ids in the per-frame `flows` map (`{frame-id {flow-id
-  flow-map}}`) that still register `flow-id`. Empty when the
-  destroyed/cleared frame was the last owner and the shared `:flow`
-  registrar slot can be released; otherwise names the surviving owners
-  `realign-registrar-owner!` re-points the slot to. O(F) over frame
-  count (typically 1-3 at v1).
-
-  Cost note: if a profile-driven hot path ever shows many-frame
-  topologies stressing this, the optimisation is a reverse index
-  `{flow-id #{frame-id ...}}` maintained by `reg-flow` / `clear-flow`,
-  making the check O(1). Deferred until measurement warrants the extra
-  atom."
-  [flows-map flow-id]
-  (filterv #(contains? (get flows-map %) flow-id) (keys flows-map)))
 
 ;; ---- validation ----------------------------------------------------------
 ;;
@@ -1028,7 +1093,19 @@
                         :reg-flow
                         {:where    'rf/reg-flow
                          :event-id (:id flow)}))
-         flow-id  (:id flow)]
+         flow-id  (:id flow)
+         ;; SINGLE-STORE (rf2-en00bk): stamp source-coords (`:ns` / `:line` /
+         ;; `:file`, slim in CLJS prod) into the flow-map STORED in the
+         ;; authoritative per-frame `flows` atom — so `flow-meta-at` (the
+         ;; `handler-meta :flow` replacement) surfaces them, exactly as the old
+         ;; double-store stamped them onto the now-removed registrar `:flow`
+         ;; slot. `merge-coords` is idempotent for a same-source re-eval and
+         ;; adds only documentation keys (validation already ran on the bare
+         ;; `flow`; downstream `:derive` / `:inputs` / `:output-path` reads are
+         ;; unaffected by the extra coord keys). Mirrors how
+         ;; `schemas.storage/reg-app-schema` stamps coords into
+         ;; `schemas-by-frame`.
+         flow     (source-coords/merge-coords flow)]
      ;; Reject registration against a NON-LIVE frame BEFORE any state mutates.
      ;; `frame/frame` returns nil when the frame record is absent (never
      ;; registered, or `destroy-frame!`'s step-6 dissoc ran) OR
@@ -1038,12 +1115,11 @@
      ;; `call-serialized-with-drain!` runs its thunk DIRECTLY for an
      ;; absent/destroyed frame (frame.cljc §call-serialized-with-drain!), so
      ;; without this guard the registration below would install a
-     ;; `flows[frame-id flow-id]` row, an elision declaration, and a `:flow`
-     ;; registrar slot stamped with the dead `frame-id` — and a later
-     ;; `reg-frame` reusing that id would inherit the resurrected flow,
-     ;; breaking the frame-destroy isolation contract (Spec 013 §destroy-frame!
-     ;; releases every per-frame flow slot / last-inputs row / dead registrar
-     ;; entry).
+     ;; `flows[frame-id flow-id]` row and an elision declaration stamped with
+     ;; the dead `frame-id` — and a later `reg-frame` reusing that id would
+     ;; inherit the resurrected flow, breaking the frame-destroy isolation
+     ;; contract (Spec 013 §destroy-frame! releases every per-frame flow slot /
+     ;; last-inputs row).
      ;;
      ;; So REJECT with a stable structured error category rather than create
      ;; dormant state for a typo'd or destroyed frame id. `clear-flow` keeps
@@ -1090,23 +1166,33 @@
      ;; re-records against the re-read map; the last invocation — the one
      ;; whose return value commits — leaves the authoritative value). It
      ;; drives two decisions below: per-frame first-vs-replacement for the
-     ;; `:rf.flow/registered` trace, and the same-frame `:output-path`-change
-     ;; vacate. `nil` ⇒ first-time registration of `flow-id` on THIS frame
-     ;; (even if a SIBLING frame already holds the global registrar slot).
+     ;; `:rf.flow/registered` trace, the same-frame `:output-path`-change
+     ;; vacate, and the same-frame stale-`last-inputs` drop. `nil` ⇒ first-time
+     ;; registration of `flow-id` on THIS frame — an INDEPENDENT first-time
+     ;; registration per frame (Spec 013 §Frame-scoping), even if a SIBLING
+     ;; frame already registers the same id in the per-frame `flows` atom.
      (let [prior-on-frame (volatile! nil)]
        ;; A same-frame `reg-flow` REPLACEMENT publishes the new flow into
-       ;; `flows` (visible to a drain) in the `swap!` below, while the
-       ;; stale-`last-inputs` invalidation fires via `registrar/register!` →
-       ;; `invalidate-flow-on-replace!`. Serializing publish → path-vacate →
-       ;; invalidation against the frame drain (`:drain-lock`) makes them one
-       ;; indivisible step: no drain can observe the new flow before its stale
-       ;; dirty-check row is dropped, so the new flow re-evaluates on the next
-       ;; event regardless of input equality (Spec 013's re-registration
-       ;; contract). The atomic check-and-insert `swap!` runs INSIDE the
-       ;; serialized region — its TOCTOU cycle guarantee composes with the
-       ;; outer drain-exclusion. Reentrant: a mid-drain `:rf.fx/reg-flow` runs
-       ;; directly inside the single-drainer window (see
+       ;; `flows` (visible to a drain) in the `swap!` below, then drops the
+       ;; stale-`last-inputs` row DIRECTLY (the `drop-frame-flow-row!` call at
+       ;; the foot of the thunk) on a real same-frame replacement. Serializing
+       ;; publish → path-vacate → invalidation against the frame drain
+       ;; (`:drain-lock`) makes them one indivisible step: no drain can observe
+       ;; the new flow before its stale dirty-check row is dropped, so the new
+       ;; flow re-evaluates on the next event regardless of input equality
+       ;; (Spec 013's re-registration contract). The atomic check-and-insert
+       ;; `swap!` runs INSIDE the serialized region — its TOCTOU cycle guarantee
+       ;; composes with the outer drain-exclusion. Reentrant: a mid-drain
+       ;; `:rf.fx/reg-flow` runs directly inside the single-drainer window (see
        ;; `frame/call-serialized-with-drain!`).
+       ;;
+       ;; SINGLE-STORE (rf2-en00bk): the invalidation is a DIRECT,
+       ;; FRAME-SCOPED `drop-frame-flow-row!` keyed on THIS `frame-id` —
+       ;; not the frame-blind registrar replacement-hook the old double-store
+       ;; relied on. The hook read `:frame` back off the registrar metadata to
+       ;; recover the frame; with the per-frame `flows` atom as the sole store
+       ;; the frame is already in hand (`frame-id`), so the drop is more direct
+       ;; and structurally sibling-safe (per-frame container).
        (frame/call-serialized-with-drain!
          frame-id
          (fn []
@@ -1196,33 +1282,54 @@
                      (input-overlaps-declaration?
                        flow (elision/sensitive-declarations frame-id)))
              (write-flow-output-marks! frame-id flow))
-           ;; Cycle check + commit done atomically above. The :flow registrar
-           ;; slot keys on flow-id only; stamp :frame into the metadata so
-           ;; introspection / hot-reload hooks can read the owning frame.
-           ;; `register!` returns `{:was previous :now metadata}` — `:was` is
-           ;; nil on first-time registration, non-nil on hot-reload
-           ;; re-registration.
+           ;; Per Spec 001 §Hot-reload semantics + Spec 013 §Re-registration:
+           ;; a same-frame REPLACEMENT must (1) drop THIS frame's stale
+           ;; dirty-check row so the new flow re-evaluates on the next drain
+           ;; regardless of input equality (a hot-reloaded `:derive` with
+           ;; identical recent inputs would otherwise keep serving the previous
+           ;; result), and (2) emit the `:rf.registry/handler-replaced`
+           ;; hot-reload trace (Spec 001 §Hot-reload trace surface) the flow
+           ;; panel / 10x consume, carrying `:different-fn?` so tools can branch
+           ;; a real `:derive` body swap from an idempotent reload.
            ;;
-           ;; Stamp `:handler-fn` (= `:derive`) so the registrar's
-           ;; `:different-fn?` calculation (registrar.cljc) can tell a real
-           ;; body change from an idempotent reload. The registrar reads
-           ;; `:handler-fn` uniformly across kinds (events / subs / fx all
-           ;; populate it at their registration sites); flows carry the body
-           ;; under both `:derive` (read by the flow-eval site) and
-           ;; `:handler-fn` (the cross-kind hot-reload trace surface Spec 001
-           ;; standardises), so a tool reading `op-type :flow` sees a real body
-           ;; swap.
-           ;;
-           ;; This `register!` fires the `invalidate-flow-on-replace!`
-           ;; replacement hook that drops the stale `last-inputs` row — keeping
-           ;; it INSIDE the serialized region makes the publish above and this
-           ;; invalidation indivisible to a concurrent drain.
-           (registrar/register!
-             :flow flow-id
-             (source-coords/merge-coords
-               (assoc flow
-                      :frame      frame-id
-                      :handler-fn (:derive flow))))))
+           ;; SINGLE-STORE (rf2-en00bk): with the per-frame `flows` atom the
+           ;; SOLE store there is no registrar `:flow` write and no
+           ;; replacement-hook indirection — both effects run DIRECTLY here on a
+           ;; real same-frame replacement (`prior-on-frame` non-nil; a first-time
+           ;; registration has no stale row and emits `:rf.flow/registered`
+           ;; instead). The drop is frame-scoped (`drop-frame-flow-row!` keyed on
+           ;; `frame-id`) so a re-registration on frame `:left` never touches
+           ;; `:right`'s row for the same id (frame isolation; per-frame
+           ;; container makes this structural). The trace emit reuses the SAME
+           ;; B4 hot-reload dedup-by-shape seam the registrar consults
+           ;; (`:trace.tooling/dedup-allow?`, Spec 009 §Hot-reload dedup) so an
+           ;; idempotent reload (identical `:derive` identity) emits ZERO events
+           ;; and a real body swap emits exactly one — the contract the
+           ;; registrar slot used to drive now driven directly by the flows
+           ;; artefact. Kept INSIDE the serialized region so the publish above
+           ;; and these effects are indivisible to a concurrent drain.
+           (when (some? @prior-on-frame)
+             (drop-frame-flow-row! frame-id flow-id)
+             (when interop/debug-enabled?
+               (let [prior      @prior-on-frame
+                     different? (not= (:derive prior) (:derive flow))
+                     ;; The dedup shape keys on `:handler-fn` identity (Spec 009
+                     ;; B4 / `trace.tooling/handler-shape`). Stamp it = `:derive`
+                     ;; so the shape discriminates a real body swap from an
+                     ;; idempotent reload exactly as the registrar metadata used
+                     ;; to (the now-removed `:handler-fn` stamp on the registrar
+                     ;; `:flow` slot). Source-coords are stripped by the shape
+                     ;; computation, so the coords-stamped `flow` is fine here.
+                     shape-meta (assoc flow :handler-fn (:derive flow))
+                     dedup-ok?  (if-let [f (late-bind/get-fn-cached
+                                             :trace.tooling/dedup-allow?)]
+                                  (f :rf.registry/handler-replaced :flow flow-id shape-meta)
+                                  true)]
+                 (when dedup-ok?
+                   (trace/emit! :rf.registry :rf.registry/handler-replaced
+                                {:kind          :flow
+                                 :id            flow-id
+                                 :different-fn? different?})))))))
        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires on
        ;; FIRST-TIME registration AGAINST THIS FRAME. The gate keys on the
        ;; PER-FRAME prior slot (`prior-on-frame`), so registering the same
@@ -1230,9 +1337,10 @@
        ;; registration per Spec 013 §Frame-scoping line 102 — emits
        ;; `:rf.flow/registered` with the correct `:frame` tag. A genuine
        ;; same-frame re-registration (`prior-on-frame` non-nil) suppresses the
-       ;; `:rf.flow/registered` emit — its hot-reload signal rides
-       ;; `:rf.registry/handler-replaced` (emitted by `registrar/register!`
-       ;; per Spec 001 §Hot-reload trace surface) instead.
+       ;; `:rf.flow/registered` emit — its hot-reload signal rides the
+       ;; `:rf.registry/handler-replaced` trace the same-frame replacement
+       ;; branch above emits DIRECTLY (rf2-en00bk single-store; per Spec 001
+       ;; §Hot-reload trace surface) instead.
        ;;
        ;; The outer `debug-enabled?` gate matches the hot-path emits in
        ;; flows.cljc (per Spec 009 §Production builds, "keep the gate
@@ -1347,54 +1455,19 @@
       (when-not (identical? new-db db)
         (frame/swap-frame-db! frame-id (constantly new-db))))))
 
-;; ---- registrar-slot owner maintenance ------------------------------------
+;; ---- registrar-slot owner maintenance: REMOVED (rf2-en00bk) ---------------
 ;;
-;; The `:flow` registrar slot is keyed by flow-id alone and carries the
-;; MOST-RECENTLY-REGISTERED frame's flow-map with `:frame` stamped in
-;; (Spec 013 §Frame-scoping line 105). On clear / destroy of the frame
-;; whose metadata currently occupies the slot, that metadata would become
-;; STALE: it would point at a frame that no longer owns the id. Runtime
-;; evaluation is unaffected either way (the per-frame `flows` registry is the
-;; source of truth), but registrar-backed tooling / hot-reload reads the slot —
-;; the next surviving-frame re-registration computes `:different-fn?` against
-;; the slot's `:handler-fn`, and a Xray flow panel reading the slot attributes
-;; the flow to its `:frame`. So the slot is realigned to a live owner whenever
-;; its current writer is cleared / destroyed.
-
-(defn- realign-registrar-owner!
-  "After `flow-id` was removed from `cleared-frame-id`, keep the shared
-  `:flow` registrar slot pointing at an actually-live owner.
-
-  - When NO surviving frame in `flows-map` holds `flow-id`, unregister
-    the slot (the cleared/destroyed frame was the last owner).
-  - When a surviving frame holds it AND the registrar slot's current
-    `:frame` is the cleared/destroyed frame (its metadata is now stale),
-    re-point the slot to a deterministic surviving owner — re-stamping
-    that owner's flow-map (with `:frame` / `:handler-fn`) exactly as
-    `reg-flow` would. The surviving owner is chosen by sorted frame-id
-    for determinism across calls.
-  - When a surviving frame holds it but the registrar slot already names
-    a still-living owner, leave it untouched (no churn).
-
-  Returns nil — side-effects the registrar only."
-  [flows-map flow-id cleared-frame-id]
-  (let [owners (owning-frames flows-map flow-id)]
-    (if (empty? owners)
-      ;; Last owner released the id — drop the slot.
-      (registrar/unregister! :flow flow-id)
-      ;; A sibling still owns the id. Only re-point when the slot's
-      ;; metadata named the frame we just cleared (so its body / path /
-      ;; frame attribution is stale).
-      (let [current-owner (:frame (registrar/lookup :flow flow-id))]
-        (when (= current-owner cleared-frame-id)
-          (let [survivor (first (sort owners))
-                flow     (get-in flows-map [survivor flow-id])]
-            (registrar/register!
-              :flow flow-id
-              (source-coords/merge-coords
-                (assoc flow
-                       :frame      survivor
-                       :handler-fn (:derive flow))))))))))
+;; The double-store's `realign-registrar-owner!` workaround is GONE. It kept a
+;; frame-BLIND registrar `:flow` slot (keyed by flow-id alone) pointing at a
+;; live owner whenever the slot's current writer was cleared / destroyed —
+;; necessary ONLY because flows are FRAME-DIVERGENT-PER-ID and the single-slot
+;; shape could not hold the authoritative per-frame state. With the per-frame
+;; `flows` atom as the SOLE store (applying the rf2-0frdi schemas precedent)
+;; there is no slot to realign: `clear-flow` / `teardown-on-frame-destroy!`
+;; simply drop the cleared frame's entry from the per-frame map, and any
+;; surviving frame's entry is already authoritative in place. The `:flow`
+;; registrar kind stays RESERVED-but-empty (Spec 001 §Registry model); tools
+;; introspect via `flow-meta-at` / `flows-snapshot`.
 
 (defn clear-flow
   "Deregister a flow from a frame; dissoc its output path from that
@@ -1441,12 +1514,12 @@
          ;; Spec 013's clear-flow cleanup contract), and emitting a misleading
          ;; `:rf.flow/cleared` for the old path.
          ;;
-         ;; So the lookup, path capture, app-db vacate, registry removal,
-         ;; dirty-row drop, and registrar realignment fold into ONE serialized
-         ;; operation over the SAME live flow definition. The thunk returns the
-         ;; path it actually cleared (or nil when no flow was registered under
-         ;; the lock) so the `:rf.flow/cleared` emit below fires only on a real
-         ;; clear, with the path captured under the lock.
+         ;; So the lookup, path capture, app-db vacate, registry removal, and
+         ;; dirty-row drop fold into ONE serialized operation over the SAME live
+         ;; flow definition. The thunk returns the path it actually cleared (or
+         ;; nil when no flow was registered under the lock) so the
+         ;; `:rf.flow/cleared` emit below fires only on a real clear, with the
+         ;; path captured under the lock.
          ;; Reentrant: a mid-drain `:rf.fx/clear-flow` runs directly inside
          ;; the single-drainer window (see `frame/call-serialized-with-drain!`).
          cleared-path
@@ -1475,12 +1548,11 @@
                  ;; `last-inputs` container. Frame-local — a sibling frame
                  ;; registering the same id keeps its own row untouched.
                  (drop-frame-flow-row! frame-id id)
-                 ;; Keep the shared `:flow` registrar slot aligned with a live
-                 ;; owner: unregister when this was the LAST frame holding the
-                 ;; id, or re-point the slot to a surviving owner when the
-                 ;; cleared frame was the slot's current (now-stale) metadata
-                 ;; writer.
-                 (realign-registrar-owner! @flows id frame-id)
+                 ;; SINGLE-STORE (rf2-en00bk): no registrar-slot realignment.
+                 ;; The per-frame `flows` atom is the sole store — dropping this
+                 ;; frame's entry above is the whole job. Any SURVIVING frame
+                 ;; that registers the same id keeps its own authoritative entry
+                 ;; in place; there is no frame-blind slot to re-point.
                  path))))]
      ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
      ;; clear-flow has removed the flow from the per-frame registry
@@ -1503,30 +1575,33 @@
 ;; ---- frame-destroy teardown ---------------------------------------------
 ;;
 ;; Symmetric with the machines `:teardown-on-frame-destroy!` hook. On
-;; `destroy-frame!`, the flows registered against the destroyed frame, the
-;; per-frame `last-inputs` rows, AND any `:flow` registrar entries whose last
-;; owning frame was the destroyed one MUST clear — otherwise SSR-style
-;; per-request frame churn / pair-tool time-travel / `make-frame` ephemeral
-;; usage would leak flow definitions and cached input vectors indefinitely.
+;; `destroy-frame!`, the flows registered against the destroyed frame and the
+;; per-frame `last-inputs` rows MUST clear — otherwise SSR-style per-request
+;; frame churn / pair-tool time-travel / `make-frame` ephemeral usage would
+;; leak flow definitions and cached input vectors indefinitely. SINGLE-STORE
+;; (rf2-en00bk): with the per-frame `flows` atom the sole store, this is
+;; PURELY dropping the destroyed frame's per-frame entries — there is no
+;; frame-blind registrar `:flow` slot to realign to a surviving owner.
 
 (defn teardown-on-frame-destroy!
   "Drop every per-frame entry the flows artefact holds against `frame-id`:
 
-   1. Snapshot the flow-ids the destroyed frame owned (needed for the
-      registrar prune in step 4).
-   2. Dissoc `frame-id` from the per-frame flow registry.
-   3. Dissoc the destroyed frame's `last-inputs` container from the
+   1. Dissoc `frame-id` from the per-frame flow registry (`flows`) — the
+      SOLE authoritative store, so this is the whole job for the flow
+      definitions.
+   2. Dissoc the destroyed frame's `last-inputs` container from the
       per-frame `frame-last-inputs` registry — one step, since per-frame
       storage holds the destroyed frame's rows in its own inner atom and
       removing the frame-keyed slot drops them all.
-   4. For each flow-id the destroyed frame owned, keep the `:flow`
-      registrar slot aligned with a live owner: unregister the slot when
-      no surviving frame still registers the id, or re-point it to a
-      surviving owner when the destroyed frame was the slot's current
-      (now-stale) metadata writer. The `:frame` stamped onto the registrar
-      entry is the destroyed frame whenever it was the most-recent
-      registrant — leaving that metadata pointing at the dead frame would
-      stale registrar-backed tooling / hot-reload.
+   3. Dissoc the destroyed frame's pending abandoned-output-paths container
+      (same per-frame storage idiom).
+
+   SINGLE-STORE (rf2-en00bk): NO registrar-slot prune. The old double-store
+   kept a frame-blind registrar `:flow` slot that had to be unregistered (last
+   owner) or re-pointed to a surviving owner (the `realign-registrar-owner!`
+   workaround) on frame-destroy; that slot and workaround are GONE. A surviving
+   frame registering the same id keeps its own authoritative entry in the
+   per-frame `flows` atom in place — nothing to realign.
 
    NO explicit flow-output elision-mark scrub. Unlike `clear-flow` — which
    removes ONE flow's `:source :flow` declarations while its frame lives on
@@ -1553,56 +1628,34 @@
    flows artefact."
   [frame-id]
   (when frame-id
-    (let [owned-flow-ids (keys (get @flows frame-id))]
-      (swap! flows dissoc frame-id)
-      ;; Drop the destroyed frame's entire `last-inputs` container in one
-      ;; step — per-frame storage means the destroyed frame's rows ARE its
-      ;; inner atom, so removing the frame-keyed slot drops every row at once
-      ;; and cannot touch any sibling frame's container.
-      (swap! frame-last-inputs dissoc frame-id)
-      ;; Drop the destroyed frame's pending abandoned-output-paths container
-      ;; too (same per-frame storage idiom). The frame is gone, so any
-      ;; recorded-but-undrained path move is moot.
-      (swap! frame-abandoned-output-paths dissoc frame-id)
-      ;; Registrar realignment: for each flow-id the destroyed frame owned,
-      ;; either unregister the `:flow` slot (no surviving owner) or re-point it
-      ;; to a surviving owner when the destroyed frame was the slot's stale
-      ;; metadata writer — the shared `realign-registrar-owner!` helper
-      ;; `clear-flow` also uses.
-      (let [remaining @flows]
-        (doseq [flow-id owned-flow-ids]
-          (realign-registrar-owner! remaining flow-id frame-id)))))
+    (swap! flows dissoc frame-id)
+    ;; Drop the destroyed frame's entire `last-inputs` container in one
+    ;; step — per-frame storage means the destroyed frame's rows ARE its
+    ;; inner atom, so removing the frame-keyed slot drops every row at once
+    ;; and cannot touch any sibling frame's container.
+    (swap! frame-last-inputs dissoc frame-id)
+    ;; Drop the destroyed frame's pending abandoned-output-paths container
+    ;; too (same per-frame storage idiom). The frame is gone, so any
+    ;; recorded-but-undrained path move is moot.
+    (swap! frame-abandoned-output-paths dissoc frame-id))
   nil)
 
 ;; ---- hot-reload invalidation --------------------------------------------
 ;;
-;; Per Spec 001 §Hot-reload semantics: when a flow re-registers, the
-;; per-frame :last-inputs entry MUST clear so the new flow re-evaluates
-;; on the next drain regardless of whether inputs changed. Without this,
-;; a hot-reloaded flow with a different :derive fn but identical recent
-;; inputs would silently keep serving the previous result.
-
-(defn- invalidate-flow-on-replace!
-  [{:keys [kind id now]}]
-  (when (= kind :flow)
-    ;; Spec 013 §Re-registration scopes the invalidation to
-    ;; `[frame-id flow-id]`, NOT every frame holding the flow id — a
-    ;; re-registration on frame `:left` must not force `:right`'s row for the
-    ;; same id to recompute on its next drain (which would weaken frame
-    ;; isolation and waste work under multi-frame setups: per-tenant SSR,
-    ;; pair-tool replays). The registrar replacement-hook payload carries
-    ;; `:now` (the new metadata) with `:frame` stamped at `reg-flow`-time;
-    ;; read the frame from there and drop only that frame's row from its own
-    ;; `last-inputs` container — per-frame storage makes the sibling-frame
-    ;; untouched guarantee structural rather than reliant on careful keying.
-    (let [frame-id (:frame now)]
-      (drop-frame-flow-row! frame-id id))))
-
-(defonce ^:private _hot-reload-hook
-  ;; `defonce` only needs the side-effect to fire once at namespace
-  ;; load; the value bound to the var is incidental. `add-replacement-hook!`
-  ;; returns nil — let that be the bound value.
-  (registrar/add-replacement-hook! invalidate-flow-on-replace!))
+;; Per Spec 001 §Hot-reload semantics + Spec 013 §Re-registration: when a flow
+;; re-registers against a frame, that frame's `:last-inputs` row MUST clear so
+;; the new flow re-evaluates on the next drain regardless of whether inputs
+;; changed (a hot-reloaded `:derive` with identical recent inputs would
+;; otherwise keep serving the previous result), and the
+;; `:rf.registry/handler-replaced` hot-reload trace MUST fire (dedup-by-shape).
+;;
+;; SINGLE-STORE (rf2-en00bk): both effects are now driven DIRECTLY by `reg-flow`
+;; on a same-frame replacement (`prior-on-frame` non-nil), keyed on the frame
+;; already in hand — see the `drop-frame-flow-row!` + `:rf.registry/handler-
+;; replaced` emit in `reg-flow`. The former registrar replacement-hook
+;; (`invalidate-flow-on-replace!`, which recovered the frame from the registrar
+;; metadata's `:frame` slot) is GONE along with the registrar `:flow` write that
+;; fired it.
 
 ;; ---- test-only resets ----------------------------------------------------
 

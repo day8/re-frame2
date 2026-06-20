@@ -170,11 +170,16 @@
 
 (deftest source-coords-on-reg-flow
   (testing "reg-flow stamps :ns / :line / :file"
+    ;; Per rf2-en00bk the flows artefact owns its own per-frame store — there
+    ;; is no registrar `:flow` slot. Source-coords introspection reads through
+    ;; `flows/flow-meta-at`, which returns the per-frame flow-map (including
+    ;; the source-coords stamped into the store at reg-flow) — the flows
+    ;; analogue of `schemas/app-schema-meta-at` (rf2-0frdi).
     (rf/reg-flow {:id     :rf2-k84s/reg-flow-sample
                   :inputs [[:source]]
                   :derive (fn [v] v)
                   :output-path   [:dest]})
-    (assert-coords (rf/handler-meta :flow :rf2-k84s/reg-flow-sample)
+    (assert-coords (flows/flow-meta-at :rf2-k84s/reg-flow-sample)
                    :flow :rf2-k84s/reg-flow-sample)))
 
 (deftest source-coords-on-reg-route

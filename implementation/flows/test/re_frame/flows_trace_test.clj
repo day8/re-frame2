@@ -125,10 +125,10 @@
 (deftest reg-flow-registered-fires-first-time-only
   (testing "Per rf2-ehxez: :rf.flow/registered fires only on first-time
             registration. On re-registration the cross-kind
-            `:rf.registry/handler-replaced` trace (emitted by
-            `registrar/register!` per Spec 001 §Hot-reload trace
-            surface) is the hot-reload signal — both traces no longer
-            double-emit on the same re-registration."
+            `:rf.registry/handler-replaced` trace (emitted DIRECTLY by
+            `reg-flow` under rf2-en00bk single-store, per Spec 001
+            §Hot-reload trace surface) is the hot-reload signal — both
+            traces no longer double-emit on the same re-registration."
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :derive (fn [w h] (* (or w 0) (or h 0)))
@@ -142,7 +142,7 @@
                   :derive (fn [w h] (* (or w 0) (or h 0)))
                   :output-path   [:rect :area]})
     (is (zero? (count (by-op :rf.flow/registered)))
-        "re-registration does NOT fire :rf.flow/registered — hot-reload signal rides on :rf.registry/handler-replaced"))
+        "re-registration does NOT fire :rf.flow/registered — hot-reload signal rides :rf.registry/handler-replaced (emitted directly by reg-flow, rf2-en00bk)"))
   (testing "re-registration with a NEW :derive also does not double-emit"
     (rf/reg-flow {:id     :area2
                   :inputs [[:w]]
@@ -192,7 +192,8 @@
 (deftest reg-flow-same-frame-re-register-still-suppresses
   (testing "Per rf2-mb9vq: a genuine SAME-FRAME re-registration still
             suppresses `:rf.flow/registered` (its hot-reload signal rides
-            `:rf.registry/handler-replaced`) — the per-frame gating must
+            `:rf.registry/handler-replaced`, emitted directly by reg-flow
+            under rf2-en00bk single-store) — the per-frame gating must
             not over-fire for the replacement case."
     (rf/reg-frame :left {:doc "left frame"})
     (rf/reg-flow {:id     :shared

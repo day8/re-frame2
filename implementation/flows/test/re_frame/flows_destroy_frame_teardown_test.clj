@@ -1,11 +1,15 @@
 (ns re-frame.flows-destroy-frame-teardown-test
-  "`destroy-frame!` cleans up the per-frame flow state (registry slot,
-  `last-inputs` rows, owning-frame registrar entries). Symmetric with the
+  "`destroy-frame!` cleans up the per-frame flow state (the per-frame `flows`
+  registry entry and the frame's `last-inputs` rows). Symmetric with the
   machines `:machines/teardown-on-frame-destroy!` hook.
 
-  Without this teardown, `flows[frame-id]`, `last-inputs[flow-id][frame-id]`
-  and any `:flow` registrar slots whose last owning frame was destroyed would
-  retain references — a memory leak class for the long-running SSR JVM
+  SINGLE-STORE (rf2-en00bk): the per-frame `flows` atom is the SOLE store —
+  there is no frame-blind registrar `:flow` slot to prune / realign. Teardown
+  is purely dropping the destroyed frame's per-frame entries; a surviving frame
+  registering the same id keeps its OWN authoritative entry in place.
+
+  Without this teardown, `flows[frame-id]` and `last-inputs[flow-id][frame-id]`
+  would retain references — a memory leak class for the long-running SSR JVM
   (per-request frame churn), pair-tool time-travel, and `make-frame` ephemeral
   usage.
 
@@ -120,84 +124,57 @@
     (is (= [7 9] (get-in (flows/last-inputs-snapshot) [:area :fc/b]))
         "sibling frame B's last-inputs row is preserved")))
 
-;; ---- registrar :flow slot pruned when destroyed frame was last owner ----
+;; ---- per-frame entry dropped when destroyed frame was last owner --------
 
-(deftest destroy-frame-prunes-registrar-slot-when-last-owner
-  (testing "destroying the only frame that owned a flow id drops the :flow registrar slot"
+(deftest destroy-frame-drops-per-frame-entry-when-last-owner
+  (testing "destroying the only frame that owned a flow id drops its per-frame entry (rf2-en00bk: no registrar slot to prune)"
     (rf/reg-frame :fc/scratch {:doc "scratch frame"})
     (rf/reg-flow {:id     :sole-area
                   :inputs [[:w] [:h]]
                   :derive (fn [w h] (* (or w 0) (or h 0)))
                   :output-path   [:rect :area]}
                  {:frame :fc/scratch})
-    (is (some? (registrar/lookup :flow :sole-area))
-        "precondition: registrar carries the flow slot")
-    (frame/destroy-frame! :fc/scratch)
+    (is (some? (flows/flow-meta-at :sole-area {:frame :fc/scratch}))
+        "precondition: the per-frame store carries the flow")
     (is (nil? (registrar/lookup :flow :sole-area))
-        "post-destroy: registrar slot is gone — no leaked entry")))
+        "the :flow registrar slot is RESERVED-but-empty even while the flow is live")
+    (frame/destroy-frame! :fc/scratch)
+    (is (nil? (flows/flow-meta-at :sole-area {:frame :fc/scratch}))
+        "post-destroy: the per-frame entry is gone — no leaked entry")
+    (is (nil? (registrar/lookup :flow :sole-area))
+        "registrar slot stays empty (rf2-en00bk)")))
 
-;; ---- registrar :flow slot preserved when sibling frame still owns it ----
+;; ---- sibling frame keeps its OWN authoritative entry on destroy ---------
 
-(deftest destroy-frame-preserves-registrar-slot-when-sibling-still-owns
-  (testing "destroying frame A leaves :flow registrar slot intact if frame B still registers the id"
-    (rf/reg-frame :fc/a {:doc "frame A"})
-    (rf/reg-frame :fc/b {:doc "frame B"})
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/a})
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :fc/b})
-    (frame/destroy-frame! :fc/a)
-    (is (some? (registrar/lookup :flow :shared))
-        "registrar slot survives because frame B still registers :shared")))
-
-;; ---- registrar slot re-points to a LIVE owner when the slot's current ----
-;;      (last-registered) frame is destroyed.
-
-(deftest destroy-frame-of-registrar-owner-repoints-to-surviving-frame
-  (testing "Per rf2-73pi1: destroying the frame whose metadata currently
-            occupies the :flow registrar slot re-points the slot to a
-            surviving owner — the slot must NOT keep naming the dead frame"
+(deftest destroy-frame-leaves-sibling-entry-authoritative-in-place
+  (testing "destroying frame A leaves frame B's per-frame entry intact and authoritative in place (rf2-en00bk: no slot to realign)"
     (rf/reg-frame :fc/a {:doc "frame A"})
     (rf/reg-frame :fc/b {:doc "frame B"})
     (let [f-a (fn [w h] (* (or w 0) (or h 0)))
           f-b (fn [w h] (+ (or w 0) (or h 0)))]
-      ;; :fc/a first, :fc/b last → slot's :frame is :fc/b.
       (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive f-a :output-path [:rect :area]}
                    {:frame :fc/a})
       (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive f-b :output-path [:rect :area]}
                    {:frame :fc/b})
-      (is (= :fc/b (:frame (registrar/lookup :flow :shared)))
-          "precondition: slot's metadata names :fc/b (last-registration-wins)")
-      ;; Destroy :fc/b — the slot's current owner. :fc/a still holds :shared.
-      (frame/destroy-frame! :fc/b)
-      (let [slot (registrar/lookup :flow :shared)]
-        (is (some? slot)
-            "slot survives — :fc/a still registers :shared")
-        (is (= :fc/a (:frame slot))
-            "slot re-pointed to the SURVIVING owner :fc/a (not the destroyed :fc/b)")
-        (is (= f-a (:handler-fn slot))
-            "slot's :handler-fn is :fc/a's LIVE body — not :fc/b's stale one")))))
+      ;; Destroy :fc/a. :fc/b still holds :shared with its OWN divergent body.
+      (frame/destroy-frame! :fc/a)
+      (is (nil? (flows/flow-meta-at :shared {:frame :fc/a}))
+          ":fc/a's entry is gone")
+      (is (= f-b (:derive (flows/flow-meta-at :shared {:frame :fc/b})))
+          ":fc/b's entry is intact and authoritative IN PLACE — no realignment needed (rf2-en00bk)")
+      (is (nil? (registrar/lookup :flow :shared))
+          "registrar :flow slot stays empty throughout (rf2-en00bk)"))))
 
-(deftest destroy-frame-non-owner-leaves-registrar-slot-pointing-at-owner
-  (testing "Per rf2-73pi1: destroying a NON-owner frame leaves the registrar
-            slot pointing at its existing live owner — no needless re-point"
+(deftest destroy-frame-non-owner-leaves-owner-entry-intact
+  (testing "destroying a frame that does NOT register the id leaves the registering frame's entry untouched (rf2-en00bk)"
     (rf/reg-frame :fc/a {:doc "frame A"})
     (rf/reg-frame :fc/b {:doc "frame B"})
-    (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive (fn [w h] w) :output-path [:rect :area]}
-                 {:frame :fc/a})
     (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :derive (fn [w h] h) :output-path [:rect :area]}
                  {:frame :fc/b})
-    (is (= :fc/b (:frame (registrar/lookup :flow :shared))))
-    ;; Destroy :fc/a — NOT the slot owner. Slot must keep naming :fc/b.
+    ;; Destroy :fc/a — it never registered :shared.
     (frame/destroy-frame! :fc/a)
-    (is (= :fc/b (:frame (registrar/lookup :flow :shared)))
-        "slot still names the live owner :fc/b — destroying a non-owner frame caused no re-point")))
+    (is (some? (flows/flow-meta-at :shared {:frame :fc/b}))
+        ":fc/b's entry survives — destroying :fc/a could not touch it")))
 
 ;; ---- SSR-style per-request frame churn stays bounded --------------------
 
@@ -220,7 +197,7 @@
       (is (empty? (flows/last-inputs-snapshot))
           "last-inputs is empty after N destroy cycles")
       (is (nil? (registrar/lookup :flow :churn))
-          "registrar :flow slot is gone after the last owning frame was destroyed"))))
+          "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
 
 ;; ---- frame-id reuse: new reg-frame starts clean -------------------------
 
@@ -240,8 +217,10 @@
         "the new frame has no inherited flow-registry slot")
     (is (not (contains? (get (flows/last-inputs-snapshot) :area) :fc/scratch))
         "the new frame has no inherited last-inputs row")
+    (is (nil? (flows/flow-meta-at :area {:frame :fc/scratch}))
+        "the new frame has no inherited per-frame flow entry")
     (is (nil? (registrar/lookup :flow :area))
-        "the new frame has no inherited :flow registrar slot")))
+        "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk)")))
 
 ;; ---- flow-output elision marks ride the frame-record drop ----------------
 ;;
@@ -324,9 +303,12 @@
 ;; `reg-flow` against an absent/destroyed frame is rejected BEFORE any state
 ;; mutates. `call-serialized-with-drain!` runs the registration thunk in-line
 ;; for a non-live frame, so without the guard the registration would install a
-;; `flows` row, an elision declaration, and a `:flow` registrar slot stamped
-;; with the dead frame-id — and a later `reg-frame` reusing that id would
-;; inherit the resurrected flow.
+;; `flows` row and an elision declaration stamped with the dead frame-id — and
+;; a later `reg-frame` reusing that id would inherit the resurrected flow.
+;; SINGLE-STORE (rf2-en00bk): there is no registrar `:flow` slot to install,
+;; so the `registrar/lookup :flow` checks below are nil throughout (the slot is
+;; RESERVED-but-empty) — the per-frame `flows`-snapshot equality checks are the
+;; load-bearing "mutated nothing" assertions.
 
 (deftest reg-flow-against-destroyed-frame-rejects-and-mutates-nothing
   (testing "Per rf2-zbxvqj: reg-flow on a DESTROYED frame throws a stable

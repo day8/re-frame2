@@ -28,6 +28,18 @@
   Tools introspecting app-db schemas go through `schemas/app-schemas`
   / `schemas/app-schema-meta-at`.
 
+  Per rf2-en00bk the `:flow` kind is RESERVED but the registrar slot is
+  intentionally **empty** — `reg-flow` writes only to the flows artefact's
+  own per-frame store (`flows`, keyed `{frame-id {flow-id flow-map}}`),
+  which is the single source of truth. Flows are FRAME-DIVERGENT-PER-ID
+  (the same flow-id can hold different `:inputs` / `:derive` /
+  `:output-path` per frame, Spec 013), so a frame-blind `{flow-id metadata}`
+  registrar slot is the wrong shape; the kind keyword is preserved for
+  Spec 001 §Registry model continuity. Tools introspecting flows go through
+  `flows/flow-meta-at` / `flows/flows-snapshot` rather than
+  `handlers :flow` / `handler-meta :flow` — matching the `:app-schema`
+  precedent (rf2-0frdi).
+
   ## Production elision
 
   The :rf.registry/* trace emit sites in this namespace are gated on
