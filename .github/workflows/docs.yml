@@ -55,6 +55,9 @@ on:
       - 'scripts/_test_fixtures/check_inject_cofx_residue/**'
       - 'scripts/check_retired_composition_vocab.py'
       - 'scripts/_test_fixtures/check_retired_composition_vocab/**'
+      # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
+      # trees too; a drift there must trigger the gate.
+      - 'tools/**/spec/**'
       - '.github/workflows/docs.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # below). The docs surface is re-applied job-side via the `detect` job.
@@ -106,7 +109,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -307,7 +310,13 @@ jobs:
       # CHANGELOG.md, SKILL-REDIRECT.md, AGENTS.md, CLAUDE.md, and the JVM gate
       # scripts (scripts/test-*.sh) — for the retired ARCHITECTURE prose phrases
       # "event[- ]program" / "realm[- ]routing" (removed-context mentions stay
-      # green). All with a narrow
+      # green). rf2-lq99wc extends the scan to the per-tool spec trees
+      # (tools/*/spec) and adds a DELETED-SUBSTRATE-as-live prose family — a
+      # "retained internal substrate" claim or a deleted-namespace read
+      # (re-frame.realm/* / re-frame.app-value/* / re-frame.migration/migration-map)
+      # named as a current seam (removed-context mentions stay green; the Xray/
+      # Story panel `install!` convention is exempted on the tool-spec surface).
+      # All with a narrow
       # self-documenting file allowlist for the historical / internal surface
       # (the EP docs, the migration skill, the implementor/Pair/Xray tooling
       # skills that reference the now-deleted realm/app/module substrate
