@@ -15,58 +15,58 @@
   <link rel="stylesheet" href="_shared/css/style.css">
   <style>
     /* Per-example layout — process-monitor shell. Tokens come from
-       _shared/css/style.css (--hx-* aliases for --ex-* tokens). */
+       _shared/css/style.css (the canonical --ex-* design system). */
     .pm-shell {
       min-height: 100vh;
       display: flex; flex-direction: column;
-      background: var(--hx-bg);
+      background: var(--ex-bg);
     }
     .pm-shell-head {
       padding: 1.5em 2em 1em;
-      border-bottom: 1px solid var(--hx-rule-strong);
+      border-bottom: 1px solid var(--ex-rule-strong);
       display: flex; flex-direction: column; gap: 1.2em;
     }
     .pm-brand { display: flex; align-items: baseline; gap: 0.2em; }
-    .pm-prompt { color: var(--hx-green); font-family: var(--hx-mono);
+    .pm-prompt { color: var(--ex-success); font-family: var(--ex-mono);
                  font-weight: 700; font-size: 1.6rem; }
     .pm-shell-head h1 {
-      font-family: var(--hx-mono);
+      font-family: var(--ex-mono);
       font-size: 1.6rem;
       margin: 0;
       letter-spacing: -0.01em;
     }
     .pm-shell-head h1::before { content: ''; }
     .pm-substrate {
-      font-family: var(--hx-mono);
-      color: var(--hx-ink-muted);
+      font-family: var(--ex-mono);
+      color: var(--ex-ink-muted);
       font-size: 0.9rem;
     }
 
     .pm-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75em; }
     .pm-tile {
-      background: var(--hx-bg-surface);
-      border: 1px solid var(--hx-rule-strong);
+      background: var(--ex-bg-sunken);
+      border: 1px solid var(--ex-rule-strong);
       border-radius: 4px;
       padding: 0.6em 0.9em;
-      font-family: var(--hx-mono);
+      font-family: var(--ex-mono);
     }
     .pm-tile-label {
       text-transform: uppercase;
       letter-spacing: 0.1em;
       font-size: 0.7rem;
-      color: var(--hx-ink-muted);
+      color: var(--ex-ink-muted);
       margin-bottom: 4px;
     }
-    .pm-tile-value { font-size: 1.4rem; font-weight: 700; color: var(--hx-ink); }
-    .pm-tile-good { border-left: 3px solid var(--hx-green); }
-    .pm-tile-good .pm-tile-value { color: var(--hx-green); }
-    .pm-tile-warn { border-left: 3px solid var(--hx-amber); }
-    /* Warning value is TEXT on the light --hx-bg-surface tile — use the AA-safe
-       deep amber (--hx-amber-deep), not decorative --hx-amber (sub-AA as text).
+    .pm-tile-value { font-size: 1.4rem; font-weight: 700; color: var(--ex-ink); }
+    .pm-tile-good { border-left: 3px solid var(--ex-success); }
+    .pm-tile-good .pm-tile-value { color: var(--ex-success); }
+    .pm-tile-warn { border-left: 3px solid var(--ex-warn); }
+    /* Warning value is TEXT on the light --ex-bg-sunken tile — use the AA-safe
+       deep amber (--ex-warn-deep), not decorative --ex-warn (sub-AA as text).
        The left border above stays decorative amber. (rf2-ihruwa) */
-    .pm-tile-warn .pm-tile-value { color: var(--hx-amber-deep); }
-    .pm-tile-bad  { border-left: 3px solid var(--hx-red); }
-    .pm-tile-bad  .pm-tile-value { color: var(--hx-red); }
+    .pm-tile-warn .pm-tile-value { color: var(--ex-warn-deep); }
+    .pm-tile-bad  { border-left: 3px solid var(--ex-error); }
+    .pm-tile-bad  .pm-tile-value { color: var(--ex-error); }
 
     .pm-grid {
       flex: 1;
@@ -78,7 +78,7 @@
 
     .pm-pane {
       display: flex; flex-direction: column;
-      border-right: 1px solid var(--hx-rule-strong);
+      border-right: 1px solid var(--ex-rule-strong);
       min-width: 0;
     }
     .pm-pane:last-child { border-right: 0; }
@@ -86,46 +86,46 @@
     .pm-pane-head {
       display: flex; align-items: center; justify-content: space-between;
       padding: 0.9em 1.2em;
-      border-bottom: 1px solid var(--hx-rule);
-      background: var(--hx-bg-surface);
+      border-bottom: 1px solid var(--ex-rule);
+      background: var(--ex-bg-sunken);
     }
     .pm-pane-head h3 {
-      font-family: var(--hx-mono);
+      font-family: var(--ex-mono);
       text-transform: uppercase;
       letter-spacing: 0.16em;
-      color: var(--hx-green);
+      color: var(--ex-success);
       font-size: 0.78rem;
       margin: 0;
     }
     .pm-pane-head h3::before { content: ''; }
     .pm-pane-hint {
-      font-family: var(--hx-mono);
-      color: var(--hx-ink-faint);
+      font-family: var(--ex-mono);
+      color: var(--ex-ink-faint);
       font-size: 0.74rem;
     }
 
     .pm-chips { display: flex; gap: 6px; }
     .pm-chip {
-      font-family: var(--hx-mono);
+      font-family: var(--ex-mono);
       text-transform: uppercase;
       letter-spacing: 0.1em;
       font-size: 0.7rem;
       font-weight: 700;
       padding: 4px 10px;
-      border: 1px solid var(--hx-rule-strong);
+      border: 1px solid var(--ex-rule-strong);
       background: transparent;
-      color: var(--hx-ink-muted);
+      color: var(--ex-ink-muted);
       cursor: pointer;
       border-radius: 2px;
       transition: color 100ms ease, border-color 100ms ease;
     }
-    .pm-chip:hover { color: var(--hx-ink); border-color: var(--hx-ink-muted); }
-    .pm-chip-info.is-on  { color: var(--hx-cyan);    border-color: var(--hx-cyan); }
+    .pm-chip:hover { color: var(--ex-ink); border-color: var(--ex-ink-muted); }
+    .pm-chip-info.is-on  { color: var(--ex-info);    border-color: var(--ex-info); }
     /* Active warn chip carries label TEXT + a state border on the light
-       --hx-bg-surface pane-head — use AA-safe --hx-amber-deep so both the text
+       --ex-bg-sunken pane-head — use AA-safe --ex-warn-deep so both the text
        (≥4.5:1) and the UI-component border (≥3:1) clear WCAG. (rf2-ihruwa) */
-    .pm-chip-warn.is-on  { color: var(--hx-amber-deep); border-color: var(--hx-amber-deep); }
-    .pm-chip-error.is-on { color: var(--hx-red);     border-color: var(--hx-red); }
+    .pm-chip-warn.is-on  { color: var(--ex-warn-deep); border-color: var(--ex-warn-deep); }
+    .pm-chip-error.is-on { color: var(--ex-error);     border-color: var(--ex-error); }
 
     .pm-list {
       list-style: none; padding: 0; margin: 0;
@@ -136,64 +136,64 @@
       grid-template-columns: 12px minmax(0,1fr) 70px 80px 56px 56px;
       gap: 8px; align-items: center;
       padding: 0.55em 1.2em;
-      border-bottom: 1px solid var(--hx-rule);
+      border-bottom: 1px solid var(--ex-rule);
       cursor: pointer;
-      font-family: var(--hx-mono);
+      font-family: var(--ex-mono);
       font-size: 0.86rem;
       transition: background 80ms ease;
     }
-    .pm-row:hover { background: var(--hx-bg-surface); }
+    .pm-row:hover { background: var(--ex-bg-sunken); }
     .pm-row.is-selected {
-      background: var(--hx-bg-elevated);
-      box-shadow: inset 3px 0 0 var(--hx-green);
+      background: var(--ex-bg-elevated);
+      box-shadow: inset 3px 0 0 var(--ex-success);
     }
-    .pm-row-name { color: var(--hx-ink); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pm-row-pid  { color: var(--hx-ink-faint); }
-    .pm-row-cpu, .pm-row-mem { color: var(--hx-ink-muted); text-align: right; }
+    .pm-row-name { color: var(--ex-ink); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pm-row-pid  { color: var(--ex-ink-faint); }
+    .pm-row-cpu, .pm-row-mem { color: var(--ex-ink-muted); text-align: right; }
     .pm-row-meter {
       height: 6px;
-      background: var(--hx-rule);
+      background: var(--ex-rule);
       border-radius: 1px;
       overflow: hidden;
     }
-    .pm-row-bar { height: 100%; background: var(--hx-green); transition: width 200ms ease; }
-    .pm-row-warn .pm-row-bar { background: var(--hx-amber); }
-    .pm-row-down .pm-row-bar { background: var(--hx-red); }
+    .pm-row-bar { height: 100%; background: var(--ex-success); transition: width 200ms ease; }
+    .pm-row-warn .pm-row-bar { background: var(--ex-warn); }
+    .pm-row-down .pm-row-bar { background: var(--ex-error); }
 
     .pm-dot {
       width: 8px; height: 8px; border-radius: 50%;
-      background: var(--hx-ink-faint);
+      background: var(--ex-ink-faint);
       box-shadow: 0 0 6px currentColor;
     }
-    .pm-dot-running { background: var(--hx-green); color: var(--hx-green); }
-    .pm-dot-warn    { background: var(--hx-amber); color: var(--hx-amber); }
-    .pm-dot-down    { background: var(--hx-red);   color: var(--hx-red); }
+    .pm-dot-running { background: var(--ex-success); color: var(--ex-success); }
+    .pm-dot-warn    { background: var(--ex-warn); color: var(--ex-warn); }
+    .pm-dot-down    { background: var(--ex-error);   color: var(--ex-error); }
 
     .pm-loglist {
       list-style: none; padding: 0; margin: 0;
       overflow-y: auto; flex: 1;
-      background: var(--hx-bg);
+      background: var(--ex-bg);
     }
     .pm-log {
       display: grid;
       grid-template-columns: 60px 80px 60px 1fr;
       gap: 10px;
       padding: 0.35em 1.2em;
-      font-family: var(--hx-mono);
+      font-family: var(--ex-mono);
       font-size: 0.84rem;
-      border-bottom: 1px dotted var(--hx-rule);
+      border-bottom: 1px dotted var(--ex-rule);
     }
-    .pm-log-tick { color: var(--hx-ink-faint); }
-    .pm-log-pid  { color: var(--hx-ink-muted); }
+    .pm-log-tick { color: var(--ex-ink-faint); }
+    .pm-log-pid  { color: var(--ex-ink-muted); }
     .pm-log-level {
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
-    .pm-log-level-info  { color: var(--hx-cyan); }
-    .pm-log-level-warn  { color: var(--hx-amber-deep); }  /* warn log level is TEXT on paper — AA-safe deep amber (rf2-ihruwa) */
-    .pm-log-level-error { color: var(--hx-red); }
-    .pm-log-msg { color: var(--hx-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pm-log-level-info  { color: var(--ex-info); }
+    .pm-log-level-warn  { color: var(--ex-warn-deep); }  /* warn log level is TEXT on paper — AA-safe deep amber (rf2-ihruwa) */
+    .pm-log-level-error { color: var(--ex-error); }
+    .pm-log-msg { color: var(--ex-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ── Responsive layout ──────────────────────────────────────────────
        The desktop composition above is the canonical two-pane shell. The
@@ -214,7 +214,7 @@
       }
       .pm-pane {
         border-right: 0;
-        border-bottom: 1px solid var(--hx-rule-strong);
+        border-bottom: 1px solid var(--ex-rule-strong);
       }
       .pm-pane:last-child { border-bottom: 0; }
       /* Give each scroll pane a bounded height once stacked so neither

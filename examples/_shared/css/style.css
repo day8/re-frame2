@@ -16,11 +16,10 @@
  * Atmosphere        : subtle paper-grain radial gradients fixed to the
  *                     viewport + soft warm-toned shadows. No heavy textures.
  *
- * Token convention  : the canonical names are --ex-*. Two design-led
- *                     examples still consume per-substrate prefix aliases
- *                     (notebook → --rg-*, process_monitor_helix → --hx-*),
- *                     which map onto the same shared values so they render
- *                     identically. New examples should use --ex-* directly.
+ * Token convention  : the canonical (and only) names are --ex-*. The shared
+ *                     design system exposes one substrate-agnostic token
+ *                     vocabulary; every example — including the design-led
+ *                     notebook and process-monitor — consumes --ex-* directly.
  *
  * @imports structure.css for layout-only class shapes
  *          (forms, banners, pills, boot, navbar, cards, cells grid,
@@ -82,43 +81,6 @@
 
   /* alias consumed by structure.css */
   --rf2-mono: var(--ex-mono);
-
-  /* ---- Per-substrate prefix aliases ----------------------------------- *
-   * Two design-led examples carry per-example inline CSS that references
-   * prefixed tokens: notebook (--rg-*) and process_monitor_helix (--hx-*).
-   * These map onto the same shared palette so every example renders
-   * identically. Only the tokens those examples actually use are kept.
-   * ----------------------------------------------------------------- */
-
-  /* Reagent legacy (--rg-*) — tokens consumed by the notebook example */
-  --rg-bg:           var(--ex-bg);
-  --rg-bg-raised:    var(--ex-bg-raised);
-  --rg-bg-sunken:    var(--ex-bg-sunken);
-  --rg-ink:          var(--ex-ink);
-  --rg-ink-faint:    var(--ex-ink-faint);
-  --rg-rule:         var(--ex-rule);
-  --rg-sienna:       var(--ex-accent);
-  --rg-sienna-deep:  var(--ex-accent-deep);
-  --rg-serif:        var(--ex-sans);
-  --rg-sans:         var(--ex-sans);
-  --rg-mono:         var(--ex-mono);
-
-  /* Helix legacy (--hx-*) — was dark; now mapped to the shared light theme.
-     Tokens consumed by the process_monitor_helix example. */
-  --hx-bg:           var(--ex-bg);
-  --hx-bg-surface:   var(--ex-bg-sunken);
-  --hx-bg-elevated:  var(--ex-bg-elevated);
-  --hx-ink:          var(--ex-ink);
-  --hx-ink-muted:    var(--ex-ink-muted);
-  --hx-ink-faint:    var(--ex-ink-faint);
-  --hx-rule:         var(--ex-rule);
-  --hx-rule-strong:  var(--ex-rule-strong);
-  --hx-green:        var(--ex-success);
-  --hx-amber:        var(--ex-warn);       /* decorative warning fill/accent */
-  --hx-amber-deep:   var(--ex-warn-deep);  /* AA-safe warning text/border */
-  --hx-red:          var(--ex-error);
-  --hx-cyan:         var(--ex-info);
-  --hx-mono:         var(--ex-mono);
 }
 
 html, body {
