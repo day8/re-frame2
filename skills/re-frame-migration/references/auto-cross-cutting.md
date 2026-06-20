@@ -339,7 +339,7 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 > **Field failure mode:** placing `(rf/init! adapter)` *inside* the render fn (e.g. a `mount-gui` defn) runs it **after** the boot code's seed `dispatch-sync` and any bootstrap dispatch. Put `init!` at the **top of the boot function**, ahead of every boot-time dispatch and the render call — and wrap the boot dispatches in the app frame's scope.
 
-**Corrected canonical v2 boot order** (a v1 app ADDs *both* the `init!` line and the app-frame registration + scope):
+**Corrected canonical v2 boot order** (a v1 app ADDs *both* the `init!` line and the app-frame registration + scope). Seed via `:on-create` — it runs synchronously at `reg-frame` time, inside the frame's own scope:
 
 ```clojure
 (ns my-app.core
@@ -353,16 +353,32 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 (defn ^:export init []                ; the boot entry point
   (rf/init! reagent/adapter)          ; 1. ADD: install adapter (creates NO frame)
-  (rf/reg-frame app-frame             ; 2. ADD: register the app frame...
-    {:on-create [:initialize-db]})    ;    ...seeding via :on-create (preferred), OR
-  (rf/with-frame app-frame            ;    establish a scope for any boot dispatch:
-    (rf/dispatch-sync [:initialize-db]))
+  (rf/reg-frame app-frame             ; 2. ADD: register the app frame, seeding
+    {:on-create [:initialize-db]})    ;    via :on-create — dispatch-sync'd into the
+                                      ;    fresh frame; by the time reg-frame RETURNS,
+                                      ;    app-db already reflects the seed cascade.
   (rdomc/render (rdomc/create-root el); 3. render LAST, UNDER frame-provider-existing:
     [rf/frame-provider-existing {:frame app-frame}  ; scope-only — frame already exists
      [app-root]]))
 ```
 
-Prefer seeding through the frame's `:on-create` (it runs synchronously at `reg-frame` time, inside the frame's own scope) over a separate boot `dispatch-sync`; reach for the explicit `with-frame` wrap only when boot logic must run extra dispatches before render. Either way, **the render is wrapped in `frame-provider-existing` for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (`frame-provider-existing` is the EP-0024 scope-only React-context member — the frame already exists from `reg-frame`, so you scope it, not own it; the owned `rf/frame-provider`, which creates-on-mount / destroys-on-unmount, is for view-owned frame lifetimes, not the app root.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
+`:on-create` is the single seed mechanism — **do not also `dispatch-sync` the same event** from a `with-frame` wrap. The framework dispatch-syncs `:on-create` into the freshly-created frame at `reg-frame` time and drains to fixed point, so by the time `reg-frame` returns the seed has already committed (verified in [`spec/002-Frames.md` §reg-frame metadata grammar](../../../spec/002-Frames.md)). Re-dispatching `[:initialize-db]` after `reg-frame` runs the same handler **twice** — harmless for an idempotent seed, but a boot handler that emits effects, starts a machine, increments a counter, or stamps durable state then double-fires. To seed multiple events, the single `:on-create` handler emits them via its `:fx` slot (see the M-15 walkthrough in [`guided-handlers-state.md`](guided-handlers-state.md#m-15--top-level-app-db-seeding)); never repeat the `:on-create` event in a separate boot dispatch.
+
+**Extra boot work before render** (a *different* event, not the seed) — reach for an explicit `with-frame` wrap only when boot logic must run dispatches the `:on-create` cascade doesn't already cover:
+
+```clojure
+(defn ^:export init []
+  (rf/init! reagent/adapter)
+  (rf/reg-frame app-frame
+    {:on-create [:initialize-db]})    ; seed runs here, once
+  (rf/with-frame app-frame            ; establish a scope for ADDITIONAL boot work …
+    (rf/dispatch-sync [:app/extra-boot-work]))  ; … a DISTINCT event, not :initialize-db
+  (rdomc/render (rdomc/create-root el)
+    [rf/frame-provider-existing {:frame app-frame}
+     [app-root]]))
+```
+
+Either way, **the render is wrapped in `frame-provider-existing` for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (`frame-provider-existing` is the EP-0024 scope-only React-context member — the frame already exists from `reg-frame`, so you scope it, not own it; the owned `rf/frame-provider`, which creates-on-mount / destroys-on-unmount, is for view-owned frame lifetimes, not the app root.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
 
 ---
 
