@@ -1,5 +1,5 @@
 (ns re-frame.story.theme.typography
-  "Story typography token system (rf2-2rwdc).
+  "Story typography token system.
 
   Story is a developer-facing **workshop / playground** UI — the
   surface where component authors hover over their work-in-progress
@@ -36,8 +36,7 @@
       {:font-family sans-stack}                  ; chrome / labels / prose
       {:font-family mono-stack}                  ; code / EDN / variant ids
 
-  Zero raw `font-family` strings outside this ns is the contract
-  (rf2-2rwdc acceptance criterion #5).
+  Zero raw `font-family` strings outside this ns is the contract.
 
   ## Web font delivery
 
@@ -114,7 +113,7 @@
    :bold     700})
 
 (def type-scale
-  "Story type scale tokens (rf2-juxha).
+  "Story type scale tokens.
 
   Stepped scale tuned for an info-dense workshop UI — Story's chrome
   packs sidebar / toolbar / controls / inspector / canvas-title
@@ -172,14 +171,13 @@
   visible before the webfont resolves — the shell never ships
   invisible text waiting on a network request.
 
-  Per rf2-2rwdc + the rf2-s1r9a Phase 1 browser-gate trace: the
-  auto-injected `@font-face` rules are `local()`-only — an
+  The auto-injected `@font-face` rules are `local()`-only — an
   OS-installed Plex picks up automatically, otherwise the fallback
   chain in `sans-stack` / `mono-stack` (Optima / Avenir Next /
   ui-sans-serif; ui-monospace / SF Mono / Cascadia Code) takes over.
   No `url()` entry is emitted because the testbed (and most consuming
-  projects) does not vendor the woff2 files at `/fonts/plex/...` —
-  every missing URL surfaced as a console 404 the browser-gate test
+  projects) does not vendor the woff2 files at `/fonts/plex/...`, and
+  attempting a fetch would surface a console 404 the browser-gate test
   runner counts as a failure. Consuming projects that DO want
   self-hosted or CDN webfonts inject their own `@font-face`
   declarations with `url()` entries pointing at their vendored

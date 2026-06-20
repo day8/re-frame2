@@ -29,7 +29,7 @@
   tracking. The machine is registered at Story-boot under the id
   `:rf.story.lifecycle/machine`. Each variant frame holds its own
   snapshot at `[:rf.runtime/machines :snapshots :rf.story.lifecycle/machine]`
-  in the runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
+  in the runtime-db partition (EP-0001 — machine snapshots are
   durable framework state) and mirrors the discrete state at
   `[:rf.story/lifecycle]` (in app-db) for direct read access.
 
@@ -67,7 +67,7 @@
   "Stable id for Story's lifecycle machine. One registration; per-
   variant snapshots live at
   `[:rf.runtime/machines :snapshots :rf.story.lifecycle/machine]` inside each
-  variant frame's runtime-db partition (EP-0001 rf2-vzld77)."
+  variant frame's runtime-db partition (EP-0001)."
   :rf.story.lifecycle/machine)
 
 (def state-mirror-path
@@ -79,11 +79,11 @@
 ;; ---- transition vocabulary -----------------------------------------------
 
 (def event-mount             :rf.story.lifecycle/mount)
-;; rf2-043cm — events-only variant fast-path. A variant with NO loaders,
+;; Events-only variant fast-path. A variant with NO loaders,
 ;; NO frame-setup decorators, and NO `:loaders-complete-when` predicate
 ;; has nothing to wait for between mount and render; the runtime drives
 ;; the lifecycle from `:pre-mount` straight to `:ready` via this event
-;; so the canvas's loading skeleton (rf2-0s4p1) never engages. The
+;; so the canvas's loading skeleton never engages. The
 ;; classical four-phase path (`mount → loaders-started → loaders-complete`)
 ;; stays in place for variants that legitimately have loader work.
 (def event-mount-ready       :rf.story.lifecycle/mount-ready)
@@ -101,7 +101,7 @@
 
 (def ^:private pre-mount-node
   "Initial state. Accepts :mount (→ :mounting), :mount-ready (→ :ready,
-  the rf2-043cm events-only fast-path) and :errored (→ :error)."
+  the events-only fast-path) and :errored (→ :error)."
   {:on {event-mount             :mounting
         event-mount-ready       :ready
         event-errored           :error}})
@@ -138,7 +138,7 @@
 
   Transitions:
     :pre-mount  --mount-->            :mounting
-    :pre-mount  --mount-ready-->      :ready        (rf2-043cm fast-path)
+    :pre-mount  --mount-ready-->      :ready        (events-only fast-path)
     :pre-mount  --errored-->          :error
     :mounting   --loaders-started-->  :loading
     :mounting   --errored-->          :error
@@ -191,7 +191,7 @@
   partition. Returns `{:state <state-kw> :data {...}}` or nil if the
   machine hasn't fired yet on this frame.
 
-  EP-0001 (rf2-vzld77): machine snapshots are durable framework state and
+  EP-0001: machine snapshots are durable framework state and
   live in the `:rf.db/runtime` partition at
   `[:rf.runtime/machines :snapshots <machine-id>]`, NOT in app-db.
   `rf/runtime-db-value` returns the value-form runtime-db map (per Spec 002
@@ -303,7 +303,7 @@
   (dispatch-lifecycle-event! frame-id (into [event-id] args)))
 
 (defn mount!          [frame-id]     (transition! frame-id event-mount))
-;; rf2-043cm — events-only variant fast-path. Drives :pre-mount → :ready
+;; Events-only variant fast-path. Drives :pre-mount → :ready
 ;; in a single transition for variants whose body declares no `:loaders`,
 ;; no `:frame-setup` decorators, and no `:loaders-complete-when`
 ;; predicate. The runtime (`frames/allocate!`) selects this path via
@@ -315,10 +315,10 @@
 (defn finish-events!  [frame-id]     (transition! frame-id event-events-complete))
 (defn error!          [frame-id err] (transition! frame-id event-errored err))
 
-;; ---- events-only classifier (rf2-043cm) ----------------------------------
+;; ---- events-only classifier ----------------------------------------------
 
 (defn events-only-variant?
-  "Per rf2-043cm — is the variant 'events-only'? A variant is events-
+  "Is the variant 'events-only'? A variant is events-
   only when:
 
   - its body declares no `:loaders` AND no `:loaders-complete-when`,
@@ -334,11 +334,10 @@
 
   Events-only variants take the lifecycle fast-path: `:pre-mount →
   :ready` on mount with no intervening `:mounting`/`:loading` states.
-  This keeps the rf2-0s4p1 loading skeleton off for variants that have
-  nothing to wait for — the regression PR #1574 surfaced via the
-  retired `xray-rhs-smoke` testbed; the events-only loader-body shape
-  is now pinned by `:story.counter/events-only-loaded` inside
-  `tools/story/testbeds/counter_with_stories/` (rf2-9jfo1.2).
+  This keeps the loading skeleton off for variants that have
+  nothing to wait for. The events-only loader-body shape is pinned by
+  `:story.counter/events-only-loaded` inside
+  `tools/story/testbeds/counter_with_stories/`.
 
   Returns a boolean. Pure — no app-db reads."
   [variant-body decorator-stack]
@@ -365,7 +364,7 @@
 (defn- predicate-event?
   "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` — a registered predicate-event handler is a plain
   re-frame event whose `:db` effect returns a value-form map containing
-  `[:rf.story/loaders-complete? <bool>]`. Stage 5 (rf2-h8et) accepts
+  `[:rf.story/loaders-complete? <bool>]`. The runtime accepts
   this shape by dispatching the event then reading the slot from the
   frame's app-db.
 
@@ -384,8 +383,7 @@
 (defn- dispatched-events-set
   "Read the dispatched-events set for `frame-id` from the epoch tape (the
   SSOT — `assertions/dispatched-events` projects each committed epoch's
-  `:trigger-event`). rf2-q651r migrated this off the retired
-  `trace-accumulators` parallel path onto the SAME tape projection the
+  `:trigger-event`). This reads the SAME tape projection the
   run-result evidence + `:rf.assert/dispatched?` read."
   [frame-id]
   (try
@@ -396,7 +394,7 @@
   "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` — a vector of event vectors form is interpreted
   as 'loaders complete when ALL listed events have fired against the
   variant's frame'. We consult the epoch-tape dispatched-events projection
-  (`dispatched-events-set`, the SSOT since rf2-q651r)."
+  (`dispatched-events-set`, the SSOT)."
   [frame-id events-required]
   (let [observed (or (dispatched-events-set frame-id) #{})]
     (every? (fn [needle] (contains? observed needle)) events-required)))
@@ -418,9 +416,7 @@
     Interpreted as 'loaders complete when ALL listed events have fired
     against the variant's frame.' The runtime checks the epoch-tape
     dispatched-events projection (`assertions/dispatched-events`, the
-    SSOT since rf2-q651r — the SAME tape the run-result evidence reads).
-
-  Stage 5 (rf2-h8et)."
+    SSOT — the SAME tape the run-result evidence reads)."
   [frame-id variant-body]
   (let [pred (:loaders-complete-when variant-body)]
     (cond

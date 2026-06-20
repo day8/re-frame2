@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.recorder
   "Test Codegen UI surface — toolbar REC chip + recording overlay.
 
-  Per bead rf2-5fc15. Wires the pure recorder
+  Wires the pure recorder
   (`re-frame.story.recorder`) to:
 
   - The chrome-level toolbar — a REC chip lives at the right of the
@@ -189,8 +189,8 @@
                  :display      "flex"
                  :align-items  "center"
                  :gap          "8px"}
-   ;; Modal styling for the save-as-variant dialog moved to
-   ;; `re-frame.story.review-dialog` (rf2-7jpky); only the chip /
+   ;; Modal styling for the save-as-variant dialog lives in
+   ;; `re-frame.story.review-dialog`; only the chip /
    ;; overlay / picker styles remain here.
    :btn-row     {:display "flex"
                  :gap "8px"
@@ -214,7 +214,7 @@
    :hint        {:color (:text-tertiary colors/tokens)
                  :font-style "italic"
                  :font-size (:micro typography/type-scale)}
-   ;; Mid-recording assertion picker (rf2-39u9e)
+   ;; Mid-recording assertion picker
    :assert-btn  {:padding "3px 9px"
                  :background (:accent-amber colors/tokens)
                  :color "white"
@@ -304,7 +304,7 @@
 ;; id in `:source-id` and the captured `:events` snapshot in
 ;; `:context` (with a top-level `:events` mirror for ergonomics).
 ;;
-;; **Snapshot at open time** (rf2-8x9nb): the captured events ride on
+;; **Snapshot at open time**: the captured events ride on
 ;; the dialog state itself — NOT read live off the recorder atom — so
 ;; clicking REC again to start a fresh recording (which resets the
 ;; recorder atom) cannot mutate the in-flight dialog's snippet. The
@@ -322,7 +322,7 @@
 (defn- open-dialog!
   "Open the save-as-variant dialog against `source-variant-id` with
   the captured `events` snapshot. `now-ms` defaults to the current
-  wall-clock; tests pass an explicit stamp. Per rf2-d5u89 the
+  wall-clock; tests pass an explicit stamp. The
   captured `:entries` are snapshotted alongside `:events` so the
   export dialog drives the `:script`-body translator with the rich
   DOM-event + timing record."
@@ -370,7 +370,7 @@
                      (cond
                        (and (not rec?) target)
                        (do
-                         ;; rf2-d5u89: re-attach DOM-capture listeners to
+                         ;; Re-attach DOM-capture listeners to
                          ;; the current canvas root. The shell's mount-
                          ;; time install handles the common case, but mode
                          ;; switches (Docs / Test → Canvas) re-mount the
@@ -382,7 +382,7 @@
                        rec?
                        (let [_     (recorder-dom/flush-type-buffer!)
                              {:keys [variant-id events entries]} (recorder/stop-recording!)]
-                         ;; rf2-nkjkj: open the dialog when EITHER stream
+                         ;; Open the dialog when EITHER stream
                          ;; captured something — a recording of canvas
                          ;; clicks/types only lands in :entries, never
                          ;; :events, so gating on :events alone would
@@ -414,7 +414,7 @@
         (str "  " (count (:events rec)))])]))
 
 ;; ---------------------------------------------------------------------------
-;; Mid-recording assertion picker (rf2-39u9e)
+;; Mid-recording assertion picker
 ;;
 ;; The recording overlay carries a `+ assert` button next to `stop`.
 ;; Click → `ui-picker` flips `:open?` true and the modal renders.
@@ -438,7 +438,7 @@
            :assertion    nil      ; the picked id, or nil while on phase 1
            :field-text   {}       ; field-key → raw input string
            :error        nil
-           :active-index 0}))     ; roving-focus cursor for phase-1 vocab list (rf2-07m13)
+           :active-index 0}))     ; roving-focus cursor for phase-1 vocab list
 
 (defn- open-picker! []
   (reset! ui-picker {:open? true :assertion nil :field-text {} :error nil :active-index 0}))
@@ -521,7 +521,7 @@
   "story-recorder-picker-title")
 
 (defn- vocab-key-handler
-  "Phase-1 keyboard handler for the assertion-vocabulary list (rf2-07m13).
+  "Phase-1 keyboard handler for the assertion-vocabulary list.
 
   - ArrowDown / ArrowUp move the active cursor one row.
   - Home / End jump to the first / last row.
@@ -556,11 +556,11 @@
   shell can mount it alongside the recorder overlay (and so tests can
   introspect the hiccup).
 
-  rf2-p1ai7: ARIA role=dialog + aria-modal + aria-labelledby on the
+  ARIA role=dialog + aria-modal + aria-labelledby on the
   picker panel; focus-trap wrapper handles Tab cycle, Escape, and
   return-focus.
 
-  rf2-07m13: phase-1 vocabulary list implements the WAI-ARIA APG
+  The phase-1 vocabulary list implements the WAI-ARIA APG
   menu pattern — role=menu on the container, role=menuitem on each
   row, roving tabindex with ArrowUp/ArrowDown/Home/End/Enter handling."
   []
@@ -680,7 +680,7 @@
                  :on-click  (fn [_] (insert!))}
                 "insert"]]]))]]])))
 
-;; rf2-d5u89: Reagent-mirror of the DOM-capture enabled flag so the
+;; Reagent-mirror of the DOM-capture enabled flag so the
 ;; overlay chip re-renders when the user toggles capture. The flag
 ;; lives in the dom-capture ns; here we just mirror it.
 
@@ -695,7 +695,7 @@
   "Fixed-position banner that floats at the top-right of the shell
   while a recording is in flight. Surfaces the target variant + the
   running event count + a `+ assert` button for mid-recording
-  assertion insertion (rf2-39u9e). Per rf2-d5u89 the overlay also
+  assertion insertion. The overlay also
   exposes a `DOM` toggle for opting in/out of DOM-event capture."
   []
   (let [{:keys [recording? variant-id events]} @ui-state
@@ -734,12 +734,12 @@
         {:style    (:btn-muted styles)
          :data-test "story-recorder-stop"
          :on-click (fn [_]
-                     ;; rf2-d5u89: drain pending typed-input buffer
+                     ;; Drain pending typed-input buffer
                      ;; before sealing the recording so the final
                      ;; :dom/type entry lands in the script.
                      (recorder-dom/flush-type-buffer!)
                      (let [{:keys [variant-id events entries]} (recorder/stop-recording!)]
-                       ;; rf2-nkjkj: open on EITHER stream — a DOM-only
+                       ;; Open on EITHER stream — a DOM-only
                        ;; recording lands only in :entries.
                        (when (or (seq events) (seq entries))
                          (open-dialog! variant-id events))))}
@@ -757,17 +757,17 @@
   The user edits the variant id inline; the snippet re-generates on
   every keystroke. Discard / close drop the captured recording.
 
-  ## Single source of truth — `:entries` (rf2-nkjkj)
+  ## Single source of truth — `:entries`
 
   The snippet is rendered from the recorder's RICH `:entries` snapshot
   via the `recording->script-body` translator, NOT the bare `:events`
   vector. `:entries` is the only stream that carries DOM interactions
   (`:dom/click` / `:dom/type` / `:dom/submit`, captured off the canvas
   root by `recorder.dom-capture`) — `:events` holds dispatched events
-  ONLY. Rendering the primary dialog off `:events` (the historical
-  `gen-play-snippet` path) SILENTLY DROPPED every recorded click /
-  type / submit, producing an incomplete, non-reproducing variant with
-  a misleading count. Consuming `:entries` here means a recording that
+  ONLY. The primary dialog renders off `:entries` rather than `:events`
+  because `:events` carries no recorded click / type / submit, so a
+  `:events`-only snippet would be an incomplete, non-reproducing
+  variant with a misleading count. Consuming `:entries` here means a recording that
   captured canvas clicks codegens `[:click ...]` / `[:type ...]` /
   `[:wait ...]` steps in the primary save flow, and the displayed count
   reflects the full rich recording.
@@ -778,7 +778,7 @@
 
   Reads `:entries` + `:source-id` from the dialog state itself — the
   snapshot was taken at `open-dialog!` time so a subsequent
-  `start-recording!` cannot mutate the visible snippet (rf2-8x9nb)."
+  `start-recording!` cannot mutate the visible snippet."
   []
   (let [dialog                                  @ui-dialog
         {:keys [events entries source-id]}      dialog]
@@ -812,7 +812,7 @@
            :on-edit-id        set-draft-id!
            :on-copy           (fn [] (review-dialog/copy-to-clipboard! snippet))
            :on-discard        (fn [] (recorder/clear!) (close-dialog!))
-           ;; rf2-x9zsr — open the export dialog with the captured
+           ;; Open the export dialog with the captured
            ;; snapshot for the auto-run / auto-assert affordances. We
            ;; DON'T close the parent dialog; the export dialog stacks on
            ;; top via a higher z-index.

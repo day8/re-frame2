@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.dispatch-console
   "Dispatch Console panel — free-form event dispatch into the running
   variant's frame. The re-frame2-flavoured equivalent of Storybook's
-  args/controls, fitted to events (rf2-q9kv5).
+  args/controls, fitted to events.
 
   ## What it is
 
@@ -209,7 +209,7 @@
 ;; ---- pure: history shaping -----------------------------------------------
 
 (def ^:const history-max
-  "Cap the per-variant history at 20 entries (per the rf2-q9kv5 brief)."
+  "Cap the per-variant history at 20 entries."
   20)
 
 (defn clamp-history
@@ -236,8 +236,7 @@
   `cofx` (EP-0017) is the flat `:rf.cofx` map supplied at dispatch time
   (or nil). It is recorded alongside the event so a history REPLAY can
   re-present the EXACT recordable facts — a faithful re-run rather than a
-  fresh mint. Stored only when non-nil so legacy / cofx-free rows stay
-  byte-identical to the pre-EP-0017 shape."
+  fresh mint. Stored only when non-nil so cofx-free rows stay terse."
   ([event-id payload kind ms]
    (build-history-entry event-id payload kind ms nil))
   ([event-id payload kind ms cofx]
@@ -342,7 +341,7 @@
 #?(:cljs
    (def ^:const ls-key-prefix
      "localStorage key prefix per-variant — full key is
-     `story.dispatch-history/<variant-id>`. Per the rf2-q9kv5 brief."
+     `story.dispatch-history/<variant-id>`."
      "story.dispatch-history/"))
 
 #?(:cljs

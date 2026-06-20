@@ -1,12 +1,12 @@
 (ns re-frame.story.ui.schema-form
-  "Schema-generated input forms for view-state values (rf2-xon7j).
+  "Schema-generated input forms for view-state values.
 
   ## What it is
 
   When a `:sub-overrides` target sub declares an output `:schema`, the
   designer should fill in a TYPED FORM (text / number / checkbox / select
   / flat fieldset) rather than hand-write the override's raw EDN. A schema
-  good enough to VALIDATE an override (the rf2-7pgiz `:where :sub-override`
+  good enough to VALIDATE an override (the `:where :sub-override`
   seam — core validates a HIT against the sub's declared `:schema`) is good
   enough to GENERATE its input. This namespace is the pure projection that
   turns a registered schema into a flat field-shape, builds default values,

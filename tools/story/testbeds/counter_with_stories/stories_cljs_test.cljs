@@ -137,21 +137,21 @@
                    :story.counter-matrix/recorder-redaction
                    :story.counter-matrix/a11y-known-good
                    :story.counter-matrix/a11y-known-bad
-                   ;; rf2-0uo4e — failing-fx-stub-miss testbed (parent story
+                   ;; failing-fx-stub-miss testbed (parent story
                    ;; :story.counter-matrix).
                    :story.counter-matrix/failing-fx-stub-miss]]
         (is (contains? vs vid) (str vid " registered")))
       (is (= 14 (count vs))))))
 
-;; ---- recorder-redaction variant is self-contained (rf2-k924v) -----------
+;; ---- recorder-redaction variant is self-contained ----------------------
 ;;
 ;; This test ns requires `counter-with-stories.events` + `.stories`
 ;; (which itself requires events + views) — but NOT
 ;; `counter-with-stories.elision-demo`. The recorder-redaction-card
 ;; dispatches `:counter/sign-in`, a `:sensitive?` handler owned by the
-;; counter events slice. If the card still depended on elision-demo's
-;; `:auth/sign-in` (the pre-rf2-k924v coupling) this handler-meta probe
-;; would come back nil, because nothing here boots elision-demo.
+;; counter events slice. The card depends only on the counter events
+;; slice, not on elision-demo's `:auth/sign-in`, so this handler-meta
+;; probe resolves without booting elision-demo.
 
 (deftest recorder-redaction-sensitive-handler-registered-self-contained
   (testing "the `:counter/sign-in` handler the recorder-redaction-card

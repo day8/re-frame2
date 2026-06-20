@@ -73,7 +73,7 @@
 
   Single-sources the variant-id grammar at the STRING level so an MCP
   write path can validate a caller-supplied id string BEFORE interning a
-  keyword (rf2-tag30h) — the keyword-level `variant-id?` delegates here.
+  keyword — the keyword-level `variant-id?` delegates here.
   Per /spec/007-Stories.md §Canonical id grammar."
   [[ns-part name-part]]
   (boolean
@@ -94,7 +94,7 @@
   `(namespace) = \"story.auth.login-form\"` and `(name) = \"empty\"`.
 
   Delegates to `variant-id-shape?` so the keyword-level check and the
-  string-level pre-intern check (used by the MCP write paths, rf2-tag30h)
+  string-level pre-intern check (used by the MCP write paths)
   cannot drift."
   [id]
   (and (keyword? id)
@@ -127,7 +127,7 @@
                        (= (subs ns 0 5) "Mode.")))))))
 
 (defn fragment-id?
-  "True iff `id` is a keyword id for a `reg-fragment` (rf2-5x1wt.15). The
+  "True iff `id` is a keyword id for a `reg-fragment`. The
   spec/017 §Strict composition example shape is
   `:fragment.<path>/<name>` (e.g. `:fragment.checkout/cart-with-sku`),
   but fragments are anonymous reusable mixins with no story lineage, so
@@ -137,7 +137,7 @@
   (keyword? id))
 
 (defn check-id?
-  "True iff `id` is a keyword id for a `reg-check` (rf2-5x1wt.15). The
+  "True iff `id` is a keyword id for a `reg-check`. The
   spec/017 §Strict composition example shape is `:check/<name>` (e.g.
   `:check/no-runtime-errors`); like fragment ids the grammar is left open
   — any keyword is accepted. Checks preserve identity in run results, so
@@ -155,13 +155,13 @@
   `:rf.error/unknown-tag` at registration."
   #{:dev :docs :test :screenshot :experimental :internal :agent})
 
-;; ---- canonical facet axes (rf2-7ncf9 — SB9 facet taxonomy) ---------------
+;; ---- canonical facet axes (SB9 facet taxonomy) --------------------------
 
 (def canonical-axes
   "Pure data → data: the canonical facet axes Story documents for
   the sidebar tag-filter UI. Mirrors Storybook 9's status / role /
-  team / feature axes (rf2-v05qb SB9 parity) plus the operator-
-  facing `:state` magnitude axis (rf2-k1k87).
+  team / feature axes (SB9 parity) plus the operator-
+  facing `:state` magnitude axis.
 
   Three axes ship with a recommended vocabulary:
 
@@ -210,14 +210,14 @@
   (get-in canonical-axes [:role :values]))
 
 (def canonical-state-values
-  "The canonical `:state` axis vocabulary (rf2-k1k87) — operator-
+  "The canonical `:state` axis vocabulary — operator-
   facing state magnitude / fixture richness classifications. The
   faceted-tag shape is `:state/<value>`."
   (get-in canonical-axes [:state :values]))
 
 (def canonical-state-tags
-  "The canonical `:state/*` faceted tags Story registers at load
-  (rf2-k1k87). Built from `canonical-state-values` by namespacing
+  "The canonical `:state/*` faceted tags Story registers at load.
+  Built from `canonical-state-values` by namespacing
   each value under `:state` — `:empty` → `:state/empty`, etc.
 
   These tags are projected onto variant `:tags` sets by gallery
@@ -282,8 +282,7 @@
   "Subset of the recognised substrate ids. The framework supplies the
   closed set; Story validates membership. `:reagent-slim` is reserved
   for future use — it is not yet on the canonical substrate enum (the
-  renderer hasn't shipped). See spec/000-Vision + the rf2-tb0ga
-  cleanup."
+  renderer hasn't shipped). See spec/000-Vision."
   [:set [:enum :reagent :uix :helix]])
 
 (def PlatformSet
@@ -294,7 +293,7 @@
   "A set of registered mode ids the artefact opts into."
   [:set :keyword])
 
-;; ---- viewport + background (rf2-zll4h) -----------------------------------
+;; ---- viewport + background -----------------------------------------------
 
 (def ViewportSlot
   "Schema for the optional `:viewport` slot on a story / variant body.
@@ -344,30 +343,28 @@
 (def XrayPreset
   "Schema for the optional `:xray` slot on a story / variant body —
   per-story Xray pre-configuration applied when Xray mounts inside
-  the rendered variant's frame (rf2-q9kv5).
+  the rendered variant's frame.
 
   All slots are optional. The preset is plain data; the runtime side
   (`re-frame.story.xray-preset`) feature-detects Xray and the optional
   filters API, no-opping gracefully when absent.
 
   - `:open?`   — when truthy, auto-open the Xray shell on variant mount.
-                 Under the per-panel embed (rf2-v1ach) this is largely
+                 Under the per-panel embed this is largely
                  superseded by `:panel` — the chip-row + selected panel
                  are the default RHS surface; `:open?` survives for the
                  popout / whole-shell escape hatch only.
-  - `:panel`   — rf2-v1ach. The Xray panel to mount in the RHS Xray
-                 host. Post rf2-5gl5r + rf2-gbz39, one of:
-                   `:epoch` (default — supersedes the retired
-                              `:event-detail`)
+  - `:panel`   — the Xray panel to mount in the RHS Xray
+                 host. One of:
+                   `:epoch` (default)
                    `:app-db`
                    `:views`
                    `:trace`
                    `:machines`
                    `:routing`
-                 (rf2-gbz39 removed `:issues` alongside the Xray Issues
-                 tab per Mike's Option (c) ruling; issues surface inline
-                 in the Epoch panel + the L2 event-row pink-wash + the
-                 always-on issues ribbon signal.)
+                 (Issues surface inline in the Epoch panel + the L2
+                 event-row pink-wash + the always-on issues ribbon
+                 signal.)
                  Authors choose the panel-id that fits the story's
                  diagnostic question (`:counter/at-five` → `:app-db`,
                  `:routing-demo/*` → `:routing`, etc.). The user can
@@ -376,7 +373,7 @@
   - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Xray
                  auto-filter pills to pre-populate. Both axes are
                  optional. Skipped with a console warning when
-                 `day8.re-frame2-xray.filters` (rf2-ak4ms) is not on
+                 `day8.re-frame2-xray.filters` is not on
                  the classpath.
   - `:focus`   — optional pre-focus coordinates. `{:event-pos N}` selects
                  the Nth event in the current cascade. Rare; usually you
@@ -410,19 +407,19 @@
     into N independent `reg-variant` calls.
   - `:dispatch-console?` — Story-shell dispatch console panel opt-in.
     Default false (panel hidden). Set true to surface the per-variant
-    dispatch console for this story / its variants (rf2-q9kv5). Toolbar
+    dispatch console for this story / its variants. Toolbar
     real-estate is precious; the chrome-level toolbar chip lets the user
     flip the chrome-toggle without editing the story body.
   - `:xray` — per-story Xray preset (auto-open, panel focus, filter
     pre-population). See `XrayPreset` schema. The preset is read on
     variant mount and applied via `re-frame.story.xray-preset/
-    apply-preset!`. (rf2-q9kv5).
+    apply-preset!`.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
-  The `:map` is `{:closed true}`: a removed / typo'd slot is rejected at
+  The `:map` is `{:closed true}`: a typo'd slot is rejected at
   `reg-story` call-time with `:rf.error/story-shape` rather than silently
-  swallowed and dropped on the floor. `:source` is the registrar's
+  accepted. `:source` is the registrar's
   source-coord stamp (declared so the closed map accepts it)."
   [:map {:closed true}
    [:doc        {:optional true} :string]
@@ -431,17 +428,15 @@
    [:decorators {:optional true} DecoratorRefs]
    [:args       {:optional true} ArgMap]
    [:argtypes   {:optional true} ArgtypesMap]
-   ;; rf2-hwcdh2 — a story body carries NO `:rf/props` / `:schema`
-   ;; props-schema slot. The view-args (props) schema lives ONLY on the
-   ;; registered `:component` view's `reg-view` metadata (canonical
-   ;; first-match `[:rf/props :schema]` — see `re-frame.story.malli-schema/
+   ;; A story body carries NO `:rf/props` / `:schema` props-schema slot.
+   ;; The view-args (props) schema lives ONLY on the registered
+   ;; `:component` view's `reg-view` metadata (canonical first-match
+   ;; `[:rf/props :schema]` — see `re-frame.story.malli-schema/
    ;; view-args-schema-keys`). The plan compiler
    ;; (`re-frame.story.plan/compile-body`) resolves it off the view-meta
-   ;; via `view-lookup`, never off the story/variant body — so a body-level
-   ;; slot passed closed-shape validation but was silently UNREAD (an
-   ;; accepted-but-dead authoring surface). The slots are removed so a
-   ;; props schema authored on the body now FAILS closed-shape validation
-   ;; with `:rf.error/story-shape`, naming the dead key, rather than being
+   ;; via `view-lookup`, never off the story/variant body. A props schema
+   ;; authored on the body FAILS closed-shape validation with
+   ;; `:rf.error/story-shape`, naming the unknown key, rather than being
    ;; swallowed with no effect.
    [:tags       {:optional true} TagSet]
    [:modes      {:optional true} ModeRefSet]
@@ -449,12 +444,12 @@
    [:platforms  {:optional true} PlatformSet]
    [:dispatch-console? {:optional true} :boolean]
    [:xray      {:optional true} XrayPreset]
-   ;; rf2-mantt — story-level `:xray-panel` (rf2-6qm77): the default Xray
+   ;; Story-level `:xray-panel`: the default Xray
    ;; panel-id a variant inherits unless it carries its own `:xray-panel`
    ;; (the variant slot beats the story slot — `effective-panel` reads
    ;; variant-first then story). A registered panel-id keyword.
    [:xray-panel {:optional true} :keyword]
-   ;; rf2-zll4h — viewport + background switchers. Per-story override
+   ;; Viewport + background switchers. Per-story override
    ;; that wins over the chrome toolbar selection at canvas mount time.
    ;; Both slots are optional; absent means 'inherit the toolbar
    ;; selection' (or the neutral default).
@@ -467,7 +462,7 @@
 
 ;; ---- :rf/variant ----------------------------------------------------------
 
-;; ---- :play-script step DSL (rf2-8i2a9) -----------------------------------
+;; ---- :play-script step DSL -----------------------------------------------
 
 (def PlayStep
   "A single step in a rich `:script` body — the one tagged step grammar
@@ -511,9 +506,9 @@
 
   Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the
   public authoring key for ordered behaviour-under-test is `:script`;
-  `:play-script` is the transitional spelling accepted during the
-  pre-alpha rename and lowered to the shipping slot by the registrar
-  (`lower-public-vocabulary`). Both spellings share this body shape."
+  `:play-script` is the transitional spelling, accepted and lowered to
+  the shipping slot by the registrar (`lower-public-vocabulary`). Both
+  spellings share this body shape."
   [:or
    PlayScript
    [:map
@@ -521,7 +516,7 @@
     [:auto-run? {:optional true} :boolean]
     [:name      {:optional true} :string]]])
 
-;; ---- :plays — multi-play extension (rf2-tl7zk) ---------------------------
+;; ---- :plays — multi-play extension --------------------------------------
 
 (def NamedPlaySpec
   "A single entry in a `:plays` vector. Same shape as `PlaySpec` (map
@@ -550,7 +545,7 @@
     (fn [v] (or (empty? v)
                 (= (count v) (count (distinct (map :name v))))))]])
 
-;; ---- :compose — strict fragment/check composition (rf2-5x1wt.15) ---------
+;; ---- :compose — strict fragment/check composition -----------------------
 
 (def AssertionVector
   "A terminal/checkpoint assertion atom — the data vector
@@ -561,8 +556,8 @@
   (keyword-headed-vector "assertion must be a vector starting with a keyword id"))
 
 (def ComposeRefs
-  "Schema for the `:compose` slot on a variant / inline plan (rf2-5x1wt.15
-  + spec/017 §`:compose`). A vector of registered fragment-ids and
+  "Schema for the `:compose` slot on a variant / inline plan
+  (spec/017 §`:compose`). A vector of registered fragment-ids and
   check-ids, applied in declared order. Each entry is a bare keyword — the
   reference is by id; the fragment/check body lives at its registration
   site. The plan compiler resolves a fragment-id against the fragment
@@ -570,7 +565,7 @@
   FAILS plan construction."
   [:vector :keyword])
 
-;; ---- :network — managed HTTP request stubs (rf2-5x1wt.14) ----------------
+;; ---- :network — managed HTTP request stubs ------------------------------
 
 (def NetworkRoute
   "A single `:network` route key — a `[method url]` pair matching the
@@ -609,7 +604,7 @@
    [:fn {:error/message ":network route value must carry a :reply"}
     (fn [m] (contains? m :reply))]])
 
-;; ---- :sub-overrides — view-state subscription overrides (rf2-5x1wt.13) ---
+;; ---- :sub-overrides — view-state subscription overrides -----------------
 
 (def SubQueryVector
   "A `:sub-overrides` key — an exact subscription query vector
@@ -624,8 +619,8 @@
 
 (def SubOverridesMap
   "Schema for the `:sub-overrides` slot on a variant / fragment body —
-  the deliberate lower-fidelity view-state affordance (rf2-5x1wt.13 +
-  spec/017 §View-state subscription overrides). A map of exact
+  the deliberate lower-fidelity view-state affordance (spec/017
+  §View-state subscription overrides). A map of exact
   subscription query vectors to the data values the renderer should
   surface for them.
 
@@ -644,7 +639,7 @@
 
 (def DbSeed
   "Schema for the `:db-seed` slot on a variant / fragment body — the
-  MIDDLE rung of the fidelity ladder (rf2-blw1q + spec/017 §View-state
+  MIDDLE rung of the fidelity ladder (spec/017 §View-state
   subscription overrides — `#{:real-setup :db-seed :sub-overrides}`). A
   direct app-db state seed: a `path → value` map merged into the variant
   frame's app-db BEFORE script execution.
@@ -668,7 +663,7 @@
 
 (def NetworkSpec
   "Schema for the `:network` slot on a story / variant / fragment body —
-  first-class managed-HTTP request stubs (rf2-5x1wt.14). A map of
+  first-class managed-HTTP request stubs. A map of
   `[method url]` route keys to `{:reply {:ok|:failure …}}` reply specs.
 
   Per `tools/story/spec/017-Testing-Story.md` §Network world the plan
@@ -695,7 +690,7 @@
   their own keys without registration ceremony (per Spec-Schemas's
   open-by-default convention).
 
-  ## Public vocabulary (rf2-5x1wt.11)
+  ## Public vocabulary
 
   Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the P1
   public authoring vocabulary is:
@@ -703,8 +698,7 @@
   - `:setup`  — preconditions (a vector of event vectors).
   - `:script` — ordered behaviour under test (a `PlaySpec` body).
 
-  These supersede the shipping spellings as a **clean pre-alpha rename,
-  not a long-lived compatibility layer**:
+  These are the public spellings of the shipping slots:
 
   | Public (target) | Transitional (shipping) |
   |-----------------|-------------------------|
@@ -712,14 +706,12 @@
   | `:script`       | `:play-script`          |
   | named `:plays`  | `:plays` (kept as named scripts) |
 
-  The schema accepts BOTH spellings so the tree can migrate incrementally
-  while existing tests stay green. The registrar's `lower-public-vocabulary`
+  The schema accepts BOTH spellings. The registrar's `lower-public-vocabulary`
   step folds `:setup` → `:events` and `:script` → `:play-script` into the
   stored body so every downstream consumer (runtime phase-2, the play
   runner, snapshot identity, the workspace/canvas readers, the recorder)
-  reads the shipping slot unchanged until the runtime is routed through
-  the variant-plan compiler (rf2-5x1wt.17 / .22). `:plays` is preserved
-  as named scripts in the normalized plan; it is not dropped.
+  reads the shipping slot. `:plays` is preserved
+  as named scripts in the normalized plan.
 
   ## Setup surface — `:setup` xor `:events`
 
@@ -727,7 +719,7 @@
   `:setup` and `:events` is a schema-level error (the author picks one
   during migration), validated by the `:fn` clause below.
 
-  ## Play surface — `:script` xor `:play-script` xor `:plays` (rf2-tl7zk)
+  ## Play surface — `:script` xor `:play-script` xor `:plays`
 
   A variant declares ONE play surface:
 
@@ -739,20 +731,17 @@
   clause below). For `:plays` the toolbar surfaces a dropdown and the CI
   runner enumerates each play as its own result row.
 
-  ## :play was REMOVED (rf2-0wrud, 2026-05-20)
+  ## `:play` is not a slot
 
-  Pre-alpha posture: the legacy `:play` slot (vector of event vectors)
-  has been removed entirely — there is no transitional dual-acceptance.
-  Authors migrate event-vector lists by wrapping each entry as
-  `[:dispatch-sync <event-vec>]` in a `:script` body.
+  There is no `:play` slot. An event-vector list is authored by wrapping
+  each entry as `[:dispatch-sync <event-vec>]` in a `:script` body.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
-  The `:map` is `{:closed true}`: a removed slot (the REMOVED `:play`
-  above) or a typo'd slot is rejected at `reg-variant` call-time with
+  The `:map` is `{:closed true}`: an unrecognised slot (such as `:play`)
+  or a typo'd slot is rejected at `reg-variant` call-time with
   `:rf.error/variant-shape`, naming the unknown key, rather than being
-  silently accepted and then dropped on the floor at runtime (the
-  swallow-class bug rf2-1774m bit the scaffolded template with). Two
+  silently accepted and then dropped on the floor at runtime. Two
   registrar-stamped slots are declared so the closed map accepts them:
   `:source` (the source-coord stamp) and `:origin` (the write-surface tag
   the story-mcp `register-variant` / `record-as-variant` tools stamp per
@@ -761,12 +750,12 @@
    [:map {:closed true}
     [:doc                   {:optional true} :string]
     [:source                {:optional true} SourceCoords]
-    ;; rf2-mantt — `:origin` is the write-surface tag stamped by the
+    ;; `:origin` is the write-surface tag stamped by the
     ;; story-mcp write tools (`reg-variant*` with `:origin config/origin`)
     ;; per spec/Cross-Cutting-Designs.md §5 Origin tagging. Declared so
     ;; the closed map accepts a programmatically-written variant body.
     [:origin                {:optional true} :keyword]
-    ;; rf2-mantt — `:run-artifact` is the framework-stamped source-artifact
+    ;; `:run-artifact` is the framework-stamped source-artifact
     ;; back-link a PROMOTED variant carries (spec/017 §Promotion;
     ;; `re-frame.story.promotion/provenance-link`). Not author-facing — the
     ;; promotion path writes it into the registered body. A trimmed
@@ -776,28 +765,28 @@
     ;; evolving internal shape.
     [:run-artifact          {:optional true} [:map-of :any :any]]
     [:extends               {:optional true} :keyword]
-    ;; rf2-5x1wt.15 — `:compose` includes registered fragments + checks
+    ;; `:compose` includes registered fragments + checks
     ;; explicitly, applied in declared order (spec/017 §`:compose`).
     ;; Fragments contribute world context + setup/script; checks
     ;; contribute inheritable assertion packs. See `ComposeRefs`.
     [:compose               {:optional true} ComposeRefs]
-    ;; rf2-5x1wt.11 — `:setup` is the PUBLIC precondition slot; `:events`
+    ;; `:setup` is the PUBLIC precondition slot; `:events`
     ;; is the transitional spelling lowered to `:setup`'s shipping slot
     ;; by the registrar. Mutually exclusive (the `:fn` clause below).
     [:setup                 {:optional true} [:vector EventVector]]
     [:events                {:optional true} [:vector EventVector]]
-    ;; rf2-5x1wt.11 — `:script` is the PUBLIC play slot (per spec/017
-    ;; §Public vocabulary). rf2-8i2a9 — the rich Storybook-style play
+    ;; `:script` is the PUBLIC play slot (per spec/017
+    ;; §Public vocabulary) — the rich Storybook-style play
     ;; script body shape. Each step is a tagged vector (`[:dispatch ...]`,
     ;; `[:dispatch-sync ...]`, `[:wait ms]`, `[:assert-db path value]`,
     ;; `[:assert-dom selector ...]`, `[:click selector]`, `[:type selector
     ;; text]`). See `PlaySpec`.
     [:script                {:optional true} PlaySpec]
     ;; `:play-script` — the transitional spelling of `:script`, lowered
-    ;; to `:script`'s shipping slot by the registrar. rf2-0wrud
-    ;; (2026-05-20): the legacy `:play` slot is REMOVED.
+    ;; to `:script`'s shipping slot by the registrar. There is no
+    ;; `:play` slot.
     [:play-script           {:optional true} PlaySpec]
-    ;; rf2-tl7zk — multi-play: a vector of named plays. Mutually
+    ;; Multi-play: a vector of named plays. Mutually
     ;; exclusive with `:script` / `:play-script` (validated by the `:fn`
     ;; clause below). The toolbar surfaces a dropdown when `:plays` has
     ;; more than one entry; the CI runner enumerates each play as its own
@@ -805,21 +794,19 @@
     [:plays                 {:optional true} PlaysSpec]
     [:args                  {:optional true} ArgMap]
     [:argtypes              {:optional true} ArgtypesMap]
-    ;; rf2-hwcdh2 — a variant body carries NO `:rf/props` / `:schema`
-    ;; props-schema slot. The view-args (props) schema lives ONLY on the
-    ;; registered `:component` view's `reg-view` metadata (canonical
-    ;; first-match `[:rf/props :schema]`; see `re-frame.story.malli-schema/
+    ;; A variant body carries NO `:rf/props` / `:schema` props-schema
+    ;; slot. The view-args (props) schema lives ONLY on the registered
+    ;; `:component` view's `reg-view` metadata (canonical first-match
+    ;; `[:rf/props :schema]`; see `re-frame.story.malli-schema/
     ;; view-args-schema-keys`). The plan compiler resolves it off the
     ;; view-meta of the resolved `:component` (`[:world :view-args-schema]`),
     ;; never off the variant body — and `:rf/props` / `:schema` are NOT in
-    ;; `re-frame.story.plan/context-keys`, so they would not even inherit
-    ;; through `:extends`. A body-level slot was an accepted-but-dead
-    ;; authoring surface (passed closed-shape validation, silently unread),
-    ;; so it is removed: a props schema on a variant body now FAILS
+    ;; `re-frame.story.plan/context-keys`, so they do not inherit
+    ;; through `:extends`. A props schema on a variant body FAILS
     ;; closed-shape validation with `:rf.error/variant-shape`. A variant
     ;; that wants a narrower props schema does it on the per-variant
     ;; `:component` view's metadata, not on the variant body.
-    ;; rf2-5x1wt.14 — first-class managed-HTTP request stubs. A map of
+    ;; First-class managed-HTTP request stubs. A map of
     ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
     ;; lowers `:network` to `[:world :network]` and on to the managed-
     ;; request stub fx (`re-frame.http.test-support`). The higher-level
@@ -827,7 +814,7 @@
     ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
     ;; world.
     [:network               {:optional true} NetworkSpec]
-    ;; rf2-5x1wt.13 — view-state subscription overrides. A map of exact
+    ;; View-state subscription overrides. A map of exact
     ;; subscription query vectors → data values the renderer surfaces
     ;; for design/view-state exploration. The plan compiler resolves
     ;; `[:arg key]` placeholders in the values, validates each resolved
@@ -838,7 +825,7 @@
     ;; `:rf.assert/sub-equals`. See `SubOverridesMap` + spec/017
     ;; §View-state subscription overrides.
     [:sub-overrides         {:optional true} SubOverridesMap]
-    ;; rf2-blw1q — `:db-seed` is the MIDDLE fidelity rung (spec/017
+    ;; `:db-seed` is the MIDDLE fidelity rung (spec/017
     ;; §View-state subscription overrides — `#{:real-setup :db-seed
     ;; :sub-overrides}`): a direct app-db state seed (a `path → value`
     ;; map) merged into the variant frame's app-db BEFORE script
@@ -850,7 +837,7 @@
     ;; §Setup). A seed that violates a registered schema FAILS the run
     ;; with `:rf.error/story-db-seed-invalid`. See `DbSeed`.
     [:db-seed               {:optional true} DbSeed]
-    ;; rf2-5x1wt.15 — strict-conflict effect/interceptor override slots.
+    ;; Strict-conflict effect/interceptor override slots.
     ;; `:fx-overrides` is the first-class fx-override surface (spec/017
     ;; §The effect-override surface); `:interceptor-overrides` the
     ;; interceptor analog. Both are strict-conflict fields: a variant that
@@ -860,7 +847,7 @@
     ;; resolution).
     [:fx-overrides          {:optional true} [:map-of :keyword :any]]
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
-    ;; rf2-5x1wt.15 — `:checks` is the inheritable expectation form (a
+    ;; `:checks` is the inheritable expectation form (a
     ;; vector of registered check-ids, expanded by the plan compiler);
     ;; `:assertions` is own-only terminal judgement (spec/017 §Checks and
     ;; assertions). Both ride the variant body alongside `:compose`.
@@ -873,7 +860,7 @@
      [:or
       :keyword                                ; registered predicate-event id
       [:vector EventVector]]]                 ; literal data form
-    ;; rf2-lqs0b — `:loaders-teardown` is the symmetric counterpart of
+    ;; `:loaders-teardown` is the symmetric counterpart of
     ;; `:loaders` on the variant body itself. Vector of event vectors
     ;; dispatched into the variant frame on `destroy-variant!` BEFORE
     ;; the frame's `:frame-setup` decorator `:teardown` walk runs. Used
@@ -885,46 +872,45 @@
     [:platforms             {:optional true} PlatformSet]
     [:substrates            {:optional true} SubstrateSet]
     [:modes                 {:optional true} ModeRefSet]
-    ;; rf2-q9kv5: per-variant overrides for the dispatch-console panel +
+    ;; Per-variant overrides for the dispatch-console panel +
     ;; Xray preset. A variant may opt out of the dispatch-console panel
     ;; (default true at story level) or carry a Xray preset that
     ;; overrides the parent story's preset.
     [:dispatch-console?     {:optional true} :boolean]
     [:xray                 {:optional true} XrayPreset]
-    ;; rf2-mantt — `:component` is the per-variant view-id override. A
+    ;; `:component` is the per-variant view-id override. A
     ;; variant inherits its parent story's `:component` but MAY name its
     ;; own; the renderer resolves variant-first, then story
     ;; (`re-frame.story.ui.canvas` / `multi-substrate` / `workspace`:
     ;; `(or (:component variant-body) (:component story-body))`).
     [:component             {:optional true} :keyword]
-    ;; rf2-mantt — `:xray-panel` (rf2-6qm77) is the per-variant Xray
+    ;; `:xray-panel` is the per-variant Xray
     ;; panel-id override the RHS embed reads variant-first then story
     ;; (`re-frame.story.ui.xray-embed/effective-panel`); a registered
     ;; panel-id keyword (`:app-db` / `:routing` / …). Membership is not
     ;; enforced here — the embed falls back to the default panel on an
     ;; unknown id (its own runtime guard).
     [:xray-panel            {:optional true} :keyword]
-    ;; rf2-mantt — `:frame-binding` (`#{:fresh :attached}`) + `:mcp-bound`
+    ;; `:frame-binding` (`#{:fresh :attached}`) + `:mcp-bound`
     ;; (boolean) drive the sidebar frame-binding chip
     ;; (`re-frame.story.ui.sidebar-signals/frame-binding-signal`). MCP is
     ;; a binding, not a runner tier — `:mcp-bound` is the UI affordance
     ;; on top of an `:attached` binding.
     [:frame-binding         {:optional true} [:enum :fresh :attached]]
     [:mcp-bound             {:optional true} :boolean]
-    ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
+    ;; Viewport + background per-variant overrides. Resolved
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]
     [:background            {:optional true} BackgroundSlot]
-    ;; rf2-bsk1d9 — EP-0015 frame-owned durable classification. A variant
+    ;; EP-0015 frame-owned durable classification. A variant
     ;; declares which of ITS app-db paths are sensitive / large at frame
     ;; creation, the SAME owner model the framework's `reg-frame` uses
     ;; (`{:app-db [[:auth :token]] :http {...}}`). The runtime threads these
     ;; straight onto the variant's `reg-frame` config (`frames/variant-
     ;; frame-config`), so the framework's `re-frame.frame-classification`
     ;; validates + installs them atomically as part of frame creation —
-    ;; BEFORE `:on-create`. This is the EP-0015-compliant replacement for
-    ;; the removed public post-creation `story/add-marks` / `set-marks`
-    ;; mutation surface (spec/015 §Frame-owned durable classification).
+    ;; BEFORE `:on-create`. Classification is owned at frame creation, not
+    ;; mutated post-creation (spec/015 §Frame-owned durable classification).
     ;;
     ;; Loose `:map` here on purpose: the framework's frame-classification
     ;; layer owns the rigorous shape validation (malformed paths, unknown
@@ -953,7 +939,7 @@
     ;; SAME image with different `:setup` / `:db-seed`; only a BEHAVIOUR
     ;; variant declares different `:images`.
     [:images                {:optional true} [:vector :any]]]
-   ;; rf2-5x1wt.11 — setup-surface mutual-exclusion. `:setup` is the
+   ;; Setup-surface mutual-exclusion. `:setup` is the
    ;; public spelling, `:events` the transitional one; an author picks
    ;; ONE during migration. Mixing both is a schema-level error so the
    ;; rejection lands at `reg-variant*` rather than the registrar's
@@ -963,7 +949,7 @@
     (fn [body]
       (not (and (contains? body :setup)
                 (contains? body :events))))]
-   ;; rf2-tl7zk + rf2-5x1wt.11 — play-surface mutual-exclusion. Authors
+   ;; Play-surface mutual-exclusion. Authors
    ;; pick ONE play surface per variant from `:script` (public) /
    ;; `:play-script` (transitional) / `:plays` (named scripts); mixing
    ;; any two is a schema-level error so the rejection lands at
@@ -974,7 +960,7 @@
     (fn [body]
       (<= (count (filter #(contains? body %) [:script :play-script :plays]))
           1))]
-   ;; rf2-5x1wt.15 — P1 ships NO `:resolve-conflicts` escape hatch. The
+   ;; P1 ships NO `:resolve-conflicts` escape hatch. The
    ;; variant owns its end-state: a strict-conflict field set directly in
    ;; the variant body wins, and the only hard error is two composed
    ;; fragments conflicting while the variant is silent — resolved by the
@@ -988,7 +974,7 @@
     (fn [body]
       (not (contains? body :resolve-conflicts)))]])
 
-;; ---- :rf/fragment + :rf/check (rf2-5x1wt.15) ------------------------------
+;; ---- :rf/fragment + :rf/check --------------------------------------------
 
 (def Fragment
   "Schema for the body of `reg-fragment` (spec/017 §Fragments + §Strict
@@ -1018,7 +1004,7 @@
   naming the check-id in the variant's `:compose`, not by nesting it in a
   fragment.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd fragment slot rejects at `reg-fragment`
   call-time rather than silently no-opping. `:source` is the registrar's
@@ -1034,12 +1020,12 @@
     [:script                {:optional true} PlaySpec]
     [:play-script           {:optional true} PlaySpec]
     [:network               {:optional true} NetworkSpec]
-    ;; rf2-5x1wt.13 — a fragment MAY contribute `:sub-overrides`; they
+    ;; A fragment MAY contribute `:sub-overrides`; they
     ;; deep-merge into the composing variant's override map (a later
     ;; fragment / the variant wins per key) and mark the resolved plan
     ;; `:fidelity` with `:sub-overrides`. See `SubOverridesMap`.
     [:sub-overrides         {:optional true} SubOverridesMap]
-    ;; rf2-blw1q — a fragment MAY contribute `:db-seed`; the seeds
+    ;; A fragment MAY contribute `:db-seed`; the seeds
     ;; deep-merge into the composing variant's seed map (a later fragment
     ;; / the variant wins per key) and mark the resolved plan `:fidelity`
     ;; with `:db-seed`. See `DbSeed`.
@@ -1082,7 +1068,7 @@
   through `:compose`. A check carries no world/behaviour — no setup,
   script, args, or overrides — so the body is intentionally tight.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd check slot rejects at `reg-check` call-time.
   `:source` is the registrar's source-coord stamp."
@@ -1108,33 +1094,31 @@
   "Schema for the body of `reg-workspace`. Per `001-Authoring.md` §Registration macros.
   Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`.
 
-  The optional `:isolation` slot (rf2-gqid4) tunes how `:variants-grid`
+  The optional `:isolation` slot tunes how `:variants-grid`
   mounts its cells. `:isolated` (the default) mounts every variant
   cell in parallel, each scoped to its own variant frame — the
   baseline frame-isolation contract. `:shared` mounts ONE cell at a
   time with a prev/next navigator, serialising the renderer. This is
   the load-bearing affordance for views that internally hardcode a
-  frame-provider (the rf2-sszlr / `gallery_chrome.cljs` pattern):
+  frame-provider (the `gallery_chrome.cljs` pattern):
   parallel cells of such views share their interior state because the
   last-seeded cell's app-db clobbers the others. Only honoured by
   `:variants-grid`; ignored on other layouts.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
-  The `:map` is `{:closed true}`: a typo'd or removed workspace slot is
-  rejected at `reg-workspace` call-time with `:rf.error/workspace-shape`
-  rather than silently swallowed. Closing the schema surfaced four slots
-  that the canonical testbed + both example apps + spec/001-Authoring.md
-  §reg-workspace ALREADY author but the open `:map` never declared
-  (rf2-mantt per-key triage). They are declared optional here so closing
-  does NOT drop intended authoring:
+  The `:map` is `{:closed true}`: a typo'd or unrecognised workspace slot
+  is rejected at `reg-workspace` call-time with `:rf.error/workspace-shape`
+  rather than silently accepted. The canonical testbed + both example apps
+  + spec/001-Authoring.md §reg-workspace author these slots, so they are
+  declared optional here:
 
   - `:columns` — `:grid` / `:variants-grid` fixed column-count
-    (spec/001-Authoring.md §`:columns`). rf2-ugmrg: renderer-honoured —
+    (spec/001-Authoring.md §`:columns`). Renderer-honoured —
     when present the grid emits `repeat(N, minmax(280px,1fr))`; absent it
     keeps the responsive `auto-fit` default.
   - `:for` — `:variants-grid` auto-enumerate anchor story-id
-    (spec/001-Authoring.md §`:variants-grid`). rf2-ugmrg:
+    (spec/001-Authoring.md §`:variants-grid`):
     `resolve-layout` reads `:for` first, then the namespace derivation.
   - `:tags` — workspace tag set (the canonical testbed + examples author
     `:tags #{:docs}`).
@@ -1146,11 +1130,11 @@
     [:source    {:optional true} SourceCoords]
     [:layout    [:enum :grid :prose :variants-grid :tabs :custom]]
     [:variants  {:optional true} [:vector :keyword]]
-    ;; rf2-mantt + rf2-ugmrg — `:for` names the `:variants-grid`
+    ;; `:for` names the `:variants-grid`
     ;; auto-enumerate parent story
     ;; (see `re-frame.story.ui.workspace/resolve-layout`).
     [:for       {:optional true} :keyword]
-    ;; rf2-mantt + rf2-ugmrg — `:columns` is a `:grid` / `:variants-grid`
+    ;; `:columns` is a `:grid` / `:variants-grid`
     ;; fixed column-count (renderer-honoured; see docstring).
     [:columns   {:optional true} [:int {:min 1}]]
     [:content   {:optional true} [:vector WorkspaceContentItem]]
@@ -1170,7 +1154,7 @@
         :prose         (vector? content)
         :custom        (keyword? render)
         false))]
-   ;; rf2-mantt — `:variants` (explicit list) and `:for` (auto-enumerate
+   ;; `:variants` (explicit list) and `:for` (auto-enumerate
    ;; anchor) are ALTERNATIVES on a `:variants-grid`, not co-equals
    ;; (spec/001-Authoring.md §`:variants-grid` — "Declaring both raises
    ;; :rf.error/workspace-shape at registration"). Enforce that documented
@@ -1196,7 +1180,7 @@
   render in a trailing un-grouped section with multi-select semantics.
   The schema change is additive — unchanged bodies remain valid.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd mode slot rejects at `reg-mode` call-time.
   `:source` is the registrar's source-coord stamp."
@@ -1212,7 +1196,7 @@
   "Schema for the body of `reg-story-panel`. Per /spec/007-Stories.md §Story-tool
   extension hook and `001-Authoring.md` §Registration macros.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd story-panel slot rejects at
   `reg-story-panel` call-time. `:source` is the registrar's source-coord
@@ -1238,7 +1222,7 @@
   The fn-shape is enforced behaviourally (`(fn? wrap)`) and structurally
   via the schema below. Both JVM and CLJS recognise `(fn? ...)`.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd decorator slot rejects at `reg-decorator`
   call-time. `:source` is the registrar's source-coord stamp."
@@ -1261,7 +1245,7 @@
   decorator's `:teardown` runs first. The slot is optional; only `:init`,
   `:app-db-patch`, or `:teardown` need be present (any combination).
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd decorator slot rejects at `reg-decorator`
   call-time. `:source` is the registrar's source-coord stamp."
@@ -1295,7 +1279,7 @@
     Stage 5 decorator-resolution layer expands the ref-args into a
     per-reference body.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   Both branches are `{:closed true}`: a typo'd decorator slot rejects at
   `reg-decorator` call-time. `:source` is the registrar's source-coord
@@ -1333,7 +1317,7 @@
   - `:axis` — keyword classifier (e.g. `:status`, `:role`, `:team`,
     `:feature`). Per spec/001 §reg-tag — the sidebar tag-filter UI
     groups registered tags by `:axis` into collapsible facet rows
-    (rf2-v05qb SB9 parity). Tags without `:axis` render in a trailing
+    (SB9 parity). Tags without `:axis` render in a trailing
     un-grouped row.
   - `:default-filter` — `:include` | `:exclude`. Pre-applied to the
     sidebar tag filter at boot. `:exclude` hides variants carrying
@@ -1341,7 +1325,7 @@
     `:experimental` start excluded so they don't crowd the dev shell).
     Tags without `:default-filter` default to `:include` semantics.
 
-  ## Closed shape (rf2-mantt)
+  ## Closed shape
 
   `{:closed true}`: a typo'd tag slot rejects at `reg-tag` call-time.
   `:source` is the registrar's source-coord stamp (absent for the
@@ -1381,27 +1365,24 @@
     (when-not (m/validate schema body)
       (m/explain schema body))))
 
-;; ---- public-vocabulary lowering (rf2-5x1wt.11) ---------------------------
+;; ---- public-vocabulary lowering -----------------------------------------
 
 (defn lower-public-vocabulary
   "Fold the public Story authoring vocabulary (`:setup` / `:script`) into
   the shipping body slots (`:events` / `:play-script`). Pure data → data.
 
-  Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary the
-  pre-alpha rename makes `:setup` / `:script` the public authoring keys.
-  The variant-plan compiler (`re-frame.story.plan`) already normalizes
-  both spellings, but the shipping RUNTIME — phase-2 events, the play
+  Per `tools/story/spec/017-Testing-Story.md` §Public vocabulary
+  `:setup` / `:script` are the public authoring keys.
+  The variant-plan compiler (`re-frame.story.plan`) normalizes
+  both spellings, while the shipping RUNTIME — phase-2 events, the play
   runner's `variant-body->plays`, snapshot identity, the workspace /
-  canvas readers, the recorder — still reads the `:events` / `:play-script`
-  / `:plays` slots. Until the runtime is routed through the plan compiler
-  (rf2-5x1wt.17 / .22) the registrar lowers the public spellings into the
+  canvas readers, the recorder — reads the `:events` / `:play-script`
+  / `:plays` slots. The registrar lowers the public spellings into the
   shipping slots so a variant authored with `:setup` / `:script` runs
   unchanged.
 
-  This is the sanctioned 'temporarily normalize current terms while the
-  tree is migrated' step (spec/017 §Public vocabulary), NOT a long-lived
-  compatibility layer — it is removed when the runtime reads the
-  normalized plan directly.
+  This is the 'normalize the public terms into the shipping slots' step
+  (spec/017 §Public vocabulary).
 
   Lowering rules (only when the public key is present and the shipping
   sibling is absent — the schema's mutual-exclusion `:fn` already

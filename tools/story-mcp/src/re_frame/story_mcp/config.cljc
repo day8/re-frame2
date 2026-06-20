@@ -22,14 +22,13 @@
     value forces redaction regardless of any per-call `:include-sensitive`
     arg. The default-OFF posture matches the cross-MCP convention for
     privacy gates: an operator who genuinely needs raw sensitive state
-    opts in explicitly. (Note: re-frame2-pair-mcp's eval-cljs gate took
-    the opposite path in rf2-a0z0h — default ON with `--no-eval` as the
-    opt-out — because eval is the REPL primitive of a pair-debug
-    session and a default-OFF eval gate did not add a protection
-    separable from `--allow-writes`. Sensitive-reads here are NOT in
-    that position: raw reads can pour the entire app-db into a wire log
-    without the operator ever typing the secret, so the privacy gate
-    stays default-OFF.)
+    opts in explicitly. (Note: re-frame2-pair-mcp's eval-cljs gate takes
+    the opposite path — default ON with `--no-eval` as the opt-out —
+    because eval is the REPL primitive of a pair-debug session and a
+    default-OFF eval gate adds no protection separable from
+    `--allow-writes`. Sensitive-reads here are NOT in that position: raw
+    reads can pour the entire app-db into a wire log without the operator
+    ever typing the secret, so the privacy gate stays default-OFF.)
   - `set-allow-sensitive-reads!` — write helper. Same three input paths
     as `allow-writes?`: `--allow-sensitive-reads` CLI flag, JVM property
     `-Drf.story-mcp.allow-sensitive-reads=true`, or env var
@@ -41,8 +40,7 @@
   Symmetry with `re-frame.story.config` — keep the boolean knobs together
   so an agent host or test fixture can adjust them without reaching into
   the server / tools namespaces. Per IMPL-SPEC §13.2 #6 the
-  protocol-version target is a documented decision the implementation
-  bead (rf2-tgci) lands."
+  protocol-version target is a documented decision."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.mcp-base.args :as args]))
@@ -128,11 +126,10 @@
   []
   (boolean @allow-writes?))
 
-;; ---- sensitive-read gate (rf2-g9fje) --------------------------------------
+;; ---- sensitive-read gate --------------------------------------------------
 ;;
-;; Per the rf2-uaymx (b) decision, raw sensitive-state reads are an
-;; operator-only opt-in. The wire-egress helpers
-;; (`args/include-sensitive?`) defer to this atom — when it is
+;; Raw sensitive-state reads are an operator-only opt-in. The wire-egress
+;; helpers (`args/include-sensitive?`) defer to this atom — when it is
 ;; `false` the per-call `:include-sensitive` arg is silently treated as
 ;; `false`, so a hostile or careless caller cannot exfiltrate declared-
 ;; sensitive `:app-db` slots / assertion records by flipping a JSON
@@ -140,18 +137,17 @@
 ;; flag, JVM sysprop `rf.story-mcp.allow-sensitive-reads=true`, or env
 ;; var `RF_STORY_MCP_ALLOW_SENSITIVE_READS=true`.
 ;;
-;; (Cross-MCP note: re-frame2-pair-mcp's eval-cljs gate flipped to
-;; default-ON in rf2-a0z0h — eval is the REPL primitive of a pair-debug
-;; session and a default-OFF eval gate did not add a protection
-;; separable from `--allow-writes`. The sensitive-reads gate here is
-;; NOT in that position: raw reads can pour the entire app-db into a
-;; wire log without the operator ever typing the secret, so this gate
-;; keeps the default-OFF posture.)
+;; (Cross-MCP note: re-frame2-pair-mcp's eval-cljs gate is default-ON —
+;; eval is the REPL primitive of a pair-debug session and a default-OFF
+;; eval gate adds no protection separable from `--allow-writes`. The
+;; sensitive-reads gate here is NOT in that position: raw reads can pour
+;; the entire app-db into a wire log without the operator ever typing the
+;; secret, so this gate keeps the default-OFF posture.)
 
 (defonce
-  ^{:doc "Atom holding the sensitive-read gate. Defaults to `false`. Per
-         the rf2-uaymx (b) decision the per-call `:include-sensitive`
-         arg is honoured ONLY when this atom is also `true`."}
+  ^{:doc "Atom holding the sensitive-read gate. Defaults to `false`. The
+         per-call `:include-sensitive` arg is honoured ONLY when this atom
+         is also `true`."}
   allow-sensitive-reads?
   (atom false))
 
@@ -211,7 +207,7 @@
   - Env var `RF_STORY_MCP_ALLOW_SENSITIVE_READS` — same shape.
 
   All sources are parsed via the cross-MCP `args/parse-boolean`
-  primitive (rf2-vw4sq) so the truthy-string vocabulary
+  primitive so the truthy-string vocabulary
   (`true`/`1`/`yes`/`y`/`on`, case-insensitive — and the `false`/`0`/
   `no`/`n`/`off` complement) is the same one an agent learns once.
 

@@ -156,7 +156,7 @@
              :data-test "a11y-known-bad-action"}
     "Unlabelled image above"]])
 
-;; ---- counter-with-input — DOM-step play-script fixture (rf2-e0kof) -----
+;; ---- counter-with-input — DOM-step play-script fixture ----------------
 ;;
 ;; A minimal counter variant whose user surface exposes the three DOM
 ;; affordances the rich-DSL `:click` / `:type` / `:assert-dom` steps

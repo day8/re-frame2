@@ -1,5 +1,5 @@
 (ns login-form.stories
-  "Story variants for the login-form testbed (rf2-0sg12).
+  "Story variants for the login-form testbed.
 
   Promotes the five-state login-form scenario from the Story
   tutorial's index page (`docs/story/index.md:13-26`) to runnable
@@ -19,15 +19,15 @@
   through MCP, the recorder, the visual-regression service).
 
   Every variant pins its terminal state with `:rf.assert/state-is
-  :login/flow ...`, the runtime-db-aware machine checkpoint. EP-0001
-  (rf2-vzld77) moved machine snapshots into the frame's runtime-db
-  partition; per rf2-ib5acl the play-runner's `:rf.assert/sub-equals`
-  / `:rf.assert/path-equals` evaluate against app-db, so a machine
-  projection isn't observable through them. The machine-snapshot `:data`
-  values (`:error` / `:attempts` / `:email`) are therefore verified in
-  the testbed's CLJS unit test (`stories_cljs_test.cljs`), which can read
-  the variant frame's runtime-db directly. The variant `:script` slots
-  still exercise the play-runner shapes that ARE supported post-migration:
+  :login/flow ...`, the runtime-db-aware machine checkpoint. Machine
+  snapshots live in the frame's runtime-db partition (EP-0001); the
+  play-runner's `:rf.assert/sub-equals` / `:rf.assert/path-equals`
+  evaluate against app-db, so a machine projection isn't observable
+  through them. The machine-snapshot `:data` values (`:error` /
+  `:attempts` / `:email`) are therefore verified in the testbed's CLJS
+  unit test (`stories_cljs_test.cljs`), which can read the variant
+  frame's runtime-db directly. The variant `:script` slots exercise the
+  play-runner shapes that ARE supported:
 
     :state-is        — every variant (`:rf.assert/state-is :login/flow ...`)
     :effect-emitted  — :submitting (the :rf.http/managed fx fired)
@@ -46,8 +46,7 @@
   "Register the login-form testbed's Story artefacts. Idempotent.
   Fired once at namespace load; the test fixture re-fires after a
   clear-all! per test. The canonical vocabulary auto-installs on the
-  first `reg-*` call below per rf2-p1ydc — no explicit boot step
-  required (audit D-2 / rf2-y8gag)."
+  first `reg-*` call below — no explicit boot step required."
   []
   ;; -------------------------------------------------------------------------
   ;; Project tag — the screenshot pinned to the tutorial.
@@ -116,9 +115,9 @@
              dispatching `:dismiss` here, and do NOT copy 'dispatch any
              event to bootstrap' as an idiom."
      :setup [[:login/flow [:login/dismiss]]]
-     ;; EP-0001 (rf2-vzld77 / rf2-ib5acl): the machine snapshot lives in
-     ;; the frame's runtime-db partition, so the state checkpoint reads it
-     ;; via `:rf.assert/state-is` (which evaluates against runtime-db) —
+     ;; EP-0001: the machine snapshot lives in the frame's runtime-db
+     ;; partition, so the state checkpoint reads it via
+     ;; `:rf.assert/state-is` (which evaluates against runtime-db) —
      ;; NOT a raw `:assert-db` path-equals, which only sees app-db.
      :script [[:assert [:rf.assert/state-is :login/flow :idle]]]
      :tags   #{:dev :docs :test}
@@ -172,14 +171,13 @@
                             {:failure {:status  401
                                        :message "Invalid credentials."}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     ;; EP-0001 (rf2-vzld77 / rf2-ib5acl): the machine snapshot lives in
-     ;; the frame's runtime-db partition, so the state checkpoint reads it
-     ;; via `:rf.assert/state-is` (which evaluates against runtime-db).
+     ;; EP-0001: the machine snapshot lives in the frame's runtime-db
+     ;; partition, so the state checkpoint reads it via
+     ;; `:rf.assert/state-is` (which evaluates against runtime-db).
      ;; The error-message text in the snapshot's `:data` slot is verified
      ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`): the
      ;; play-runner's `:rf.assert/sub-equals` evaluates subs against app-db
-     ;; only, so a runtime-db machine projection isn't observable through it
-     ;; (see rf2-ib5acl notes — the play-runner gap is tracked separately).
+     ;; only, so a runtime-db machine projection isn't observable through it.
      :script [[:assert [:rf.assert/state-is :login/flow :error]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
@@ -205,8 +203,8 @@
               [:login/flow [:login/retry
                             {:email "ada@example.com" :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     ;; EP-0001 (rf2-vzld77 / rf2-ib5acl): the attempt counter lives in the
-     ;; runtime-db snapshot's `:data`; the state checkpoint reads the
+     ;; EP-0001: the attempt counter lives in the runtime-db snapshot's
+     ;; `:data`; the state checkpoint reads the
      ;; snapshot via `:rf.assert/state-is`. The attempt-count value is
      ;; verified in the testbed's CLJS unit test (`stories_cljs_test.cljs`)
      ;; — the play-runner's `:rf.assert/sub-equals` only sees app-db, so a
@@ -236,8 +234,8 @@
                             {:value {:user  {:email "ada@example.com"}
                                      :token "story-token"}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     ;; EP-0001 (rf2-vzld77 / rf2-ib5acl): the welcome-banner email lives
-     ;; in the runtime-db snapshot's `:data`; the state checkpoint reads
+     ;; EP-0001: the welcome-banner email lives in the runtime-db
+     ;; snapshot's `:data`; the state checkpoint reads
      ;; the snapshot via `:rf.assert/state-is`. The email value is verified
      ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`) — the
      ;; play-runner's `:rf.assert/sub-equals` only sees app-db, so a

@@ -1,6 +1,5 @@
 (ns re-frame.story.recorder.selector
-  "Pure selector picker — DOM element → best-effort CSS selector string
-  (rf2-d5u89).
+  "Pure selector picker — DOM element → best-effort CSS selector string.
 
   Used by the recorder's DOM-capture layer to turn a `click` /
   `input` / `change` event target into a stable selector the

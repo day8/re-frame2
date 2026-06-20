@@ -7,8 +7,8 @@
   - On CLJS the return value is a native `js/Promise`.
   - On JVM the return value is a `java.util.concurrent.CompletableFuture`.
 
-  Stage 3 (rf2-von3) is the call: this namespace abstracts the two so
-  the rest of the runtime can write portable code.
+  This namespace abstracts the two so the rest of the runtime can write
+  portable code.
 
   ## API
 

@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.element-inspector
-  "Element-level click-to-code (rf2-h0jc0) — React-Devtools-style.
+  "Element-level click-to-code — React-Devtools-style.
 
   Story's per-variant Open-in-editor chip opens the *story-spec* source;
   this inspector extends the same gesture to *every rendered element on
@@ -10,8 +10,8 @@
 
   re-frame2's `reg-view` macro injects
   `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` on the rendered
-  root of every registered view (per Spec 006 §Source-coord annotation
-  / rf2-z7f7 / rf2-z9n1). The annotation is dev-only; production
+  root of every registered view (per Spec 006 §Source-coord annotation).
+  The annotation is dev-only; production
   builds elide via the universal `interop/debug-enabled?` gate. This
   inspector reads that attribute off the hovered / clicked DOM node
   (walking ancestor chain when the literal target doesn't carry one —
@@ -27,9 +27,9 @@
   ## Inspector mode
 
   - **Toggle**: a toolbar chip flips a per-process atom. `aria-haspopup`
-    not `aria-pressed` per the rf2-zll4h reset-gate convention (the
-    recorder's reset assertion counts `[aria-pressed=\"true\"]` and we
-    don't want the inspect chip to trip it).
+    not `aria-pressed` per the reset-gate convention (the recorder's reset
+    assertion counts `[aria-pressed=\"true\"]` and we don't want the
+    inspect chip to trip it).
   - **Hover**: a `mousemove` listener on the canvas root walks up from
     the event target to the nearest `[data-rf2-source-coord]` ancestor.
     The overlay component draws an absolute-positioned outline +
@@ -101,10 +101,9 @@
 
   Alias of the canonical `re-frame.source-coords/parse-source-coord` (the
   source-coord contract owner) — the inverse of `format-source-coord`. The
-  parser used to be reimplemented near-byte-for-byte here and in the
-  re-frame2-pair preload runtime; rf2-nr7vf2 collapsed both onto the one
-  canonical parser. Returns nil for malformed input (too few / too many
-  segments, empty ns or handler-id, non-string input). Never throws."
+  one canonical parser also backs the re-frame2-pair preload runtime.
+  Returns nil for malformed input (too few / too many segments, empty ns or
+  handler-id, non-string input). Never throws."
   source-coords/parse-source-coord)
 
 (defn coord->handler-keyword
@@ -122,10 +121,10 @@
      comes from the registered view's metadata (see
      `re-frame.source-coords` / `docs/xray/05-click-to-source.md`).
 
-     Falls back to the always-on `error-coords-by-id` registry
-     (rf2-3un2g) when the public meta has been stripped by production
-     elision — that registry survives `:advanced` + `goog.DEBUG=false`
-     and keeps the `:file` slot reachable for tooling."
+     Falls back to the always-on `error-coords-by-id` registry when the
+     public meta has been stripped by production elision — that registry
+     survives `:advanced` + `goog.DEBUG=false` and keeps the `:file` slot
+     reachable for tooling."
      [parsed]
      (when-let [view-id (coord->handler-keyword parsed)]
        (let [meta (rf/handler-meta :view view-id)
@@ -424,9 +423,9 @@
    (defn inspect-chip
      "The toolbar chip. Click → toggle inspect mode. Uses
      `aria-haspopup`/`aria-expanded` (NOT `aria-pressed`) per the
-     rf2-zll4h reset-gate convention — the toolbar's reset assertion
-     in the e2e suite counts `[aria-pressed=\"true\"]` and we don't
-     want the inspect chip to trip it.
+     reset-gate convention — the toolbar's reset assertion in the e2e
+     suite counts `[aria-pressed=\"true\"]` and we don't want the
+     inspect chip to trip it.
 
      Hidden when production-elided: the chip lives in the Story bundle
      and the entire shell ns is gated on `config/enabled?`."

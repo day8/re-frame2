@@ -1,14 +1,12 @@
 (ns re-frame.story.ui.test-mode.view
   "The `:test` mode pane — in-canvas aggregated test-runner view.
-  Per rf2-qmjo + spec/009, migrated to the unified run-result UX per
-  tools/story/spec/021-Story-UI-Test-And-Evidence.md §1 (rf2-ba86n.11).
+  Per spec/009, presents the unified run-result UX per
+  tools/story/spec/021-Story-UI-Test-And-Evidence.md §1.
 
-  Replaces the `mode-tabs/tests-placeholder` stub that landed with the
-  mode-tabs primitive (rf2-9hc8). The pane runs the variant's `:script`
-  sequence via `run-variant`, consumes the ONE unified run-result the
-  runtime returns (`re-frame.story.result/run-result` merged with the
-  legacy lifecycle slots), and renders the result/proof surface inside the
-  canvas:
+  The pane runs the variant's `:script` sequence via `run-variant`,
+  consumes the ONE unified run-result the runtime returns
+  (`re-frame.story.result/run-result` merged with the lifecycle slots),
+  and renders the result/proof surface inside the canvas:
 
       ┌──────────────────────────────────────────────────────┐
       │  Header — variant id · parent story · Re-run button   │
@@ -34,10 +32,10 @@
       │  Evidence — result→spine link (graceful pending)      │
       └──────────────────────────────────────────────────────┘
 
-  ## Migration (rf2-ba86n.11, spec/021 §1 supersedes 009 result-reading)
+  ## Result reading (spec/021 §1)
 
-  The pane no longer derives status from a split `:lifecycle` /
-  `:assertions` reading. It reads the unified run-level `:status`, the
+  The pane reads status from the unified run-result, not a split
+  `:lifecycle` / `:assertions` reading. It reads the unified run-level `:status`, the
   `:checks` groups, the `:schema-violations` evidence, and the
   `:cannot-run` refusal rows through the pure projection helpers in
   `re-frame.story.ui.test-mode.pure` (`run-status` / `check-rows` /
@@ -55,7 +53,7 @@
   but not the variant's authoring shape. Switching from `:test` back
   to `:dev` restores the canvas exactly as the user left it.
 
-  ## Split (rf2-8n2fz)
+  ## Layout
 
   This namespace owns styles, the per-section renderers
   (`header` / `summary-section` / `scrubber-section` / `rows-section` /
@@ -66,7 +64,7 @@
     helpers (`variant-has-tests?`, `assertion-row`, `play-step-statuses`,
     `epoch-id-slice`, `format-elapsed-ms`, `format-timestamp-ms`). The
     `aggregate-summary` fold lives in `re-frame.story.ui.state` so the
-    sidebar / chrome-level test widget can share it (rf2-khmon).
+    sidebar / chrome-level test widget can share it.
   - `re-frame.story.ui.test-mode.state` — CLJS-only `results-atom` +
     the `begin-run!` / `store-result!` / `select-step!` /
     `toggle-expanded!` / `run-variant-pane!` mutators.
@@ -129,9 +127,9 @@
        (when (number? elapsed)
          [:span {:data-test "story-test-elapsed"}
           (pure/format-elapsed-ms elapsed)])]]
-     ;; rf2-ba86n.11 — runner selected vs required (spec/021 §1). The
-     ;; unified result threads `:runner` / `:required-runner` verbatim;
-     ;; render an honest "—" when the host did not stamp them.
+     ;; runner selected vs required (spec/021 §1). The unified result
+     ;; threads `:runner` / `:required-runner` verbatim; render an honest
+     ;; "—" when the host did not stamp them.
      (when result
        (let [runner   (:runner result)
              required (:required-runner result)]
@@ -159,8 +157,8 @@
       (let [summary (shell-state/aggregate-summary (:assertions result))
             {:keys [passed failed cannot-run total]} summary
             cannot-run (or cannot-run 0)
-            ;; rf2-ba86n.11 — the unified run-level verdict (spec/021 §1),
-            ;; via the pure projection. A tape-floor `:fail` / `:cannot-run`
+            ;; the unified run-level verdict (spec/021 §1), via the pure
+            ;; projection. A tape-floor `:fail` / `:cannot-run`
             ;; refusal / `:error` surfaces even when assertion counts alone
             ;; would read green.
             status     (pure/run-status result summary)
@@ -190,7 +188,7 @@
            "  "
            [:span {:style (:count-fail styles)} (str "✗ " failed " failed")]
            "  "
-           ;; rf2-5x1wt.19 — the distinct THIRD status, rendered (spec/017
+           ;; the distinct THIRD status, rendered (spec/017
            ;; §`:cannot-run` — Story UI MUST render `:cannot-run` distinctly).
            [:span {:style (:count-skip styles)} (str "⊘ " cannot-run " cannot-run")]]]]))))
 
@@ -212,7 +210,7 @@
   (get pred/assertion-glyph status "·"))
 
 (defn- scrubber-section
-  "Step-through scrubber (rf2-lc36w). One tick per play event with
+  "Step-through scrubber. One tick per play event with
   pass/fail/event/skip status colouring. Click a tick (or drag the
   slider below) to restore the variant's app-db to that step's
   epoch — the canvas re-renders against it.
@@ -336,7 +334,7 @@
      [:div {:style (:detail-source styles)}
       (str "at " (:file source)
            (when (:line source) (str ":" (:line source))))
-      ;; rf2-evgf5: per-assertion 'Open in editor' chip — surfaces the
+      ;; per-assertion 'Open in editor' chip — surfaces the
       ;; assertion's source-coord (the play-step site, captured by the
       ;; assertion's record builder per spec/004).
       (open-in-editor/open-chip source :test-detail)])])
@@ -364,14 +362,14 @@
      [:th {:style (:th styles)} "assertion"]
      [:th {:style (:th styles)} "detail"]]]
    [:tbody
-    ;; rf2-tistm — :expanded is keyed by the row's stable identity
+    ;; :expanded is keyed by the row's stable identity
     ;; (:row-key from assertion-row, the rendered label string) rather
     ;; than positional index. A re-run that reorders or inserts
     ;; assertions would otherwise open the wrong row.
     (for [[i row] (map-indexed vector rows)]
       (let [rk    (:row-key row)
             open? (contains? expanded rk)
-            ;; rf2-ba86n.11 — :error / :cannot-run disclose detail too.
+            ;; :error / :cannot-run disclose detail too.
             bad?  (#{:fail :error :cannot-run} (:status row))]
         ^{:key (str rk "#" i)}
         [:tr {:data-test      "story-test-row"
@@ -564,7 +562,7 @@
             "no retained evidence for this run"])]))))
 
 (defn- promotion-section
-  "Generated-failure promotion entry point (rf2-ba86n.13, spec/021 §3).
+  "Generated-failure promotion entry point (spec/021 §3).
   DISTINCT from save-current-state (spec/019 §3): the source here is the
   CAPTURED RUN ARTIFACT this run produced, not the live canvas args. The
   button captures the current run as an artifact (a replay back-link when
@@ -670,7 +668,7 @@
                       :aria-label "Variant tests"}
             [header variant-id]
             [summary-section variant-id]
-            ;; rf2-ba86n.11 — the unified run-result surfaces (spec/021 §1):
+            ;; the unified run-result surfaces (spec/021 §1):
             ;; checks grouped by id, the per-test assertions (terminal +
             ;; script-checkpoint, with the failed-only filter), schema
             ;; violations (consumed + unconsumed), and cannot-run refusals.
@@ -680,7 +678,7 @@
             [rows-section variant-id]
             [schema-section variant-id]
             [cannot-run-section variant-id]
-            ;; rf2-ba86n.15 — visual + a11y check RESULTS (spec/021 §4).
+            ;; visual + a11y check RESULTS (spec/021 §4).
             ;; Reads the browser-tier oracle records (structural-a11y /
             ;; axe-a11y / visual-snapshot) off the SAME unified `:assertions`
             ;; slot and presents them readably (violations as a
@@ -688,10 +686,10 @@
             ;; rather than as the raw `:actual` EDN blob the generic
             ;; assertions table would show.
             [visual-a11y-view/visual-a11y-section variant-id]
-            ;; rf2-ba86n.11 — result → evidence-spine link (spec/021 §2),
+            ;; result → evidence-spine link (spec/021 §2),
             ;; a graceful "evidence pending" until the spine display lands.
             [evidence-section variant-id]
-            ;; rf2-ba86n.13 — generated-failure promotion entry point
+            ;; generated-failure promotion entry point
             ;; (spec/021 §3). Captures THIS run as an artifact and opens the
             ;; promotion dialog. Distinct from save-current-state.
             [promotion-section variant-id]]))})))

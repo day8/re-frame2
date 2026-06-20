@@ -1,6 +1,5 @@
 (ns re-frame.story.view-args
-  "The ONE shared view-args-schema resolver (rf2-din8u phase-1, ratifying
-  the rf2-p5ivc (b) ruling + closing rf2-ayu6n / rf2-vnedo).
+  "The ONE shared view-args-schema resolver.
 
   ## The invariant this enforces
 
@@ -16,24 +15,19 @@
   This matters because `:component` (the view whose schema we resolve) can
   be `:extends`-inherited or `:compose`-d in. The plan compiler resolves
   `:component` through the parent chain (`ctx`); a consumer that reads
-  `(:component variant-body)` off the bare side-table body misses an
-  inherited / composed component and silently resolves no schema. The
-  three pre-ruling resolvers each diverged here (plan.cljc read off the
-  resolved `view-meta` first-match `[:rf/props :spec :schema]`;
-  schema_validation read `[(:schema vb) (:schema sb) (:spec view-meta)
-  (:schema view-meta)]` off four bare slots; controls read `[:schema]`
-  only) — none agreed, and all but the plan's copy read the bare body.
-  This ns is the consolidation.
+  `(:component variant-body)` off the bare side-table body would miss an
+  inherited / composed component and silently resolve no schema. Routing
+  every consumer through this single resolver keeps them in agreement and
+  reading the resolved component, not the bare body.
 
   ## Key resolution (the canonical first-match order)
 
   The first-match key picker (`malli-schema/view-args-schema` over
   `[:rf/props :schema]`) lives in the pure leaf `re-frame.story.malli-
   schema`, shared with the plan compiler (which uses it to write
-  `[:world :view-args-schema]`). Per the rf2-p5ivc (b) ruling: `:rf/props`
-  (canonical) wins over `:schema` (the post-M-54 alternative location); no
-  composition; `:spec` is dead post-M-54 and dropped. See that ns + the
-  migration §M-54 record.
+  `[:world :view-args-schema]`). `:rf/props` (canonical) wins over
+  `:schema` (the alternative location); there is no composition and no
+  `:spec` slot. See that ns + the migration §M-54 record.
 
   ## Memoization
 

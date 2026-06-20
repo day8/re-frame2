@@ -30,10 +30,9 @@
             ;; sequence below.
             [counter-with-stories.elision-demo :as elision]
             [counter-with-stories.stories]
-            ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
-            ;; live-app↔Story-shell hash router + React-root handle, and
-            ;; (rf2-77wqzi) the open-in-editor project-root config via the
-            ;; `:source-subdir` opt.
+            ;; Shared Story-host helper: owns the live-app↔Story-shell
+            ;; hash router + React-root handle, and the open-in-editor
+            ;; project-root config via the `:source-subdir` opt.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -50,7 +49,7 @@
    [views/counter-card {:label "Count"}]
    [elision/elision-card]])
 
-;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from absence,
+;; EP-0002: the runtime never synthesises a frame from absence,
 ;; so the live-app surface must render under an explicit frame scope. The
 ;; Story shell side (`#/stories`) allocates its own per-variant frames; this
 ;; wrapper scopes only the live-app `#/` surface to the testbed's
@@ -62,7 +61,7 @@
 ;; -- Routing between app and story shell ----------------------------------
 ;;
 ;; The live-app↔Story-shell hash router + React-root host handle live in
-;; the shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn);
+;; the shared `re-frame.testbed.story-host` helper;
 ;; `run` hands it `counter-app` as the live-app surface. The helper tears
 ;; one React root down before mounting the other on the same `#app` node.
 
@@ -77,16 +76,15 @@
   ;; No explicit `(story/install-canonical-vocabulary!)` call — the
   ;; first `reg-*` in `counter-with-stories.stories` (loaded via
   ;; :require above) auto-installs the canonical vocabulary on demand
-  ;; per rf2-p1ydc + spec/001 §Boot. The explicit call is legacy
-  ;; (rf2-y8gag — audit D-2) and removed from every canonical testbed.
+  ;; per spec/001 §Boot. Canonical testbeds carry no explicit boot call.
   ;; Configure the global args layer (Layer 1 of the args-precedence
   ;; chain; see `002-Runtime.md` §Args resolution precedence). The stories layer their own args on
   ;; top via reg-story / reg-variant. The open-in-editor project-root is
-  ;; now host-owned via the `:source-subdir` opt on
-  ;; `mount-with-hash-routing!` below (rf2-77wqzi), so this call carries
+  ;; host-owned via the `:source-subdir` opt on
+  ;; `mount-with-hash-routing!` below, so this call carries
   ;; only the global-args layer.
   (story/configure! {:rf.story/global-args {:locale :en}})
-  ;; EP-0002 (rf2-9o48ih): `init!` installs the adapter only — register the
+  ;; EP-0002: `init!` installs the adapter only — register the
   ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
   ;; boot work (seed dispatch + elision listener install) inside its scope.
   ;; The live-app render is frame-scoped via `live-app-root` (the
@@ -96,7 +94,7 @@
   ;; EP-0015 §8: durable app-db size/sensitivity classification is FRAME-owned
   ;; — declared here as `:large {:app-db …}` so the `:user/avatar-pdf` slot
   ;; elides to the `:rf.size/large-elided` marker at wire egress. (Schemas
-  ;; describe shape only; they no longer carry app-db egress markers.)
+  ;; describe shape only; app-db egress markers are frame-owned.)
   (rf/reg-frame :rf/default
     {:large {:app-db [[:user/avatar-pdf]]}})
   (rf/with-frame :rf/default
@@ -108,17 +106,16 @@
     ;; handler and the `:rf.size/large-elided` marker for the `:large?`
     ;; schema slot without needing the trace surface or Xray attached.
     (elision/install-listener!))
-  ;; rf2-3qcxk — install the CI-as-test global hook the Playwright
+  ;; Install the CI-as-test global hook the Playwright
   ;; play-script runner reads. Inert until the runner polls it; safe
   ;; to install unconditionally because the function body is gated
   ;; on Story being enabled (the ns itself is Story-tooling).
   (story-ci/install-ci-hooks!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell without a manual click-through. The
-  ;; `:source-subdir` opt (rf2-77wqzi) hands the host this testbed's
+  ;; `:source-subdir` opt hands the host this testbed's
   ;; tool-relative source subdir; the host resolves the on-disk
   ;; open-in-editor project-root (build-env define or `?checkout-root=`
   ;; override, cross-platform) and calls `story/configure!` itself — which
-  ;; also bridges the root into Xray's slot. Replaces the former inline
-  ;; `resolve-source-root` + `story/configure! :rf.story/project-root`.
+  ;; also bridges the root into Xray's slot.
   (story-host/mount-with-hash-routing! live-app-root {:source-subdir "tools/story/testbeds"}))

@@ -1,25 +1,18 @@
 (ns re-frame.story.result
   "The ONE unified run-result — the single shape every Story runner,
-  Test mode, CI, `clojure.test`, and MCP consume (NewTestStory
-  rf2-5x1wt.19, `tools/story/spec/017-Testing-Story.md` §Run result +
+  Test mode, CI, `clojure.test`, and MCP consume
+  (`tools/story/spec/017-Testing-Story.md` §Run result +
   §Unified run result).
 
   ## One result, one source of truth
 
   Spec/017 §Run result: *all runners MUST return the same shape*, and the
   evidential slots are *projections from one retained epoch tape*, not a
-  second capture path. Before this ns three result vocabularies coexisted:
+  second capture path. Every runner — `story/run`, the per-step runner,
+  artifact replay — speaks this ONE result language, so a verdict and the
+  assertions slot can never disagree (the \"false GREEN\" class).
 
-  - `runtime.cljc`'s `record-result-map` (`:lifecycle`, a flat
-    `:assertions` vector, no top-level `:status`);
-  - `runner.cljc`'s per-step `run-state` machine (`:pass` / `:fail` /
-    per-step `:results`, read directly by the toolbar chip + CI runner);
-  - `artifact.cljc`'s `replay-result` (the FIRST unified shape — top-level
-    `:status`, the `.4` tape projection, a `:run-artifact` back-link).
-
-  The documented \"false GREEN\" was exactly the disagreement between
-  run-state and the assertions slot. This ns folds the three onto ONE
-  shape, derived — wherever the tape carries the evidence — from `.4`'s
+  The shape is derived — wherever the tape carries the evidence — from
   `re-frame.story.play.evidence/project-evidence` (the single tape
   projection; this ns does NOT add a parallel accumulator). The assertion
   outcomes that are NOT in the tape (the `:rf.assert/*` records the
@@ -83,7 +76,7 @@
   #{:pass :fail :cannot-run :error})
 
 ;; ===========================================================================
-;; THE SCHEMA-BACKED CONTRACT  (rf2-3nbl5.6 — API governance freeze)
+;; THE SCHEMA-BACKED CONTRACT  (API governance freeze)
 ;; ===========================================================================
 ;;
 ;; The unified run-result is a FROZEN, schema-backed public contract: the ONE
@@ -96,8 +89,8 @@
 ;; (plain data), and run on both JVM + CLJS.
 ;;
 ;; The verdict is `:status` (an `Status` enum) — there is NO `:passing?`
-;; boolean and NO lifecycle-as-verdict (the clean break, rf2-ba86n.17): a
-;; boolean could not express the distinct `:cannot-run` THIRD outcome, and a
+;; boolean and NO lifecycle-as-verdict: a boolean could not express the
+;; distinct `:cannot-run` THIRD outcome, and a
 ;; lifecycle state (`:ready` / `:error`) is the frame's mount state, not the
 ;; run's judgement. The accessors are `result-status` / `result-passed?`
 ;; (re-exported from `re-frame.story`); a green/red bit is DERIVED from
@@ -113,14 +106,14 @@
 (def Status
   "The frozen verdict enum (spec/017 §Run result). The ONE field every
   run / assertion / check carries — `:pass` | `:fail` | `:cannot-run` |
-  `:error`. Replaces the retired `:passing?` boolean (it could not express
-  the `:cannot-run` THIRD status)."
+  `:error`. A single verdict enum rather than a `:passing?` boolean,
+  which could not express the `:cannot-run` THIRD status."
   (into [:enum] statuses))
 
 (def AssertionRecord
   "Malli schema for ONE evaluated assertion record (spec/017 §Run result —
-  Assertion record). `:status` is the frozen verdict; `:passed?` is the
-  legacy boolean kept ONLY as a diagnostic mirror (the verdict is
+  Assertion record). `:status` is the frozen verdict; `:passed?` is a
+  diagnostic-mirror boolean ONLY (the verdict is
   `:status`). Open map — the `.18` atom fields and source-coords ride
   along."
   [:map {:closed false}
@@ -192,8 +185,8 @@
    [:cannot-run {:optional true} [:sequential :any]]])
 
 (defn valid-run-result?
-  "True iff `result` conforms to the frozen `RunResult` contract
-  (rf2-3nbl5.6). Pure data → data — the executable check Test mode / CI /
+  "True iff `result` conforms to the frozen `RunResult` contract.
+  Pure data → data — the executable check Test mode / CI /
   MCP / the test corpus run to prove a result speaks the ONE language."
   [result]
   (m/validate RunResult result))
@@ -329,7 +322,7 @@
         (or check->atoms [])))
 
 ;; ===========================================================================
-;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule, rf2-5x1wt.21)
+;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule)
 ;; ===========================================================================
 ;;
 ;; The §Schema-rule invariant: any emitted
@@ -428,7 +421,7 @@
 (defn match-schema-expectations
   "EXACT-consumption match of declared `:rf.assert/schema-error`
   expectations against the tape's projected schema violations (spec/017
-  §Schema rule, rf2-5x1wt.21). Pure data → data — the boundary the
+  §Schema rule). Pure data → data — the boundary the
   `run-result` assembly consumes.
 
   `schema-expectations` is the vector of declared `:rf.assert/schema-error`
@@ -472,15 +465,15 @@
       :unconsumed         unconsumed})))
 
 ;; ===========================================================================
-;; CAUSAL / CASCADE EXPECTATIONS  (spec/017 §Causal and cascade assertions,
-;; rf2-5x1wt.31)
+;; CAUSAL / CASCADE EXPECTATIONS  (spec/017 §Causal and cascade
+;; assertions)
 ;; ===========================================================================
 ;;
 ;; `:rf.assert/caused` and `:rf.assert/no-cascade-rerender` PROJECT a
 ;; cause→effect relationship from the SAME reactive evidence the tape already
 ;; carries — the `:rf.sub/run` / `:rf.view/rendered` rows stamped with the
 ;; dispatching cascade's `:cause-event-id` (Spec 009), surfaced in the
-;; `evidence/reactive-counts` `:by-cause` projection (rf2-5x1wt.30). They are
+;; `evidence/reactive-counts` `:by-cause` projection. They are
 ;; tape-evaluated like `:rf.assert/schema-error`: NOT dispatched into the
 ;; frame, NOT a parallel accumulator — the tape is the source of truth
 ;; (spec/017 §Risks — "evidence projections drift").
@@ -585,8 +578,8 @@
 
 (defn match-causal-expectations
   "Evaluate declared causal / cascade expectations against the run's
-  projected reactive `evidence` (spec/017 §Causal and cascade assertions,
-  rf2-5x1wt.31). Pure data → data — the boundary the `run-result` assembly
+  projected reactive `evidence` (spec/017 §Causal and cascade
+  assertions). Pure data → data — the boundary the `run-result` assembly
   consumes.
 
   `causal-atoms` is the vector of declared `[:rf.assert/caused …]` /
@@ -654,7 +647,7 @@
                           `[:assert …]` checkpoints). Tape-evaluated against
                           the projected `:reactive-counts` `:by-cause` /
                           `:sub-runs` / `:renders` projection (§Causal and
-                          cascade assertions, rf2-5x1wt.31) — NOT dispatched,
+                          cascade assertions) — NOT dispatched,
                           NOT a parallel accumulator. The minted records are
                           appended to `:assertions`. These are PURE
                           expectations, not floor signals (an over-render is a
@@ -692,7 +685,7 @@
            schema-expectations causal-expectations unmet app-db attribution]
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
-        ;; rf2-rkd14 — `:attribution` (the runner / replay-recorded
+        ;; `:attribution` (the runner / replay-recorded
         ;; per-dispatch-step settle boundaries) lights up EXACT narrative
         ;; attribution. Absent → EVEN fallback, unchanged. The stamp rides
         ;; only the narrative projection; the `:epoch-tape` slot stays raw
@@ -708,7 +701,7 @@
         ;; floor and the schema matcher read the SAME projected evidence the
         ;; result's slots carry, never a second derivation.
         violations     (:schema-violations evidence-slots)
-        ;; EXACT schema-error consumption (§Schema rule, rf2-5x1wt.21): pair
+        ;; EXACT schema-error consumption (§Schema rule): pair
         ;; each declared `:rf.assert/schema-error` against the tape's
         ;; projected violations. The minted records (a `:pass` for each
         ;; matched expectation, a `:fail` for each unmatched — a MISSING
@@ -717,8 +710,8 @@
         ;; while an UNCONSUMED violation keeps its selector OUT of the set so
         ;; the floor still fails the run on it.
         schema-match   (match-schema-expectations schema-expectations violations :projected)
-        ;; Causal / cascade expectations (§Causal and cascade assertions,
-        ;; rf2-5x1wt.31): project each declared `:rf.assert/caused` /
+        ;; Causal / cascade expectations (§Causal and cascade
+        ;; assertions): project each declared `:rf.assert/caused` /
         ;; `:rf.assert/no-cascade-rerender` against the SAME reactive
         ;; evidence the tape already carries (`:reactive-counts` `:by-cause`,
         ;; `:sub-runs`, `:renders`). Pure expectations, NOT floor signals —
@@ -745,7 +738,7 @@
         ;; over `consumed-selectors`. A set collapses duplicate selectors, so
         ;; M<N expectations of a selector with N violations would falsely
         ;; excuse ALL N — a partially-consumed schema violation reading green
-        ;; (rf2-5mrnwx false-green). Threading the matcher's already-correct
+        ;; (false-green). Threading the matcher's already-correct
         ;; `:unconsumed` (pinned by result_test, pair-expectations) reuses the
         ;; verified pairing rather than re-deriving, so the floor trips on the
         ;; (N−M) genuinely-unconsumed violations.

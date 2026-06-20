@@ -8,12 +8,12 @@
   by Story kind, living inside the `tools/story/` artefact and never
   reaching a production bundle (via the §6 elision contract).
 
-  ## Stage 2 design tension noted in bd rf2-7ho2
+  ## Closed framework registrar, Story-owned side-table
 
   /spec/007-Stories.md §Story-tool extension hook says 'the framework registrar already supports new
-  kinds via the existing reg- machinery' — but the implementation's
+  kinds via the existing reg- machinery', while the implementation's
   registrar (`re-frame.registrar/kinds`) is a **closed** set. The
-  side-table here is the chosen reconciliation: Story-only registrations
+  side-table here is the reconciliation: Story-only registrations
   live in Story's own atom; the framework registrar stays closed. A
   bridge (`story/registrations`) preserves the /spec/007-Stories.md §Public-query-surfaces
   contract without crossing the framework boundary.
@@ -42,11 +42,10 @@
      `*pending-coords*` dynamic var (mirroring `re-frame.source-coords`).
   4. Writes the RAW body into the side-table.
 
-  `:extends` is NOT resolved here (rf2-f6z88 — Mike RULED (a)): the raw
-  variant body is stored with `:extends` intact and the plan compiler
-  (`re-frame.story.plan`) is the SINGLE merge authority, walking the
-  parent chain per spec/017 §8.4 (setup APPENDS, checks INHERIT). See
-  `reg-variant*` below.
+  `:extends` is NOT resolved here: the raw variant body is stored with
+  `:extends` intact and the plan compiler (`re-frame.story.plan`) is the
+  SINGLE merge authority, walking the parent chain per spec/017 §8.4
+  (setup APPENDS, checks INHERIT). See `reg-variant*` below.
 
   Hot-reload semantics mirror `re-frame.registrar`: re-registering the
   same id replaces the slot atomically; nothing in the runtime is
@@ -123,7 +122,7 @@
   kind->id->body
   (atom (fresh-table)))
 
-;; ---- mutation tick (rf2-zrswb) -------------------------------------------
+;; ---- mutation tick -------------------------------------------------------
 ;;
 ;; Every write through the side-table bumps `mutation-tick`. Consumers that
 ;; do expensive registry-derived work (e.g. the shell's watch-mode hot-loop
@@ -206,14 +205,14 @@
 
 ;; ---- shape validation -----------------------------------------------------
 
-;; rf2-mantt — the Story authoring-body schemas are now `{:closed true}`
-;; (re-frame.story.schemas), so a removed / typo'd slot fails validation
+;; The Story authoring-body schemas are `{:closed true}`
+;; (re-frame.story.schemas), so an unknown / typo'd slot fails validation
 ;; with a `:malli.core/extra-key` error rather than being silently
 ;; swallowed. The helpers below turn that structural error into an
 ;; actionable `:reason` that NAMES the unknown key(s) and the nearest
-;; declared slot ('did you mean :plays?') — the swallow-class fix's
-;; trust-boundary payoff: an author who typos or carries a removed slot
-;; gets told exactly what to fix, at the `reg-*` call site.
+;; declared slot ('did you mean :plays?'): an author who typos or carries
+;; an unrecognised slot gets told exactly what to fix, at the `reg-*` call
+;; site.
 
 (defn- edit-distance
   "Levenshtein edit distance between keyword/string names. Clean,
@@ -286,11 +285,11 @@
   "Validate `body` against the schema for `kind`. Throws `:rf.error/<kind>-shape`
   on a miss. Returns the body unchanged on success.
 
-  rf2-mantt — when the failure is an unknown / removed slot (the closed-
-  schema `:malli.core/extra-key` error) the `:reason` names the offending
-  key(s) and the nearest declared slot; otherwise it falls back to the
-  generic schema-mismatch message. The full malli `:explain` rides
-  `ex-data` either way."
+  When the failure is an unknown slot (the closed-schema
+  `:malli.core/extra-key` error) the `:reason` names the offending key(s)
+  and the nearest declared slot; otherwise it falls back to the generic
+  schema-mismatch message. The full malli `:explain` rides `ex-data`
+  either way."
   [kind id body]
   (when-let [explain (schemas/validate kind body)]
     (let [error-kw (keyword "rf.error" (str (name kind) "-shape"))
@@ -367,7 +366,7 @@
                          :kind     kind
                          :id       id}))))))
 
-;; ---- auto-install hook (rf2-p1ydc) ---------------------------------------
+;; ---- auto-install hook ---------------------------------------------------
 ;;
 ;; Every `reg-*!` helper calls `maybe-auto-install!` at entry. If the
 ;; canonical vocabulary hasn't been installed in the current registrar
@@ -446,8 +445,7 @@
 
 (defn reg-variant*
   "Runtime helper for `reg-variant` macro. Per `001-Authoring.md` §Registration macros + spec/017
-  §8.4 (rf2-f6z88 — Mike RULED (a): the plan compiler is the SINGLE
-  `:extends` merge authority):
+  §8.4 (the plan compiler is the SINGLE `:extends` merge authority):
 
   1. Validate the AUTHORED body shape.
   2. Lower the public vocabulary into the shipping slots.
@@ -456,31 +454,28 @@
   5. Write the RAW body — `:extends` INTACT, parents UNmerged — to the
      side-table.
 
-  `:extends` is NOT resolved here. The straight registration-time merge
-  (`extends/resolve-extends`, a child-wins-wholesale REPLACE that also
-  STRIPPED `:extends`) used to pre-fold the parent body, which left the
-  plan compiler's per-field merge logic (setup APPENDS, checks INHERIT —
-  spec/017 §8.4) dead for every registered variant: it saw a single-
-  element `:extends` chain. By storing the raw body we make the compiler's
-  `resolve-source-chain` walk the chain on the default side-table lookup,
-  so registered variants and explicit-`:lookup` tests share ONE merge
-  engine (`re-frame.story.plan/compile-body`). There is no second merge
-  here to diverge."
+  `:extends` is NOT resolved here. Storing the raw body lets the
+  compiler's `resolve-source-chain` walk the parent chain on the default
+  side-table lookup, so the plan compiler's per-field merge logic (setup
+  APPENDS, checks INHERIT — spec/017 §8.4) applies to every registered
+  variant. Registered variants and explicit-`:lookup` tests share ONE
+  merge engine (`re-frame.story.plan/compile-body`); there is no second
+  merge here to diverge."
   [id body]
   (maybe-auto-install!)
   (assert-id! :variant id)
-  ;; rf2-5x1wt.11 — validate the AUTHORED body first so the public-
-  ;; vocabulary mutual-exclusion (`:setup` xor `:events`, `:script` xor
-  ;; `:play-script` xor `:plays`) fires on what the author actually
-  ;; wrote, before `lower-public-vocabulary` folds the public spellings
-  ;; into the shipping slots.
+  ;; Validate the AUTHORED body first so the public-vocabulary mutual-
+  ;; exclusion (`:setup` xor `:events`, `:script` xor `:play-script` xor
+  ;; `:plays`) fires on what the author actually wrote, before
+  ;; `lower-public-vocabulary` folds the public spellings into the
+  ;; shipping slots.
   (validate-shape! :variant id body)
   (let [;; Lower `:setup`→`:events` and `:script`→`:play-script` so the
         ;; stored body carries the shipping slots every downstream
-        ;; consumer reads (per spec/017 §Public vocabulary; removed when
-        ;; the runtime reads the normalized plan — rf2-5x1wt.17 / .22).
+        ;; consumer reads (per spec/017 §Public vocabulary; stripped when
+        ;; the runtime reads the normalized plan).
         ;; `:extends` is preserved verbatim — the plan compiler resolves
-        ;; it (rf2-f6z88).
+        ;; it.
         lowered  (schemas/lower-public-vocabulary body)
         body     (-> lowered
                      merge-coords
@@ -489,7 +484,7 @@
     (store! :variant id body)))
 
 (defn reg-fragment*
-  "Runtime helper for `reg-fragment` macro (rf2-5x1wt.15). A fragment is a
+  "Runtime helper for `reg-fragment` macro. A fragment is a
   reusable setup/script/world mixin a variant pulls in through `:compose`.
 
   Validates the body against the `Fragment` schema — which enforces the
@@ -502,7 +497,7 @@
   (reg-simple! :fragment id body))
 
 (defn reg-check*
-  "Runtime helper for `reg-check` macro (rf2-5x1wt.15). A check is a named,
+  "Runtime helper for `reg-check` macro. A check is a named,
   reusable assertion pack — the inheritable expectation form. Validates the
   body against the `Check` schema (`:assertions` required, no
   world/behaviour). Check identity (the id) is preserved by the plan
@@ -545,7 +540,7 @@
 
 (defn install-canonical-tags!
   "Register the seven canonical inclusion tags from /spec/007-Stories.md §Inclusion
-  tags AND the canonical `:state/*` magnitude axis (rf2-k1k87) — five
+  tags AND the canonical `:state/*` magnitude axis — five
   faceted tags (`:state/empty`, `:state/small`, `:state/medium`,
   `:state/large`, `:state/special`) on the `:state` axis. The `:state`
   axis communicates operator-facing fixture richness — a reviewer can
@@ -592,9 +587,10 @@
   Stories with zero registered variants land in the result with an empty
   set — the caller decides whether to elide them.
 
-  Replaces the O(S × V) pattern of calling `variants-of` per story (used
-  e.g. by `tool-list-stories` in story-mcp, rf2-d3iso). Variant ids whose
-  namespace doesn't match any registered story id are skipped — they're
+  Builds the index in one pass instead of the O(S × V) pattern of calling
+  `variants-of` per story (used e.g. by `tool-list-stories` in story-mcp).
+  Variant ids whose namespace doesn't match any registered story id are
+  skipped — they're
   orphans (the registrar's reg-time validation forbids them under normal
   use, but the index stays defensive)."
   []
@@ -609,7 +605,7 @@
             seed
             (ids :variant))))
 
-;; ---- variants-with-tags (memoised on mutation-tick, rf2-c5nwl) ----------
+;; ---- variants-with-tags (memoised on mutation-tick) --------------------------
 ;;
 ;; The hot path is the sidebar compose loop + the SOTA assertions/play
 ;; flows: every render computes
@@ -641,7 +637,7 @@
   "Return the variant ids whose `:tags` set intersects `query-tags`. Per
   `002-Runtime.md` §Programmatic API — the public `variants-with-tags` wraps this.
 
-  Memoised on the registrar mutation-tick (rf2-c5nwl): repeated calls
+  Memoised on the registrar mutation-tick: repeated calls
   with the same query between two registrar writes return the same
   cached set in O(1)."
   [query-tags]
@@ -674,8 +670,8 @@
 (defn tags-by-axis
   "Return the set of registered tag ids whose body's `:axis` equals
   `axis-kw`. Per spec/001 §reg-tag the optional `:axis` slot groups
-  tags into facet rows in the sidebar tag-filter UI (rf2-v05qb SB9
-  parity). Tags registered without `:axis` are excluded from every
+  tags into facet rows in the sidebar tag-filter UI (SB9 parity).
+  Tags registered without `:axis` are excluded from every
   axis-keyed result."
   [axis-kw]
   (query-tags-by #(= axis-kw (:axis %))))
@@ -693,7 +689,7 @@
   []
   (query-tags-by #(= :exclude (:default-filter %))))
 
-;; ---- faceted tag-filter helpers (rf2-7ncf9) ------------------------------
+;; ---- faceted tag-filter helpers ------------------------------------------------
 
 (def ^:private no-axis-key
   "Sentinel axis key for tags that have no `:axis` slot. Lives in
@@ -718,7 +714,7 @@
   "Pure data → data: build the `{tag-id → axis-kw}` index across every
   registered tag in one O(T) pass. Tags without `:axis` map to
   `::no-axis`. Used by the sidebar's facet-grouped filter row + the
-  `state/variant-tag-match?` AND-across-axes predicate (rf2-7ncf9)."
+  `state/variant-tag-match?` AND-across-axes predicate."
   []
   (reduce-kv (fn [acc tid body]
                (assoc acc tid (or (:axis body) no-axis-key)))

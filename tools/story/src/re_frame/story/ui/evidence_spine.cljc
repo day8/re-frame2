@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.evidence-spine
   "The evidence spine — the Story-owned narrative/evidence DISPLAY over the
-  retained epoch tape (rf2-ba86n.10, spec/020 §3 + spec/021 §2).
+  retained epoch tape (spec/020 §3 + spec/021 §2).
 
   ## What it is
 
@@ -18,7 +18,7 @@
   violation, or a cannot-run row SELECTS the matching span/beat so the
   investigation follows the failure-state hierarchy. The selected beat
   offers an *open-in-Xray* link that FOCUSES the relevant Xray panel via the
-  closed `rf2-crtmq` focus API.
+  host-facing focus API.
 
   ## The ownership boundary (load-bearing — spec/020 §1)
 
@@ -28,7 +28,7 @@
   the user wants the deep diagnostic it builds a focus COMMAND (which panel,
   which epoch/cascade, which app-db path) plus opaque `:source` provenance
   and calls `day8.re-frame2-xray.core/focus!` — the host-facing focus
-  entry point (rf2-crtmq, spec/020 §2.1). Xray owns what each field means
+  entry point (spec/020 §2.1). Xray owns what each field means
   and routes it to its canonical `:rf.xray/*` write surfaces. The spine
   LINKS; it never embeds Xray panel interiors.
 
@@ -100,14 +100,13 @@
 ;; it speaks to the host-facing focus API, not the embed chip-row. We mirror
 ;; the set here as pure data so `panel-for-row` can validate a selector
 ;; before building a command (a typo'd panel would otherwise land Xray's
-;; unknown-tab stub). (rf2-gbz39 — `:issues` was removed alongside the
-;; Xray Issues tab per Mike's Option (c) ruling.)
+;; unknown-tab stub).
 
 (def focus-panels
   "The canonical host-facing Xray panel ids a focus command may target
   (mirrors `day8.re-frame2-xray.focus/valid-panels`). Pure data — the
   spine validates its panel selector against this set before building a
-  focus command. (rf2-gbz39 dropped `:issues` with the Xray Issues tab.)"
+  focus command."
   #{:epoch :app-db :views :trace :machines :routes})
 
 ;; ===========================================================================
@@ -765,7 +764,7 @@
 
 ;; ---- the result→spine entry point ----------------------------------------
 ;;
-;; Test mode (rf2-ba86n.11) renders a graceful 'evidence pending' row; the
+;; Test mode renders a graceful 'evidence pending' row; the
 ;; spine is its target. The spine reads the same result slot Test mode wrote
 ;; (`test-state/results-atom`), so it shows the SAME run's narrative — Story
 ;; never re-runs the variant for the spine.

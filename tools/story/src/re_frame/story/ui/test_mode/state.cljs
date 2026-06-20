@@ -1,23 +1,22 @@
 (ns re-frame.story.ui.test-mode.state
-  "CLJS-side local state for the `:test` mode pane (rf2-qmjo + spec/009).
+  "CLJS-side local state for the `:test` mode pane (spec/009).
 
-  Split out of the legacy `re-frame.story.ui.test-mode` monolith per
-  rf2-8n2fz. The pane keeps its own ratom — one map keyed by variant-id.
+  The pane keeps its own ratom — one map keyed by variant-id.
   Each entry carries:
 
       {:result          <unified-run-result-map>
        :ran-at-ms       <epoch-ms>
        :running?        <bool>
        :expanded        #{<row-key>}      ; expanded assertion rows
-       :expanded-checks #{<check-id>}     ; expanded check groups (rf2-ba86n.11)
-       :failed-only?    <bool>            ; failed-only filter (rf2-ba86n.11)
+       :expanded-checks #{<check-id>}     ; expanded check groups
+       :failed-only?    <bool>            ; failed-only filter
        :play-events     <vector>          ; flat event-vec list derived from :play-script
        :epoch-ids       <vector>          ; trailing epoch-id slice
        :selected-step   <int|nil>}
 
-  rf2-ba86n.11 — `:result` is the ONE unified run-result the runtime now
-  returns (`re-frame.story.result/run-result` merged with the legacy
-  lifecycle slots): a top-level `:status`, `:checks`, `:schema-violations`,
+  `:result` is the ONE unified run-result the runtime returns
+  (`re-frame.story.result/run-result` merged with the lifecycle slots):
+  a top-level `:status`, `:checks`, `:schema-violations`,
   `:cannot-run` refusals, `:runner` / `:required-runner`, plus the
   `:assertions` records each stamped with their own `:status`. The pane
   reads it through `re-frame.story.ui.test-mode.pure`'s projection helpers.
@@ -26,7 +25,7 @@
   result in on resolve.
 
   `:play-events`, `:epoch-ids` + `:selected-step` are the step-through
-  scrubber slots (rf2-lc36w). `:selected-step` is the slider position
+  scrubber slots. `:selected-step` is the slider position
   (a slot index into `:epoch-ids`); `nil` means 'no scrub in flight'
   — the canvas shows the post-play app-db, the same value the user
   sees on a fresh run. A non-nil selection has called `restore-epoch`
@@ -60,7 +59,7 @@
   "Mark the variant's slot as running. Returns nothing. Stamps the
   shell-state `[:tests :runs]` slot too so the chrome-level test widget
   and the sidebar's per-variant dot read `:running` while the run
-  is in flight (rf2-q0irb)."
+  is in flight."
   [variant-id]
   (swap! results-atom assoc-in [variant-id :running?] true)
   (state/swap-state! state/mark-test-running variant-id))
@@ -72,20 +71,18 @@
   starts collapsed.
 
   Captures the play-events vector + the trailing epoch-id slice
-  against the same atom so the step-through scrubber (rf2-lc36w)
-  has a stable read-surface that doesn't drift on a later
-  unrelated dispatch.
+  against the same atom so the step-through scrubber has a stable
+  read-surface that doesn't drift on a later unrelated dispatch.
 
   Folds the run's aggregate into the shell-state `[:tests :runs]` slot
   too — the chrome-level test widget + sidebar dots read off that
-  slot (rf2-q0irb)."
+  slot."
   [variant-id result]
   (let [now          (interop/now-ms)
-        ;; Per rf2-0wrud `:play-script` is the canonical AND ONLY
-        ;; phase-4 slot. `play/variant-play-events` extracts a flat
-        ;; event-vec list (one per `:dispatch`/`:dispatch-sync` step)
-        ;; — the same shape the legacy `:play` slot carried, so the
-        ;; scrubber's slot-shape stays stable.
+        ;; `:play-script` is the canonical phase-4 slot.
+        ;; `play/variant-play-events` extracts a flat event-vec list
+        ;; (one per `:dispatch`/`:dispatch-sync` step), the shape the
+        ;; scrubber's slot expects.
         play-events  (play/variant-play-events variant-id)
         history      (rf/epoch-history variant-id)
         epoch-ids    (pure/epoch-id-slice history (count play-events))]
@@ -100,10 +97,10 @@
     (let [summary (-> (state/aggregate-summary (:assertions result))
                       (assoc :ran-at-ms  now
                              :elapsed-ms (:elapsed-ms result)
-                             ;; rf2-5x1wt.19 — thread the unified run-level
-                             ;; `:status` so the sidebar dot reflects a
-                             ;; tape-floor `:fail` / `:cannot-run` refusal
-                             ;; the assertion counts alone might miss.
+                             ;; thread the unified run-level `:status` so
+                             ;; the sidebar dot reflects a tape-floor
+                             ;; `:fail` / `:cannot-run` refusal the
+                             ;; assertion counts alone might miss.
                              :status     (:status result)))]
       (state/swap-state! state/record-test-run variant-id summary))))
 
@@ -117,7 +114,7 @@
   (we restore against the last epoch-id in the slice, which is the
   play-sequence's terminal state).
 
-  No-ops while the slot's `:running?` is true (rf2-tistm). A
+  No-ops while the slot's `:running?` is true. A
   scrubber-tick during an in-flight `reset-variant` would race
   `store-result!`: the restore would land against the frame being
   reset, the new `:epoch-ids` would overwrite the slice, and
@@ -147,8 +144,8 @@
 (defn toggle-expanded!
   "Toggle the expand state of an assertion row, keyed by stable
   identity (`row-key`, derived from `assertion-row :label`) rather
-  than positional index (rf2-tistm). A re-run that reorders or
-  inserts assertions would otherwise open the wrong row."
+  than positional index. A re-run that reorders or inserts assertions
+  would otherwise open the wrong row."
   [variant-id row-key]
   (swap! results-atom update-in [variant-id :expanded]
          (fn [s] (let [s (or s #{})]
@@ -157,8 +154,8 @@
                      (conj s row-key))))))
 
 (defn toggle-check!
-  "Toggle the expand state of a check group, keyed by check id
-  (rf2-ba86n.11). Mirrors `toggle-expanded!` for the per-test rows."
+  "Toggle the expand state of a check group, keyed by check id.
+  Mirrors `toggle-expanded!` for the per-test rows."
   [variant-id check-id]
   (swap! results-atom update-in [variant-id :expanded-checks]
          (fn [s] (let [s (or s #{})]
@@ -168,8 +165,8 @@
 
 (defn set-failed-only!
   "Set the failed-only filter flag for `variant-id`'s slot
-  (rf2-ba86n.11, spec/021 §1 — failed-only filtering). `on?` truthy
-  hides passing rows; falsey shows every row."
+  (spec/021 §1 — failed-only filtering). `on?` truthy hides passing
+  rows; falsey shows every row."
   [variant-id on?]
   (swap! results-atom assoc-in [variant-id :failed-only?] (boolean on?)))
 
@@ -178,11 +175,10 @@
   swap the result into local state when it resolves. No-ops if
   the slot already carries `:running?`.
 
-  Per rf2-zq6sn the variant's run threads its OWN cell-overrides
-  entry from shell state — same lookup the canvas / sidebar /
-  share-url paths perform — so the test pane re-runs against the
-  same effective-args the user has been editing in the controls
-  panel."
+  The variant's run threads its OWN cell-overrides entry from shell
+  state — same lookup the canvas / sidebar / share-url paths perform —
+  so the test pane re-runs against the same effective-args the user has
+  been editing in the controls panel."
   [variant-id]
   (let [shell @state/shell-state-atom
         opts  {:active-modes   (:active-modes shell)
@@ -196,7 +192,7 @@
                         ;; UI button comes back to "Re-run". Drop
                         ;; the shell-state running stamp too — the
                         ;; widget/dot should not stay yellow on a
-                        ;; rejection (rf2-q0irb).
+                        ;; rejection.
                         (swap! results-atom assoc-in
                                [variant-id :running?] false)
                         (state/swap-state! state/clear-test-run variant-id)

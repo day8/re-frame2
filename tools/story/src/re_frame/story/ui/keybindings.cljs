@@ -1,15 +1,15 @@
 (ns re-frame.story.ui.keybindings
-  "Story global keyboard-shortcut registry (rf2-g8l8x / rf2-p3i0t).
+  "Story global keyboard-shortcut registry.
 
   Owns the single `window#keydown` capture-phase listener that backs
   every chrome-level muscle-memory hotkey:
 
-      f  →  toggle full-screen      (rf2-p3i0t)
-      s  →  toggle sidebar          (rf2-g8l8x)
-      a  →  toggle RHS / addons     (rf2-g8l8x)
-      t  →  toggle toolbar          (rf2-g8l8x)
+      f  →  toggle full-screen
+      s  →  toggle sidebar
+      a  →  toggle RHS / addons
+      t  →  toggle toolbar
 
-  Cmd-K / Ctrl-K (the command palette, rf2-9hc8) ships its own
+  Cmd-K / Ctrl-K (the command palette) ships its own
   listener in `re-frame.story.ui.command-palette.view` — palette is a
   modal surface, hotkeys here are inline chrome toggles. The two
   listeners co-exist; both install on the capture phase so they
@@ -17,11 +17,10 @@
 
   ## Why a registry
 
-  Pre-rf2-g8l8x the chrome had ONE global hotkey (Cmd-K) wired
-  inline in `command_palette/view.cljs`. Adding `f` / `s` / `a` / `t`
-  as inline listeners on shell.cljs would scatter four nearly-
-  identical capture-phase listeners across the codebase with no
-  central inventory of bound keys. The registry pattern centralises:
+  Wiring `f` / `s` / `a` / `t` as inline listeners on shell.cljs would
+  scatter four nearly-identical capture-phase listeners across the
+  codebase with no central inventory of bound keys. The registry pattern
+  centralises:
 
   - The canonical `[key → handler]` table (one map, one source of
     truth for what's bound).
@@ -47,8 +46,8 @@
   The chrome-visibility toggles persist to localStorage under
   `re-frame.story/chrome-visibility` so a refresh keeps the user's
   layout intent. Hydration runs once at shell mount. `:embed?` is
-  intentionally excluded — embed-mode is URL-driven (rf2-pucku) and
-  must not carry across navigations.
+  intentionally excluded — embed-mode is URL-driven and must not carry
+  across navigations.
 
   ## Elision
 
@@ -89,8 +88,8 @@
 
 (defn save-to-storage!
   "Persist the chrome-visibility map. `:embed?` is stripped — embed
-  is URL-driven (rf2-pucku) and persisting it would leak between
-  navigations. Idempotent; silent on storage unavailability."
+  is URL-driven and persisting it would leak between navigations.
+  Idempotent; silent on storage unavailability."
   [chrome-vis]
   (when-let [ls (safe-local-storage)]
     (try
@@ -161,7 +160,7 @@
 ;; ---- canonical hotkey table --------------------------------------------
 
 (defn full-screen-toggle!
-  "Handler for the `f` key (rf2-p3i0t). Flips
+  "Handler for the `f` key. Flips
   `[:chrome-visibility :full-screen?]` + persists. Escape exits via the
   separate `Escape`-listener in the canvas's full-screen overlay (see
   `canvas/full-screen-overlay`)."
@@ -170,21 +169,21 @@
   (save-to-storage! (state/chrome-visibility (state/get-state))))
 
 (defn sidebar-toggle!
-  "Handler for the `s` key (rf2-g8l8x). Flips
+  "Handler for the `s` key. Flips
   `[:chrome-visibility :sidebar?]` + persists."
   []
   (state/swap-state! state/toggle-chrome-visibility :sidebar?)
   (save-to-storage! (state/chrome-visibility (state/get-state))))
 
 (defn rhs-toggle!
-  "Handler for the `a` key (rf2-g8l8x — `a` for 'addons' per Storybook
+  "Handler for the `a` key (`a` for 'addons' per Storybook
   convention). Flips `[:chrome-visibility :rhs?]` + persists."
   []
   (state/swap-state! state/toggle-chrome-visibility :rhs?)
   (save-to-storage! (state/chrome-visibility (state/get-state))))
 
 (defn toolbar-toggle!
-  "Handler for the `t` key (rf2-g8l8x). Flips
+  "Handler for the `t` key. Flips
   `[:chrome-visibility :toolbar?]` + persists."
   []
   (state/swap-state! state/toggle-chrome-visibility :toolbar?)
@@ -230,8 +229,8 @@
         shell     (state/get-state)
         chrome    (state/chrome-visibility shell)]
     (cond
-      ;; Escape exits full-screen (rf2-p3i0t acceptance criterion). We
-      ;; gate the Escape branch on `editable?` so typing Escape into a
+      ;; Escape exits full-screen. We gate the Escape branch on
+      ;; `editable?` so typing Escape into a
       ;; focused input (e.g. the sidebar search) cancels the input
       ;; rather than exiting full-screen — that's the search's intent.
       ;; When full-screen is active there's NO visible input that would

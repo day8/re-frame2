@@ -65,13 +65,11 @@
 ;; ---- parent-story lookup --------------------------------------------------
 ;;
 ;; Re-export from `re-frame.story.predicates` (the canonical leaf home).
-;; rf2-ee38b.3 dropped the docs / state / test-mode pure re-exports (which
-;; had ≤1 caller each); this `args/parent-story-id` alias survives because
-;; ~9 sibling namespaces (decorators, identity, runtime, canvas, controls,
-;; multi-substrate, panels, schema-validation, workspace) `:require` args
-;; already and call it through this alias. Folding those onto
-;; `pred/parent-story-id` directly is a mechanical follow-up; the alias is
-;; a thin pass-through, not new behaviour.
+;; This `args/parent-story-id` alias exists because ~9 sibling namespaces
+;; (decorators, identity, runtime, canvas, controls, multi-substrate,
+;; panels, schema-validation, workspace) `:require` args already and call
+;; it through this alias. The alias is a thin pass-through to
+;; `pred/parent-story-id`.
 
 (def parent-story-id
   "Derive the parent story id from a variant id. Per /spec/007-Stories.md
@@ -143,7 +141,7 @@
   ([variant-id] (resolve-args variant-id nil))
   ([variant-id opts] (resolve-args variant-id opts)))
 
-;; ---- ambient + run arg layers (rf2-2cpoo) ---------------------------------
+;; ---- ambient + run arg layers ---------------------------------------------
 ;;
 ;; The plan compiler resolves the variant-CHAIN `:args` (the `:extends`-merged
 ;; variant body args, the §Total resolution order variant layer) itself, but
@@ -155,9 +153,8 @@
 ;; its `arg-map` — and therefore every `[:arg key]` substitution in
 ;; setup/script/db-seed/network/sub-overrides, plus `[:world :effective-args]`
 ;; and the plan hash — uses the SAME effective args the run/render surfaces
-;; report (rf2-2cpoo: the run path used to compile with the variant layer
-;; ALONE, so a cell override / active mode reported one effective-args while
-;; the executed plan substituted another).
+;; report. This keeps a cell override / active mode reporting the same
+;; effective-args the executed plan substitutes.
 
 (defn run-arg-layers
   "Return the AMBIENT + per-RUN arg layers (everything `resolve-args` folds

@@ -10,14 +10,12 @@
 
   ## Why a shared status layer
 
-  Before this namespace each region encoded its own
-  status→colour map (the sidebar's `:signal-status-*` keys, the
-  test-mode view's pass/fail pills, the play-status banner's tints).
-  The maps agreed by convention, not by construction — a drift in one
-  region produced a tool that read `:fail` as one red in the sidebar
-  and a different red in the result row. Spec/018 §12.6 makes the
-  vocabulary normative and tool-wide; this namespace makes it
-  *constructed* rather than *conventional*.
+  This namespace is the one construction every region keys off, so a
+  `:fail` reads as the same red in the sidebar, the test-mode result
+  row, and the play-status banner — the vocabulary is *constructed*
+  tool-wide rather than each region agreeing its own status→colour map
+  by convention (which drifts). Spec/018 §12.6 makes the vocabulary
+  normative and tool-wide.
 
   ## The contract (spec/018 §12.6)
 
@@ -28,7 +26,7 @@
   So each status carries FOUR discriminators, not one:
 
   - `:fg` / `:bg` / `:border` — the colour treatment (resolved from
-    `theme.colors/tokens`; zero raw hex per rf2-i3i5j).
+    `theme.colors/tokens`; zero raw hex).
   - `:glyph` — a single structural character (`✓ ✗ ! ⊘ ▣ ● ◌ ◐ ▢`) so
     the state survives colour-blindness AND Windows High-Contrast Mode
     (where `forced-colors` strips the inline colour — see
@@ -99,7 +97,7 @@
   "The canonical status → descriptor map. Each descriptor carries the
   four discriminators spec/018 §12.6 mandates (colour / glyph / shape /
   label) plus an `:emphasis` presentation hint. Colours resolve through
-  `theme.colors/tokens` — zero raw hex (rf2-i3i5j).
+  `theme.colors/tokens` — zero raw hex.
 
   Shape vocabulary (each renders a DISTINCT border — see
   `shape-decoration`):

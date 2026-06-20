@@ -7,7 +7,7 @@
   artefact is self-contained — no resource read at boot, one MCP
   frame, zero classpath / IO dependencies. The structural peer in
   pair-mcp (`get-re-frame2-pair-instructions`) uses the same inline-
-  `(str ...)` shape, kept aligned per rf2-93cew so AI pairs reading
+  `(str ...)` shape, kept aligned so AI pairs reading
   both servers see one answer to the onboarding-text question."
   (:require [re-frame.story :as story]
             [re-frame.story.async :as async]
@@ -20,7 +20,7 @@
 (def story-instructions-text
   "The agent-onboarding text returned by `get-story-instructions`.
   Inline `(str ...)` of `\\n`-glued lines — see the ns docstring for
-  the rationale (mirrors pair-mcp per rf2-93cew). Edit this string
+  the rationale (mirrors pair-mcp). Edit this string
   when the catalogue changes."
   (str
     "re-frame2-story authoring conventions (agent quick reference).\n"
@@ -85,7 +85,7 @@
   "Dev: return the Story authoring conventions in agent-friendly form.
 
   Emits BOTH the `:content` text slot AND a matching
-  `:structuredContent` map (rf2-vyacl). The descriptor declares an
+  `:structuredContent` map. The descriptor declares an
   `:outputSchema` (`s/default-output-schema`); the official MCP SDK's
   high-level `callTool` REJECTS a tool that declares an output schema
   but returns no `:structuredContent` with JSON-RPC -32600. Mirroring
@@ -105,18 +105,17 @@
   side has `async/deref-blocking`), and serialise the result map.
 
   `preview-variant` runs the SAME `story/run-variant` lifecycle as
-  `run-variant`, so it speaks the SAME unified run-result vocabulary
-  (rf2-ba86n.17) — it does NOT ship a third result dialect. It surfaces
+  `run-variant`, so it speaks the SAME unified run-result vocabulary —
+  it does NOT ship a third result dialect. It surfaces
   the unified `:status` verdict + the unified `:assertions` records (each
   with a derived `:status`) + `:checks`, and ADDS the preview-specific
   slots: the `:share-url` (per IMPL-SPEC §2.8.5 + Stage 6
   `story/variant-share-url`) so the agent can hand the cell to a human
   collaborator, plus `:rendered-hiccup` / `:effective-args`. `:lifecycle`
   here is the loader-lifecycle STATE (`:ready` / `:error`), not the run
-  verdict — the verdict is `:status` (the old `:passing?` boolean was
-  removed in the clean break).
+  verdict — the verdict is `:status`.
 
-  Blocking-timeout posture (rf2-ovmc5e): because preview and `run-variant`
+  Blocking-timeout posture: because preview and `run-variant`
   block on the SAME lifecycle, they share the SAME `:timeout-ms` knob +
   ceiling via `targs/resolve-timeout-ms` (default 10 s, hard ceiling
   30 s, caller values clamp DOWN). The MCP request loop is single-threaded
@@ -124,7 +123,7 @@
   helper means the two tools cannot drift by copy-paste, and an agent can
   discover + tune the ceiling from `tools/list` on either tool.
 
-  Wire-egress posture (rf2-73wuj): the `:app-db` slot is routed
+  Wire-egress posture: the `:app-db` slot is routed
   through `re-frame.core/elide-wire-value`; the `:assertions` vec is
   filtered through `strip-sensitive`. Off-box defaults apply unless
   the caller passes `:include-sensitive true`."
@@ -136,8 +135,8 @@
             share-url  (story/variant-share-url vk base-url opts)
             outcome    (try
                          (async/deref-blocking (story/run-variant vk opts)
-                                               ;; rf2-ovmc5e — shared lifecycle
-                                               ;; ceiling: tunable `:timeout-ms`
+                                               ;; Shared lifecycle ceiling:
+                                               ;; tunable `:timeout-ms`
                                                ;; (default 10s, clamped to 30s),
                                                ;; the SAME knob `run-variant` uses
                                                ;; so the two cannot drift.
@@ -167,11 +166,11 @@
                         :checks       (vec (:checks outcome))
                         ;; Derived trees re-key the same sensitive value at a
                         ;; non-app-db path, so the path-based walker can't
-                        ;; reach them — value-redact instead (rf2-ee38b.17).
+                        ;; reach them — value-redact instead.
                         :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
                         :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
                         :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
-        ;; Surface the MUST-level egress indicator counts (rf2-koq5m):
+        ;; Surface the MUST-level egress indicator counts:
         ;; how many sensitive assertion records were dropped + how many
         ;; over-threshold leaves were elided across the payload. Omitted
         ;; when zero (Conventions §Cross-MCP indicator-field vocabulary).
@@ -190,8 +189,7 @@
   (no CLJS substrates are runnable from a JVM-only host).
 
   The CLJS var is resolved once, in `cljs-resolve` —
-  `cljs-resolve/registered-substrates` is the single accessor
-  (rf2-ee38b.17 removed the duplicate `defonce` that used to live here)."
+  `cljs-resolve/registered-substrates` is the single accessor."
   [_args]
   (result/edn-result {:substrates (vec (cljs-resolve/registered-substrates))}))
 
@@ -223,7 +221,7 @@
                          "3. Slow variant with an explicit timeout: {:variant-id \":story.slow/loader\" :timeout-ms 20000} -> runs against the 20s ceiling (clamped to 30s max); on overrun returns {:status :error :lifecycle :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}. "
                          "4. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  2000
-    ;; rf2-90eft — `preview-variant` ships the variant's `:app-db`
+    ;; `preview-variant` ships the variant's `:app-db`
     ;; re-keyed into `:rendered-hiccup` / `:effective-args` /
     ;; `:snapshot`; structural dedup collapses those four references
     ;; into one cache slot at the wire boundary. Mirrors pair-mcp's
@@ -243,12 +241,12 @@
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
-    ;; rf2-8h778 — `preview-variant` invokes the same `story/run-variant`
+    ;; `preview-variant` invokes the same `story/run-variant`
     ;; pipeline as `run-variant`: it dispatches events into the variant's
-    ;; frame, accumulates assertions, and mutates the runtime. The audit
-    ;; (rf2-3pn6c Finding #2) caught the asymmetry — `read-only-annotations`
-    ;; here would have allowed agent hosts to auto-approve a call that
-    ;; mutates the frame. The semantic distinction between the two tools
+    ;; frame, accumulates assertions, and mutates the runtime. So it carries
+    ;; the destructive run annotations, not `read-only-annotations` — the
+    ;; latter would let agent hosts auto-approve a call that mutates the
+    ;; frame. The semantic distinction between the two tools
     ;; (`preview-variant` adds the share URL + rendered view; `run-variant`
     ;; is the headline run/verdict call — both return the same unified
     ;; run-result `:status`) is real but doesn't change the destructive

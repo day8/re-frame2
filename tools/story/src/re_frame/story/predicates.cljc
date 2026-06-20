@@ -7,10 +7,10 @@
   Companion leaf to `re-frame.story.late-bind` (run-time function
   resolution) — both are pure namespaces the rest of Story consumes.
 
-  The five micro-fns here used to live as private mirrors across
-  ~9 sites (args / assertions / recorder / docs / state / test-mode/pure).
-  Each mirror was justified locally by a cycle dodge, but the systemic
-  shape is one canonical leaf. See rf2-pzzbw / audit rf2-cgqam."
+  The five micro-fns here are the single canonical home for helpers the
+  rest of the tree consumes (args / assertions / recorder / docs / state /
+  test-mode/pure), so each cycle-sensitive consumer requires one leaf
+  rather than carrying a private mirror."
   (:require [clojure.string :as str]))
 
 (def reserved-assertion-ns
@@ -21,7 +21,7 @@
 (def assertion-glyph
   "Canonical assertion-outcome glyph map — the single source of truth for
   the three assertion verdicts shared by the assertion strip, the test-
-  mode result table, and the step-through scrubber (rf2-8fr3yd). `:skip`
+  mode result table, and the step-through scrubber. `:skip`
   is an assertion-level verdict distinct from `theme.status/:cannot-run`
   (which is a runner-tier status), so it is NOT a `theme.status` descriptor
   — this is the assertion vocabulary, not the tool-wide status vocabulary.
@@ -78,7 +78,7 @@
       ;; => \"   :script [item1\\n             item2]\"
       ;;                    ^---------- item2 aligns under item1
 
-  Lives in the predicates leaf (rf2-ar0t9) so producers
+  Lives in the predicates leaf so producers
   (recorder / save-variant) don't have to `:require` the consumer
   (review-dialog) just for this 4-line helper."
   [prefix]
@@ -94,9 +94,9 @@
   assembles `body-str` (Shape-A builders via `reg-variant-form` below;
   play-export / view-state / schema-form via their own body shape).
 
-  Byte-identical to the hand-rolled envelope the builders previously
-  carried (rf2-8fr3yd). Builders that derive a default id or alias resolve
-  those at the call site and pass the resolved values in."
+  Emits the exact envelope every codegen builder shares. Builders that
+  derive a default id or alias resolve those at the call site and pass the
+  resolved values in."
   [alias variant-id body-str]
   (str "(" alias "/reg-variant "
        (pr-str variant-id)
@@ -117,9 +117,8 @@
                                                   [:args \"{}\"]])
       ;; => \"(story/reg-variant :story.saved/x\\n  {:extends :story/a\\n   :args {}})\"
 
-  Byte-identical to the hand-rolled builders (rf2-8fr3yd). Lives in the
-  predicates leaf so every producer can `:require` it without cycle risk
-  (they already `:require` `indent-after` from here)."
+  Lives in the predicates leaf so every producer can `:require` it
+  without cycle risk (they already `:require` `indent-after` from here)."
   [alias variant-id body-keys]
   (reg-variant-envelope
     alias variant-id
@@ -141,12 +140,12 @@
   path is to pass the predicate as a FN DIRECTLY in the
   `:wait-until [:db path :pred <fn>]` predicate (or the `:assert-db …
   :pred <fn>` form, which folds to `:rf.assert/path-matches [:fn fn]`); the
-  resolver is only reached for the symbol escape-hatch (rf2-inbad).
+  resolver is only reached for the symbol escape-hatch.
 
   Shared by `assertions/resolve-fn-schema` (the `[:fn sym]` schema fold)
   and `runner-events/exec-wait-until` (the `:pred sym` form). Lives in this
   leaf so `assertions` resolves a symbol pred at validation time without a
-  require into the impure `runner-events` ns (rf2-le0p4 dedup)."
+  require into the impure `runner-events` ns."
   [sym]
   (when sym
     (try

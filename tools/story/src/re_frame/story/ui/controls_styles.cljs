@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.controls-styles
   "Style map for `re-frame.story.ui.controls`. Pure data; no Reagent
-  dependency. Extracted from `controls.cljs` per rf2-gv5kq so the
-  controls ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
+  dependency. A separate leaf so the controls ns stays within the
+  250-LoC leaf-size ceiling.
 
   CLJS-only."
   (:require [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -101,7 +101,7 @@
                  :font-size (:micro typography/type-scale)
                  :margin-left "4px"}
    :empty       {:color (:text-tertiary colors/tokens) :font-style "italic"}
-   ;; ---- rf2-ba86n.5: validation, diff-from-saved, summarise-before-expand
+   ;; ---- validation, diff-from-saved, summarise-before-expand
    ;;
    ;; Inline schema error rendered under a control whose committed value
    ;; violates the component's Spec 010 schema. The danger-bg ground +
@@ -140,7 +140,7 @@
                  :font-size (:micro typography/type-scale)}
    ;; The summarise-before-expand toggle for nested (group / repeater /
    ;; tuple) controls. The disclosure triangle + the one-line summary of
-   ;; the collapsed value sit in the group header row (rf2-ba86n.5 / the
+   ;; the collapsed value sit in the group header row (the
    ;; deep-controls perf risk in spec 019 §4).
    :disclosure  {:cursor "pointer"
                  :user-select "none"
@@ -156,7 +156,7 @@
                  :font-style "italic"
                  :margin-left "4px"
                  :font-size (:micro typography/type-scale)}
-   ;; rf2-ba86n.18 — flat-panel row cap (C2, budgets/controls-flat-row-cap).
+   ;; Flat-panel row cap (budgets/controls-flat-row-cap).
    ;; A controls panel whose top-level arg count exceeds the cap renders the
    ;; first `cap` rows and a "+N more" expander rather than flooding the
    ;; panel (spec/018 §10 — cap or page; fail by summarizing, not flooding).

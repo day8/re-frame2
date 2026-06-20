@@ -31,7 +31,7 @@
   `tools/call` result shape with `isError: true` per the MCP spec §Error
   Handling guidance — they are NOT protocol-level errors.
 
-  ## Cross-MCP factoring (rf2-vw4sq)
+  ## Cross-MCP factoring
 
   The JSON-RPC error-code constants live in `re-frame.mcp-base.vocab`
   — the cross-MCP shared vocabulary artefact. The internal use-sites
@@ -52,7 +52,7 @@
   auto-namespaced `::eof` form across namespace boundaries."
   ::eof)
 
-;; ---- frame-length cap (rf2-g9fje, fix 3/3) -------------------------------
+;; ---- frame-length cap ----------------------------------------------------
 
 (def ^:const max-frame-bytes
   "Hard ceiling on a single newline-delimited JSON-RPC frame from the
@@ -97,8 +97,7 @@
   keywordised (`normalize-frame` does this — `read-frame` runs it after
   `parse-json`). This predicate is the single home for the
   request-vs-notification rule — `server/dispatch` calls it rather than
-  re-spelling the `(not (contains? message :id))` check inline
-  (rf2-ee38b.17)."
+  re-spelling the `(not (contains? message :id))` check inline."
   [message]
   (and (map? message)
        (not (contains? message :id))))
@@ -122,7 +121,7 @@
   payload (the run-loop catches it and writes a `-32700` parse-error
   response).
 
-  ## No-intern ingress (rf2-3luf3)
+  ## No-intern ingress
 
   Cheshire's `keywordize-keys` mode (`json/parse-string s true`)
   recursively interns EVERY object key — including arbitrary attacker-/
@@ -146,9 +145,9 @@
   (try
     (json/parse-string s false)
     (catch Throwable e
-      ;; rf2-vvixub — the message + canonical ex-data are derived from the
-      ;; builder helpers; the 3-arg ex-info form preserves the original
-      ;; parser throwable as the cause.
+      ;; The message + canonical ex-data are derived from the builder
+      ;; helpers; the 3-arg ex-info form preserves the original parser
+      ;; throwable as the cause.
       (let [reason "re-frame2-story-mcp could not parse the incoming JSON frame; send a well-formed JSON-RPC frame."]
         (throw (ex-info (error/human-message :rf.error/story-mcp-json-parse-failure reason)
                         {:rf.error/id :rf.error/story-mcp-json-parse-failure
@@ -158,7 +157,7 @@
                          :raw      (when s (subs s 0 (min 200 (count s))))}
                         e))))))
 
-;; ---- no-intern frame normalisation (rf2-3luf3) ---------------------------
+;; ---- no-intern frame normalisation ---------------------------------------
 
 (def envelope-keys
   "The finite JSON-RPC 2.0 / MCP envelope keys `normalize-frame`
@@ -233,11 +232,11 @@
 (def unknown-arg-keys-meta
   "Reserved METADATA key (NOT a map entry) under which `normalize-frame`
   records the RAW top-level `tools/call` argument-key STRINGS a caller
-  sent that fell outside the bounded `arg-keys` allowlist (rf2-ovmc5e).
+  sent that fell outside the bounded `arg-keys` allowlist.
 
   ## Why metadata, not a map entry
 
-  The no-intern ingress invariant (rf2-3luf3) is preserved verbatim: the
+  The no-intern ingress invariant is preserved verbatim: the
   unknown keys are kept as STRINGS and never converted to keywords, and
   they ride as Clojure metadata on the normalised arguments map rather
   than as map entries — so they never reach a handler's `(get args ...)`
@@ -255,7 +254,7 @@
   "Normalise a `tools/call` `arguments` map: keyword-keep the bounded
   `arg-keys` allowlist (dropping — and NOT interning — every other key),
   then record the RAW STRING keys that were dropped as metadata under
-  `unknown-arg-keys-meta` (rf2-ovmc5e). Returns the renamed map; the
+  `unknown-arg-keys-meta`. Returns the renamed map; the
   metadata is attached only when at least one top-level key was dropped,
   so the common (all-recognised) path adds no metadata.
 
@@ -278,7 +277,7 @@
 (defn normalize-frame
   "Normalise a string-keyed parsed JSON frame into the keyword-keyed
   shape the dispatcher + tool layer expect, WITHOUT interning any
-  attacker-controlled key (rf2-3luf3).
+  attacker-controlled key.
 
   Only the finite JSON-RPC envelope keys (`envelope-keys`), the finite
   `params` keys (`params-keys`), and the bounded top-level
@@ -295,7 +294,7 @@
 
   Top-level `:arguments` keys outside the allowlist are dropped (no
   intern) but their RAW STRING form is recorded as metadata under
-  `unknown-arg-keys-meta` (rf2-ovmc5e) so the dispatcher can surface an
+  `unknown-arg-keys-meta` so the dispatcher can surface an
   agent-recoverable diagnostic rather than silently dropping a typo'd
   control knob — see `normalize-arguments`."
   [parsed]
@@ -324,19 +323,18 @@
 (defn- utf8-byte-len
   "UTF-8 byte length of the Unicode code point `cp` (an int).
 
-  The stdio frame cap (rf2-sibl4f) is a WIRE-BYTE budget, but the reader
-  hands us UTF-8-decoded Java code points, so we re-derive each code
-  point's encoded byte width:
+  The stdio frame cap is a WIRE-BYTE budget, but the reader hands us
+  UTF-8-decoded Java code points, so we re-derive each code point's
+  encoded byte width:
 
     - `<= 0x7F`    → 1 byte   (ASCII)
     - `<= 0x7FF`   → 2 bytes
     - `<= 0xFFFF`  → 3 bytes  (rest of the BMP)
     - else         → 4 bytes  (supplementary planes / surrogate pairs)
 
-  Counting decoded *characters* instead (the pre-fix behaviour)
-  under-measured multibyte input, so a non-ASCII frame could exceed the
-  promised byte ceiling before being rejected — weakening the DoS bound
-  the spec + error message advertise."
+  Counting decoded *characters* would under-measure multibyte input, so a
+  non-ASCII frame could exceed the promised byte ceiling before being
+  rejected — weakening the DoS bound the spec + error message advertise."
   [^long cp]
   (cond
     (<= cp 0x7F)   1
@@ -358,7 +356,7 @@
                             starts on a fresh frame boundary.
 
   The cap is measured in UTF-8 BYTES — the actual unit of the stdio
-  frame budget (rf2-sibl4f). The `BufferedReader` has already decoded
+  frame budget. The `BufferedReader` has already decoded
   the wire bytes into Java `char` code units, so we re-derive each code
   point's UTF-8 byte width via `utf8-byte-len` and bound on the running
   byte total. Code points above the BMP arrive as a surrogate PAIR (two
@@ -368,8 +366,8 @@
 
   Unlike `BufferedReader.readLine`, which will happily allocate
   unbounded memory for a `readLine` that never sees a newline, this
-  helper enforces a hard ceiling — the rf2-g9fje DoS bound for the
-  stdio transport."
+  helper enforces a hard ceiling — the DoS bound for the stdio
+  transport."
   [^java.io.BufferedReader reader max-bytes]
   (let [sb (StringBuilder.)]
     (loop [n 0]
@@ -428,8 +426,8 @@
   throws an `ex-info` on malformed JSON / oversize frame.
 
   Empty / whitespace lines are silently consumed (some agent hosts emit
-  trailing newlines). Frames exceeding `max-frame-bytes` (rf2-g9fje)
-  throw with `:rf.error/frame-too-large`; the run-loop catches that
+  trailing newlines). Frames exceeding `max-frame-bytes` throw with
+  `:rf.error/frame-too-large`; the run-loop catches that
   and writes a parse-error response before continuing — one oversize
   frame can't park the loop."
   [^java.io.BufferedReader reader]

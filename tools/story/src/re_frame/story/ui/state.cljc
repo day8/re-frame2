@@ -1,9 +1,9 @@
 (ns re-frame.story.ui.state
   "Shell-local state — pure data + helpers (`.cljc`) plus the CLJS-only
-  reactive ratom bag. Per Stage 4 (rf2-ekai) the UI shell carries its
-  own selection / filter / mode state independently of the Story
-  registrar (the registrar is the source of truth for *what's
-  registered*; this ns is the source of truth for *what's selected*).
+  reactive ratom bag. The UI shell carries its own selection / filter /
+  mode state independently of the Story registrar (the registrar is the
+  source of truth for *what's registered*; this ns is the source of
+  truth for *what's selected*).
 
   ## Public surface
 
@@ -15,12 +15,12 @@
   - `set-cell-override`  — set a single arg override at a path
                            `[arg-key & sub-path]`; the nested-path
                            form backs the nested-schema controls
-                           walker (rf2-agshe). The `-scalar` wrapper
+                           walker. The `-scalar` wrapper
                            handles the bare top-level arg-key case.
   - `clear-cell-overrides` — drop all overrides for the focused variant.
   - `clear-cell-override`  — drop one top-level arg-key's override,
                              reverting that arg to its saved value (the
-                             controls panel's per-arg reset, rf2-ba86n.5).
+                             controls panel's per-arg reset).
   - `filter-variants`    — pure fn: given a set of variant bodies + the
                            shell state, return the visible subset.
   - `group-variants-by-story` — pure fn: build the sidebar tree.
@@ -47,7 +47,7 @@
 ;; ---- pure data: the default shape ----------------------------------------
 
 (def default-shell-state
-  "The initial shell state. Stage 4 keeps the shape small and additive.
+  "The initial shell state. The shape is small and additive.
 
   - `:selected-variant`  — variant id under focus, or nil.
   - `:selected-workspace` — workspace id under focus, or nil.
@@ -65,15 +65,13 @@
   - `:pinned-snapshots`  — {variant-id → [{:label ... :epoch-id ...}]}.
   - `:panel-visibility`  — {panel-id → boolean}. Determines whether a
                            registered :story-panel renders in the chrome.
-                           Stage 4 ships a vanilla set of panels
-                           (controls + dispatch-console); Stage 6
-                           registers more via reg-story-panel.
-                           Per rf2-sgdd3 the trace / scrubber / actions
-                           panels were retired in favour of Xray
-                           mounted in the RHS by default.
+                           Ships a vanilla set of panels (controls +
+                           dispatch-console); more register via
+                           reg-story-panel. Xray mounts in the RHS by
+                           default.
   - `:active-mode-tab`   — {variant-id → :dev | :docs | :test}. Per-variant
                            mode-tab selection for the render-shell's top
-                           Canvas | Docs | Tests switcher (rf2-9hc8).
+                           Canvas | Docs | Tests switcher.
                            Unspecified → :dev (canvas). Persisted in
                            localStorage under `re-frame.story/active-
                            mode-tab/<variant-id>`.
@@ -81,7 +79,7 @@
                            rail widths, hydrated from localStorage by the
                            CLJS shell. The defaults keep the canvas usable.
   - `:tests` — sub-map grouping every chrome-test-widget slot under
-               one root (rf2-uefbk). Holds:
+               one root. Holds:
 
       `:runs`           — {variant-id → run-state}. Per-variant test-run
                           record fed both by the `:test` mode pane's
@@ -93,14 +91,13 @@
                              :fail     — last run: ≥1 assertion failed
                           plus pass/fail/skip/total counts and timing.
                           Powers both the chrome widget's aggregate
-                          summary and the sidebar's per-variant dots
-                          (rf2-q0irb).
+                          summary and the sidebar's per-variant dots.
       `:watch-mode?`    — boolean. When true the chrome test widget's
                           eye-icon toggle is on and the shell auto-
                           re-runs testable variants whose snapshot
-                          identity drifted since the last observation
-                          (rf2-z1h0f). Default false — explicit re-run
-                          is the v1 contract; watch-mode is opt-in.
+                          identity drifted since the last observation.
+                          Default false — explicit re-run is the v1
+                          contract; watch-mode is opt-in.
       `:content-hashes` — {variant-id → hex-hash} the last-observed
                           snapshot-identity content hash per testable
                           variant. The watch-mode detector compares the
@@ -110,21 +107,20 @@
                           off (the detector seeds it on toggle-on)."
   {:selected-variant    nil
    :selected-workspace  nil
-   ;; rf2-8j7wg (audit C-4) — `:selected-story` carries a parent-story
-   ;; id when the user clicks a story HEADER in the sidebar (i.e. the
-   ;; `reg-story` node rather than one of its `reg-variant` children).
-   ;; The render shell routes this to a rollup docs page that
-   ;; aggregates every variant's docs section under the story. Mutually
-   ;; exclusive with `:selected-variant` + `:selected-workspace` at the
-   ;; transition level — `select-story` clears both, mirroring the
-   ;; existing variant ↔ workspace exclusion.
+   ;; `:selected-story` carries a parent-story id when the user clicks a
+   ;; story HEADER in the sidebar (i.e. the `reg-story` node rather than
+   ;; one of its `reg-variant` children). The render shell routes this to
+   ;; a rollup docs page that aggregates every variant's docs section
+   ;; under the story. Mutually exclusive with `:selected-variant` +
+   ;; `:selected-workspace` at the transition level — `select-story`
+   ;; clears both, mirroring the variant ↔ workspace exclusion.
    :selected-story      nil
    :tag-filter          #{}
    :active-modes        []
    :cell-overrides      {}
-   ;; rf2-c8kfy: stable monotonic ids for repeater rows so React keys
-   ;; survive mid-list deletes (no focus / cursor leakage onto the
-   ;; surviving rows). Counter allocates fresh ids; the row-ids map
+   ;; stable monotonic ids for repeater rows so React keys survive
+   ;; mid-list deletes (no focus / cursor leakage onto the surviving
+   ;; rows). Counter allocates fresh ids; the row-ids map
    ;; carries `{[variant-id path] → [id0 id1 ...]}` in lockstep with
    ;; the entries vector at `:cell-overrides`.
    :rf.story/repeater-id-counter 0
@@ -133,7 +129,7 @@
    :hot-reload-tick     0
    :fingerprints        {}
    :pinned-snapshots    {}
-   ;; rf2-q9kv5 — `:dispatch-console` slot. Default is nil (not false)
+   ;; `:dispatch-console` slot. Default is nil (not false)
    ;; so the per-story `:dispatch-console?` body flag is the effective
    ;; default. The shell's right-panel checks the per-story flag first
    ;; and falls back to FALSE when nothing is declared (opt-in default;
@@ -144,14 +140,14 @@
    :tests               {:runs           {}
                          :watch-mode?    false
                          :content-hashes {}}
-   ;; rf2-zll4h: chrome-wide toolbar selections for the viewport +
+   ;; chrome-wide toolbar selections for the viewport +
    ;; background switchers. nil means "use neutral default" — the
    ;; switcher resolves to `:full` / `:light` respectively. A per-story
    ;; `:viewport` / `:background` override on the story / variant body
    ;; takes precedence over the chrome-wide selection at resolve time.
    :viewport            nil
    :background          nil
-   ;; rf2-p3i0t / rf2-g8l8x / rf2-pucku — per-panel chrome visibility
+   ;; per-panel chrome visibility
    ;; toggled by muscle-memory hotkeys (`f` full-screen, `s` sidebar,
    ;; `a` RHS, `t` toolbar) and the `?embed=1` URL flag. Defaults: every
    ;; pane visible; full-screen + embed are opt-in.
@@ -160,16 +156,16 @@
                          :rhs?         true
                          :toolbar?     true
                          :embed?       false}
-   ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When true the
+   ;; lazy Xray-diff mounting (spec/018 §10). When true the
    ;; RHS Xray embed is COLLAPSED: the panel-host is not rendered, so no
    ;; `mount-<panel>!` fires and the panel's expensive diff compute (app-db
    ;; structural diff, epoch timeline) is deferred. Defaults false
    ;; (expanded) so the out-of-the-box RHS paints the panel; collapsing
-   ;; releases the Xray React root via the existing microtask path
-   ;; (rf2-4l7t2). The chip-row's disclosure toggle flips this slot.
+   ;; releases the Xray React root via the existing microtask path.
+   ;; The chip-row's disclosure toggle flips this slot.
    :xray-embed-collapsed? false})
 
-;; ---- pure transitions (extracted to state.transitions, rf2-gcpon) -------
+;; ---- pure transitions (extracted to state.transitions) ------------------
 
 (def select-variant            state.transitions/select-variant)
 (def select-workspace          state.transitions/select-workspace)
@@ -192,13 +188,13 @@
 (def pin-snapshot              state.transitions/pin-snapshot)
 (def toggle-panel              state.transitions/toggle-panel)
 
-;; ---- Xray-embed collapse re-exports (rf2-ba86n.19) ----------------------
+;; ---- Xray-embed collapse re-exports -------------------------------------
 
 (def xray-embed-collapsed?       state.transitions/xray-embed-collapsed?)
 (def toggle-xray-embed-collapsed state.transitions/toggle-xray-embed-collapsed)
 (def set-xray-embed-collapsed    state.transitions/set-xray-embed-collapsed)
 
-;; ---- chrome visibility re-exports (rf2-p3i0t / rf2-g8l8x / rf2-pucku) ---
+;; ---- chrome visibility re-exports ---------------------------------------
 
 (def chrome-visibility-defaults state.transitions/chrome-visibility-defaults)
 (def chrome-visibility         state.transitions/chrome-visibility)
@@ -206,7 +202,7 @@
 (def set-chrome-visibility     state.transitions/set-chrome-visibility)
 (def chrome-pane-visible?      state.transitions/chrome-pane-visible?)
 
-;; ---- mode-tab (rf2-9hc8) re-exports --------------------------------------
+;; ---- mode-tab re-exports -------------------------------------------------
 
 (def mode-tabs                 state.transitions/mode-tabs)
 (def mode-tab-labels           state.transitions/mode-tab-labels)
@@ -215,7 +211,7 @@
 (def active-mode-tab           state.transitions/active-mode-tab)
 (def set-active-mode-tab       state.transitions/set-active-mode-tab)
 
-;; ---- pure derivations (extracted to state.filters, rf2-gcpon) -----------
+;; ---- pure derivations (extracted to state.filters) ----------------------
 
 (def group-tags-by-axis           state.filters/group-tags-by-axis)
 (def axis-display-order           state.filters/axis-display-order)
@@ -225,12 +221,11 @@
 (def filter-variants              state.filters/filter-variants)
 (def group-variants-by-story      state.filters/group-variants-by-story)
 
-;; rf2-ee38b.3: the `state/parent-story-id` re-export was dropped — it
-;; had no internal src caller (sidebar / filters call
-;; `pred/parent-story-id` directly). The canonical helper lives in
-;; `re-frame.story.predicates`.
+;; The canonical `parent-story-id` helper lives in
+;; `re-frame.story.predicates`; sidebar / filters call
+;; `pred/parent-story-id` directly.
 
-;; ---- registry snapshot (extracted to state.snapshot, rf2-gcpon) ---------
+;; ---- registry snapshot (extracted to state.snapshot) --------------------
 
 (def registry-snapshot
   "Re-export of `re-frame.story.ui.state.snapshot/registry-snapshot`."
@@ -271,13 +266,12 @@
   (when config/enabled?
     (apply swap! shell-state-atom f args)))
 
-;; ---- test-runs + watch-mode (extracted to state.tests, rf2-gcpon) -------
+;; ---- test-runs + watch-mode (extracted to state.tests) ------------------
 ;;
-;; The cross-variant test-run aggregation surface (rf2-q0irb) and the
-;; watch-mode helpers (rf2-z1h0f) live in `re-frame.story.ui.state.tests`
-;; — split out per rf2-gcpon to honor the rf2-zkca8 leaf-size ceiling.
-;; Re-exported here so consumer requires of `re-frame.story.ui.state`
-;; keep working unchanged.
+;; The cross-variant test-run aggregation surface and the watch-mode
+;; helpers live in `re-frame.story.ui.state.tests`, split out to honor the
+;; leaf-size ceiling. Re-exported here so consumer requires of
+;; `re-frame.story.ui.state` keep working unchanged.
 
 (def test-run-statuses           state.tests/test-run-statuses)
 (def mark-test-running           state.tests/mark-test-running)

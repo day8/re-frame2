@@ -1,13 +1,12 @@
 (ns re-frame.story.ui.chrome-a11y
   "Chrome accessibility (axe-core) panel — companion to
-  `re-frame.story.ui.a11y` (rf2-18t6p, parent rf2-4w88j).
+  `re-frame.story.ui.a11y`.
 
-  The existing `ui/a11y.cljs` panel scans VARIANT trees only (per
-  rf2-qgms1) — chrome a11y is Story's concern, not the variant
-  author's. But Story didn't dogfood the scanner against its OWN
-  chrome. This panel closes that gap: it runs the same axe-core engine
-  scoped to the chrome root element (`[data-rf-story-root]` stamped by
-  `shell.cljs`) so Story-chrome a11y regressions surface during dev.
+  The sibling `ui/a11y.cljs` panel scans VARIANT trees only — chrome
+  a11y is Story's concern, not the variant author's. This panel runs
+  the same axe-core engine scoped to the chrome root element
+  (`[data-rf-story-root]` stamped by `shell.cljs`) so Story-chrome a11y
+  regressions surface during dev.
 
   ## Relationship to ui/a11y.cljs
 
@@ -106,7 +105,7 @@
   (reset! run-state :idle)
   nil)
 
-;; ---- Use-system-colors? toggle (rf2-846h2) ------------------------------
+;; ---- Use-system-colors? toggle ------------------------------------------
 ;;
 ;; Operator-controlled opt-in for the same system-token chrome the
 ;; `@media (forced-colors: active)` block in `theme/motion.cljc` paints
@@ -392,7 +391,7 @@
     "enable axe-core + scan"]])
 
 (defn- force-colors-toggle
-  "rf2-846h2 — 'Use system colors' opt-in toggle. Renders a checkbox
+  "'Use system colors' opt-in toggle. Renders a checkbox
   + hint inside the Chrome A11y panel so the operator can preview /
   live in the system-token chrome on demand. Mirrors the in-memory
   ratom so the checkbox state stays in lockstep with the live
@@ -441,7 +440,7 @@
   for signature parity with other story-panel `:render` views but is
   unused — chrome a11y is single-instance and not per-variant.
 
-  Per rf2-18t6p: scans `[data-rf-story-root]` (the chrome wrapper
+  Scans `[data-rf-story-root]` (the chrome wrapper
   stamped by `shell.cljs`), NOT the variant root. Variant a11y lives
   in the sibling `re-frame.story.ui.a11y` panel."
   [_variant-id]
@@ -488,7 +487,7 @@
        [:div {:data-test "story-chrome-a11y-violations"}
         (for [[i v] (map-indexed vector vs)]
           ^{:key i} [a11y/violation-row v])])
-     ;; rf2-846h2 — 'Use system colors' toggle rendered at the foot of
+     ;; 'Use system colors' toggle rendered at the foot of
      ;; the panel so the operator-controlled HCM preview shares the
      ;; same accessibility surface as the axe-core consent + run knobs.
      [force-colors-toggle]]))
@@ -496,7 +495,7 @@
 ;; ---- panel registration --------------------------------------------------
 
 (def ^:const panel-id
-  "Registered story-panel id for the chrome-a11y panel (rf2-18t6p)."
+  "Registered story-panel id for the chrome-a11y panel."
   :rf.story.panel/chrome-a11y)
 
 (def ^:const panel-render-id
@@ -507,12 +506,12 @@
 (defn install-canonical-chrome-a11y!
   "Register the chrome-a11y panel under `:rf.story.panel/chrome-a11y`
   via `reg-story-panel*`. The panel renders in the `:right` placement
-  alongside the variant a11y panel (rf2-18t6p).
+  alongside the variant a11y panel.
 
   Idempotent. Production builds with `:rf.story/enabled?` false skip
   registration via the `config/enabled?` gate.
 
-  rf2-846h2 — also schedules a one-tick `bootstrap-force-colors!`
+  Also schedules a one-tick `bootstrap-force-colors!`
   so the persisted 'Use system colors' opt-in re-applies to the live
   DOM as soon as the chrome root mounts. The setTimeout matches the
   recorder-dom / element-inspector shape in `shell.cljs` so the
@@ -525,7 +524,7 @@
     ;; `re-frame.story.ui.a11y`. Per Spec 006 §Source-coord annotation
     ;; the annotator needs a hiccup DOM root to attach
     ;; `data-rf2-source-coord` to; a bare `[panel variant-id]` root
-    ;; silences Story / Xray Inspect Mode for this panel. (rf2-iwny7)
+    ;; silences Story / Xray Inspect Mode for this panel.
     (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
     (story-registrar/reg-story-panel*
       panel-id

@@ -1,6 +1,5 @@
 (ns re-frame.story.play.ci-runner
-  "CI-as-test discovery + driver glue for Story's `:play-script` slot
-  (rf2-3qcxk).
+  "CI-as-test discovery + driver glue for Story's `:play-script` slot.
 
   The companion to `re-frame.story.play.runner` (pure step state
   machine) and `re-frame.story.play.runner-events` (re-frame-side
@@ -66,15 +65,15 @@
       :else          false)))
 
 (defn has-plays?
-  "True iff `variant-body` carries a non-empty `:plays` vector.
-  rf2-tl7zk multi-play. Pure data → data."
+  "True iff `variant-body` carries a non-empty `:plays` vector
+  (multi-play). Pure data → data."
   [variant-body]
   (let [plays (:plays variant-body)]
     (boolean (and (vector? plays) (pos? (count plays))))))
 
 (defn has-any-play?
   "True iff `variant-body` carries EITHER a non-empty `:play-script`
-  or a non-empty `:plays` vector. rf2-tl7zk multi-play."
+  or a non-empty `:plays` vector (multi-play)."
   [variant-body]
   (or (has-play-script? variant-body)
       (has-plays? variant-body)))
@@ -87,8 +86,8 @@
   Sorted so the CI runner walks variants in a deterministic order —
   helpful when comparing run logs across runs / branches.
 
-  rf2-tl7zk: the name kept its `play-scripts` plural for back-compat;
-  it now includes `:plays`-carrying variants too. The CI runner uses
+  The name keeps the `play-scripts` plural; it includes both
+  `:play-script` and `:plays`-carrying variants. The CI runner uses
   `ci-rows` to enumerate per-PLAY rows."
   ([]
    (variants-with-play-scripts (registrar/registrations :variant)))
@@ -100,7 +99,7 @@
         (vec))))
 
 (defn ci-rows
-  "rf2-tl7zk multi-play: enumerate the CI runner's per-row catalogue.
+  "Enumerate the CI runner's per-row catalogue (multi-play).
   Each row is one play; a variant with `:plays` of size N yields N
   rows; a single-script `:play-script` variant yields ONE row.
 
@@ -108,7 +107,7 @@
 
   Shape (one entry per row):
       {:variant-id <kw>
-       :play-key   <string or nil>     ; play's :name (nil for legacy)
+       :play-key   <string or nil>     ; play's :name (nil for single-script)
        :name       <string or nil>     ; same as :play-key, for parity
        :script-len <int>
        :auto-run?  <bool>}
@@ -147,9 +146,8 @@
 
 (defn terminal?
   "True iff `state` represents a run that has reached a terminal verdict —
-  `:pass` / `:fail` / `:cannot-run` (rf2-5x1wt.19 — `:cannot-run` is the
-  unified distinct THIRD status, spec/017 §`:cannot-run`). Pure data →
-  data."
+  `:pass` / `:fail` / `:cannot-run` (`:cannot-run` is the unified distinct
+  THIRD status, spec/017 §`:cannot-run`). Pure data → data."
   [state]
   (boolean (#{:pass :fail :cannot-run} (:status state))))
 
@@ -237,9 +235,9 @@
      (passed as a fully-qualified string) and return the projected
      shape as JSON-safe JS. Returns nil when no run has been started.
 
-     rf2-tl7zk: this reads the LATEST run-state for the variant —
-     whichever play was most recently driven. CI runners that want a
-     specific play's outcome should use `readPlayRunState`."
+     This reads the LATEST run-state for the variant — whichever play
+     was most recently driven. CI runners that want a specific play's
+     outcome should use `readPlayRunState`."
      [variant-id-str]
      (let [vid   (->variant-id variant-id-str)
            state (runner-events/current-state vid)]
@@ -247,7 +245,7 @@
 
 #?(:cljs
    (defn- read-play-run-state-js
-     "rf2-tl7zk multi-play: read the per-(variant, play-key) run state.
+     "Read the per-(variant, play-key) run state (multi-play).
      `play-key-str` is the play's `:name` string, or null/empty for the
      single-script `:play-script` slot. Returns the projected JSON-safe
      shape, or nil when no run has been started for that play."
@@ -261,7 +259,7 @@
 
 #?(:cljs
    (defn- run-play-js
-     "rf2-tl7zk multi-play: trigger a run for `(variant-id, play-key)`.
+     "Trigger a run for `(variant-id, play-key)` (multi-play).
      Used by the CI runner when the auto-run default doesn't fire the
      intended play (e.g. the second play of a multi-play variant whose
      `:auto-run?` defaults to false)."
@@ -285,7 +283,7 @@
      install when re-frame.story.config/enabled? is true since the
      hook is inert until polled).
 
-     rf2-tl7zk multi-play: the hook object grows two new entry points:
+     The hook object carries two per-play entry points (multi-play):
      - `readPlayRunState(variantId, playKey)` — per-play state read.
      - `runPlay(variantId, playKey)` — trigger a run for a specific
        play (used by the CI runner for non-auto-run plays)."

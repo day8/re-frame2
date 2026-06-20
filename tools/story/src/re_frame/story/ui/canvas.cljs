@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.canvas
-  "Variant render area. Per Stage 4 (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle.
+  "Variant render area. Per `003-Render-Shell.md` §Shell lifecycle.
 
   The canvas is the surface where one variant renders. It:
 
@@ -9,15 +9,15 @@
   - Renders the variant's `:component` (registered re-frame view) under
     the `:hiccup` decorator stack from `resolve-decorators` — which reads
     the FULL stack (globals + story + variant chain) off the compiled
-    plan's `[:world :decorators]` (rf2-5fibj / rf2-din8u), the SAME refs
+    plan's `[:world :decorators]`, the SAME refs
     `render-variant`'s host applies, so canvas + render-variant paint the
     identical decorated tree.
   - Surfaces variant-level errors inline (per `002-Runtime.md` §Substrate hooks +
     `:assertions`).
 
-  Stage 4 reads the registered `:component` keyword and renders via
+  The canvas reads the registered `:component` keyword and renders via
   `(re-frame.core/view <id>)` — this is the late-bind view lookup that
-  spec/004 / rf2-piag exposes. The view must be registered against the
+  spec/004 exposes. The view must be registered against the
   variant's frame; the runtime allocates the frame, so any
   frame-scoped subscriptions resolve through it correctly."
   (:require [clojure.string :as str]
@@ -44,14 +44,14 @@
 
 ;; ---- namespace-preserving frame-provider --------------------------------
 ;;
-;; Per rf2-c5jz / rf2-zme7: stock Reagent's `convert-prop-value` calls
+;; Stock Reagent's `convert-prop-value` calls
 ;; `(name kw)` on named prop values, so a `[:> Provider {:value
 ;; :story.counter/clicked-three-times}]` reaches React with
 ;; `value="clicked-three-times"` — the namespace is dropped before the
 ;; subscribe-time `coerce-context-value` can read it. The reagent-slim
-;; adapter (rf2-6hyy) narrows this so non-HTML props pass keywords
+;; adapter narrows this so non-HTML props pass keywords
 ;; through unchanged, but Story's reference example targets stock
-;; Reagent (and the rf2-zme7 repro IS on stock Reagent).
+;; Reagent (and the repro is on stock Reagent).
 ;;
 ;; The fix: bypass Reagent's prop conversion by emitting the React
 ;; element directly via `adapter-context/provider-element`, which uses
@@ -77,7 +77,7 @@
   `React.createElement` directly. Reagent treats fn-returning-element
   as a valid render result, so this drops into normal hiccup trees."
   [props child]
-  ;; EP-0002 (rf2-bd4div) — the provider scopes the EXPLICIT variant frame
+  ;; EP-0002 — the provider scopes the EXPLICIT variant frame
   ;; (every caller passes `{:frame variant-id}`). The `:frame` prop is
   ;; threaded through verbatim; there is NO `:rf/default` synthesis when it
   ;; is absent (a frame-scoped render must name its frame — under the
@@ -99,7 +99,7 @@
               :overflow "auto"
               :color (:text-primary colors/tokens)
               :font-family sans-stack}
-   :frame    {;; rf2-ypd6h: the workshop region. Atmospheric amber-halo
+   :frame    {;; The workshop region. Atmospheric amber-halo
               ;; backdrop + amber inset edge so the variant render lifts
               ;; visibly above the surrounding chrome — the user's eye
               ;; lands here automatically.
@@ -116,10 +116,7 @@
    ;; portion and the trailing affordances (open-in-editor chip) sit
    ;; anchored to the right via `:title-trailing`'s `margin-left:
    ;; auto`. `flex-wrap` keeps the row from cramping on narrow
-   ;; canvases. (Up to v1 the trailing cluster also carried a per-
-   ;; variant share-button + popover; rf2-ymnfx Issue B retired both
-   ;; because the variant URL is already the browser's live address
-   ;; bar.)
+   ;; canvases.
    :title    {:font-weight "bold"
               :margin-bottom "8px"
               :color (:info colors/tokens)
@@ -146,7 +143,7 @@
               :font-family mono-stack
               :font-size (:caption typography/type-scale)
               :border-radius "3px"}
-   ;; rf2-0s4p1 — identity-bearing loading skeleton during the
+   ;; Identity-bearing loading skeleton during the
    ;; four-phase loader lifecycle. Reads as "workshop loading" — amber-
    ;; shimmer pulse on a slate ground — not the generic Storybook
    ;; skeleton-row pattern.
@@ -184,7 +181,7 @@
                     :letter-spacing "0.12em"
                     :color (:accent-amber colors/tokens)
                     :margin-bottom "4px"}
-   ;; rf2-zgu68 — viewport-px indicator chip. Shows e.g. "375 × 667"
+   ;; Viewport-px indicator chip. Shows e.g. "375 × 667"
    ;; at canvas bottom-right when a viewport mode is active.
    :viewport-chip {:position "absolute"
                    :bottom "12px"
@@ -200,17 +197,16 @@
                    :pointer-events "none"
                    :user-select "none"}})
 
-;; ---- loading skeleton (rf2-0s4p1) ---------------------------------------
+;; ---- loading skeleton -----------------------------------------------------
 
 (defn loading-phase?
   "Pure: is the variant in a phase where the loading skeleton should
   render? True when the lifecycle machine is in `:pre-mount`,
   `:mounting`, or `:loading` AND no first render has been committed
   yet AND the runtime has not recorded any assertions against the
-  variant frame AND the variant is NOT 'events-only' (rf2-043cm).
+  variant frame AND the variant is NOT 'events-only'.
 
-  The `assertions-recorded?` arm closes a regression window introduced
-  with the skeleton (rf2-qrk2s / Phase 3 cluster): the
+  The `assertions-recorded?` arm closes a window where the
   `:loaders-complete-when` predicate may declare the loaders incomplete
   (e.g. `:story.counter-matrix/loader-never-completes`), or a loader
   event may throw a deterministic rejection
@@ -222,8 +218,7 @@
   the proof that `run-loaders!` returned; pin the skeleton off so the
   view layer takes over.
 
-  The `events-only?` arm (rf2-043cm) closes the regression PR #1574
-  introduced for variants whose body declares only `:events` (no
+  The `events-only?` arm covers variants whose body declares only `:events` (no
   `:loaders`, no `:frame-setup` decorators, no `:loaders-complete-
   when`). Their lifecycle takes the runtime's fast-path
   (`:pre-mount → :ready` on mount via `loaders/mount-ready!`), so by
@@ -245,8 +240,8 @@
           (contains? #{:pre-mount :mounting :loading} phase)))))
 
 (defn loading-skeleton
-  "Hiccup component rendering the identity-bearing loading skeleton
-  per rf2-0s4p1. Three amber-shimmer bars on a slate ground with the
+  "Hiccup component rendering the identity-bearing loading skeleton.
+  Three amber-shimmer bars on a slate ground with the
   inset amber edge that matches the canvas-frame chrome — reads as
   'workshop loading' rather than generic skeleton-row.
 
@@ -267,7 +262,7 @@
    [:div {:style (:skeleton-edge styles)
           :aria-hidden "true"}]])
 
-;; ---- viewport-px indicator chip (rf2-zgu68) ------------------------------
+;; ---- viewport-px indicator chip -----------------------------------------
 
 (defn- viewport-indicator-text
   "Pure: render the chip text e.g. `\"375 × 667\"` from a resolved
@@ -278,8 +273,8 @@
     (str width " × " height)))
 
 (defn viewport-indicator
-  "Hiccup component rendering the bottom-right viewport-px chip per
-  rf2-zgu68. Hidden when no viewport mode is active.
+  "Hiccup component rendering the bottom-right viewport-px chip.
+  Hidden when no viewport mode is active.
 
   Takes the resolved viewport preset map produced by
   `viewport/resolve`. The chip is `pointer-events: none` so it never
@@ -307,7 +302,7 @@
     (or (:component variant-body)
         (:component story-body))))
 
-;; ---- view-state subscription overrides (rf2-5x1wt.13) -------------------
+;; ---- view-state subscription overrides ----------------------------------
 ;;
 ;; A variant whose goal is rendering / design exploration MAY author
 ;; `:sub-overrides` — a map of exact subscription query vectors → data
@@ -319,7 +314,7 @@
 ;; render extent. The binding never touches app-db or `compute-sub`, so
 ;; it can never satisfy a subscription assertion (`:rf.assert/sub-equals`).
 ;;
-;; STATUS (rf2-7pgiz): WIRED. The carriage is a React context
+;; The carriage is a React context
 ;; (`re-frame.adapter.sub-override-context`), not a dynamic var — the var
 ;; does not survive into the view's deferred render. `sub-overrides-scope`
 ;; wraps the view in the override-context Provider; a descendant
@@ -337,8 +332,8 @@
 
   Routes through the COMPILED variant-plan (`plan/variant-plan`) and the
   SHARED `render/resolve-render-sub-overrides` resolver — the SAME source
-  `render-variant` reads — NOT the bare registrar body (rf2-45zvx /
-  rf2-bhaqt, rf2-din8u invariant). Reading `(:sub-overrides body)` off the
+  `render-variant` reads — NOT the bare registrar body (the shared
+  resolver invariant). Reading `(:sub-overrides body)` off the
   side-table saw ONLY the variant's OWN slot, dropping overrides contributed
   by a `:compose`d fragment or an `:extends` parent (the plan compiler
   COMPOSES them into `[:render-raw :sub-overrides]` — plan.cljc §sub-overrides
@@ -355,7 +350,7 @@
 
 (defn sub-overrides-scope
   "A Reagent component that wraps `child`'s render in the override-context
-  Provider carrying the variant's resolved `:sub-overrides` map (rf2-7pgiz).
+  Provider carrying the variant's resolved `:sub-overrides` map.
   A descendant view's `@(rf/subscribe)` reads the override at deref time
   via the `:subs/resolve-sub-override` core hook. The override never
   touches app-db / `compute-sub`, so it can never satisfy a subscription
@@ -379,9 +374,9 @@
   "Wrap `view-hiccup` with the variant's `:hiccup`-kind decorators, catching
   any exception a `:wrap` fn throws so the canvas never bubbles into a
   render-tree crash that blanks the shell (`002-Runtime.md` §Substrate hooks + §Error projection — failures
-  render inline; the rf2-zme7 'never blank the canvas' rule).
+  render inline; the 'never blank the canvas' rule).
 
-  rf2-hzhmv / rf2-ba86n.8 — the decorate-and-render primitive is the SHARED
+  The decorate-and-render primitive is the SHARED
   seam in `re-frame.story.ui.multi-substrate`, called by BOTH the canvas
   single-pane path (below), the workspace cell, AND the `render-variant`
   host hook (`re-frame.story.canonical/render-host-scope`), so the live
@@ -432,7 +427,7 @@
   initialisation events as if they were user actions.
 
   Public so the workspace renderer (`ui/workspace.cljc`) can mirror the
-  canvas's trigger condition for its per-cell run loop (rf2-c56hr).
+  canvas's trigger condition for its per-cell run loop.
   Both surfaces re-run when ANY of `:variant-id` / `:hot-reload-tick` /
   `:active-modes` / `:cell-overrides` / `:substrate` changes — keeping
   them lockstep prevents the workspace cell from rendering against
@@ -448,7 +443,7 @@
 (defonce ^:private canvas-last-run-key
   (atom nil))
 
-;; rf2-0s4p1 — per-variant first-render sentinel. Once a variant has
+;; Per-variant first-render sentinel. Once a variant has
 ;; committed its first render, the skeleton never re-appears (a hot-
 ;; reload re-run is brief enough that re-flashing the skeleton would
 ;; read as a glitch).
@@ -486,8 +481,7 @@
   "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
   the variant body's `:substrates` wins, otherwise the parent story's
   `:substrates`, otherwise the shell's host substrate. The canvas uses
-  this to decide single-substrate vs side-by-side rendering. Stage 6
-  (rf2-zhwd)."
+  this to decide single-substrate vs side-by-side rendering."
   [variant-id]
   (let [vb (registrar/handler-meta :variant variant-id)
         sid (args/parent-story-id variant-id)
@@ -500,21 +494,21 @@
   out so the outer `canvas` component can wrap with a lifecycle for
   run-variant + tear-down.
 
-  Per Stage 6 (rf2-zhwd) the inner render branches on
+  The inner render branches on
   `(count (variant-substrate-set variant-id))`:
-  - 1 substrate → single-pane render (Stage 4 path)
+  - 1 substrate → single-pane render
   - >1 substrate → multi-substrate side-by-side grid (`002-Runtime.md` §Substrate hooks)."
   [variant-id]
   (let [view-id        (variant-component variant-id)
         variant-body   (registrar/handler-meta :variant variant-id)
-        ;; rf2-eyrpr — the SAME per-run opts the `eff-args` resolve below
+        ;; The SAME per-run opts the `eff-args` resolve below
         ;; uses, threaded into `resolve-decorators` so the plan it
         ;; recompiles to read `[:world :decorators]` substitutes `[:arg]`
         ;; keys with the mode/cell-aware args. Without this an `[:arg key]`
         ;; resolvable ONLY through an active-mode / cell-override layer
         ;; (never the variant chain) throws `:rf.error/story-missing-arg`
-        ;; here even though the runtime's plan compile (rf2-2cpoo) handled
-        ;; it — the canvas decorator recompile was the remaining gap.
+        ;; here even though the runtime's plan compile handles it — the
+        ;; canvas decorator recompile needs the same opts.
         run-opts       {:active-modes
                         (:active-modes @state/shell-state-atom)
                         :cell-overrides
@@ -523,12 +517,12 @@
         decorator-pack (decorators/resolve-decorators variant-id run-opts)
         eff-args       (args/resolve-args variant-id run-opts)
         assertions     (runtime/read-assertions variant-id)
-        ;; rf2-5x1wt.13 — resolve the variant's view-state subscription
+        ;; Resolve the variant's view-state subscription
         ;; overrides (arg-substituted) for the render-path binding below.
         sub-ovr        (resolve-sub-overrides variant-id eff-args)
         substrates     (variant-substrate-set variant-id)
         multi?         (and variant-id (> (count substrates) 1))
-        ;; rf2-0s4p1 — skeleton gating. The lifecycle machine reports
+        ;; Skeleton gating. The lifecycle machine reports
         ;; :pre-mount / :mounting / :loading while the four-phase
         ;; loader cascade runs; once :ready / :error lands, the
         ;; first-rendered sentinel flips (in component-did-mount /
@@ -536,7 +530,7 @@
         lifecycle-phase (try (story-loaders/current-state variant-id)
                              (catch :default _ nil))
         first?         (variant-first-rendered? variant-id)
-        ;; rf2-043cm — events-only variants take the lifecycle fast-
+        ;; Events-only variants take the lifecycle fast-
         ;; path (`mount-ready!` jumps :pre-mount → :ready directly) so
         ;; the skeleton must not engage even on the brief render
         ;; window before `frames/allocate!` runs. Pure-data check
@@ -544,7 +538,7 @@
         ;; `loaders/events-only-variant?`.
         events-only?   (story-loaders/events-only-variant?
                          variant-body decorator-pack)
-        ;; rf2-qrk2s — a recorded assertion proves the loader cascade
+        ;; A recorded assertion proves the loader cascade
         ;; resolved its outcome (success path → :ready; failure paths
         ;; like loader-never-completes / loader-rejects park at
         ;; :loading but record an incomplete/rejection assertion). In
@@ -569,16 +563,15 @@
       ;; right end of the title row via the `:title-trailing` style's
       ;; `margin-left: auto`. The variant URL is already in the browser's
       ;; address bar (Cmd-L / Cmd-A / Cmd-C copies it); there is no Share
-      ;; button (rf2-ymnfx Issue B — the affordance was redundant with
-      ;; the live URL state surface).
+      ;; button — the live URL is already the canonical state surface.
       (when variant-id
         [:span {:style (:title-trailing styles)}
-         ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
+         ;; Per-variant 'Open in editor' chip. Reads :source
          ;; off the variant body and routes through the user's configured
          ;; editor URI scheme. Renders nothing when no source-coord was
          ;; captured at registration.
          (open-in-editor/open-chip-for-variant variant-body)])]
-     ;; rf2-9jthx: share-import hint surfaces a non-blocking note when
+     ;; The share-import hint surfaces a non-blocking note when
      ;; a hydrated share URL dropped one or more overrides (variant
      ;; args refactored/renamed/removed). Renders nil when nothing
      ;; dropped, so this is unconditional-safe.
@@ -592,7 +585,7 @@
        [:div {:style (:empty styles)}
         "variant has no :component registered — register one on the story or variant body"]
 
-       ;; rf2-0s4p1: identity-bearing skeleton while the lifecycle
+       ;; Identity-bearing skeleton while the lifecycle
        ;; machine is still draining loaders AND no first render has
        ;; committed. Hides immediately once :ready / :error lands and
        ;; the lifecycle hook flips `first-rendered?`.
@@ -600,7 +593,7 @@
        [loading-skeleton]
 
        multi?
-       ;; Stage 6: multi-substrate side-by-side grid. Per `002-Runtime.md` §Substrate hooks
+       ;; Multi-substrate side-by-side grid. Per `002-Runtime.md` §Substrate hooks
        ;; failures render inline rather than aborting. The grid still
        ;; renders user views, so it needs the same frame context as the
        ;; single-substrate path; otherwise Reagent subscriptions fall
@@ -616,12 +609,12 @@
            ;; rendered view's subscribe / dispatch to it (scope-only,
            ;; like `rf/frame-provider-existing`) via a provider that
            ;; preserves the namespace of a `:story.x/y`-shaped
-           ;; variant id (per rf2-c5jz; the rf2-zme7 fix path). The
+           ;; variant id (the namespace-preserving provider). The
            ;; standard `rf/frame-provider-existing` uses Reagent's `:>`
            ;; interop which calls `(name kw)` on prop values and drops
            ;; the namespace before React sees it.
            ;;
-           ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on the
+           ;; Stamp `data-rf-story-variant-root` on the
            ;; immediate wrapper around the user-authored decorated view
            ;; so the a11y panel (ui/a11y.cljs) can scope axe-core's
            ;; scan to ONLY the variant's rendered tree — excluding the
@@ -635,7 +628,7 @@
            [frame-provider-ns-safe {:frame variant-id}
             [:div {:key (str "variant-root:" (pr-str variant-id))
                    :data-rf-story-variant-root (pr-str variant-id)}
-             ;; rf2-5x1wt.13 — bind the variant's resolved view-state
+             ;; Bind the variant's resolved view-state
              ;; subscription overrides for the view-render extent (a no-op
              ;; wrapper when the variant authors none).
              [sub-overrides-scope sub-ovr
@@ -652,11 +645,11 @@
   "Lifecycle helper: flip the first-rendered sentinel for the focused
   variant when the lifecycle machine reports `:ready` / `:error`, OR
   when the runtime has recorded an assertion against the variant
-  frame (rf2-qrk2s). An assertion means the loader cascade resolved
+  frame. An assertion means the loader cascade resolved
   its outcome — either by a `:loaders-complete-when` predicate
   reporting incomplete or by a loader event throwing a deterministic
   rejection. In those paths the machine parks at `:loading`, but the
-  user view must still render. The skeleton (rf2-0s4p1) hides on the
+  user view must still render. The skeleton hides on the
   next render pass."
   []
   (when config/enabled?
@@ -683,18 +676,18 @@
         (mark-rendered-if-ready!))
       :component-did-update
       (fn [_this _old-argv]
-        ;; Re-run only when the variant runtime inputs change. The old
-        ;; unconditional update path re-fired `:events` on every app-db
+        ;; Re-run only when the variant runtime inputs change. An
+        ;; unconditional update would re-fire `:events` on every app-db
         ;; render, resetting interactive state and polluting recorder
         ;; output with fixture setup events.
         (run-if-needed!)
-        ;; rf2-0s4p1 — flip the first-rendered sentinel once the
+        ;; Flip the first-rendered sentinel once the
         ;; lifecycle machine reports :ready / :error.
         (mark-rendered-if-ready!))
       :component-will-unmount
       (fn [_this]
         (reset! canvas-last-run-key nil)
-        ;; rf2-0s4p1 — clear the first-rendered sentinel on unmount so a
+        ;; Clear the first-rendered sentinel on unmount so a
         ;; re-mount sees the skeleton for the appropriate loader window.
         (reset-first-rendered!))
      :reagent-render
@@ -707,20 +700,19 @@
              snapshot   (when variant-id
                           (runtime/snapshot-identity variant-id opts))
              _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
-         ;; Per rf2-xc65: the canvas wrap is the scrollable container
+         ;; The canvas wrap is the scrollable container
          ;; for variant content; `tab-index "0"` makes it keyboard-
          ;; focusable so axe-core's `scrollable-region-focusable` rule
          ;; passes. The `<section>` element + aria-label give it a
          ;; landmark name (it's nested inside the shell's <main> so
          ;; landmark structure remains: main > section).
          ;;
-         ;; Per rf2-9la06: also stamp `data-test-variant` with the
-         ;; active variant id so Playwright specs can scope selectors
-         ;; to the canvas of a specific variant.
-         ;; (Per rf2-hscut clicking a variant in the sidebar now clears
-         ;; `:selected-workspace`, so the canvas no longer competes with
-         ;; a stale workspace pane for the main slot. The stamp is
-         ;; retained for cross-route test scoping.)
+         ;; Also stamp `data-test-variant` with the active variant id
+         ;; so Playwright specs can scope selectors to the canvas of a
+         ;; specific variant. Clicking a variant in the sidebar clears
+         ;; `:selected-workspace`, so the canvas never competes with a
+         ;; stale workspace pane for the main slot; the stamp also serves
+         ;; cross-route test scoping.
         [:section (cond-> {:style      (:wrap styles)
                            :aria-label "Variant canvas"
                            :tab-index  "0"}

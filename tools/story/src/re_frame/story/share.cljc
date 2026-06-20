@@ -1,19 +1,19 @@
 (ns re-frame.story.share
   "Per-variant share URL — pure URL builder + parser. Per
-  `005-SOTA-Features.md` §Share URL (retired QR popover) + Stage 6 (rf2-zhwd). Phase-2 §5.2 #6.
+  `005-SOTA-Features.md` §Share URL + Stage 6 + Phase-2 §5.2 #6.
 
   Each variant has a sharable URL that encodes the active modes and
   any cell-overrides so a teammate pasting the URL lands on the exact
   same cell the author is looking at. The URL is the browser's
   address-bar URL — `re-frame.story.ui.url-state` wires pushState /
   popstate against this encoder so back-button + bookmark + Cmd-L /
-  Cmd-A / Cmd-C preserve state. Per rf2-ymnfx Issue B there is no
-  separate Share button or QR popover — the affordance was redundant
-  with the live URL surface.
+  Cmd-A / Cmd-C preserve state. There is no separate Share button or
+  QR popover — the live address-bar URL is the whole sharability
+  surface.
 
   ## URL scheme
 
-  Per `005-SOTA-Features.md` §Share URL (retired QR popover) + rf2-o4u18 the scheme is:
+  Per `005-SOTA-Features.md` §Share URL the scheme is:
 
       <base>?variant=<id>
             &workspace=<id>
@@ -29,7 +29,7 @@
   - `<id>` for mode-tab — one of `dev` / `docs` / `test`
   - `<list>` for modes / tag-filter — comma-separated keyword ids
   - `<map>` for overrides — one `pr-str`-printed EDN map of
-                            `{arg-key value}` (rf2-j0hwf — delimiter-safe;
+                            `{arg-key value}` (delimiter-safe;
                             a string value may contain commas).
   - `<id-or-WxH>` for viewport — preset keyword (`tablet`) or
                                   `WxH` custom (e.g. `800x600`)
@@ -38,8 +38,8 @@
   - `<s>` — substrate id, namespace-preserving like `<id>`
             (`:my.lib/uix` → `my.lib/uix`); omitted when `:reagent` default
 
-  Per rf2-o4u18 the URL is the sharability surface of the testbed: a
-  teammate pasting a URL must land on the exact same view (workspace
+  The URL is the sharability surface of the testbed: a teammate
+  pasting a URL must land on the exact same view (workspace
   + mode-tab + viewport + background + tag-filter + modes + overrides
   + substrate).
 
@@ -129,7 +129,7 @@
   [modes registered?]
   (vec (filter registered? (or modes []))))
 
-;; ---- rf2-o4u18: workspace / mode-tab / viewport / background / tag-filter
+;; ---- workspace / mode-tab / viewport / background / tag-filter -----------
 
 (defn parse-workspace-param
   "Parse the `workspace=` URLSearchParams value as a workspace id.
@@ -224,7 +224,7 @@
     (catch #?(:clj Exception :cljs :default) _
       [false nil])))
 
-;; ---- overrides codec (rf2-j0hwf) ----------------------------------------
+;; ---- overrides codec ----------------------------------------------------
 ;;
 ;; The overrides payload is a single EDN map, `pr-str`-printed then
 ;; percent-encoded as one token (`build-overrides-token`). Decoding
@@ -265,7 +265,7 @@
 
 (defn build-overrides-token
   "Encode a `{arg-key → value}` cell-overrides map into the single
-  percent-encoded `overrides=` wire token (rf2-j0hwf). The map is
+  percent-encoded `overrides=` wire token. The map is
   printed via `pr-str` (keys sorted for deterministic output) so any
   EDN value round-trips faithfully — including string values that
   carry the list separator. Returns nil for an empty/nil map."
@@ -282,11 +282,11 @@
   keys always present so callers can pattern-match without an
   else-branch.
 
-  The wire form (rf2-j0hwf) is the EDN-map form: the whole payload is
+  The wire form is the EDN-map form: the whole payload is
   one `pr-str`-printed map, read back as one EDN map (delimiter-safe —
   string values may contain commas).
 
-  Powers the share-import hint (rf2-9jthx): the share UI surfaces a
+  Powers the share-import hint: the share UI surfaces a
   non-blocking note when N>0 overrides from a stale share URL no
   longer apply (variant args refactored, renamed, removed). Pure;
   JVM-testable."
@@ -307,8 +307,8 @@
 (defn drop-stale-overrides
   "Second-stage filter over a `parse-overrides-param*` result: drop every
   parsed override whose TOP-LEVEL arg-key is NOT in `declared-keys` —
-  the set of arg-keys the currently selected variant still declares
-  (rf2-76l69l). `parse-overrides-param*` only drops UNPARSEABLE entries
+  the set of arg-keys the currently selected variant still declares.
+  `parse-overrides-param*` only drops UNPARSEABLE entries
   (malformed EDN, non-keyword keys); it has no view of the live variant
   contract, so an override for an arg the variant RENAMED or REMOVED
   parses fine and — without this filter — gets installed as a live arg
@@ -398,9 +398,9 @@
 
 (defn build-params
   "Pure: build the ordered vector of `k=v` URL params for a share URL.
-  Keys are stable across calls so the QR encoding is deterministic.
+  Keys are stable across calls so the generated URL is deterministic.
 
-  Per rf2-o4u18 the param set covers the full sharability surface:
+  The param set covers the full sharability surface:
 
   - `:variant`    — the focused variant id (when set)
   - `:workspace`  — the focused workspace id (when set)
@@ -410,7 +410,7 @@
   - `:viewport`   — chrome-wide viewport selection (preset kw or `WxH`)
   - `:background` — chrome-wide background selection (preset kw or hex)
   - `:tag-filter` — comma-separated stable list of active tag-filter keys
-  - `:overrides`  — one `pr-str`-printed EDN map (delimiter-safe; rf2-j0hwf)
+  - `:overrides`  — one `pr-str`-printed EDN map (delimiter-safe)
   - `:substrate`  — substrate id (omitted when `:reagent` default)
 
   Returns a vector of `k=v` URL fragments. Pure data → data;
@@ -504,11 +504,8 @@
      (or base-url "")
      (build-params (assoc opts :variant-id variant-id)))))
 
-;; Historic note (rf2-20w5i § High): a pre-Stage-6 build of the per-
-;; variant share popover sourced its QR image from a third-party QR-
-;; image service with the share URL (including author-typed
-;; `:cell-overrides`) embedded as a query param — leaking that data
-;; off-box. The QR popover was first replaced with a local SVG encoder
-;; (rf2-20w5i), then retired entirely in rf2-ymnfx Issue B because the
-;; share URL is already the browser's address bar. The redirect-free
-;; URL-builder above is the surviving surface.
+;; Privacy: the URL-builder above is redirect-free and never reaches a
+;; third-party service. The share URL is the browser's own address bar,
+;; so author-typed `:cell-overrides` stay on-box — there is no QR image
+;; fetch or external encoder to leak the URL (or its embedded overrides)
+;; off the machine.

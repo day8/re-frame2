@@ -4,14 +4,10 @@
 ;; source tree is read at build time so consumers of this artefact pick
 ;; up npm requirements without re-declaring them.
 ;;
-;; Story currently declares no npm-deps from this file. The historic
-;; `qrcode-generator` entry was vendored to back the per-variant Share
-;; popover's local SVG QR encoder (rf2-20w5i security audit — pre-fix
-;; the QR rode in from a third-party image service, leaking author-typed
-;; `:cell-overrides` off-box). The share popover itself was retired in
-;; rf2-ymnfx Issue B because the variant URL is already the browser's
-;; address bar — Cmd-L / Cmd-A / Cmd-C copies it without a separate
-;; affordance. The npm dep retired with the popover.
+;; Story declares no npm-deps from this file. Variant sharing rides on
+;; the variant URL itself — it is already the browser's address bar, so
+;; Cmd-L / Cmd-A / Cmd-C copies it without any separate affordance or
+;; bundled encoder.
 ;;
 ;; axe-core is intentionally NOT vendored. The shadow-cljs / Closure
 ;; :advanced strict ECMAScript parser trips on axe-core's UMD wrapper.

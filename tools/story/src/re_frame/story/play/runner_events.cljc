@@ -1,12 +1,12 @@
 (ns re-frame.story.play.runner-events
-  "re-frame-side driver for the rich-DSL play runner (rf2-8i2a9).
+  "re-frame-side driver for the rich-DSL play runner.
 
   The pure step state machine + script parsing lives in
   `re-frame.story.play.runner`. This namespace owns the impure seams
   the step types reach for:
 
   - `:dispatch` → dispatch + settle through `settled-boundary`
-    (`boundary/dispatch-and-settle!`, rf2-5x1wt.2) against the variant's
+    (`boundary/dispatch-and-settle!`) against the variant's
     frame; in headless this drains via `dispatch-sync*` to a fixed point
     (richer runners supply reactive / DOM flushes through flush-hooks).
     `:dispatch-sync` → the low-level `rf/dispatch-sync*` escape.
@@ -16,7 +16,7 @@
     handed in directly is called as-is (advanced-CLJS-safe); a SYMBOL
     is resolved at run time via `requiring-resolve` (JVM) or a
     best-effort `goog.global` walk (CLJS — fragile under advanced
-    compilation, see rf2-inbad).
+    compilation).
   - `:click` / `:type` / `:assert-dom` → delegate to
     `re-frame.story.play.dom` (no-op on JVM / no-DOM).
 
@@ -119,8 +119,8 @@
 
 (defn settle-boundaries
   "Read the recorded per-dispatch-step settle boundaries for `frame-id`,
-  or nil. rf2-rkd14 — the runner-recorded narrative attribution the
-  evidence projection consumes to stamp `:rf.story/script-idx`."
+  or nil. The runner-recorded narrative attribution the evidence
+  projection consumes to stamp `:rf.story/script-idx`."
   [frame-id]
   (get @step-boundaries frame-id))
 
@@ -134,15 +134,15 @@
 
 (defn- record-settle-boundary!
   "Snapshot the epoch-history length at the START of a dispatch-opening
-  `step`'s settle (rf2-rkd14). No-op for non-dispatch steps (assert / wait
-  / unknown) — those commit no span of their own; their epochs roll into
+  `step`'s settle. No-op for non-dispatch steps (assert / wait / unknown)
+  — those commit no span of their own; their epochs roll into
   the preceding dispatch span (the narrative's forward-attribution model).
   The boundaries accumulate in dispatch-step execution order, which — for
   both the single-play and multi-play (sequential) runner — is exactly the
   order the dispatch steps appear in the concatenated executed-script the
   narrative spans. For multi-play this holds ONLY because the sequencer
-  clears once up front and drives each play with `:clear-boundaries? false`
-  (rf2-76l69l): the boundaries from play K+1 (absolute epoch-history
+  clears once up front and drives each play with `:clear-boundaries? false`:
+  the boundaries from play K+1 (absolute epoch-history
   lengths) tail play K's, so the full vector zips positionally against the
   concatenated script. A per-play clear would drop every earlier play's
   boundaries, leaving only the last play's to be mis-zipped."
@@ -152,35 +152,35 @@
   nil)
 
 (defn current-state-for-play
-  "Read the run-state for `(frame-id, play-key)`, or nil. rf2-tl7zk:
-  exposes per-play state for the dropdown's per-row status badges +
-  the CI runner's per-play outcome read."
+  "Read the run-state for `(frame-id, play-key)`, or nil. Exposes
+  per-play state for the dropdown's per-row status badges + the CI
+  runner's per-play outcome read."
   [frame-id play-key]
   (get @runs-by-play [frame-id play-key]))
 
 (defn active-play-key
   "Return the play-key the toolbar is currently focused on for
-  `frame-id`, or nil. rf2-tl7zk multi-play."
+  `frame-id`, or nil (multi-play)."
   [frame-id]
   (get @active-play frame-id))
 
 (defn set-active-play!
-  "Set the toolbar's focused play for `frame-id`. rf2-tl7zk multi-play.
+  "Set the toolbar's focused play for `frame-id` (multi-play).
   Idempotent — re-setting the same key is a no-op."
   [frame-id play-key]
   (swap! active-play assoc frame-id play-key)
   nil)
 
 (defn clear-step-boundaries!
-  "Reset the per-dispatch-step settle boundaries for `frame-id` (rf2-rkd14).
+  "Reset the per-dispatch-step settle boundaries for `frame-id`.
   Called at the START of a fresh script run so the narrative attribution
   windows onto THIS run's epoch tape, not a previous run's boundaries.
 
-  rf2-vkdam — owned by every entry that WRITES boundaries: the public driver
+  Owned by every entry that WRITES boundaries: the public driver
   `run!`, the orchestrator `runtime/run-phase-4!` (which also covers its
   no-auto-plays branch), and the stepper start `play/begin-stepper!` (via the
   `:clear-step-boundaries` late-bind seam). So a non-orchestrator re-run /
-  replay-in-place / stepping session no longer inherits stale accumulated
+  replay-in-place / stepping session never inherits stale accumulated
   offsets that would mis-attribute the exact narrative."
   [frame-id]
   (swap! step-boundaries dissoc frame-id)
@@ -190,7 +190,7 @@
   "Wipe the run-state for `frame-id` across all four process-global atoms
   (`run-state` / `runs-by-play` / `active-play` / `step-boundaries`).
   Wired into frame teardown via the `:drop-run-state` late-bind hook
-  (`frames/destroy!` + `destroy-inline!`, rf2-booyu) so a destroyed variant
+  (`frames/destroy!` + `destroy-inline!`) so a destroyed variant
   frame leaves no stale terminal play status behind."
   [frame-id]
   (swap! run-state dissoc frame-id)
@@ -204,16 +204,15 @@
 (defn clear-all-runs!
   "Wipe ALL per-variant run-state across every frame — the four
   per-process atoms (`run-state` / `runs-by-play` / `active-play` /
-  `step-boundaries`) AND the `warned-both-slots` one-shot warning cache
-  (rf2-a1lvd). Used by the Story test-fixture helper (rf2-lh99f) so a
-  fresh test doesn't observe a previous test's play outcomes;
-  `clear-state!` is the per-frame counterpart called from teardown.
+  `step-boundaries`) AND the `warned-both-slots` one-shot warning cache.
+  Used by the Story test-fixture helper so a fresh test doesn't observe a
+  previous test's play outcomes; `clear-state!` is the per-frame
+  counterpart called from teardown.
 
   Clearing `warned-both-slots` here re-arms the both-`:play-script`-and-
-  `:plays` console warning per test and per hot-reload reset, mirroring
-  the established warn-once-clear pattern (cf. rf2-4edk / qy6cl): a
-  warn-once cache that is never reset suppresses the affordance across
-  test order + hot-reload."
+  `:plays` console warning per test and per hot-reload reset, following
+  the warn-once-clear pattern: a warn-once cache that is never reset
+  suppresses the affordance across test order + hot-reload."
   []
   (reset! run-state      {})
   (reset! runs-by-play   {})
@@ -253,33 +252,30 @@
 ;; ---- replay target (EP-0023) ---------------------------------------------
 ;;
 ;; A recording's replay address is the variant FRAME (`{:frame variant-id}`).
-;; EP-0023 collapses the old EP-0013 public `(realm, frame)` address to that
-;; single frame target: the runner dispatches frame-scoped, and the framework
-;; derives the running environment from the targeted frame, so replay lands in
-;; the frame's own image generation by construction. Realm survives only as the
-;; framework's internal installation substrate — the runner carries no separate
-;; realm key on the replay address.
+;; The public address is that single frame target: the runner dispatches
+;; frame-scoped, and the framework derives the running environment from the
+;; targeted frame, so replay lands in the frame's own image generation by
+;; construction. Realm is the framework's internal installation substrate —
+;; the runner carries no separate realm key on the replay address.
 
-;; ---- folded-plan consumption (rf2-5x1wt.19) ------------------------------
+;; ---- folded-plan consumption --------------------------------------------
 ;;
-;; The runtime CONSUMES the `.18`-folded plan: every play's script is folded
+;; The runtime CONSUMES the folded plan: every play's script is folded
 ;; through `assertions/fold-script` at resolution time, so a shipping
 ;; `:assert-db` / `:assert-dom` step is rewritten to the canonical
 ;; `[:assert assertion-atom]` checkpoint BEFORE the run loop drives it
-;; (spec/017 §Assertions — one atom, two positions; NewTestStory rf2-5x1wt.19
-;; §B5.9). The `.18` worker deferred runtime consumption to this bead; this
-;; is where it lands. After folding, `exec-step!` only ever sees the ONE
-;; assertion atom in its `[:assert …]` checkpoint position — there is no
-;; longer a synthetic `:rf.assert/db` / `:rf.assert/dom` rail (a folded
-;; `:assert-db` dispatches the real `:rf.assert/path-equals` handler; a
-;; folded `:assert-dom` routes through the DOM executor recording a
-;; canonical `:rf.assert/dom-*` record). One assertion-record vocabulary,
-;; not two.
+;; (spec/017 §Assertions — one atom, two positions). After folding,
+;; `exec-step!` only ever sees the ONE assertion atom in its `[:assert …]`
+;; checkpoint position — there is no synthetic `:rf.assert/db` /
+;; `:rf.assert/dom` rail (a folded `:assert-db` dispatches the real
+;; `:rf.assert/path-equals` handler; a folded `:assert-dom` routes through
+;; the DOM executor recording a canonical `:rf.assert/dom-*` record). One
+;; assertion-record vocabulary, not two.
 
 (defn- fold-spec
   "Fold a parsed play spec's `:script` through `assertions/fold-script` so
   shipping `:assert-db` / `:assert-dom` steps become canonical
-  `[:assert …]` checkpoints (rf2-5x1wt.19). Pure data → data; preserves
+  `[:assert …]` checkpoints. Pure data → data; preserves
   `:auto-run?` / `:name`."
   [spec]
   (cond-> spec
@@ -287,15 +283,15 @@
 
 (defn variant-play-script
   "Resolve the `:play-script` body on `variant-id`, parse it, and FOLD its
-  script (rf2-5x1wt.19). Returns the normalised spec map per
-  `runner/parse-spec` with every shipping `:assert-db` / `:assert-dom` step
-  rewritten to the canonical `[:assert …]` checkpoint. Variants without
-  `:play-script` return `{:script [] :auto-run? true}`.
+  script. Returns the normalised spec map per `runner/parse-spec` with
+  every shipping `:assert-db` / `:assert-dom` step rewritten to the
+  canonical `[:assert …]` checkpoint. Variants without `:play-script`
+  return `{:script [] :auto-run? true}`.
 
-  Note (rf2-tl7zk): variants declaring `:plays` resolve to the FIRST
-  play's spec — preserves legacy single-script call sites + matches the
-  toolbar's 'default play' behaviour. Callers that need the full plays
-  vector should use `variant-plays` instead."
+  Note: variants declaring `:plays` resolve to the FIRST play's spec —
+  matching the single-script call sites + the toolbar's 'default play'
+  behaviour. Callers that need the full plays vector should use
+  `variant-plays` instead."
   [variant-id]
   (let [body  (handler-meta variant-id)
         plays (runner/variant-body->plays body)]
@@ -305,7 +301,7 @@
         (and (seq plays) (contains? body :plays))
         (first plays)
 
-        ;; Single-script (:play-script slot) — legacy path.
+        ;; Single-script (:play-script slot).
         :else
         (runner/parse-spec (when body (:play-script body)))))))
 
@@ -330,7 +326,7 @@
 
 (defn variant-plays
   "Resolve the canonical vector of parsed plays for `variant-id`. Pure
-  data → data; works on JVM + CLJS. rf2-tl7zk multi-play.
+  data → data; works on JVM + CLJS (multi-play).
 
   - `:plays` present → returns the parsed plays vector (size >= 1).
   - `:play-script` present → returns a single-entry vector wrapping the
@@ -343,17 +339,16 @@
                (contains? body :play-script)
                (contains? body :plays))
       (warn-both-slots-once! variant-id))
-    ;; rf2-5x1wt.19 — FOLD every resolved play's script so the runtime
-    ;; consumes the `.18`-folded plan: `:assert-db` / `:assert-dom` steps
-    ;; become canonical `[:assert …]` checkpoints before the run loop.
+    ;; FOLD every resolved play's script so the runtime consumes the
+    ;; folded plan: `:assert-db` / `:assert-dom` steps become canonical
+    ;; `[:assert …]` checkpoints before the run loop.
     (mapv fold-spec (runner/variant-body->plays body))))
 
 (defn resolve-play
   "Resolve a `(variant-id, play-key)` pair to the parsed, FOLDED play spec,
   or nil. `play-key` may be nil — meaning 'the default play' (first
   entry for multi-play, the single script for `:play-script`).
-  rf2-tl7zk multi-play. The script is folded (rf2-5x1wt.19) via
-  `variant-plays`."
+  Multi-play. The script is folded via `variant-plays`."
   [variant-id play-key]
   (let [plays (variant-plays variant-id)]
     (if (nil? play-key)
@@ -387,7 +382,7 @@
         (merge {:frame variant-id} payload)))
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-;; ---- settled-boundary flush hooks (rf2-5x1wt.2) --------------------------
+;; ---- settled-boundary flush hooks ---------------------------------------
 ;;
 ;; `[:dispatch event-vector]` settles through `settled-boundary` (spec/017
 ;; §Script and `settled-boundary`). The runner takes its flush-hooks from
@@ -478,9 +473,9 @@
 
 (defn- exec-dispatch!
   "Execute a `:dispatch` step — dispatch the event and settle through
-  `settled-boundary` (spec/017 §Script and `settled-boundary`,
-  rf2-5x1wt.2). In headless this is the existing `dispatch-sync*`
-  run-to-fixed-point drain, named via `settled-boundary`; richer runners
+  `settled-boundary` (spec/017 §Script and `settled-boundary`).
+  In headless this is the `dispatch-sync*` run-to-fixed-point drain,
+  named via `settled-boundary`; richer runners
   supply reactive / DOM flushes through their flush-hooks. The runner
   NEVER hard-codes `dispatch-sync` — it routes through the boundary's
   caller-supplied hooks (`current-flush-hooks`).
@@ -492,7 +487,7 @@
 
   Drains any handler-exception trace events captured by the play
   listener into `:rf.story/assertions` so the test-mode pane + Xray
-  assertions panel see the failure (rf2-z2dq8). The re-frame router
+  assertions panel see the failure. The re-frame router
   catches handler exceptions and emits `:rf.error/handler-exception`
   rather than re-throwing, so the local catch fires only for
   exceptions that escape the interceptor chain entirely.
@@ -503,10 +498,10 @@
   terminal status flips to `:fail`."
   [frame-id idx step]
   (let [evec     (runner/step-event step)
-        ;; rf2-l2cn5d (EP-0017): a replayed `[:dispatch evec {:rf.cofx …}]`
-        ;; step carries a captured recordable-coeffect envelope. Pass it to
-        ;; the boundary as dispatch-opts so the handler's declared coeffects
-        ;; replay from the recorded value instead of being restamped.
+        ;; A replayed `[:dispatch evec {:rf.cofx …}]` step carries a
+        ;; captured recordable-coeffect envelope. Pass it to the boundary
+        ;; as dispatch-opts so the handler's declared coeffects replay from
+        ;; the recorded value instead of being restamped.
         cofx     (runner/step-cofx step)
         dopts    (when (and (map? cofx) (seq cofx)) {:rf.cofx cofx})
         prev     (assertion-count frame-id)
@@ -525,12 +520,12 @@
 (defn- exec-dispatch-sync!
   [frame-id idx step]
   (let [evec   (runner/step-event step)
-        ;; rf2-l2cn5d (EP-0017): when the step carries a captured `:rf.cofx`
-        ;; envelope, thread it into the dispatch opts so the handler's
-        ;; declared recordable coeffects (provided facts + the framework
-        ;; `:rf/time-ms`) replay from the recorded value instead of being
-        ;; restamped / failing `:rf.error/missing-required-cofx`. Absent
-        ;; cofx dispatches with the bare frame opts (pre-EP-0017 behaviour).
+        ;; When the step carries a captured `:rf.cofx` envelope, thread it
+        ;; into the dispatch opts so the handler's declared recordable
+        ;; coeffects (provided facts + the framework `:rf/time-ms`) replay
+        ;; from the recorded value instead of being restamped / failing
+        ;; `:rf.error/missing-required-cofx`. Absent cofx dispatches with
+        ;; the bare frame opts.
         cofx   (runner/step-cofx step)
         opts   (cond-> {:frame frame-id}
                  (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))
@@ -553,17 +548,17 @@
     (rf/app-db-value frame-id)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-;; ---- DOM-family assertion atom executor (rf2-5x1wt.19) -------------------
+;; ---- DOM-family assertion atom executor ---------------------------------
 ;;
 ;; The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
 ;; `:rf.assert/dom-text`) is the fold target for the shipping `:assert-dom`
-;; step (`.18`). It has no reg-event handler yet (the DOM runner that
-;; PROVES it lands later — the `:dom` capability is wired now via
-;; `requirements`), so an `[:assert [:rf.assert/dom-* …]]` checkpoint is
-;; EVALUATED directly through the DOM executor (`dom/assert-visible` /
-;; `dom/assert-text`) and records a CANONICAL `:rf.assert/dom-*` record on
-;; the frame's `:rf.story/assertions` slot. There is no synthetic
-;; `:rf.assert/dom` id — the canonical folded id is the one recorded.
+;; step. It has no reg-event handler (the DOM runner that PROVES it is the
+;; `:dom` capability wired via `requirements`), so an
+;; `[:assert [:rf.assert/dom-* …]]` checkpoint is EVALUATED directly through
+;; the DOM executor (`dom/assert-visible` / `dom/assert-text`) and records a
+;; CANONICAL `:rf.assert/dom-*` record on the frame's `:rf.story/assertions`
+;; slot. There is no synthetic `:rf.assert/dom` id — the canonical folded id
+;; is the one recorded.
 
 (def ^:private dom-atom->mode
   "Map a DOM-family assertion id to the `dom/assert-visible` mode it
@@ -574,7 +569,7 @@
 
 (defn- exec-assert-dom-atom!
   "Evaluate a folded DOM-family assertion atom `[:rf.assert/dom-* selector
-  & args]` at this checkpoint (rf2-5x1wt.19). Drives the DOM executor,
+  & args]` at this checkpoint. Drives the DOM executor,
   records the CANONICAL `:rf.assert/dom-*` record on the frame slot (so the
   unified result's `:assertions` carries the real folded id, not a
   synthetic one), and returns the runner step-result. A no-DOM headless
@@ -642,7 +637,7 @@
                         {:message (str "type failed — no node matched " (pr-str selector))}))))
 
 (defn- exec-focus!
-  "Execute a `[:focus selector]` step — a DOM focus event (rf2-5x1wt.17).
+  "Execute a `[:focus selector]` step — a DOM focus event.
   Parallels `exec-click!`: a no-DOM headless runner records a
   `{:skipped? true}` no-op (the capability registry already refuses the
   step at preflight, so this is the belt-and-braces runtime guard); a
@@ -664,17 +659,12 @@
 
 (declare exec-assert-dom-atom!)
 
-;; ---- browser-tier assertion atom executor (rf2-9ikj0) --------------------
+;; ---- browser-tier assertion atom executor -------------------------------
 ;;
 ;; The browser-tier oracle family (`:rf.assert/visual-snapshot` /
 ;; `:rf.assert/a11y` / `:rf.assert/a11y-structural`) has its dedicated pure
-;; executor in `re-frame.story.play.browser` (`eval-browser-assertion`,
-;; rf2-5x1wt.28) — but until now that executor was ORPHANED from the run
-;; path: `exec-assert!` routed EVERY browser-tier atom to a no-op step-skip
-;; via `tape-evaluated-assertion?`, so a `[:assert [:rf.assert/a11y-structural
-;; …]]` checkpoint recorded nothing and a headless run never surfaced the
-;; honest `:cannot-run` for the browser-only pair. rf2-9ikj0 wires the
-;; executor IN, mirroring how the DOM family is routed to
+;; executor in `re-frame.story.play.browser` (`eval-browser-assertion`). The
+;; run path wires that executor IN, mirroring how the DOM family is routed to
 ;; `exec-assert-dom-atom!`:
 ;;
 ;;   - `:rf.assert/a11y-structural` is the `:hiccup` rung — it walks the
@@ -737,8 +727,8 @@
 (defn- exec-assert-browser-atom!
   "Evaluate a browser-tier oracle assertion atom `[:rf.assert/visual-snapshot
   | :rf.assert/a11y | :rf.assert/a11y-structural & args]` at this checkpoint
-  (rf2-9ikj0 — wire the previously-orphaned `browser/eval-browser-assertion`
-  into the run path). Mirrors `exec-assert-dom-atom!`: drives the pure
+  (drives `browser/eval-browser-assertion` from the run path). Mirrors
+  `exec-assert-dom-atom!`: drives the pure
   executor, records the CANONICAL assertion record on the frame slot (so the
   unified result's `:assertions` carries the real browser-tier id), and
   returns the runner step-result.
@@ -792,17 +782,16 @@
 (defn- tape-evaluated-assertion?
   "True iff the assertion atom `atom-v` (`[:rf.assert/id & args]`) is
   evaluated AGAINST THE EPOCH TAPE in the result boundary rather than by
-  dispatching a `reg-event` handler into the frame (rf2-8y47c +
-  rf2-fh7g4).
+  dispatching a `reg-event` handler into the frame.
 
   Two assertion families carry NO `reg-event` handler and are minted
   by the result boundary (`re-frame.story.result`), not by a dispatch:
 
   - `:rf.assert/schema-error` — paired against the projected
-    `:rf.error/schema-validation-failure` evidence (rf2-5x1wt.21).
+    `:rf.error/schema-validation-failure` evidence.
   - the causal / cascade family (`:rf.assert/caused` /
     `:rf.assert/no-cascade-rerender`) — paired against the
-    `:reactive-counts` `:by-cause` projection (rf2-5x1wt.31).
+    `:reactive-counts` `:by-cause` projection.
 
   This is the SINGLE classifier the in-script `[:assert …]` executor
   consults so a tape-evaluated checkpoint is NEVER dispatched into the
@@ -815,27 +804,23 @@
 
   Two families are NOT here — each has its own inline executor routed
   AHEAD of this classifier: the DOM family (`exec-assert-dom-atom!`) and
-  the browser-tier oracle family (`exec-assert-browser-atom!`, rf2-9ikj0).
-  The browser-tier family was PREVIOUSLY mis-classified here, which made
-  `browser/eval-browser-assertion` dead weight w.r.t. the run path: a
-  `:rf.assert/a11y-structural` checkpoint recorded a no-op step-skip
-  instead of evaluating the rendered hiccup tree, and the browser-only
-  pair never surfaced their honest `:cannot-run`. They are now routed to
-  the dedicated executor, so they are NO LONGER tape-evaluated."
+  the browser-tier oracle family (`exec-assert-browser-atom!`). The
+  browser-tier family is routed to its dedicated executor (which evaluates
+  the rendered hiccup tree and surfaces the honest `:cannot-run` for the
+  browser-only pair), so it is NOT tape-evaluated."
   [atom-v]
   (or (assertions/schema-error? atom-v)
       (assertions/causal? atom-v)))
 
 (defn- exec-assert!
-  "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint
-  (rf2-5x1wt.17). Evaluates the wrapped assertion atom at THIS point in
-  the script (spec/017 §Inline script assertions vs terminal
-  assertions). This is the SINGLE in-script assertion executor — after
-  the `.18` fold the runtime consumes (rf2-5x1wt.19), a shipping
-  `:assert-db` / `:assert-dom` step has already been rewritten to this
-  `[:assert …]` checkpoint, so there is no longer a parallel `:assert-db`
-  / `:assert-dom` executor minting synthetic `:rf.assert/db` /
-  `:rf.assert/dom` records.
+  "Execute an `[:assert [:rf.assert/id & args]]` in-script checkpoint.
+  Evaluates the wrapped assertion atom at THIS point in the script
+  (spec/017 §Inline script assertions vs terminal assertions). This is
+  the SINGLE in-script assertion executor — after the fold the runtime
+  consumes, a shipping `:assert-db` / `:assert-dom` step has already been
+  rewritten to this `[:assert …]` checkpoint, so there is no parallel
+  `:assert-db` / `:assert-dom` executor minting synthetic `:rf.assert/db`
+  / `:rf.assert/dom` records.
 
   Four routes, by atom family:
 
@@ -846,8 +831,8 @@
     `:rf.assert/dom-*` record on the slot.
   - The browser-tier oracle family (`:rf.assert/visual-snapshot` /
     `:rf.assert/a11y` / `:rf.assert/a11y-structural`) is EVALUATED directly
-    through `exec-assert-browser-atom!` (rf2-9ikj0 — the previously-orphaned
-    `browser/eval-browser-assertion` wired into the run path). At the
+    through `exec-assert-browser-atom!` (driving
+    `browser/eval-browser-assertion`). At the
     `:hiccup` tier `:rf.assert/a11y-structural` walks the rendered hiccup
     tree and records a real `:pass` / `:fail`; with no tree (the headless
     floor) it records `:cannot-run`. The browser-only pair record
@@ -857,8 +842,7 @@
     minted by the result boundary against the epoch tape, not by a dispatch.
     An in-script checkpoint for one of these records a no-op step-skip (the
     boundary owns its verdict); dispatching it would mint a spurious
-    `:rf.error/no-such-handler` trace AND skip the real tape evaluation
-    (rf2-8y47c + rf2-fh7g4).
+    `:rf.error/no-such-handler` trace AND skip the real tape evaluation.
   - Every other (dispatchable) `:rf.assert/*` atom dispatches the event
     through `settled-boundary` — the standard reg-event handler records
     the `:passed?` record on the frame's `:rf.story/assertions` slot — and
@@ -870,17 +854,15 @@
       (contains? assertions/dom-assertion-ids (first atom-v))
       (exec-assert-dom-atom! frame-id idx step atom-v)
 
-      ;; Browser-tier oracle family — route to the dedicated executor
-      ;; (rf2-9ikj0). a11y-structural runs at :hiccup; visual / a11y fail
-      ;; closed to :cannot-run headless. NEVER a no-op skip (which is what
-      ;; left the executor orphaned).
+      ;; Browser-tier oracle family — route to the dedicated executor.
+      ;; a11y-structural runs at :hiccup; visual / a11y fail closed to
+      ;; :cannot-run headless. NEVER a no-op skip.
       (contains? assertions/browser-assertion-ids (first atom-v))
       (exec-assert-browser-atom! frame-id idx step atom-v)
 
       ;; Tape-evaluated families carry no reg-event handler; the result
       ;; boundary owns their verdict. Record a no-op step-skip — never a
-      ;; dispatch (which would hit :rf.error/no-such-handler) (rf2-8y47c +
-      ;; rf2-fh7g4).
+      ;; dispatch (which would hit :rf.error/no-such-handler).
       (tape-evaluated-assertion? atom-v)
       (runner/step-skip idx step)
 
@@ -914,7 +896,7 @@
                 :else                 (runner/step-pass idx step))))))))
 
 (defn- queue-empty?
-  "True iff `frame-id`'s event queue has drained (rf2-5x1wt.17). Under a
+  "True iff `frame-id`'s event queue has drained. Under a
   settled-boundary runner the preceding `[:dispatch …]` step ran the
   router to a FIXED POINT (`settled-boundary` — the `dispatch-sync*`
   run-to-completion drain in headless), so by the time a following
@@ -930,8 +912,8 @@
 
 (defn- wait-until-satisfied?
   "Evaluate a decomposed `:wait-until` predicate against `frame-id`'s
-  current state (rf2-5x1wt.17). Pure-ish — reads the frame snapshot, no
-  dispatch. Returns a boolean."
+  current state. Pure-ish — reads the frame snapshot, no dispatch.
+  Returns a boolean."
   [frame-id {:keys [kind path mode expected pred-ref pred-fn?]}]
   (case kind
     :db          (let [db     (read-frame-db frame-id)
@@ -946,8 +928,8 @@
     false))
 
 (defn- exec-wait-until!
-  "Execute a `[:wait-until predicate-spec]` step (rf2-5x1wt.17) — the
-  DETERMINISTIC settle-on-condition. In headless the preceding
+  "Execute a `[:wait-until predicate-spec]` step — the DETERMINISTIC
+  settle-on-condition. In headless the preceding
   `[:dispatch …]` already drained to a fixed point, so the predicate is
   checked once synchronously: satisfied → step-skip (advance);
   unsatisfied → step-fail TIMING OUT READABLY with the unmet
@@ -975,8 +957,8 @@
   `:wait` is special-cased OUT of this fn — it requires an async
   yield (`setTimeout` / `Thread/sleep`) the driver schedules around.
 
-  rf2-5x1wt.19 — the runtime consumes the `.18`-folded plan: every script
-  is folded at resolution time (`runner-events/variant-plays` /
+  The runtime consumes the folded plan: every script is folded at
+  resolution time (`runner-events/variant-plays` /
   `play/variant-play-steps`), so a shipping `:assert-db` / `:assert-dom`
   step has already become the canonical `[:assert assertion-atom]`
   checkpoint by the time it reaches here. A raw `:assert-db` / `:assert-dom`
@@ -1001,16 +983,15 @@
       :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
       (runner/unknown-step idx step))))
 
-;; ---- terminal assertions (rf2-nyjoa) -------------------------------------
+;; ---- terminal assertions ------------------------------------------------
 ;;
 ;; A variant's terminal `:assertions` are the handler-backed "check the
 ;; FINAL settled state" surface (spec/017 §Inline script assertions vs
 ;; terminal assertions): each is the SAME assertion atom an in-script
 ;; `[:assert …]` checkpoint wraps, but evaluated ONCE after the script
-;; phase has settled rather than at a mid-script point. Mike RULED B
-;; (rf2-nyjoa): they AUTO-RUN — they contribute `:pass` / `:fail` verdicts
-;; recorded as assertion-records on `:rf.story/assertions`, exactly like an
-;; in-script checkpoint.
+;; phase has settled rather than at a mid-script point. They AUTO-RUN —
+;; they contribute `:pass` / `:fail` verdicts recorded as assertion-records
+;; on `:rf.story/assertions`, exactly like an in-script checkpoint.
 ;;
 ;; This reuses the ONE in-script executor (`exec-assert!`) rather than a
 ;; parallel evaluator: each terminal atom is wrapped in its `[:assert …]`
@@ -1027,13 +1008,13 @@
 ;;     are NEVER dispatched — the result boundary owns their verdict against
 ;;     the epoch tape. So this path does NOT double-process the schema /
 ;;     causal kinds the plan collector already feeds to `result/run-result`'s
-;;     tape matchers (rf2-nyjoa critical guard — the `exec-assert!`
+;;     tape matchers (the critical guard — the `exec-assert!`
 ;;     `tape-evaluated-assertion?` branch is the single source of truth for
 ;;     that split).
 
 (defn run-terminal-assertions!
   "Evaluate `frame-id`'s terminal handler-backed `:assertions` against the
-  FINAL settled state, AFTER the script phase (rf2-nyjoa). `atoms` is the
+  FINAL settled state, AFTER the script phase. `atoms` is the
   plan's `[:expect :assertions]` vector — the bare assertion atoms
   (`[:rf.assert/id & args]`), the same atoms an in-script `[:assert …]`
   checkpoint wraps.
@@ -1059,16 +1040,14 @@
       (exec-assert! frame-id idx [:assert atom-v])))
   nil)
 
-;; ---- single-step driver (rf2-ee38b.3 — step-debugger re-base) ------------
+;; ---- single-step driver -------------------------------------------------
 ;;
 ;; The play step-debugger (`re-frame.story.ui.test-mode.stepper-state`)
-;; used to drive ONLY `:dispatch` / `:dispatch-sync` steps via the
-;; legacy `play/variant-play-events` projection — `:wait` / `:click` /
-;; `:type` / `:assert-db` / `:assert-dom` steps were silently dropped, so
-;; the stepper walked a TRUNCATED sequence with a wrong cursor/total and
-;; no assert outcomes. `run-step!` re-bases the stepper on the SAME rich-
-;; DSL executor the canvas auto-run path uses, so every step type runs in
-;; the debugger exactly as it does live.
+;; drives every rich-DSL step type via `run-step!`, which bases the stepper
+;; on the SAME executor the canvas auto-run path uses — so every step type
+;; (`:dispatch` / `:dispatch-sync` / `:wait` / `:click` / `:type` /
+;; `:assert-db` / `:assert-dom`) runs in the debugger exactly as it does
+;; live, with the right cursor/total and assert outcomes.
 
 (defn run-step!
   "Execute ONE coerced rich-DSL `step` (at index `idx`) against
@@ -1090,9 +1069,9 @@
                    (runner/step-exception idx step
                                           #?(:clj  (.getMessage ^Throwable e)
                                              :cljs (str e)))))]
-    ;; rf2-5x1wt.19 — `exec-step!` (via `exec-assert!`) already wrote the
-    ;; canonical assertion record onto `:rf.story/assertions`; no synthetic
-    ;; slot mirror here.
+    ;; `exec-step!` (via `exec-assert!`) already wrote the canonical
+    ;; assertion record onto `:rf.story/assertions`; no synthetic slot
+    ;; mirror here.
     (emit-trace! frame-id nil idx step result)
     result))
 
@@ -1108,31 +1087,31 @@
                (f)
                nil)))
 
-;; ---- assertion-slot recording (rf2-5x1wt.19) ----------------------------
+;; ---- assertion-slot recording -------------------------------------------
 ;;
-;; ONE assertion-record vocabulary. After the runtime consumes the `.18`-
-;; folded plan (`variant-plays` / `variant-play-steps` fold every script),
-;; every in-script assertion arrives as the canonical `[:assert
-;; assertion-atom]` checkpoint, and `exec-assert!` is the SOLE recorder:
+;; ONE assertion-record vocabulary. The runtime consumes the folded plan
+;; (`variant-plays` / `variant-play-steps` fold every script), so every
+;; in-script assertion arrives as the canonical `[:assert assertion-atom]`
+;; checkpoint, and `exec-assert!` is the SOLE recorder:
 ;;
 ;;   - a non-DOM `:rf.assert/*` atom dispatches its reg-event handler,
 ;;     which writes the canonical record onto `:rf.story/assertions`;
 ;;   - a DOM-family atom is evaluated by `exec-assert-dom-atom!`, which
 ;;     writes a canonical `:rf.assert/dom-*` record.
 ;;
-;; There is no longer a synthetic `:rf.assert/db` / `:rf.assert/dom` slot-
-;; mirror bridge: the folded checkpoint's OWN record IS the slot record, so
+;; There is no synthetic `:rf.assert/db` / `:rf.assert/dom` slot-mirror
+;; bridge: the folded checkpoint's OWN record IS the slot record, so
 ;; mirroring the step-result on top would double-count. `record-result!`
 ;; therefore only updates the run-state + emits the trace event; the slot
-;; write already happened inside `exec-assert!`. This is the move that
-;; collapsed the documented "false GREEN" — run-state and the
-;; `:rf.story/assertions` slot now derive from the ONE canonical record.
+;; write already happened inside `exec-assert!`. This is what keeps
+;; run-state and the `:rf.story/assertions` slot deriving from the ONE
+;; canonical record — closing the "false GREEN" hazard.
 
 (defn- record-result!
   "Append `result` to the run-state for `frame-id` and emit the per-step
   trace event. The `:rf.story/assertions` slot write already happened
-  inside `exec-assert!` (the canonical folded-atom record), so this no
-  longer mirrors a synthetic record on top (rf2-5x1wt.19)."
+  inside `exec-assert!` (the canonical folded-atom record), so this does
+  not mirror a synthetic record on top."
   [frame-id play-key name idx step result]
   (update-state! frame-id play-key runner/record-step-result result)
   (emit-trace! frame-id name idx step result)
@@ -1150,9 +1129,9 @@
 (defn- settle-abort!
   "Settle `done-cb` for a run-loop that ABORTED before finishing — the frame
   was torn down mid-run (run-state vanished) or a newer `run!` took over the
-  state slot (token mismatch, rf2-ftow6). rf2-9x5fm: every exit path of the
-  run loop MUST settle the awaiting continuation, otherwise the play-promise
-  (and the outer `run-variant` promise chained off it) hangs forever. The
+  state slot (token mismatch). Every exit path of the run loop MUST settle
+  the awaiting continuation, otherwise the play-promise (and the outer
+  `run-variant` promise chained off it) hangs forever. The
   abort is reachable on CLJS, where an async `:wait` yield gives a hot-reload
   reset / concurrent `run!` / teardown a window to mutate the shared
   run-state between steps.
@@ -1177,7 +1156,7 @@
 
   `done-cb` is invoked with the final run-state once the loop ends.
 
-  rf2-ftow6 (race fix): each call to `run!` stamps a unique
+  Each call to `run!` stamps a unique
   `:run-token` on the state map. The loop carries the token it started
   with and aborts if a fresh `run!` has overwritten the state with a
   newer token — that way a concurrent `runner-events/run!`
@@ -1188,28 +1167,27 @@
   Sync-class steps (`:dispatch-sync`, `:assert-db`, `:assert-dom`)
   recur synchronously; async-class steps (`:dispatch`, `:click`,
   `:type`, `:wait`) yield one tick so the queued effects drain before
-  the next step runs. The blanket setTimeout-0 between every step that
-  the original (rf2-8i2a9) implementation used was the source of the
-  re-mount race — see `runner/async-yield?`."
+  the next step runs. A blanket setTimeout-0 between every step would
+  reintroduce the re-mount race the async-class split avoids — see
+  `runner/async-yield?`."
   [frame-id play-key token done-cb]
   (let [state (current-state-for-play frame-id play-key)]
     (cond
       ;; abort if state has gone missing (frame torn down mid-run).
-      ;; rf2-9x5fm: still settle `done-cb` so the awaiting continuation
-      ;; advances and the play-promise (and the outer `run-variant`
-      ;; promise) resolves rather than hanging forever. We do NOT
-      ;; `finish!` here — the run-state slot is gone, so there is nothing
-      ;; to transition; we only release the continuation.
+      ;; Still settle `done-cb` so the awaiting continuation advances and
+      ;; the play-promise (and the outer `run-variant` promise) resolves
+      ;; rather than hanging forever. We do NOT `finish!` here — the
+      ;; run-state slot is gone, so there is nothing to transition; we only
+      ;; release the continuation.
       (nil? state)
       (settle-abort! frame-id play-key done-cb)
 
       ;; abort if a newer run! has taken over the state slot — the
       ;; newer loop owns continuation now, so the stale loop bails
-      ;; rather than racing it. rf2-ftow6. rf2-9x5fm: the stale loop
-      ;; must STILL settle ITS OWN `done-cb` (the continuation/promise
-      ;; for THIS run) so it does not strand the chain — but via
-      ;; `settle-abort!` (no `update-state!`), so it never clobbers the
-      ;; newer run's run-state slot.
+      ;; rather than racing it. The stale loop must STILL settle ITS OWN
+      ;; `done-cb` (the continuation/promise for THIS run) so it does not
+      ;; strand the chain — but via `settle-abort!` (no `update-state!`),
+      ;; so it never clobbers the newer run's run-state slot.
       (and token (some? (:run-token state)) (not= token (:run-token state)))
       (settle-abort! frame-id play-key done-cb)
 
@@ -1238,8 +1216,7 @@
             (record-result! frame-id play-key nm idx step result)
             ;; Sync-class step → recur synchronously so the next step
             ;; observes the just-committed effects atomically (the
-            ;; legacy `execute-play!`/`doseq` semantics rf2-ftow6
-            ;; restores).
+            ;; `doseq`-style sequential semantics).
             ;;
             ;; Async-class step → yield one tick on CLJS so the
             ;; queued router work / synthetic DOM event handlers drain
@@ -1266,11 +1243,11 @@
   takes over the run-state slot).
 
   Arities:
-  - `[variant-id]`                — run the default play (rf2-tl7zk:
-                                    the first play of `:plays`, or the
-                                    single `:play-script`).
+  - `[variant-id]`                — run the default play (the first
+                                    play of `:plays`, or the single
+                                    `:play-script`).
   - `[variant-id done-cb]`        — as above + completion callback.
-  - `[variant-id play-key spec done-cb]` — rf2-tl7zk multi-play form:
+  - `[variant-id play-key spec done-cb]` — multi-play form:
                                     drive a specific play. `play-key`
                                     is the play's `:name` string (or
                                     nil for the single-script case);
@@ -1280,7 +1257,7 @@
                                     map. `{:clear-boundaries? false}`
                                     SUPPRESSES the per-run settle-boundary
                                     reset, for a caller SEQUENCING several
-                                    plays against one frame (rf2-76l69l):
+                                    plays against one frame:
                                     the sequencer clears ONCE up front and
                                     each subsequent play APPENDS its
                                     absolute boundaries, so the
@@ -1299,41 +1276,39 @@
                                       :or   {clear-boundaries? true}}]
    (let [spec  (or spec
                    (resolve-play variant-id play-key)
-                   ;; Fall back to the legacy single-script path so the
-                   ;; default play of a `:play-script` variant Just Works.
+                   ;; Fall back to the single-script path so the default
+                   ;; play of a `:play-script` variant Just Works.
                    (variant-play-script variant-id))
          pk    (or play-key (:name spec))
          init  (runner/initial-state spec)
-         ;; rf2-ftow6: stamp a fresh token on every run. The loop
-         ;; reads it back from the state map; if a concurrent run!
-         ;; replaces the state mid-loop, the stale loop sees a
-         ;; mismatched token and aborts before re-dispatching.
+         ;; Stamp a fresh token on every run. The loop reads it back from
+         ;; the state map; if a concurrent run! replaces the state mid-loop,
+         ;; the stale loop sees a mismatched token and aborts before
+         ;; re-dispatching.
          token   #?(:clj (java.util.UUID/randomUUID)
                     :cljs (.toString (js/Math.random)))
          started (-> (runner/start init (now-ms))
                      (assoc :run-token token))]
-     ;; rf2-vkdam — reset the per-dispatch-step settle boundaries here, in the
-     ;; SAME public entry that resets run-state and then writes boundaries via
-     ;; `run-loop!`/`record-settle-boundary!`. Previously only the orchestrator
-     ;; (`runtime/run-phase-4!`) cleared, so an interactive re-run / replay-in-
-     ;; place driving `run!` directly accumulated boundaries until teardown.
-     ;; Owning the reset alongside the write keeps the attribution windowed
-     ;; onto THIS run's epoch tape. The leading-nil-span semantics still hold:
-     ;; the boundaries snapshot the ABSOLUTE epoch-history length, so any setup
-     ;; epochs already on the tape precede the first boundary (in the
-     ;; orchestrator path setup runs in phase-2, before phase-4 drives `run!`).
+     ;; Reset the per-dispatch-step settle boundaries here, in the SAME
+     ;; public entry that resets run-state and then writes boundaries via
+     ;; `run-loop!`/`record-settle-boundary!`. Owning the reset alongside the
+     ;; write keeps the attribution windowed onto THIS run's epoch tape. The
+     ;; leading-nil-span semantics hold: the boundaries snapshot the ABSOLUTE
+     ;; epoch-history length, so any setup epochs already on the tape precede
+     ;; the first boundary (in the orchestrator path setup runs in phase-2,
+     ;; before phase-4 drives `run!`).
      ;;
-     ;; rf2-76l69l — a MULTI-PLAY sequencer (`run-plays-sequentially!`, the
-     ;; orchestrator `runtime/run-phase-4!`) passes `:clear-boundaries? false`
-     ;; for the 2nd…Nth play so the boundaries ACCUMULATE across the whole
-     ;; auto-run sequence. The narrative spans the CONCATENATED script
+     ;; A MULTI-PLAY sequencer (`run-plays-sequentially!`, the orchestrator
+     ;; `runtime/run-phase-4!`) passes `:clear-boundaries? false` for the
+     ;; 2nd…Nth play so the boundaries ACCUMULATE across the whole auto-run
+     ;; sequence. The narrative spans the CONCATENATED script
      ;; (`(mapcat :script auto-plays)`), and the epoch tape is append-only
      ;; across the run (no per-play reset), so each play's absolute boundaries
      ;; tail the previous play's — keeping the positional zip in `stamp-tape`
-     ;; aligned. Clearing per-play (the old behaviour) dropped every earlier
-     ;; play's boundaries, leaving only the LAST play's absolute boundaries to
-     ;; be mis-zipped against the concatenated script's leading dispatch steps
-     ;; — a false-green evidence-provenance failure.
+     ;; aligned. Clearing per-play would drop every earlier play's boundaries,
+     ;; leaving only the LAST play's absolute boundaries to be mis-zipped
+     ;; against the concatenated script's leading dispatch steps — a
+     ;; false-green evidence-provenance failure.
      (when clear-boundaries?
        (clear-step-boundaries! variant-id))
      (set-state! variant-id pk started)
@@ -1346,9 +1321,9 @@
   `run!` — distinct fn name so the toolbar's `[Re-run]` button has a
   one-call API.
 
-  rf2-tl7zk: with no explicit `play-key`, re-runs the currently active
-  play (set by the dropdown). For single-script variants the active
-  play is nil, so this matches the legacy behaviour."
+  With no explicit `play-key`, re-runs the currently active play (set by
+  the dropdown). For single-script variants the active play is nil, so
+  this re-runs the single script."
   ([variant-id]
    (re-run! variant-id nil))
   ([variant-id done-cb]
@@ -1356,8 +1331,8 @@
      (run! variant-id pk nil done-cb))))
 
 (defn run-play!
-  "rf2-tl7zk multi-play: run the play identified by `play-key` (a
-  play's `:name`) for `variant-id`. Passing nil picks the default
+  "Run the play identified by `play-key` (a play's `:name`) for
+  `variant-id` (multi-play). Passing nil picks the default
   play (first entry for multi-play, the single script for
   `:play-script`)."
   ([variant-id play-key]
@@ -1366,9 +1341,9 @@
    (run! variant-id play-key nil done-cb)))
 
 (defn select-play!
-  "rf2-tl7zk: set `variant-id`'s active play to `play-key` WITHOUT
-  running it. Used by the toolbar dropdown when the user picks a play
-  but the user hasn't pressed Re-run yet."
+  "Set `variant-id`'s active play to `play-key` WITHOUT running it. Used
+  by the toolbar dropdown when the user picks a play but hasn't pressed
+  Re-run yet."
   [variant-id play-key]
   (set-active-play! variant-id play-key))
 
@@ -1379,8 +1354,8 @@
   after the variant mounts. No-op when the variant has no
   `:play-script` / `:plays` slot or no play declares `:auto-run? true`.
 
-  rf2-tl7zk multi-play: every play with `:auto-run? true` is run in
-  ORDER (sequentially) so they don't race against the same frame. By
+  Multi-play: every play with `:auto-run? true` is run in ORDER
+  (sequentially) so they don't race against the same frame. By
   the per-play default (first play true, rest false) only the first
   play auto-runs on mount; subsequent plays opt in explicitly."
   ([variant-id]
@@ -1393,8 +1368,8 @@
          (empty? auto-plays)
          nil
 
-         ;; Single auto-run play — direct fire so the legacy
-         ;; single-script callers keep their existing run shape.
+         ;; Single auto-run play — direct fire so the single-script
+         ;; callers keep their run shape.
          (= 1 (count auto-plays))
          (let [spec (first auto-plays)]
            (run! variant-id (:name spec) spec done-cb))
@@ -1404,21 +1379,21 @@
          :else
          (run-plays-sequentially! variant-id auto-plays done-cb))))))
 
-;; ---- run-all (sequential) — rf2-tl7zk ------------------------------------
+;; ---- run-all (sequential) -----------------------------------------------
 
 (defn- run-plays-sequentially!
   "Internal: run `plays` against `variant-id` one after another.
   Resolves `done-cb` with a vector of terminal states once every play
   has finished (or the loop is interrupted by a missing frame).
 
-  rf2-76l69l — clears the per-dispatch-step settle boundaries ONCE up
-  front, then drives each play with `:clear-boundaries? false` so the
-  boundaries ACCUMULATE across the sequence. The evidence narrative spans
-  the CONCATENATED play scripts, and the epoch tape is append-only across
+  Clears the per-dispatch-step settle boundaries ONCE up front, then
+  drives each play with `:clear-boundaries? false` so the boundaries
+  ACCUMULATE across the sequence. The evidence narrative spans the
+  CONCATENATED play scripts, and the epoch tape is append-only across
   the run, so each play's absolute boundaries must tail the previous
   play's for the positional `stamp-tape` zip to stay aligned. Letting each
-  `run!` clear (the old behaviour) left only the last play's boundaries,
-  mis-attributing later-play effects to earlier-play steps."
+  `run!` clear would leave only the last play's boundaries, mis-attributing
+  later-play effects to earlier-play steps."
   [variant-id plays done-cb]
   (let [acc (atom [])]
     (clear-step-boundaries! variant-id)
@@ -1437,8 +1412,8 @@
       (step! plays))))
 
 (defn run-all-plays!
-  "rf2-tl7zk multi-play: run every play declared on `variant-id` in
-  order, sequentially. Calls `done-cb` with a vector of per-play
+  "Run every play declared on `variant-id` in order, sequentially
+  (multi-play). Calls `done-cb` with a vector of per-play
   terminal states once every play has completed. Returns nil.
 
   No-op when the variant carries no plays."
@@ -1449,7 +1424,7 @@
      (when (seq plays)
        (run-plays-sequentially! variant-id (vec plays) done-cb)))))
 
-;; ---- step-debugger seam (rf2-ee38b.3) ------------------------------------
+;; ---- step-debugger seam -------------------------------------------------
 ;;
 ;; `play.cljc` owns the step-debugger substrate but cannot `:require`
 ;; this ns (the cycle: runner-events → play). It fetches `run-step!` via
@@ -1458,8 +1433,8 @@
 
 (late-bind/set-fn! :run-play-step run-step!)
 
-;; rf2-vkdam — the stepper appends a settle boundary per `run-step!`, so a
-;; fresh stepping session (`play/begin-stepper!`) must reset the frame's
+;; The stepper appends a settle boundary per `run-step!`, so a fresh
+;; stepping session (`play/begin-stepper!`) must reset the frame's
 ;; boundaries first — the stepper analogue of `run!`'s reset. Exposed via the
 ;; same late-bind seam since `play.cljc` cannot `:require` this ns.
 

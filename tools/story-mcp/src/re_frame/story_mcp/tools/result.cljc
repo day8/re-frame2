@@ -1,6 +1,5 @@
 (ns re-frame.story-mcp.tools.result
-  "Result-envelope builders for MCP `tools/call` responses (rf2-8yvyp,
-  split out of the former `tools.helpers`).
+  "Result-envelope builders for MCP `tools/call` responses.
 
   `text-result` and `error-result` shape the MCP `tools/call` response
   envelope. The success / error split matches MCP §Error Handling — an
@@ -39,9 +38,9 @@
   `pr-edn`-stringified EDN in the `:content` text slot and the raw map
   in `:structuredContent`. The canonical success envelope for every
   data-returning story-mcp handler — `(edn-result payload)` is the dual-
-  coded `(text-result (pr-edn payload) payload)` pair the handlers
-  shared at fifteen call sites (rf2-jkake.20), named once so each
-  handler reads as 'return this payload' rather than re-spelling the
+  coded `(text-result (pr-edn payload) payload)` pair every handler
+  shares, named once so each handler reads as 'return this payload'
+  rather than re-spelling the
   stringify-into-text-plus-same-map-as-structured dance.
 
   The two slots are dual-coded on purpose (per `wire-pipeline`): the

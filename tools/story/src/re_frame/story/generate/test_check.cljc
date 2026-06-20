@@ -1,6 +1,6 @@
 (ns re-frame.story.generate.test-check
   "OPTIONAL `clojure.test.check` adapter for the generator-agnostic property
-  runner (rf2-6nk6d; spec/017-Testing-Story.md §Generator-agnostic — a
+  runner (spec/017-Testing-Story.md §Generator-agnostic — a
   generated run is driven by a caller-supplied `gen-fn` and `clojure.test.check`
   is named there as a fit 'by wrapping its draw in a `gen-fn`'). This namespace
   IS that wrapping, made concrete + reusable.
@@ -10,7 +10,7 @@
   `re-frame.story.generate/check-property!` is driven by a pure
   `(fn [seed] event-program)` over the self-contained splitmix64 PRNG
   (`seed-seq`) and bundles NO generator library — that dependency-free path is
-  and remains the DEFAULT (rf2-5x1wt.31). This adapter is pure additive sugar:
+  and remains the DEFAULT. This adapter is pure additive sugar:
   it lets a caller who ALREADY has `org.clojure/test.check` on the classpath
   hand a `test.check` generator of event programs and get back the same
   `gen-fn` shape `check-property!` already takes. Nothing about the seed-bearing

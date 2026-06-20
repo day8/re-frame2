@@ -1,7 +1,7 @@
 (ns re-frame.story.artifact
   "The `:rf.test/run-artifact` schema + `replay-run-artifact` — a
   serializable record of a Story run, and the function that replays it
-  into a fresh frame (NewTestStory rf2-5x1wt.7, spec/017-Testing-Story.md
+  into a fresh frame (spec/017-Testing-Story.md
   §Run artifact and replay + §Artifacts — Run artifact).
 
   ## What a run artifact is
@@ -53,7 +53,7 @@
   route map in `:network` lets replay RE-INSTALL those route stubs before
   replaying, so a replayed `:network` request matches its route and
   synthesises the recorded reply rather than fail-closing on
-  \"no stub matched\" (rf2-tymyh, spec/017 §The network surface).
+  \"no stub matched\" (spec/017 §The network surface).
 
   ## Replay
 
@@ -64,8 +64,8 @@
   (`re-frame.story.play.evidence/project-evidence`). The returned
   run-result is the SHARED run-result shape (spec/017 §Run result) — the
   same shape the runner returns and the same one `canonicalize` /
-  `run-hash` consume — so a later determinism gate (rf2-5x1wt.8) and
-  semantic diff (rf2-5x1wt.9) build directly on it.
+  `run-hash` consume — so a later determinism gate and semantic diff
+  build directly on it.
 
   ## Pure / JVM-testable
 
@@ -83,9 +83,10 @@
             [re-frame.story.play.runner           :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
             ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
-            ;; (rf2-ntwwyt — no longer a `re-frame.core` façade re-export).
-            ;; CLJS requires it directly; on the JVM it is resolved LAZILY at
-            ;; call time (`with-network-stubs!`) so requiring this ns from the
+            ;; (reached through its home namespace, not the `re-frame.core`
+            ;; façade). CLJS requires it directly; on the JVM it is resolved
+            ;; LAZILY at call time (`with-network-stubs!`) so requiring this
+            ;; ns from the
             ;; `re-frame.story` MACRO-ns does NOT drag the http artefact's
             ;; JVM-only transitive deps (e.g. cheshire) onto the macro
             ;; classpath. CLJS pulls only the CLJS-clean `.cljc` surface.
@@ -108,7 +109,7 @@
 
   `:network` is the per-route HTTP reply map (`{[method url] {:reply …}}`)
   carried so replay can re-install the managed-request stubs the
-  `:fx-decisions` redirect points at (rf2-tymyh, spec/017 §The network
+  `:fx-decisions` redirect points at (spec/017 §The network
   surface — \"the runner installs the route map via
   install-managed-request-stubs!\").
 
@@ -204,7 +205,7 @@
   and lets the boundary's `:cannot-run` / `:error` refusals fire
   unchanged.
 
-  EP-0017 replay fidelity (rf2-srgvzp): the wrapped `:dispatch!` is the
+  EP-0017 replay fidelity: the wrapped `:dispatch!` is the
   optional 3-arity `(replay-dispatch! frame-id event-vector dispatch-opts)`
   the boundary's 6-arity `dispatch-and-settle!` invokes when a step carries
   dispatch opts. `replay-into-frame!` builds those opts so every replayed
@@ -217,7 +218,7 @@
   `drain-sync!` merges them onto the dispatch envelope), alongside the
   lexical `fx-decisions` wrap — both survive whatever dispatch path the
   (possibly richer-adapter) inner hook owns. A 2-arity replay (no opts)
-  stays byte-identical to the pre-EP-0017 path."
+  stays byte-identical to the opts-free dispatch path."
   [base-hooks fx-decisions]
   (let [inner (or (:dispatch! base-hooks) boundary/drain-sync!)
         ;; Route the dispatch through `inner`, optionally with opts, always
@@ -252,8 +253,8 @@
   When the artifact carries no `:network` routes, `thunk` runs unchanged
   (no install, no uninstall) — so an artifact without HTTP stays clear of
   the test-support surface entirely. The install/uninstall pair lives in
-  `re-frame.http.test-support` (rf2-ntwwyt — no longer a `re-frame.core`
-  façade export; reached through its home namespace), which Story already
+  `re-frame.http.test-support` (reached through its home namespace, not
+  the `re-frame.core` façade), which Story already
   carries on its require closure via the `day8/re-frame2-http` dep."
   [artifact thunk]
   (let [network (:network artifact)]
@@ -274,7 +275,7 @@
 
 (defn- epoch-count
   "The current epoch-history length for `frame-id` — the append-only tape
-  cursor a replay settle boundary snapshots (rf2-rkd14). Tolerant: 0 when
+  cursor a replay settle boundary snapshots. Tolerant: 0 when
   the frame has no history / the epoch dep is absent (facade → `[]`)."
   [frame-id]
   (try (count (rf/epoch-history frame-id))
@@ -282,7 +283,7 @@
 
 (defn- step-dispatch-opts
   "Build the per-call dispatch opts a replayed `[:dispatch …]` step carries
-  (rf2-srgvzp, EP-0017 §6 / Tool-Pair §Replay). Replay is UNCONDITIONALLY
+  (EP-0017 §6 / Tool-Pair §Replay). Replay is UNCONDITIONALLY
   STRICT: every replayed dispatch stamps `:rf.cofx/mint-policy :strict`, so a
   generator-backed recordable fact that is ABSENT from the record fails loudly
   (`:rf.error/missing-required-cofx`) instead of minting a fresh, divergent
@@ -306,7 +307,7 @@
   per dispatch step), in program order — `{:status :settled :boundary …}`
   on success, a `cannot-run-refusal` / `{:status :error …}` otherwise.
 
-  rf2-rkd14 — the returned vector carries an `:attribution` metadata slot:
+  The returned vector carries an `:attribution` metadata slot:
   the epoch-history LENGTH snapshotted at the start of each dispatch step's
   settle, in dispatch-step order. `replay-result` reads it (via
   `(:attribution (meta outcomes))`) and hands it to `project-evidence` so
@@ -368,8 +369,8 @@
   [{:keys [epoch-tape artifact outcomes frame-id app-db]}]
   (let [evidence-slots (evidence/project-evidence
                          epoch-tape {:script      (:event-program artifact)
-                                     ;; rf2-rkd14 — the per-dispatch-step
-                                     ;; settle boundaries `replay-into-frame!`
+                                     ;; The per-dispatch-step settle
+                                     ;; boundaries `replay-into-frame!`
                                      ;; recorded (on the outcomes vector's
                                      ;; metadata) light up EXACT narrative
                                      ;; attribution. Absent (a hand-built
@@ -407,8 +408,7 @@
     after the program settles, NOT the artifact's captured tape.
   - Project that tape through the merged `.4` evidence boundary and return
     the shared run-result shape — stable + canonicalizable, so the
-    determinism gate (rf2-5x1wt.8) + semantic diff (rf2-5x1wt.9) build on
-    it directly.
+    determinism gate + semantic diff build on it directly.
 
   `opts` (all optional):
 
@@ -436,7 +436,7 @@
        ;; Re-install the artifact's `:network` route stubs (when any) for the
        ;; duration of the replay, so the `:fx-decisions` managed-stub redirect
        ;; resolves to a stub that matches the recorded routes rather than
-       ;; fail-closing (rf2-tymyh, spec/017 §The network surface).
+       ;; fail-closing (spec/017 §The network surface).
        (with-network-stubs! artifact
          (fn []
            (let [outcomes (replay-into-frame! frame-id artifact hooks)

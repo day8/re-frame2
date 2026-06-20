@@ -1,7 +1,7 @@
 (ns re-frame.story.modes.standard
   "Canonical `reg-mode` registrations for the Storybook-parity addons —
   viewports + backgrounds. Per spec/010 §Interaction with Storybook
-  addons (rf2-wk41 follow-on to the toolbar substrate rf2-p0mv).
+  addons.
 
   Storybook 8 ships dedicated Backgrounds + Viewport addons as part of
   its default install. Story's equivalent is **opt-in registrations**:

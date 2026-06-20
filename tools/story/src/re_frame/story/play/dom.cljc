@@ -1,6 +1,6 @@
 (ns re-frame.story.play.dom
   "DOM-side helpers for the play runner's `:click`, `:type`, and
-  `:assert-dom` steps (rf2-8i2a9).
+  `:assert-dom` steps.
 
   The DOM is impure / browser-only; we abstract the calls behind a
   tiny dispatcher so the rest of the runner stays pure-data and
@@ -147,8 +147,8 @@
 (defn focus!
   "Focus the element matched by `selector-or-node` and dispatch a
   synthetic `focus` + `focusin` event so handlers wired to either
-  observe it (rf2-5x1wt.17). Returns true on success, false on
-  no-such-node or no-DOM. JVM → false.
+  observe it. Returns true on success, false on no-such-node or no-DOM.
+  JVM → false.
 
   `[:focus selector]` is a DOM step (spec/017 §Script step grammar): a
   headless runner refuses it with `:cannot-run` (the capability registry

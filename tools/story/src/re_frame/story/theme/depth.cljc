@@ -1,11 +1,10 @@
 (ns re-frame.story.theme.depth
-  "Story depth + atmospheric background tokens (rf2-ypd6h).
+  "Story depth + atmospheric background tokens.
 
-  The pre-rf2-ypd6h chrome shipped flat solid backgrounds — toolbar /
-  sidebar / canvas / right-panel all rendered on identical `#252526`
-  grounds with no `box-shadow` declarations on any surface. The canvas
-  frame (the focal workshop region) was visually indistinguishable
-  from every inspector panel; the eye had nowhere to land.
+  Story's surfaces are layered so the eye has somewhere to land: the
+  canvas frame (the focal workshop region) sits forward of the
+  inspector panels via elevation shadows + atmospheric backdrops,
+  rather than every region rendering on one flat slate ground.
 
   This namespace ships:
 

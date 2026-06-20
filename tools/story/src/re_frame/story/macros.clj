@@ -25,7 +25,7 @@
   `(story/handler-meta kind id)`.
 
   `:file` resolution prefers `(:file (meta &form))` over `*file*` —
-  see `coords-form` for the rationale (rf2-ulxi). The short version:
+  see `coords-form` for the rationale. The short version:
   the CLJS analyzer never binds Clojure's `*file*` during macro
   expansion, so reading it returns `\"NO_SOURCE_PATH\"`; the reader-
   attached `:file` on the form's metadata is the portable answer.
@@ -51,7 +51,7 @@
   evaluates to the map at runtime. Mirrors
   `re-frame.core/reg-event`'s coord-capture pattern.
 
-  ## :file resolution (rf2-ulxi)
+  ## :file resolution
 
   `:file` comes from `(:file form-meta)` first — the CLJS analyzer reads
   source files via `tools.reader/indexing-push-back-reader` with the
@@ -113,8 +113,7 @@
   (<reg-fn> id body)))` wrapper. `coords` is a pre-computed coords FORM
   (per `coords-form`); `reg-fn-sym` is a fully-qualified registrar helper
   like `re-frame.story.registrar/reg-story*`. The single place the
-  elision-gate + source-coord binding shape is laid down (rf2-ee38b.3 —
-  was open-coded in three sites)."
+  elision-gate + source-coord binding shape is laid down."
   [coords reg-fn-sym id body]
   `(when re-frame.story.config/enabled?
      (binding [re-frame.story.registrar/*pending-coords* ~coords]

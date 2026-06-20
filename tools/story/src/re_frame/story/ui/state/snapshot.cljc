@@ -1,14 +1,14 @@
 (ns re-frame.story.ui.state.snapshot
   "Registry-snapshot leaf — single-call helper that builds a map of
   every Story-side artefact kind in one walk. Split from
-  `re-frame.story.ui.state` per rf2-gcpon.
+  `re-frame.story.ui.state`.
 
   The shell takes a fresh snapshot of the Story registrar on every
   render: variants / stories / workspaces / modes / decorators /
   panels / tags are what's currently registered, and the sidebar /
   control panel / workspace panes consume the snapshot. Lives in its
   own leaf so future memoisation (e.g. cache keyed on the registrar
-  mutation-tick rf2-zrswb / rf2-c5nwl) is local."
+  mutation-tick) is local."
   (:require [re-frame.story.registrar :as registrar]))
 
 (defn registry-snapshot

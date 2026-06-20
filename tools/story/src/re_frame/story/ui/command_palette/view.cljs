@@ -37,15 +37,15 @@
     :command
     (do
       (case (:action entry)
-        ;; rf2-ba86n.9 — open the Explain panel + scroll it into view.
+        ;; Open the Explain panel + scroll it into view.
         :explain (explain-panel/open!)
-        ;; rf2-ba86n.6 — capture the focused variant's live canvas state
+        ;; Capture the focused variant's live canvas state
         ;; as a new variant. Same flow as the Controls-panel button
         ;; (spec/019 §3). `save-current-as-variant!` reads the live
         ;; selection from shell-state and no-ops (returns nil) when no
         ;; variant is focused, so the palette action needs no extra guard.
         :save-current-as-variant (save-variant/save-current-as-variant!)
-        ;; rf2-ba86n.12 — author EXPECTATIONS onto the focused story
+        ;; Author EXPECTATIONS onto the focused story
         ;; (spec/021 §S5). Same dialog as the Controls-panel 'add
         ;; expectations…' button. Distinct from save-current-state.
         ;; `open-for-focused-variant!` reads the live selection and no-ops
@@ -245,7 +245,7 @@
        :reagent-render
        (fn []
          ;; The palette overlay is conditional on its own `@open?`; the
-         ;; author-expectations modal (rf2-ba86n.12) is rendered
+         ;; author-expectations modal is rendered
          ;; UNCONDITIONALLY as a sibling so it surfaces whether opened from
          ;; the controls-panel button OR a `:author-expectations` palette
          ;; action — and regardless of whether the controls panel is

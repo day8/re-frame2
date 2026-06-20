@@ -1,7 +1,7 @@
 (ns re-frame.story.recorder.play-export-events
   "re-frame integration seam for the recorder → :play-script export
-  flow (rf2-x9zsr). Owns the side-effecty entry points the export
-  dialog UI reaches for:
+  flow. Owns the side-effecty entry points the export dialog UI
+  reaches for:
 
   - **Replay the generated script in-place** — dispatch the just-
     -exported `:play-script` through the runner so the user can

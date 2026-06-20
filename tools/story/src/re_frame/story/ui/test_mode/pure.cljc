@@ -1,9 +1,9 @@
 (ns re-frame.story.ui.test-mode.pure
-  "Pure data → data helpers for the `:test` mode pane (rf2-qmjo + spec/009).
+  "Pure data → data helpers for the `:test` mode pane (spec/009).
 
-  Split out of the legacy `re-frame.story.ui.test-mode` monolith per
-  rf2-8n2fz so the JVM test corpus can cover the pane's data shaping
-  without booting Reagent or the runtime. Companion namespaces:
+  Sits beside the CLJS pane so the JVM test corpus can cover the pane's
+  data shaping without booting Reagent or the runtime. Companion
+  namespaces:
 
   - `re-frame.story.ui.test-mode.state` — CLJS local-state atom + the
     `begin-run!` / `store-result!` / `select-step!` / `toggle-expanded!` /
@@ -23,9 +23,8 @@
 ;; `assertion-event?` lives canonically in `re-frame.story.predicates`
 ;; (a pure leaf ns the rest of Story consumes without cycle risk).
 ;; Aliased here so internal call sites stay textually identical.
-;;
-;; rf2-ee38b.3: the `parent-story-id` re-export was DROPPED — its sole
-;; caller (`test-mode.view`) now calls `pred/parent-story-id` directly.
+;; `parent-story-id` is not re-exported here — its sole caller
+;; (`test-mode.view`) calls `pred/parent-story-id` directly.
 
 (def ^:private assertion-event? pred/assertion-event?)
 
@@ -34,7 +33,7 @@
 ;; The four verdicts every assertion record / check / run carries
 ;; (`re-frame.story.result/statuses`). Mirrored here as a local set so the
 ;; pure helpers can recognise a stamped `:status` without a require into
-;; `re-frame.story.result` (which loops through the runtime). rf2-ba86n.11.
+;; `re-frame.story.result` (which loops through the runtime).
 
 (def statuses
   "The unified run / check / assertion verdicts (spec/017 §Run result)."
@@ -57,7 +56,7 @@
         :else            false))))
 
 (defn- has-plays?
-  "True iff `vb` carries a non-empty `:plays` vector (rf2-tl7zk multi-play)."
+  "True iff `vb` carries a non-empty `:plays` vector (multi-play)."
   [vb]
   (let [plays (:plays vb)]
     (boolean (and (vector? plays) (seq plays)))))
@@ -67,12 +66,9 @@
   `:play-script` OR a non-empty `:plays` vector. Used by the pane to
   gate between the run-and-render path and the empty-state placeholder.
 
-  Per rf2-0wrud (2026-05-20) `:play-script` is the canonical phase-4
-  slot; rf2-tl7zk added the multi-play `:plays` slot. rf2-ee38b.3: this
-  predicate now recognises BOTH (it previously checked only
-  `:play-script`, so a `:plays`-only variant rendered the
-  'no tests registered' empty-state even though the runner + CI runner
-  see its runnable plays — matching `ci-runner/has-any-play?`).
+  `:play-script` is the canonical phase-4 slot; `:plays` is the
+  multi-play slot. This predicate recognises BOTH, so a `:plays`-only
+  variant counts as testable — matching `ci-runner/has-any-play?`.
 
   Pure data → data; JVM-testable."
   [variant-id]
@@ -82,10 +78,9 @@
 
 ;; ---- pure: aggregate-summary --------------------------------------------
 ;;
-;; `aggregate-summary` lives in `re-frame.story.ui.state` (rf2-khmon) so
-;; the sidebar / chrome-level test widget can call one canonical fold
-;; without a require cycle. test-mode consumers call `state/aggregate-
-;; summary` directly.
+;; `aggregate-summary` lives in `re-frame.story.ui.state` so the sidebar /
+;; chrome-level test widget can call one canonical fold without a require
+;; cycle. test-mode consumers call `state/aggregate-summary` directly.
 
 ;; ---- pure: assertion-row ------------------------------------------------
 
@@ -115,18 +110,16 @@
   the renderer decides whether to surface it (only failing rows
   expand by default). Pure data → data; JVM-testable.
 
-  rf2-ba86n.11 — the unified run-result (`re-frame.story.result`) stamps a
-  `:status` on every assertion record (`:pass` / `:fail` / `:error` /
-  `:cannot-run`). This helper now PREFERS that stamped `:status` (the
-  unified shape, spec/017 §Run result) and only derives from `:passed?`
-  for a record minted by a status-unaware path. The legacy
-  `:passed?`-only read is the fallback, not the primary — completing the
-  Test-mode migration off the split lifecycle/assertions reading
-  (tools/story/spec/021 §1).
+  The unified run-result (`re-frame.story.result`) stamps a `:status` on
+  every assertion record (`:pass` / `:fail` / `:error` / `:cannot-run`).
+  This helper PREFERS that stamped `:status` (the unified shape, spec/017
+  §Run result) and only derives from `:passed?` for a record minted by a
+  status-unaware path — the `:passed?`-only read is the fallback, not the
+  primary (tools/story/spec/021 §1).
 
   `:row-key` is the stable identity the view uses to thread :expanded
-  state across re-runs (rf2-tistm): keying on positional index opened
-  the wrong row when a re-run reordered or inserted assertions. The
+  state across re-runs: keying on positional index would open the wrong
+  row when a re-run reordered or inserted assertions. The
   label string is the densest stable id available — it carries the
   assertion id + payload shape together — and is JVM-testable so the
   pure helpers can pin the contract.
@@ -142,8 +135,8 @@
         aid      (:assertion rec)
         status   (cond
                    (= :rf.assert/skipped aid)          :skip
-                   ;; rf2-ba86n.11 — the unified `:status` wins; the
-                   ;; :passed?-only derivation is the legacy fallback.
+                   ;; The unified `:status` wins; the :passed?-only
+                   ;; derivation is the fallback.
                    (contains? statuses st)             st
                    (:cannot-run? rec)                  :cannot-run
                    (or (:error rec) (:exception rec))  :error
@@ -151,7 +144,7 @@
                    ;; A record carrying neither a stamped :status nor a
                    ;; truthy :passed? reads :fail — the conservative
                    ;; view-side default (a missing pass signal can't be
-                   ;; rendered green). Matches the legacy contract.
+                   ;; rendered green).
                    :else                               :fail)
         payload  (or (:payload rec) [])
         label    (let [p (pretty-payload payload)]
@@ -211,7 +204,7 @@
               (pad (.getMinutes d)) ":"
               (pad (.getSeconds d)))))))
 
-;; ---- pure: play-step scrubber data (rf2-lc36w) --------------------------
+;; ---- pure: play-step scrubber data --------------------------------------
 ;;
 ;; Each play event derived from the variant body's `:play-script` is
 ;; dispatched as a
@@ -323,16 +316,14 @@
       :else                 (mapv :epoch-id (subvec hv (- (count hv) n))))))
 
 ;; ===========================================================================
-;; UNIFIED RUN-RESULT PROJECTION  (rf2-ba86n.11, tools/story/spec/021 §1)
+;; UNIFIED RUN-RESULT PROJECTION  (tools/story/spec/021 §1)
 ;; ===========================================================================
 ;;
 ;; The `:test` pane consumes the ONE unified run-result `run-variant` /
-;; `reset-variant` now return (the `re-frame.story.result/run-result`
-;; shape merged with the legacy lifecycle slots — runtime.cljc
-;; `record-result-map`). These helpers project that result into the
-;; per-section render data the view renders, COMPLETING the migration off
-;; the legacy split `:lifecycle` / `:assertions` reading (spec/021 §1
-;; supersedes 009's result-reading contract):
+;; `reset-variant` return (the `re-frame.story.result/run-result` shape
+;; merged with the lifecycle slots — runtime.cljc `record-result-map`).
+;; These helpers project that result into the per-section render data the
+;; view renders (spec/021 §1 carries the result-reading contract):
 ;;
 ;;   - `run-status`         — the top-level verdict, including the distinct
 ;;                            `:cannot-run` THIRD state + a `:pending`
@@ -361,7 +352,7 @@
   - no result / nothing recorded  → `:pending`
   - explicit unified `:status`    → that verdict (`:pass` / `:fail` /
                                      `:error` / `:cannot-run`)
-  - else (legacy host) derive from the assertion summary:
+  - else (count-only host) derive from the assertion summary:
       zero assertions             → `:pending`  (ran, no signal)
       any fail/error              → `:fail`
       any cannot-run              → `:cannot-run`
@@ -427,7 +418,7 @@
   expectations match a selector with N violations, only M of the N read
   `:consumed?` (the remaining N−M are the agreement-floor failure cause).
   Marking by mere selector-SET membership would falsely mark ALL N consumed
-  and so DISAGREE with the floor (rf2-5mrnwx) — the multiset count comes
+  and so DISAGREE with the floor — the multiset count comes
   from the run's `:rf.assert/schema-error :pass` records, one per
   matched expectation, each carrying the consumed violation's selector as
   `:actual` (`re-frame.story.result/schema-error-record`).
@@ -435,9 +426,8 @@
   The caller-supplied `:consumed-selectors` escape hatch (selectors
   pre-excused outside the matcher, with NO `:pass` record) still excuses
   EVERY same-selector violation — set-keyed, matching the floor's treatment
-  of that input. A legacy / partial result that predates the
-  `:consumed-selectors` slot falls back to the same `:pass`-record
-  derivation (multiset).
+  of that input. A partial result without the `:consumed-selectors` slot
+  falls back to the same `:pass`-record derivation (multiset).
 
       [{:selector   <selector>
         :where      <surface>
@@ -467,8 +457,8 @@
         ;; The caller-supplied escape-hatch selectors: in `:consumed-selectors`
         ;; but with NO matching `:pass` record (pre-excused outside the
         ;; matcher). These excuse EVERY same-selector violation (set-keyed,
-        ;; mirroring the floor). When the slot is absent (legacy result) there
-        ;; is no escape hatch — the `:pass`-record multiset is authoritative.
+        ;; mirroring the floor). When the slot is absent there is no escape
+        ;; hatch — the `:pass`-record multiset is authoritative.
         escape-hatch   (into #{}
                              (remove consumed-freqs)
                              (when (contains? result :consumed-selectors)
@@ -540,10 +530,10 @@
                (seq (:narrative result)))))
 
 ;; ===========================================================================
-;; VISUAL + A11Y CHECK RESULTS  (rf2-ba86n.15, tools/story/spec/021 §4)
+;; VISUAL + A11Y CHECK RESULTS  (tools/story/spec/021 §4)
 ;; ===========================================================================
 ;;
-;; The run path (post-#2484) evaluates the browser-tier oracle family —
+;; The run path evaluates the browser-tier oracle family —
 ;; `:rf.assert/a11y-structural` (the `:hiccup` structural-a11y check),
 ;; `:rf.assert/a11y` (the axe-style browser check), and
 ;; `:rf.assert/visual-snapshot` (the `:pixels` screenshot check) — through
@@ -595,7 +585,7 @@
   `:locus` is the offending element's hiccup tag (the structural check works
   over the rendered hiccup TREE, so the tag is the locus the `:hiccup` tier
   can prove). The structural tier has NO real source coordinate to thread
-  (rf2-ffu8t): the `:hiccup-structure` runner walks an in-memory hiccup tree,
+  the `:hiccup-structure` runner walks an in-memory hiccup tree,
   not a DOM, so there is no CSS selector and no file/line coord to recover —
   the tree carries none. Honesty over fabrication: the §4 source-link MUST is
   met by the axe `:browser` tier (`axe-a11y-findings`, which recovers a real
@@ -627,7 +617,7 @@
   `:locus` is the SOURCE LINK the §4 MUST requires (\"a11y findings with
   selector/source/context links\"). The axe `:browser` tier carries a real
   selector (recovered from the violation's `:nodes` → `:target` by
-  `browser/axe-finding`, rf2-ffu8t), so `:locus` is that selector — the
+  `browser/axe-finding`), so `:locus` is that selector — the
   result UI links it to the offending DOM element. When a violation carried
   no node target (rare — e.g. a page-level rule) `:locus` falls back to the
   rule id so the finding still reads. Empty when no violation. Pure data →

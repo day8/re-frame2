@@ -23,7 +23,7 @@
 ;; preserve any app-db keys the variant seeded earlier (a conventional
 ;; reducer shape). The Story runtime's per-frame lifecycle machine snapshot
 ;; lives at `[:rf.runtime/machines :snapshots ...]` in the frame's
-;; runtime-db partition (EP-0001 rf2-vzld77 — durable runtime-db state, not
+;; runtime-db partition (EP-0001 — durable runtime-db state, not
 ;; app-db), so a `:db` (app-db) effect can never touch it.
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} [_ initial-count]]

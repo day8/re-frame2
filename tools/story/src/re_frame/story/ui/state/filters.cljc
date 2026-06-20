@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.state.filters
   "Pure data → data helpers for the sidebar's faceted tag-filter UI and
   story-grouped variant listing. Split from
-  `re-frame.story.ui.state` per rf2-gcpon (leaf-size ceiling rf2-zkca8).
+  `re-frame.story.ui.state` to honor the leaf-size ceiling.
 
   ## What lives here
 
@@ -13,7 +13,7 @@
   - `filter-variants`           — apply the predicate over a variant map.
   - `group-variants-by-story`   — build the sidebar tree.
 
-  The faceted-filter contract (rf2-7ncf9 SB9 parity): AND across axes,
+  The faceted-filter contract (Storybook SB9 parity): AND across axes,
   OR within an axis. Documented per-fn below."
   (:require [re-frame.story.predicates :as pred]))
 
@@ -25,8 +25,8 @@
   `:re-frame.story.registrar/no-axis` (the same sentinel
   `registrar/tag->axis` returns for un-axis-grouped tags).
 
-  rf2-7ncf9 — faceted tag-filter UI. The sidebar's filter row walks
-  this result to render one labelled chip row per axis."
+  Faceted tag-filter UI: the sidebar's filter row walks this result to
+  render one labelled chip row per axis."
   [tags tag->axis]
   (->> tags
        (reduce (fn [acc t]
@@ -69,7 +69,7 @@
   sentinel `registrar/tag->axis` returns for un-axis-grouped tags. The
   faceted-filter predicate (`variant-tag-match?`) consumes the result.
 
-  Faceted-filter semantics (rf2-7ncf9, SB9 parity): AND across axes,
+  Faceted-filter semantics (Storybook SB9 parity): AND across axes,
   OR within an axis. Partitioning is the first half — the predicate
   enforces the AND-across rule by requiring every per-axis subset to
   intersect the variant's `:tags`."
@@ -83,7 +83,7 @@
 (defn variant-tag-match?
   "True iff `variant-body`'s `:tags` set satisfies the `tag-filter`.
 
-  Faceted filter semantics (rf2-7ncf9 SB9 parity):
+  Faceted filter semantics (Storybook SB9 parity):
 
   - **OR within an axis** — if the filter activates `:status/alpha`
     AND `:status/beta`, a variant tagged with either passes that
@@ -94,16 +94,14 @@
   - Tags without an `:axis` slot form a synthetic
     `:re-frame.story.registrar/no-axis` pseudo-axis with the same
     OR-within rule.
-  - Empty filter → every variant passes (Stage-4 behaviour preserved).
+  - Empty filter → every variant passes.
 
-  The pure 2-arity (without `tag->axis`) keeps the legacy OR-only
-  semantics so existing callers that don't have an axis-index handy
-  (tests, downstream tools) keep working. The 3-arity is the
-  facet-aware form the sidebar uses.
+  The pure 2-arity (without `tag->axis`) keeps the OR-only semantics so
+  callers that don't have an axis-index handy (tests, downstream tools)
+  work; the 3-arity is the facet-aware form the sidebar uses.
 
-  Stage 4 ignores the `:!`-prefix removal syntax — that's resolved at
-  registration time in `re-frame.story.registrar` via
-  `validate-tag-membership!`."
+  The `:!`-prefix removal syntax is resolved at registration time in
+  `re-frame.story.registrar` via `validate-tag-membership!`, not here."
   ([variant-body tag-filter]
    (or (empty? tag-filter)
        (let [tset (or (:tags variant-body) #{})]
@@ -122,12 +120,11 @@
   "Return the subset of `id->body` whose `:tags` match the filter.
   Pure data → data; JVM-testable.
 
-  The 2-arity preserves legacy OR-across-tags semantics. The 3-arity
-  takes a `tag->axis` map (see `registrar/tag->axis-index`) and
-  applies the faceted AND-across / OR-within rule (rf2-7ncf9). The
-  sidebar calls the 3-arity with a registrar-derived axis-index; the
-  legacy 2-arity stays for the bare-data callers that don't carry
-  registrar context."
+  The 2-arity uses OR-across-tags semantics. The 3-arity takes a
+  `tag->axis` map (see `registrar/tag->axis-index`) and applies the
+  faceted AND-across / OR-within rule. The sidebar calls the 3-arity
+  with a registrar-derived axis-index; the 2-arity serves the bare-data
+  callers that don't carry registrar context."
   ([id->body tag-filter]
    (into {}
          (filter (fn [[_ body]] (variant-tag-match? body tag-filter)))

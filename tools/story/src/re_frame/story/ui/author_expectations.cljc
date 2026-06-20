@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.author-expectations
   "Expectation-authoring UX — add EXPECTATIONS to a story so a useful story
-  becomes a regression test (rf2-ba86n.12, spec/021 §S5, spec/019).
+  becomes a regression test (spec/021 §S5, spec/019).
 
   ## What this surface is — and is NOT
 

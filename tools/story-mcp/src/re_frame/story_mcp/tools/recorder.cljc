@@ -1,5 +1,5 @@
 (ns re-frame.story-mcp.tools.recorder
-  "record-as-variant — the recorder's MCP surface (rf2-luhdu).
+  "record-as-variant — the recorder's MCP surface.
 
   Wraps `re-frame.story`'s recorder primitives (start-recording! →
   sleep for :duration-ms → stop-recording! → gen-play-snippet) per
@@ -14,13 +14,12 @@
   Optional `:write-back` re-registers the source variant with the
   captured recording translated to a live play slot. The emitted EDN
   uses the PUBLIC `:script` authoring spelling (spec/017 §Public
-  vocabulary; rf2-7mj4z — the rename is finished on every emission
-  surface). This is gated by the same `allow-writes?` flag as `register-variant`
+  vocabulary). This is gated by the same `allow-writes?` flag as `register-variant`
   (`tools.write/assert-writes-allowed`). This is
   the self-healing-loop hook the spec mentions: agent drives canvas →
   tool returns snippet AND patches the variant in place.
 
-  ## Wire-key shape (rf2-pmwgn)
+  ## Wire-key shape
 
   The wire-arg key is `:write-back` (no `?`) to satisfy Anthropic's
   `^[a-zA-Z0-9_.-]{1,64}$` constraint on tool input-schema property
@@ -41,7 +40,7 @@
             [re-frame.story-mcp.tools.write :as write]))
 
 (def ^:const max-duration-ms
-  "Ceiling on `:duration-ms` for `record-as-variant` (rf2-4yuhi). The
+  "Ceiling on `:duration-ms` for `record-as-variant`. The
   MCP server's request loop is single-threaded (`server/run-loop!`), so
   a `record-as-variant` call sleeps the whole loop for the full window.
   At 30s an abusive caller effectively DoS's the server; we reject any
@@ -73,16 +72,14 @@
   `:decorators` survive) and overwrites the play surface with the
   translated, replayable script.
 
-  Per rf2-7mj4z the write-back assocs the PUBLIC `:script` authoring slot
-  (spec/017 §Public vocabulary), not the transitional `:play-script`
-  spelling — the `:setup`/`:script` rename is finished on every emission
-  surface. (Both spellings store identically: `reg-variant*` lowers the
+  The write-back assocs the PUBLIC `:script` authoring slot
+  (spec/017 §Public vocabulary), not the `:play-script` spelling. (Both
+  spellings store identically: `reg-variant*` lowers the
   public `:script` to the shipping `:play-script` slot via
   `schemas/lower-public-vocabulary`, so `variant->edn` of the stored body
-  reads `:play-script` either way — the rename is an author-facing
-  intent, the stored shipping slot is unchanged. The legacy `:play` slot
-  was REMOVED in rf2-0wrud; a `:play` key would pass the open variant
-  `:map` validation but no runner executes it.) We translate the captured
+  reads `:play-script` either way — `:script` is an author-facing
+  intent, the stored shipping slot is `:play-script`. A `:play` key would
+  pass the open variant `:map` validation but no runner executes it.) We translate the captured
   `events` via `story/recording->script-body` (the live runtime
   counterpart to `gen-play-snippet`'s text output) — which returns a
   `{:script … :auto-run?}` play body — and write that under `:script`.
@@ -95,7 +92,7 @@
   dispatches frame-scoped and lands in the frame's own running environment
   by construction — the written-back body carries no separate realm key.
 
-  rf2-l2cn5d (EP-0017): the captured `:rf.cofx` maps (the parallel `cofx`
+  EP-0017: the captured `:rf.cofx` maps (the parallel `cofx`
   vector, index-aligned with `events` — framework `:rf/time-ms` plus any
   provided recordable facts) are threaded into `recording->script-body`'s
   `:cofx` opt so each written-back dispatch step carries its recorded
@@ -103,7 +100,7 @@
   RAW (unscrubbed) cofx is used here — the write-back is an operator-gated
   on-box registration (`--allow-writes`), not a wire egress, so replay keeps
   full fidelity. A recording with no captured coeffects threads an all-nil
-  cofx vector, so the body is byte-identical to the pre-EP-0017 shape.
+  cofx vector, so the body carries a bare 2-element dispatch step.
 
   Returns the structured success result on the happy path, or an
   `error-result` whose `:structuredContent` merges the base recorder
@@ -111,7 +108,7 @@
   [base body events cofx target-vid]
   (try
     (let [play-body (story/recording->script-body events {:cofx cofx})
-          ;; rf2-f4e1xs — REPLACE any existing play surface before adding the
+          ;; REPLACE any existing play surface before adding the
           ;; recorded `:script`. The source body may already carry a lowered
           ;; `:play-script` (a variant authored with public `:script` is
           ;; stored lowered) or `:plays`; the variant schema rejects a body
@@ -151,12 +148,11 @@
                               Hard ceiling `max-duration-ms` (30000 ms)
                               — the MCP server's request loop is single-
                               threaded; durations above the ceiling are
-                              rejected with a structured error
-                              (rf2-4yuhi).
+                              rejected with a structured error.
     :new-variant-id optional — when `:write-back` is true, register the
                               captured recording (translated to a live
                               `:script` body, the public phase-4 play
-                              surface — rf2-7mj4z) as a NEW variant with
+                              surface) as a NEW variant with
                               this id. Defaults to the source
                               `:variant-id` (overwrites in place).
     :doc           optional — docstring to embed in the snippet.
@@ -169,17 +165,17 @@
     :write-back    optional — when true, also re-register the variant
                               via `reg-variant*` with the captured
                               recording translated to a live `:script`
-                              body (the public phase-4 play surface —
-                              rf2-7mj4z). Requires `allow-writes?`
+                              body (the public phase-4 play surface).
+                              Requires `allow-writes?`
                               (same gate as `register-variant`).
-                              Wire-key shape per rf2-pmwgn: no `?` —
+                              Wire-key shape: no `?` —
                               Anthropic's input-schema property-name
                               regex rejects it.
     :include-sensitive optional — opt out of wire-egress redaction of the
-                              captured event payloads (default false;
-                              rf2-12f2q). Gated by --allow-sensitive-reads.
+                              captured event payloads (default false).
+                              Gated by --allow-sensitive-reads.
 
-  Wire-egress posture (rf2-12f2q): the captured event vectors cross the
+  Wire-egress posture: the captured event vectors cross the
   AI/off-box boundary in both the `:captured` slot and the `:play-snippet`
   text. They are value-redacted against the source variant frame's
   declared-`:sensitive?` values before egress (the SAME value-based
@@ -215,10 +211,10 @@
             duration-ms (args/parse-non-negative-int (:duration-ms arguments) 0)]
         (or (when write-back? (write/assert-writes-allowed "record-as-variant"))
             (when (> duration-ms max-duration-ms)
-              ;; rf2-4yuhi — the MCP server's request loop is single-
-              ;; threaded; a `record-as-variant` call sleeps the loop
-              ;; for the full window. Reject abusive durations rather
-              ;; than stalling unrelated tool calls.
+              ;; The MCP server's request loop is single-threaded; a
+              ;; `record-as-variant` call sleeps the loop for the full
+              ;; window. Reject abusive durations rather than stalling
+              ;; unrelated tool calls.
               (result/error-result
                 (str ":duration-ms " duration-ms " exceeds ceiling "
                      max-duration-ms "ms. The MCP server's request "
@@ -230,8 +226,7 @@
                  :tool          "record-as-variant"
                  :duration-ms   duration-ms
                  :max-allowed   max-duration-ms}))
-            ;; rf2-lqjbk: keyword resolution for the three caller-
-            ;; supplied id slots.
+            ;; Keyword resolution for the three caller-supplied id slots.
             ;;
             ;; - `:extends` is a read-side reference — it MUST point to
             ;;   a registered variant whose `:component` / `:args` the
@@ -264,14 +259,12 @@
                   {:rf.error :rf.story-mcp/extends-not-registered
                    :tool     "record-as-variant"
                    :extends  (:extends arguments)})
-                ;; rf2-tag30h: in the write-back arm the caller mints a
+                ;; In the write-back arm the caller mints a
                 ;; FRESH variant id, so validate its `:story.<path>/<name>`
                 ;; grammar on the STRING shape via `fresh-keyword-checked`
-                ;; BEFORE interning. `fresh-keyword` interned first and let
-                ;; `reg-variant*`'s `assert-id!` reject downstream — but the
-                ;; reject ran AFTER the intern AND after a recording window
-                ;; had already been driven, so an invalid id both grew the
-                ;; JVM keyword table and wasted the recording. A nil here
+                ;; BEFORE interning. Validating the string before interning
+                ;; means an invalid id neither grows the JVM keyword table
+                ;; nor wastes a driven recording window. A nil here
                 ;; (invalid grammar) short-circuits to an error before any
                 ;; recording starts. The non-write-back arm keeps its
                 ;; safe-keyword/default-to-vk resolution (no intern).
@@ -312,7 +305,7 @@
                       _           (sleep-ms duration-ms)
                       final-state (story/stop-recording!)
                       events      (vec (:events final-state))
-                      ;; rf2-l2cn5d (EP-0017): the parallel captured-cofx slot,
+                      ;; EP-0017: the parallel captured-cofx slot,
                       ;; index-aligned with `:events` — each member is the flat
                       ;; `:rf.cofx` map (framework `:rf/time-ms` + any provided
                       ;; recordable facts) the dispatch carried, or nil. Threaded
@@ -320,7 +313,7 @@
                       ;; recorded recordable coeffects rather than restamping or
                       ;; failing `:rf.error/missing-required-cofx`.
                       cofx        (vec (:cofx final-state))
-                      ;; rf2-12f2q — the captured event vectors cross the
+                      ;; The captured event vectors cross the
                       ;; AI/off-box boundary in BOTH the `:captured` slot
                       ;; and the `:play-snippet` text. A recorded event can
                       ;; carry a declared-sensitive value in its payload (an
@@ -338,7 +331,7 @@
                       ;; --allow-writes, not a wire egress) so replay keeps
                       ;; full fidelity.
                       wire-events (egress/scrub-frame-value events vk incl?)
-                      ;; rf2-l2cn5d (EP-0017): the captured `:rf.cofx` maps are
+                      ;; EP-0017: the captured `:rf.cofx` maps are
                       ;; value-bearing and cross the wire in the rendered snippet
                       ;; (and, for parity with the events, conceptually in
                       ;; `:captured`). Value-redact each captured-cofx leaf the
@@ -379,7 +372,7 @@
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
                          "3. Duration too long: {:variant-id \":story.cart/full\" :duration-ms 60000} -> {:isError true :content [{:text \":duration-ms 60000 exceeds ceiling 30000ms...\"}] :structuredContent {:rf.error :rf.story-mcp/duration-ms-too-large :duration-ms 60000 :max-allowed 30000}}.")
     :typicalTokens  1500
-    ;; rf2-90eft — `record-as-variant` ships a `:captured` vector of
+    ;; `record-as-variant` ships a `:captured` vector of
     ;; event tuples; when an agent records a repetitive interaction
     ;; (e.g. ten `:cart/add` events with the same SKU payload) the
     ;; argument maps repeat across records, and structural dedup

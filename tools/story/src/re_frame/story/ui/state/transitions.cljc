@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.state.transitions
   "Pure shell-state transition fns (data → data). Split from
-  `re-frame.story.ui.state` per rf2-gcpon (leaf-size ceiling rf2-zkca8).
+  `re-frame.story.ui.state` to honor the leaf-size ceiling.
 
   ## What lives here
 
@@ -18,7 +18,7 @@
 (defn select-variant
   "Set the focused variant id (or nil to deselect). Clears
   `:selected-story` — variant focus is mutually exclusive with the
-  story-rollup view (rf2-8j7wg)."
+  story-rollup view."
   [state variant-id]
   (-> state
       (assoc :selected-variant variant-id)
@@ -27,7 +27,7 @@
 (defn select-workspace
   "Set the focused workspace id (or nil to deselect). Clears
   `:selected-story` — workspace focus and the story-rollup view are
-  mutually exclusive shell modes (rf2-8j7wg)."
+  mutually exclusive shell modes."
   [state workspace-id]
   (-> state
       (assoc :selected-workspace workspace-id)
@@ -36,8 +36,7 @@
 (defn select-story
   "Set the focused parent-story id (or nil to deselect). Mutually
   exclusive with `:selected-variant` + `:selected-workspace` — clicking
-  a story HEADER swaps the main pane to the rollup docs view per
-  rf2-8j7wg (audit C-4)."
+  a story HEADER swaps the main pane to the rollup docs view."
   [state story-id]
   (-> state
       (assoc :selected-story story-id)
@@ -134,7 +133,7 @@
   "Set a single arg override for `variant-id`. `path` is a vector
   `[arg-key & sub-path]` — the first element is the top-level arg-key,
   the remaining elements address into the nested value via `assoc-in`
-  semantics. Used by the nested Malli walker per rf2-agshe.
+  semantics. Used by the nested Malli walker.
 
   An empty path is a no-op (caller error; the state is returned
   unchanged). For top-level scalar overrides use `set-cell-override-
@@ -153,7 +152,7 @@
 
 (defn clear-cell-overrides
   "Drop every override for `variant-id`. Also drops any repeater row-id
-  bookkeeping under the same variant (rf2-c8kfy) so the next render
+  bookkeeping under the same variant so the next render
   re-syncs from scratch against the resolved entry count.
 
   Row-id storage is keyed on `[variant-id path]` tuples (one entry per
@@ -175,10 +174,10 @@
   "Drop the override for a single top-level `arg-key` under `variant-id`,
   reverting that one arg to its saved (declared) value while leaving
   every other override intact. Backs the controls panel's per-arg
-  'reset' affordance (rf2-ba86n.5).
+  'reset' affordance.
 
   Also drops any repeater row-id bookkeeping anchored on a path whose
-  head is `arg-key` (rf2-c8kfy) so a reset collection re-syncs its row
+  head is `arg-key` so a reset collection re-syncs its row
   ids from scratch against the reverted entry count. Other args' row
   ids are untouched. When the last override for the variant is cleared
   the empty `:cell-overrides` entry is pruned so callers reading
@@ -202,27 +201,24 @@
                         m)
                   m)))))
 
-;; ---- repeater stable row-ids (rf2-c8kfy) ---------------------------------
+;; ---- repeater stable row-ids ---------------------------------------------
 ;;
 ;; The controls-panel `repeater-widget` (vector / set) renders one DOM row
-;; per entry. Pre-fix it keyed rows positionally (`^{:key i}`), so a
-;; mid-list delete shifted every surviving row's key up by one. React's
-;; reconciler matched by key + component type and reused the DOM node at
-;; each position with the next entry's value — an input that had focus /
-;; selection at index i+1 displayed index i's value with the SAME focus
+;; per entry, keyed on a stable monotonic id rather than the positional
+;; index. Position-keyed rows leak focus / selection on a mid-list delete:
+;; React's reconciler matches by key + component type and reuses the DOM
+;; node at each position with the next entry's value, so an input that had
+;; focus at index i+1 would display index i's value with the SAME focus
 ;; state. For `:set`-kind repeaters `vector-coerce` re-sorts on every
-;; render, so editing any entry shuffled keys against values and the
-;; bug fired on every keystroke. Same focus-leak class as rf2-kgn0c
-;; (workspace cells) / rf2-z4fza (xray trace ribbon) / rf2-c56hr
-;; (story workspace cell re-init).
+;; render, so editing any entry would shuffle keys against values on every
+;; keystroke.
 ;;
-;; The fix carries a parallel vector of monotonically-allocated ids
-;; alongside the entries vector, keyed by `[variant-id path]`. The
-;; renderer keys each row on `(str "r:" id)`; add appends a fresh id,
-;; delete drops the id at position i in lockstep with the entry. The
-;; counter is a single int held on the shell-state — pure data → data,
-;; JVM-testable. The ids are render-internal and never persisted to a
-;; variant or args slot.
+;; A parallel vector of monotonically-allocated ids rides alongside the
+;; entries vector, keyed by `[variant-id path]`. The renderer keys each row
+;; on `(str "r:" id)`; add appends a fresh id, delete drops the id at
+;; position i in lockstep with the entry. The counter is a single int held
+;; on the shell-state — pure data → data, JVM-testable. The ids are
+;; render-internal and never persisted to a variant or args slot.
 
 (defn- next-repeater-id
   "Allocate the next monotonic repeater row id and return
@@ -315,7 +311,7 @@
   [state panel-id]
   (update-in state [:panel-visibility panel-id] not))
 
-;; ---- Xray-embed collapse (rf2-ba86n.19) ---------------------------------
+;; ---- Xray-embed collapse -------------------------------------------------
 ;;
 ;; Lazy Xray-diff mounting (spec/018 §10): the RHS Xray embed defers its
 ;; panel MOUNT — and therefore the expensive diff compute the panel runs
@@ -323,8 +319,8 @@
 ;; The slot defaults to expanded (false) so the out-of-the-box RHS still
 ;; paints the panel; the user can collapse the band to halt compute when
 ;; they're not inspecting. Collapsing unmounts the panel-host component,
-;; which releases the Xray React root via the existing microtask path
-;; (rf2-4l7t2) — no duplicate teardown lives here.
+;; which releases the Xray React root via the existing microtask path —
+;; no duplicate teardown lives here.
 
 (defn xray-embed-collapsed?
   "Whether the RHS Xray embed is collapsed (panel mount + diff compute
@@ -344,18 +340,18 @@
   [state value]
   (assoc state :xray-embed-collapsed? (boolean value)))
 
-;; ---- chrome visibility (rf2-p3i0t / rf2-g8l8x / rf2-pucku) --------------
+;; ---- chrome visibility ---------------------------------------------------
 
 (def chrome-visibility-defaults
   "Canonical default shape for the `:chrome-visibility` slot. Used by
   state hydration + tests so a missing slot reads the same as a
   full-defaults map.
 
-  - `:full-screen?` is the `f`-key toggle (rf2-p3i0t): true → hide
-    sidebar + RHS + toolbar; canvas fills the viewport.
+  - `:full-screen?` is the `f`-key toggle: true → hide sidebar + RHS +
+    toolbar; canvas fills the viewport.
   - `:sidebar?` / `:rhs?` / `:toolbar?` are per-panel toggles
-    (`s` / `a` / `t` keys, rf2-g8l8x). Each defaults to true.
-  - `:embed?` is hydrated from `?embed=1` (rf2-pucku). When true the
+    (`s` / `a` / `t` keys). Each defaults to true.
+  - `:embed?` is hydrated from `?embed=1`. When true the
     shell renders canvas-only — overrides every individual pane toggle.
     Stateless / non-persisted (embeds are stateless by intent)."
   {:full-screen? false
@@ -390,9 +386,9 @@
 
 ;; ---- effective per-pane visibility derivations --------------------------
 ;;
-;; Embed-mode (rf2-pucku) wins absolutely: every chrome pane hides.
-;; Full-screen (rf2-p3i0t) hides every chrome pane but leaves canvas +
-;; in-canvas affordances. Per-pane toggles (rf2-g8l8x) win when neither
+;; Embed-mode wins absolutely: every chrome pane hides.
+;; Full-screen hides every chrome pane but leaves canvas +
+;; in-canvas affordances. Per-pane toggles win when neither
 ;; absolute mode is on.
 
 (defn chrome-pane-visible?
@@ -418,14 +414,14 @@
       (nil? slot-key)   true
       :else             (boolean (get v slot-key true)))))
 
-;; ---- mode-tab (rf2-9hc8) -------------------------------------------------
+;; ---- mode-tab ------------------------------------------------------------
 
 (def mode-tabs
   "Ordered vector of canonical render-shell mode tabs. Stable id order
   drives the chip strip's left-to-right layout. `:dev` is the canvas
   view (rendered by `re-frame.story.ui.canvas`), `:docs` is the
-  read-only AutoDocs-equivalent (rf2-rodx), `:test` is the
-  in-canvas aggregated pass/fail view (rf2-qmjo)."
+  read-only AutoDocs-equivalent, `:test` is the in-canvas aggregated
+  pass/fail view."
   [:dev :docs :test])
 
 (def mode-tab-labels
@@ -436,8 +432,7 @@
 
 (def default-mode-tab
   "Default mode-tab when no per-variant selection is recorded. `:dev`
-  preserves Story v1's existing behaviour — the variant renders in the
-  canvas as soon as it's selected."
+  renders the variant in the canvas as soon as it's selected."
   :dev)
 
 (defn valid-mode-tab?

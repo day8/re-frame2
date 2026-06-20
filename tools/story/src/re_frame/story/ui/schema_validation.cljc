@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.schema-validation
   "Schema-validation panel — live Spec 010 boundary-failure surface per
-  variant. Per Story SOTA audit F-N / rf2-dvue.
+  variant.
 
   ## What it is
 
@@ -40,7 +40,7 @@
   `:extends`-inherited / `:compose`-d `:component` resolves) and reads the
   schema the compiler wrote to `[:world :view-args-schema]`, resolved
   first-match `[:rf/props :schema]` off the component view's `:view`
-  metadata (rf2-din8u / rf2-p5ivc (b)). The controls panel derives its
+  metadata. The controls panel derives its
   argtypes from the SAME slot, so validation and controls share one
   source.
 
@@ -110,15 +110,15 @@
     - `:failing-id` / `:event-id` / `:sub-id` / `:cofx-id` / `:fx-id`
                  — the registration/boundary id whose schema validation
                  failed (the registered event / sub / cofx / fx / app-db
-                 root). `:spec` is dead post-M-54 — this surface speaks
-                 the schema vocabulary (`reg-*` `:schema` metadata).
+                 root). This surface speaks the schema vocabulary
+                 (`reg-*` `:schema` metadata).
     - `:received` — the actual value that failed (event vector / value /
                     coeffect map / slice).
     - `:explain` — the validator's explanation (Malli explain map on
                    the CLJS reference; other shapes on other ports).
     - `:path` (when present, for app-db failures) — the failing leaf
                 path (registered root + Malli explainer's value-
-                navigation suffix per rf2-oh4se). The registration
+                navigation suffix). The registration
                 anchor itself rides on `:registered-path` when tooling
                 needs it.
     - `:frame` — the frame id the failure fired in.
@@ -302,7 +302,7 @@
 
      This is the SAME slot the controls panel derives argtypes from
      (`re-frame.story.ui.controls/resolve-argtypes`), so validation and
-     controls share one source (rf2-din8u / rf2-vnedo). Routing through the
+     controls share one source. Routing through the
      compiled plan also resolves an `:extends`-inherited / `:compose`-d
      `:component` that the previous bare-body read (`(:component vb)` /
      `(:component sb)`) missed.
@@ -441,7 +441,7 @@
 
 #?(:cljs
    (defn panel
-     "The schema-validation panel. Per rf2-dvue Form-2 — the inner
+     "The schema-validation panel. Form-2 — the inner
      render fn derefs the trace buffer so Reagent's reaction
      tracking sees every change.
 
@@ -533,8 +533,7 @@
 
 #?(:cljs
    (def ^:const panel-id
-     "Story-panel id for the schema-validation panel. Per Story SOTA
-     audit F-N / rf2-dvue."
+     "Story-panel id for the schema-validation panel."
      :rf.story.panel/schema-validation))
 
 #?(:cljs
@@ -561,7 +560,6 @@
        ;; annotation the annotator needs a hiccup DOM root to attach
        ;; `data-rf2-source-coord` to; a bare `[panel variant-id]` root
        ;; silences Story / Xray Inspect Mode for this panel.
-       ;; (rf2-iwny7)
        (rf/reg-view* panel-render-id (fn [variant-id] [:div [panel variant-id]]))
        (story-registrar/reg-story-panel*
          panel-id

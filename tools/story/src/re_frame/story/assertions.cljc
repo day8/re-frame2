@@ -18,9 +18,9 @@
   | `:rf.assert/no-warnings`       | `[]`                           | No `:warning` trace events since play start |
   | `:rf.assert/effect-emitted`    | `[fx-id (optional pred)]`      | fx-id emitted during play? |
 
-  A NET-NEW eighth canonical id — `:rf.assert/schema-error` (rf2-5x1wt.21)
-  — is *recognised* but is NOT one of the seven REGISTERED handlers: it is
-  tape-evaluated in `result.cljc`, never dispatched (see `canonical-assertion-ids`).
+  An eighth canonical id — `:rf.assert/schema-error` — is *recognised* but
+  is NOT one of the seven REGISTERED handlers: it is tape-evaluated in
+  `result.cljc`, never dispatched (see `canonical-assertion-ids`).
 
   ## Record, don't throw (per `004-Assertions.md` §Record-don't-throw semantics)
 
@@ -44,7 +44,7 @@
   `re-frame.story.config/enabled?` false) skip the registrations.
   An unknown assertion id FAILS plan construction with
   `:rf.error/story-unknown-assertion` (`assertion-id-known?` /
-  `known-assertion-ids`, rf2-5x1wt.18) — there is NO run-time
+  `known-assertion-ids`) — there is NO run-time
   `:rf.assert/unknown` pseudo-record; an unrecognised id never reaches
   a handler.
 
@@ -65,7 +65,7 @@
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the recognised canonical assertion ids:
     the seven REGISTERED `reg-event` handlers PLUS the tape-evaluated
-    `:rf.assert/schema-error` (rf2-5x1wt.21), which plan construction
+    `:rf.assert/schema-error`, which plan construction
     recognises but which is deliberately NEVER installed as a handler
     (it is evaluated against the epoch tape in `result.cljc`, not
     dispatched into the frame). So the set is eight ids, only seven of
@@ -92,19 +92,15 @@
 ;;   - `:rf.assert/effect-emitted` — which fx-ids the cascade emitted;
 ;;   - `:rf.assert/dispatched?`   — which event vectors were dispatched.
 ;;
-;; rf2-q651r — single source of truth. The framework RETAINS exactly these
-;; facts in the epoch tape (`re-frame.core/epoch-history`), and
-;; `re-frame.story.play.evidence` already PROJECTS them as the run-result
-;; `:warnings` / `:effects` evidence slots. Previously these three handlers
-;; read a SECOND, parallel per-frame accumulator (`trace-accumulators`),
-;; fed by a distinct trace listener in `re-frame.story.play` — a second
-;; capture path that could drift from the tape (different filtering),
-;; reintroducing the documented "false GREEN" the evidence boundary closed.
-;; Schema-error (rf2-5x1wt.21) and causal/cascade (rf2-5x1wt.31) assertions
-;; were already migrated to tape-evaluation in `result.cljc`; these three
-;; were the stragglers. They now read the SAME tape projection the
-;; run-result slots do, so an in-script `[:assert [:rf.assert/no-warnings]]`
-;; checkpoint cannot disagree with the run-result `:warnings` slot.
+;; Single source of truth. The framework RETAINS exactly these facts in
+;; the epoch tape (`re-frame.core/epoch-history`), and
+;; `re-frame.story.play.evidence` PROJECTS them as the run-result
+;; `:warnings` / `:effects` evidence slots. All eight assertions —
+;; including schema-error and the causal/cascade pair (tape-evaluated in
+;; `result.cljc`) — read the SAME tape projection the run-result slots do,
+;; so an in-script `[:assert [:rf.assert/no-warnings]]` checkpoint cannot
+;; disagree with the run-result `:warnings` slot. A single capture path
+;; (no parallel accumulator) means no drift and no "false GREEN".
 ;;
 ;; The projections are PURE (tape data → fact), so the handlers stay pure
 ;; data → data; the handler shell reads `rf/epoch-history` once and threads
@@ -115,15 +111,13 @@
 ;;
 ;; ## Privacy
 ;;
-;; The retired play-listener default-suppressed `:sensitive? true` events
-;; (Spec 009 §Privacy) before they reached the accumulator. The tape
-;; projections preserve that posture for the only fact that carries a
-;; payload — dispatched event vectors: `dispatched-events` drops the
-;; `:trigger-event` of any epoch flagged `:rf.epoch/sensitive?` while
-;; Story's local-render egress profile redacts (the
-;; `:rf.egress/local-redacted` default, EP-0015 rf2-3t26eh), so a
-;; sensitive event vector never lands raw on an assertion record's
-;; `:actual`. Warning records
+;; The tape projections enforce the Spec 009 §Privacy posture for the only
+;; fact that carries a payload — dispatched event vectors:
+;; `dispatched-events` drops the `:trigger-event` of any epoch flagged
+;; `:rf.epoch/sensitive?` while Story's local-render egress profile redacts
+;; (the `:rf.egress/local-redacted` default, EP-0015), so a sensitive event
+;; vector never lands raw on an assertion record's `:actual`. Warning
+;; records
 ;; carry only `:operation` / `:category` metadata (no payload), so the
 ;; `:warnings` projection — which agrees with the run-result slot — counts
 ;; them without a payload-leak risk.
@@ -149,10 +143,10 @@
 
   Assertion events (`:rf.assert/*`) are excluded — an `[:assert …]`
   checkpoint dispatches its wrapped atom, which commits an epoch, but a
-  verdict is not behaviour-under-test (mirrors the retired listener's
-  `assertion-event?` skip + `evidence/narrative`'s span-attribution rule).
+  verdict is not behaviour-under-test (the same `assertion-event?` skip
+  `evidence/narrative`'s span-attribution rule applies).
 
-  Privacy (Spec 009 §Privacy + EP-0015 issue 7, rf2-6z4znr): the
+  Privacy (Spec 009 §Privacy + EP-0015 issue 7): the
   `:trigger-event` of an epoch flagged `:rf.epoch/sensitive?` is dropped
   while the egress profile resolved FOR THIS FRAME redacts
   (`:rf.egress/local-redacted` — the default), so a sensitive event vector
@@ -171,8 +165,7 @@
 
 (defn- non-framework-fx?
   "True iff `fx-id` is a user fx (not the ubiquitous framework `:db` / `:fx`
-  aggregators). Mirrors the retired listener's `framework-fx-id?` gate so
-  `:rf.assert/effect-emitted` reflects USER fx only (rf2-ee38b.3)."
+  aggregators), so `:rf.assert/effect-emitted` reflects USER fx only."
   [fx-id]
   (not (contains? #{:db :fx} fx-id)))
 
@@ -209,30 +202,25 @@
 (defn warnings
   "Project the warning trace records emitted against `frame-id` from its
   epoch tape (`evidence/warnings`) — the SAME projection the run-result
-  `:warnings` slot reads, so `:rf.assert/no-warnings` and the slot AGREE
-  (rf2-q651r). Pure-ish (the only read is the late-bound tape)."
+  `:warnings` slot reads, so `:rf.assert/no-warnings` and the slot AGREE.
+  Pure-ish (the only read is the late-bound tape)."
   [frame-id]
   (evidence/warnings (frame-tape frame-id)))
 
 ;; ---------------------------------------------------------------------------
-;; Trace side-table — FULLY REMOVED (rf2-luzky)
+;; Where the trace-bus facts live (no parallel accumulator)
 ;;
-;; rf2-q651r retired the `trace-accumulators` atom AS THE EVIDENCE SOURCE
-;; for the three trace-bus assertions (they project from the epoch tape
-;; above); rf2-luzky removed the atom ENTIRELY. The facts it once mirrored
-;; (warnings / emitted-fx / dispatched) are answerable from the canonical
-;; tape + the stub-call log (the SSOT), so the parallel atom — and its
-;; `record-warning!` / `record-emitted-fx!` / `record-dispatched!` feeds +
-;; the `reset-trace-accumulators!` / `drop-trace-accumulators!` helpers —
-;; carried no fact the tape does not already hold. The three concerns that
-;; once rode through this module's listener feed now live where they belong:
+;; The three trace-bus assertions (warnings / emitted-fx / dispatched)
+;; project from the canonical epoch tape + the stub-call log (the SSOT)
+;; above — there is no separate accumulator atom to keep in sync. The three
+;; related concerns each live with the surface that owns them:
 ;;
 ;;   - PRIVACY suppression (default-drop `:sensitive? true` + the
 ;;     `config/note-suppressed!` redaction-counter bump) is the egress seam
-;;     in `re-frame.story.play`'s per-frame trace listener — it was always
-;;     the gate at the head of that listener, never a property of this atom;
+;;     in `re-frame.story.play`'s per-frame trace listener — the gate at the
+;;     head of that listener;
 ;;   - the synchronous handler-exception capture is `re-frame.story.play`'s
-;;     `pending-exceptions` atom (likewise never this side-table);
+;;     `pending-exceptions` atom;
 ;;   - stub-redirected fx-ids are the stub-call log's
 ;;     (`re-frame.story.fx-stubs/observed-fx-ids`, read via the
 ;;     `:stub-observed-fx-ids` late-bind hook above) — the one fact the tape
@@ -339,11 +327,11 @@
 
 (defn- frame-id-from-cofx
   "Return the frame the current dispatch targets. Per spec/002 §Event
-  context the cofx map's `:rf.frame/id` slot is the canonical source (the
+  context the cofx map's `:rf.frame/id` slot is the canonical source — the
   router threads the running frame's stamp onto the event context as the
-  `:rf.frame/id` coeffect — the bare `:frame` coeffect was retired,
-  rf2-1m6rf1). The play-runner additionally stamps `:rf/play-frame` for
-  play-authored assertions that may run outside a frame binding."
+  `:rf.frame/id` coeffect. The play-runner additionally stamps
+  `:rf/play-frame` for play-authored assertions that may run outside a
+  frame binding."
   [cofx]
   (or (:rf.frame/id cofx)
       (:rf/play-frame cofx)
@@ -363,18 +351,16 @@
     :else                    false))
 
 ;; ---------------------------------------------------------------------------
-;; Redaction projection (spec/004 §Privacy, rf2-shy6n / rf2-ee38b.3 /
-;; rf2-006y9b)
+;; Redaction projection (spec/004 §Privacy)
 ;;
 ;; An assertion record is a value-bearing OBSERVATION surface: it serialises
 ;; into the test-mode pane, MCP `read-assertions`, and JSON-log egress per
 ;; spec/015 §Data-Classification (which lists "Xray / Story panel rendering"
 ;; and "MCP / tool wire transport" as boundaries projection must guard). So
 ;; NO slot of the record may carry the raw secret for a sensitive path —
-;; not `:actual`, and (rf2-006y9b) not `:expected`, `:payload`, or `:reason`
-;; either.
+;; not `:actual`, and not `:expected`, `:payload`, or `:reason` either.
 ;;
-;; The contract (rf2-006y9b, aligning to EP-0015's frame-owned model):
+;; The contract (aligning to EP-0015's frame-owned model):
 ;;
 ;;   1. A value read from a sensitive path / sub projects to `:rf/redacted`
 ;;      in `:actual` (the captured observation).
@@ -411,15 +397,15 @@
 (defn- sentinel-expected?
   "True iff the author wrote the framework redaction sentinel
   (`:rf/redacted`) as the `:expected` value — the documented way to pin the
-  redaction contract for a sensitive path (rf2-006y9b). Such an expected is
+  redaction contract for a sensitive path. Such an expected is
   considered satisfied when the observed value at the path projects to the
   sentinel (i.e. the path is sensitive)."
   [expected]
   (= :rf/redacted expected))
 
 (defn- path-equals-passed?
-  "Pass/fail for an equality assertion against a sensitive-aware path
-  (rf2-006y9b). Passes iff the raw value equals the author's expected, OR
+  "Pass/fail for an equality assertion against a sensitive-aware path.
+  Passes iff the raw value equals the author's expected, OR
   the author pinned the `:rf/redacted` sentinel AND the path is sensitive
   (the projected `actual` is the sentinel). This makes the documented
   sentinel contract real: an author writing `:rf/redacted` against a
@@ -442,7 +428,7 @@
   (let [raw          (get-in db path)
         actual       (redact-at frame-id path raw)
         passed?      (path-equals-passed? raw expected actual)
-        ;; rf2-006y9b — project the author-supplied `:expected` against the
+        ;; Project the author-supplied `:expected` against the
         ;; same path so a raw secret pinned as the expected value does not
         ;; leak through `:expected` / `:payload` / `:reason`. The sentinel
         ;; passes through unchanged (it is the sentinel, not a path value).
@@ -463,7 +449,7 @@
                       " but got "  (pr-str actual)))}))
 
 (defn- resolve-fn-schema
-  "Rewrite a `[:fn sym]` schema (the rf2-5x1wt.18 `:assert-db :pred` fold's
+  "Rewrite a `[:fn sym]` schema (the `:assert-db :pred` fold's
   symbol form) into `[:fn resolved-fn]` so Malli can validate it without
   sci (`[:fn 'sym]` needs sci — unavailable). A `[:fn fn]` (the fn-direct
   fold) and every non-`:fn` schema pass through unchanged. Pure-ish — the
@@ -484,7 +470,7 @@
   both runtimes; production `:advanced` builds with Story disabled DCE
   the entire assertion vocabulary anyway.
 
-  rf2-5x1wt.19 — a `[:fn sym]` schema (the `:assert-db :pred` symbol fold,
+  A `[:fn sym]` schema (the `:assert-db :pred` symbol fold,
   §B5.9) is resolved to `[:fn resolved-fn]` first (`resolve-fn-schema`),
   because Malli's `[:fn 'sym]` form needs sci (unavailable). An
   unresolvable symbol reports a readable failure rather than an opaque
@@ -527,14 +513,14 @@
   ;; per Spec 008. Subscriptions registered against the variant's frame
   ;; resolve the same way they would in the running app.
   ;;
-  ;; EP-0001 (rf2-vzld77 / rf2-pecaxy): `frame-state` is the FULL frame-state
-  ;; value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, NOT the bare
+  ;; EP-0001: `frame-state` is the FULL frame-state value
+  ;; `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, NOT the bare
   ;; app-db. `compute-sub` resolves a mixed app-db/runtime-db dependency
   ;; graph against a frame-state value (subs.cljc `partition-value-for-sub`
   ;; extracts `:rf.db/runtime` for a `:runtime-db` sub and `:rf.db/app` for a
-  ;; `:db` sub) — the faithful read the reactive subscribe path does. Handing
-  ;; it bare app-db (the pre-pecaxy bug) made every runtime-db-projection sub
-  ;; (e.g. `:rf/machine` and any app sub deriving off it) read nil.
+  ;; `:db` sub) — the faithful read the reactive subscribe path does. The
+  ;; full frame-state is required so a runtime-db-projection sub (e.g.
+  ;; `:rf/machine` and any app sub deriving off it) resolves its real value.
   ;;
   ;; Redaction: a sub reading a sensitive path propagates the sensitive
   ;; marker into its output value (spec/015 §reg-sub). We project the
@@ -554,7 +540,7 @@
                        :else   (redact-at frame-id sub-path raw))
         passed?      (and (not threw?)
                           (path-equals-passed? raw expected actual))
-        ;; rf2-006y9b — project the author-supplied `:expected` against the
+        ;; Project the author-supplied `:expected` against the
         ;; sub's args-path so a sensitive sub's expected value does not leak.
         exp-redacted (if (or threw? (sentinel-expected? expected))
                        expected
@@ -588,7 +574,7 @@
                       (pr-str needle)))}))
 
 (defn- evaluate-state-is
-  "EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+  "EP-0001: machine snapshots are durable runtime-db state, so
   the `:state-is` assertion reads the snapshot off the frame's runtime-db
   partition value (`runtime-db`), NOT app-db."
   [runtime-db [machine-id state]]
@@ -657,7 +643,7 @@
 (def ^:const id-effect-emitted  :rf.assert/effect-emitted)
 
 ;; ---------------------------------------------------------------------------
-;; Schema-error — the EXPECTED schema violation (rf2-5x1wt.21, NET-NEW)
+;; Schema-error — the EXPECTED schema violation
 ;;
 ;; `:rf.assert/schema-error` declares that the run is EXPECTED to emit one
 ;; schema validation failure on a named surface. Unlike the seven app-db /
@@ -677,9 +663,9 @@
 (def ^:const id-schema-error    :rf.assert/schema-error)
 
 (def canonical-assertion-ids
-  "The canonical assertion event ids the P1 vocabulary recognises. The
-  SHIPPING seven (/spec/007-Stories.md §Inclusion tags) the `.18` fold preserves, PLUS the
-  NET-NEW `:rf.assert/schema-error` (rf2-5x1wt.21, spec/017 §Schema rule —
+  "The canonical assertion event ids the P1 vocabulary recognises: the
+  seven (/spec/007-Stories.md §Inclusion tags) PLUS
+  `:rf.assert/schema-error` (spec/017 §Schema rule —
   the EXPECTED-schema-violation declaration). `:rf.assert/schema-error` is
   recognised (so plan construction accepts it) but is NOT installed as a
   `reg-event` handler: it is tape-evaluated in the result boundary, not
@@ -694,18 +680,15 @@
     id-schema-error})
 
 ;; ---------------------------------------------------------------------------
-;; DOM assertion family — the fold target for the shipping `:assert-dom`
-;; step (rf2-5x1wt.18, spec/017 §Assertions — one atom, two positions).
+;; DOM assertion family — the fold target for the `:assert-dom` step
+;; (spec/017 §Assertions — one atom, two positions).
 ;;
-;; These ids are NET-NEW (the shipping vocabulary had only the seven above
-;; plus the ad-hoc synthetic `:rf.assert/dom` record `:assert-dom` minted).
-;; The DOM runner that EVALUATES them lands later (the `:dom` capability is
-;; wired now via `re-frame.story.requirements`); the fold names them so an
-;; `:assert-dom` step lowers onto the SAME assertion atom shape as every
-;; other assertion, regardless of script position. A headless run that
-;; reaches one refuses with `:cannot-run` (the `:dom` capability gate),
-;; never a silent pass — that is the fail-closed contract, not this fold's
-;; concern.
+;; The `:dom` capability is wired via `re-frame.story.requirements`; the
+;; fold names these ids so an `:assert-dom` step lowers onto the SAME
+;; assertion atom shape as every other assertion, regardless of script
+;; position. A headless run that reaches one refuses with `:cannot-run`
+;; (the `:dom` capability gate), never a silent pass — that is the
+;; fail-closed contract, not this fold's concern.
 ;; ---------------------------------------------------------------------------
 
 (def ^:const id-dom-visible     :rf.assert/dom-visible)
@@ -713,7 +696,7 @@
 (def ^:const id-dom-text        :rf.assert/dom-text)
 
 (def dom-assertion-ids
-  "The DOM assertion family (rf2-5x1wt.18, NET-NEW). The shipping
+  "The DOM assertion family. The shipping
   `:assert-dom selector :visible|:hidden|:text` step folds onto these so
   a DOM expectation rides the ONE assertion atom. Each carries the `:dom`
   runner requirement via `re-frame.story.requirements/assertion-capabilities`
@@ -725,7 +708,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Browser-tier assertion family — visual snapshot + axe-style a11y +
-;; structural a11y (rf2-5x1wt.28, NET-NEW; spec/017 §Visual, a11y, and
+;; structural a11y (spec/017 §Visual, a11y, and
 ;; browser checks + §Canonical P1 assertions).
 ;;
 ;; These are NOT a separate visual-testing system — they are richer
@@ -751,7 +734,7 @@
 (def ^:const id-a11y-structural  :rf.assert/a11y-structural)
 
 (def browser-assertion-ids
-  "The browser-tier oracle assertion family (rf2-5x1wt.28). Visual snapshot
+  "The browser-tier oracle assertion family. Visual snapshot
   and axe-style a11y are browser-only (`:pixels` / `:a11y-engine`); the
   structural a11y check rides the `:hiccup` tier. All three ride the ONE
   assertion atom + the ONE assertion-record shape — they are runner-tiered
@@ -769,7 +752,7 @@
   visual / a11y / reactive-count ids whose runners land later or are
   browser-tiered). Plan construction validates authored assertion atoms
   against this set (`assertion-id-known?`); an unknown id FAILS plan
-  construction with a useful error (rf2-5x1wt.18, spec/017 §Assertions).
+  construction with a useful error (spec/017 §Assertions).
   Reading the requirement registry keeps this list a derived view of the
   ONE id source of truth rather than a hand-maintained parallel set."
   (into (into (into canonical-assertion-ids dom-assertion-ids)
@@ -780,19 +763,18 @@
   "True iff `id` is a recognised P1 assertion id (`known-assertion-ids`).
   Pure data → data. Used by the plan compiler to FAIL plan construction
   on an unknown assertion atom rather than letting it record a vacuous
-  `:rf.assert/unknown` pseudo-record at run time (rf2-5x1wt.18)."
+  `:rf.assert/unknown` pseudo-record at run time."
   [id]
   (contains? known-assertion-ids id))
 
 ;; ---------------------------------------------------------------------------
-;; Assertion-atom fold (rf2-5x1wt.18, spec/017 §Assertions — one atom,
-;; two positions)
+;; Assertion-atom fold (spec/017 §Assertions — one atom, two positions)
 ;;
 ;; The assertion atom is the data vector `[:rf.assert/id & args]`. It is
 ;; legal in exactly two positions: terminal `:assertions` and the in-script
 ;; `[:assert …]` checkpoint. Both positions produce ONE assertion-record
 ;; shape (the `[:assert …]` checkpoint dispatches the wrapped atom, whose
-;; reg-event handler records the canonical record — rf2-5x1wt.17).
+;; reg-event handler records the canonical record).
 ;;
 ;; The shipping ergonomic script steps `:assert-db` / `:assert-dom` are NOT
 ;; authoring-distinct assertion kinds — they are sugar that FOLDS onto the
@@ -806,10 +788,10 @@
 ;;
 ;; `fold-assert-step` returns the canonical `[:assert assertion-atom]`
 ;; checkpoint for a shipping `:assert-db` / `:assert-dom` step, so the plan
-;; compiler can rewrite a script uniformly to the ONE atom in its
-;; checkpoint position — collapsing the two parallel record-minting paths
-;; (`runner-events`' synthetic `:rf.assert/db` / `:rf.assert/dom` records)
-;; onto the canonical assertion handlers. Pure data → data.
+;; compiler rewrites a script uniformly to the ONE atom in its checkpoint
+;; position — every assertion mints its record through the canonical
+;; assertion handlers, with no parallel record-minting path. Pure data →
+;; data.
 ;; ---------------------------------------------------------------------------
 
 (defn- assert-db->atom
@@ -819,7 +801,7 @@
   `[:fn …]` schema (the one canonical way to express an arbitrary
   predicate against a path). A symbol predicate is preserved verbatim in
   the `[:fn …]` schema — the assertion handler's Malli path resolves it
-  the same way the shipping `:assert-db :pred` rail did."
+  the same way the `:assert-db :pred` rail does."
   [step]
   (let [path (nth step 1)]
     (if (and (= 4 (count step)) (= :pred (nth step 2)))
@@ -844,7 +826,7 @@
   "Fold a shipping ergonomic assertion step (`[:assert-db …]` /
   `[:assert-dom …]`) into the canonical `[:assert assertion-atom]`
   checkpoint, so terminal `:assertions` and EVERY in-script assertion
-  position resolve to the ONE assertion atom (rf2-5x1wt.18). Returns the
+  position resolve to the ONE assertion atom. Returns the
   rewritten `[:assert …]` step for a foldable step, or the step unchanged
   for any other step (`:dispatch`, `:wait`, an already-`[:assert …]`
   checkpoint, a bare event vector). Pure data → data — used by the plan
@@ -857,8 +839,8 @@
 
 (defn fold-script
   "Fold every shipping `:assert-db` / `:assert-dom` step in a coerced
-  `script` vector onto the canonical `[:assert assertion-atom]` checkpoint
-  (rf2-5x1wt.18). Leaves non-assertion steps and already-canonical
+  `script` vector onto the canonical `[:assert assertion-atom]` checkpoint.
+  Leaves non-assertion steps and already-canonical
   `[:assert …]` checkpoints untouched. Pure data → data."
   [script]
   (mapv fold-assert-step (or script [])))
@@ -875,7 +857,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Schema-error expectation — parse the declared atom into its surface
-;; selector (rf2-5x1wt.21, spec/017 §Schema rule)
+;; selector (spec/017 §Schema rule)
 ;;
 ;; The declared atom is `[:rf.assert/schema-error {:where <surface> …}]`.
 ;; The spec map's `:where` chooses the surface; the surface-specific keys
@@ -918,7 +900,7 @@
   "The surface SELECTOR a declared `:rf.assert/schema-error` expectation
   pairs on — mirroring `evidence/violation-selector` so a declared
   expectation and a projected violation produce the SAME vector for the same
-  surface (rf2-5x1wt.21, spec/017 §Schema rule). Pure data → data.
+  surface (spec/017 §Schema rule). Pure data → data.
 
   `spec` is the expectation map (`schema-error-spec`). An empty spec (a bare
   `[:rf.assert/schema-error]`) selects `[:any]` — the wildcard that consumes
@@ -943,7 +925,7 @@
   "Project a declared `[:rf.assert/schema-error spec]` atom into its
   expectation record `{:atom atom :spec spec :selector selector}` — the
   shape the result boundary's exact-consumption matcher pairs against the
-  projected violations (rf2-5x1wt.21). Pure data → data."
+  projected violations. Pure data → data."
   [assertion-atom]
   (let [spec (schema-error-spec assertion-atom)]
     {:atom     assertion-atom
@@ -952,15 +934,15 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Causal / cascade assertions — `:rf.assert/caused` +
-;; `:rf.assert/no-cascade-rerender` (rf2-5x1wt.31, spec/017 §Causal and
-;; cascade assertions). NET-NEW, tape-evaluated like `:rf.assert/schema-error`.
+;; `:rf.assert/no-cascade-rerender` (spec/017 §Causal and
+;; cascade assertions). Tape-evaluated like `:rf.assert/schema-error`.
 ;;
 ;; Both PROJECT a cause→effect relationship from the SAME reactive evidence
 ;; the framework already retains in the epoch tape — the `:rf.sub/run` /
 ;; `:rf.view/rendered` rows stamped with the dispatching cascade's
 ;; `:cause-event-id` (Spec 009 §`:rf.sub/cause-event-id`, surfaced in the
-;; `re-frame.story.play.evidence/reactive-counts` `:by-cause` projection,
-;; rf2-5x1wt.30). They add NO new trace op-type and NO new accumulator — the
+;; `re-frame.story.play.evidence/reactive-counts` `:by-cause` projection).
+;; They add NO new trace op-type and NO new accumulator — the
 ;; tape is the source of truth (spec/017 §Risks — "evidence projections
 ;; drift: use the epoch tape as source of truth").
 ;;
@@ -996,7 +978,7 @@
 (def ^:const id-no-cascade-rerender :rf.assert/no-cascade-rerender)
 
 (def causal-assertion-ids
-  "The causal / cascade assertion family (rf2-5x1wt.31, NET-NEW). Both are
+  "The causal / cascade assertion family. Both are
   tape-evaluated against the `:reactive-counts` `:by-cause` projection (NOT
   dispatched into the frame, NOT a parallel accumulator) and require the
   `:reactive-counts` capability via the requirement registry
@@ -1090,7 +1072,7 @@
   The three trace-bus-driven assertions (`:dispatched?` / `:no-warnings`
   / `:effect-emitted`) project their fact from the frame's EPOCH TAPE (the
   SSOT — `dispatched-events` / `warnings` / `emitted-fx`), the SAME source
-  the run-result evidence slots read (rf2-q651r). The prior committed
+  the run-result evidence slots read. The prior committed
   epochs (the play steps before this assertion's own dispatch) are already
   on the tape when this handler runs; the assertion's own epoch has not yet
   settled — and assertion events are excluded from the projection anyway."
@@ -1103,20 +1085,20 @@
           extras       (case evaluator-kind
                          :path-equals     (evaluate-path-equals     frame-id db payload)
                          :path-matches    (evaluate-path-matches    frame-id db payload)
-                         ;; EP-0001 (rf2-vzld77 / rf2-pecaxy): subs may project
+                         ;; EP-0001: subs may project
                          ;; runtime-db state (e.g. `:rf/machine`), so hand
                          ;; `compute-sub` the FULL frame-state value (app +
                          ;; runtime), not the bare app-db `:db` cofx — else
                          ;; runtime-db-projection subs read nil.
                          :sub-equals      (evaluate-sub-equals      frame-id {:rf.db/app db :rf.db/runtime rt} payload)
                          :dispatched?     (evaluate-dispatched?     (dispatched-events frame-id) payload)
-                         ;; EP-0001 (rf2-vzld77): machine snapshots live in
+                         ;; EP-0001: machine snapshots live in
                          ;; runtime-db; read the `:rf.db/runtime` coeffect.
                          :state-is        (evaluate-state-is        (or rt {}) payload)
                          :no-warnings     (evaluate-no-warnings     (warnings frame-id) payload)
                          :effect-emitted  (evaluate-effect-emitted  (emitted-fx frame-id) payload))
           elapsed-ms   (- (interop/now-ms) start-ms)
-          ;; rf2-006y9b — a value-comparing evaluator (`:path-equals` /
+          ;; A value-comparing evaluator (`:path-equals` /
           ;; `:sub-equals`) returns a REDACTED `:payload` rebuilt from the
           ;; projected expected, so the record's `:payload` slot never
           ;; carries the raw secret. Evaluators that introduce no

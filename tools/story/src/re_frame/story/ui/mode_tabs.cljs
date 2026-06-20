@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.mode-tabs
-  "Render-shell `:dev` / `:docs` / `:test` mode-tabs primitive (rf2-9hc8).
+  "Render-shell `:dev` / `:docs` / `:test` mode-tabs primitive.
 
   Storybook's chrome ships a top-of-canvas tab strip that switches the
   variant view between three canonical modes:
@@ -7,13 +7,12 @@
   - `:dev`  — Canvas. The interactive variant render (Story v1 default).
   - `:docs` — Docs. The read-only AutoDocs-equivalent: prose + args
               table + decorator stack + parameters + tags. Implemented
-              in `re-frame.story.ui.docs` (rf2-rodx); this primitive
-              owns the chip strip only.
+              in `re-frame.story.ui.docs`; this primitive owns the chip
+              strip only.
   - `:test` — Tests. The in-canvas aggregated pass/fail summary for the
               variant's interactions / assertions. Implemented in
-              `re-frame.story.ui.test-mode.view` (rf2-qmjo, split per rf2-8n2fz);
-              this primitive
-              owns the chip strip only.
+              `re-frame.story.ui.test-mode.view`; this primitive owns
+              the chip strip only.
 
   ## Primitive surface
 
@@ -29,16 +28,15 @@
   The shell's `main-pane` consults `(state/active-mode-tab state vid)`
   to decide which pane renders below the strip:
 
-  - `:dev`  → existing canvas / workspace path (unchanged).
-  - `:docs` → `re-frame.story.ui.docs/docs-view` (rf2-rodx).
-  - `:test` → `re-frame.story.ui.test-mode.view/test-view` (rf2-qmjo).
+  - `:dev`  → the canvas / workspace path.
+  - `:docs` → `re-frame.story.ui.docs/docs-view`.
+  - `:test` → `re-frame.story.ui.test-mode.view/test-view`.
 
   ## Visual style
 
-  Matches the existing render-shell chrome (rf2-2uwv contrast fixes):
-  `#b0b0b0` inactive foreground, white active foreground, `#1e1e1e`
-  active background. Reuses the shape of the tab-bar/tab/tab-active
-  styles already defined in `re-frame.story.ui.shell`."
+  Matches the render-shell chrome: `#b0b0b0` inactive foreground, white
+  active foreground, `#1e1e1e` active background. Reuses the shape of the
+  tab-bar/tab/tab-active styles defined in `re-frame.story.ui.shell`."
   (:require [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.ui.state :as state]
             [re-frame.story.theme.typography :as typography :refer [sans-stack mono-stack]]
@@ -110,9 +108,8 @@
 
 ;; ---- styling -------------------------------------------------------------
 ;;
-;; Same visual register as the existing render-shell chrome — see
-;; rf2-2uwv for the contrast fixes that landed `#b0b0b0` as the standard
-;; inactive foreground.
+;; Same visual register as the render-shell chrome — `#b0b0b0` is the
+;; standard inactive foreground.
 
 (def ^:private styles
   {:strip       {:display          "flex"
@@ -121,14 +118,14 @@
                  :font-family      mono-stack
                  :font-size        (:caption typography/type-scale)
                  :padding          "0"}
-   ;; rf2-c4m8x: longhand-only border sides on every chip. The
-   ;; `:tab-active` overlay below adds a `:border-bottom`; mixing the
-   ;; shorthand `:border "none"` with longhand `:border-bottom` on the
-   ;; same React element across renders triggers React's reconcile
-   ;; warning ("Removing a style property during rerender (borderBottom)
-   ;; when a conflicting property is set (border) can lead to styling
-   ;; bugs"). Spell every side longhand so React reconciles a stable
-   ;; set of keys. Same shape as the trace.cljs fix in rf2-fq1yg.
+   ;; Longhand-only border sides on every chip. The `:tab-active`
+   ;; overlay below adds a `:border-bottom`; mixing the shorthand
+   ;; `:border "none"` with longhand `:border-bottom` on the same React
+   ;; element across renders triggers React's reconcile warning
+   ;; ("Removing a style property during rerender (borderBottom) when a
+   ;; conflicting property is set (border) can lead to styling bugs").
+   ;; Spell every side longhand so React reconciles a stable set of keys.
+   ;; Same shape as the trace.cljs border styling.
    :tab         {:padding             "6px 14px"
                  :cursor              "pointer"
                  :color               (:text-secondary colors/tokens)
@@ -164,8 +161,8 @@
   carries a `data-mode-tab=\"<id>\"` attribute so the Playwright spec
   can target chips without coupling to the visible label.
 
-  Per rf2-9hc8 the strip lives directly above the canvas/workspace pane
-  inside `<main>`."
+  The strip lives directly above the canvas/workspace pane inside
+  `<main>`."
   [variant-id]
   (when variant-id
     ;; Hydrate from localStorage on first render of this variant's
@@ -191,10 +188,9 @@
 
 ;; ---- placeholder panes ---------------------------------------------------
 ;;
-;; rf2-rodx (Docs) is implemented in `re-frame.story.ui.docs`; rf2-qmjo
-;; (Tests) is implemented in `re-frame.story.ui.test-mode.view` (split
-;; per rf2-8n2fz into pure/state/view). Both
-;; placeholders have been removed — the shell routes the `:docs` /
-;; `:test` cases directly at the dedicated panes. The `:placeholder`
-;; style entry below stays in the styles map in case a future pane
-;; needs an empty-state shape, but no placeholder fn is registered.
+;; Docs is implemented in `re-frame.story.ui.docs`; Tests in
+;; `re-frame.story.ui.test-mode.view` (pure/state/view). The shell routes
+;; the `:docs` / `:test` cases directly at these dedicated panes. The
+;; `:placeholder` style entry below stays in the styles map in case a
+;; future pane needs an empty-state shape, but no placeholder fn is
+;; registered.

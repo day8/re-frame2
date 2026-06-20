@@ -1,7 +1,7 @@
 (ns re-frame.story.render
   "`render-variant` — the workshop render verb that drives the SAME
-  variant-plan the test runner consumes (NewTestStory rf2-5x1wt.24,
-  `tools/story/spec/017-Testing-Story.md` §Args, controls, and
+  variant-plan the test runner consumes
+  (`tools/story/spec/017-Testing-Story.md` §Args, controls, and
   `render-variant` + §Storytelling superset).
 
   ## One plan, two outputs
@@ -57,7 +57,7 @@
   - `:error`       — carries the thrown ex-data when the host render fn
                      throws.
 
-  ## Plan-hash agreement (acceptance — rf2-5x1wt.24)
+  ## Plan-hash agreement (acceptance)
 
   The `:plan-hash` is `re-frame.story.fingerprint/plan-hash` over the SAME
   normalized plan, so a runner (`story/run`) and `render-variant` agree on
@@ -127,7 +127,7 @@
   (late-bind/get-fn render-host-hook-key))
 
 ;; ===========================================================================
-;; Effective-args control overrides (rf2-5x1wt.24)
+;; Effective-args control overrides
 ;; ===========================================================================
 ;;
 ;; spec/017 §Args: `:effective-args` are *the args after control-panel
@@ -239,9 +239,8 @@
          validation   (when schema
                         (plan/validate-effective-args schema eff-args validator-fns))
          ;; The plan-hash is over the normalized plan — render + run agree
-         ;; on it (rf2-5x1wt.24 acceptance). When controls change the
-         ;; effective args, reflect them in the hashed plan so the hash
-         ;; tracks what is actually rendered.
+         ;; on it. When controls change the effective args, reflect them in
+         ;; the hashed plan so the hash tracks what is actually rendered.
          render-plan  (assoc-in plan [:world :effective-args] eff-args)
          plan-hash    (fingerprint/plan-hash render-plan)
          base         {:plan           render-plan
@@ -282,20 +281,18 @@
   threw. Carries the structured ex-data so tools surface the failure the
   same way a run error surfaces.
 
-  rf2-9kpsq — the `:error` sub-map is the shared
-  `re-frame.story.error/throwable->error-map` projection (was a drifted
-  copy that dropped `:stack`; consolidation restores the canonical
-  `{:message :stack :data}` shape).
+  The `:error` sub-map is the shared
+  `re-frame.story.error/throwable->error-map` projection — the canonical
+  `{:message :stack :data}` shape.
 
-  rf2-jh42p — when the throw happened AFTER `prepare-render` succeeded
-  (the host render fn threw), the prepared `:plan` / `:plan-hash` /
-  `:effective-args` already exist, so thread them onto the result to match
-  the documented shape (spec/017 §Args — P1 render API: those slots are
-  always present once prepared). The `:frame` slot prefers the prepared
-  frame id (an inline-map target has no keyword frame, but the plan still
-  resolved one) and falls back to the keyword target. When `prepared` is
-  nil (plan CONSTRUCTION threw — no plan exists), only `:frame` + `:error`
-  carry, as before."
+  When the throw happened AFTER `prepare-render` succeeded (the host render
+  fn threw), the prepared `:plan` / `:plan-hash` / `:effective-args`
+  already exist, so thread them onto the result to match the documented
+  shape (spec/017 §Args — P1 render API: those slots are always present
+  once prepared). The `:frame` slot prefers the prepared frame id (an
+  inline-map target has no keyword frame, but the plan still resolved one)
+  and falls back to the keyword target. When `prepared` is nil (plan
+  CONSTRUCTION threw — no plan exists), only `:frame` + `:error` carry."
   ([target e] (error-result target e nil))
   ([target e prepared]
    (cond-> {:status :error
@@ -359,7 +356,7 @@
                      (assoc :status :rendered :rendered rendered)))
                ;; Host render threw — `prepared` already carries
                ;; :plan/:plan-hash/:effective-args, so thread them onto the
-               ;; :error result (rf2-jh42p) rather than dropping the context.
+               ;; :error result rather than dropping the context.
                (catch #?(:clj Throwable :cljs :default) e
                  (error-result target e prepared)))
              ;; No host render hook (the bare JVM / a pre-boot CLJS build):

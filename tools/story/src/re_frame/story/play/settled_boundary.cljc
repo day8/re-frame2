@@ -1,7 +1,7 @@
 (ns re-frame.story.play.settled-boundary
   "The `settled-boundary` contract — the single name for what
   `[:dispatch event-vector]` waits for before the runner advances to the
-  next script step (NewTestStory rf2-5x1wt.2, spec/017-Testing-Story.md
+  next script step (spec/017-Testing-Story.md
   §Script and `settled-boundary` + §Shared primitive lock).
 
   ## What a settled boundary is
@@ -52,9 +52,8 @@
   `headless-flush-hooks` is the default the JVM / node-runtime headless
   runner uses: `:provides :headless`, `:dispatch!` and the `:headless`
   flush both routed through `re-frame.core/dispatch-sync*` so a queued
-  `[:dispatch …]` step settles to fixed point synchronously — the
-  behaviour the legacy `:dispatch` step approximated with a `setTimeout`
-  yield, now named and deterministic.
+  `[:dispatch …]` step settles to fixed point synchronously, named and
+  deterministic.
 
   Adapter-aware callers (the Reagent/UIx/Helix shell, a future `:dom`
   browser runner) register richer hooks declaring a higher `:provides`
@@ -193,11 +192,11 @@
   `dispatch-sync` issued from inside a running drain surfaces
   `:rf.error/dispatch-sync-in-handler` through the trace bus, as usual).
 
-  rf2-l2cn5d (EP-0017): the optional 3-arity `(drain-sync! frame-id
-  event-vector opts)` merges caller-supplied dispatch opts (e.g. a
-  captured `{:rf.cofx <map>}` envelope) over `{:frame frame-id}` so a
-  replayed `[:dispatch evec {:rf.cofx …}]` step re-presents its recorded
-  recordable coeffects. The 2-arity is the pre-EP-0017 bare path."
+  The optional 3-arity `(drain-sync! frame-id event-vector opts)` merges
+  caller-supplied dispatch opts (e.g. a captured `{:rf.cofx <map>}`
+  envelope) over `{:frame frame-id}` so a replayed `[:dispatch evec
+  {:rf.cofx …}]` step re-presents its recorded recordable coeffects. The
+  2-arity is the bare path with no captured opts."
   ([frame-id event-vector]
    (drain-sync! frame-id event-vector nil))
   ([frame-id event-vector opts]
@@ -292,9 +291,9 @@
    (dispatch-and-settle! frame-id event-vector hooks required nil))
   ([frame-id event-vector hooks required step]
    (dispatch-and-settle! frame-id event-vector hooks required step nil))
-  ;; rf2-l2cn5d (EP-0017): the 6-arity threads `dispatch-opts` (e.g. a
-  ;; captured `{:rf.cofx <map>}` envelope) into the dispatch! hook so a
-  ;; replayed step re-presents its recorded recordable coeffects.
+  ;; The 6-arity threads `dispatch-opts` (e.g. a captured `{:rf.cofx <map>}`
+  ;; envelope) into the dispatch! hook so a replayed step re-presents its
+  ;; recorded recordable coeffects.
   ([frame-id event-vector hooks required step dispatch-opts]
    (let [required (if (boundary? required) required :headless)
          provided (hooks-provided-boundary hooks)]
@@ -314,14 +313,13 @@
                ;; a no-op; the richer flushes carry the adapter's reactive /
                ;; DOM work.
                levels     (take-while #(boundary>= required %) boundary-levels)
-               ;; rf2-l2cn5d (EP-0017): a replayed `[:dispatch evec {:rf.cofx …}]`
-               ;; step carries a captured recordable-coeffect envelope. The
-               ;; caller (`exec-dispatch!`) extracts it off the step and passes
-               ;; it as `dispatch-opts`; thread it into the dispatch opts (via
-               ;; the hook's optional 3-arity) so the handler's declared
-               ;; recordable coeffects replay from the recorded value rather than
-               ;; being restamped. Absent cofx uses the bare 2-arity call (the
-               ;; pre-EP-0017 hook contract, unchanged).
+               ;; A replayed `[:dispatch evec {:rf.cofx …}]` step carries a
+               ;; captured recordable-coeffect envelope. The caller
+               ;; (`exec-dispatch!`) extracts it off the step and passes it as
+               ;; `dispatch-opts`; thread it into the dispatch opts (via the
+               ;; hook's optional 3-arity) so the handler's declared recordable
+               ;; coeffects replay from the recorded value rather than being
+               ;; restamped. Absent cofx uses the bare 2-arity call.
                ]
            (if (and (map? dispatch-opts) (seq dispatch-opts))
              (dispatch! frame-id event-vector dispatch-opts)
@@ -338,7 +336,7 @@
                ;; it returns. Checking here — not only at the top of the next
                ;; iteration — means an over-budget terminal flush refuses with
                ;; a fail-closed `:flush-timeout` instead of a settled pass it
-               ;; did not earn (rf2-65bnwl).
+               ;; did not earn.
                (and deadline (> (interop/now-ms) deadline))
                (flush-timeout-result required provided step)
 

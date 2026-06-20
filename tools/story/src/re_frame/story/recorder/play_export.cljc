@@ -1,5 +1,5 @@
 (ns re-frame.story.recorder.play-export
-  "Translate a captured recording into a `:script` body (rf2-x9zsr).
+  "Translate a captured recording into a `:script` body.
 
   ## Why
 
@@ -7,11 +7,11 @@
   during a canvas session and surfaces them in a save-as-variant
   dialog as a `(reg-variant ... :script {...})` EDN snippet — the simple
   `gen-play-snippet` codegen, which wraps each captured event vector as
-  a `[:dispatch-sync <event-vec>]` step (rf2-0wrud). Per rf2-7mj4z the
-  emitted snippet uses the PUBLIC `:script` authoring slot (spec/017
-  §Public vocabulary), NOT the transitional `:play-script` spelling.
+  a `[:dispatch-sync <event-vec>]` step. The emitted snippet uses the
+  PUBLIC `:script` authoring slot (spec/017 §Public vocabulary) rather
+  than the internal `:play-script` slot.
 
-  The rich `:script` step DSL landed in rf2-8i2a9 — tagged steps
+  The rich `:script` step DSL provides tagged steps
   (`[:dispatch ...]`, `[:wait ms]`, `[:assert-db ...]`,
   `[:assert-dom ...]`, `[:click ...]`, `[:type ...]`) the runner
   executes sequentially with PASS/FAIL bookkeeping. This is the
@@ -24,9 +24,9 @@
 
   ## What gets translated
 
-  Per rf2-d5u89 the recorder now captures BOTH dispatched events
-  (off the trace bus) AND DOM interactions (off the canvas root
-  via `re-frame.story.recorder.dom-capture`). Each captured entry
+  The recorder captures BOTH dispatched events (off the trace bus)
+  AND DOM interactions (off the canvas root via
+  `re-frame.story.recorder.dom-capture`). Each captured entry
   rides on the recorder's `:entries` slot as one of four shapes;
   the translator maps them to `:script` steps:
 
@@ -48,13 +48,12 @@
   next state transition. The pure runner accepts either tag for any
   event; this is a translation convention, not a runtime requirement.
 
-  ## Legacy entry shape (pre-rf2-d5u89)
+  ## Bare-events input shape
 
-  Callers that pass a bare `events` vector (the old `:events` slot)
-  still work — the translator coerces each bare event vector into
-  an `:event/dispatch` entry with `:t 0`. This keeps the JVM tests
-  from rf2-x9zsr (which exercise `recording->script-body` with a
-  bare vector) running unchanged.
+  Callers that pass a bare `events` vector (the `:events` slot) are
+  tolerated — the translator coerces each bare event vector into an
+  `:event/dispatch` entry with `:t 0`, so the JVM tests that exercise
+  `recording->script-body` with a bare vector run unchanged.
 
   ## Auto-assert
 
@@ -100,8 +99,8 @@
 
 (def ^:const redacted-event-id
   "The framework sentinel id the recorder uses to replace sensitive
-  event payloads (rf2-hdadz). Translator drops these from the
-  generated script + adds a comment in the output."
+  event payloads. Translator drops these from the generated script +
+  adds a comment in the output."
   :rf/redacted)
 
 ;; ---------------------------------------------------------------------------
@@ -166,11 +165,11 @@
        :else        [tag event]))))
 
 ;; ---------------------------------------------------------------------------
-;; Pure: entry-shape translation (rf2-d5u89)
+;; Pure: entry-shape translation
 ;;
 ;; Each `:entries` entry is one of four shapes (see recorder.cljc
-;; §dom-event-kinds + §rf2-d5u89). `entry->step` maps the rich shape
-;; to a runner step OR nil (the caller filters).
+;; §dom-event-kinds). `entry->step` maps the rich shape to a runner
+;; step OR nil (the caller filters).
 ;; ---------------------------------------------------------------------------
 
 (defn entry->step
@@ -192,10 +191,10 @@
   [entry]
   (case (and (map? entry) (:kind entry))
     :event/dispatch
-    ;; rf2-l2cn5d (EP-0017): the entry carries the captured flat `:rf.cofx`
-    ;; map (recorder appends it alongside the event vector). Thread it onto
-    ;; the dispatch step so replay re-presents the recorded recordable
-    ;; coeffects. Absent / empty cofx emits the bare 2-element step.
+    ;; The entry carries the captured flat `:rf.cofx` map (recorder appends
+    ;; it alongside the event vector). Thread it onto the dispatch step so
+    ;; replay re-presents the recorded recordable coeffects. Absent / empty
+    ;; cofx emits the bare 2-element step.
     (event->step (:event entry) (:rf.cofx entry))
 
     :dom/click
@@ -215,15 +214,15 @@
 
 (defn- coerce-entry
   "Normalise an arbitrary `events`-vector member to an `:entries`-shape
-  map. Pure data → data; tolerates the legacy bare-event-vector
-  shape (`[:my/event ...]`) by lifting it into
+  map. Pure data → data; tolerates the bare-event-vector shape
+  (`[:my/event ...]`) by lifting it into
   `{:kind :event/dispatch :event <vec> :t 0}`.
 
-  `cofx` (rf2-l2cn5d, EP-0017) is the captured flat recordable-coeffect
-  map for THIS member of a parallel bare-events / cofx pair; when
-  non-empty it rides onto the lifted entry under `:rf.cofx` so the bare
-  `:events` path (the MCP `record-as-variant` surface) preserves cofx
-  the same way the rich `:entries` path does."
+  `cofx` (EP-0017) is the captured flat recordable-coeffect map for THIS
+  member of a parallel bare-events / cofx pair; when non-empty it rides
+  onto the lifted entry under `:rf.cofx` so the bare `:events` path (the
+  MCP `record-as-variant` surface) preserves cofx the same way the rich
+  `:entries` path does."
   ([x] (coerce-entry x nil))
   ([x cofx]
    (cond
@@ -237,11 +236,11 @@
      :else nil)))
 
 (defn- bare-events->entries
-  "Coerce a legacy bare-events vector to the new `:entries` shape so
-  the translator's wait-insertion + entry walker work uniformly.
+  "Coerce a bare-events vector to the `:entries` shape so the
+  translator's wait-insertion + entry walker work uniformly.
 
-  `cofx-vec` (rf2-l2cn5d, EP-0017) is an OPTIONAL parallel vector of
-  captured `:rf.cofx` maps, index-aligned with `events`. When supplied,
+  `cofx-vec` (EP-0017) is an OPTIONAL parallel vector of captured
+  `:rf.cofx` maps, index-aligned with `events`. When supplied,
   each bare event is lifted carrying its captured coeffect map. Already-
   rich `:entries` members carry their own `:rf.cofx`, so the parallel
   vector is consulted only for bare members."
@@ -253,7 +252,7 @@
           (filterv some?)))))
 
 ;; ---------------------------------------------------------------------------
-;; Pure: wait-step insertion (rf2-d5u89)
+;; Pure: wait-step insertion
 ;;
 ;; Walk the entries in order, compare consecutive `:t` stamps, and
 ;; inject a `[:wait Δt]` step whenever the gap exceeds the
@@ -376,13 +375,12 @@
 
   Inputs:
 
-    `events`  — either the legacy vector of recorded event vectors
-                (the `:events` slot of the recorder state) OR the
-                rich `:entries` vector of per-entry maps (rf2-d5u89).
-                Mixed input is tolerated — each member is coerced
-                via `coerce-entry`. The bare-event-vector branch
-                stamps `:t 0` on every entry, so no `:wait` steps
-                are emitted (back-compat for v1 callers).
+    `events`  — either the vector of recorded event vectors (the
+                `:events` slot of the recorder state) OR the rich
+                `:entries` vector of per-entry maps. Mixed input is
+                tolerated — each member is coerced via `coerce-entry`.
+                The bare-event-vector branch stamps `:t 0` on every
+                entry, so no `:wait` steps are emitted.
     `opts`:
       :name              optional — `:name` field for the play-script.
       :auto-assert?      bool, default false — when true, derive
@@ -402,7 +400,7 @@
                          inserts a `[:wait Δt]` step between entries.
                          Default `default-wait-threshold-ms` (50ms).
       :cofx              optional — a parallel vector of captured flat
-                         `:rf.cofx` maps (rf2-l2cn5d, EP-0017), index-aligned
+                         `:rf.cofx` maps (EP-0017), index-aligned
                          with a BARE `events` vector. Each non-empty entry rides
                          onto its dispatch step as `[:dispatch evec {:rf.cofx …}]`
                          so replay re-presents the recorded recordable coeffects
@@ -493,11 +491,11 @@
   pastes into source. `variant-id` defaults to
   `:story.recorded/play-export`; `alias` defaults to `\"story\"`.
 
-  rf2-7mj4z — the emitted body uses the PUBLIC `:script` authoring slot
-  (spec/017 §Public vocabulary), NOT the transitional `:play-script`
-  spelling, so pasted recorder output reads the way the docs teach. The
-  public `:script` slot accepts the same `{:script … :auto-run?}` body
-  shape `render-script-body` produces.
+  The emitted body uses the PUBLIC `:script` authoring slot (spec/017
+  §Public vocabulary) rather than the internal `:play-script` slot, so
+  pasted recorder output reads the way the docs teach. The public
+  `:script` slot accepts the same `{:script … :auto-run?}` body shape
+  `render-script-body` produces.
 
   Pure data → string. The form survives `read-string` round-trip and
   registers cleanly via `re-frame.story/reg-variant`."

@@ -30,18 +30,18 @@
   that accidentally requires a stories ns sees the namespace load but
   with no registrations, every Story query returns empty."
   (:require [re-frame.privacy    :as privacy]
-            ;; rf2-7737vq — the canonical RAW trace-event frame reader
-            ;; (`re-frame.trace/trace-event-frame`), replacing Story's
-            ;; hand-rolled `[:tags :frame]` read.
+            ;; the canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`); Story reads the
+            ;; frame off a trace event through it.
             [re-frame.trace      :as trace]
-            ;; EP-0015 (rf2-3t26eh): the on-box dev visibility choice is a
-            ;; named `:rf.egress/*` profile resolved through the framework's
-            ;; centralized projection table — NOT a process-global on/off
-            ;; toggle. `re-frame.projection` is the pure-CLJC home of the
-            ;; six ruled profiles + their `:rf.size/*` resolution; requiring
-            ;; it directly (rather than the whole `re-frame.core` facade)
-            ;; keeps this config ns JVM-runnable for the test corpus and
-            ;; pins the egress vocabulary to the ONE canonical source.
+            ;; EP-0015: the on-box dev visibility choice is a named
+            ;; `:rf.egress/*` profile resolved through the framework's
+            ;; centralized projection table. `re-frame.projection` is the
+            ;; pure-CLJC home of the six ruled profiles + their
+            ;; `:rf.size/*` resolution; requiring it directly (rather than
+            ;; the whole `re-frame.core` facade) keeps this config ns
+            ;; JVM-runnable for the test corpus and pins the egress
+            ;; vocabulary to the ONE canonical source.
             [re-frame.projection :as projection])
   #?(:cljs (:require-macros [re-frame.story.config])))
 
@@ -59,7 +59,7 @@
            `:advanced`."
            true))
 
-;; ---- the static-export flag (rf2-8wgpm) ---------------------------------
+;; ---- the static-export flag ---------------------------------------------
 ;;
 ;; A second goog-define that flips Story's chrome into "static export"
 ;; mode — the bundle is intended to be served as a publishable HTML
@@ -109,11 +109,11 @@
 ;; with `enabled?` defined as `false`, Closure sees the boolean
 ;; constant and removes the branch. The macro layer (`re-frame.story.
 ;; macros`) lays down that `(when enabled? ...)` form inline; the
-;; closure compiler does the rest. (rf2-ee38b.3 removed a dead
-;; `elide-form` helper here — the macros open-code the wrapper and never
-;; called it.)
+;; closure compiler does the rest. The macros open-code the
+;; `(when enabled? ...)` wrapper inline; there is no separate
+;; `elide-form` helper.
 
-;; ---- *global-args* (Stage 3, rf2-von3) ----------------------------------
+;; ---- *global-args* (Stage 3) --------------------------------------------
 ;;
 ;; Per `002-Runtime.md` §Args resolution precedence the args-precedence chain starts with `global-args`:
 ;; defaults the story-tool's host application sets at boot (theme, locale).
@@ -142,10 +142,10 @@
   []
   @global-args)
 
-;; ---- *global-decorators* (rf2-835ey — preview.ts parity, F-1) -----------
+;; ---- *global-decorators* (preview.ts parity) ----------------------------
 ;;
-;; Per ai/findings/2026-05-20-story-tutorial-set.md Finding F-1 (P2) Story
-;; ships story-level + variant-level decorators only; Storybook's canonical
+;; Story ships story-level + variant-level decorators directly; Storybook's
+;; canonical
 ;; "wrap every story in the design system's theme provider" recipe lives in
 ;; `preview.ts` `decorators: [...]` and Story has no equivalent. Without
 ;; one, the tutorial chapter on decorators cannot offer the canonical
@@ -171,7 +171,7 @@
 
 (defonce
   ^{:doc "Atom holding the ordered vector of global decorator references.
-         Per rf2-835ey — Storybook `preview.ts` `decorators: [...]`
+         Storybook `preview.ts` `decorators: [...]`
          parity. Defaults to `[]`; the host calls
          `re-frame.story/reg-global-decorator` at boot to append.
          Each entry is a `[decorator-id & args]` vector, same shape as
@@ -223,7 +223,7 @@
          (fn [v] (vec (remove (fn [r] (= id (first r))) v))))
   nil)
 
-;; ---- *editor* (rf2-evgf5 — 'Open in editor' affordance) ----------------
+;; ---- *editor* ('Open in editor' affordance) ----------------------------
 ;;
 ;; Per Spec 005-SOTA-Features.md §'Open in editor' per variant, every
 ;; source-coord-bearing Story surface (variant canvas title, per-test
@@ -262,9 +262,9 @@
   []
   @editor)
 
-;; ---- *project-root* (rf2-zfy1e — 'Open in editor' path prefix) ----------
+;; ---- *project-root* ('Open in editor' path prefix) ---------------------
 ;;
-;; Per rf2-zfy1e: source-coords stamped at registration time are
+;; Source-coords stamped at registration time are
 ;; classpath-relative (the form-meta `:file` slot, e.g.
 ;; `"panel_gallery/event_detail_stories.cljs"`). Editor URI handlers
 ;; (`vscode://file/<path>...`, `cursor://...`, `idea://...`, etc.)
@@ -275,7 +275,7 @@
 ;; The host application sets this once at boot via
 ;; `(story/configure! {:rf.story/project-root "C:/Users/me/code/my-app/src"})`.
 ;; Default is nil — when unset, the source-coord file ships verbatim
-;; and the Open chip behaves exactly as it did pre-rf2-zfy1e (useful
+;; and the Open chip ships the path unprefixed (useful
 ;; for hosts whose source-paths are already absolute, and for tests).
 ;;
 ;; The atom is plain data; production builds with `enabled?` false DCE
@@ -292,7 +292,7 @@
   project-root
   (atom nil))
 
-;; ---- static-export project-root posture (rf2: static-export self-containment)
+;; ---- static-export project-root posture ---------------------------------
 ;;
 ;; The project-root is a DEV-time affordance: it turns a classpath-relative
 ;; source-coord into an absolute on-disk path so the open-in-editor chip can
@@ -332,8 +332,8 @@
   (atom false))
 
 (defn set-allow-static-project-root!
-  "Opt a static-export build IN to an absolute project-root (rf2 static-export
-  self-containment). Default is OFF — in `static-mode?` the open-in-editor
+  "Opt a static-export build IN to an absolute project-root. Default is
+  OFF — in `static-mode?` the open-in-editor
   project-root is fail-closed so a published bundle ships no build-machine
   checkout path. Call this (with `true`) BEFORE `configure!` only when the
   published site is meant to deep-link back into the author's editor and the
@@ -358,7 +358,7 @@
   project-root is IGNORED (the slot stays nil) unless the host has opted in
   via `set-allow-static-project-root!`. This stops a published `story:build`
   bundle from baking the build machine's checkout root into its
-  open-in-editor URIs (rf2 static-export self-containment). Dev builds
+  open-in-editor URIs. Dev builds
   (`static-mode?` false) are unaffected."
   [p]
   (let [suppress? (and static-mode? (not @allow-static-project-root?))]
@@ -371,13 +371,13 @@
   []
   @project-root)
 
-;; ---- per-(tool,frame) egress visibility (rf2-3t26eh / EP-0015 issue 7) ---
+;; ---- per-(tool,frame) egress visibility (EP-0015 issue 7) ---------------
 ;;
-;; EP-0015 (frame-owned egress policy, graduated 2026-06-11) retired the
-;; process-global privacy on/off toggle in favour of (a) frame-owned
-;; `:sensitive` / `:large` classification declared at frame creation, and
-;; (b) the centralized `re-frame.core/project-egress` boundary primitive
-;; resolved against one of the six ruled `:rf.egress/*` profiles.
+;; EP-0015 (frame-owned egress policy) bases on-box dev visibility on
+;; (a) frame-owned `:sensitive` / `:large` classification declared at
+;; frame creation, and (b) the centralized `re-frame.core/project-egress`
+;; boundary primitive resolved against one of the six ruled
+;; `:rf.egress/*` profiles.
 ;;
 ;; Issue 7 rules the on-box-visibility GRAIN explicitly (spec/015
 ;; §Cross-tool visibility grain): on-box visibility is per (tool, frame)
@@ -410,7 +410,7 @@
 ;; scrubs only THAT frame's buffered sensitive traces (see
 ;; `set-frame-egress-profile!` + the per-frame toggle-off callbacks), never
 ;; an unrelated frame's. This is exactly the per-(tool,frame) shape issue 7
-;; substitutes for the retired process-global toggle.
+;; rules.
 
 (def default-egress-profile
   "Story's default per-frame local-render egress profile (EP-0015 issue 7):
@@ -450,9 +450,7 @@
          another. The decision derives from the resolved profile's
          `:rf.size/include-sensitive?` floor via the framework projection
          table, the same table `project-egress` consumes (one source of
-         truth). Replaces the retired single process-global egress-profile
-         atom (rf2-6z4znr) and the predecessor `:rf.privacy/show-sensitive?`
-         boolean (rf2-bclgj)."}
+         truth)."}
   frame-egress-profiles
   (atom {}))
 
@@ -468,9 +466,9 @@
   session-egress-profile
   (atom default-egress-profile))
 
-;; ---- toggle-off callbacks (rf2-lqmje / rf2-6z4znr — retroactive scrub) ----
+;; ---- toggle-off callbacks (retroactive scrub) ---------------------------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub (rf2-lqmje), narrowing a frame's
+;; Per Spec 009 §Privacy §Retroactive-scrub, narrowing a frame's
 ;; egress profile from a sensitive-revealing boundary (`:rf.egress/local-raw`)
 ;; back to the redacting default MUST clear that frame's buffered sensitive
 ;; traces — the reveal is NOT a one-way trapdoor. The Story trace listener
@@ -480,7 +478,7 @@
 ;; consumer of that frame's buffer after the operator narrowed it back
 ;; expecting privacy to be restored.
 ;;
-;; Per EP-0015 issue 7 (rf2-6z4znr) the scrub is FRAME-SCOPED: narrowing
+;; Per EP-0015 issue 7 the scrub is FRAME-SCOPED: narrowing
 ;; frame A scrubs frame A's buffer and leaves every unrelated frame
 ;; untouched. Each callback receives the narrowed `frame-id`; a callback
 ;; whose buffer is keyed per-frame clears only that frame.
@@ -572,15 +570,15 @@
 
 (defn set-frame-egress-profile!
   "Set the per-frame local-render `:rf.egress/*` profile for `frame-id`
-  (EP-0015 issue 7, rf2-6z4znr — the per-(tool,frame) visibility act). This
+  (EP-0015 issue 7 — the per-(tool,frame) visibility act). This
   is the explicit trusted-local operator act that reveals ONE frame; it
   never changes any other frame's visibility.
 
   - `:rf.egress/local-raw` reveals `frame-id`'s sensitive trace/recorder/
     DOM-capture data.
   - `:rf.egress/local-redacted` (or `nil`) narrows `frame-id` back to the
-    fail-closed default and REMOVES its override entry. Per rf2-lqmje
-    (Spec 009 §Privacy §Retroactive-scrub) a reveal → redact narrowing for
+    fail-closed default and REMOVES its override entry. Per Spec 009
+    §Privacy §Retroactive-scrub a reveal → redact narrowing for
     this frame invokes the registered `toggle-off-callbacks` with
     `frame-id`, so that frame's buffered sensitive traces are scrubbed —
     other frames are untouched. The reveal is NOT a one-way trapdoor.
@@ -638,21 +636,21 @@
       (run-toggle-off-callbacks! nil)))
   nil)
 
-;; ---- legacy single-knob shim (deprecated; configure! + tests) ------------
+;; ---- single-knob session-pin shim (configure! + tests) -----------------
 ;;
-;; The pre-rf2-6z4znr single process-global setter (`set-egress-profile!`) is
-;; retained as a thin shim over the session-pin so the `configure!` session-
-;; default path + existing fixtures keep working. It operates on the SESSION-
+;; `set-egress-profile!` is a thin single-knob shim over the session-pin,
+;; serving the `configure!` session-default path + existing fixtures. It
+;; operates on the SESSION-
 ;; PIN, never on a per-frame override — the per-frame act is
 ;; `set-frame-egress-profile!`. To READ the session-pin, deref
 ;; `session-egress-profile`; for a frame's effective profile use
 ;; `resolve-egress-profile`.
 
 (defn set-egress-profile!
-  "DEPRECATED single-knob shim (rf2-6z4znr): sets the SESSION-PIN profile.
+  "Single-knob shim: sets the SESSION-PIN profile.
   Prefer `set-frame-egress-profile!` for the per-(tool,frame) operator act.
-  Retained so existing fixtures + the `configure!` session-default path keep
-  working. Delegates to `set-session-egress-profile!`."
+  Serves existing fixtures + the `configure!` session-default path.
+  Delegates to `set-session-egress-profile!`."
   [profile]
   (set-session-egress-profile! profile))
 
@@ -670,11 +668,10 @@
 (defn sensitive-event?
   "True iff the trace event `ev` carries `:sensitive? true` at the top
   level. Thin alias over the framework-published `re-frame.privacy/sensitive?`
-  predicate (re-exported as `re-frame.core/sensitive?`) — per rf2-sqxjn
-  / rf2-iwqu9, every consumer of `:sensitive?` (Xray, Story,
-  story-mcp, re-frame2-pair-mcp) composes against ONE framework
-  primitive rather than reimplementing the five-token check. Per Spec
-  009 §Privacy."
+  predicate (re-exported as `re-frame.core/sensitive?`) — every consumer
+  of `:sensitive?` (Xray, Story, story-mcp, re-frame2-pair-mcp) composes
+  against ONE framework primitive rather than reimplementing the
+  five-token check. Per Spec 009 §Privacy."
   [ev]
   (privacy/sensitive? ev))
 
@@ -683,7 +680,7 @@
   — or nil for a frameless emit (registration-time, outermost-dispatch
   lookup failures). The frame Story's listeners resolve the per-frame
   egress profile against (EP-0015 issue 7). Reads via the canonical
-  `re-frame.trace/trace-event-frame` reader (rf2-7737vq); the `map?`
+  `re-frame.trace/trace-event-frame` reader; the `map?`
   guard keeps the accessor total for the non-map inputs Story's
   defensive call sites may pass."
   [ev]
@@ -692,8 +689,8 @@
 
 (defn suppress-sensitive?
   "Should this trace event be suppressed by a Story-registered listener
-  under the egress profile resolved FOR THE EVENT'S FRAME (EP-0015 issue 7,
-  rf2-6z4znr)?
+  under the egress profile resolved FOR THE EVENT'S FRAME (EP-0015 issue
+  7)?
 
   Returns `true` iff (a) the event is `:sensitive? true` AND (b) the profile
   resolved for the frame does NOT reveal sensitive values
@@ -715,7 +712,7 @@
    (and (sensitive-event? ev)
         (not (include-sensitive? frame-id)))))
 
-;; ---- *suppressed-counters* (rf2-bclgj — UI redaction indicator) ----------
+;; ---- *suppressed-counters* (UI redaction indicator) --------------------
 ;;
 ;; The UI panels (trace, actions) render a `[● REDACTED]` hint when
 ;; sensitive events were suppressed for the focused variant. The hint
@@ -765,23 +762,23 @@
    (swap! suppressed-counters dissoc (or variant-id :global))
    nil))
 
-;; ---- *reset-all!* (rf2-6ez1u — config-leak test-isolation gap) -----------
+;; ---- *reset-all!* (config-leak test-isolation) -------------------------
 ;;
 ;; Every leakable process-global config atom above is a `defonce` that
-;; survives across tests in the same JVM run / browser page. The test
-;; fixtures (`re-frame.story/clear-all!`, `re-frame.story.test-support/
-;; story-reset!`) historically reset only the registrar side-table, the
-;; global-decorators vector, the canonical auto-install gate, and the
-;; play run-state — they did NOT touch these config atoms.
-;;
-;; That left a green-but-wrong footgun: a test that called
+;; survives across tests in the same JVM run / browser page. Without a
+;; reset, a test that called
 ;; `(story/configure! {:rf.story/global-args {...}})` or set
-;; `:rf.story/egress-profile` leaked that global state into every
+;; `:rf.story/egress-profile` would leak that global state into every
 ;; SUBSEQUENT test. Because `global-args` is Layer 1 of args resolution
 ;; (`re-frame.story.args/resolve-args` reads `(get-global-args)` at
 ;; resolve time), a leaked global arg silently changes the EFFECTIVE
 ;; args of an unrelated later variant — order-dependent, hard to debug,
-;; and exactly the footgun class `test_support` exists to close.
+;; and exactly the footgun class `test_support` exists to close. The
+;; test fixtures (`re-frame.story/clear-all!`,
+;; `re-frame.story.test-support/story-reset!`) call `reset-all!` so these
+;; config atoms join the registrar side-table, the global-decorators
+;; vector, the canonical auto-install gate, and the play run-state in
+;; being cleared between tests.
 ;;
 ;; `reset-all!` restores every leakable atom to its load-time default so
 ;; the test fixtures can call it once and guarantee a clean config slate.
@@ -813,7 +810,7 @@
   - `suppressed-counters`         → `{}`
 
   Deliberately leaves `toggle-off-callbacks` intact — those are
-  load-time module registrations, not per-test state (per rf2-6ez1u)."
+  load-time module registrations, not per-test state."
   []
   (reset! global-args {})
   (reset! global-decorators [])
