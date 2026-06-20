@@ -516,6 +516,36 @@
       (is (re-find #":rf.assert" text))
       (is (re-find #"snapshot-identity" text)))))
 
+(deftest get-story-instructions-covers-the-full-registration-surface
+  ;; rf2-4537df — the onboarding text + descriptor are the agent-facing
+  ;; contract for the Story registration surface. They previously listed
+  ;; only the SEVEN reg-* macros and omitted the public `reg-fragment` /
+  ;; `reg-check` composition macros, so an agent following the onboarding
+  ;; would never discover the `:compose` reuse surface. These assertions
+  ;; pin all nine public macros + the count so a future macro-surface
+  ;; change can't silently drift the onboarding again.
+  (testing "the onboarding text enumerates all nine reg-* macros, including the composition cohort"
+    (let [text (-> (invoke "get-story-instructions" {}) :content first :text)]
+      (doseq [m ["reg-story" "reg-variant" "reg-fragment" "reg-check"
+                 "reg-workspace" "reg-mode" "reg-story-panel"
+                 "reg-decorator" "reg-tag"]]
+        (is (re-find (re-pattern m) text)
+            (str "onboarding text must mention " m)))
+      (is (re-find #"nine `reg-\*` macros" text)
+          "onboarding states the count is nine, not seven")
+      (is (not (re-find #"seven `reg-\*` macros" text))
+          "the stale 'seven' count must be gone")
+      (is (re-find #":compose" text)
+          "onboarding surfaces the :compose composition mechanism")))
+  (testing "the get-story-instructions descriptor description names the composition surface"
+    (let [d    (some #(when (= "get-story-instructions" (:name %)) %)
+                     registry/tool-registry)
+          desc (:description d)]
+      (is (re-find #"nine reg-\* macros" desc)
+          "descriptor says nine, not seven")
+      (is (re-find #"reg-fragment" desc) "descriptor names reg-fragment")
+      (is (re-find #"reg-check" desc) "descriptor names reg-check"))))
+
 (deftest get-story-instructions-emits-structured-content
   ;; rf2-vyacl — the descriptor declares an `:outputSchema`, so the
   ;; official MCP SDK's high-level callTool REJECTS a result with no
