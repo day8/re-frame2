@@ -110,10 +110,10 @@
   Cap accounting must size the structured slot too — otherwise the cap
   underestimates wire by ~50% and overflow replacement fires later than
   it should. We surface the structured payload as one extra `pr-str`-ed
-  string in the `content-texts` seq; `sum-text-tokens` then transduces
+  string in the `wire-payload-strings` seq; `sum-payload-tokens` then transduces
   it alongside the `:content[*].text` strings under one budget."
   (reify base-cap/ResultIO
-    (content-texts [_ result]
+    (wire-payload-strings [_ result]
       (cond-> (mapv :text (:content result))
         (some? (:structuredContent result))
         (conj (result/pr-edn (:structuredContent result)))))

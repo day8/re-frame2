@@ -15,8 +15,10 @@
   … :tool … :hint …}}` map). This ns owns the ALGORITHM that drives the
   marker into a result:
 
-  1. Sum the cumulative `token-estimate` across every `:text` slot in
-     the result's `:content` vector.
+  1. Sum the cumulative `token-estimate` across every wire payload
+     string in the result — every serialized payload-bearing slot
+     (`:content[*].text` PLUS any duplicated slot like
+     `:structuredContent`), not only the `:content` vector.
   2. Compare against the per-call cap (`:max-tokens` MCP arg, default
      `overflow/default-max-tokens`, `0` disables).
   3. Under-budget responses pass through unchanged; over-budget
@@ -34,9 +36,15 @@
 
   Each consumer reifies `ResultIO` with two methods:
 
-  - `(content-texts io result)` ⇒ seq of strings, the `:text`-slot
-    values inside `result`'s content vector. The platform-specific
-    accessor (`:text` / `j/get :text`) lives behind this method.
+  - `(wire-payload-strings io result)` ⇒ seq of strings — ONE for EVERY
+    serialized, payload-bearing wire slot in `result`, NOT only the
+    `:text` slots. At minimum the `:text`-slot values inside `result`'s
+    content vector (platform accessor `:text` / `j/get :text` lives
+    behind this method), PLUS any duplicated payload slot the envelope
+    also ships (most commonly `:structuredContent`). The name says
+    payload-strings, not content-texts, precisely because a slot omitted
+    here is a slot the cap cannot see (the ~50% structuredContent
+    undercount — see the method docstring).
   - `(build-overflow-result io marker original-result)` ⇒ a fresh
     result, shaped per the consumer's wire convention, carrying
     `marker` as its sole content payload.
@@ -77,7 +85,7 @@
   story-mcp. The cap pipeline is then algorithm-only and
   shape-agnostic."
 
-  (content-texts [_io result]
+  (wire-payload-strings [_io result]
     "Return a seq of strings — ONE for EVERY serialized, payload-bearing
     slot that rides the wire in `result`. This is the cap's measurement
     surface: `apply-cap` sums tokens + chars across exactly these
@@ -222,13 +230,15 @@
       (invalid-arg-marker :max-tokens raw invalid-arg-hint))))
 
 ;; ---------------------------------------------------------------------------
-;; sum-text-tokens — cumulative token count across the result's :text slots.
+;; sum-payload-tokens — cumulative token count across the result's wire
+;; payload strings (every serialized payload-bearing slot, not only :text).
 ;; ---------------------------------------------------------------------------
 
-(defn- sum-text-by
-  "Sum `(f s)` across every string `:text` slot in `result`'s content
-  vector, accessed via `io`. The shared fold body under
-  `sum-text-tokens` / `sum-text-chars` — the only thing that differs
+(defn- sum-payload-by
+  "Sum `(f s)` across every string the consumer's `wire-payload-strings`
+  surfaces for `result` — every serialized payload-bearing wire slot, not
+  only the `:text` slots — accessed via `io`. The shared fold body under
+  `sum-payload-tokens` / `sum-payload-chars` — the only thing that differs
   between them is the per-string measure `f` (`token-estimate` vs
   `count`). Non-string slots are skipped; a nil / empty content vector
   folds to zero."
@@ -237,33 +247,37 @@
                    (map f))
              +
              0
-             (content-texts io result)))
+             (wire-payload-strings io result)))
 
-(defn sum-text-tokens
-  "Sum `overflow/token-estimate` across every `:text` slot in `result`'s
-  content vector, accessed via `io`. The serialised response's wire size
-  is dominated by these slots; the JSON envelope is bounded and ignored.
+(defn sum-payload-tokens
+  "Sum `overflow/token-estimate` across every wire payload string the
+  consumer's `wire-payload-strings` surfaces for `result` (every
+  serialized payload-bearing slot, not only `:text`), accessed via `io`.
+  The serialised response's wire size is dominated by these slots; the
+  JSON envelope is bounded and ignored.
 
   Multi-part responses share one cumulative budget rather than per-key
   — a single oversize slot or an aggregate of many small slots both
   trip the cap."
   [io result]
-  (sum-text-by io result overflow/token-estimate))
+  (sum-payload-by io result overflow/token-estimate))
 
-(defn sum-text-chars
-  "Sum the character count across every `:text` slot in `result`'s
-  content vector, accessed via `io`. Used by the secondary byte cap
-  (rf2-ih7g4) — the primary `sum-text-tokens` divides by 4 (Anthropic's
-  English-rule-of-thumb), which materially undercounts CJK, emoji,
-  base64, and dense code. A char-count secondary gate catches payloads
-  that escape the quotient heuristic.
+(defn sum-payload-chars
+  "Sum the character count across every wire payload string the
+  consumer's `wire-payload-strings` surfaces for `result` (every
+  serialized payload-bearing slot, not only `:text`), accessed via `io`.
+  Used by the secondary byte cap (rf2-ih7g4) — the primary
+  `sum-payload-tokens` divides by 4 (Anthropic's English-rule-of-thumb),
+  which materially undercounts CJK, emoji, base64, and dense code. A
+  char-count secondary gate catches payloads that escape the quotient
+  heuristic.
 
-  Returns the cumulative `(count s)` across string `:text` slots. The
+  Returns the cumulative `(count s)` across the payload strings. The
   caller decides the multiplier (`cap * 8` in `apply-cap` — generous
   enough for English / EDN to pass through unchanged, tight enough
   that a payload doubled by undercount still trips the cap)."
   [io result]
-  (sum-text-by io result count))
+  (sum-payload-by io result count))
 
 (def ^:const byte-cap-multiplier
   "Secondary byte-cap multiplier (rf2-ih7g4). `cap * multiplier` is the
@@ -282,7 +296,7 @@
 ;;
 ;; ## Why the secondary char gate is load-bearing today (rf2-of2cd)
 ;;
-;; `apply-cap` derives BOTH sums from the SAME `content-texts` seq:
+;; `apply-cap` derives BOTH sums from the SAME `wire-payload-strings` seq:
 ;; `tokens = Σ (token-estimate s)`, `chars = Σ (count s)`. A NAIVE reading
 ;; argues the char gate can never be the SOLE trip-reason: for a SINGLE
 ;; string of length L, `chars = L` and `tokens = (quot L 4)`, so `chars >
@@ -380,7 +394,7 @@
                          {:tokens (+ tokens (overflow/token-estimate s))
                           :chars  (+ chars (count s))}))
                      {:tokens 0 :chars 0}
-                     (content-texts io result))]
+                     (wire-payload-strings io result))]
       (if-not (over-cap? tokens chars cap)
         result
         (let [marker (overflow/overflow-payload

@@ -9,7 +9,7 @@
 
   Tests pin the public helpers directly from
   `re-frame2-pair-mcp.tools.cap`: `max-tokens-arg`, `overflow-payload`,
-  `sum-text-tokens`, `apply-cap`, `overflow-hints`, `default-max-tokens`.
+  `sum-payload-tokens`, `apply-cap`, `overflow-hints`, `default-max-tokens`.
   The two cross-MCP re-exports that production never used —
   `token-estimate` and `overflow-hint-fallback` — moved to
   `re-frame2-pair-mcp.test-utils` (rf2-ttspi7) and are pinned via `tu/`
@@ -95,21 +95,21 @@
   (is (not (cap/invalid-arg? nil))))
 
 ;; ---------------------------------------------------------------------------
-;; sum-text-tokens — sums every `:text` slot.
+;; sum-payload-tokens — sums every `:text` slot.
 ;; ---------------------------------------------------------------------------
 
-(deftest sum-text-tokens-single-slot
+(deftest sum-payload-tokens-single-slot
   (let [r (ok-text-result {:hello "world"})]
-    (is (pos? (cap/sum-text-tokens r)))
-    (is (= (tu/token-estimate (read-text r)) (cap/sum-text-tokens r)))))
+    (is (pos? (cap/sum-payload-tokens r)))
+    (is (= (tu/token-estimate (read-text r)) (cap/sum-payload-tokens r)))))
 
-(deftest sum-text-tokens-empty-content-is-zero
-  (is (zero? (cap/sum-text-tokens #js {:content #js []}))))
+(deftest sum-payload-tokens-empty-content-is-zero
+  (is (zero? (cap/sum-payload-tokens #js {:content #js []}))))
 
-(deftest sum-text-tokens-aggregates-across-slots
+(deftest sum-payload-tokens-aggregates-across-slots
   (let [r #js {:content #js [#js {:type "text" :text (big-string 4000)}
                               #js {:type "text" :text (big-string 4000)}]}]
-    (is (= 2000 (cap/sum-text-tokens r)))))
+    (is (= 2000 (cap/sum-payload-tokens r)))))
 
 ;; ---------------------------------------------------------------------------
 ;; apply-cap — the strategy entry point.
@@ -165,7 +165,7 @@
   (let [big (apply str (repeat 8000 "x"))
         r   (ok-text-result {:huge big})
         out (cap/apply-cap r {:tool "snapshot" :cap 500})]
-    (is (<= (cap/sum-text-tokens out) 500)
+    (is (<= (cap/sum-payload-tokens out) 500)
         "The overflow marker itself must be under the cap")))
 
 (deftest apply-cap-unknown-tool-uses-fallback-hint
@@ -192,7 +192,7 @@
         ;; text is ~402 chars ⇒ 100 tokens.
         s    (apply str (repeat 400 "x"))
         r    (ok-text-result s)
-        toks (cap/sum-text-tokens r)
+        toks (cap/sum-payload-tokens r)
         out  (cap/apply-cap r {:tool "snapshot" :cap toks})]
     (is (identical? r out))))
 
@@ -218,12 +218,12 @@
   #js {:content          #js [#js {:type "text" :text (pr-str text-v)}]
        :structuredContent (clj->js structured-v)})
 
-(deftest sum-text-tokens-counts-structured-content
+(deftest sum-payload-tokens-counts-structured-content
   ;; Small text slot, large structuredContent. The token sum must reflect
   ;; the structured JSON bytes, not just the text slot.
   (let [r          (dual-coded-result {:ok? true} {:big-payload (big-string 30000)})
         text-only  (tu/token-estimate (read-text r))
-        total      (cap/sum-text-tokens r)]
+        total      (cap/sum-payload-tokens r)]
     (is (> total (+ text-only 5000))
         "structuredContent JSON bytes MUST be summed alongside the text slot")))
 
@@ -244,7 +244,7 @@
       (is (= 1000 (:cap-tokens marker)))
       (is (> (:token-count marker) 1000)
           "token-count reflects the structured-slot bytes the text gate alone would miss"))
-    (is (<= (cap/sum-text-tokens out) 1000)
+    (is (<= (cap/sum-payload-tokens out) 1000)
         "the overflow replacement itself stays under cap")))
 
 (deftest apply-cap-passes-small-dual-coded-payload-untouched
@@ -272,7 +272,7 @@
         edn      (read-edn out)]
     (is (contains? edn :rf.mcp/overflow)
         "5MB payload MUST be replaced with overflow marker, not shipped raw")
-    (is (<= (cap/sum-text-tokens out) cap/default-max-tokens)
+    (is (<= (cap/sum-payload-tokens out) cap/default-max-tokens)
         "Replacement payload MUST be under the cap")
     (let [marker (:rf.mcp/overflow edn)]
       (is (= :reached (:limit marker)))
@@ -356,7 +356,7 @@
         "over-budget lookalike-keyed payload MUST be capped, not short-circuited")
     (is (not (contains? edn :rf.mcp/overflowed))
         "the raw over-budget lookalike body must NOT ride the wire")
-    (is (<= (cap/sum-text-tokens out) 500)
+    (is (<= (cap/sum-payload-tokens out) 500)
         "the overflow replacement itself stays under cap")))
 
 ;; ---------------------------------------------------------------------------
