@@ -1,15 +1,13 @@
 (ns day8.re-frame2-machines-viz.chart.nodes.parallel-region-node
   "xyflow node component for a parallel-region (orthogonal-zone)
-  container (rf2-lkwev · xyflow Phase 2).
+  container.
 
   ## Why this exists
 
-  xyflow Phase 1 (#1806) projected only the FIRST region of a
-  `{:type :parallel :regions {...}}` machine — full parallel layout
-  was deferred. This component completes the deferral: every region
-  renders as a distinct orthogonal zone with its own dashed boundary
-  (Stately Studio parity — Stately paints parallel regions as
-  side-by-side panes separated by a dashed divider).
+  A `{:type :parallel :regions {...}}` machine renders every region as
+  a distinct orthogonal zone with its own dashed boundary (Stately
+  Studio parity — Stately paints parallel regions as side-by-side panes
+  separated by a dashed divider).
 
   ## How it works with xyflow
 
@@ -17,21 +15,19 @@
   node per region; `chart.projection/xyflow-graph` projects it as a
   `type: \"parallel-region\"` xyflow node and assigns every state in
   the region a `parentId` pointing at the region node (xyflow's
-  sub-flow mechanic — rf2-xh1lm: xyflow v12 reads `parentId`, NOT the
-  pre-v12 `parentNode`). This component renders the region's CHROME —
+  sub-flow mechanic — xyflow v12 reads `parentId`, NOT the pre-v12
+  `parentNode`). This component renders the region's CHROME —
   a large translucent box with a dashed border + the region label in
   the header strip. The child state nodes sit inside via xyflow's
   `parentId` positioning; this component only paints the surround.
 
-  ## Region identity comes from layout, not colour (rf2-az6e2)
+  ## Region identity comes from layout, not colour
 
   Regions are distinguished by CONTAINMENT + LAYOUT (side-by-side dashed
-  zones), NOT a rotating border colour. The prior per-region
-  `region-boundary-palette` rotation is removed: static colour rotation
-  is not the topology signal — structure wins. Every region's boundary
-  is the SAME neutral dashed treatment; the dashed style itself (vs the
-  compound container's solid neutral) is what marks a zone as a parallel
-  region.
+  zones), NOT a rotating border colour: static colour rotation is not the
+  topology signal — structure wins. Every region's boundary is the SAME
+  neutral dashed treatment; the dashed style itself (vs the compound
+  container's solid neutral) is what marks a zone as a parallel region.
 
   ## Token integration
 
@@ -41,7 +37,7 @@
   state (`:active` accent + glow), so an active region reads live without
   the static identity competing for the accent.
 
-  ## Border handles (rf2-shv82)
+  ## Border handles
 
   Invisible source + target `<Handle>` elements sit on all four
   sides so xstate/Stately-style edges incident on the region
@@ -49,9 +45,8 @@
   render through xyflow normally. Without them xyflow's
   `getHandleBounds` returns null, `isNodeInitialized` returns false,
   and `getEdgePosition` returns null — every edge whose endpoint is a
-  region container is SILENTLY DROPPED from the DOM. The same
-  mechanic the compound-node fix uses; the region-node mirrors it for
-  consistency."
+  region container is SILENTLY DROPPED from the DOM. The compound-node
+  uses the same mechanic; the region-node mirrors it for consistency."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [four-cardinal-handles chart-constants palette-of]]
@@ -61,7 +56,7 @@
 ;; ---- parallel-region node ----------------------------------------------
 
 (defn parallel-region-node
-  "rf2-az6e2 — Reagent component for a parallel-region container. xyflow
+  "Reagent component for a parallel-region container. xyflow
   invokes this via `nodeTypes={:parallel-region parallel-region-node}`.
   Reads `:data {:label :regionIndex :regionId ...}` off the xyflow props.
 
@@ -69,9 +64,8 @@
   neutral is the compound container):
 
     - DASHED NEUTRAL rounded boundary. Region identity comes from
-      CONTAINMENT + LAYOUT, NOT a rotating border colour (the prior
-      per-region `region-boundary-palette` rotation is REMOVED — static
-      colour rotation is not the topology signal).
+      CONTAINMENT + LAYOUT, NOT a rotating border colour — static colour
+      rotation is not the topology signal.
     - A full-width REGION TITLE STRIP carrying the uppercased label, with
       a subtle `∥` parallel glyph (small, never dominating).
     - Active / focus colour is reserved for RUNTIME state: an active
@@ -88,7 +82,7 @@
         {:keys [compound-radius region-title-height region-title-pad-x
                 container-title-px container-divider-width
                 stroke-width stroke-width-emphasis]} vc
-        ;; rf2-az6e2 — NEUTRAL boundary by default (no rotation colour).
+        ;; NEUTRAL boundary by default (no rotation colour).
         ;; Active swaps the dashed neutral to a solid runtime accent.
         border-color (if active? (:active ct) (:region-border ct))
         border-style (if active? "solid" "dashed")
@@ -104,7 +98,7 @@
                      :height         "100%"
                      :background     (:container-body-bg ct)
                      ;; Dashed NEUTRAL orthogonal-zone delineation; solid
-                     ;; runtime-accent when active (rf2-80rm2 / rf2-az6e2).
+                     ;; runtime-accent when active.
                      :border         (str border-w "px " border-style " " border-color)
                      :border-radius  (str compound-radius "px")
                      :box-shadow     (when active?
@@ -141,8 +135,8 @@
                         :font-family mono-stack}}
          "∥"]
         label]
-       ;; rf2-shv82 — invisible xyflow attachment points so an edge
-       ;; whose endpoint is a region container has a handle to anchor
-       ;; to. Without them xyflow silently drops the edge (same
-       ;; mechanic as the compound-node fix).
+       ;; Invisible xyflow attachment points so an edge whose endpoint
+       ;; is a region container has a handle to anchor to. Without them
+       ;; xyflow silently drops the edge (same mechanic as the
+       ;; compound-node).
        (four-cardinal-handles)])))

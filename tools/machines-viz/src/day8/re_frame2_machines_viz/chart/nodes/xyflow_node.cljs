@@ -9,9 +9,8 @@
   `Handle` React class + the four `Position` constants for its
   invisible edge-attachment points, and (for the geometry-bearing
   nodes) recovers the resolved density's `visual-constants` map off the
-  `clj->js`-ed node `:data`. That preamble was byte-identical in each
-  node ns; consolidating it here removes the copy-paste while keeping
-  the rendered output pixel-identical.
+  `clj->js`-ed node `:data`. This ns owns that shared preamble once, so
+  every node ns shares one implementation.
 
   This ns deliberately requires NOTHING from `chart.nodes` (which
   requires the per-kind node nss), so there is no dependency cycle —
@@ -39,15 +38,15 @@
 
 ;; ---- four-cardinal edge-attachment Handles ------------------------------
 ;;
-;; rf2-idx41 — the leaf state, compound container, parallel-region
-;; container, and event nodes all attach edges the SAME way: an invisible
-;; `Handle` on each cardinal side, with the LEFT + TOP as targets and the
-;; RIGHT + BOTTOM as sources (the left/right handles carry the `"left"` /
+;; The leaf state, compound container, parallel-region container, and
+;; event nodes all attach edges the SAME way: an invisible `Handle` on
+;; each cardinal side, with the LEFT + TOP as targets and the RIGHT +
+;; BOTTOM as sources (the left/right handles carry the `"left"` /
 ;; `"right"` ids the entry-edge `:targetHandle` + the routed sources
-;; address). That four-`Handle` cluster was copy-pasted in each node ns;
-;; this fragment owns it once. Handles are `opacity 0` (xyflow still
-;; measures them for `handleBounds` so an edge has a slot to anchor to —
-;; the rf2-shv82 compound/region drop fix) without adding visible chrome.
+;; address). This fragment owns that four-`Handle` cluster once. Handles
+;; are `opacity 0` (xyflow still measures them for `handleBounds` so an
+;; edge has a slot to anchor to — without a handle xyflow silently drops
+;; an edge incident on a compound/region) without adding visible chrome.
 
 (defn four-cardinal-handles
   "A React fragment of the four invisible cardinal `Handle`s every
@@ -70,9 +69,9 @@
   "Recover the resolved visual-constants map off a node's `:data`
   (`(.-chart d)`). The projector emits a CLJS map; xyflow `clj->js`-es
   it into a JS object, so we `js->clj` it back with keyword keys.
-  Returns `vc/chart-regular` when absent so the regular density stays
-  pixel-identical to the pre-rf2-k647w hardcoded numbers (legacy /
-  direct construction also lands on the regular default)."
+  Returns `vc/chart-regular` when absent so a node payload without a
+  `:chart` entry (direct construction) still renders the regular
+  density."
   [^js d]
   (let [c (.-chart d)]
     (if (some? c)
@@ -80,7 +79,7 @@
       vc/chart-regular)))
 
 (defn palette-of
-  "rf2-az6e2 — recover the resolved chart-semantic token map off a
+  "Recover the resolved chart-semantic token map off a
   node's `:data` (`(.-palette d)`). The projector threads
   `theme/tokens/chart-tokens` of the active `:theme` palette here; xyflow
   `clj->js`-es it into a JS object so we `js->clj` it back with keyword

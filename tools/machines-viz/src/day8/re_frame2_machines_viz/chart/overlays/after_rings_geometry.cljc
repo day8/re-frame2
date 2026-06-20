@@ -1,6 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.after-rings-geometry
-  "Pure geometry for the xyflow `:after`-timer countdown-ring overlay
-  (rf2-uv1on · xyflow Phase 2).
+  "Pure geometry for the xyflow `:after`-timer countdown-ring overlay.
 
   ## Why a separate .cljc
 
@@ -21,9 +20,8 @@
   in overlay-local space is the node's viewport centre MINUS the
   container's viewport origin. xyflow's internal pan/zoom is already
   baked into the rendered rects, so the overlay needs no separate
-  viewport-transform (the rf2-obp4z `translate(tx,ty) scale(s)`
-  machinery the SVG renderer needed is obsolete — xyflow lays the
-  DOM out in final on-screen coordinates).
+  viewport-transform — xyflow lays the DOM out in final on-screen
+  coordinates, with no `translate(tx,ty) scale(s)` transform to mirror.
 
   ## Ring radius
 
@@ -88,10 +86,9 @@
         :cy (- ncy cy-origin)
         :r  (ring-radius node-rect zoom)}))))
 
-;; rf2-ee38b.21 — the byte-identical `state->node-testid` helper that
-;; lived here was removed; the canonical node-id → testid helper is
-;; `overlay-anchor/node->testid` (the shared overlay seam). `after_rings`
-;; calls it directly.
+;; The canonical node-id → testid helper is `overlay-anchor/node->testid`
+;; (the shared overlay seam); `after_rings` calls it directly. This ns
+;; keeps no testid helper of its own — one source of truth for the string.
 
 (defn overlay-rings
   "Pure projection: for each `{:node-id ...}`-bearing ring spec, merge

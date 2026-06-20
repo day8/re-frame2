@@ -1,34 +1,31 @@
 (ns day8.re-frame2-machines-viz.chart.edges
   "Custom xyflow edge components for the MachineChart.
 
-  rf2-gpzb4 (2026-05-21 xyflow override) — edge components render the
-  xstate-style label (`event [guard] / action`) with a small backplate
-  for legibility against overlapping edges + the dot-grid background.
-  Active-state and focused-event lens highlighting are reflected in
-  stroke colour + width via the edge's `:data` payload.
+  Edge components render the xstate-style label (`event [guard] /
+  action`) with a small backplate for legibility against overlapping
+  edges + the dot-grid background. Active-state and focused-event lens
+  highlighting are reflected in stroke colour + width via the edge's
+  `:data` payload.
 
-  ## Edge kinds (per the bead's scope §Custom edges)
+  ## Edge kinds
 
     - `transition-edge` — the canonical (and only) edge type. Renders
       the route ELK computed (a smooth poly-path THROUGH ELK's bend-
-      points, rf2-cz8v6) with the event label sitting where ELK placed
-      it (rf2-rlq97 — `:labelPos`, ELK's reserved label channel) behind
-      a small backplate rect. When ELK placed no label (the events-as-
-      nodes default — the transition text rides on the event-NODE) the
-      anchor falls back to a geometric midpoint heuristic. Under events-
-      as-nodes EVERY projected edge is this type; `:after`-timer
-      specifics ride the event-NODE (`:variant \"after\"` + `:afterMs`),
-      not a distinct edge type, so the dead `after-edge` alias + the
-      `choose-edge-type` classifier were removed (rf2-dt5b1).
+      points) with the event label sitting where ELK placed it
+      (`:labelPos`, ELK's reserved label channel) behind a small
+      backplate rect. When ELK placed no label (the events-as-nodes
+      default — the transition text rides on the event-NODE) the anchor
+      falls back to a geometric midpoint heuristic. Under events-as-nodes
+      EVERY projected edge is this type; `:after`-timer specifics ride
+      the event-NODE (`:variant \"after\"` + `:afterMs`), not a distinct
+      edge type.
 
-  rf2-0gmwp — there is no `spawn` edge type. Per Spec 005 `:spawn` /
-  `:spawn-all` are state-entry actions that bring CHILD actor machines
-  into existence; they are NOT same-machine transitions, so the parse
-  (`chart.layout`) emits no spawn edge. Spawned children surface
-  through the `chart.overlays.spawn-all-join` inspector (anchored
-  beside the spawn-bearing state), not as an edge in this chart. The
-  previously-registered `spawn-edge` component was dead registration —
-  never reachable from any parsed edge — and was removed.
+  There is no `spawn` edge type. Per Spec 005 `:spawn` / `:spawn-all`
+  are state-entry actions that bring CHILD actor machines into existence;
+  they are NOT same-machine transitions, so the parse (`chart.layout`)
+  emits no spawn edge. Spawned children surface through the
+  `chart.overlays.spawn-all-join` inspector (anchored beside the
+  spawn-bearing state), not as an edge in this chart.
 
   ## Substrate posture
 
@@ -54,7 +51,7 @@
 (def ^:private BaseEdge        (.-BaseEdge xyflow))
 (def ^:private EdgeLabelRenderer (.-EdgeLabelRenderer xyflow))
 
-;; ---- elk bend-point routing (rf2-cz8v6, G2) ----------------------------
+;; ---- elk bend-point routing --------------------------------------------
 ;;
 ;; When elk hands us a multi-point route (start → bend… → end, in
 ;; absolute flow coords), we render the edge ALONG it instead of a
@@ -123,7 +120,7 @@
     [(/ (+ (.-x a) (.-x b)) 2)
      (/ (+ (.-y a) (.-y b)) 2)]))
 
-;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
+;; ---- cross-hierarchy label placement -----------------------------------
 ;;
 ;; A cross-hierarchy edge (source and target in different parent
 ;; containers) routed via elk's bend-points has a midpoint that can land
@@ -165,7 +162,7 @@
 
 (defn edge-path
   "Pure path-selection for a transition edge — the single source of
-  truth `transition-edge` renders + the test suite pins (rf2-cz8v6).
+  truth `transition-edge` renders + the test suite pins.
 
   Returns `{:d <svg-path-string> :label-x <px> :label-y <px> :routed?
   <bool>}`. Path selection, in priority order:
@@ -173,17 +170,16 @@
     1. elk route     → when `points` is a JS array of ≥ 2 `#js {:x :y}`,
        a smooth poly-path THROUGH the bends so the edge goes AROUND
        nested containers (`:routed? true`).
-       rf2-rlq97: the LABEL anchor is elk's COMPUTED label position
-       (`label-pos` `{:x :y}`, fed from `chart.edges`'s
-       `elk.edgeLabels.placement`) when elk placed one — so a labelled
-       edge's text sits in the collision-free channel elk reserved, NOT
-       at a renderer-side heuristic. When elk placed NO label (the
-       events-as-nodes default — the transition text rides on the
-       event-NODE so the edge carries no label), the anchor falls back
-       to the geometric heuristic:
-         rf2-shv82 (Issue 3): cross-hierarchy edges anchor near the
-         SOURCE-SIDE first bend point (just outside the container the
-         edge exits); other edges use the routed middle-segment midpoint.
+       The LABEL anchor is elk's COMPUTED label position (`label-pos`
+       `{:x :y}`, fed from `chart.edges`'s `elk.edgeLabels.placement`)
+       when elk placed one — so a labelled edge's text sits in the
+       collision-free channel elk reserved, NOT at a renderer-side
+       heuristic. When elk placed NO label (the events-as-nodes default
+       — the transition text rides on the event-NODE so the edge carries
+       no label), the anchor falls back to the geometric heuristic:
+         cross-hierarchy edges anchor near the SOURCE-SIDE first bend
+         point (just outside the container the edge exits); other edges
+         use the routed middle-segment midpoint.
     2. bezier        → `getBezierPath` between the handles (`:routed?
        false`) — the no-bend-point fallback.
 
@@ -197,7 +193,7 @@
     (cond
       routed?
       (let [[lx ly] (cond
-                      ;; rf2-rlq97 — elk placed the label: paint there.
+                      ;; elk placed the label: paint there.
                       (and label-pos
                            (number? (:x label-pos))
                            (number? (:y label-pos)))
@@ -221,65 +217,64 @@
 
 ;; ---- helpers ------------------------------------------------------------
 ;;
-;; rf2-k647w — edge typography (label font-size + backplate opacity)
-;; reads off the resolved density's `visual-constants` map, threaded
-;; onto the edge `:data` by the projector. `chart-constants` (the
-;; kebab-keyword recovery off `(.-chart d)`, `vc/chart-regular` fallback)
-;; and `palette-of` (the chart-semantic token recovery off `(.-palette d)`)
+;; Edge typography (label font-size + backplate opacity) reads off the
+;; resolved density's `visual-constants` map, threaded onto the edge
+;; `:data` by the projector. `chart-constants` (the kebab-keyword
+;; recovery off `(.-chart d)`, `vc/chart-regular` fallback) and
+;; `palette-of` (the chart-semantic token recovery off `(.-palette d)`)
 ;; are shared with the node renderers — both are `:refer`-ed from
-;; `chart.nodes.xyflow-node` rather than re-implemented here (rf2-91oga2).
+;; `chart.nodes.xyflow-node`.
 
 (defn- edge-stroke
-  "rf2-fzrzlw — `blocked?` (the edge's guard rejected the event this
-  epoch) wins OUTRIGHT so the pink guard-blocked hue overrides the
-  affordance-blue / fired / active on that specific edge (bead design
-  call (2): the attempted-and-rejected edge must stand out).
+  "`blocked?` (the edge's guard rejected the event this epoch) wins
+  OUTRIGHT so the pink guard-blocked hue overrides the affordance-blue /
+  fired / active on that specific edge: the attempted-and-rejected edge
+  must stand out.
 
-  rf2-qeemm (G3) — `fired?` (the edge traversed THIS epoch) wins over
-  `focused?` / `active?` so a fired arm reads as 'what just happened' in
-  the FIRED hue, distinct from the focused/active hue.
+  `fired?` (the edge traversed THIS epoch) wins over `focused?` /
+  `active?` so a fired arm reads as 'what just happened' in the FIRED
+  hue, distinct from the focused/active hue.
 
-  rf2-az6e2 — colours resolve through the active-theme chart-tokens
-  (`ct`): fired = `:edge-fired`, focused/active = `:edge-active`, resting
-  = `:edge-quiet`. The QUIET source→event segment (`quiet?`) paints the
-  quiet colour even when the route is otherwise resting so the pair reads
-  as one transition with the primary arrowhead on the event→target half.
+  Colours resolve through the active-theme chart-tokens (`ct`): fired =
+  `:edge-fired`, focused/active = `:edge-active`, resting = `:edge-quiet`.
+  The QUIET source→event segment (`quiet?`) paints the quiet colour even
+  when the route is otherwise resting so the pair reads as one transition
+  with the primary arrowhead on the event→target half.
 
-  G-START — the initial-marker entry edge (`entry?`) is the SCXML/Stately
+  The initial-marker entry edge (`entry?`) is the SCXML/Stately
   initial-state icon (filled dot + short arrow into the state's near
   edge). It paints the SAME neutral `:pseudo-marker` hue as the dot — NOT
   the near-invisible `:edge-quiet` resting hue — so the dot + arrow read
   as one clearly-visible unit, matching the projector's arrowhead
   `:markerEnd :color` (`:pseudo-marker`) for the same edge.
 
-  rf2-dt5b1 — otherwise delegates to the shared `tokens/edge-color`, the
-  SINGLE source the projector's arrowhead-`:markerEnd` colour also routes
+  Otherwise delegates to the shared `tokens/edge-color`, the SINGLE
+  source the projector's arrowhead-`:markerEnd` colour also routes
   through, so a stroke and its arrowhead can never resolve different
-  colours for the same edge state (rf2-fzrzlw — `:blocked?` resolves to
-  the pink guard-blocked hue there, winning over fired/active)."
+  colours for the same edge state (`:blocked?` resolves to the pink
+  guard-blocked hue there, winning over fired/active)."
   [ct {:keys [entry?] :as flags}]
   (if entry?
     (:pseudo-marker ct)
     (tokens/edge-color ct flags)))
 
 (defn- edge-stroke-width
-  "rf2-k647w — edge stroke widths read off the resolved density. The
-  active stroke sits midway between default + emphasis; the focused
-  stroke is the emphasis width (preserving the shipped regular
-  relationship 1.5 / 2.0 / 2.5).
+  "Edge stroke widths read off the resolved density. The active stroke
+  sits midway between default + emphasis; the focused stroke is the
+  emphasis width (the regular relationship is 1.5 / 2.0 / 2.5).
 
-  rf2-qeemm (G3) — `fired?` paints at the emphasis width (the heaviest
-  treatment), at least as prominent as `focused?`.
+  `fired?` paints at the emphasis width (the heaviest treatment), at
+  least as prominent as `focused?`.
 
-  rf2-fzrzlw — `blocked?` (the guard-blocked no-op edge) paints at the
-  emphasis width too so the pink rejected edge stands out as much as a
-  fired arm — the operator must not miss the attempted transition.
+  `blocked?` (the guard-blocked no-op edge) paints at the emphasis width
+  too so the pink rejected edge stands out as much as a fired arm — the
+  operator must not miss the attempted transition.
 
-  rf2-az6e2 — the QUIET source→event segment (`quiet?`) paints ONE notch
-  THINNER than the resting width (so the pair reads as one route: the
-  quiet inbound half + the primary outbound half). A quiet segment that
-  is itself fired/focused still picks up the emphasis width so a
-  traversed route lights BOTH segments together."
+  The QUIET source→event segment (`quiet?`) paints ONE notch THINNER
+  than the resting width (so the pair reads as one route: the quiet
+  inbound half + the primary outbound half). A quiet segment that is
+  itself fired/focused still picks up the emphasis width so a traversed
+  route lights BOTH segments together."
   [{:keys [active? focused? fired? blocked? quiet? chart]
     :or   {chart vc/chart-regular}}]
   (let [{:keys [stroke-width stroke-width-emphasis]} chart]
@@ -293,10 +288,10 @@
 ;; ---- transition-edge ----------------------------------------------------
 
 (defn- transition-edge*
-  "The non-entry transition-edge body (rf2-i9d2ob split). Renders the
-  routed path + label for a real transition edge. `transition-edge`
-  dispatches here for every edge except the initial-marker entry edge
-  (which now paints nothing — the glyph lives on the marker node)."
+  "The non-entry transition-edge body. Renders the routed path + label
+  for a real transition edge. `transition-edge` dispatches here for every
+  edge except the initial-marker entry edge (which paints nothing — the
+  glyph lives on the marker node)."
   [^js props]
   (let [src-x      (.-sourceX props)
         src-y      (.-sourceY props)
@@ -308,34 +303,34 @@
         d          (.-data props)
         vc         (chart-constants d)
         ct         (palette-of d)
-        ;; rf2-az6e2 — the quiet source→event half of the events-as-nodes
-        ;; route. Paints thinner so the pair reads as one transition.
+        ;; The quiet source→event half of the events-as-nodes route.
+        ;; Paints thinner so the pair reads as one transition.
         quiet?     (boolean (.-quietSegment d))
         label      (or (.-eventLabel d) "")
-        ;; rf2-a2b55 — Stately graph view convention. `eventLineLabel`
-        ;; is the visible-line text (`event [guard]`, no `/ action`);
-        ;; the action ride below as a `+ <action>` pill (`action-str`).
-        ;; Fall back to `label` when the projector didn't thread the
-        ;; line-text (legacy / direct construction).
+        ;; Stately graph view convention. `eventLineLabel` is the
+        ;; visible-line text (`event [guard]`, no `/ action`); the action
+        ;; rides below as a `+ <action>` pill (`action-str`). Falls back
+        ;; to `label` when the projector didn't thread the line-text
+        ;; (direct construction).
         line-label (or (.-eventLineLabel d) label)
         action-str (.-action d)
         active?    (boolean (.-active d))
         focused?   (boolean (.-focused d))
-        ;; rf2-qeemm (G3) — this edge traversed THIS epoch. Drives the
-        ;; FIRED treatment (emphasised + animated stroke, `data-fired`),
-        ;; winning over the focused/active styling per `edge-stroke`.
+        ;; This edge traversed THIS epoch. Drives the FIRED treatment
+        ;; (emphasised + animated stroke, `data-fired`), winning over the
+        ;; focused/active styling per `edge-stroke`.
         fired?     (boolean (.-fired d))
-        ;; rf2-fzrzlw — this edge's guard REJECTED the event this epoch
-        ;; (a guard-blocked no-op: the runtime emitted
+        ;; This edge's guard REJECTED the event this epoch (a guard-
+        ;; blocked no-op: the runtime emitted
         ;; `:rf.machine/guard-evaluated` fail/threw but NO transition).
         ;; Drives the PINK guard-blocked treatment (emphasised stroke +
         ;; emphasised guard label, `data-guard-blocked`), winning OUTRIGHT
         ;; over fired/focused/active per `edge-stroke` so the attempted-
-        ;; and-rejected edge stands out (bead design call (2)).
+        ;; and-rejected edge stands out.
         blocked?   (boolean (.-guardBlocked d))
         after-ms   (.-afterMs d)
-        ;; rf2-u422r — on-chart click wiring. `:onClick` is the host
-        ;; callback (e.g. Xray's on-chart sim → sim-step); `:eventId`
+        ;; On-chart click wiring. `:onClick` is the host callback (e.g.
+        ;; Xray's on-chart sim → sim-step); `:eventId`
         ;; is the raw fireable event keyword (nil for `:after` / `:always`
         ;; auto edges). A label is clickable only when BOTH a callback +
         ;; a fireable event-id are present, so auto edges stay inert.
@@ -344,18 +339,17 @@
         from-path  (.-fromPath d)
         to-path    (.-toPath d)
         clickable? (and (fn? on-click) (some? event-id))
-        ;; rf2-shv82 (Issue 3) — cross-hierarchy edge flag. When true +
-        ;; routed, `edge-path` anchors the label near the source-side
-        ;; first bend point (Stately convention) instead of the routed
-        ;; midpoint.
+        ;; Cross-hierarchy edge flag. When true + routed, `edge-path`
+        ;; anchors the label near the source-side first bend point
+        ;; (Stately convention) instead of the routed midpoint.
         cross-hierarchy? (boolean (.-crossHierarchy d))
-        ;; rf2-ee38b.21 — an INTERNAL self-transition (Spec 005:
-        ;; omit :target) runs only :action; :exit / :entry do NOT fire.
-        ;; Render it WITHOUT the re-entry arrowhead + with a dashed loop
-        ;; so it reads as "no exit/entry re-trigger" (Stately parity).
+        ;; An INTERNAL self-transition (Spec 005: omit :target) runs only
+        ;; :action; :exit / :entry do NOT fire. Render it WITHOUT the
+        ;; re-entry arrowhead + with a dashed loop so it reads as "no
+        ;; exit/entry re-trigger" (Stately parity).
         internal?  (boolean (.-internal d))
-        ;; rf2-o3rkq1 — the DECORATIVE dotted evaluation-order connector
-        ;; across a guarded fork's branches (gate's `:gate/check` 3-way).
+        ;; The DECORATIVE dotted evaluation-order connector across a
+        ;; guarded fork's branches (gate's `:gate/check` 3-way).
         ;; Render as a QUIET DOTTED line with NO arrowhead + NO label so it
         ;; reads as the order annotation Stately draws between the numbered
         ;; branches (1→2→3) — never a transition. The projector emits it
@@ -363,43 +357,42 @@
         ;; no route `:points` and falls back to a straight handle-to-handle
         ;; line painted dotted.
         fork-connector? (boolean (.-forkConnector d))
-        ;; G-START — the initial-marker entry edge (dot → initial state).
-        ;; Paints the neutral `:pseudo-marker` hue (matching the dot +
-        ;; the projector's arrowhead) so the dot + short arrow read as
-        ;; one clearly-visible unit, the SCXML/Stately initial icon.
+        ;; The initial-marker entry edge (dot → initial state). Paints the
+        ;; neutral `:pseudo-marker` hue (matching the dot + the
+        ;; projector's arrowhead) so the dot + short arrow read as one
+        ;; clearly-visible unit, the SCXML/Stately initial icon.
         entry?     (boolean (.-entry d))
-        ;; rf2-cz8v6 (G2) — elk's routed bend-points (absolute coords),
-        ;; a JS array of `#js {:x :y}`. Present only when elk computed a
-        ;; multi-point route; nil for a simple edge (bezier fallback).
+        ;; elk's routed bend-points (absolute coords), a JS array of
+        ;; `#js {:x :y}`. Present only when elk computed a multi-point
+        ;; route; nil for a simple edge (bezier fallback).
         points     (.-points d)
-        ;; rf2-rlq97 — elk's COMPUTED label position (a `#js {:x :y}`,
-        ;; absolute coords) for a labelled edge; nil under events-as-nodes
-        ;; (the label rides on the event-node so the edge carries none).
-        ;; When present, `edge-path` anchors the label here — elk's
-        ;; reserved channel — instead of the geometric midpoint heuristic.
+        ;; elk's COMPUTED label position (a `#js {:x :y}`, absolute coords)
+        ;; for a labelled edge; nil under events-as-nodes (the label rides
+        ;; on the event-node so the edge carries none). When present,
+        ;; `edge-path` anchors the label here — elk's reserved channel —
+        ;; instead of the geometric midpoint heuristic.
         label-pos  (let [lp (.-labelPos d)]
                      (when lp {:x (.-x lp) :y (.-y lp)}))
-        ;; rf2-o6vh7 — multi-event sibling-collapse RETIRED. Under
-        ;; events-as-nodes every parsed transition is its OWN event-node,
-        ;; so same-`[source target]` transitions stay DISTINCT edges (one
-        ;; arrow each). There is no leader/follower grouping; every edge
-        ;; renders its path + label at the geometric anchor.
+        ;; Under events-as-nodes every parsed transition is its OWN
+        ;; event-node, so same-`[source target]` transitions stay DISTINCT
+        ;; edges (one arrow each). There is no leader/follower grouping;
+        ;; every edge renders its path + label at the geometric anchor.
         {:keys [edge-label-px
                 action-pill-height action-pill-pad-x action-pill-px
                 action-pill-radius action-pill-row-gap]} vc
-        ;; rf2-cz8v6 (G2) — path selection lives in the pure `edge-path`
-        ;; helper (elk route → bezier), so the test suite pins the SAME
-        ;; geometry the renderer paints.
+        ;; Path selection lives in the pure `edge-path` helper (elk route
+        ;; → bezier), so the test suite pins the SAME geometry the
+        ;; renderer paints.
         {path :d label-x :label-x label-y :label-y routed? :routed?}
         (edge-path {:src-x src-x :src-y src-y
                     :tgt-x tgt-x :tgt-y tgt-y
                     :src-pos src-pos :tgt-pos tgt-pos
                     :points points
                     :cross-hierarchy? cross-hierarchy?
-                    ;; rf2-rlq97 — elk's computed label placement (nil →
-                    ;; geometric heuristic fallback).
+                    ;; elk's computed label placement (nil → geometric
+                    ;; heuristic fallback).
                     :label-pos label-pos})
-        ;; rf2-o3rkq1 — the decorative fork connector paints the neutral
+        ;; The decorative fork connector paints the neutral
         ;; `:pseudo-marker` hue (the same quiet order-annotation hue the
         ;; numbered badge uses), NOT a runtime edge colour; every other
         ;; edge resolves its hue from its runtime flags.
@@ -412,39 +405,40 @@
                                      :quiet? quiet? :chart vc})]
     (r/as-element
       [:<>
-       ;; rf2-o6vh7 — every edge renders its own SVG path + arrowhead.
-       ;; Sibling-collapse is retired: distinct event-nodes mean distinct
-       ;; arrows, so there is no path-suppression for "follower" edges.
+       ;; Every edge renders its own SVG path + arrowhead: distinct
+       ;; event-nodes mean distinct arrows, so there is no path-
+       ;; suppression for "follower" edges.
        [:> BaseEdge {:id (.-id props)
                      :path path
                      ;; Internal self-transitions suppress the arrowhead
-                     ;; (no exit/entry re-trigger to point back at);
-                     ;; rf2-o3rkq1 — the decorative fork connector likewise
-                     ;; carries NO arrowhead (it is an order annotation, not
-                     ;; a transition).
+                     ;; (no exit/entry re-trigger to point back at); the
+                     ;; decorative fork connector likewise carries NO
+                     ;; arrowhead (it is an order annotation, not a
+                     ;; transition).
                      :markerEnd (when-not (or internal? fork-connector?) marker-end)
                      :style #js {:stroke stroke
                                  :strokeWidth stroke-w
-                                 ;; rf2-o3rkq1 — the fork connector is DOTTED
-                                 ;; (a tight 1·3 dot pattern, distinct from
-                                 ;; the internal self-transition's 4·3 dash)
+                                 ;; The fork connector is DOTTED (a tight
+                                 ;; 1·3 dot pattern, distinct from the
+                                 ;; internal self-transition's 4·3 dash)
                                  ;; matching Stately's dotted order chain.
                                  :strokeDasharray (cond
                                                     fork-connector? "1 3"
                                                     internal?       "4 3"
                                                     :else           nil)
                                  :strokeLinecap (when fork-connector? "round")
-                                 ;; rf2-qeemm (G3) — the fired-this-epoch edge
-                                 ;; flashes the same glow as the focused lens
-                                 ;; (it traversed), so a fired arm that is NOT
-                                 ;; the focused FROM→TO still glows.
-                                 ;; rf2-4o43j8 — the glow is event-driven +
-                                 ;; FINITE: ONE motion-scaled iteration that
-                                 ;; settles to a stable end-state (no `infinite`
+                                 ;; The fired-this-epoch edge flashes the
+                                 ;; same glow as the focused lens (it
+                                 ;; traversed), so a fired arm that is NOT
+                                 ;; the focused FROM→TO still glows. The
+                                 ;; glow is event-driven + FINITE: ONE
+                                 ;; motion-scaled iteration that settles to
+                                 ;; a stable end-state (no `infinite`
                                  ;; strobe) and collapses to a settle frame
-                                 ;; under `prefers-reduced-motion`. The static
-                                 ;; fired/focused affordance (stroke width/hue
-                                 ;; above) persists after it completes.
+                                 ;; under `prefers-reduced-motion`. The
+                                 ;; static fired/focused affordance (stroke
+                                 ;; width/hue above) persists after it
+                                 ;; completes.
                                  :animation (when (or focused? fired?)
                                               (tokens/glow-animation-css))}}]
        (when (seq label)
@@ -453,37 +447,37 @@
                :data-event (when label label)
                :data-active (str active?)
                :data-focused-edge (str focused?)
-               ;; rf2-qeemm (G3) — DOM pin for the fired-this-epoch edge
-               ;; treatment; tests + hosts read it to find the traversed arm.
+               ;; DOM pin for the fired-this-epoch edge treatment; tests +
+               ;; hosts read it to find the traversed arm.
                :data-fired (str fired?)
-               ;; rf2-fzrzlw / rf2-bdwolc — this edge-LABEL `data-guard-
-               ;; blocked` attr is emitted ONLY when the edge carries a
-               ;; non-empty `:eventLabel` (this whole `<div>` is gated on
-               ;; `(when (seq label) …)`). Under events-as-nodes the
-               ;; `__in`/`__out` halves carry an EMPTY label (the text rides
-               ;; the event-NODE), so NO edge-half `data-guard-blocked` attr
-               ;; is emitted — it is NOT the canonical guard-blocked DOM pin.
-               ;; The CANONICAL pins are the event-node (`data-guard-blocked`,
-               ;; unconditional) + the chart root (`data-guard-blocked-edge-
-               ;; ids`); this attr only surfaces for a (rare) labelled edge.
+               ;; This edge-LABEL `data-guard-blocked` attr is emitted
+               ;; ONLY when the edge carries a non-empty `:eventLabel`
+               ;; (this whole `<div>` is gated on `(when (seq label) …)`).
+               ;; Under events-as-nodes the `__in`/`__out` halves carry an
+               ;; EMPTY label (the text rides the event-NODE), so NO edge-
+               ;; half `data-guard-blocked` attr is emitted — it is NOT the
+               ;; canonical guard-blocked DOM pin. The CANONICAL pins are
+               ;; the event-node (`data-guard-blocked`, unconditional) +
+               ;; the chart root (`data-guard-blocked-edge-ids`); this attr
+               ;; only surfaces for a (rare) labelled edge.
                :data-guard-blocked (str blocked?)
                :data-after-ms (when after-ms (str after-ms))
-               ;; rf2-ee38b.21 — surface internal / machine-level so the
-               ;; DOM suite + a host can distinguish self-transition kind
-               ;; + inherited fallbacks.
+               ;; Surface internal / machine-level so the DOM suite + a
+               ;; host can distinguish self-transition kind + inherited
+               ;; fallbacks.
                :data-internal (str internal?)
-               ;; rf2-cz8v6 (G2) — surface whether this edge rendered
-               ;; along elk's bend-point route (true) or fell back to
-               ;; the bezier (false), so the DOM suite can pin routing.
+               ;; Surface whether this edge rendered along elk's bend-point
+               ;; route (true) or fell back to the bezier (false), so the
+               ;; DOM suite can pin routing.
                :data-routed (str routed?)
-               ;; rf2-shv82 (Issue 3) — cross-hierarchy flag the label-
-               ;; placement adjustment reads; surfaced so the DOM suite
-               ;; can pin label-anchor-near-source-bend behaviour.
+               ;; Cross-hierarchy flag the label-placement adjustment
+               ;; reads; surfaced so the DOM suite can pin label-anchor-
+               ;; near-source-bend behaviour.
                :data-cross-hierarchy (str cross-hierarchy?)
                :data-machine-level (str (boolean (.-machineLevel d)))
-               ;; rf2-u422r — clickable edges surface their fireable
-               ;; event-id so a host (Xray on-chart sim) + tests can
-               ;; address them; inert (auto / no-callback) edges omit it.
+               ;; Clickable edges surface their fireable event-id so a host
+               ;; (Xray on-chart sim) + tests can address them; inert
+               ;; (auto / no-callback) edges omit it.
                :data-clickable (str clickable?)
                :data-event-id (when (and clickable? event-id)
                                 (str event-id))
@@ -507,12 +501,12 @@
                        :font-family    chart-label-stack
                        :font-size      (str edge-label-px "px")
                        :font-weight    (if (and clickable? focused?) 600 400)
-                       ;; rf2-az6e2 — the rare labelled-edge backplate
-                       ;; (entry / after edges; events ride the event-NODE
-                       ;; under events-as-nodes so most edges carry no
-                       ;; label) reads the neutral event-chip fill/border
-                       ;; from the active-theme tokens so it punches through
-                       ;; overlapping ink with the surrounding background.
+                       ;; The rare labelled-edge backplate (entry / after
+                       ;; edges; events ride the event-NODE under events-
+                       ;; as-nodes so most edges carry no label) reads the
+                       ;; neutral event-chip fill/border from the active-
+                       ;; theme tokens so it punches through overlapping ink
+                       ;; with the surrounding background.
                        :color          (:text-primary ct)
                        :background     (:event-chip-bg ct)
                        :padding        "2px 6px"
@@ -521,25 +515,24 @@
                                             (if clickable?
                                               (:sim ct)
                                               (:event-chip-border ct)))
-                       ;; rf2-j10sm (Phase 1, D) — z-index bump. The edge
-                       ;; label sits above edges + node borders but below
-                       ;; interactive controls (xyflow's Controls render at
-                       ;; z 6+). A modest 5 reads as "label is the focus
-                       ;; you must be able to scan" without blocking the
-                       ;; built-in chrome.
+                       ;; The edge label sits above edges + node borders
+                       ;; but below interactive controls (xyflow's Controls
+                       ;; render at z 6+). A modest 5 reads as "label is the
+                       ;; focus you must be able to scan" without blocking
+                       ;; the built-in chrome.
                        :z-index        5
                        :white-space    "nowrap"
                        :user-select    "none"
-                       ;; rf2-a2b55 — when an action pill rides below the
-                       ;; event line, stack them vertically inside the
-                       ;; backplate so the pill participates in the same
-                       ;; collision-avoidance unit as the line text.
+                       ;; When an action pill rides below the event line,
+                       ;; stack them vertically inside the backplate so the
+                       ;; pill participates in the same collision-avoidance
+                       ;; unit as the line text.
                        :display        "inline-flex"
                        :flex-direction "column"
                        :align-items    "center"
                        :gap            (when action-str (str action-pill-row-gap "px"))}}
-         ;; rf2-a2b55 — visible event line: event + guard, no
-         ;; `/ action`. The action paints as a pill on the row below.
+         ;; Visible event line: event + guard, no `/ action`. The action
+         ;; paints as a pill on the row below.
          [:span {:data-testid (str "rf-mv-chart-edge-event-" (.-id props))
                  :data-event-line line-label}
           line-label]
@@ -567,15 +560,15 @@
   + state flags. Returns a `<BaseEdge>` + a label renderer in a
   React fragment.
 
-  rf2-i9d2ob — the initial-marker ENTRY edge (`entry?`) paints NOTHING:
-  the whole initial-state glyph (filled dot + Q-hook + triangle arrow)
-  is now a FIXED node-local shape drawn by `chart.nodes/initial-marker`,
-  independent of ELK / xyflow edge routing (which bent the old bezier
-  entry edge oddly when the initial sat at an odd position). The edge is
-  retained in the projection ONLY for the every-edge `:data` invariants;
-  here it short-circuits to an empty fragment so no second arrow / curve
-  competes with the node glyph. Every other edge dispatches to
-  `transition-edge*` (the routed-path body)."
+  The initial-marker ENTRY edge (`entry?`) paints NOTHING: the whole
+  initial-state glyph (filled dot + Q-hook + triangle arrow) is a FIXED
+  node-local shape drawn by `chart.nodes/initial-marker`, independent of
+  ELK / xyflow edge routing (a bezier-routed entry edge bends oddly when
+  the initial sits at an odd position). The edge is retained in the
+  projection ONLY for the every-edge `:data` invariants; here it short-
+  circuits to an empty fragment so no second arrow / curve competes with
+  the node glyph. Every other edge dispatches to `transition-edge*` (the
+  routed-path body)."
   [^js props]
   (let [data0 (.-data props)]
     (if (and data0 (.-entry data0))
@@ -590,11 +583,9 @@
   component-construction time to avoid re-render churn.
 
   Only `transition` is registered — under events-as-nodes EVERY
-  projected edge is the canonical `transition` type (rf2-dt5b1). The
-  `:after`-timer specifics ride the event-NODE (`:variant \"after\"`
-  + `:afterMs`), not a distinct edge type; the dead `after` alias +
-  the `choose-edge-type` classifier it depended on were removed. There
-  is no `spawn` type either (rf2-0gmwp): spawns are state-entry
-  actions, not edges (see the ns docstring)."
+  projected edge is the canonical `transition` type. The `:after`-timer
+  specifics ride the event-NODE (`:variant \"after\"` + `:afterMs`), not
+  a distinct edge type. There is no `spawn` type either: spawns are
+  state-entry actions, not edges (see the ns docstring)."
   []
   #js {"transition" transition-edge})

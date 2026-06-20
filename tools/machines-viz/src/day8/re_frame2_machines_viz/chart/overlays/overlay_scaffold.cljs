@@ -2,7 +2,7 @@
   "Shared Reagent form-3 scaffold for the xyflow chart's DOM-measuring
   overlays (`after-rings`, `spawn-all-join`, `cancellation-cascade`).
 
-  ## Why this exists (rf2-idx41 — dedup)
+  ## Why this exists
 
   Every chart overlay is a Reagent form-3 component with a byte-identical
   measure-on-mount/update/resize lifecycle and an absolutely-positioned
@@ -10,8 +10,8 @@
   walk shares the chart wrapper's coordinate origin. That scaffold —
   the `root-ref` atom, the `remeasure!`-on-resize listener, the three
   `create-class` lifecycle hooks, and the overlay root `<div>` style —
-  was copy-pasted across the three overlay nss. This ns owns it ONCE so
-  each overlay keeps only its measurement strategy + paint.
+  lives here ONCE so each overlay keeps only its measurement strategy +
+  paint.
 
   CLJS-only: the lifecycle + DOM ref plumbing is browser-specific
   (`reagent.core/create-class`, `js/window`, `offsetParent`). The PURE

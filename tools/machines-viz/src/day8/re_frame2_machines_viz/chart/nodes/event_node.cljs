@@ -1,24 +1,23 @@
 (ns day8.re-frame2-machines-viz.chart.nodes.event-node
   "Custom xyflow node for an EVENT — the central artefact of the
-  events-as-nodes paradigm (rf2-qo5xy).
+  events-as-nodes paradigm.
 
   ## Why this exists
 
-  Pre-rf2-qo5xy the chart painted transitions as edge LABELS between
-  state boxes: `event [guard] / action` floated on the line. Multiple
-  candidates, long action names, or several stacked siblings degraded
-  legibility quickly, and action attribution was always a second-class
-  citizen of the line text.
+  Following Stately's graph view, the chart paints each transition as
+  its OWN box — `source-state → event-node → (optional) target-state` —
+  rather than as an edge LABEL floating on the line. Painting
+  transitions as line labels degrades legibility quickly with multiple
+  candidates, long action names, or several stacked siblings, and makes
+  action attribution a second-class citizen of the line text.
 
-  Stately's graph view paints each transition as its OWN box —
-  `source-state → event-node → (optional) target-state`. The event
-  box carries the event name (header), an optional `[guard]` chip,
-  and `+ action` pills for action attribution. Internal transitions
-  (no `:target`) get the event box but no outgoing edge — they read
-  as 'this dispatches an action and hangs here'.
+  The event box carries the event name (header), an optional `[guard]`
+  chip, and `+ action` pills for action attribution. Internal
+  transitions (no `:target`) get the event box but no outgoing edge —
+  they read as 'this dispatches an action and hangs here'.
 
-  rf2-qo5xy adopts that paradigm: every spec transition emits exactly
-  one xyflow node of `type \"rf2-event\"` plus one or two edges.
+  Under this paradigm every spec transition emits exactly one xyflow
+  node of `type \"rf2-event\"` plus one or two edges.
 
   ## What this owns
 
@@ -46,8 +45,8 @@
              :refer [chart-label-stack]]))
 
 (defn- variant-glyph
-  "rf2-qo5xy — convention-glyph variants for the event-node header. The
-  three xstate/Stately conventions:
+  "Convention-glyph variants for the event-node header. The three
+  xstate/Stately conventions:
 
     - `:after`  → `⌚` clock glyph + `<ms>` (e.g. `⌚ 1000ms`)
     - `:always` → `∞` continuation glyph
@@ -59,8 +58,8 @@
     event-label))
 
 (defn- fork-badge
-  "rf2-uw3vmi — the numbered PRIORITY badge for one branch of a guarded
-  multi-branch fork. Stately renders a guarded fork (the gate machine's
+  "The numbered PRIORITY badge for one branch of a guarded multi-branch
+  fork. Stately renders a guarded fork (the gate machine's
   `:gate/check` 3-way) with a small circled number (①②③) on each branch
   chip, communicating the DETERMINISTIC ORDER the engine evaluates the
   guards in (first-pass-wins). The projector
@@ -101,8 +100,8 @@
        order])))
 
 (defn requires-chip
-  "rf2-skhlw2.1 — a compact `needs <id>, <id>` chip surfacing a guard /
-  action consumer's declared `:rf.cofx/requires` (EP-0017 consumer
+  "A compact `needs <id>, <id>` chip surfacing a guard / action
+  consumer's declared `:rf.cofx/requires` (EP-0017 consumer
   attachment): the replay-critical host facts the named callback reads
   before it runs. The QUIETEST tier (tertiary colour, smallest type) — a
   subordinate annotation on the event chip, never competing with the event
@@ -135,8 +134,8 @@
 
 (defn event-node
   "Reagent component for an event-node. The xyflow chart projector
-  emits ONE event-node per spec transition (event-as-node paradigm,
-  rf2-qo5xy): state → event-node → (optional) target state.
+  emits ONE event-node per spec transition (event-as-node paradigm):
+  state → event-node → (optional) target state.
 
   Reads from `:data`:
 
@@ -150,13 +149,13 @@
     :action        — action name as a string, or nil.
     :focused       — focused-event lens hit; emphasised border.
     :fired         — this event fired THIS epoch; FIRED treatment.
-    :guardBlocked  — rf2-fzrzlw — this transition's guard REJECTED the
-                     event this epoch (a guard-blocked no-op: the runtime
-                     emitted `:rf.machine/guard-evaluated` fail/threw but
-                     NO transition). PINK guard-blocked treatment: pink
+    :guardBlocked  — this transition's guard REJECTED the event this
+                     epoch (a guard-blocked no-op: the runtime emitted
+                     `:rf.machine/guard-evaluated` fail/threw but NO
+                     transition). PINK guard-blocked treatment: pink
                      border + an EMPHASISED pink `IF <guard>` chip so the
-                     node reads as the guard that rejected it (bead design
-                     call (1)). Wins over fired/focused on this node.
+                     node reads as the guard that rejected it. Wins over
+                     fired/focused on this node.
     :clickable     — host wired an on-click for this event (the
                      on-chart sim path).
     :eventId       — raw fireable event keyword the host receives on
@@ -166,9 +165,9 @@
     :internal      — internal self-transition (no :target). Visual
                      hint: dashed border ring under the header (the
                      'this action runs and we hang here' affordance).
-    :reenter       — rf2-9dj21r — the EXTERNAL restart axis (`:reenter?
-                     true`, Spec 005 §Self-transitions / XState v5). A
-                     targeted transition is internal by DEFAULT; only
+    :reenter       — the EXTERNAL restart axis (`:reenter? true`, Spec
+                     005 §Self-transitions / XState v5). A targeted
+                     transition is internal by DEFAULT; only
                      `:reenter?` re-runs the target's `:exit`/`:entry` +
                      restarts its `:after` timers / `:spawn` children.
                      Visual hint: a `↻` reenter chip on the header so a
@@ -185,20 +184,20 @@
         after-ms    (.-afterMs d)
         guard       (.-guard d)
         action      (.-action d)
-        ;; rf2-skhlw2.1 — the guard / action consumer's declared
-        ;; `:rf.cofx/requires` (EP-0017 consumer attachment), a JS array of
-        ;; compact id strings (nil when the named callback declares no facts).
-        ;; `js->clj` back to a CLJS vec for rendering; nil stays nil so an
-        ;; undeclared callback is visually unchanged.
+        ;; The guard / action consumer's declared `:rf.cofx/requires`
+        ;; (EP-0017 consumer attachment), a JS array of compact id strings
+        ;; (nil when the named callback declares no facts). `js->clj` back
+        ;; to a CLJS vec for rendering; nil stays nil so an undeclared
+        ;; callback is visually unchanged.
         guard-reqs  (some-> (.-guardRequires d) js->clj)
         action-reqs (some-> (.-actionRequires d) js->clj)
         focused?    (boolean (.-focused d))
         fired?      (boolean (.-fired d))
-        ;; rf2-fzrzlw — this transition's guard rejected the event this
-        ;; epoch (guard-blocked no-op). Drives the PINK guard-blocked
-        ;; treatment (pink border + emphasised pink `IF <guard>` chip),
-        ;; winning over fired/focused on this node so the rejected
-        ;; transition stands out (bead design call (1) + (2)).
+        ;; This transition's guard rejected the event this epoch (guard-
+        ;; blocked no-op). Drives the PINK guard-blocked treatment (pink
+        ;; border + emphasised pink `IF <guard>` chip), winning over
+        ;; fired/focused on this node so the rejected transition stands
+        ;; out.
         blocked?    (boolean (.-guardBlocked d))
         fork-order  (.-forkOrder d)
         internal?   (boolean (.-internal d))
@@ -218,13 +217,12 @@
                 action-pill-radius stroke-width stroke-width-emphasis]} vc
         emphasised? (or focused? fired? blocked?)
         stroke-w    (if emphasised? stroke-width-emphasis stroke-width)
-        ;; rf2-az6e2 — the route chip is SUBORDINATE to states: a quiet
-        ;; neutral fill + neutral border by default. Runtime state
-        ;; (focused lens / fired-this-epoch) swaps the border to the
-        ;; runtime accent; a clickable (sim) chip gets a faint amber wash.
-        ;; rf2-fzrzlw — a guard-blocked no-op swaps the border to the PINK
-        ;; guard-blocked hue (winning over fired/focused) so the rejected
-        ;; transition stands out.
+        ;; The route chip is SUBORDINATE to states: a quiet neutral fill +
+        ;; neutral border by default. Runtime state (focused lens / fired-
+        ;; this-epoch) swaps the border to the runtime accent; a clickable
+        ;; (sim) chip gets a faint amber wash. A guard-blocked no-op swaps
+        ;; the border to the PINK guard-blocked hue (winning over
+        ;; fired/focused) so the rejected transition stands out.
         stroke-col  (cond
                       blocked?  (:edge-guard-blocked ct)
                       fired?    (:edge-fired ct)
@@ -236,14 +234,14 @@
                       clickable? (:sim-wash ct)
                       :else      (:event-chip-bg ct))]
     (r/as-element
-      ;; rf2-az6e2 — route chip / card grammar. NO title bar (the bead is
-      ;; explicit: event nodes must NOT read as peer state boxes). The
-      ;; event label + guard ride the FIRST line; the action row appears
-      ;; only when an action exists; an internal / action-only transition
-      ;; (no outgoing target segment — the projector omits the `__out`
-      ;; edge) keeps a dashed border ring so it reads as "runs an action
-      ;; and hangs here". Machine-level is muted: NO loud label, only the
-      ;; `data-machine-level` attr for host introspection.
+      ;; Route chip / card grammar. NO title bar: event nodes must NOT
+      ;; read as peer state boxes. The event label + guard ride the FIRST
+      ;; line; the action row appears only when an action exists; an
+      ;; internal / action-only transition (no outgoing target segment —
+      ;; the projector omits the `__out` edge) keeps a dashed border ring
+      ;; so it reads as "runs an action and hangs here". Machine-level is
+      ;; muted: NO loud label, only the `data-machine-level` attr for host
+      ;; introspection.
       [:div {:data-testid (str "rf-mv-chart-event-" (.-id props))
              :data-node-id (.-id props)
              :data-event-id (when event-id (str event-id))
@@ -255,18 +253,18 @@
              :data-fork-order (when fork-order (str fork-order))
              :data-machine-level (str machine-level?)
              :data-fired (str fired?)
-             ;; rf2-fzrzlw — DOM pin for the guard-blocked no-op event
-             ;; treatment; tests + hosts read it to find the attempted-
-             ;; and-rejected transition (the pink chip whose guard declined).
+             ;; DOM pin for the guard-blocked no-op event treatment; tests
+             ;; + hosts read it to find the attempted-and-rejected
+             ;; transition (the pink chip whose guard declined).
              :data-guard-blocked (str blocked?)
              :data-focused (str focused?)
              :data-clickable (str clickable?)
              :data-after-ms (when after-ms (str after-ms))
              :data-guard (when guard (str guard))
              :data-action (when action (str action))
-             ;; rf2-skhlw2.1 — DOM pins for the guard / action consumer's
-             ;; declared `:rf.cofx/requires` (space-joined id strings) so
-             ;; tests + hosts read the replay-critical facts off the node.
+             ;; DOM pins for the guard / action consumer's declared
+             ;; `:rf.cofx/requires` (space-joined id strings) so tests +
+             ;; hosts read the replay-critical facts off the node.
              :data-guard-requires (when (seq guard-reqs) (str/join " " guard-reqs))
              :data-action-requires (when (seq action-reqs) (str/join " " action-reqs))
              :data-from-path (when from-path (pr-str from-path))
@@ -307,19 +305,19 @@
                                               blocked? (:edge-guard-blocked ct)
                                               fired?   (:glow-fired ct)
                                               :else    (:glow ct))))
-                     ;; rf2-4o43j8 — event-driven + FINITE glow: ONE
-                     ;; motion-scaled iteration that settles to a stable
-                     ;; end-state (no `infinite` strobe) and collapses to a
-                     ;; settle frame under `prefers-reduced-motion`. The
-                     ;; static fired affordance (the `:glow-fired` box-shadow
-                     ;; above) persists after it completes.
+                     ;; Event-driven + FINITE glow: ONE motion-scaled
+                     ;; iteration that settles to a stable end-state (no
+                     ;; `infinite` strobe) and collapses to a settle frame
+                     ;; under `prefers-reduced-motion`. The static fired
+                     ;; affordance (the `:glow-fired` box-shadow above)
+                     ;; persists after it completes.
                      :animation      (when fired?
                                        (tokens/glow-animation-css))
                      :transition     "border-color 120ms ease, background 120ms ease"}}
        ;; First line: optional fork priority-badge + event name / ⌚ <ms> /
-       ;; ∞ + optional `IF <guard>`. rf2-uw3vmi — the numbered badge LEADS
-       ;; the line (Stately convention) so a guarded-fork branch reads as
-       ;; "branch N: event IF guard"; nil for non-fork events.
+       ;; ∞ + optional `IF <guard>`. The numbered badge LEADS the line
+       ;; (Stately convention) so a guarded-fork branch reads as "branch
+       ;; N: event IF guard"; nil for non-fork events.
        [:span {:data-testid (str "rf-mv-chart-event-header-" (.-id props))
                :data-event-line (cond-> header
                                   guard (str " IF " guard))
@@ -331,10 +329,10 @@
         (fork-badge (.-id props) fork-order ct event-chip-px)
         header
         (when guard
-          ;; rf2-fzrzlw — a guard-blocked no-op EMPHASISES the guard chip
-          ;; in the pink guard-blocked hue (bold pink `IF <guard>`) so the
-          ;; node reads "this guard rejected it"; the resting guard chip
-          ;; stays quiet tertiary.
+          ;; A guard-blocked no-op EMPHASISES the guard chip in the pink
+          ;; guard-blocked hue (bold pink `IF <guard>`) so the node reads
+          ;; "this guard rejected it"; the resting guard chip stays quiet
+          ;; tertiary.
           [:span {:data-testid (str "rf-mv-chart-event-guard-" (.-id props))
                   :data-guard guard
                   :data-guard-blocked (str blocked?)
@@ -344,10 +342,10 @@
                                    (:text-tertiary ct))
                           :font-weight (if blocked? 700 600)}}
            (str "IF " guard)])
-        ;; rf2-9dj21r — the EXTERNAL restart marker. A targeted transition
-        ;; is internal by default (XState v5 / Spec 005); a `↻` reenter chip
-        ;; makes a `:reenter? true` transition read DISTINCTLY from its
-        ;; internal default (re-runs `:exit`/`:entry`, restarts `:after` /
+        ;; The EXTERNAL restart marker. A targeted transition is internal
+        ;; by default (XState v5 / Spec 005); a `↻` reenter chip makes a
+        ;; `:reenter? true` transition read DISTINCTLY from its internal
+        ;; default (re-runs `:exit`/`:entry`, restarts `:after` /
         ;; `:spawn`), which is otherwise topologically identical.
         (when reenter?
           [:span {:data-testid (str "rf-mv-chart-event-reenter-" (.-id props))
@@ -357,13 +355,13 @@
                           :color (:text-tertiary ct)
                           :font-weight 600}}
            "↻"])]
-       ;; Action row — appears ONLY when an action exists. rf2-fokezq —
-       ;; render the bolt + action name as a subdued ENCLOSED action CHIP
-       ;; (subtle fill + border + padding + rounding), matching the
-       ;; state-node entry/exit action chip (`nodes/action-row`) and
-       ;; Stately's quiet action treatment, so it reads as a contained
-       ;; annotation subordinate to the event line — NOT loose free-floating
-       ;; text inside the trigger box. Geometry reads off the density's
+       ;; Action row — appears ONLY when an action exists. Render the bolt
+       ;; + action name as a subdued ENCLOSED action CHIP (subtle fill +
+       ;; border + padding + rounding), matching the state-node entry/exit
+       ;; action chip (`nodes/action-row`) and Stately's quiet action
+       ;; treatment, so it reads as a contained annotation subordinate to
+       ;; the event line — NOT loose free-floating text inside the trigger
+       ;; box. Geometry reads off the density's
        ;; `:action-pill-*` constants (shared with the state-node chip);
        ;; font-size keeps the density-aware `:event-chip-action-px`. Colour
        ;; is the neutral container-header fill + structural border + tertiary
@@ -387,11 +385,12 @@
                          :white-space   "nowrap"}}
           [:span {:style {:opacity 0.7}} "⚡"]
           action])
-       ;; rf2-skhlw2.1 — the guard / action consumer-attachment requirement
-       ;; rows: a quiet `needs <id>` annotation surfacing the replay-critical
-       ;; host facts the named guard / action declares via `:rf.cofx/requires`
-       ;; (EP-0017). Each renders ONLY when its callback declared a non-empty
-       ;; diet, so an ordinary fact-free transition is visually unchanged.
+       ;; The guard / action consumer-attachment requirement rows: a quiet
+       ;; `needs <id>` annotation surfacing the replay-critical host facts
+       ;; the named guard / action declares via `:rf.cofx/requires`
+       ;; (EP-0017). Each renders ONLY when its callback declared a non-
+       ;; empty diet, so an ordinary fact-free transition is visually
+       ;; unchanged.
        (requires-chip :guard guard-reqs (.-id props) ct event-chip-action-px)
        (requires-chip :action action-reqs (.-id props) ct event-chip-action-px)
        ;; xyflow attachment points. Handles on every side so elkjs can

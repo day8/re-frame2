@@ -1,16 +1,14 @@
 (ns day8.re-frame2-machines-viz.chart.overlays.cancellation-cascade
-  "xyflow cancellation-cascade visualiser overlay (rf2-3ow55 · xyflow
-  Phase 2).
+  "xyflow cancellation-cascade visualiser overlay.
 
   ## Why this exists
 
-  xyflow Phase 1 (#1806) deferred the cross-cutting Xray machine
-  surfaces. This overlay restores the cancellation-cascade visualiser
-  (Xray 003 §M.3 — cancellation cascade ambiguity): when a parent
-  transition cancels child machines, the scattered abort/destroy
-  traces become ONE decision laid out vertically — the parent's exit
-  → each destroyed child / aborted request, indented as a waterfall
-  beneath the parent state.
+  This overlay is the cancellation-cascade visualiser (Xray 003 §M.3 —
+  cancellation cascade ambiguity): when a parent transition cancels
+  child machines, the scattered abort/destroy traces become ONE
+  decision laid out vertically — the parent's exit → each destroyed
+  child / aborted request, indented as a waterfall beneath the parent
+  state.
 
   ## Pure-presentation, host-projected (mirrors after-rings)
 
@@ -46,8 +44,8 @@
 ;; ---- DOM measurement ----------------------------------------------------
 ;;
 ;; The waterfall anchors BELOW the parent state; the DOM walk + container
-;; re-base is the shared `anchor/measure-anchor` seam (rf2-jkake.16) — this
-;; overlay supplies only the `anchor-below` placement.
+;; re-base is the shared `anchor/measure-anchor` seam — this overlay
+;; supplies only the `anchor-below` placement.
 
 ;; ---- cascade-step glyph -------------------------------------------------
 
