@@ -581,7 +581,15 @@
        (when (and server-hash client-hash (not= server-hash client-hash))
          (let [strict?  (= :hard-error (on-mismatch frame-id))
                recovery (if strict? :hard-error :warned-and-replaced)
-               payload  (cond-> {:server-hash server-hash
+               ;; ONE shared payload reused by both the dev-trace emit AND the
+               ;; strict-mode throw (the build-shared-payload-then-throw-and-emit
+               ;; idiom error/ex-info-from-data was purpose-built for). It carries
+               ;; the canonical thrown-error slots — :rf.error/id, :reason,
+               ;; :recovery, and :where (rf2-ya3iqg: :where was previously absent
+               ;; here while the frame/events sibling throws carry it).
+               payload  (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
+                                 :where       'rf/verify-hydration!
+                                 :server-hash server-hash
                                  :client-hash client-hash
                                  :frame       frame-id
                                  :failing-id  (or failing-id :rf/hydrate)
@@ -602,6 +610,10 @@
            (when trace-fn
              (trace-fn :rf.ssr/hydration-mismatch payload))
            (when strict?
-             (throw (ex-info (error/human-message :rf.ssr/hydration-mismatch
-                                                  (:reason payload))
-                             (assoc payload :rf.error/id :rf.ssr/hydration-mismatch))))))))))
+             ;; rf2-ya3iqg: route the shared-payload throw through the
+             ;; purpose-built error/ex-info-from-data — it derives the human
+             ;; message from the payload's own :rf.error/id + :reason (LEADING
+             ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
+             ;; in ONE call, instead of re-deriving error/human-message inline.
+             ;; The payload IS the ex-data verbatim (one map, throw + trace agree).
+             (throw (error/ex-info-from-data payload)))))))))

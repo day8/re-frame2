@@ -41,6 +41,7 @@
   the audit's §Drop-or-keep recommendation)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
@@ -283,14 +284,27 @@
                         (catch clojure.lang.ExceptionInfo e e))]
         (is (some? thrown)
             "strict mode throws on a detected mismatch")
-        (let [data (ex-data thrown)]
+        (let [data (ex-data thrown)
+              msg  (ex-message thrown)]
           (is (= :rf.ssr/hydration-mismatch (:rf.error/id data))
               "the thrown exception is the structured hydration-mismatch")
           (is (= "deadbeef" (:server-hash data)))
           (is (= "0badf00d" (:client-hash data)))
           (is (= :rf/hydrate (:failing-id data)))
           (is (= :hard-error (:recovery data))
-              ":recovery reflects the strict-mode escalation"))))))
+              ":recovery reflects the strict-mode escalation")
+          ;; rf2-ya3iqg: the throw routes through error/ex-info-from-data, so
+          ;; the message LEADS with the human :reason sentence and TRAILS with
+          ;; the [:rf.ssr/hydration-mismatch] greppability token (rule 4), and
+          ;; the ex-data now carries :where like the frame/events sibling throws.
+          (is (error/message-has-id-token? msg)
+              "the message carries the trailing greppability token (rule 4)")
+          (is (not (error/keyword-only-message? msg))
+              "the message is the human sentence, not a bare keyword (rule 1)")
+          (is (= (error/human-message :rf.ssr/hydration-mismatch (:reason data)) msg)
+              "the message is derived from the payload's own :rf.error/id + :reason")
+          (is (= 'rf/verify-hydration! (:where data))
+              ":where names the throwing helper (was absent before rf2-ya3iqg)"))))))
 
 (deftest mismatch-strict-mode-still-emits-trace-before-throwing
   (testing "rf2-ee38b.10 — strict mode emits the :rf.ssr/hydration-mismatch
