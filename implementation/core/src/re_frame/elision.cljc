@@ -367,6 +367,73 @@
 
 (declare walk marker?)
 
+;; ---- shared map/vec/set/seq path-walk skeleton ---------------------------
+;;
+;; Both the schema-first wire walker (`walk` / `walk-decider`) and the
+;; ad-hoc-paths marks walker (`re-frame.marks/walk-with-marks`)
+;; descend the SAME node domain — map → reduce-kv, vector|seq → positional
+;; reduce with an integer index, set → element-wise pass-through — and differ
+;; ONLY in the per-node DECIDER and how each forks its traversal STATE through
+;; a descent. `walk-tree` is that divergence-free kernel, hoisted here (marks
+;; already requires this ns, so no new coupling), mirroring the
+;; `managed_timer` / `redact-matching-tree` precedent: one skeleton, the two
+;; distinct deciders stay at their call sites.
+;;
+;; The skeleton is parameterized by an opaque per-walker `state` (the wire
+;; walker threads `[path decl-paths]`; marks threads a bare `path`) and four
+;; functions:
+;;   :decide  (state v) -> a replacement value, OR the `::recur` sentinel to
+;;            descend structurally. A matched node is substituted wholesale and
+;;            NOT descended (sensitive → sentinel; large → marker).
+;;   :map-key (state k)  -> the descended state for map key `k`.
+;;   :index   (state i)  -> the descended state for positional index `i`.
+;;   :leaf    (state v)  -> the `:else` (scalar) result. The wire walker runs
+;;            its runtime-size-threshold warning side-effect here and returns
+;;            `v`; marks returns `v` verbatim.
+;; Set elements carry `state` UNCHANGED in BOTH walkers (a set element is a
+;; nameless collection coordinate — neither the path nor the decl-paths
+;; advance), so that arm is fixed in the skeleton, not parameterized.
+;;
+;; Seq is normalised to a persistent vector (via the transient accumulator) —
+;; both prior walkers did this; the skeleton preserves it.
+
+(def ^:no-doc walk-recur
+  "Distinguished `walk-tree` `:decide` sentinel meaning 'descend structurally'
+  (vs return a replacement). `^:no-doc` public so the sibling
+  `re-frame.marks` decider returns the SAME sentinel `walk-tree` tests with
+  `identical?` — a replacement value can never collide with this namespaced
+  keyword."
+  ::recur)
+
+(defn ^:no-doc walk-tree
+  "The shared map/vec/set/seq path-walk skeleton (see the section comment).
+  `state` is the per-walker traversal state; `decider` is the
+  `{:decide :map-key :index :leaf}` map. `^:no-doc` public so the sibling
+  `re-frame.marks` walker shares this one skeleton rather than re-inlining it."
+  [v state {:keys [decide map-key index leaf] :as decider}]
+  (let [r (decide state v)]
+    (if-not (identical? r walk-recur)
+      r
+      (cond
+        (map? v)
+        (reduce-kv (fn [acc k vv]
+                     (assoc acc k (walk-tree vv (map-key state k) decider)))
+                   (empty v) v)
+
+        (or (vector? v) (seq? v))
+        (let [idx (volatile! -1)]
+          (persistent!
+            (reduce (fn [acc vv]
+                      (conj! acc (walk-tree vv (index state (vswap! idx inc)) decider)))
+                    (transient [])
+                    v)))
+
+        (set? v)
+        (into #{} (map #(walk-tree % state decider)) v)
+
+        :else
+        (leaf state v)))))
+
 (defn- prefixes
   "All non-empty prefixes (including the full path) of `path`, as a set.
   Used to seed `decl-prefixes` so the candidate decl-path fork can be
@@ -470,14 +537,14 @@
   `(fork-index-paths decl-paths i decl-prefixes)`. Returns the final `acc`.
 
   This is the single home for the 'descend a positional container tracking an
-  integer index, forking decl-paths via fork-index-paths' micro-shape that
-  otherwise recurs across the path-based walker (`walk-indexed` / `walk-seq`)
-  and the large-value collector (`collect-large-markers!`'s vector / seq
-  branches). `reduce` iterates a vector in index order, so the
-  vector and seq cases share one traversal; the volatile index reproduces the
-  per-element `(conj path i)` exactly. The caller owns `acc`'s identity
-  (transient vector for the walkers, transient `[raw marker]` accumulator for
-  the collector) and what `step` does with each element."
+  integer index, forking decl-paths via fork-index-paths' micro-shape used by
+  the large-value collector (`collect-large-markers!`'s vector / seq branches).
+  The path-based wire walker forks the same shape through the shared
+  `walk-tree` skeleton's `:index` decider arm (`walk-decider`). `reduce`
+  iterates a vector in index order, so the vector and seq cases share one
+  traversal; the volatile index reproduces the per-element `(conj path i)`
+  exactly. The caller owns `acc`'s identity (a transient `[raw marker]`
+  accumulator for the collector) and what `step` does with each element."
   [coll decl-paths decl-prefixes step acc]
   (let [idx (volatile! -1)]
     (reduce (fn [a x]
@@ -499,88 +566,82 @@
   [decl-paths sensitive-tbl]
   (boolean (some #(contains? sensitive-tbl %) decl-paths)))
 
-(defn- walk-map
-  [m path decl-paths ctx]
-  (let [decl-prefixes (:decl-prefixes ctx)]
-    (reduce-kv
-      (fn [acc k v]
-        (assoc acc k (walk v
-                           (conj path k)
-                           (fork-decl-paths decl-paths k decl-prefixes)
-                           ctx)))
-      (empty m)
-      m)))
+;; The wire walker's traversal state is the pair `[path decl-paths]` — the
+;; concrete runtime path (drives marker `:path` / `:handle` + the unschema'd-
+;; large warning) and the forked candidate declaration-coordinate set (drives
+;; the per-node sensitive / large match). Both fork on descent: a map key
+;; advances the path by the key and forks decl-paths via `fork-decl-paths`; a
+;; positional index advances the path by the index and forks via
+;; `fork-index-paths`. Set elements carry the state unchanged (handled by the
+;; shared `walk-tree` skeleton).
 
-(defn- walk-positional
-  "Walk a POSITIONAL container `coll` (a vector OR a seq), reproducing each
-  element at its integer-indexed path `(conj path i)` and forking the
-  candidate decl-paths through the index. Both the vector (`:vector`) and seq
-  (`:sequential`) walk arms share this body: each yields a persistent vector
-  of walked elements (a seq normalises to a vector here)."
-  [coll path decl-paths ctx]
-  (let [decl-prefixes (:decl-prefixes ctx)]
-    (persistent!
-      (reduce-indexed-forks
-        coll decl-paths decl-prefixes
-        (fn [acc x i forked]
-          (conj! acc (walk x (conj path i) forked ctx)))
-        (transient [])))))
+(defn- walk-decider
+  "Build the `walk-tree` decider for the schema-first wire walk against `ctx`.
+  The per-node decision (sensitive → sentinel, declared-large → idempotent
+  marker, else descend), the map-key / index state forks, and the scalar leaf
+  (the runtime-size-threshold warning side-effect) — the elision-specific arms
+  the shared skeleton parameterises over."
+  [ctx]
+  (let [large-tbl     (:large ctx)
+        sensitive-tbl (:sensitive ctx)
+        decl-prefixes (:decl-prefixes ctx)
+        include-lg?   (:include-large? ctx)
+        include-s?    (:include-sensitive? ctx)
+        threshold     (:threshold-bytes ctx)
+        frame-id      (:frame-id ctx)]
+    {:decide
+     (fn [[path decl-paths] v]
+       (let [large-decl (decl-match decl-paths large-tbl)
+             sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
+         (cond
+           (and sensitive? (not include-s?))
+           privacy/redacted-sentinel
+
+           (and large-decl (not include-lg?))
+           (if (marker? v)
+             ;; Idempotence under double-projection: a value at a `:large?`-
+             ;; declared path that already carries the `:rf.size/large-elided`
+             ;; marker shape is passed through unchanged. A forwarder pipeline
+             ;; that accidentally double-projects (middleware composition,
+             ;; tool-then-watcher fan-out) MUST NOT re-mark the marker — the
+             ;; second pass's `:bytes` would otherwise reflect the printed
+             ;; length of the prior marker, not the original payload. Mirrors
+             ;; the sensitive-case idempotence (the `:rf/redacted` scalar
+             ;; sentinel is non-matchable so the walker descends into nothing
+             ;; on a re-projection pass).
+             v
+             (->marker v path (marker-opts large-decl ctx)))
+
+           :else
+           walk-recur)))
+
+     :map-key
+     (fn [[path decl-paths] k]
+       [(conj path k) (fork-decl-paths decl-paths k decl-prefixes)])
+
+     :index
+     (fn [[path decl-paths] i]
+       [(conj path i) (fork-index-paths decl-paths i decl-prefixes)])
+
+     :leaf
+     (fn [[path decl-paths] v]
+       (let [large-decl (decl-match decl-paths large-tbl)
+             sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
+         (when (and (string? v)
+                    (not large-decl)
+                    (not sensitive?))
+           ;; A threshold of 0 disables runtime auto-detect entirely —
+           ;; no `pr-str-bytes` walk, no warning. Per API.md §Configure
+           ;; keys (`:elision` — "0 disables runtime auto-detect").
+           (when (pos? threshold)
+             (let [bytes (pr-str-bytes v)]
+               (when (> bytes threshold)
+                 (warn-large-unschema'd! frame-id path bytes))))))
+       v)}))
 
 (defn- walk
   [v path decl-paths ctx]
-  (let [path        (vec path)
-        large-decl  (decl-match decl-paths (:large ctx))
-        sensitive?  (decl-sensitive? decl-paths (:sensitive ctx))
-        include-lg? (:include-large? ctx)
-        include-s?  (:include-sensitive? ctx)]
-    (cond
-      (and sensitive? (not include-s?))
-      privacy/redacted-sentinel
-
-      (and large-decl (not include-lg?))
-      (if (marker? v)
-        ;; Idempotence under double-projection: a value at a `:large?`-
-        ;; declared path that already carries the `:rf.size/large-elided`
-        ;; marker shape is passed through unchanged. A forwarder pipeline
-        ;; that accidentally double-projects (middleware composition,
-        ;; tool-then-watcher fan-out) MUST NOT re-mark the marker — the
-        ;; second pass's `:bytes` would otherwise reflect the printed
-        ;; length of the prior marker, not the original payload. Mirrors
-        ;; the sensitive-case idempotence (the `:rf/redacted` scalar
-        ;; sentinel is non-matchable so the walker descends into nothing
-        ;; on a re-projection pass).
-        v
-        (->marker v path (marker-opts large-decl ctx)))
-
-      (map? v)
-      (walk-map v path decl-paths ctx)
-
-      (vector? v)
-      (walk-positional v path decl-paths ctx)
-
-      (set? v)
-      ;; Set elements are nameless collection coordinates — the runtime
-      ;; `path` and the candidate decl-paths both pass through unchanged
-      ;; (mirrors `:vector`/`:sequential`: the element is not a segment).
-      (into #{} (map #(walk % path decl-paths ctx)) v)
-
-      (seq? v)
-      (walk-positional v path decl-paths ctx)
-
-      :else
-      (do
-        (when (and (string? v)
-                   (not large-decl)
-                   (not sensitive?))
-          (let [threshold (:threshold-bytes ctx)]
-            ;; A threshold of 0 disables runtime auto-detect entirely —
-            ;; no `pr-str-bytes` walk, no warning. Per API.md §Configure
-            ;; keys (`:elision` — "0 disables runtime auto-detect").
-            (when (pos? threshold)
-              (let [bytes (pr-str-bytes v)]
-                (when (> bytes threshold)
-                  (warn-large-unschema'd! (:frame-id ctx) path bytes))))))
-        v))))
+  (walk-tree v [(vec path) decl-paths] (walk-decider ctx)))
 
 (defn- elide-against-frame
   "Inner walk for `elide-wire-value` against a KNOWN carried frame.
