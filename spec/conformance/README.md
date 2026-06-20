@@ -271,21 +271,25 @@ In addition, `:fixture/dispatches` accepts two harness-level map forms (alongsid
 
 #### Handler-body DSL builtins
 
-The reserved set of `:fn` builtins each host implements. The corpus uses only registered builtins.
+The reserved set of `:fn` builtins each host implements. The corpus uses only registered builtins. This is the canonical fixture-spec-1.0 builtin vocabulary; the reference interpreter (`re-frame.conformance`) and `spec/Spec-Schemas.md` carry the same set. The table is grouped by purpose so future additions are visibly additive.
 
-| Builtin | Arity | Maps to |
-|---|---|---|
-| `:inc` | 1 | numeric increment |
-| `:dec` | 1 | numeric decrement |
-| `:+`, `:-`, `:*`, `:/` | 2+ | arithmetic |
-| `:identity` | 1 | identity |
-| `:conj` | 1 (with partial second arg) | append-to-collection |
-| `:assoc` | 2 (with partial keys/values) | map assoc |
-| `:dissoc` | 1 (with partial keys) | map dissoc |
-| `:item-amount` | 1 | `(* (:qty item) (:price item))` — used by `sub-chain.edn` |
-| `:count` | 1 | collection count |
+| Group | Builtin | Arity | Maps to |
+|---|---|---|---|
+| numeric | `:inc` | 1 | numeric increment (nil-tolerant — implicit-zero start) |
+| numeric | `:dec` | 1 | numeric decrement (nil-tolerant — implicit-zero start) |
+| numeric | `:+`, `:-`, `:*`, `:/` | 2+ | arithmetic |
+| comparison | `:>=`, `:<=`, `:>`, `:<` | 2 (with partial second arg) | numeric comparison |
+| equality | `:=`, `:not=` | 2 (with partial second arg) | value (in)equality |
+| boolean | `:and`, `:or` | 1+ | boolean conjunction / disjunction (truthy) |
+| boolean | `:not` | 1 | boolean negation |
+| collection | `:conj` | 1 (with partial second arg) | append-to-collection |
+| collection | `:assoc` | 2 (with partial keys/values) | map assoc |
+| collection | `:dissoc` | 1 (with partial keys) | map dissoc |
+| collection | `:count` | 1 | collection count (throws on string/char/nil — used by the sub-exception fixtures) |
+| identity | `:identity` | 1 | identity |
+| fixture | `:item-amount` | 1 | `(* (:qty item) (:price item))` — used by `sub-chain.edn` |
 
-Implementations register each builtin by name during harness bootstrap. The set is stable and additive — new builtins may be added in subsequent fixture spec versions; existing builtins cannot be redefined.
+Implementations register each builtin by name during harness bootstrap. The set is stable and additive — new builtins may be added in subsequent fixture spec versions; existing builtins cannot be redefined. (No type-predicate builtins — `:keyword?` / `:number?` / `:string?` — are in fixture-spec-1.0; a future revision that needs them adds them additively.)
 
 ### Fixture lifecycle
 
