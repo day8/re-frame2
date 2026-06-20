@@ -237,16 +237,22 @@
   `re-frame.frame/reg-frame` and spec/API.md §Registration."}
        reg-frame       frame/reg-frame)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
-  registration (no source-coord capture). Register a route under `id`;
-  `metadata` carries `:path` at minimum. Implementation ships in
+  registration (no source-coord capture). Register a route: `(reg-route id
+  metadata path)` — `metadata` is the MIDDLE registration-metadata map
+  (`:doc`, `:params`, `:on-match`, …); the `path` pattern is the THIRD value
+  slot (rf2-wvh95f F1), merged onto the stored route-meta so downstream
+  readers still see `:path`. Implementation ships in
   `day8/re-frame2-routing`; require `re-frame.routing` at boot. See
   `re-frame.core-routing/reg-route` and spec/API.md §Registration."}
        reg-route       rf-routing/reg-route)
      (def ^{:doc "Fn-alias of the `reg-resource` macro for HoF / programmatic
   registration (no source-coord capture). Register a resource — a named,
-  cached read of remote/external state — under `resource-id`;
-  `resource-spec` carries the REQUIRED fail-closed `:scope` policy plus
-  `:params-schema` / `:request`. Implementation ships in
+  cached read of remote/external state: `(reg-resource resource-id metadata
+  request-fn)` — `metadata` is the MIDDLE registration-metadata map carrying
+  the REQUIRED fail-closed `:scope` policy plus `:params-schema` (and `:doc`,
+  `:stale-after-ms`, …); the `:request` handler is the THIRD value slot
+  (rf2-wvh95f F1). The stored introspection spec (`resource-meta`)
+  reconstructs `:request` onto the metadata map. Implementation ships in
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
        reg-resource    rf-resources/reg-resource)

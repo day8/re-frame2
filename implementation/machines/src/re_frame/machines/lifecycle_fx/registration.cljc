@@ -978,7 +978,29 @@
   frame-declared `:sensitive` / `:large {:app-db …}` paths as the sole app-db
   mechanism. The home now runs only the validation-stamp."
   [machine-id machine opts]
-  (when (or (contains? opts :rf/machine?) (contains? opts :rf/machine))
+  ;; rf2-t65lqt — the MIDDLE `opts` slot (rf2-wvh95f F2) must be a map BEFORE
+  ;; any `contains?`/`assoc` runs against it. The 2-arity passes `nil` (the
+  ;; no-opts path) which normalises to `{}` below; a 3-arity caller that hands
+  ;; a non-nil, non-map opts (the slip after the F2 grammar change) would
+  ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
+  ;; integer") from the reserved-key `contains?` instead of a public
+  ;; diagnostic. Mirrors reg-route's `invalid-route-metadata` non-map guard +
+  ;; reg-resource/reg-mutation's metadata-slot map gate.
+  (when (and (some? opts) (not (map? opts)))
+    (error/throw-error!
+      :rf.error/invalid-machine-opts
+      'rf-machines/reg-machine*
+      (str "reg-machine " machine-id "'s opts (the MIDDLE slot) must be a "
+           "registration-metadata map, got " (pr-str (type opts)) ". Per "
+           "rf2-wvh95f F2 the grammar is (reg-machine* " machine-id " {…} "
+           "machine): the opts metadata map is the SECOND slot, the machine "
+           "spec is the THIRD. The 2-arity (reg-machine* " machine-id
+           " machine) has no opts.")
+      {:recovery :fix-registration
+       :extra    {:machine-id machine-id
+                  :value      opts}}))
+  (let [opts (or opts {})]
+   (when (or (contains? opts :rf/machine?) (contains? opts :rf/machine))
     (error/throw-error!
       :rf.error/machine-reserved-meta-in-opts
       'rf-machines/reg-machine*
@@ -988,12 +1010,12 @@
       {:recovery :drop-reserved-keys
        :extra    {:machine-id machine-id
                   :opts       opts}}))
-  ;; Per rf2-s83iu: install a per-machine region-machine cache before
-  ;; the machine value is threaded through the handler closure and
-  ;; published to the registrar. Re-registration replaces the machine
-  ;; map and its attached cache atom, so no separate invalidation step
-  ;; is needed.
-  (let [machine    (parallel/install-region-cache machine)
+   ;; Per rf2-s83iu: install a per-machine region-machine cache before
+   ;; the machine value is threaded through the handler closure and
+   ;; published to the registrar. Re-registration replaces the machine
+   ;; map and its attached cache atom, so no separate invalidation step
+   ;; is needed.
+   (let [machine    (parallel/install-region-cache machine)
         ;; The home is the legitimate `make-machine-handler` site for a
         ;; `:data-schema`-bearing spec — bind the flag so the fail-loud guard
         ;; passes (the guard exists to catch the bare direct path, not us).
@@ -1021,7 +1043,7 @@
     (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
                  {:machine-id machine-id
                   :initial    (:initial machine)})
-    machine-id))
+    machine-id)))
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 

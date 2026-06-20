@@ -197,7 +197,23 @@
   (testing "EP-0003 §Mutations — a mutation spec MUST declare :params-schema"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
-          (rf/reg-mutation :m/no-schema {} (fn [_ _] {:request {:url "/x"}}))))))
+          (rf/reg-mutation :m/no-schema {} (fn [_ _] {:request {:url "/x"}})))))
+  (testing "rf2-t65lqt — a non-map metadata (the MIDDLE slot) is rejected with
+            the canonical error id naming the mutation, not a raw host throw"
+    (let [ex (try (rf/reg-mutation :m/bad-vec [] save-article-request)
+                  nil
+                  (catch #?(:clj Throwable :cljs :default) e e))]
+      (is (some? ex) "a non-map metadata must throw, not silently mis-register")
+      (is (= :rf.error/invalid-mutation-spec (:rf.error/id (ex-data ex)))
+          "non-map metadata surfaces the canonical mutation registration error")
+      (is (= [] (:value (ex-data ex)))
+          "the rejected non-map value rides the :value ex-data slot"))
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          (rf/reg-mutation :m/bad-str "nope" save-article-request)))
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-mutation-spec"
+          (rf/reg-mutation :m/bad-nil nil save-article-request)))))
 
 (deftest reg-mutation-rejects-invalidate-timing-typo
   ;; rf2-t8j7oj — :invalidate-timing is a CLOSED four-value enum (Spec 016

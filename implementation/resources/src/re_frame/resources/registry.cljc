@@ -366,11 +366,29 @@
   Returns `resource-id` per the `reg-*` return-value convention
   ([Conventions §reg-* return-value convention])."
   [resource-id metadata request-fn]
+  ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE any
+  ;; `assoc`/`contains?` runs against it. Reconstructing `:request` onto a
+  ;; non-map metadata (the slip after the rf2-wvh95f F1 grammar change) would
+  ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
+  ;; integer") instead of the public `:rf.error/invalid-resource-spec`. Mirrors
+  ;; reg-route's `invalid-route-metadata` non-map guard + reg-app-schema's
+  ;; `extract-app-schema-from-metadata` map gate. The catalogue row already
+  ;; documents "or the spec was not a map" with a `:value` slot.
+  (when-not (map? metadata)
+    (throw (registration-error
+             :rf.error/invalid-resource-spec
+             'rf/reg-resource
+             (str "resource " resource-id "'s metadata (the MIDDLE slot) must "
+                  "be a map, got " (pr-str (type metadata)) ". Per rf2-wvh95f "
+                  "F1 the grammar is (reg-resource " resource-id " {…} "
+                  "request-fn): the reflection/config metadata map is the "
+                  "SECOND slot, the :request handler is the THIRD.")
+             {:resource-id resource-id :value metadata})))
   ;; rf2-wvh95f F1 — `:request` is the 3-slot VALUE (the handler). A `:request`
   ;; left INSIDE the metadata map is a mislocated key; reject it loudly so the
   ;; grammar change cannot be half-applied (a stray fused `:request` would
   ;; otherwise silently win or lose against the value-slot one).
-  (when (and (map? metadata) (contains? metadata :request))
+  (when (contains? metadata :request)
     (throw (registration-error
              :rf.error/invalid-resource-spec
              'rf/reg-resource

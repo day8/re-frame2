@@ -242,9 +242,26 @@
   source coords. Returns `mutation-id` per the `reg-*` return-value
   convention."
   [mutation-id metadata request-fn]
+  ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE any
+  ;; `assoc`/`contains?` runs against it. Reconstructing `:request` onto a
+  ;; non-map metadata (the slip after the rf2-wvh95f F1 grammar change) would
+  ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
+  ;; integer") instead of the public `:rf.error/invalid-mutation-spec`. Mirrors
+  ;; reg-route's `invalid-route-metadata` non-map guard. The catalogue row
+  ;; already documents "or the spec was not a map" with a `:value` slot.
+  (when-not (map? metadata)
+    (throw (registration-error
+             :rf.error/invalid-mutation-spec
+             'rf/reg-mutation
+             (str "mutation " mutation-id "'s metadata (the MIDDLE slot) must "
+                  "be a map, got " (pr-str (type metadata)) ". Per rf2-wvh95f "
+                  "F1 the grammar is (reg-mutation " mutation-id " {…} "
+                  "request-fn): the config metadata map is the SECOND slot, "
+                  "the :request write fn is the THIRD.")
+             {:mutation-id mutation-id :value metadata})))
   ;; rf2-wvh95f F1 — `:request` is the 3-slot VALUE (the handler). A `:request`
   ;; left INSIDE the metadata map is a mislocated key; reject it loudly.
-  (when (and (map? metadata) (contains? metadata :request))
+  (when (contains? metadata :request)
     (throw (registration-error
              :rf.error/invalid-mutation-spec
              'rf/reg-mutation

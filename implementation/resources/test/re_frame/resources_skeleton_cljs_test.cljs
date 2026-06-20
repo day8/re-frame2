@@ -93,6 +93,30 @@
                                   (assoc (valid-spec) :request valid-request)
                                   valid-request)))))
 
+(deftest reg-resource-rejects-non-map-metadata
+  ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE reconstruction.
+  ;; A non-map metadata (vector / string / nil) must surface the canonical
+  ;; :rf.error/invalid-resource-spec naming the resource, NOT a raw host
+  ;; IllegalArgumentException ("Key must be integer") from the `:request`
+  ;; `assoc`. Mirrors reg-route's `reg-route-rejects-non-map-metadata`.
+  (testing "a vector metadata is rejected with the canonical error id"
+    (let [ex (try (resources/reg-resource :test/bad-vec [] valid-request)
+                  nil
+                  (catch :default e e))]
+      (is (some? ex) "a non-map metadata must throw, not silently mis-register")
+      (is (= :rf.error/invalid-resource-spec (:rf.error/id (ex-data ex)))
+          "non-map metadata surfaces the canonical resource registration error")
+      (is (= [] (:value (ex-data ex)))
+          "the rejected non-map value rides the :value ex-data slot")))
+  (testing "a string metadata is rejected with the canonical error id"
+    (is (thrown-with-msg?
+          js/Error #"invalid-resource-spec"
+          (resources/reg-resource :test/bad-str "nope" valid-request))))
+  (testing "a nil metadata is rejected with the canonical error id"
+    (is (thrown-with-msg?
+          js/Error #"invalid-resource-spec"
+          (resources/reg-resource :test/bad-nil nil valid-request)))))
+
 (deftest reserved-scope-namespace-typo-rejected-fail-closed
   ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
   ;; namespace that is NOT one of the closed enum (:rf.scope/global,
