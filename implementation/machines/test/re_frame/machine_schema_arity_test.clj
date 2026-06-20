@@ -302,6 +302,41 @@
       (is (= :rf.error/machine-reserved-meta-in-opts
              (:rf.error/id (ex-data ex)))))))
 
+(deftest reg-machine-rejects-non-map-opts
+  ;; rf2-t65lqt — the 3-arity MIDDLE opts slot (rf2-wvh95f F2) must be a map
+  ;; BEFORE the reserved-key `contains?` / `assoc` runs. A non-map opts (vector
+  ;; / string / number) must surface the canonical :rf.error/invalid-machine-
+  ;; opts naming the machine, NOT a raw host IllegalArgumentException ("Key must
+  ;; be integer"). Mirrors reg-route's non-map metadata guard + the
+  ;; reg-resource / reg-mutation metadata-slot map gate.
+  (testing "a vector opts slot is rejected with the canonical error id"
+    (let [ex (try
+               (machines/reg-machine* :rf.machine-arity/bad-vec
+                 []
+                 {:initial :idle :states {:idle {}}})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a non-map opts must throw, not leak a raw host exception")
+      (is (= :rf.error/invalid-machine-opts (:rf.error/id (ex-data ex)))
+          "non-map opts surfaces the canonical machine-opts registration error")
+      (is (= [] (:value (ex-data ex)))
+          "the rejected non-map value rides the :value ex-data slot")))
+  (testing "a string opts slot is rejected with the canonical error id"
+    (let [ex (try
+               (machines/reg-machine* :rf.machine-arity/bad-str
+                 "nope"
+                 {:initial :idle :states {:idle {}}})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/invalid-machine-opts (:rf.error/id (ex-data ex))))))
+  (testing "the 3-arity with an explicit nil opts is the no-opts path (legal)"
+    ;; nil normalises to {} — equivalent to the 2-arity, not a rejection.
+    (is (= :rf.machine-arity/nil-opts
+           (machines/reg-machine* :rf.machine-arity/nil-opts
+             nil
+             {:initial :idle :states {:idle {}}}))
+        "an explicit nil opts is the no-opts path (normalised to {}), not rejected")))
+
 (deftest two-arity-reg-machine-still-works
   (testing "the existing 2-arity (reg-machine* id machine) is unchanged — it
             stamps the meta so the :data-schema is LIVE"
