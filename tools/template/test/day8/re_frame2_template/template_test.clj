@@ -273,6 +273,39 @@
             (is (.contains readme-text "spec/Conventions.md")
                 "README links to spec/Conventions.md for the normative catalogue"))
 
+          ;; -- README Hot reload — accurate reg-* cleanup claim (rf2-n70mno) --
+          ;; The runtime registry only adds / same-id-replaces on reload; a
+          ;; deleted or renamed reg-* form's old (kind, id) is NOT pruned by
+          ;; a plain shadow-cljs reload — it lingers until a browser/dev-
+          ;; process refresh. The README previously over-promised that a
+          ;; rename/remove "drops the old registration". Reject the stale
+          ;; phrase and positively require the explicit-refresh recovery.
+          ;; Scope the assertions to the Hot reload section.
+          (let [readme-text (slurp (io/file root "README.md"))
+                hr-start    (.indexOf readme-text "## Hot reload")
+                hr-end      (let [i (.indexOf readme-text "\n## " (inc hr-start))]
+                              (if (neg? i) (count readme-text) i))
+                hr-sec      (subs readme-text (max 0 hr-start) hr-end)]
+            (is (not (neg? hr-start))
+                "README has a Hot reload section")
+            (is (not (.contains hr-sec "drops the old registration"))
+                "README Hot reload section must NOT promise that a
+                 rename/remove drops the old registration — the registry
+                 does not prune deleted/renamed ids on plain reload
+                 (rf2-n70mno)")
+            ;; The wording wraps across lines in the rendered README, so
+            ;; normalise whitespace before the substring check.
+            (let [hr-norm (string/replace hr-sec #"\s+" " ")]
+              (is (.contains hr-norm "does NOT prune the old")
+                  "README Hot reload section states deleting/renaming a
+                   handler does NOT prune the old id on plain reload
+                   (rf2-n70mno)"))
+            (is (or (.contains hr-sec "refresh the browser")
+                    (.contains hr-sec "restart the dev process"))
+                "README Hot reload section documents the real recovery —
+                 browser/dev-process refresh rebuilds the registry from
+                 an empty slate (rf2-n70mno)"))
+
           ;; -- README EP-0015 privacy/egress classification (rf2-7i66d0) --
           ;; The README must carry a concise privacy/egress section that
           ;; distinguishes app-db schemas (shape) from frame-owned durable

@@ -34,8 +34,17 @@ you a clean reload:
    `events.cljs` / `subs.cljs` / `views.cljs` re-evaluates the
    `reg-event` / `reg-sub` / `reg-view` forms at the top level, so
    each handler / sub / view re-registers in place against the new
-   code. Add a new `reg-*` form and it shows up live; rename or remove
-   a handler and the next reload drops the old registration.
+   code. Editing an existing `reg-*` form replaces that exact `id` live
+   (the registry swaps the slot for the same `id`), and adding a new
+   `reg-*` form registers it live. **Deleting or renaming a handler does
+   NOT prune the old `id`, though** — a reload only re-runs the forms
+   that still exist; it never sweeps a namespace to drop ids whose
+   `reg-*` form you removed, so the old registration lingers in the
+   running process. To clear it, refresh the browser tab (or restart the
+   dev process) — that rebuilds the registry from an empty slate, so only
+   the forms still in your source survive. (A rename is a delete plus an
+   add: the new `id` shows up live, but the old `id` stays registered
+   until that refresh.)
 
 2. **`rf/init!` is safe to re-call but does NOT reset anything by
    itself.** It is idempotent and installs the substrate adapter
