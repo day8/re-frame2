@@ -1844,8 +1844,10 @@
 
 (defn flow-rows
   "Project flow-recompute events into rows. Each row carries
-  `:flow-id`, `:path` (the db path the flow wrote), and optional
-  before/after values. Empty vec when no flow fired this epoch.
+  `:flow-id`, `:frame` (the frame the flow fired in — flows are
+  frame-divergent-per-id per Spec 013, so the source-coord lookup needs
+  it), `:path` (the db path the flow wrote), and optional before/after
+  values. Empty vec when no flow fired this epoch.
 
   Per rf2-yhgk8 the substrate stamps the canonical
   `:rf.flow/computed` operation with BARE `:flow-id` / `:path` /
@@ -1860,6 +1862,7 @@
     (vec
       (for [ev evs]
         {:flow-id     (common/tag-of ev :flow-id)
+         :frame       (common/tag-of ev :frame)
          :path        (common/tag-of ev :path)
          :before      (common/tag-of ev :before)
          :after       (common/tag-of ev :result)
@@ -3949,10 +3952,11 @@
             ;; pair and the view falls back to the scalar before→after line.
             flow-db-pre  (effective-post-handler-db events db-before)
             flow-db-post (db-pending-t2 events)
-            flow-steps (mapv (fn [{:keys [flow-id path before after duration-ms]}]
+            flow-steps (mapv (fn [{:keys [flow-id frame path before after duration-ms]}]
                                (cond-> {:step    :flow
                                         :badge   :FLOW
                                         :flow-id flow-id
+                                        :frame   frame
                                         :path    path
                                         :before  before
                                         :after   after}

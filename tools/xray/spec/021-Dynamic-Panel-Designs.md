@@ -3659,10 +3659,15 @@ The accompanying view-layer chrome:
 
 - **Header** — `:FLOW` badge + flow-id button to the right of
   the badge. The button is clickable when
-  `(rf/handler-meta :flow <id>)` returns a coordinate (click-to-source
-  jumps through the shared `:rf.xray/open-in-editor` scheme denylist —
-  see §9.1.11); otherwise the id renders as a plain coloured span.
-  An external-link glyph trails the id when source-jump is wired.
+  `(re-frame.flows/flow-meta-at <id> {:frame <frame-id>})` returns a
+  coordinate (the `(rf/handler-meta :flow id)` replacement after framework
+  rf2-en00bk made the per-frame flows atom the sole store and emptied the
+  registrar `:flow` slot; the flow's frame rides the `:rf.flow/computed`
+  trace's `:frame` tag and flows are frame-divergent-per-id, so the lookup
+  is frame-scoped). Click-to-source jumps through the shared
+  `:rf.xray/open-in-editor` scheme denylist — see §9.1.11; otherwise the id
+  renders as a plain coloured span. An external-link glyph trails the id
+  when source-jump is wired.
 - **Body — the flow's OWN `:db` diff (rf2-4wywy / rf2-48oc4)** — a
   flow's contribution IS an app-db mutation: it writes `:output` into
   `:path` AFTER the handler returned. The body renders that

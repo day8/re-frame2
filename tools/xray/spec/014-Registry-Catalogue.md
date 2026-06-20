@@ -375,7 +375,7 @@ Spec consumer: framework Spec 013 (registered-flow surface) + Spec 009
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-flows` | `(rf/registrations :flow)` — process-global registry. Test override via `:registered-flows-override`. |
+| `:rf.xray/registered-flows` | `(re-frame.flows/flows-snapshot)` — the per-frame `{frame-id {flow-id flow-map}}` store (the SOLE store after framework rf2-en00bk; the registrar `:flow` slot is reserved-but-empty, so the former `(rf/registrations :flow)` read now returns `{}`). Test override via `:registered-flows-override`. |
 | `:rf.xray/flow-trace-events` | Trace-buffer's `:op-type :flow` slice. |
 | `:rf.xray/selected-flow-id` | Flow-id or `nil`. |
 | `:rf.xray/flows-data` | Composite — `{:rows :status-counts :total :selected-flow-id}`. |

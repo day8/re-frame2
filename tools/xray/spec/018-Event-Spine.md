@@ -800,8 +800,13 @@ sections that read top-to-bottom as the developer scans.
      `↳` glyph linking back to the upstream flow id)
    - `wrote <write-path>` + after-value (via `inspector/inspect`)
    - `read <input-path-1> <input-path-2> …` — input paths recovered
-     from the registry via `(rf/handler-meta :flow flow-id)` (the
-     per-firing trace does not carry input PATHS; rf2-qlzh4 polish
+     from the per-frame flows store via
+     `(re-frame.flows/flow-meta-at flow-id {:frame frame-id})` (the
+     `(rf/handler-meta :flow id)` replacement after framework rf2-en00bk
+     made the flows atom the sole store and emptied the registrar `:flow`
+     slot; the flow's frame rides the `:rf.flow/computed` trace's `:frame`
+     tag, and flows are frame-divergent-per-id so the read is frame-scoped).
+     The per-firing trace does not carry input PATHS; rf2-qlzh4 polish
      bead tracks adding `:before` to the trace payload for full self-
      containment). When the flow has been cleared mid-session the
      read line renders `input paths unavailable (flow may have been
@@ -865,7 +870,8 @@ sections that read top-to-bottom as the developer scans.
   default; no '(none)' placeholder).
 - **Flow cleared mid-session** — FLOWS section still renders the row
   (the firing happened); the read-paths line renders the absent
-  placeholder since `(rf/handler-meta :flow id)` returns nil.
+  placeholder since `(re-frame.flows/flow-meta-at flow-id {:frame frame-id})`
+  returns nil.
 - **Handler threw** — §6 + §7 + §8 are all absent (handler never
   returned, so the flow transform never ran, the db never committed,
   and the fx walk never started — every post-handler stage is omitted);
