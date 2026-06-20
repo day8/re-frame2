@@ -36,7 +36,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
-            [re-frame.realm :as realm]
             [re-frame.flows.registry :as flows-registry]
             [re-frame.flows.topo :as flows-topo]
             [re-frame.routing.registry :as routing-registry]))
@@ -227,25 +226,3 @@
     "extract-cycle-path (internal dead-end invariant)"
     :rf.error/flow-cycle-extract-invariant
     #(#'flows-topo/extract-cycle-path {:a #{}} #{:a})))
-
-;; ============================================================================
-;; realm throw (rf2-p7kwpt) — the realm surface exemplar. The realm-owned
-;; mutation seam routes through the central builder, so the message is a human
-;; sentence naming the public concept carrying the [:rf.error/<id>] token, with
-;; the canonical discriminator in `:rf.error/id`.
-;;
-;; (rf2-afdlyr: the `app-value/app` + `realm/construct-realm` exemplars were
-;; removed with the realm-substrate collapse — those construction surfaces no
-;; longer exist. The surviving realm-family throw is `update-realm!`'s
-;; `:rf.error/unknown-realm`, raised when a realm-owned mutation targets an
-;; unregistered realm id.)
-;; ============================================================================
-
-(deftest realm-throw-emits-conformant-shape
-  ;; rf2-p7kwpt — the realm surface exemplar. A realm-owned mutation against an
-  ;; unregistered realm id routes through the central builder: the message names
-  ;; the concept and carries the token, with :rf.error/id as the SOLE discriminator.
-  (assert-conformant-throw!
-    "realm/set-installed-app! (unknown realm id)"
-    :rf.error/unknown-realm
-    #(realm/set-installed-app! :conf/never-constructed {:rf.app/id :conf/app})))

@@ -203,7 +203,7 @@
   `rf/frame-provider-existing` is a misuse (it neither creates nor owns a
   frame). `:children` is the substrate trailing-children carrier, not a
   lifecycle opt, so it is excluded."
-  #{:id :images :initial-db :on-create :fx-overrides :realm})
+  #{:id :images :initial-db :on-create :fx-overrides})
 
 (defn ^:no-doc reject-lifecycle-opts!
   "Fail loud when a SCOPE-only `rf/frame-provider-existing` is handed any

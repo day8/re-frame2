@@ -446,22 +446,14 @@
       violation, not caller-fixable\" (topo.cljc). An internal invariant is not a
       consumer-facing error category, so it stays out of the catalogue.
 
-  TEMPORARY — REMOVED BY THE afdlyr REALM COLLAPSE (stage-2 in flight). These two
-  realm-substrate categories are being DELETED by the realm collapse (afdlyr); a
-  catalogue row would contradict their imminent removal, so they are held here
-  rather than catalogued. DROP both the moment afdlyr lands (the source emit sites
-  vanish, and `allow-list-stays-honest` will then fail on the stale-unemitted
-  drift, forcing the co-edit):
-    - `:rf.error/unknown-realm` — `re-frame.realm/update-realm!` fail-closed on an
-      unknown realm id; removed by afdlyr realm collapse.
+  INTERNAL-INVARIANT / framework-bug categories, held here rather than catalogued:
     - `:rf.error/unknown-registry-kind` — `re-frame.registrar/register!`
-      unknown-kind guard; removed by afdlyr realm collapse.
+      unknown-kind guard; a framework-bug guard, not a consumer-facing category.
 
   `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
   emitted, forcing the co-edit so the list cannot rot into a silent blanket
   suppression."
   #{:rf.error/flow-cycle-extract-invariant
-    :rf.error/unknown-realm
     :rf.error/unknown-registry-kind})
 
 ;; ---------------------------------------------------------------------------

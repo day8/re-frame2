@@ -65,7 +65,6 @@ const path = require('node:path');
 // `node scripts/check-per-ns-isolation.cjs --list` to see the live set.
 // ---------------------------------------------------------------------------
 const ISOLATION_NAMESPACES = [
-  're-frame.app-value-cljs-test',
   're-frame.conformance-corpus-cljs-test',
   're-frame.ep0023-conformance-cljs-test',
   're-frame.example-frame-scoping-cljs-test',
@@ -75,11 +74,9 @@ const ISOLATION_NAMESPACES = [
   're-frame.live-cascade-frame-resolution-cljs-test',
   're-frame.live-frame-cljs-test',
   're-frame.live-frame-reload-cljs-test',
-  're-frame.migration-cljs-test',
   're-frame.multi-frame-isolation-cljs-test',
   're-frame.owned-frame-lifecycle-cljs-test',
   're-frame.projection-cljs-test',
-  're-frame.realm-cljs-test',
   're-frame.router-carried-frame-cljs-test',
   're-frame.subs-override-seam-cljs-test',
   're-frame.views-current-component-cljs-test',
