@@ -10,12 +10,12 @@
  * Why: the Xray / Story dev testbeds turn a source-coord into an editor
  * URI by prepending an on-disk project-root. The shared helper
  * `re-frame.testbed.config` reads that root from a `goog-define`
- * (`re-frame.testbed.config/repo-root`) that the affected shadow-cljs
+ * (`re-frame.testbed.config/checkout-root`) that the affected shadow-cljs
  * builds seed from this env var via `#shadow/env`. So the on-disk root
  * baked into a testbed build is the ACTUAL repo root of whatever clone
  * ran the build — never a hardcoded personal path. 'Open in editor'
  * therefore works on a fresh clone at any path, on any OS, with no
- * `?project-root=` override needed.
+ * `?checkout-root=` override needed.
  *
  * EXPLICIT BUILD-IDS ONLY (rf2-trlj7). The launcher takes one or more
  * explicit shadow-cljs build-ids — name the build(s) you actually want to
@@ -42,7 +42,7 @@
  * and are never treated as builds for URL printing.
  *
  * Launching `npx shadow-cljs watch ...` directly still works — the env
- * var is just unset, so the helper falls back to the `?project-root=`
+ * var is just unset, so the helper falls back to the `?checkout-root=`
  * query string (or a graceful open-in-editor no-op).
  *
  * SPAWN FORM (rf2-1ggkn). We resolve shadow-cljs's own JS entry-point

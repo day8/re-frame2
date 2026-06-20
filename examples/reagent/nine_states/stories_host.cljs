@@ -119,12 +119,12 @@
   (install-live-frame!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
   ;; `#/stories` lands on the shell without a manual click-through. The
-  ;; `:story-subdir` opt (rf2-77wqzi) tells the host this showcase's Story
+  ;; `:source-subdir` opt (rf2-77wqzi) tells the host this showcase's Story
   ;; source-coords are classpath-relative to `examples/reagent`, so the host
-  ;; resolves the on-disk project-root (build-env define or `?project-root=`
+  ;; resolves the on-disk project-root (build-env define or `?checkout-root=`
   ;; override, cross-platform) and calls `story/configure!` itself — that
   ;; also bridges the root into Xray's slot. Without it the Story 'open in
   ;; editor' chips would resolve `nine_states/stories.cljs` against a nil root.
   ;; The live-app root is frame-scoped via `live-app-root` (the `frame-provider`
   ;; wrapper) so the bare `#/` surface mounts under the app frame.
-  (story-host/mount-with-hash-routing! live-app-root {:story-subdir "examples/reagent"}))
+  (story-host/mount-with-hash-routing! live-app-root {:source-subdir "examples/reagent"}))

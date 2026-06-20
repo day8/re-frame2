@@ -307,14 +307,14 @@
 ;; ignores it (the slot stays nil; open-in-editor degrades to the same no-op
 ;; the spec already documents for a missing root) UNLESS a host has made the
 ;; explicit, static-export-aware opt-in below. The opt-in is DISTINCT from the
-;; dev testbed root helper (`re-frame.testbed.config/resolve-project-root`):
+;; dev testbed root helper (`re-frame.testbed.config/resolve-source-root`):
 ;; that helper exists to wire dev testbeds, and a static export passing its
 ;; result is exactly the accidental-leak case this guard closes. A host that
 ;; genuinely wants a "published site that links back into the author's editor"
 ;; (e.g. an internal docs deploy) flips this opt-in deliberately.
 ;;
 ;; This is a runtime guard. The static build ALSO drops the `RF2_TESTBED_
-;; PROJECT_ROOT` → `repo-root` goog-define seed (see implementation/
+;; PROJECT_ROOT` → `checkout-root` goog-define seed (see implementation/
 ;; shadow-cljs.edn :story-static/*), so no ambient checkout STRING is inlined
 ;; into the advanced bundle in the first place; this guard is the framework-
 ;; level defence that protects every downstream static export regardless of

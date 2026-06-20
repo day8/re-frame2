@@ -136,10 +136,10 @@ wired into the build, and consumers can use it today.
 - **`tools/testbed-support/`** — a small dev-only support library
   (two namespaces: `re-frame.testbed.config` and
   `re-frame.testbed.story-host`) the Xray / Story browser testbeds share.
-  `config/resolve-project-root` derives the on-disk project root for
-  "open in editor" from a build-env `goog-define` (seeded per build via
-  `#shadow/env`, so it's cross-platform with no hardcoded checkout path)
-  with a `?project-root=` per-session override, normalising both tiers to
+  `config/resolve-source-root` derives the on-disk source root for
+  "open in editor" from a build-env `checkout-root` `goog-define` (seeded
+  per build via `#shadow/env`, so it's cross-platform with no hardcoded
+  checkout path) with a `?checkout-root=` per-session override, normalising both tiers to
   a canonical forward-slash form so Windows and POSIX checkout roots
   resolve identically. `story-host/mount-with-hash-routing!` owns the
   live-app ↔ Story-shell hash-toggle host harness the showcase testbeds

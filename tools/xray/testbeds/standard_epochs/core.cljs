@@ -795,10 +795,10 @@
 ;; The open-in-editor project-root is derived from the build environment,
 ;; not a hardcoded personal path. `re-frame.testbed.config` joins the
 ;; build-time repo-root goog-define with this testbed's tool-relative
-;; subdir; `?project-root=<path>` still overrides per session. See that ns
+;; subdir; `?checkout-root=<path>` still overrides per session. See that ns
 ;; for the cross-platform mechanism.
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/xray/testbeds"))
+(defn- resolve-source-root []
+  (testbed-config/resolve-source-root "tools/xray/testbeds"))
 
 ;; ============================================================================
 ;; STANDALONE WRAPPER — header (title + intro) above the shared `root`
@@ -825,7 +825,7 @@
 (defn ^:export run []
   ;; Configure Xray BEFORE `rf/init!` so the preload's auto-open reads the
   ;; right project-root on its first paint of any chip.
-  (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
+  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
   ;; no routing here). The host frame is the one Xray reads. Mount the

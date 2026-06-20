@@ -226,7 +226,7 @@
 ;;
 ;; Per the rf2-5m5n2 contract Xray exposes `:rf.xray/project-root`. The
 ;; panel-gallery boots with its known on-disk repo position by default; a
-;; `?project-root=<path>` query string overrides for cross-machine portability
+;; `?checkout-root=<path>` query string overrides for cross-machine portability
 ;; (mirroring the `standard_epochs` testbed's resolver).
 ;;
 ;; The URI build is invariant to the host page URL — `resolve-uri` reads the
@@ -235,23 +235,23 @@
 ;; never reaches into the document. Two real tests pin this contract: the
 ;; URI-build invariance to host URL is pinned by
 ;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`,
-;; and the `?project-root=` override branch (parse / URL-decode / trim and
+;; and the `?checkout-root=` override branch (parse / URL-decode / trim and
 ;; its precedence over the build-time repo-root) is pinned by
 ;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
 
 ;; rf2-5dphw — open-in-editor project-root derived from the build
-;; environment (the build-time `re-frame.testbed.config/repo-root`
+;; environment (the build-time `re-frame.testbed.config/checkout-root`
 ;; goog-define joined with this testbed's tool-relative subdir), not a
-;; hardcoded personal path. `?project-root=<path>` still overrides per
+;; hardcoded personal path. `?checkout-root=<path>` still overrides per
 ;; session. The URI build stays invariant to the host page URL — the
 ;; resolver reads the configured root, not `window.location`; the
 ;; query-param branch only influences which root we PASS to `configure!`.
 ;; The host-URL invariance is pinned by
 ;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`;
-;; the `?project-root=` override parse + precedence is pinned by
+;; the `?checkout-root=` override parse + precedence is pinned by
 ;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
-(defn- resolve-project-root []
-  (testbed-config/resolve-project-root "tools/xray/testbeds"))
+(defn- resolve-source-root []
+  (testbed-config/resolve-source-root "tools/xray/testbeds"))
 
 ;; -- Routing between landing and Story shell ------------------------------
 ;;
@@ -269,7 +269,7 @@
   ;; of `window.location`, so the panel-gallery's source links resolve to
   ;; the same on-disk paths regardless of which port shadow-cljs serves
   ;; the testbed from.
-  (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
+  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   ;; rf2-ymnfx (Issue A) — seed `:rf.story/project-root` for the SAME
   ;; on-disk root so the Story shell's variant-toolbar 'Open' button
   ;; (re-frame.story.ui.open-in-editor/open-chip) ships an absolute
@@ -281,7 +281,7 @@
   ;; `reset!`. Mirrors the pattern in
   ;; `tools/story/testbeds/login_form/core.cljs` and
   ;; `tools/story/testbeds/counter_with_stories/core.cljs`.
-  (story/configure! {:rf.story/project-root (resolve-project-root)})
+  (story/configure! {:rf.story/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
   ;; The handlers operate on the current frame's app-db, so each
