@@ -40,7 +40,8 @@
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Machines expose
   algebra views and the projected Malli shapes in
   [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.derivation.node :as node]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.paths :as paths]
@@ -206,14 +207,9 @@
   user-supplied spec keys. Functions stay opaque — a machine's transition
   logic is its `:states` / `:actions` / `:guards`, never serialized here."
   [node machine meta]
-  (let [source (cond-> {}
-                 (contains? meta :ns)   (assoc :ns   (:ns   meta))
-                 (contains? meta :file) (assoc :file (:file meta))
-                 (contains? meta :line) (assoc :line (:line meta)))]
-    (cond-> node
-      (seq source)                    (assoc :source source)
-      (contains? machine :doc)        (assoc :doc (:doc machine))
-      (contains? machine :data-schema) (assoc :schema (:data-schema machine)))))
+  (cond-> (node/attach-source node meta)
+    (contains? machine :doc)         (assoc :doc (:doc machine))
+    (contains? machine :data-schema) (assoc :schema (:data-schema machine))))
 
 (defn- node-for
   "Build the derivation/process algebra view of one machine spec (Derivations
@@ -231,18 +227,17 @@
   declared `[:event …]` triggers), `:output` (the runtime-db snapshot path),
   `:source-form`, `:spawns?` flag, and source coords / schema / doc."
   [id source-id machine meta]
-  (-> {:id            id
-       :kind          :process
-       :refinement    :machine-process
-       :source-form   {:kind :reg-machine :id source-id}
-       :inputs        (declared-event-inputs machine)
-       :output        [:runtime (paths/snapshot-path id)]
-       :storage       :runtime-db
-       :evaluation    (evaluation-policy machine)
-       :lifecycle     :machine-instance
-       :owner         [:machine id]
-       :materialized? true
-       :spawns?       (declares-spawn? machine)}
+  (-> (node/node-base id [:runtime (paths/snapshot-path id)]
+                      {:kind          :process
+                       :storage       :runtime-db
+                       :evaluation    (evaluation-policy machine)
+                       :lifecycle     :machine-instance
+                       :materialized? true})
+      (assoc :refinement  :machine-process
+             :source-form {:kind :reg-machine :id source-id}
+             :inputs      (declared-event-inputs machine)
+             :owner       [:machine id]
+             :spawns?     (declares-spawn? machine))
       (with-metadata machine meta)))
 
 (defn machine-algebra-view

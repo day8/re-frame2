@@ -36,7 +36,8 @@
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Resources
   expose process nodes (graduated from EP-0014) and the projected Malli
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.derivation.node :as node]
+            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.scope-registry :as scope-registry]
@@ -234,15 +235,10 @@
   fn is the resource's whole-value process driver, surfaced under `:derive`
   as an opaque token (never serialized)."
   [node spec slot]
-  (let [source (cond-> {}
-                 (contains? slot :ns)   (assoc :ns   (:ns   slot))
-                 (contains? slot :file) (assoc :file (:file slot))
-                 (contains? slot :line) (assoc :line (:line slot)))]
-    (cond-> node
-      (seq source)                  (assoc :source source)
-      (contains? spec :data-schema) (assoc :schema (:data-schema spec))
-      (some? (:doc spec))           (assoc :doc (:doc spec))
-      (contains? spec :request)     (assoc :derive (:request spec)))))
+  (cond-> (node/attach-source node slot)
+    (contains? spec :data-schema) (assoc :schema (:data-schema spec))
+    (some? (:doc spec))           (assoc :doc (:doc spec))
+    (contains? spec :request)     (assoc :derive (:request spec))))
 
 (defn- static-node-for
   "Build the STATIC derivation/process algebra view of one resource from its
@@ -263,19 +259,18 @@
   [resource-id spec slot]
   (let [transport-id (or (:transport spec) transport/default-transport)
         resolver     (scope-resolver-enrichment spec)]
-    (-> {:id            resource-id
-         :kind          resource-superkind
-         :refinement    resource-refined-kind
-         :source-form   {:kind :reg-resource :id resource-id}
-         :inputs        (declared-inputs spec)
-         :output        [:runtime [state/resources-key :entries]]
-         :storage       resource-storage
-         :authority     (authority-for transport-id)
-         :evaluation    resource-evaluation
-         :lifecycle     resource-lifecycle
-         :selectors     resource-selectors
-         :commands      (resource-commands transport-id)
-         :materialized? true}
+    (-> (node/node-base resource-id [:runtime [state/resources-key :entries]]
+                        {:kind          resource-superkind
+                         :storage       resource-storage
+                         :evaluation    resource-evaluation
+                         :lifecycle     resource-lifecycle
+                         :materialized? true})
+        (assoc :refinement  resource-refined-kind
+               :source-form {:kind :reg-resource :id resource-id}
+               :inputs      (declared-inputs spec)
+               :authority   (authority-for transport-id)
+               :selectors   resource-selectors
+               :commands    (resource-commands transport-id))
         (cond-> (some? resolver) (assoc :scope-resolver resolver))
         (with-metadata spec slot))))
 
