@@ -1285,11 +1285,11 @@
 ;;
 ;; The false-green guard at the projection boundary. The :rf.view/rendered op
 ;; stamps :rf.view/cause-event-id (views.cljs, rf2-1cc03) exactly as the
-;; :rf.sub/run op stamps :rf.sub/cause-event-id — but render-row formerly
-;; dropped it, so every projected render row keyed as nil and the Story
-;; causal/cascade :view surface silently measured 0 (an over-render could
-;; never be caught: a SILENT GREEN). This pins that the render row carries
-;; the cause end-to-end, mirroring the sub-row.
+;; :rf.sub/run op stamps :rf.sub/cause-event-id, and the render row must
+;; carry it through: if a projected render row keyed as nil, the Story
+;; causal/cascade :view surface would silently measure 0 and an over-render
+;; could never be caught (a SILENT GREEN). This pins that the render row
+;; carries the cause end-to-end, mirroring the sub-row.
 
 (deftest renders-projection-carries-cause-event-id
   (testing "rf2-9gquv — a :rf.view/rendered op carrying :rf.view/cause-event-id

@@ -165,7 +165,7 @@
           ":depth nil dropped; prior 9 survives"))))
 
 ;; ============================================================================
-;;  Invariant 1 — ring + listeners are RAW (storage-side redaction removed)
+;;  Invariant 1 — ring + listeners are RAW (no storage-side redaction)
 ;; ============================================================================
 
 (deftest invariant-1-ring-record-is-raw-even-with-redact-fn-installed
@@ -647,8 +647,8 @@
 ;;  "verify with a restore/replay test" instruction (rf2-t55hxg.9)
 ;; ============================================================================
 ;;
-;; Disposition 6 (epoch redaction) is IMPLEMENTED CORRECTLY — the storage-side
-;; `:redact-fn` mutation was removed, so the in-process ring carries the RAW
+;; Disposition 6 (epoch redaction) is IMPLEMENTED CORRECTLY — the `:redact-fn`
+;; never mutates storage, so the in-process ring carries the RAW
 ;; record (invariant 1, above) and the restore path reads that raw ring,
 ;; never the projected copy. The replay-faithful-under-redaction property
 ;; therefore holds BY CONSTRUCTION. But the disposition's explicit instruction
