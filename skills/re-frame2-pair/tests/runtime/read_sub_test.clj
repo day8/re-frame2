@@ -1,10 +1,10 @@
 ;;;; tests/runtime/read_sub_test.clj
 ;;;;
 ;;;; Babashka-runnable verification of `read-sub!` + `validate-sub-id` in
-;;;; preload/re_frame2_pair/runtime.cljs (rf2-3bu3d.7) — the validated
-;;;; one-shot subscription read the MCP `read-sub` tool wraps.
+;;;; preload/re_frame2_pair/runtime.cljs — the validated one-shot
+;;;; subscription read the MCP `read-sub` tool wraps.
 ;;;;
-;;;; ## What rf2-3bu3d.7 adds
+;;;; ## What read-sub! provides
 ;;;;
 ;;;;   Reading a subscription value — the #1 read on any re-frame2 app —
 ;;;;   via raw eval-cljs `@(rf/subscribe [:foo])` is UNVALIDATED: a typo'd
@@ -43,7 +43,7 @@
 ;; and carry the no-silent-swallow slots. Mirrors the dispatch_consequence
 ;; structural-pin style so a refactor that drops the validation can't ship
 ;; green. Shared locate+parse+walk scaffold lives in
-;; tests/runtime/_support.clj (rf2-yrpt90).
+;; tests/runtime/_support.clj.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private defn-named rt/defn-named)
@@ -69,9 +69,9 @@
     (is (some? form))
     (doseq [slot [:unknown-id :ambiguous-frame :sub-error :not-a-sub-vector]]
       ;; :unknown-id is produced by validate-registered (called via
-      ;; validate-sub-id); :ambiguous-frame is now produced via the shared
-      ;; enriched builder `ambiguous-frame-error` (rf2-n58jxo) rather than an
-      ;; inline keyword; the others are literal in read-sub!.
+      ;; validate-sub-id); :ambiguous-frame is produced via the shared
+      ;; enriched builder `ambiguous-frame-error` rather than an inline
+      ;; keyword; the others are literal in read-sub!.
       (is (or (form-contains? #(= slot %) form)
               (and (= slot :unknown-id)
                    (form-contains? #(= 'validate-sub-id %) form))
@@ -138,10 +138,9 @@
       (throw (ex-info "boom" {}))
       v)))
 
-;; Mirror of `ambiguous-frame-error` (rf2-n58jxo). The full runtime helper
-;; carries realm context; this read-sub mirror uses the simpler frame model
-;; (no realms) so it surfaces the load-bearing slots: operation, the query,
-;; the available frames, the current pin. KEEP THE SLOT CONTRACT IN SYNC.
+;; Mirror of `ambiguous-frame-error`. It surfaces the load-bearing slots:
+;; operation, the query, the available frames, the current pin. KEEP THE
+;; SLOT CONTRACT IN SYNC.
 (defn ambiguous-frame-error [operation extra]
   (merge {:ok? false :reason :ambiguous-frame :operation operation
           :available-frames (vec (frame-ids))
@@ -191,9 +190,9 @@
     (is (= {:id 42 :name "Ada"} (:value r)))))
 
 (deftest unknown-sub-id-validated-not-subscribed
-  ;; The headline rf2-3bu3d.7 case: a typo'd sub-id must NOT silently
-  ;; subscribe + return nil. Validation short-circuits with :unknown-id +
-  ;; :nearest, :subscribed? false.
+  ;; The headline case: a typo'd sub-id must NOT silently subscribe +
+  ;; return nil. Validation short-circuits with :unknown-id + :nearest,
+  ;; :subscribed? false.
   (register-frame! :rf/default)
   (register-sub! :current-user)
   (let [r (read-sub! [:current-userr])]
@@ -218,7 +217,7 @@
   (let [r (read-sub! [:cart/total])]
     (is (false? (:ok? r)))
     (is (= :ambiguous-frame (:reason r)))
-    ;; rf2-n58jxo — enriched diagnostics on the refusal.
+    ;; Enriched diagnostics on the refusal.
     (is (= :read-sub (:operation r)))
     (is (= [:cart/total] (:query r)))
     (is (= #{:rf/default :rf/other} (set (:available-frames r)))

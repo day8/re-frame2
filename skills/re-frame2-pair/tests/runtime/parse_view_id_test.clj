@@ -6,13 +6,12 @@
 ;;;; Why a parallel implementation lives here:
 ;;;;
 ;;;;   `preload/re_frame2_pair/runtime.cljs` is a CLJS-only file loaded
-;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It now
+;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It
 ;;;;   aliases the CANONICAL reader `re-frame.source-coords/parse-view-id`
-;;;;   (the source-coord contract owner; rf2-ztxnm8 collapsed the formerly-
-;;;;   inline `data-rf-view` parse in `view-entity` onto it — the inverse of
-;;;;   `format-view-id`, the data-rf-view analogue of the parse-source-coord
-;;;;   work in rf2-nr7vf2). Loading that core `.cljc` ns under bb would drag
-;;;;   in re-frame.interop + the editor-uri sibling, so this script keeps a
+;;;;   (the source-coord contract owner — the inverse of `format-view-id`,
+;;;;   the data-rf-view analogue of `parse-source-coord`). Loading that core
+;;;;   `.cljc` ns under bb would drag in re-frame.interop + the editor-uri
+;;;;   sibling, so this script keeps a
 ;;;;   dependency-free mirror of the read rule (leading-colon -> keyword;
 ;;;;   first `/` -> namespaced keyword; else raw string) and asserts the
 ;;;;   round-trip against a mirror of `format-view-id` so format drift shows
