@@ -348,7 +348,7 @@
 ;; ---- rf2-d60go: :rf.route/handle-url-change writes the full slice shape -
 ;;
 ;; Per Spec 012 §The :rf/route slice and §URL changes are events the slice
-;; carries `{:id :params :query :fragment :transition :error :nav-token}`
+;; carries `{:route-id :params :query :fragment :transition :error :nav-token}`
 ;; on every URL-driven write. Pre-fix this handler omitted :fragment and
 ;; :nav-token; the slice diverged in shape from the programmatic-nav path.
 

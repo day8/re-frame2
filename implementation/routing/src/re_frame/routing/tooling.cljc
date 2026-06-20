@@ -302,7 +302,7 @@
   - `:kind`        — `:process` (refinement `:route-fact`).
   - `:output` / `:storage` / `:evaluation` / `:lifecycle` / `:materialized?`
                    — the same fixed classifications as the static node.
-  - `:route-id`    — the live matched route id (the `:id` slot of the slice),
+  - `:route-id`    — the live matched route id (the slice's `:route-id` slot),
                      so a tool can correlate the live fact back to the
                      `:source-form` of the static node it realized.
   - `:params`      — the live matched path params (a value summary; redaction
