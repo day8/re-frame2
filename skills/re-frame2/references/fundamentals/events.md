@@ -84,9 +84,9 @@ The wrap is thin, but the *state transition itself* should stay a plain function
 
 Test `inc-counter` directly with no runtime; the handler stays a one-liner. This keeps the "an event is a pure function of state" model intact while every handler speaks the uniform coeffects-in/effects-out shape.
 
-## Interceptors as named program members
+## Interceptors as named registered members
 
-Full-context work — rewriting coeffects, replacing the event, skipping the handler, adding or removing effects, focusing `:db` on a slice — lives in **interceptors**. An interceptor is load-bearing program structure, so it is a **registered, named** program member with the same properties as every other `reg-*` member: an id, source coordinates, metadata, hot-reload behaviour, and trace/Xray visibility. Register it once with `reg-interceptor`, then reference it by id from a chain.
+Full-context work — rewriting coeffects, replacing the event, skipping the handler, adding or removing effects, focusing `:db` on a slice — lives in **interceptors**. An interceptor is load-bearing structure, so it is a **registered, named** member with the same properties as every other `reg-*` member: an id, source coordinates, metadata, hot-reload behaviour, and trace/Xray visibility. Register it once with `reg-interceptor`, then reference it by id from a chain.
 
 ```clojure
 ;; Register the behaviour once — it has a name, a doc, and (optionally) :before / :after.
@@ -107,7 +107,7 @@ Two reference shapes:
 - a **bare keyword** id (`:auth/required`) — references a static registered interceptor;
 - an **`[id arg]` vector** (`[:rf.interceptor/path [:cart]]`) — references a parameterized interceptor **factory** with exactly one EDN-serializable argument.
 
-Inline interceptor maps, values, or Vars in a public chain are a registration error — `:rf.error/inline-interceptor-removed`; the recovery is to register the behaviour and reference it by id. `->interceptor` is **not** the public authoring form (the framework keeps an internal lowering constructor only). Because chains carry serializable refs, an event's interceptor wiring prints, diffs, moves through a story, lands in an app value, and is overridable by exact reference — `{:interceptor-overrides {:auth/required :story/skip-auth, [:rf.interceptor/path [:cart]] nil}}` swaps or removes a named ref per-frame or per-dispatch.
+Inline interceptor maps, values, or Vars in a public chain are a registration error — `:rf.error/inline-interceptor-removed`; the recovery is to register the behaviour and reference it by id. `->interceptor` is **not** the public authoring form (the framework keeps an internal lowering constructor only). Because chains carry serializable refs, an event's interceptor wiring prints, diffs, moves through a story, rides in an image's selected registration set, and is overridable by exact reference — `{:interceptor-overrides {:auth/required :story/skip-auth, [:rf.interceptor/path [:cart]] nil}}` swaps or removes a named ref per-frame or per-dispatch.
 
 **Standard `[:rf.interceptor/path path-vector]`** is the one framework-standard interceptor. It focuses the handler's `:db` coeffect onto the named app-db slice and re-widens the returned slice afterwards, so the handler reads and returns slice-relative state. It preserves the frame-commit `identical?` no-op: a path-focused handler that returns its slice unchanged still commits as a no-op. There is no public `rf/path` value constructor — the chain language is uniform keywords and `[id arg]` refs.
 
