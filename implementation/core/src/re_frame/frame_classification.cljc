@@ -34,14 +34,23 @@
     values (EP-0012). They are INSTALLED into the frame's durable elision
     registry (`[:rf.runtime/elision :sensitive-declarations]` /
     `[:rf.runtime/elision :declarations]`, Conventions §Reserved runtime-db
-    keys) under `:source :frame` — the canonical durable app-db egress
-    route (per EP-0015 §8: schemas describe shape, not durable app-db egress
-    policy). The only other source that can live in this registry is the
-    imperative-mark route (`:source :marks` — internal / test /
-    generated-code only). A path declared by ANY source
-    is classified: the sources union at lookup time. Re-registering a frame
+    keys) under `:source :frame`. The other sources that can live in this
+    registry are the EP-0025 commit-plane classification effects (`:source
+    :effect` — `re-frame.elision/apply-classification-effects`) and `reg-flow`
+    output declarations (`:source :flow`). A path declared by ANY source is
+    classified: the sources union at lookup time. Re-registering a frame
     REPLACES the `:source :frame` entries (the declaration IS the frame's
-    policy); any `:source :marks` entries survive untouched.
+    policy); other-sourced entries survive untouched.
+
+    NOTE (EP-0025, rf2-j3jlgu): the frame `:sensitive` / `:large {:app-db}`
+    annotation is RETAINED here (it is a peer source of the commit-plane
+    classification effects, writing the same registry the path walker reads).
+    EP-0025 §What-is-removed lists the frame app-db annotation among the
+    surfaces it eventually replaces with init-event `:sensitive` effects, but
+    that consumer migration (EP-0025 bead-plan stage 5) is NOT in this purge's
+    scope — privacy.cljc's overlap interceptor and the conformance corpus still
+    read this registry, and the annotation coexists cleanly with the effect
+    route. FLAGGED for the mayor.
 
   - **`:sensitive :http :headers` / `:query-params`** are frame-local
     EXTENSIONS to the immutable built-in HTTP carrier denylist (Spec 014
@@ -463,16 +472,15 @@
 ;;
 ;; Frame-owned app-db classification installs into `[:rf.runtime/elision …]`
 ;; tagged `:source :frame`. Re-registration REPLACES only the `:source :frame`
-;; entries; any `:source :marks` entries (the imperative-mark route —
-;; `re-frame.marks`, internal / test only) survive untouched, and the sources
-;; union at lookup time. No `:source :schema` installer feeds this registry
-;; (per EP-0015 §8: schemas describe shape, not durable app-db egress policy).
-;; This mirrors how `re-frame.marks/set-marks` replaces only its own
-;; `:source :marks` entries.
+;; entries; other-sourced entries (the EP-0025 commit-plane classification
+;; effects' `:source :effect`, and `reg-flow`'s `:source :flow`) survive
+;; untouched, and the sources union at lookup time. No `:source :schema`
+;; installer feeds this registry (per EP-0015 §8: schemas describe shape, not
+;; durable app-db egress policy).
 
 (defn- without-frame-sourced
   "Drop `:source :frame` entries from a `{path decl}` declaration map,
-  preserving any other-sourced entries (the `:source :marks` route).
+  preserving any other-sourced entries (`:source :effect` / `:source :flow`).
   Returns `{}` for nil."
   [decls]
   (reduce-kv (fn [acc p decl]
