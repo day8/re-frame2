@@ -9,7 +9,7 @@
 ;; The OBSERVABLE seam exercised here is the t1 `:rf.event/db-pending` trace
 ;; event (router `flows-after-interceptor`, rf2-ta0y7): it stamps the full
 ;; pending app-db value under `:rf.event/db`, and the trace-egress projection
-;; (`re-frame.marks/project-db-tags` → `elide-wire-value`) redacts the
+;; (the classification trace projection → `elide-wire-value`) redacts the
 ;; frame-declared sensitive path BEFORE any listener observes it. t1 fires
 ;; whether or not the flows artefact is loaded — the no-flow counterpart of
 ;; the existing `data-classification-flow-output-inherits-from-input.edn`

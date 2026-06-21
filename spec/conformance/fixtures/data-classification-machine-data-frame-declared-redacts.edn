@@ -21,8 +21,8 @@
 ;; an unmarked sibling slot (`:retries`) rides egress verbatim. The redaction is
 ;; a TRACE-EGRESS concern: the committed runtime-db snapshot carries the raw
 ;; value; only the projected trace event redacts (the listener fan-out runs
-;; through `:marks/project-trace-event`, which re-roots the frame's snapshot-path
-;; declaration relative to the snapshot value via `marks/frame-snapshot-marks`).
+;; through `:classification/project-trace-event`, which re-roots the frame's snapshot-path
+;; declaration relative to the snapshot value via `classification/frame-snapshot-classification`).
 ;;
 ;; The machine's `:data-schema` carries NO `:sensitive?` prop (validation-only,
 ;; EP-0025); the classification is entirely frame-side.

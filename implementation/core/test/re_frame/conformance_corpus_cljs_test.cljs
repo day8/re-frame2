@@ -49,10 +49,10 @@
   (:require [cljs.test :refer-macros [deftest is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; EP-0015 (rf2-mngp4o): `add-marks` / `set-marks` are no longer
-            ;; on the `re-frame.core` façade; the corpus `:add-marks` /
-            ;; `:set-marks` ops drive the internal `re-frame.marks` helpers.
-            [re-frame.marks :as marks]
+            ;; EP-0025: the imperative add-marks/set-marks API is removed; the
+            ;; corpus `:add-marks` / `:set-marks` ops install frame app-db
+            ;; classification directly into the elision registry.
+            [re-frame.elision :as elision]
             ;; rf2-wxe9t — the always-on error-emit substrate is the
             ;; fan-out path the conformance runner observes for the
             ;; `:error-emit-records` expectation. Mirror of the JVM
@@ -635,24 +635,35 @@
 
 (defn- realise-app-marks!
   "Apply a fixture's `:fixture/app-marks` data-classification declarations
-  against the established frame scope (Spec 015 §App-db marks; rf2-s2s3xv).
-  Mirror of the JVM runner.
+  against the established frame scope. Mirror of the JVM runner.
 
-  `:fixture/app-marks` is an ORDERED vector of op-maps so a fixture can pin
-  the `add-marks` / `set-marks` sequencing the spec's category fixtures care
-  about. Each op-map carries exactly one of:
-
-    {:add-marks {path mark, ...}}   — additively merge into the frame mark-set
-    {:set-marks {path mark, ...}}   — replace the frame mark-set wholesale
-
-  Called AFTER `reg-frame` and BEFORE `realise-flows!` so a flow whose
-  `:inputs` overlap a marked path inherits the propagated output mark at
-  `reg-flow` time. `add-marks` / `set-marks` take an explicit `frame-id`."
+  EP-0025: the imperative `add-marks` / `set-marks` API is REMOVED. These
+  fixture ops are a TEST-ONLY shorthand for installing frame app-db
+  classification (equivalent to the kept commit-plane `:sensitive` / `:large`
+  effects, `:source :effect`). `:add-marks` merges; `:set-marks` replaces ALL
+  prior effect-sourced declarations first. Each op-map carries exactly one of
+  `{:add-marks {path mark}}` / `{:set-marks {path mark}}`. Called AFTER
+  `reg-frame` and BEFORE `realise-flows!`."
   [fixture scope-frame]
-  (doseq [op (or (:fixture/app-marks fixture) [])]
-    (cond
-      (contains? op :add-marks) (marks/add-marks scope-frame (:add-marks op))
-      (contains? op :set-marks) (marks/set-marks scope-frame (:set-marks op)))))
+  (letfn [(slot-for [mark]
+            (case mark :sensitive :sensitive-declarations :large :declarations))
+          (merge-marks [reg path->mark]
+            (reduce-kv (fn [r path mark]
+                         (assoc-in r [(slot-for mark) (vec path)] {:source :effect}))
+                       reg path->mark))
+          (drop-effect-sourced [reg]
+            (reduce (fn [r slot]
+                      (let [kept (into {} (remove (fn [[_ d]] (= :effect (:source d)))
+                                                  (get r slot)))]
+                        (if (seq kept) (assoc r slot kept) (dissoc r slot))))
+                    reg [:sensitive-declarations :declarations]))]
+    (doseq [op (or (:fixture/app-marks fixture) [])]
+      (cond
+        (contains? op :add-marks)
+        (elision/swap-elision-slot! scope-frame #(merge-marks (or % {}) (:add-marks op)))
+        (contains? op :set-marks)
+        (elision/swap-elision-slot! scope-frame
+          #(merge-marks (drop-effect-sourced (or % {})) (:set-marks op)))))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
