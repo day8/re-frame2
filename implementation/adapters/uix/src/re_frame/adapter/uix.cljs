@@ -132,8 +132,8 @@
   throws rather than synthesising `:rf/default` (Spec 002 §Frame target
   resolution). A non-nil but non-keyword `:frame` emits the distinct
   `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo). A
-  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-db` /
-  `:on-create` / …) is a MISUSE: the owned-frame core emits + throws
+  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-events`
+  / …) is a MISUSE: the owned-frame core emits + throws
   `:rf.error/frame-provider-existing-lifecycle-opt` pointing the caller at
   the OWNED `frame-provider`, because a scope-only provider neither creates
   nor owns a frame.

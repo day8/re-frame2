@@ -177,12 +177,12 @@
   (rf/init! reagent-adapter/adapter)
 
   ;; Register the three frames with their initialisers. Each has its
-  ;; own :on-create, but :rf/hydrate (dispatched below) will REPLACE
+  ;; own :initial-events, but :rf/hydrate (dispatched below) will REPLACE
   ;; the resulting app-db with the per-frame payload slice (locked
   ;; :replace-app-db policy).
-  (rf/reg-frame frame-a   {:on-create [::counter-init]})
-  (rf/reg-frame frame-b   {:on-create [::counter-init]})
-  (rf/reg-frame frame-log {:on-create [::log-init]})
+  (rf/reg-frame frame-a   {:initial-events [[::counter-init]]})
+  (rf/reg-frame frame-b   {:initial-events [[::counter-init]]})
+  (rf/reg-frame frame-log {:initial-events [[::log-init]]})
 
   (let [payload (read-server-payload)
         ;; payload shape:

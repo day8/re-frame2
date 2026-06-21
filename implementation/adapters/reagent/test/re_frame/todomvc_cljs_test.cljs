@@ -59,7 +59,7 @@
   (test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): the test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
-    ;; frame's `:on-create` drains synchronously (top-level boot) rather than
+    ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
     {:adapter       reagent-adapter/adapter
      :ambient-frame nil}))
@@ -76,8 +76,8 @@
     ;; the boot dispatch token's :rf.cofx. EP-0017 (rf2-16ck78):
     ;; :todo.storage/todos is now a RECORDABLE+PROVIDED coeffect, so its value
     ;; must ride the token (absent → :rf.error/missing-required-cofx). The boot
-    ;; dispatch is issued explicitly here (not via :on-create, which does not
-    ;; forward :rf.cofx) carrying the empty-localStorage / first-run value: an
+    ;; dispatch is issued explicitly here (rather than via :initial-events)
+    ;; carrying the empty-localStorage / first-run value: an
     ;; empty sorted-map, exactly what the node-side boundary read yields.
     (with-new-frame [f (frame/make-anon-frame-record!
                          {:fx-overrides {:todo.storage/save :rf/no-op}})]

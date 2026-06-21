@@ -117,7 +117,7 @@
 ;;
 ;; Re-registering the default frame with a new `:drain-depth` updates the
 ;; ceiling on subsequent drains (per [spec/002 §Surgical update]). The
-;; `:on-create` event is NOT re-fired on a surgical update — only the
+;; `:initial-events` are NOT re-dispatched on a surgical update — only the
 ;; depth ceiling changes — so `:depth-reached` survives across edits.
 
 (rf/reg-event ::set-drain-depth
