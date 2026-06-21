@@ -75,6 +75,7 @@
   subsequent frame-policy walk (a redacted leaf is inert)."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -345,6 +346,90 @@
       :else
       with-tree)))
 
+;; ---- derived-tree record (`:rf.observe/derived-tree`) --------------------
+;;
+;; A DERIVED tree re-surfaces a frame's app-db-sensitive / -large VALUES at a
+;; NON-app-db position the path-based walker can never reach — a token copied
+;; out of `[:auth :token]` into rendered hiccup at `[1 :value]`, a resolved
+;; `:effective-args` map, a snapshot body, a rendered DOM node. The sound
+;; posture is VALUE-based redaction: collect the live values at the frame's
+;; declared-`:sensitive?` / `:large` paths and substitute any matching leaf in
+;; the derived tree (the value-based DUAL of `elide-wire-value`). EP-0025 B4
+;; (rf2-ojp8pi): this is the ONE public boundary the off-box tool consumers
+;; (Story-MCP, re-frame2-pair) project a derived tree through — they name the
+;; `:rf.egress/profile` BOUNDARY, not the `:rf.size/*` floor; `project-egress`
+;; resolves the profile to the egress floor and delegates to the value-match
+;; engine in `re-frame.elision`, which reads the SAME per-frame classification
+;; registry the path walker reads (frame- / marks- / EP-0025-effect-sourced
+;; declarations, unioned at lookup) — so a path classified by a commit-plane
+;; `:sensitive` effect redacts a re-keyed copy in a derived tree too.
+;;
+;; The record carries:
+;;   :tree       the derived value (the SINGLE-TREE form), OR a map whose
+;;               named `:slot-keys` are scrubbed (the MULTI-SLOT form);
+;;   :slot-keys  nil/empty ⇒ `:tree` IS the derived tree; a seq ⇒ `:tree` is a
+;;               map and each present key's value is scrubbed;
+;;   :source-db  the raw db the derived values were produced from (the source
+;;               of the secret / large candidate sets). Defaults to the live
+;;               `:frame` app-db when omitted (the live-derived-tree case);
+;;   :rf.elision/extra-sensitive-source  an EXTRA raw db whose UNGUARDED
+;;               governed-sensitive values join the candidate union — the
+;;               FAIL-CLOSED pre-frame source for a documented no-run path
+;;               (a plan's authored `:db-seed` read before any run allocates
+;;               the frame).
+;;
+;; Profile-aware: under the default/safe profiles (off-box-tool /
+;; off-box-observability / local-redacted / ssr-hydration / public-error) the
+;; tree is value-redacted against the registry under the profile's egress
+;; floor; under `:rf.egress/local-raw` (or an explicit
+;; `:rf.size/include-sensitive? true`) the tree passes through verbatim — the
+;; trusted-local operator's deliberate raw read, the value-dual of the size
+;; walker's opt-out.
+
+(defn- derived-source-db
+  "Resolve the raw `:source-db` a derived-tree projection collects its
+  candidate secrets from. An explicit `:source-db` on the record WINS; else
+  the live app-db of the resolved `frame-id` (the live-derived-tree case —
+  rendered hiccup / DOM / `:effective-args` produced from the running frame).
+  Returns nil when neither is available (no candidate source ⇒ the value-match
+  engine short-circuits to the tree unchanged)."
+  [record frame-id]
+  (cond
+    (contains? record :source-db) (:source-db record)
+    (some? frame-id)              (frame/frame-app-db-value frame-id)
+    :else                         nil))
+
+(defn- project-derived-tree
+  "Project a `:rf.observe/derived-tree` record (EP-0025 B4, rf2-ojp8pi). The
+  ONE public boundary a derived tree (rendered hiccup / DOM, `:effective-args`,
+  a snapshot body, a plan-resolved value slot) projects through before off-box
+  egress. Delegates to the `re-frame.elision` value-match engine
+  (`redact-derived-slots`) under the profile's resolved egress floor —
+  SENSITIVE first (it wins), then LARGE over the survivors, off ONE collection
+  pass — reading the per-frame classification registry (frame- / marks- /
+  EP-0025-effect-sourced, unioned). `frame-id` is the already-seeded owning
+  frame.
+
+  Profile-aware opt-out: when the resolved walk opts sensitive content back in
+  (`:rf.egress/local-raw` / explicit `:rf.size/include-sensitive? true`) the
+  tree passes through verbatim — the trusted-local raw read."
+  [record frame-id elision-opts]
+  (let [tree (:tree record)]
+    (if (true? (:rf.size/include-sensitive? elision-opts))
+      ;; Trusted-local opt-out: the raw tree crosses (both axes).
+      tree
+      (let [source-db (derived-source-db record frame-id)
+            ;; The value-match engine takes the egress FLOOR (the `:rf.size/*`
+            ;; opt-set) as its `wire-opts`; `:frame` is supplied by the engine.
+            ;; Carry the pre-frame extra source through when the record names
+            ;; one (the fail-closed no-run candidate union).
+            wire-opts (cond-> (dissoc elision-opts :path)
+                        (contains? record :rf.elision/extra-sensitive-source)
+                        (assoc :rf.elision/extra-sensitive-source
+                               (:rf.elision/extra-sensitive-source record)))]
+        (elision/redact-derived-slots tree (:slot-keys record)
+                                      source-db frame-id wire-opts)))))
+
 ;; ---- dispatch ------------------------------------------------------------
 
 (defn- project-record-by-kind
@@ -360,6 +445,9 @@
     :rf.observe/error
     (project-error-record record opts elision-opts)
 
+    :rf.observe/derived-tree
+    (project-derived-tree record (:frame opts) elision-opts)
+
     ;; No `:kind` (or unknown kind) ⇒ treat the whole input as a
     ;; tree-shaped value and walk it. This is the direct-read / bare-value
     ;; egress path the §13 examples use:
@@ -373,11 +461,27 @@
 
   THE public, record-level boundary primitive (EP-0015 §10/§11). The
   required step before any off-box sink. It dispatches on a record's
-  `:kind` (the `:rf.observe/*` record kinds — handled-event, error) to a
-  PRIVATE per-kind projector, and falls back to walking a kindless input as
-  a tree-shaped VALUE (the direct-read path). For every tree-shaped slot it
-  DELEGATES to `elide-wire-value` against the frame's classification — it
-  does NOT reimplement the walker (EP-0015 §11).
+  `:kind` (the `:rf.observe/*` record kinds — handled-event, error,
+  derived-tree) to a PRIVATE per-kind projector, and falls back to walking a
+  kindless input as a tree-shaped VALUE (the direct-read path). For every
+  tree-shaped slot it DELEGATES to `elide-wire-value` against the frame's
+  classification — it does NOT reimplement the walker (EP-0015 §11).
+
+  A `:rf.observe/derived-tree` record is the VALUE-based dual: a derived tree
+  (rendered hiccup / DOM, a resolved `:effective-args` map, a snapshot body, a
+  plan-resolved value slot) re-surfaces a frame's app-db-sensitive / -large
+  VALUES at a non-app-db position the path walker cannot reach, so it is
+  value-redacted against the frame's classification registry (EP-0025 B4,
+  rf2-ojp8pi). The record carries `:tree` (the derived value, or a map when
+  `:slot-keys` names which map slots to scrub), an optional `:source-db` (the
+  raw db the derived values were produced from — defaults to the live `:frame`
+  app-db), and an optional `:rf.elision/extra-sensitive-source` (the
+  fail-closed pre-frame candidate source). It reads the SAME per-frame
+  registry the path walker reads (frame- / marks- / EP-0025-commit-plane-
+  effect-sourced declarations, unioned at lookup), so a path classified by a
+  `:sensitive` commit-plane effect redacts a re-keyed copy in a derived tree
+  too. Under `:rf.egress/local-raw` (or explicit
+  `:rf.size/include-sensitive? true`) the tree passes through verbatim.
 
   `opts` is a map:
 
