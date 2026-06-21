@@ -132,9 +132,16 @@ HOT_RELOAD_DRIFT = [
     re.compile(r"\bone-?time\b[^.\n]{0,30}startup[^.\n]{0,40}:?init-fn", re.IGNORECASE),
     # ":init-fn is ... NOT the hot-reload hook".
     re.compile(r":?init-fn[^.\n]{0,40}\bnot\b[^.\n]{0,20}(?:the\s+)?hot[\s-]?reload[^.\n]{0,10}hook", re.IGNORECASE),
-    # "does not re-run / re-invoke :init-fn / init [on/after a reload]".
-    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?[^.\n]{0,30}:?init(?:-fn)?", re.IGNORECASE),
-    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?\s+(?:the\s+)?:?init", re.IGNORECASE),
+    # "does not re-run / re-invoke :init-fn / init [on/after a reload]". The
+    # trailing `\b` pins `:init` / `:init-fn` as a COMPLETE token so the pattern
+    # does not falsely fire on the longer, unrelated `:initial-events` keyword
+    # (the EP-0027 seed-event id) — a sentence like "the surgical update does
+    # not rerun any `:initial-events`" is correct re-frame2 semantics, not the
+    # retired one-time-startup `:init-fn` claim this guard catches. Without the
+    # boundary the `:?init(?:-fn)?` prefix matched the `:init` of
+    # `:initial-events` and produced a false HOT-RELOAD-LIFECYCLE drift.
+    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?[^.\n]{0,30}:?init(?:-fn)?\b", re.IGNORECASE),
+    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?\s+(?:the\s+)?:?init\b", re.IGNORECASE),
 ]
 
 # ADAPTER-KEY retired wording (finding 3). The current Spec 006 adapter contract
@@ -395,6 +402,21 @@ def _self_test() -> int:
     probs = find_hot_reload_drift(("shadow-cljs.md", drift_shadow))
     if not any("HOT-RELOAD-LIFECYCLE" in p for p in probs):
         print(f"SELF-TEST FAIL (E hot-reload drift): expected drift, got {probs}")
+        failures += 1
+
+    # Case E2 — `:initial-events` must NOT trip the retired-framing patterns
+    # (regression pin for the EP-0027 false positive). "the surgical update …
+    # does not rerun any `:initial-events`" is correct re-frame2 semantics: the
+    # `:?init(?:-fn)?` prefix must match `:init` / `:init-fn` only as a complete
+    # token, never as the `:init` prefix of the longer `:initial-events` keyword.
+    initial_events_clean = (
+        "This explicit `dispatch-sync` is the reset boundary: it re-seeds the "
+        "demo state on every hot reload (the surgical update in step 2 does not "
+        "rerun any `:initial-events`). Some apps instead seed lazily.\n"
+    )
+    probs = find_hot_reload_drift(("entry-namespace.md", initial_events_clean))
+    if probs:
+        print(f"SELF-TEST FAIL (E2 :initial-events false positive): unexpected {probs}")
         failures += 1
 
     # Case F — adapter-key clean: current names + the front-porch sentence.
