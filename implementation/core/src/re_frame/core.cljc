@@ -2713,6 +2713,10 @@
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's
       ;; `registrar/clear-all!`. Idempotent.
       (std-interceptors/register-standard-interceptors!)
+      ;; EP-0027 (rf2-v1xzoo): re-seed the framework-standard `:rf/set-db` event
+      ;; (into both the regular registrar AND the image standard registry) so it
+      ;; resolves after a `registrar/clear-all!`. Idempotent.
+      (events/register-set-db-standard!)
       ;; EP-0022 (rf2-i3uxo2): re-seed the framework-standard
       ;; `:rf.schema/at-boundary` interceptor so the ref form
       ;; `[:rf.schema/at-boundary]` resolves after a `registrar/clear-all!`.
