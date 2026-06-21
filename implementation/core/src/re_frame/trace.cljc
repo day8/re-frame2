@@ -434,7 +434,7 @@
   Why this is load-bearing (rf2-md2wn0 — privacy correctness): some
   projection clauses decide sensitivity DURING marks projection rather
   than at emit time, and stamp `[:tags :sensitive?]` there — e.g.
-  `re-frame.marks/project-machine-error-tags` (a sensitive machine's
+  `re-frame.classification/project-machine-error-tags` (a sensitive machine's
   `:exception-data`) and `project-sub-tags` (a propagation-sensitive
   sub output that fails closed on a nil frame). Marks projection runs
   AFTER `build-event`, so `compute-sensitive?` never saw that signal
@@ -468,7 +468,7 @@
   artefact is loaded. Per Spec 015 §Implementation notes
   recommendation B: emit-time path-walk + sentinel substitution.
 
-  The projection hook is published by `re-frame.marks` at ns-load;
+  The projection hook is published by `re-frame.classification` at ns-load;
   when the marks artefact is absent the hook is unbound and this is
   a no-op pass-through. Inside the existing `interop/debug-enabled?`
   gate (in `emit!`) so production builds DCE the hook lookup along

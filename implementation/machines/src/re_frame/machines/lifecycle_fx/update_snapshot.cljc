@@ -79,7 +79,7 @@
       ;; (a singleton's registration id, or a spawned actor's `<type>#<n>` /
       ;; fixed id). `:offending-value` (the whole app-db the patch wrongly
       ;; carried) is summarized at the trace egress chokepoint by
-      ;; `re-frame.marks/project-machine-wrote-db-tags` so it never egresses raw.
+      ;; `re-frame.classification/project-machine-wrote-db-tags` so it never egresses raw.
       (when (contains? patch :db)
         (trace/emit-error! :rf.error/machine-action-wrote-db
                            {:actor-id        machine-id

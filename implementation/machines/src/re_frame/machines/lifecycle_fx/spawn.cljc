@@ -457,7 +457,7 @@
         ;; snapshot path. The classification travels with the machine def and
         ;; applies to every generated `<type>#n`, dropped on destroy
         ;; (`teardown-live-actor!`). The egress READ path
-        ;; (`re-frame.marks/frame-snapshot-marks`, SSR, trace) is unchanged —
+        ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is unchanged —
         ;; this flips the registry-entry SOURCE from `:source :frame`
         ;; (rf2-398kql) to `:source :machine`. A spec declaring no
         ;; classification is a clean no-op (fail-open).

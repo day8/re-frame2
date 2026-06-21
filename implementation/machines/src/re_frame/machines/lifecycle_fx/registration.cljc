@@ -120,7 +120,7 @@
   `:exception-data` slot below carries the thrown action's `ex-data` — the
   developer's arbitrary exception payload, which could embed the same app
   secrets the machine's `:data` marks gate. That slot is path-elided at the
-  trace egress chokepoint by `re-frame.marks/project-machine-error-tags`:
+  trace egress chokepoint by `re-frame.classification/project-machine-error-tags`:
   when the machine declares ANY `:sensitive`
   mark the whole `:exception-data` slot scrubs to `:rf/redacted` before the
   trace crosses the bus / epoch-capture / AI-MCP boundary or a log sink —

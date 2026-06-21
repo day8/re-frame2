@@ -331,7 +331,7 @@
                    (assoc :rf.view/deref-subs deref-subs)
                    ;; rf2-rpgq8: the view's positional render args/props. Stamped
                    ;; raw here (dev-only emit); the marks-projection chokepoint
-                   ;; (`re-frame.marks/project-trace-event`, gated by the same
+                   ;; (`re-frame.classification/project-trace-event`, gated by the same
                    ;; `interop/debug-enabled?` upstream in `trace/emit!`) routes
                    ;; this slot through `elide-wire-value` against the frame's
                    ;; app-db elision registry BEFORE delivery — the identical
