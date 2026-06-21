@@ -1,6 +1,6 @@
 # EP-0027: Frame Initial Events
 
-Status: draft
+Status: accepted
 Type: standards-track
 
 > **Scope note.** Deliberately small: a declarative way to write the setup events that
