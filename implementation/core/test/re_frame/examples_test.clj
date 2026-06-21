@@ -169,7 +169,7 @@
           f            (rf/reg-frame fid
                          {:doc          "ssr-example test frame"
                           :platform     :server
-                          :on-create    [:rf/server-init]
+                          :initial-events [[:rf/server-init]]
                           :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
           final-db     (rf/app-db-value f)
           ;; The root view's body invokes the articles-page render fn,
@@ -325,7 +325,7 @@
                             (rf/reg-frame fid
                               {:doc       "ssr-example per-request validation frame"
                                :platform  :server
-                               :on-create [:rf/server-init]}))
+                               :initial-events [[:rf/server-init]]}))
           final-db        (rf/app-db-value f)]
       ;; 1. The schema is bound to the PER-REQUEST frame — explicitly.
       (is (= articles-schema (schemas/app-schema-at [:articles] {:frame fid}))

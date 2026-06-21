@@ -870,7 +870,7 @@
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; reg-frame dispatch-syncs :on-create (settles epoch 1), THEN emits the
     ;; orphan :rf.frame/created.
-    (rf/reg-frame :test/main {:on-create [:app/init]})
+    (rf/reg-frame :test/main {:initial-events [[:app/init]]})
     ;; The next dequeued user event.
     (rf/dispatch-sync [:inc] {:frame :test/main})
 
@@ -899,7 +899,7 @@
             and assert none is a :frame op."
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-frame :test/main {:on-create [:app/init]})
+    (rf/reg-frame :test/main {:initial-events [[:app/init]]})
     (rf/dispatch-sync [:inc] {:frame :test/main})
     (rf/dispatch-sync [:inc] {:frame :test/main})
 

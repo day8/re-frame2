@@ -446,7 +446,7 @@
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; reg-frame dispatch-syncs the :on-create event at registration.
-    (rf/reg-frame :test/main {:on-create [:app/init]})
+    (rf/reg-frame :test/main {:initial-events [[:app/init]]})
 
     (let [after-create (rf/epoch-history :test/main)]
       (is (= 1 (count after-create))
