@@ -77,12 +77,13 @@
   Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
   the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
-  ;; EP-0015: Story does NOT re-export `add-marks` / `set-marks`. Durable
-  ;; app-db classification is a frame-creation concern — a variant
-  ;; declares `:sensitive` / `:large` on its body and the runtime threads
-  ;; them onto its `reg-frame` config (`re-frame.story.frames`). Story
-  ;; requires neither `re-frame.marks` nor `re-frame.core` (the docstring
-  ;; above names `rf/dispatch-sync` etc. illustratively).
+  ;; EP-0025: there is no imperative classification API to re-export. Durable
+  ;; app-db classification is a frame-creation concern — a variant declares
+  ;; `:sensitive` / `:large` on its body and the runtime threads them onto its
+  ;; `reg-frame` config (`re-frame.story.frames`); discovered paths use the
+  ;; commit-plane `:sensitive` / `:large` effects. Story requires neither the
+  ;; classification ns nor `re-frame.core` directly (the docstring above names
+  ;; `rf/dispatch-sync` etc. illustratively).
   (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
