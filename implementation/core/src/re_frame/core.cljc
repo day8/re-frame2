@@ -2327,58 +2327,14 @@
 ;; shape, not durable app-db egress policy; durable app-db classification is
 ;; installed once at `reg-frame` time by `re-frame.frame-classification`.
 
-;; Derived-tree value-based egress — the SINGLE composed multi-slot helper
-;; (rf2-leggev Option B2, rf2-j7qbhm). The nine granular gears that USED to
-;; sit here — `elision-declarations` / `elision-sensitive-declarations` (the
-;; introspection readers) and the sensitive + large value-match trios
-;; (`redact-derived-values`, `elision-sensitive-value-set`,
-;; `elision-collect-sensitive-values`, `redact-matching-values`,
-;; `redact-derived-large-values`, `elision-large-value-marker-map`,
-;; `redact-matching-large-values`) — are NO LONGER `re-frame.core` façade
-;; exports. They were the disassembled gears of derived-tree value redaction,
-;; leaked onto the façade for ONE assembling consumer (Story-MCP egress). Spec
-;; 015 names the boundary/operation, not the gearbox: this one composed helper
-;; subsumes them. The low-level arms (and the two declaration readers) remain
-;; in `re-frame.elision` for the rare bespoke caller — reach them through that
-;; home namespace. (KEPT on the façade: `elide-wire-value` — the path walker —
-;; and `project-egress` — the record-level boundary; those ARE the boundary
-;; language, not derived-value gears.)
-
-(def ^{:doc "Redact a frame's app-db-sensitive / -large values out of one or
-  more DERIVED value slots before off-box egress — the single composed
-  multi-slot egress helper (EP-0015, rf2-leggev). The value-based DUAL of the
-  path-based `elide-wire-value`: where the walker redacts a frame's declared
-  `:sensitive` / `:large` app-db slots BY PATH, a derived tree (rendered
-  hiccup, a resolved `:effective-args` map, a snapshot body, a plan-resolved
-  value slot) re-surfaces the SAME values at non-app-db positions the
-  path-based walker can never reach — so they must be redacted BY VALUE.
-
-  `(redact-derived-slots m slot-keys source-db frame-id wire-opts)`:
-
-    - `m` carries the derived value(s).
-    - `slot-keys` `nil` (or empty) ⇒ the SINGLE-TREE case: `m` *is* the
-      derived tree, scrubbed wholesale. A seq of keys ⇒ `m` is a MAP and each
-      PRESENT key's value is scrubbed (absent keys untouched) — the one
-      collection pass drives every slot.
-    - `source-db` is the raw db the derived values were produced from (the
-      source of the secret / large candidate sets).
-    - `wire-opts` is the `elide-wire-value` egress floor the path-based
-      `:app-db` slot ships under (`:frame frame-id` supplied automatically, so
-      the helper stays egress-profile-agnostic). It also accepts
-      `:rf.elision/extra-sensitive-source` — an extra raw db whose unguarded
-      governed-sensitive values join the candidate union, the FAIL-CLOSED
-      pre-frame source for a documented no-run path (e.g. a plan's authored
-      `:db-seed` read before any run allocates the frame).
-
-  Both egress axes run in `elide-wire-value`'s composition order — SENSITIVE
-  first (it wins; the large collector skips sensitive-declared nodes), then
-  LARGE over the survivors. The sensitive candidate set (with the
-  non-unique-secret guard) AND the large `{value marker}` map are each
-  collected ONCE from `source-db` and reused across every slot. Returns `m`
-  unchanged when there is no candidate source or the frame declares nothing.
-  The trusted-local raw opt-out belongs to the caller. Per Spec 015
-  §Projection and Security.md §Off-box egress."}
-  redact-derived-slots             elision/redact-derived-slots)
+;; EP-0025: the derived-tree VALUE-match egress helper (`redact-derived-slots`)
+;; and its granular value-match gears are REMOVED from the façade AND from
+;; `re-frame.elision` — value-match is "propagation/taint by another name" the
+;; EP disclaims. The ONLY derived-tree egress boundary is now `project-egress`
+;; with a `:rf.observe/derived-tree` record, which PATH-walks the tree against
+;; the frame's classification (a re-keyed value ships raw — intended fail-open).
+;; (KEPT on the façade: `elide-wire-value` — the path walker — and
+;; `project-egress` — the record-level boundary.)
 
 (def ^{:doc "Project a sequence of raw trace events into one cascade
   record per `:dispatch-id`. Pure data — JVM and CLJS. Used by
