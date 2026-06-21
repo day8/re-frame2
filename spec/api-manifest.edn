@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 486,
+ :var-count 485,
  :tier-vocab
  [:front-porch
   :advanced
@@ -138,7 +138,6 @@
   {:namespace "re-frame.core", :var "project-error", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "projected-history", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "projected-record", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "redact-derived-slots", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-app-schema", :tier :advanced, :kind :macro, :owner "010", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-app-schemas", :tier :advanced, :kind :macro, :owner "010", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-cofx", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (changed, EP-0017)", :facade? true, :runtime-verified? true}
