@@ -1,6 +1,6 @@
 # EP-0025: Data Classification
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
 > **Supersedes** the earlier "Registration-Time Subsystem Data Classification" version
