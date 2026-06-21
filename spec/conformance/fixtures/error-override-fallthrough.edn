@@ -23,7 +23,7 @@
   :fx    {:http [[:dispatch [:user/loaded {:from :http :id "real-http"}]]]}}
 
  :fixture/frame-config
- {:on-create     []
+ {:initial-events []
   :fx-overrides  {:http :nonexistent-stub}}         ;; redirects to an unregistered id
 
  :fixture/dispatches

@@ -23,7 +23,7 @@
                         [:fn :+]
                         [:fn :count]]]}}                       ;; will throw on a string
 
- :fixture/frame-config {:on-create [:cart/init]}
+ :fixture/frame-config {:initial-events [[:cart/init]]}
 
  :fixture/dispatches
  [[:cart/break]]

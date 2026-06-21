@@ -38,7 +38,7 @@
                                      :value {:token "tok-1" :user-id "u-1"}}]]]}}
 
  :fixture/frame-config
- {:on-create    []
+ {:initial-events []
   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
 
  :fixture/dispatches

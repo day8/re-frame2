@@ -26,21 +26,21 @@
 
 (deftest acquire-creates-and-returns-id
   (testing "acquire-owned-frame! runs make-frame and returns the resolved id"
-    (let [id (owned-frame/acquire-owned-frame! {:id :owned/alpha :initial-db {:n 1}})]
+    (let [id (owned-frame/acquire-owned-frame! {:id :owned/alpha :initial-events [[:rf/set-db {:n 1}]]})]
       (is (= :owned/alpha id) "returns the frame id off the constructed frame value")
       (is (some? (frame/frame :owned/alpha)) "the frame is live in the registry")
-      (is (= {:n 1} (rf/app-db-value :owned/alpha)) ":initial-db seeded into app-db"))))
+      (is (= {:n 1} (rf/app-db-value :owned/alpha)) ":rf/set-db seeded app-db"))))
 
 (deftest re-acquire-is-idempotent-and-preserves-durable-state
   (testing "re-acquiring the same id preserves durable app-db (EP-0024 idempotent replacement)"
-    (owned-frame/acquire-owned-frame! {:id :owned/beta :initial-db {:count 0}})
+    (owned-frame/acquire-owned-frame! {:id :owned/beta :initial-events [[:rf/set-db {:count 0}]]})
     ;; Mutate durable state through a dispatch path.
     (rf/reg-event :owned/bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
     (rf/dispatch-sync [:owned/bump] {:frame :owned/beta})
     (is (= {:count 1} (rf/app-db-value :owned/beta)) "durable state advanced")
     ;; A re-acquire under the SAME id (the hot-reload / StrictMode remount
     ;; shape) must NOT reset durable state.
-    (let [id2 (owned-frame/acquire-owned-frame! {:id :owned/beta :initial-db {:count 99}})]
+    (let [id2 (owned-frame/acquire-owned-frame! {:id :owned/beta :initial-events [[:rf/set-db {:count 99}]]})]
       (is (= :owned/beta id2))
       (is (= {:count 1} (rf/app-db-value :owned/beta))
           "re-acquire preserved durable state (idempotent replacement, not reset)"))))
@@ -70,7 +70,7 @@
 
 (deftest re-acquire-cancels-pending-destroy
   (testing "a re-acquire before the deferred destroy fires CANCELS it (StrictMode remount)"
-    (owned-frame/acquire-owned-frame! {:id :owned/delta :initial-db {:v :keep}})
+    (owned-frame/acquire-owned-frame! {:id :owned/delta :initial-events [[:rf/set-db {:v :keep}]]})
     ;; Simulate the StrictMode unmount: schedule the deferred destroy ...
     (owned-frame/release-owned-frame! :owned/delta)
     (is (owned-frame/pending-destroy? :owned/delta) "destroy pending after release")
@@ -110,6 +110,9 @@
   (testing "frame-provider-existing rejects each frame-construction / lifecycle opt"
     (doseq [bad [{:frame :scope/x :id :scope/x}
                  {:frame :scope/x :images []}
+                 {:frame :scope/x :initial-events [[:rf/set-db {}]]}
+                 ;; the retired construction keys are still rejected here (kept in
+                 ;; lifecycle-opt-keys) so a stale caller fails loud, not silently:
                  {:frame :scope/x :initial-db {}}
                  {:frame :scope/x :on-create (fn [_])}]]
       (is (thrown-with-msg? :default #":rf.error/frame-provider-existing-lifecycle-opt"

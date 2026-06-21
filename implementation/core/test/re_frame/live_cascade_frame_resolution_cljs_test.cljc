@@ -267,8 +267,8 @@
           img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})
           ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
           ;; DIFFERENT initial-db. No reg-frame, no shared frame id.
-          fa   (lf/make-frame {:images [img] :initial-db {:n 0}}   pool)
-          fb   (lf/make-frame {:images [img] :initial-db {:n 100}} pool)]
+          fa   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
+          fb   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
       ;; The objects are distinct runnable frames sharing one image generation.
       (is (lf/frame-object? fa))
       (is (lf/frame-object? fb))
@@ -319,7 +319,7 @@
                              (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
                  (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
           img   (image/image {:include-ns ["ex.counter"]})
-          frame (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+          frame (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
       (rf/dispatch-sync [:counter/inc] {:frame frame})
       (is (= 1 @(rf/subscribe frame [:counter/value]))
           "the direct object ran the image's inc and read its own seeded app-db")
@@ -352,7 +352,7 @@
                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
           img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})]
       (testing "frame OBJECT as the FIRST positional dispatch arg"
-        (let [obj (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+        (let [obj (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
           ;; frame-first: object is arg-1, event-vec is arg-2.
           (rf/dispatch-sync obj [:counter/inc])
           (rf/dispatch-sync obj [:counter/inc])
@@ -361,20 +361,20 @@
           (is (= 2 @(rf/subscribe obj [:counter/value]))
               "the 2-arity object-target subscribe reads the same app-db")))
       (testing "frame-id KEYWORD as the FIRST positional dispatch arg"
-        (let [_ (lf/make-frame {:id :counter/main :images [img] :initial-db {:n 10}}
+        (let [_ (lf/make-frame {:id :counter/main :images [img] :initial-events [[:rf/set-db {:n 10}]]}
                                pool)]
           (rf/dispatch-sync :counter/main [:counter/inc])
           (is (= 11 (:n (rf/app-db-value :counter/main)))
               "the keyword frame-first form routes to the registered live frame")))
       (testing "the async (queued) (rf/dispatch frame [event]) form also routes"
-        (let [obj (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+        (let [obj (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
           ;; `dispatch` enqueues; drain synchronously via a frame-first sync follow-up
           (rf/dispatch obj [:counter/inc])
           (rf/dispatch-sync obj [:counter/inc])   ;; drains the queue + runs once more
           (is (= 2 (:n (rf/app-db-value obj)))
               "both the queued and the sync frame-first dispatches ran the image inc")))
       (testing "the event-first (dispatch [event] {:frame …}) form is unaffected"
-        (let [obj (lf/make-frame {:images [img] :initial-db {:n 0}} pool)]
+        (let [obj (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
           (rf/dispatch-sync [:counter/inc] {:frame obj})
           (is (= 1 (:n (rf/app-db-value obj)))
               "event-first opts form still routes the object target byte-identically"))))))
@@ -433,7 +433,7 @@
                                  {:db (update db :count (fnil inc 0))})]]
                   :reg-sub   [[:counter/value {:doc "Current counter value."}
                                (fn [db _] (:count db 0))]]}})]
-      (lf/make-frame {:id :inline/main :images [img] :initial-db {:count 0}} [])
+      (lf/make-frame {:id :inline/main :images [img] :initial-events [[:rf/set-db {:count 0}]]} [])
       (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
       (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
       (is (= 2 @(rf/subscribe :inline/main [:counter/value]))
@@ -481,7 +481,7 @@
                    (sub-desc   "ex.counter.v2" :counter/value (fn [db _] (:n db)))]
           img-v1 (image/image {:id :ex/counter-v1 :include-ns ["ex.counter.v1"]})
           img-v2 (image/image {:id :ex/counter-v2 :include-ns ["ex.counter.v2"]})
-          frame  (lf/make-frame {:id :counter/main :images [img-v1] :initial-db {:n 0}}
+          frame  (lf/make-frame {:id :counter/main :images [img-v1] :initial-events [[:rf/set-db {:n 0}]]}
                                 pool-v1)]
       ;; Run the v1 image once: n 0 -> 1.
       (rf/dispatch-sync frame [:counter/inc])
@@ -503,7 +503,7 @@
             fails loud"
     (let [pool [(event-desc "ex.r" :r/noop (fn [{:keys [db]} _] {:db db}))]
           img  (image/image {:include-ns ["ex.r"]})
-          obj  (lf/make-frame {:images [img] :initial-db {:n 7}} pool)
+          obj  (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 7}]]} pool)
           report (rf/reload-images! obj {:images [img]} pool)]
       (is (lf/frame-object? (:rf.frame/frame report))
           "a direct (no-id) object's reloaded copy is returned in the report")
@@ -543,7 +543,7 @@
           img-v2  (image/image {:include-ns ["ex.counter.v2"]})
           ;; NO :id — a direct object keyed in the registry under a gensym
           ;; runnable-id only.
-          frame   (lf/make-frame {:images [img-v1] :initial-db {:n 0}} pool-v1)
+          frame   (lf/make-frame {:images [img-v1] :initial-events [[:rf/set-db {:n 0}]]} pool-v1)
           runnable (:rf.frame/runnable-id frame)
           reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
       (is (some? runnable) "a no-id object carries a private runnable-id")
@@ -577,7 +577,7 @@
                    (sub-desc   "ex.c.v2" :counter/which (fn [db _] (:gen db)))]
           img-v1  (image/image {:include-ns ["ex.c.v1"]})
           img-v2  (image/image {:include-ns ["ex.c.v2"]})
-          frame   (lf/make-frame {:images [img-v1] :initial-db {}} pool-v1)
+          frame   (lf/make-frame {:images [img-v1] :initial-events [[:rf/set-db {}]]} pool-v1)
           reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
       ;; Dispatch the SHARED id through the reloaded object: it must run v2's impl.
       (rf/dispatch-sync reloaded [:counter/inc])
@@ -614,7 +614,7 @@
                                (fn [{:keys [db]} _] {:db (assoc db :child :v2)}))]
           img-v1  (image/image {:include-ns ["ex.cd.v1"]})
           img-v2  (image/image {:include-ns ["ex.cd.v2"]})
-          frame   (lf/make-frame {:images [img-v1] :initial-db {}} pool-v1)
+          frame   (lf/make-frame {:images [img-v1] :initial-events [[:rf/set-db {}]]} pool-v1)
           reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
       (rf/dispatch-sync reloaded [:counter/inc])
       (let [db (rf/app-db-value reloaded)]

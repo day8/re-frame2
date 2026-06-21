@@ -27,7 +27,7 @@
           :counter/set-to-ten [[:set [:count] 10]]}}
 
  :fixture/frame-config
- {:on-create [:counter/initialise]}
+ {:initial-events [[:counter/initialise]]}
 
  :fixture/dispatches
  [[:counter/inc]

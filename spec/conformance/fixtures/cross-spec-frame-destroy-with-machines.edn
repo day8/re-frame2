@@ -54,7 +54,7 @@
  :fixture/handlers
  {:event {:boot/seed [[:set [:seeded?] true]]}}
 
- :fixture/frame-config {:on-create [:boot/seed]}
+ :fixture/frame-config {:initial-events [[:boot/seed]]}
 
  :fixture/dispatches
  ;; Commit the machine snapshot at [:rf.runtime/machines :snapshots :auth/session], then

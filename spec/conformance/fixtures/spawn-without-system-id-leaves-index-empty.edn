@@ -30,7 +30,7 @@
  {:machine-action
   {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}
 
- :fixture/frame-config {:on-create []}
+ :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
  [[:sup/flow [:start]]]

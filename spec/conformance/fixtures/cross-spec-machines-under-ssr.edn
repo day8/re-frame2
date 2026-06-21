@@ -54,7 +54,7 @@
  ;; :platform :server simulates an SSR request frame. The :after fx's
  ;; server?-true branch fires the :rf.machine.timer/skipped-on-server
  ;; trace instead of /scheduled.
- :fixture/frame-config {:on-create []
+ :fixture/frame-config {:initial-events []
                         :platform  :server}
 
  :fixture/dispatches

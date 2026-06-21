@@ -37,6 +37,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
+            [re-frame.events       :as events]
             [re-frame.frame        :as frame]
             [re-frame.image        :as image]
             [re-frame.image-assembly :as asm]
@@ -125,9 +126,17 @@
             record; the id keeps naming the same live context and durable frame
             MEMORY (app-db) continues unchanged (EP-0024 §One live frame registry
             / EP-0023 §Hot Reload — not a teardown/recreate)"
+    ;; EP-0027 (rf2-7ae2to): this case seeds via `:initial-events [[:rf/set-db
+    ;; {:count 7}]]`, which resolves the framework-standard `:rf/set-db` through
+    ;; the sealed generation (the image standard registry). The ns fixture's
+    ;; blanket `clear-standards!` keeps the OTHER generation-diff cases isolated,
+    ;; so seed the one standard THIS case needs locally (cache cleared so the
+    ;; generation it builds unions the freshly-seeded standard).
+    (events/register-set-db-standard!)
+    (asm/clear-generation-cache!)
     (let [frame-val (lf/make-frame {:id :counter/main
                                     :images [img]
-                                    :initial-db {:count 7}
+                                    :initial-events [[:rf/set-db {:count 7}]]
                                     :adapter ::reagent}
                                    pool-v1)
           old-gen (lf/frame-generation frame-val)

@@ -71,7 +71,7 @@
   {:rf.http/managed [[:noop]]}}
 
  :fixture/frame-config
- {:on-create    [:app/init]
+ {:initial-events [[:app/init]]
   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
 
  :fixture/dispatches

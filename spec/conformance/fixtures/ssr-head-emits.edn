@@ -29,7 +29,7 @@
                                                     :summary "How re-frame2 ships SSR"
                                                     :image "https://example.com/og.png"}]]}}
 
- :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
+ :fixture/frame-config {:initial-events [[:rf/server-init]] :platform :server}
 
  :fixture/dispatches [[:rf.route/handle-url-change "/articles/123"]]
 

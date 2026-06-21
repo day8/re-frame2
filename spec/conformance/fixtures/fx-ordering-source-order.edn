@@ -34,7 +34,7 @@
   :sub   {:log [[:get [:log]]]}}
 
  :fixture/frame-config
- {:on-create [:fx-order/initialise]}
+ {:initial-events [[:fx-order/initialise]]}
 
  :fixture/dispatches
  [[:fx-order/run]]

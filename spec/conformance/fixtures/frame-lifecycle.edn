@@ -19,7 +19,7 @@
   :sub   {:count [[:get [:count]]]}}
 
  :fixture/frame-config
- {:on-create  [:counter/init]
+ {:initial-events [[:counter/init]]
   :on-destroy [:counter/destroy]}
 
  :fixture/dispatches

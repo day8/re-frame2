@@ -74,7 +74,7 @@
           :flow/poke   [[:set [:tick] [:event-arg 1]]]}}
 
  :fixture/frame-config
- {:on-create [:flow/init]}
+ {:initial-events [[:flow/init]]}
 
  :fixture/dispatches
  [[:flow/reg-v1]

@@ -98,7 +98,7 @@
   "Register `:above` + `:below` and dispatch the `:initialise` event
   against each so their app-dbs land on the canonical zero shape
   before any test-event fires. Mirrors the parallel-frames testbed's
-  `(reg-frame :above {:on-create [::initialise]})` mount path."
+  `(reg-frame :above {:initial-events [[::initialise]]})` mount path."
   []
   (frame/reg-frame frame-above {})
   (frame/reg-frame frame-below {})

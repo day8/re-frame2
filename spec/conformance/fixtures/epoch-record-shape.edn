@@ -24,7 +24,7 @@
           :counter/inc        [[:update [:count] [:fn :inc]]]}}
 
  :fixture/frame-config
- {:on-create [:counter/initialise]}
+ {:initial-events [[:counter/initialise]]}
 
  :fixture/dispatches
  [[:counter/inc]]

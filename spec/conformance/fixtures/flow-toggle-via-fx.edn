@@ -38,7 +38,7 @@
           :wizard/leave    [[:fx :rf.fx/clear-flow :step-2/computed]]}}
 
  :fixture/frame-config
- {:on-create [:wizard/init]}
+ {:initial-events [[:wizard/init]]}
 
  ;; Sequence:
  ;;   :wizard/enter    — registers the flow. First evaluation fires on

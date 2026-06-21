@@ -57,7 +57,7 @@
                            :request-id :slow/load}}]]]}}
 
  :fixture/frame-config
- {:on-create    []
+ {:initial-events []
   ;; Both :rf.http/managed and :rf.http/managed-abort are redirected to
   ;; the canned-failure stub. The first call (from :slow/load) registers
   ;; an in-flight handle conceptually; the second call (from :slow/abort)

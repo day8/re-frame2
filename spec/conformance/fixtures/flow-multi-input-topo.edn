@@ -39,7 +39,7 @@
   :rect/area-doubled [[:fn :* [:event-arg 0] 2]]}
 
  :fixture/frame-config
- {:on-create [:rect/init]}
+ {:initial-events [[:rect/init]]}
 
  :fixture/dispatches
  [[:rect/set-w 5]

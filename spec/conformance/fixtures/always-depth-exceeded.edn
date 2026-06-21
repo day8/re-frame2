@@ -27,7 +27,7 @@
   {:always/true? [[:fn :identity true]]}}
 
  :fixture/frame-config
- {:on-create          []
+ {:initial-events []
   :always-depth-limit 5}                         ;; small limit for testing
 
  :fixture/calls

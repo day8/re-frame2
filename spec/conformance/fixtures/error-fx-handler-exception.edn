@@ -24,7 +24,7 @@
   :fx    {:persist [[:throw "persist exploded"]]
           :log     [[:update [:log] [:fn :conj [:event-arg 1]]]]}}        ;; appends args to :log
 
- :fixture/frame-config {:on-create [:user/init]}
+ :fixture/frame-config {:initial-events [[:user/init]]}
 
  :fixture/dispatches
  [[:user/save]]

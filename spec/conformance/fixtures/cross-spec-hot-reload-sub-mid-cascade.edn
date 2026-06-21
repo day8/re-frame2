@@ -65,7 +65,7 @@
           ;; vector [k] returns 2k.
           :sub-id/doubled [[:reduce-input :n-value [:fn :+] [:fn :* 2]]]}}
 
- :fixture/frame-config {:on-create []}
+ :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
  ;; Phase 1: seed :n as a singleton vector [7] (so :reduce-input walks

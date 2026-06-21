@@ -49,7 +49,7 @@
   {:emit-fx [[:fx :throwy {:tag :will-throw}]
              [:fx :safe   {:tag :will-record}]]}}
 
- :fixture/frame-config {:on-create []}
+ :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
  [[:test/m [:bang]]]

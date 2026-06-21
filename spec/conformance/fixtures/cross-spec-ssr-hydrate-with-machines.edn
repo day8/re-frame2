@@ -54,7 +54,7 @@
   :sub   {:auth-state [[:get [:rf.runtime/machines :snapshots :auth.session/abc :state]]]
           :auth-user  [[:get [:rf.runtime/machines :snapshots :auth.session/abc :data :user]]]}}
 
- :fixture/frame-config {:on-create []}
+ :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
  ;; EP-0001 (rf2-vzld77): the server-settled durable runtime state (the

@@ -41,7 +41,7 @@
  [{:add-marks {[:docs :csv-upload] :large}}]
 
  :fixture/frame-config
- {:on-create [:dc/upload]}
+ {:initial-events [[:dc/upload]]}
 
  :fixture/dispatches
  [[:dc/upload]]

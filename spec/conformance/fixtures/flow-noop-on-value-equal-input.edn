@@ -29,7 +29,7 @@
  {:doubled/value [[:fn :* [:event-arg 0] 2]]}
 
  :fixture/frame-config
- {:on-create [:doubled/init]}
+ {:initial-events [[:doubled/init]]}
 
  ;; First :doubled/replace-n with 5 is =-equal to current :n (5) — flow
  ;; should NOT recompute.

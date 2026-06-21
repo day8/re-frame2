@@ -36,7 +36,7 @@
  [{:add-marks {[:count] :sensitive}}]
 
  :fixture/frame-config
- {:on-create [:dc/init]}
+ {:initial-events [[:dc/init]]}
 
  :fixture/dispatches
  [[:dc/init]]

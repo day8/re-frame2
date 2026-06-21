@@ -55,6 +55,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core        :as rf]
+            [re-frame.events      :as events]
             [re-frame.image       :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.live-frame  :as lf]
@@ -83,6 +84,14 @@
   (fn [t]
     (let [store-before @ss/kind->id->ns->descriptor]
       (asm/clear-standards!)
+      ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db` event
+      ;; AFTER clearing standards — these cases seed image-loaded frames via
+      ;; `:initial-events [[:rf/set-db …]]`, which resolves `:rf/set-db` through
+      ;; the sealed generation (the image standard registry, not the registrar
+      ;; atom). The blanket `clear-standards!` keeps OTHER standards out so the
+      ;; pure image-resolution contract stays isolated; the framework seed is the
+      ;; one standard these tests legitimately depend on.
+      (events/register-set-db-standard!)
       (asm/clear-generation-cache!)
       (try
         (t)
@@ -283,17 +292,22 @@
       (is (= :counter/main (:rf.frame/id frame)))
       (is (contains? (lf/live-frame-ids) :counter/main)))))
 
-(deftest initial-db-and-adapter-ride-the-value
-  (testing "creation inputs (:initial-db, :adapter) are carried on the frame
-            value for the state/host slices — image is behaviour, frame is state"
+(deftest initial-events-seed-and-adapter-ride-the-value
+  (testing "the :adapter creation input rides the frame value (host slice —
+            image is behaviour, frame is state) and :initial-events seeds app-db
+            (EP-0027 retired :initial-db; the value no longer carries an
+            :rf.frame/initial-db slot — seeding is the :rf/set-db setup event)"
     (let [img   (image/image {:include-ns ["examples.counter"]})
           frame (lf/make-frame {:id :counter/seeded
                                 :images [img]
-                                :initial-db {:count 7}
+                                :initial-events [[:rf/set-db {:count 7}]]
                                 :adapter ::reagent}
                                counter-pool)]
-      (is (= {:count 7} (:rf.frame/initial-db frame)))
-      (is (= ::reagent (:rf.frame/adapter frame))))))
+      (is (= ::reagent (:rf.frame/adapter frame)))
+      (is (nil? (:rf.frame/initial-db frame))
+          "no retired :rf.frame/initial-db slot on the value")
+      (is (= {:count 7} (rf/app-db-value :counter/seeded))
+          ":initial-events seeded app-db via :rf/set-db"))))
 
 ;; ===========================================================================
 ;; 3. A duplicate live :id is IDEMPOTENT REPLACEMENT (hot-reload friendly)
@@ -305,11 +319,11 @@
             record-config + generation refresh while DURABLE STATE (app-db /
             sub-cache / queue) is PRESERVED (the old fail-loud
             :rf.error/live-frame-id-conflict is GONE). Seed durable state via
-            :initial-db, re-make under the SAME id with NO :initial-db, and assert
-            the app-db survived (a fresh record would have reset it to {})"
+            :initial-events, re-make under the SAME id with NO :initial-events, and
+            assert the app-db survived (a fresh record would have reset it to {})"
     (let [img    (image/image {:include-ns ["examples.counter"]})
           first  (lf/make-frame {:id :counter/main :images [img]
-                                 :initial-db {:count 7}}
+                                 :initial-events [[:rf/set-db {:count 7}]]}
                                 counter-pool)]
       (is (lf/frame-object? first))
       (is (= {:count 7} (rf/app-db-value :counter/main))
@@ -582,43 +596,44 @@
 ;; PRESERVED across reload, but none asserts they are EXCLUDED from the
 ;; serializable frame-state projection.
 ;;
-;; The runnable state container (the app-db/cache atoms) is deferred to .32, so
-;; the serializable frame-state SEED available at this slice is :rf.frame/
-;; initial-db. The invariant tested here: the adapter binding and the capability
-;; map handed to make-frame are confined to their OWN object slots and never
-;; bleed into :rf.frame/initial-db (the serializable state), and the host-handle
-;; slots are a distinct, non-serializable concern from the state slot.
+;; The serializable frame-STATE is the seeded app-db (EP-0027 retired the
+;; :rf.frame/initial-db value slot; seeding is the :rf/set-db setup event). The
+;; invariant tested here: the adapter binding and the capability map handed to
+;; make-frame are confined to their OWN object slots and never bleed into the
+;; seeded app-db (the serializable state), and the host-handle slots are a
+;; distinct, non-serializable concern from the state.
 
 (deftest host-handles-excluded-from-serializable-frame-state
   (testing "the adapter binding + capability map ride DEDICATED object slots
             (:rf.frame/adapter, :rf.frame/capabilities) and are EXCLUDED from the
-            serializable frame-state seed (:rf.frame/initial-db) — the EP-0023
-            §Host Boundary two-boundaries invariant: host handles never enter the
-            frame-state value (MAJOR-2)"
+            serializable frame-state (the :initial-events-seeded app-db) — the
+            EP-0023 §Host Boundary two-boundaries invariant: host handles never
+            enter the frame-state value (MAJOR-2)"
     (let [img        (image/image {:include-ns ["examples.counter"]
                                    :rf.image/requires #{:rf.capability/http}})
           adapter    {:rf.adapter/kind :reagent :rf.adapter/render-root ::host-handle}
           caps       {:rf.capability/http ::http-impl}
           state-seed {:count 7 :user/name "ada"}
-          frame      (lf/make-frame {:images     [img]
-                                     :initial-db state-seed
+          frame      (lf/make-frame {:id         :counter/host-excl
+                                     :images     [img]
+                                     :initial-events [[:rf/set-db state-seed]]
                                      :adapter    adapter
                                      :capabilities caps}
                                     counter-pool)]
       (testing "the host handles ride their OWN object slots (preserved)"
         (is (= adapter (:rf.frame/adapter frame)))
         (is (= caps    (:rf.frame/capabilities frame))))
-      (testing "the serializable frame-state seed is EXACTLY :initial-db — no
+      (testing "the serializable frame-state is EXACTLY the seeded app-db — no
                 adapter binding, no capability map bled into it"
-        (is (= state-seed (:rf.frame/initial-db frame)))
-        (let [serializable (:rf.frame/initial-db frame)]
+        (is (= state-seed (rf/app-db-value :counter/host-excl)))
+        (let [serializable (rf/app-db-value :counter/host-excl)]
           (is (not (contains? serializable :rf.frame/adapter))
               "the adapter binding is NOT in the serializable state value")
           (is (not (contains? serializable :rf.frame/capabilities))
               "the capability map is NOT in the serializable state value")
           (is (not-any? #{::host-handle ::http-impl} (vals serializable))
               "no host-handle VALUE leaked into the serializable state value")))
-      (testing "the host-handle slots are a DISTINCT concern from the state slot
+      (testing "the host-handle slots are a DISTINCT concern from the state
                 (object slots ≠ the serializable frame-state seed)"
-        (is (not= (:rf.frame/adapter frame)      (:rf.frame/initial-db frame)))
-        (is (not= (:rf.frame/capabilities frame) (:rf.frame/initial-db frame)))))))
+        (is (not= (:rf.frame/adapter frame)      (rf/app-db-value :counter/host-excl)))
+        (is (not= (:rf.frame/capabilities frame) (rf/app-db-value :counter/host-excl)))))))

@@ -47,7 +47,7 @@
   :machine-action
   {:boom [[:throw "ssr-bang"]]}}
 
- :fixture/frame-config {:on-create [:rf/server-init]
+ :fixture/frame-config {:initial-events [[:rf/server-init]]
                         :platform :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}

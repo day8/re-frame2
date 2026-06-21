@@ -40,7 +40,7 @@
                               [:shape/sink {:k 2}]]}]]}
   :fx    {:shape/sink [[:update [:routed] [:fn :conj [:event-arg 1]]]]}}
 
- :fixture/frame-config {:on-create [:shape/init]}
+ :fixture/frame-config {:initial-events [[:shape/init]]}
 
  :fixture/dispatches
  [[:shape/surplus-field]]
