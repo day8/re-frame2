@@ -27,6 +27,7 @@
   rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.routing.classification :as classification]
             [re-frame.trace :as trace]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
@@ -259,7 +260,19 @@
                          (assoc-in [:rf.runtime/routing :current :transition] :loading))
                      (:plan-error plan)
                      (assoc-in [:rf.runtime/routing :current :error]
-                               (:plan-error plan)))]
+                               (:plan-error plan)))
+        ;; EP-0025 routes follow-on (rf2-3r6k8i): lower the activating route's
+        ;; projection-relative `:sensitive` / `:large` classification into the
+        ;; per-frame elision registry, RE-ROOTED under `[:rf.runtime/routing
+        ;; :current …]`, ATOMICALLY with the slice publish (the same runtime-db
+        ;; partition). Routes are a SINGLETON current-route, so this REPLACES the
+        ;; prior route's `:source :route` entries — a route change drops the
+        ;; leaving route's classification, and a route that declares none (incl.
+        ;; `:rf.route/not-found`, whose `route-meta` may be nil) clears the
+        ;; route-sourced entries. The declared paths redact the slice's
+        ;; `:query` / `:params` at egress for as long as the route is active;
+        ;; frame teardown drops the whole runtime-db elision slot with the frame.
+        committed (classification/lower-for-route committed route-id route-meta)]
     ;; rf2-dbmj6x — stamp the carried `:frame` so the nav-token-allocated
     ;; trace enters epoch capture + obeys the frame trace-disable gate
     ;; (the lifecycle pair below carries it via `emit-activation-traces!`).
