@@ -27,7 +27,8 @@
             ;; consults. Required so the redaction tests can register a
             ;; machine carrying a `:sensitive?` `:data-schema` slot and
             ;; run a real transition trace through `project-trace-event`.
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
+            [re-frame.elision :as elision]
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.registrar :as registrar]
@@ -815,10 +816,16 @@
 (defn- declare-redaction-frame-marks!
   "Declare the redaction machine's snapshot `:data` token slot SENSITIVE on
   `frame-id` — the frame-owned classification (EP-0025, the sole app-db
-  mechanism), keyed by the absolute runtime-db snapshot path."
+  mechanism), keyed by the absolute runtime-db snapshot path. EP-0025: the
+  imperative add-marks API is removed, so we install directly into the frame's
+  elision registry (the kept substrate the commit-plane `:sensitive` effect
+  writes through)."
   [frame-id]
-  (marks/add-marks frame-id
-    {[:rf.runtime/machines :snapshots redaction-machine-id :data :token] :sensitive}))
+  (elision/swap-elision-slot! frame-id
+    (fn [reg]
+      (assoc-in reg [:sensitive-declarations
+                     [:rf.runtime/machines :snapshots redaction-machine-id :data :token]]
+                {:source :effect}))))
 
 (deftest panel-renders-sensitive-data-slot-redacted-rf2-kq8nac
   (testing "rf2-kq8nac / EP-0025: a FRAME-declared sensitive machine `:data`
@@ -858,7 +865,7 @@
             ;; :rf/redacted against the FRAME's declared snapshot path
             ;; (EP-0025). Epoch-capture sees THIS projected event, so the
             ;; panel's :trace-events are redacted.
-            egressed  (marks/project-trace-event raw-event)
+            egressed  (classification/project-trace-event raw-event)
             egressed* (assoc egressed :id 1 :time 10)]
         ;; The egress projection redacted the token both sides — pinned
         ;; here so a regression in frame-owned redaction surfaces in the panel.

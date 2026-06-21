@@ -31,7 +31,6 @@
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.marks :as marks]
             [re-frame.registrar :as registrar]
             ;; Load the schemas artefact so the
             ;; `:schemas/validate-app-schema!` late-bind hook is published —
@@ -415,13 +414,18 @@
       ;; violates it, forcing the post-commit rollback.
       (rf/with-frame :pc/rb-elision
         (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
-      ;; An :after interceptor that writes a sensitive elision mark into the LIVE
-      ;; runtime-db — the stand-in for a flow drain propagating an output-
-      ;; sensitivity mark mid-chain. It runs after `runtime-before` was captured,
-      ;; so the mark exists ONLY in the live runtime-db, never in the snapshot.
+      ;; An :after interceptor that writes a sensitive elision declaration into
+      ;; the LIVE runtime-db — the stand-in for a flow drain installing an
+      ;; output classification mid-chain. It runs after `runtime-before` was
+      ;; captured, so the declaration exists ONLY in the live runtime-db, never
+      ;; in the snapshot. EP-0025: the imperative add-marks API is removed, so we
+      ;; write directly through the kept elision registry (`:source :effect`).
       (rf/reg-interceptor* :pc/flow-mark-writer
         {:after (fn [ctx]
-                  (marks/add-marks :pc/rb-elision {[:secret] :sensitive})
+                  (elision/swap-elision-slot! :pc/rb-elision
+                    (fn [reg]
+                      (assoc-in reg [:sensitive-declarations [:secret]]
+                                {:source :effect})))
                   ctx)})
       (rf/reg-event :pc/bad-elision
         {:doc "schema-violating handler that triggers the rollback"
@@ -432,8 +436,8 @@
       (is (= {:n 0} (rf/app-db-value :pc/rb-elision))
           "app-db rolled back to the pre-handler value (the schema rejection held)")
       ;; THE REGRESSION: before the fix the rollback restored `runtime-before`
-      ;; verbatim and this mark was gone, so `[:secret]` would egress RAW.
-      (is (= {[:secret] {:source :marks}}
+      ;; verbatim and this declaration was gone, so `[:secret]` would egress RAW.
+      (is (= {[:secret] {:source :effect}}
              (elision/sensitive-declarations :pc/rb-elision))
           "the flow-written elision mark SURVIVES the rollback — the rollback
            mirrors the forward path's privacy fail-safe (rf2-qzs1y9)"))))

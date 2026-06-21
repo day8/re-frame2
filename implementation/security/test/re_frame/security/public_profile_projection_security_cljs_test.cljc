@@ -57,7 +57,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             ;; The low-level plumbing helper, exercised ONLY in the labelled
             ;; narrow plumbing test below — NOT as a stand-in for the public
             ;; EP-0015 boundary.
@@ -69,9 +69,10 @@
 (use-fixtures :each
   (ts/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
-     ;; Clear the demoted imperative-mark registry so a marks-sourced
-     ;; declaration from one test cannot leak frame policy into the next.
-     :init-fn (fn [] (marks/clear-marks!))}))
+     ;; EP-0025: classification is derived from the registrar + the per-frame
+     ;; elision registry (reset by frame teardown), so this is a no-op kept for
+     ;; directory symmetry.
+     :init-fn (fn [] (classification/clear-classification!))}))
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-PUBLIC-PROFILE-DO-NOT-SHIP")
 

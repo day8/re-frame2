@@ -54,7 +54,7 @@
             ;; the trace stream uses, so a `:sensitive?` / `:large?`
             ;; `:data-schema` slot lands as `:rf/redacted` / the size
             ;; marker before any panel surface reads it — never raw.
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -172,7 +172,7 @@
 ;;
 ;; The LIVE machine snapshots read straight off the runtime-db slot
 ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77) have NOT passed through the
-;; snapshot-egress redactor `re-frame.marks/project-machine-tags` (that
+;; snapshot-egress redactor the `re-frame.classification` trace projection (that
 ;; runs at trace-emit, on the trace stream — not on a direct frame-db
 ;; read). A machine declaring a `:sensitive?` / `:large?` slot in its
 ;; `:data-schema` (EP-0005 / rf2-w46fpt) has those slots redacted in
@@ -186,7 +186,7 @@
   "Redact one live machine snapshot `{:state :data …}` for `machine-id`
   through the snapshot-egress chokepoint. Wraps the snapshot as a
   synthetic `:rf.machine/snapshot-updated` trace event — stamped with the
-  TARGET `frame-id` — and runs `marks/project-trace-event`, which calls
+  TARGET `frame-id` — and runs `classification/project-trace-event`, which calls
   `project-machine-tags` to redact `:snapshot.data` against the FRAME's
   declared snapshot-path classification (EP-0025, rf2-398kql — frame-owned;
   `reg-frame` `:sensitive` / `:large {:app-db [[:rf.runtime/machines
@@ -200,7 +200,7 @@
                :tags      {:machine-id machine-id
                            :frame      frame-id
                            :snapshot   snapshot}}
-          out (try (marks/project-trace-event ev)
+          out (try (classification/project-trace-event ev)
                    (catch :default _ ev))]
       (or (get-in out [:tags :snapshot]) snapshot))))
 
@@ -755,7 +755,7 @@
   ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 — runtime-db
   ;; partition) is the LIVE frame-db value, NOT
   ;; a trace, so it has NOT passed through the snapshot-egress redactor
-  ;; (`re-frame.marks/project-machine-tags`) the trace stream rides. The
+  ;; (the `re-frame.classification` trace projection) the trace stream rides. The
   ;; trace-derived `:before` / `:after` the mini-pipeline renders ARE
   ;; redacted at emit (epoch-capture sees the projected event), but a
   ;; consumer reading THIS sub directly (the chart's live-snapshot

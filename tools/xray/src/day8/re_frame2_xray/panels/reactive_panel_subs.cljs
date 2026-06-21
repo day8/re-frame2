@@ -75,15 +75,13 @@
          :view-rows       [{:view-id _ :action _ :reason {...} :coord _} ...]
          :counts          {:subs-ran N :subs-skipped N
                            :views-rendered N
-                           :flows-recomputed N}
-         :public-declassifications [{:kind <kind> :id <id>} ...]}
+                           :flows-recomputed N}}
 
-  `:public-declassifications` (EP-0015 issue 9) is the STANDING
-  derived-output declassification audit — every registered sub / flow
-  carrying `:rf.egress/output-sensitivity :rf.egress/public`, the
-  declassification analogue of the resources `:rf.scope/global` audit.
-  Registry-level (NOT epoch-scoped), so it renders even with no cascade
-  focused.
+  EP-0025: the standing derived-output declassification audit
+  (`:public-declassifications`) is REMOVED — classification no longer
+  propagates input → output, so there is no `:rf.egress/output-sensitivity
+  :rf.egress/public` declassify claim to enumerate. (A sensitive derived
+  value is now just a classified output PATH.)
 
   `:sub-readers` (rf2-y23uw) is the shared-subscription edge map — for
   each sub-id, the views that deref'd it this cascade ('which views read
@@ -105,7 +103,6 @@
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
-            [re-frame.marks :as marks]
             [re-frame.subs.tooling :as subs-tooling]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
@@ -518,23 +515,10 @@
                         :flows-recomputed flows-comp
                         :flows-skipped    flows-skipped}})))
 
-(defn public-declassification-rows
-  "The STANDING derived-output declassification audit (EP-0015 issue 9; Spec
-  015 §Derived sensitivity): enumerate every registered sub / flow that
-  carries `:rf.egress/output-sensitivity :rf.egress/public`. A `:public`
-  claim is the declassification analogue of a resource's `:rf.scope/global`
-  scope, so this list is the sibling of the resources panel's
-  `global-scope-audit` — it lets a reviewer see every place an author
-  asserted 'this derived-from-sensitive value is safe to surface.'
-
-  Registry-level (NOT epoch-scoped) — reads the process marks table via
-  `re-frame.marks/public-declassification-claims`. Returns
-  `[{:kind <kind> :id <id>} …]` sorted stably; empty when nothing is
-  declassified. Defensive `try` so a marks-table read never crashes the
-  panel."
-  []
-  (try (vec (marks/public-declassification-claims))
-       (catch :default _ [])))
+;; EP-0025: the standing derived-output declassification audit
+;; (`public-declassification-rows`) is REMOVED — classification no longer
+;; propagates input → output, so there is no `:rf.egress/output-sensitivity
+;; :rf.egress/public` declassify claim to enumerate.
 
 (defn- triggered-by
   "The triggering event vector for the epoch. Reads the `:event` slot
@@ -580,11 +564,6 @@
                 :dispatch-id  (:dispatch-id focus)
                 :triggered-by (when record (triggered-by record))
                 :seed-paths   (when record (seed-paths record))
-                ;; The STANDING :public-claim declassification audit — a
-                ;; registry-level surface (sibling of the resources
-                ;; :rf.scope/global audit), independent of the focused
-                ;; cascade, so it renders even with no epoch focused.
-                :public-declassifications (public-declassification-rows)
                 :has-cascade? (some? record)}))))
 
   nil)

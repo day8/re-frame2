@@ -31,7 +31,6 @@
             [re-frame.frame :as frame]
             [re-frame.frame-classification :as frame-class]
             [re-frame.interop :as interop]
-            [re-frame.marks :as marks]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             ;; Side-effect requires (mirrors epoch_test.clj):
@@ -41,11 +40,10 @@
 ;;
 ;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, and fires the
-;; reset-hook table: epoch (history / listeners / config-to-default) AND
-;; the marks tables (`:marks/clear-marks!`,
-;; `:marks/clear-sub-output-marks!`) — those are NOT registrar kinds, so
-;; the table's late-bind hooks own resetting them between tests, keeping
-;; the whole-output `:large?` propagation (rf2-at60h) from leaking. The
+;; reset-hook table: epoch (history / listeners / config-to-default).
+;; EP-0025: classification is derived from the registrar + the per-frame
+;; elision registry (reset by frame teardown), so there is no separate
+;; classification table to clear between tests. The
 ;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
 ;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
 ;; public `configure!` boundary — no test ns reaches into the private
@@ -340,10 +338,11 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     ;; A whole-output `:large?` sub: its output is treated as large for
-    ;; downstream egress regardless of any per-path declaration. The
-    ;; reactive sub-cache records this via `mark-sub-output!` at build
-    ;; time; `re-frame.marks/project-sub-tags` then stamps the `:rf.sub/run`
-    ;; trace tag with bare `:large?` and leaves the raw value in place.
+    ;; downstream egress. EP-0025: this is a REGISTRATION override (read via
+    ;; `registration-classification`), NOT propagation. The trace projection
+    ;; (`classification/project-sub-tags`) stamps the `:rf.sub/run` tag with
+    ;; bare `:large?` from the registration meta and leaves the raw value in
+    ;; place; the epoch off-box projector elides it.
     (rf/reg-sub :big {:large? true}
                 (fn [db _] (big-string 50000)))
     ;; Read the sub inside a handler so a `:rf.sub/run` lands in the
@@ -355,10 +354,6 @@
                          {})))
     (rf/dispatch-sync [:seed]     {:frame :test/main})
     (rf/dispatch-sync [:read-big] {:frame :test/main})
-
-    ;; Sanity: the propagation table marked the sub's output large.
-    (is (true? (marks/sub-output-large? :test/main :big))
-        "whole-output :large? propagation recorded")
 
     (let [raw       (last-record :test/main)
           raw-row   (->> (:sub-runs raw)   (filter #(= :big (:sub-id %))) first)
