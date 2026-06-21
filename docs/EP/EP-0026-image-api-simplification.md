@@ -3,118 +3,119 @@
 Status: proposal
 Type: standards-track
 
-> This EP proposes the next cleanup pass over the EP-0023 image API. It keeps the
-> current `rf/image` name and shape while the design is under review, and
-> simplifies the public image surface to selected namespaces plus inline
-> registrations, replaces replacement maps with explicit layer order, and removes
-> unproven capability declarations. The override/overlay vocabulary (frame- and
-> dispatch-scoped behaviour stubs) and the `rf/image` source-stamping authoring
-> macro were **split out to EP-0028** on 2026-06-22 so this EP can carry the
-> determinate image-surface simplification on its own; both remain `proposal`. If
-> accepted, the normative home is primarily `spec/Conventions.md` (the
-> `:rf.image/*` reserved-key grammar), with `spec/002-Frames.md` and
-> `spec/API.md` updated to match.
+> This EP simplifies the EP-0023 image surface. It keeps the narrowed scope:
+> frame/dispatch overlays and the source-stamping `rf/image` macro remain EP-0028.
+> This EP owns only the public image value, image selection, inline image-local
+> registrations, collision/shadow semantics, and capability cleanup. If accepted,
+> the normative home is primarily `spec/Conventions.md` (the `:rf.image/*`
+> reserved-key grammar), with `spec/002-Frames.md` and `spec/API.md` updated to
+> match.
 
 ## Abstract
 
-EP-0023 made image-loaded frames the public model, but the shipped image surface
-still exposes several ways to select and override behaviour: namespace selection,
-inline registrations, `:replace`, `:replace-standard`, and capability
-declarations. This EP proposes one registration-shaped selection vocabulary and
-one deterministic layering rule.
-
-The public image value becomes smaller: select namespaces with scoped
-`:select-ns` clauses, define local behaviour with inline `:registrations`, and
-let layer order decide intentional shadowing between images.
-
-## Motivation
-
-The current public image API accepts these top-level keys:
+EP-0023 made image-loaded frames the public model, but the current image surface
+still has too many levers:
 
 ```clojure
-:id
 :include-ns
 :exclude-ns
-:registrations
-:rf.image/requires
 :replace
 :replace-standard
+:rf.image/requires
 ```
 
-That is too many levers for a pre-alpha API. Most real uses of `:replace` are
-not about descriptor provenance coordinates. They are about a programmer saying:
-"in this test, story, platform variant, or patch image, use this local
-implementation for this registration id."
-
-The same pressure appears at frame and dispatch scope — tests and stories need to
-stub effects, coeffects, interceptors, and sometimes views beyond what an image
-value alone expresses. That override/overlay vocabulary is a separable decision
-surface and is carried by **EP-0028**; this EP is limited to the image value
-itself.
-
-This is an EP-sized decision because it amends final EP-0023 contracts: namespace
-selection, image collision behavior, public replacement APIs, and image
-capability declarations.
-
-## Goals / Non-Goals
-
-Goals:
-
-- replace sibling `:include-ns` / `:exclude-ns` keys with scoped `:select-ns`
-  clauses;
-- keep inline `:registrations` as the ordinary local-definition surface;
-- define deterministic layer precedence between images (later image wins);
-- remove `:replace` from the ordinary public image API in favour of explicit
-  layer order;
-- remove `:rf.image/requires` from the public image API unless a concrete
-  non-registration capability use case returns through a later EP;
-- preserve inspection of shadowed registrations so layer dominance is visible to
-  tools.
-
-Non-goals:
-
-- do not reopen the EP-0023 decision that frames run resolved image generations;
-- do not rename `rf/image` in this EP, though a future `rf/program` naming
-  decision is recorded below;
-- do not remove ordinary namespace-authored `reg-*` forms;
-- do not let broad namespace selection silently hide accidental same-id
-  duplicates inside one image selection clause;
-- do not specify frame- or dispatch-scoped behaviour overrides, or the `rf/image`
-  source-stamping macro — those are **EP-0028**.
-
-## Relationships
-
-- **EP-0023** established image-loaded frames, `rf/image`, `:include-ns`,
-  `:exclude-ns`, `:replace`, `:replace-standard`, and
-  `:rf.image/requires`. This EP proposes a simplification amendment.
-- **EP-0028** carries the override/overlay vocabulary and the `rf/image`
-  authoring-macro decision split out of this EP. The two are siblings carved from
-  one draft; neither supersedes the other.
-- **EP-0024** established the unified frame lifecycle and frame-provider surface.
-- **EP-0022** defines registered interceptors and the standard interceptor
-  protection concerns that make public `:replace-standard` suspect.
-- **EP-0007** supplies the one-name-per-fact rule this EP applies to the image
-  key surface.
-
-## Specification
-
-This section uses normative language so acceptance can graduate into specs with
-minimal rewriting. At `proposal` status it records the proposed contract, not a
-shipped guarantee. The open issues at the end are graduation blockers: this EP
-must not move to `final` until each has an operator ruling or is explicitly
-deferred to a follow-on EP.
-
-### Image keys
-
-The ordinary public image spec has these top-level keys:
+This EP replaces that surface with one selection vocabulary and one explicit
+shadowing vocabulary:
 
 ```clojure
 :id
 :select-ns
 :registrations
+:shadows
 ```
 
-The following keys are retired from the ordinary public `rf/image` surface:
+Images select namespace-authored registrations with `:select-ns`, define local
+image registrations with `:registrations`, and acknowledge intentional
+cross-image overrides with `:shadows`. Unacknowledged distinct duplicate `[kind
+id]` descriptors fail. Framework standard registrations are protected and cannot
+be shadowed through ordinary app image order. Image-level capabilities are
+removed end-to-end.
+
+## Motivation
+
+The old `:replace` and `:replace-standard` maps are precise, but they force
+authors to speak in descriptor coordinates for the common case:
+
+```text
+In this image, use this registration for this id.
+```
+
+Inline `:registrations` already say that directly. The API should let the
+programmer define the winning registration where it belongs, and require only a
+small acknowledgement when one image intentionally shadows another image's
+registration of the same id.
+
+The pre-alpha bar is not compatibility with a noisy surface. The bar is a small,
+powerful model that fails loudly when composition is accidental and explains
+itself when composition is deliberate — with the minimum ceremony that still
+buys those two properties.
+
+## Goals
+
+- Replace sibling `:include-ns` / `:exclude-ns` with a single `:select-ns` map.
+- Keep inline `:registrations` as the ordinary image-local definition surface.
+- Replace public `:replace` with deterministic image layering plus an explicit
+  `:shadows` acknowledgement for cross-image overrides.
+- Remove public `:replace-standard`; standards are protected, not ordinary app
+  extension points.
+- Remove image/frame capability declarations end-to-end.
+- Add machine-readable shadow provenance (`:rf.gen/shadows`) for Xray, Pair,
+  diagnostics, and test tooling.
+- Preserve fail-loud duplicate handling for accidental same-id composition.
+
+## Non-Goals
+
+- Do not reopen the EP-0023 decision that frames run resolved image generations.
+- Do not rename `rf/image`.
+- Do not remove ordinary namespace-authored `reg-*` forms.
+- Do not specify frame- or dispatch-scoped overlays; EP-0028 owns those.
+- Do not standardize an inline grammar for every registration kind in this EP.
+  Kinds without a concrete parser remain namespace-authored until their owning
+  spec defines inline lowering.
+
+## Relationships
+
+- EP-0023 established image-loaded frames and the current image API. This EP is a
+  simplification amendment.
+- EP-0028 carries frame/dispatch overlays and the `rf/image` authoring macro
+  split out of the earlier EP-0026 draft.
+- EP-0022 / standard interceptors motivate the protected-standard rule.
+- EP-0017 remains the source for causal coeffects; image-level capabilities are
+  not a replacement for causal facts.
+- EP-0007 (one name per fact) governs the "mirrors are recomputable projections"
+  rule applied to generation provenance below.
+
+## Specification
+
+This section is written in final-spec style. While this EP is a `proposal`, the
+language below is the proposed normative contract.
+
+### Image Keys
+
+The ordinary public image value accepts these top-level keys:
+
+```clojure
+:id
+:select-ns
+:registrations
+:shadows
+```
+
+`:id` is required for named images and SHOULD be stable enough for diagnostics
+and tooling. Anonymous test helpers MAY synthesize an id, but generated ids must
+still appear in provenance records.
+
+The following keys are retired from the public `rf/image` surface:
 
 ```clojure
 :include-ns
@@ -124,50 +125,36 @@ The following keys are retired from the ordinary public `rf/image` surface:
 :rf.image/requires
 ```
 
-If accepted, public image construction must reject these retired keys with
-actionable diagnostics rather than silently ignoring them or treating them as
-synonyms.
+Public image construction MUST reject retired keys with actionable diagnostics.
+They MUST NOT be accepted as aliases and MUST NOT be ignored.
 
-`:replace-standard` may return only through a later, explicit standards-track
-decision that names real replaceable framework standards and their conformance
-requirements. Framework-standard registrations are not ordinary product
-extension points.
+### Namespace Selection
 
-### Namespace selection
-
-Namespace selection uses `:select-ns`, a vector of clauses:
+Namespace selection uses `:select-ns`, a single map of `:include` and `:exclude`
+pattern vectors:
 
 ```clojure
 (rf/image
   {:id :app/main
-   :select-ns [{:include ["app.todo.**"]
-                :exclude ["app.todo.dev.**"]}
-
-               {:include ["app.admin.**"]
-                :exclude ["app.admin.fixtures.**"]}
-
-               {:include ["app.dev.story.**"]}]})
+   :select-ns {:include ["app.todo.**" "app.admin.**"]
+               :exclude ["app.todo.dev.**" "app.admin.fixtures.**"]}})
 ```
 
-Each clause selects:
+`:include` is required and MUST be a non-empty vector. `:exclude` is optional and
+defaults to an empty vector.
+
+The selected namespace set is:
 
 ```text
-matches(clause :include) minus matches(clause :exclude)
+union(:include matches) minus union(:exclude matches)
 ```
 
-The image-selected namespaces are the union of all clause results. (Whether
-exclusions are clause-local or honoured across the whole selection is Open Issue
-2.)
-
-`:select-ns` defaults to an empty vector. An image with no `:select-ns` clauses
-selects no namespace-authored registrations and may still define inline
-`:registrations`. Each clause must contain at least one `:include` pattern;
-`:exclude` defaults to an empty vector.
-
-Selecting the same source namespace through more than one clause is idempotent:
-the descriptor is considered once. A same `[kind id]` collision between two
-different selected descriptors remains a collision inside the image and fails as
-described below.
+Exclusion is global to the image selection: a namespace matched by any `:exclude`
+pattern is never selected, regardless of which `:include` pattern caught it. This
+keeps the option teachable as "select these, never those" with no re-admission
+corner cases. (A single flat map, rather than a vector of include/exclude
+clauses, is deliberate: with global exclusion, clause grouping would carry no
+semantics — it would only imply a per-clause pairing the rule denies.)
 
 The glob grammar remains the EP-0023 grammar:
 
@@ -175,13 +162,44 @@ The glob grammar remains the EP-0023 grammar:
 - `*` matches exactly one segment;
 - `**` matches zero or more segments;
 - matching is case-sensitive;
-- selection is by source namespace provenance, not by registration id namespace.
+- selection is by registration source namespace provenance, not by registration
+  id namespace.
 
-An include pattern that matches no registration source namespace fails image
-assembly with an actionable diagnostic. An exclude pattern that matches nothing
-is allowed.
+An include pattern that matches no registration source namespace MUST fail image
+assembly. An exclude pattern that matches nothing is allowed.
 
-### Layered resolution
+Selecting the same source namespace through more than one include pattern is
+idempotent. The descriptor is considered once.
+
+An explicit image with no `:select-ns` selects no namespace-authored
+registrations. It may still define inline `:registrations`.
+
+### Default Image
+
+The default image is a frame-construction behavior, not an ordinary
+`rf/image` value.
+
+For the reference implementation:
+
+- omitting `:images` from `make-frame` uses the default frame image behavior;
+- the default image selects all ordinary namespace-authored registrations in the
+  default registrar source set and includes framework standards;
+- duplicate distinct `[kind id]` descriptors in the default image fail loudly;
+- default image hot-reload behavior remains the ordinary same-source replacement
+  case, not general last-writer-wins.
+
+`:images []` is an error: pass at least one image, or omit `:images` for the
+default. To create a frame with no app registrations, pass a real empty image:
+
+```clojure
+(rf/make-frame
+  {:images [(rf/image {:id :test/empty})]})
+```
+
+(There is one way to ask for the default — omission — and `[]` does not quietly
+become a second one.)
+
+### Layered Resolution
 
 Image composition is ordered data. A frame created with:
 
@@ -190,78 +208,158 @@ Image composition is ordered data. A frame created with:
   {:images [base-image product-image story-image]})
 ```
 
-builds a resolved generation by layering images in order:
+resolves descriptors with this total precedence key:
 
 ```text
-image inline :registrations      (later image in :images wins within this tier)
-image :select-ns selections      (later image in :images wins within this tier)
+1. image index in :images, later image wins
+2. tier within the winning image, inline :registrations win over :select-ns
 ```
 
-with image inline `:registrations` dominating `:select-ns` selections. (Frame-
-and dispatch-scoped overlays sit above these image tiers in precedence; they are
-specified in EP-0028.)
-
-These are resolution layers, not mutations of the global registrar, the image
-value, or the frame's recorded image composition.
+Image order is the primary composition axis. A later image's selected descriptor
+can beat an earlier image's inline descriptor — but only when the later image
+explicitly acknowledges that shadow (see `:shadows`).
 
 Within one image:
 
-- inline `:registrations` dominate registrations selected by `:select-ns`;
-- duplicate inline registrations for the same `[kind id]` fail loud;
-- duplicate namespace-selected registrations for the same `[kind id]` fail loud
-  unless they are the implementation's ordinary same-source hot-reload
-  replacement case.
+- duplicate inline entries for the same `[kind id]` fail;
+- duplicate selected descriptors for the same `[kind id]` fail unless they are
+  the ordinary same-source hot-reload replacement case;
+- an inline descriptor automatically wins over a selected descriptor with the
+  same `[kind id]` — this is local authoring intent and needs no acknowledgement.
+  The win is still recorded in `:rf.gen/shadows` so it stays inspectable.
 
-Across images, later images intentionally shadow earlier images for the same
-`[kind id]`. Shadowing is not ambient namespace load order; it is the explicit
-order of the `:images` vector.
+Across images:
 
-Assemblers must retain enough provenance to show which descriptors were shadowed,
-which layer won, and why. Layer dominance must be inspectable by Xray, Pair,
-error reporters, and other tooling rather than disappearing during resolution.
-This is a deliberate amendment to EP-0023's exact replacement maps: the API gains
-a smaller data shape, and gives up the old coordinate-level winner declaration.
-The mitigation is that order is explicit in `:images`, collisions inside one
-selection clause still fail loud, and shadowed descriptors remain visible to
-diagnostics and tools. (Whether silent cross-image shadowing should instead
-require an explicit acknowledgement is Open Issue 1.)
+- a later descriptor may beat an earlier descriptor with the same `[kind id]`
+  only when the winning image includes a matching `:shadows` acknowledgement;
+- without that acknowledgement, image assembly fails;
+- shadowing is never ambient namespace load order.
 
-### Inline registration grammar
+Resolution MUST NOT mutate the global registrar, the image value, or the frame's
+recorded image composition.
 
-Every inline registration entry uses one of two tuple shapes:
+### Shadow Acknowledgement
+
+`:shadows` is the public acknowledgement surface for deliberate **cross-image**
+descriptor shadowing. (Within-image inline-over-selected wins automatically and
+needs no entry — see Layered Resolution.)
+
+```clojure
+;; base image defines the real :counter/inc by namespace selection
+(def base-image
+  (rf/image
+    {:id :app/base
+     :select-ns {:include ["app.counter.**"]}}))
+
+;; a later image intentionally overrides it with an inline stub
+(def story-image
+  (rf/image
+    {:id :story/counter
+     :registrations {:reg-event [[:counter/inc {} story-inc]]}
+     :shadows #{[:event :counter/inc]}}))
+
+(rf/make-frame {:images [base-image story-image]})  ;; story wins, acknowledged
+```
+
+Each entry is:
+
+```clojure
+[kind id]
+```
+
+where `kind` is the normalized descriptor kind, such as `:event`, `:sub`, `:fx`,
+or `:cofx`.
+
+Rules:
+
+- The acknowledgement lives on the winning (later) image.
+- Acknowledgement authorizes only the winning descriptor for that `[kind id]`.
+- One acknowledgement may cover multiple shadowed losers for the same `[kind id]`.
+- Acknowledgement cannot authorize duplicate inline entries in the same image.
+- Acknowledgement cannot authorize app shadowing of framework standards.
+- A stale acknowledgement that matches no actual cross-image shadow MUST fail;
+  stale `:shadows` entries are composition lies.
+
+This replaces public `:replace` without reintroducing coordinate-heavy
+replacement maps. The programmer says "this id is intentionally shadowed", the
+ack's location names the winner, and tooling records the precise loser/winner
+coordinates.
+
+### Framework Standard Registrations
+
+Framework standard registrations are protected. They are not part of ordinary app
+image layer order.
+
+If an app descriptor has the same `[kind id]` as a framework standard descriptor,
+assembly MUST fail with a standard-collision diagnostic. `:shadows` MUST NOT
+authorize this collision.
+
+A future standards-track EP may define a specific standard-extension or
+standard-replacement hook. This EP does not.
+
+### Shadow Provenance
+
+Resolved frame generations MUST retain machine-readable provenance for the
+collisions they resolved. The generation value MUST expose:
+
+```clojure
+:rf.gen/resolver   ;; the sealed [kind id] -> descriptor map a frame runs
+:rf.gen/images     ;; the composed image inputs
+:rf.gen/kinds      ;; the kinds present
+:rf.gen/shadows    ;; the resolved collisions (winner + losers + ack)
+```
+
+`:rf.gen/requires` is retired with the capability feature.
+
+Each `:rf.gen/shadows` entry MUST identify at least:
+
+```clojure
+{:kind :event
+ :id   :counter/inc
+ :winner   {:image-id :story/counter :image-index 1 :tier :registrations}
+ :shadowed [{:image-id :app/base :image-index 0 :tier :select-ns
+             :source-ns "app.counter.events"}]
+ :ack {:image-id :story/counter :entry [:event :counter/inc]}}
+```
+
+Per-descriptor layer facts (source namespace, owning image, tier) already live on
+each resolved descriptor's `:rf.provenance/*` metadata; a frame's layer view is a
+recomputable projection of the resolver plus that metadata and is **not** a
+separate normative generation key (EP-0007 rule 4 — mirrors are projections, not
+co-equal sources). `:rf.gen/shadows` is mandated because the loser coordinates it
+preserves are otherwise discarded at resolution. Xray, Pair, error reporters, and
+conformance tests consume `:rf.gen/shadows` for the collision story and the
+resolver + descriptor provenance for everything else.
+
+### Inline Registration Grammar
+
+Inline registrations use this outer tuple shape:
 
 ```clojure
 [id body]
 [id metadata body]
 ```
 
-The metadata map is optional. Metadata-only entries are not part of the public
-inline grammar; `[id metadata]` is invalid. For handler-style registrations,
-`[id map]` is a missing-body error, not a map body, unless a future registration
-kind explicitly defines a map body parser in its own spec. (This rejects the
-metadata-only tuple EP-0023 permitted — see Open Issue 4.)
+The metadata map is optional and normalizes to `{}`. Metadata-only `[id metadata]`
+entries are invalid in this EP. (EP-0023's image-fragment text permitted a
+metadata-only tuple; this EP deliberately reverses that — see Backwards
+Compatibility.)
 
-The registration map may contain these keys:
+EP-0026 standardizes only the inline kinds with a concrete parser:
 
-```clojure
-:reg-event
-:reg-sub
-:reg-fx
-:reg-cofx
-:reg-interceptor
-:reg-view
-:reg-frame
-:reg-route
-:reg-head
-:reg-error-projector
-:reg-flow
-:reg-resource
-:reg-mutation
-:reg-resource-scope
-```
+| map key | kind | tuple body |
+| --- | --- | --- |
+| `:reg-event` | `:event` | event handler body accepted by the event registrar |
+| `:reg-sub` | `:sub` | simple db-reader subscription body |
+| `:reg-fx` | `:fx` | effect handler function |
+| `:reg-cofx` | `:cofx` | coeffect handler function |
 
-Unsupported keys fail loudly. Future registration kinds extend this list through
-their own specs or the central registration spec.
+All other inline registration keys MUST fail with an unsupported-inline-kind
+diagnostic until their owning spec defines: legal tuple forms, a body parser,
+metadata/body disambiguation, a lowering hook, a provenance shape, and
+conformance tests. This explicitly does not standardize inline forms for frames,
+routes, heads, flows, resources, mutations, resource scopes, views, error
+projectors, or interceptors in EP-0026.
 
 Example:
 
@@ -272,140 +370,169 @@ Example:
    {:reg-event [[:counter/inc
                  (fn [{:keys [db]} _]
                    {:db (update db :counter/value inc)})]]
+
     :reg-sub   [[:counter/value
                  (fn [db _]
-                   (:counter/value db))]]}})
+                   (:counter/value db))]]
+
+    :reg-fx    [[:metrics/send
+                 (fn [payload]
+                   (send-metric! payload))]]}})
 ```
 
-The omitted metadata maps normalize to `{}`.
+### Capability Removal
 
-### Capability declarations
+The image/frame capability feature is removed from the public API in this EP. The
+following public surfaces are retired:
 
-`:rf.image/requires` is removed from the public image API.
-
-No convincing current use case requires image-level capabilities instead of
-ordinary registration resolution, frame configuration, or host adapter setup. If
-a future host dependency cannot be modeled cleanly by registrations and frame
-configuration, it can return through a specific EP with concrete examples. (The
-fate of the wider capability contract — `make-frame :capabilities` and the
-assembly-time check — is Open Issue 3.)
-
-### Program vocabulary boundary
-
-This EP deliberately keeps `rf/image`. EP-0023 uses `program` for the event
-stream executed by a frame, and warns against using `program` for registration
-sets. The distinction remains useful here:
-
-```text
-image        = selected registration vocabulary loaded by a frame
-frame        = live execution context over state and runtime partitions
-event stream = the program executed by that frame
+```clojure
+:rf.image/requires
+make-frame :capabilities
+:rf.gen/requires
 ```
 
-Any future rename from `rf/image` would need to explicitly revise that EP-0023
-vocabulary. This proposal does not do so.
+Assembly-time capability checking tied to those keys MUST be deleted, not left as
+an unreachable half-feature.
+
+If a future host dependency cannot be modeled by ordinary registration selection,
+frame configuration, adapter setup, or registration metadata, it must return
+through a new EP with concrete examples and an end-to-end tooling shape.
+
+### Diagnostics
+
+Implementations MUST fail loudly for at least these cases:
+
+- retired image key;
+- invalid `:select-ns` (missing/empty `:include`, or non-vector `:include` /
+  `:exclude`);
+- include pattern with no matches;
+- duplicate inline `[kind id]`;
+- duplicate selected `[kind id]`;
+- unacknowledged cross-image shadow;
+- stale `:shadows` entry;
+- attempted standard shadow;
+- unsupported inline kind;
+- invalid inline tuple arity (including a metadata-only tuple);
+- `:images []`.
+
+Diagnostics SHOULD include:
+
+```clojure
+{:rf.error/id ...
+ :rf.error/phase :image/assembly
+ :kind ...
+ :id ...
+ :image-id ...
+ :image-index ...
+ :candidates [...]
+ :recovery ...}
+```
+
+The exact error ids are assigned in the implementation/spec update, but the
+errors themselves are normative.
 
 ## Rationale
 
-The Clojure shape should be data first. The image says what behavior it selects
-and what local behavior it defines. Layer order across `:images` says which
-definitions win.
+The winning image should be visible in data, not hidden in registration load
+order. The winning override should be visible in the image that owns it, not in a
+separate coordinate map only experts remember.
 
-The old `:replace` shape is precise, but it forces application authors to speak
-in descriptor coordinates. Most of the time, the intent is simpler:
+`:shadows` is intentionally smaller than `:replace`. It does not ask authors to
+name loser coordinates, and it does not ask anything at all for the common case —
+overriding a selected handler with an inline one in the same image. It asks for a
+single `[kind id]` acknowledgement only when one image deliberately shadows
+another, which is exactly where an accidental collision would otherwise hide. The
+implementation keeps the exact loser/winner coordinates for tools: authors write
+compact intent; the system preserves precise provenance.
 
-```text
-Use this registration here.
-```
-
-Inline `:registrations` already say that directly. Making layer order explicit
-preserves determinism without teaching a second winner-map API.
-
-Removing `:rf.image/requires` follows the same principle. A public key should
-earn its place by naming a real, recurring application fact. So far, capability
-declarations look like leftover composition vocabulary rather than a necessary
-part of the image/frame model.
+Deleting capabilities end-to-end follows the same rule. A public key should name a
+recurring application fact. The current capability surface is not connected to a
+strong enough use case and should not survive as design residue.
 
 ## Backwards Compatibility
 
-re-frame2 is pre-alpha. No compatibility shims are required, but this is still a
-breaking source migration for any code or documentation already using the
-EP-0023 image spellings. The retired keys must fail loudly during assembly so
-stale examples do not keep working by accident.
+re-frame2 is pre-alpha. This EP makes clean breaking changes and does not require
+compatibility shims.
 
 Migration is source-level:
 
-- replace `:include-ns` / `:exclude-ns` with `:select-ns` clauses;
-- replace `:replace` with a later image or inline `:registrations`;
-- remove `:rf.image/requires`;
-- frame/dispatch behaviour overrides and `:rf.cofx` causal facts are covered by
-  EP-0028 / EP-0017.
+- replace `:include-ns` / `:exclude-ns` with one `:select-ns {:include … :exclude …}`;
+- replace `:replace` with a later image plus `:shadows` (only for cross-image
+  overrides; a same-image inline override needs no acknowledgement);
+- remove `:replace-standard`; ordinary app images cannot shadow standards;
+- remove `:rf.image/requires`, `make-frame :capabilities`, and consumers of
+  `:rf.gen/requires`;
+- rewrite metadata-only inline entries (permitted by EP-0023) as explicit
+  metadata-plus-body, or move them back to namespace-authored registrations;
+- replace `:images []` with omission (for the default) or a real empty image.
 
-## Bead Plan / Reference Implementation
+Retired keys MUST fail loudly so stale examples do not keep working by accident.
 
-Expected implementation slices:
+## Reference Implementation Plan
 
-1. Add the `:select-ns` clause parser and diagnostics while keeping the EP-0023
-   glob grammar.
-2. Implement layered image resolution with shadow provenance reporting.
-3. Remove public `:replace` and ordinary public `:replace-standard`; protect
-   framework-standard registrations behind an internal or future-EP path.
-4. Remove `:rf.image/requires` from image assembly, spec, examples, and guide
-   text, deciding the wider capability contract (Open Issue 3).
-5. Normalize inline registration tuple parsing to `[id body]` and
-   `[id metadata body]` for all registration kinds; reject `[id metadata]`, and
-   reconcile with EP-0023's stated inline grammar (Open Issue 4).
-6. Add conformance tests for retired-key rejection, scoped namespace selection,
-   duplicate detection, and cross-image shadow provenance.
-7. Update Xray, Pair, examples, tools, migration skill, and the guide chapters
-   that teach image assembly.
+1. Add `:select-ns` map parsing with global exclusion semantics and strict
+   include diagnostics.
+2. Add `:shadows` parsing and cross-image validation (incl. stale-ack rejection).
+3. Replace replacement-map resolution with image-index-first layer resolution;
+   within an image, inline wins over selected automatically.
+4. Preserve fail-loud duplicate handling for unacknowledged cross-image duplicates.
+5. Protect framework standards from ordinary app shadowing.
+6. Add `:rf.gen/shadows`; remove `:rf.gen/requires`. Do not add a separate
+   `:rf.gen/layers` key — expose layer facts via descriptor provenance.
+7. Delete `:rf.image/requires`, `make-frame :capabilities`, and capability checks
+   from implementation, specs, tools, guides, and tests.
+8. Narrow inline grammar to event/sub/fx/cofx and reject unsupported inline kinds.
+9. Make `:images []` an error.
+10. Add conformance coverage for selection, default image behavior, cross-image
+    shadows, stale acknowledgements, standard collisions, retired keys, `:images []`,
+    and inline tuple errors.
+11. Add a static residue gate for live retired spellings outside historical prose,
+    migration prose, and negative tests.
 
-Guide-impact assessment:
+## Affected Surfaces
 
-- `docs/guide/quickstart.md` can teach `rf/image` inline registrations without
-  descriptor replacement maps.
-- image composition docs should show layer dominance and shadow inspection.
+At minimum, the implementation sweep should cover:
 
-## Open Issues
+- `implementation/core/src/re_frame/image.cljc`
+- `implementation/core/src/re_frame/image_assembly.cljc`
+- `implementation/core/src/re_frame/core.cljc`
+- `implementation/core/src/re_frame/live_frame.cljc`
+- `spec/API.md`
+- `spec/Conventions.md`
+- `spec/001-Registration.md`
+- `spec/002-Frames.md`
+- `docs/guide/concepts/images.md`
+- Pair `describe-image`
+- Xray image panels and reads
+- Story schemas/specs that model image values
+- examples and migration docs
+- conformance and residue gates
 
-These issues require recorded dispositions before this standards-track EP can
-graduate. If any answer is deferred, the final EP should narrow its normative
-surface and name the follow-on EP or bead that owns the deferred question.
+## Acceptance Bar
 
-1. **Should silent cross-image shadowing be allowed, or require an explicit
-   acknowledgement?** Dropping `:replace` makes later-image-wins the default, but
-   EP-0023 made cross-image collisions fail loud. A compact `:shadows #{[kind id]
-   …}` acknowledgement on the frame/image would keep the smaller surface while
-   preserving fail-loud-on-accident; unacknowledged cross-image collisions would
-   still fail. If pure order is chosen instead, this EP must state plainly that it
-   is accepting silent cross-image shadowing as a deliberate regression from
-   EP-0023's fail-loud collision rule. Operator ruling needed.
+This EP should not graduate until:
 
-2. **`:select-ns` clause-local vs global exclusion semantics.** Are exclusions
-   local to their include clause (so a sibling clause can re-admit an excluded
-   namespace), or honoured across the whole selection (one `:exclude` reliably
-   drops a namespace, per EP-0023)? State the rule with an overlap example and
-   pick the safe default. Operator ruling needed.
+1. No unacknowledged distinct cross-image duplicate `[kind id]` can silently
+   resolve.
+2. `:shadows` has parser, cross-image validation, `:rf.gen/shadows` provenance,
+   tests, Xray, and Pair support.
+3. Image order and within-image tier order are tested across the cross-tier cases.
+4. Framework standards cannot be shadowed through ordinary image order.
+5. Capability deletion is complete across code, specs, docs, tools, and tests.
+6. Default image behavior — including `:images []` as an error — is specified and
+   covered.
+7. Unsupported inline kinds fail loudly.
+8. Retired spellings are blocked by a static residue gate.
 
-3. **Decide the capability contract end-to-end.** Removing `:rf.image/requires`
-   leaves `make-frame :capabilities` and the assembly-time capability check
-   without a declaration surface. Either delete the capability feature
-   end-to-end (frame opts, generation shape, error catalogue, tools, tests) or
-   move capability requirements onto selected registration metadata.
+## Open Questions
 
-4. **Reconcile the inline tuple grammar with graduated EP-0023.** EP-0023 permits
-   metadata-only `[id metadata]` entries; this EP rejects them. The reversal must
-   be declared and any existing inline entries migrated.
+The core model is settled: fail loud by default, acknowledge cross-image shadows
+explicitly, protect standards, delete capabilities, and keep the authoring surface
+small. The remaining questions are implementation detail:
 
-5. **Is `rf/program` the final public name?** This EP records the naming
-   preference but does not decide it.
-
-## Recommendation
-
-Accept the image-surface simplification: scoped `:select-ns`, inline
-`:registrations` as the local-definition surface, explicit layer order in place
-of `:replace`, and removal of `:rf.image/requires`. Resolve the cross-image
-shadow and `:select-ns` exclusion open issues before marking the EP final. The
-override/overlay vocabulary and the `rf/image` authoring-macro decision are
-carried separately by EP-0028.
+1. What exact error ids should the new diagnostics use?
+2. Should `:rf.gen/shadows` carry full loser descriptors or coordinate-plus-summary
+   only?
+3. Should future inline grammars reuse the same tuple shell, or may each kind
+   define a richer body form in its owning spec?
 </content>
