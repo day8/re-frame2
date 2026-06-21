@@ -155,7 +155,7 @@
     (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
     (with-new-frame [f (frame/make-anon-frame-record!
-                         {:on-create    [:boot/initialise]
+                         {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
       ;; The :on-create cofx fires :boot/initialise during make-frame,
@@ -184,7 +184,7 @@
     (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
 
     (with-new-frame [f (frame/make-anon-frame-record!
-                         {:on-create    [:boot/initialise]
+                         {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
       (let [db      (rf/frame-state-value f)
@@ -214,7 +214,7 @@
                           :body   "boot dependency unreachable"})
 
     (with-new-frame [f (frame/make-anon-frame-record!
-                         {:on-create    [:boot/initialise]
+                         {:initial-events [[:boot/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-fail}})]
       (let [db    (rf/frame-state-value f)
@@ -289,7 +289,7 @@
           traces (collect-machine-data-traces!
                    #(reset! frame
                       (frame/make-anon-frame-record!
-                        {:on-create    [:boot/initialise]
+                        {:initial-events [[:boot/initialise]]
                          :fx-overrides {:rf.http/managed
                                         :boot.test/canned-bad-config}})))]
       (try

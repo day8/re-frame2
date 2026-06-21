@@ -2126,16 +2126,14 @@
   (testing (str name " — #3 machine spawn at boot before adapter ready")
     (rf/reg-event :init-shape
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
-    ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
-    ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:on-create` dispatch
-    ;; branches on `*current-frame*` (in-flight-cascade heuristic, rf2-cufbh)
-    ;; between a synchronous top-level drain and an async child-frame queue.
-    ;; This test models a TOP-LEVEL boot — clear the ambient scope so the
-    ;; `:on-create` cascade drains synchronously and its seed is observable.
-    (binding [frame/*current-frame* nil]
-      (rf/reg-frame :booted {:on-create [:init-shape]}))
+    ;; EP-0027: `:initial-events` runs the setup steps synchronously at TOP-LEVEL
+    ;; construction (an ambient `*current-frame*` scope does not make it
+    ;; async-queue; only an in-flight handler cascade — `*handler-scope*` — would,
+    ;; and that is now a fail-loud error). This test models a TOP-LEVEL boot, so
+    ;; the setup drains synchronously and its seed is observable.
+    (rf/reg-frame :booted {:initial-events [[:init-shape]]})
     (is (= :armed (get-in (rf/runtime-db-value :booted) [:rf.runtime/machines :snapshots :flow/boot :state]))
-        ":on-create completed against an installed adapter — runtime-db carries the seed")))
+        ":initial-events completed against an installed adapter — runtime-db carries the seed")))
 
 (defn assert-xspec-machines-under-ssr
   "#4 Machines under SSR (allowed-subset)."

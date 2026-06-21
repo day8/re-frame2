@@ -1187,15 +1187,18 @@
   ;; §One physical container, two projection reactions; EP-0001 decision #3).
   ;; A fresh frame starts with an empty app-db (Spec 002 §Frames always start
   ;; with app-db = {}) and an empty runtime-db.
-  (let [;; EP-0024: `make-frame` threads the resolved generation +
-        ;; the `:initial-db` seed through the config under reserved keys so they
-        ;; are installed on the record BEFORE `reg-frame` fires `:on-create` —
-        ;; an `:on-create` cascade then resolves through the frame's OWN image
-        ;; generation (not the global registrar) and observes the seeded app-db.
-        ;; Both default to absent (an ordinary configured frame).
-        seeded-app-db (get config :rf.frame/initial-db)
+  (let [;; EP-0024: `make-frame` threads the resolved generation through the
+        ;; config under the reserved `:rf.frame/generation` key so it is installed
+        ;; on the record BEFORE construction setup runs — an `:initial-events`
+        ;; cascade then resolves through the frame's OWN image generation (not the
+        ;; global registrar). EP-0027: a fresh frame ALWAYS starts with app-db
+        ;; `{}` (Spec 002 §Frames always start with app-db = {}). The old
+        ;; `:initial-db` seed is RETIRED — seeding app-db is now itself a setup
+        ;; event (`[:rf/set-db {…}]` as the first `:initial-events` step), so the
+        ;; whole of construction is one visible event script with no special-cased
+        ;; direct write.
         frame-state (adapter/make-state-container
-                      {app-partition-key     (if (some? seeded-app-db) seeded-app-db {})
+                      {app-partition-key     {}
                        runtime-partition-key {}})]
    {:id          id
     ;; EP-0024 — the resolved IMAGE GENERATION slot. ONE unified
@@ -1235,26 +1238,273 @@
     :lifecycle  {:created-at (interop/now-ms)
                  :destroyed? false
                  :listeners  []}
-    ;; The construction-only reserved keys (`:rf.frame/generation` /
-    ;; `:rf.frame/initial-db`) are consumed above into the `:generation` slot +
-    ;; the seeded frame-state; they are stripped from the stored `:config` so
-    ;; `frame-meta` / tooling never surface a one-shot construction input as
-    ;; durable frame config. `:rf.frame/capabilities` stays in `:config` —
-    ;; `reload-images!` / reprojection re-read it by id.
+    ;; The construction-only reserved `:rf.frame/generation` key is consumed
+    ;; above into the `:generation` slot; it is stripped from the stored
+    ;; `:config` so `frame-meta` / tooling never surface a one-shot construction
+    ;; input as durable frame config. `:rf.frame/capabilities` stays in
+    ;; `:config` — `reload-images!` / reprojection re-read it by id.
+    ;; EP-0027: `:initial-events` is DURABLE frame config — it stays in `:config`
+    ;; so `reset-frame!` can re-dispatch the recorded setup. The retired
+    ;; `:rf.frame/initial-db` reserved key is dissoc'd defensively (it is no
+    ;; longer threaded; `:initial-db` fails loud upstream).
     :config     (dissoc config :rf.frame/generation :rf.frame/initial-db)}))
 
 (declare destroy-frame!)
 
+;; ---- :initial-events normalizer + setup runner (EP-0027) ------------------
+;;
+;; EP-0027 replaces the hand-written post-`make-frame` setup loop with one
+;; declarative key. `:initial-events` is an ordered vector of SETUP STEPS
+;; dispatched synchronously, in order, into the frame at construction —
+;; "`:initial-events` IS that loop, written as data" (EP-0027 §Abstract). The
+;; normalizer below is PREFLIGHT validation (EP-0027 §Failure): it runs BEFORE
+;; any step dispatches and BEFORE the frame container exists, so a bad shape
+;; throws and leaves no frame registered. The runner then dispatches each step
+;; through the existing synchronous `dispatch-sync!` path — the same path the
+;; loop used — draining each to a fixed point before the next, tagging each with
+;; `:source :rf.frame/init` + its step index (EP-0027 §Provenance).
+;;
+;; The guiding rule (EP-0027 §Scope note): `:initial-events` is NO MORE CAPABLE
+;; than the loop it replaces. No replay tape, no snapshot, no atomic staging, no
+;; outcome capture. The runner IS the loop.
+
+(defn- bad-event-vector?
+  "True when `event` is NOT a non-empty event vector. The event grammar a step
+  must carry (a top-level step's bare value, or a map step's `:event`)."
+  [event]
+  (or (not (vector? event)) (empty? event)))
+
+(defn- normalize-initial-events
+  "PREFLIGHT-validate + normalize the `:initial-events` construction value into a
+  vector of `{:event <event-vec> :opts <opts-map>}` setup steps (EP-0027
+  §`:initial-events` / §Failure). Pure; throws on a bad shape BEFORE any frame
+  is created so an invalid declaration leaves nothing half-registered.
+
+  `where-sym` is the user-facing constructor symbol for the diagnostic
+  (`'rf/reg-frame` / `'rf/make-frame`). Returns `[]` for an absent / empty value
+  (both mean \"no setup\").
+
+  The strict shape (EP-0027 §`:initial-events`):
+    - the top-level value MUST be a vector of STEPS; a BARE event vector at top
+      level (`[:rf/set-db {…}]`) is INVALID — `:rf.error/initial-events-bare-event`
+      (the fix names wrapping it as `[[:rf/set-db {…}]]`);
+    - a STEP is a bare event vector OR a map `{:event … :opts …}`; anything else
+      is `:rf.error/initial-events-bad-step`;
+    - a map step's `:event` is REQUIRED and must be a non-empty event vector —
+      `:rf.error/initial-events-bad-event`;
+    - a map step's `:opts` is the ordinary `dispatch-sync` opts map with `:frame`
+      FORBIDDEN (it is forced to the frame being constructed) —
+      `:rf.error/initial-events-bad-opts`."
+  [initial-events where-sym]
+  (cond
+    (nil? initial-events) []
+
+    ;; A BARE event vector at top level (`[:some/id …]`) is the common mistake;
+    ;; name the fix (wrap it). A keyword head is the tell that it is one event,
+    ;; not a vector-of-steps.
+    (and (vector? initial-events)
+         (seq initial-events)
+         (keyword? (first initial-events)))
+    (error/throw-error!
+      :rf.error/initial-events-bare-event
+      where-sym
+      (str ":initial-events must be a VECTOR OF STEPS, not a single bare event "
+           "vector — got " (pr-str initial-events) ". A one-step setup pays one "
+           "extra bracket: wrap it as [" (pr-str initial-events) "]. (Accepting "
+           "\"one event or a vector of events\" would reintroduce the [:a :b] "
+           "ambiguity the strict shape avoids.)")
+      {:recovery :wrap-as-vector-of-steps
+       :extra    {:received initial-events}})
+
+    (not (vector? initial-events))
+    (error/throw-error!
+      :rf.error/initial-events-bad-step
+      where-sym
+      (str ":initial-events must be a VECTOR of setup steps — got "
+           (pr-str initial-events) ". Omit it (or pass []) for no setup; "
+           "otherwise pass a vector where each element is an event vector "
+           "(e.g. [[:app/boot]]) or a {:event … :opts …} map.")
+      {:recovery :pass-a-vector-of-steps
+       :extra    {:received initial-events}})
+
+    :else
+    (mapv
+      (fn [step]
+        (cond
+          ;; A bare event vector step — the common case. A non-empty vector
+          ;; whose head is a keyword is an event; an empty vector is a bad step.
+          (vector? step)
+          (if (bad-event-vector? step)
+            (error/throw-error!
+              :rf.error/initial-events-bad-event
+              where-sym
+              (str "an :initial-events step is an EMPTY event vector — got "
+                   (pr-str step) ". A step's event must be a non-empty event "
+                   "vector naming a registered event id, e.g. [:app/boot].")
+              {:recovery :supply-a-non-empty-event
+               :extra    {:step step}})
+            {:event step :opts {}})
+
+          ;; A map step `{:event … :opts …}` — for a step that needs dispatch
+          ;; opts (the common case is a deterministic clock for tests).
+          (map? step)
+          (let [event (:event step)
+                opts  (:opts step {})]
+            (when (bad-event-vector? event)
+              (error/throw-error!
+                :rf.error/initial-events-bad-event
+                where-sym
+                (str "an :initial-events map step's :event is missing, empty, or "
+                     "not an event vector — got " (pr-str event) " in step "
+                     (pr-str step) ". A map step is {:event <non-empty event "
+                     "vector> :opts <dispatch-sync opts>}; :event is required.")
+                {:recovery :supply-a-non-empty-event
+                 :extra    {:step step}}))
+            (when-not (map? opts)
+              (error/throw-error!
+                :rf.error/initial-events-bad-opts
+                where-sym
+                (str "an :initial-events map step's :opts is not a map — got "
+                     (pr-str opts) " in step " (pr-str step) ". :opts is the "
+                     "ordinary dispatch-sync opts map (e.g. {:rf.cofx {:rf/time-ms …}}).")
+                {:recovery :pass-an-opts-map
+                 :extra    {:step step}}))
+            (when (contains? opts :frame)
+              (error/throw-error!
+                :rf.error/initial-events-bad-opts
+                where-sym
+                (str "an :initial-events map step's :opts supplies :frame — got "
+                     (pr-str (:frame opts)) " in step " (pr-str step) ". The "
+                     "target frame is forced to the frame being constructed and "
+                     "may NOT be supplied; drop :frame from :opts.")
+                {:recovery :drop-the-frame-opt
+                 :extra    {:step step}}))
+            {:event event :opts opts})
+
+          :else
+          (error/throw-error!
+            :rf.error/initial-events-bad-step
+            where-sym
+            (str "an :initial-events step is neither an event vector nor a "
+                 "{:event … :opts …} map — got " (pr-str step) ". Each step "
+                 "must be an event vector (e.g. [:app/boot]) or a map "
+                 "{:event [:app/boot] :opts {…}}.")
+            {:recovery :pass-event-vector-or-map-step
+             :extra    {:step step}})))
+      initial-events)))
+
+(defn- run-setup-events!
+  "SETUP RUNNER (EP-0027 §Construction / §Provenance). Dispatch each normalized
+  setup `step` SYNCHRONOUSLY into frame `id`, in order, draining each to a fixed
+  point before the next — exactly as the hand-written `dispatch-sync` loop would.
+  `steps` is the already-validated vector from `normalize-initial-events`.
+
+  Each step is dispatched through `dispatch-sync!` (the same synchronous path the
+  loop used), with the step's `:opts` merged under construction provenance:
+  `:source :rf.frame/init` and the step's `:step-index`, and `:frame` forced to
+  `id` (the EP forbids a caller-supplied `:frame`). By the time this returns the
+  synchronous setup has settled; asynchronous effects started by setup are NOT
+  awaited (EP-0027 §Construction).
+
+  On a step that THROWS at runtime (a `[:rf/set-db x]` bad-arg, or any handler /
+  interceptor throw that `dispatch-sync` re-raises): the partially-created frame
+  is torn down (`destroy-frame!`) so no half-created frame is left live, then a
+  `:rf.error/initial-events-step-failed` naming the failing `:step-index` +
+  `:event` is thrown (EP-0027 §Failure — a setup step that throws at runtime). A
+  step whose failure `dispatch-sync` TRACES-and-recovers (a missing handler, an
+  interceptor error recorded as a trace rather than re-thrown) does NOT throw
+  here — the frame is left alive in whatever state resulted, exactly as after the
+  manual loop.
+
+  `base-opts` carries construction provenance shared by every step — the
+  `:rf.trace/call-site` of the `make-frame`/`reg-frame` declaration (gated on
+  `interop/debug-enabled?` by the caller, so production CLJS builds DCE it) — so a
+  setup event attributes back to where `:initial-events` was declared (EP-0027
+  §Provenance). The step's own `:opts` overlay it (a step may carry `:rf.cofx`,
+  etc.), and the framework keys (`:frame` / `:source` / `:step-index`) win last.
+
+  Reached through `dispatch-sync!` via late-bind to avoid a compile-time cyclic
+  dep (router requires frame)."
+  [id steps base-opts where-sym]
+  (when (seq steps)
+    (when-let [dispatch-sync! (late-bind/get-fn :router/dispatch-sync!)]
+      (loop [idx 0
+             remaining steps]
+        (when-let [{:keys [event opts]} (first remaining)]
+          (let [step-opts (assoc (merge base-opts opts)
+                                 :frame      id
+                                 :source     :rf.frame/init
+                                 :step-index idx)]
+            (try
+              (dispatch-sync! event step-opts)
+              (catch #?(:clj Throwable :cljs :default) t
+                ;; A setup step threw at runtime: tear down the partial frame so
+                ;; no half-created frame is left live, then rethrow naming the
+                ;; step. The original throwable is carried as the cause.
+                (destroy-frame! id)
+                (error/throw-error!
+                  :rf.error/initial-events-step-failed
+                  where-sym
+                  (str ":initial-events setup step " idx " threw — event "
+                       (pr-str event) " failed during frame construction: "
+                       (error/ex-message-safe t) ". The partially-created frame "
+                       "was torn down (no half-created frame is left live).")
+                  {:recovery :fix-the-setup-step
+                   :extra    {:step-index idx
+                              :event      event
+                              :frame      id
+                              #?@(:clj  [:cause t]
+                                  :cljs [:cause t])}}))))
+          (recur (inc idx) (rest remaining)))))))
+
+(defn- reject-retired-construction-keys!
+  "PREFLIGHT guard (EP-0027 §Backwards-compat). `:on-create` and `:initial-db`
+  are RETIRED construction keys (pre-alpha, no shim). A construction map that
+  still supplies either fails LOUD with the dedicated `:rf.error/*` naming the
+  `:initial-events` / `[:rf/set-db …]` replacement, BEFORE any frame is created.
+  `where-sym` is the constructor symbol for the diagnostic."
+  [config where-sym]
+  (when (contains? config :on-create)
+    (error/throw-error!
+      :rf.error/on-create-retired
+      where-sym
+      (str ":on-create is RETIRED (EP-0027) — frame setup is now the declarative "
+           ":initial-events vector. Replace {:on-create [:app/boot]} with "
+           "{:initial-events [[:app/boot]]}. (Construction is events-only; there "
+           "is no compatibility shim — pre-alpha.)")
+      {:recovery :use-initial-events
+       :extra    {:on-create (:on-create config)}}))
+  (when (contains? config :initial-db)
+    (error/throw-error!
+      :rf.error/initial-db-retired
+      where-sym
+      (str ":initial-db is RETIRED (EP-0027) — seeding app-db is itself an event. "
+           "Replace {:initial-db {:n 0}} with {:initial-events [[:rf/set-db {:n 0}]]} "
+           "(`:rf/set-db` is the framework-standard app-db seed event). "
+           "(Construction is events-only; there is no compatibility shim — pre-alpha.)")
+      {:recovery :use-rf-set-db
+       :extra    {:initial-db (:initial-db config)}})))
+
 (defn reg-frame
   "Atomic create-and-register. Per Spec 002 §reg-frame is atomic:
-  - If the id is unregistered, create the frame container, run :on-create
-    events synchronously, return the keyword.
+  - If the id is unregistered, create the frame container, run the
+    :initial-events setup steps synchronously (EP-0027), return the keyword.
   - If the id is already registered, perform a SURGICAL UPDATE: existing
     runtime state (app-db, sub-cache, queue) is preserved; only the
-    metadata/config is replaced. Hot-reload Just Works."
+    metadata/config is replaced (the recorded :initial-events is REPLACED, not
+    replayed — idempotent re-registration). Hot-reload Just Works."
   [id metadata]
   (let [;; The registry is keyed by the bare frame-id.
         config (source-coords/merge-coords (expand-preset metadata))
+        ;; EP-0027 PREFLIGHT (BEFORE the registrar write / any container): reject
+        ;; the retired `:on-create` / `:initial-db` keys fail-loud, and normalize
+        ;; + validate `:initial-events` into a vector of setup steps. Both run
+        ;; here so a bad construction declaration throws BEFORE any frame is
+        ;; registered (EP-0027 §Failure — preflight validation; no frame left
+        ;; registered). The normalized steps are dispatched after the container +
+        ;; config are installed (first-registration branch below).
+        _              (reject-retired-construction-keys! config 'rf/reg-frame)
+        setup-steps    (normalize-initial-events (:initial-events config) 'rf/reg-frame)
         ;; EP-0015 §3: validate the frame-owned classification
         ;; keys (`:sensitive` / `:large` / `:observability`) EARLY — pure,
         ;; container-independent, fail-loud. A malformed path / unknown
@@ -1312,81 +1562,65 @@
           ;; mutates the runtime-db elision slot; no-op when the config
           ;; carries no classification key.
           (install-classification!)
-          ;; Run :on-create events BEFORE emitting :frame/created
-          ;; (Spec 002 §Frame creation). The router/dispatch ns is
-          ;; reached through late-bind to avoid a cyclic dep at
-          ;; compile time.
+          ;; EP-0027 §Construction — FORBID handler-time frame construction.
+          ;; Frames are created by the VIEW (frame-provider) or at TOP LEVEL
+          ;; (tests, boot, SSR per request); constructing a frame INSIDE an event
+          ;; handler is not supported — a handler changes app-db, the view
+          ;; materializes frames from it. This REMOVES today's two-regime
+          ;; `:on-create` handling (sync at top level / async-queue mid-cascade):
+          ;; the mid-cascade case is now a fail-loud error, not a queued
+          ;; creation. The signal for "inside a handler" is `trace/*handler-scope*`
+          ;; being bound — the router binds it for the duration of a handler's
+          ;; execution and ONLY then (a bare ambient `with-frame` scope does NOT
+          ;; bind it), so it distinguishes "created mid-cascade" from "top-level
+          ;; boot under an ambient scope" precisely. The frame container was
+          ;; already swapped into `frames` above; tear it back down before
+          ;; throwing so a handler-time `reg-frame` leaves NO half-registered
+          ;; frame. (The Spec 002 NORMATIVE text recording this principle is a
+          ;; separate hot-zone bead; this is the CODE guard.)
+          (when trace/*handler-scope*
+            (destroy-frame! id)
+            (error/throw-error!
+              :rf.error/frame-construction-in-handler
+              'rf/reg-frame
+              (str "constructing a frame inside an event handler is not supported "
+                   "(EP-0027) — got reg-frame " (pr-str id) " while a cascade is in "
+                   "flight. Frames are created by the VIEW (frame-provider) or at "
+                   "TOP LEVEL; a handler changes app-db, and the view materializes "
+                   "frames from it. Move the frame creation to a frame-provider in "
+                   "the view tree, or to top-level boot.")
+              {:recovery :construct-frames-in-view-or-top-level
+               :extra    {:frame id}}))
+          ;; Run the :initial-events setup steps synchronously, in order, BEFORE
+          ;; emitting :frame/created (Spec 002 §Frame creation; EP-0027
+          ;; §Construction). The router/dispatch ns is reached through late-bind
+          ;; (in the runner) to avoid a cyclic dep at compile time. `setup-steps`
+          ;; was already PREFLIGHT-validated at the top of `reg-frame` (so a bad
+          ;; shape threw before any container existed). A step that throws at
+          ;; runtime tears down the partial frame inside the runner and rethrows.
           ;;
-          ;; Per Spec 002 §`reg-frame` / `make-frame` called from inside
-          ;; a handler: when a handler creates a child frame mid-
-          ;; cascade, the child's `:on-create` MUST be async-queued
-          ;; (not dispatch-sync'd) — synchronous dispatch-sync from
-          ;; inside a handler is an error, and even were it permitted
-          ;; the two cascades would interleave (forbidden by the no-
-          ;; cross-frame-drain rule in Spec 002 §Run-to-completion).
-          ;;
-          ;; The signal for "inside a handler" is `trace/*handler-scope*`
-          ;; being bound — the router binds it (via
-          ;; `with-dispatch-id+call-site`) for the duration of a handler's
-          ;; execution and ONLY then. Under the carried invariant a test
-          ;; harness (or any caller) may establish an AMBIENT `with-frame`
-          ;; scope for its bare dispatches — binding `*current-frame*`
-          ;; WITHOUT any cascade in flight — so `*current-frame*` cannot be
-          ;; the discriminator: a genuine TOP-LEVEL `reg-frame`/`make-frame`
-          ;; (no handler running) would look mid-cascade and wrongly
-          ;; async-queue its `:on-create`, leaving the post-creation state
-          ;; unobservable synchronously. `*handler-scope*` is bound by the
-          ;; router's per-handler frame ONLY — it is set during real cascade
-          ;; processing and is nil under a bare ambient scope — so it
-          ;; distinguishes "created mid-cascade" (async) from "top-level boot
-          ;; under an ambient scope" (synchronous) precisely. Both lifecycle
-          ;; contracts hold: a child frame reg'd from inside a handler
-          ;; async-queues (handler-scope bound); a top-level reg-frame runs
-          ;; `:on-create` synchronously (handler-scope nil).
-          ;; Stamp the frame-init dispatch with `:source :frame-init` so the
-          ;; Epoch panel's DISPATCH step renders "from frame-init". Additionally, capture the
-          ;; `reg-frame` call-site coord as `:rf.trace/call-site` so
-          ;; the click-to-source affordance jumps to the
-          ;; `(rf/reg-frame :foo {:on-create [...]})` line. The macro
-          ;; form of `reg-frame` (via `defreg-macro`) binds
-          ;; `*pending-coords*`, which `source-coords/merge-coords`
-          ;; merges directly INTO `config` as `:ns`/`:file`/`:line`/
-          ;; `:column` — so the call-site is already on the config
-          ;; map, no separate capture path needed. Gated on
-          ;; `interop/debug-enabled?` so production CLJS builds DCE
-          ;; the call-site read.
-          ;;
-          ;; The gate MUST be the OUTERMOST form (the canonical
-          ;; `(if interop/debug-enabled? <stamped> <plain>)` shape per Spec
-          ;; 009 §Production builds), NOT an `(and interop/debug-enabled?
-          ;; ...)` test in a `cond->` step. A `cond->` test-position gate
-          ;; leaves the `:rf.trace/call-site` keyword literal reachable in
-          ;; the assoc form — Closure does not constant-fold it away under
-          ;; `:advanced` + `goog.DEBUG=false`, so the keyword leaks into
-          ;; production bundles (the elision-probe catches it via the rooted
-          ;; frame-registration path — see
-          ;; `re-frame.elision-probe/touch-teardown!`). The outermost `if`
-          ;; lets DCE prove the whole dev arm dead.
-          (when-let [on-create (:on-create config)]
-            (let [init-opts (if interop/debug-enabled?
-                              (cond-> {:frame  id
-                                       :source :frame-init}
-                                (or (:file config) (:line config))
-                                (assoc :rf.trace/call-site
-                                       (cond-> {}
-                                         (:ns     config) (assoc :ns     (:ns     config))
-                                         (:file   config) (assoc :file   (:file   config))
-                                         (:line   config) (assoc :line   (:line   config))
-                                         (:column config) (assoc :column (:column config)))))
-                              {:frame id :source :frame-init})]
-              (if trace/*handler-scope*
-                ;; Handler-created child frame (a cascade is in flight):
-                ;; async-queue on the child.
-                (when-let [dispatch (late-bind/get-fn :router/dispatch!)]
-                  (dispatch on-create init-opts))
-                ;; Top-level (no in-flight cascade): synchronous, as before.
-                (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
-                  (dispatch-sync on-create init-opts)))))
+          ;; Each setup dispatch carries construction provenance: `:source
+          ;; :rf.frame/init` + its step index (added by the runner), plus the
+          ;; `make-frame`/`reg-frame` call-site captured as `:rf.trace/call-site`
+          ;; here so the click-to-source affordance jumps to the
+          ;; `(rf/make-frame {… :initial-events […]})` declaration line. The
+          ;; macro form of `reg-frame` binds `*pending-coords*`, which
+          ;; `source-coords/merge-coords` merges into `config` as
+          ;; `:ns`/`:file`/`:line`/`:column` — so the call-site is already on the
+          ;; config map. Gated on `interop/debug-enabled?` (the OUTERMOST form, per
+          ;; Spec 009 §Production builds) so production CLJS builds DCE the
+          ;; call-site read and the keyword never leaks into the advanced bundle.
+          (let [base-opts (if interop/debug-enabled?
+                            (cond-> {}
+                              (or (:file config) (:line config))
+                              (assoc :rf.trace/call-site
+                                     (cond-> {}
+                                       (:ns     config) (assoc :ns     (:ns     config))
+                                       (:file   config) (assoc :file   (:file   config))
+                                       (:line   config) (assoc :line   (:line   config))
+                                       (:column config) (assoc :column (:column config)))))
+                            {})]
+            (run-setup-events! id setup-steps base-opts 'rf/reg-frame))
           (trace/emit! :rf.frame :rf.frame/created
                        {:frame id :config (dissoc config :rf.frame/generation
                                                   :rf.frame/initial-db)})
@@ -1401,11 +1635,19 @@
               ;; slot from it (a re-make WITH new `:images` swaps the running
               ;; generation; a re-make WITHOUT `:images` carries nil and CLEARS
               ;; it back to an ordinary configured frame — matching the
-              ;; first-creation contract). `:rf.frame/initial-db` is a
-              ;; construction-only seed and is NOT re-applied here — durable
-              ;; app-db is preserved across the idempotent re-mount (EP-0024
-              ;; §Duplicate id policy). Both reserved keys are stripped from the
-              ;; stored `:config`.
+              ;; first-creation contract). The retired `:rf.frame/initial-db`
+              ;; reserved key is stripped defensively (no longer threaded). The
+              ;; reserved `:rf.frame/generation` key is stripped from the stored
+              ;; `:config`.
+              ;;
+              ;; EP-0027 §Reset / §Frame provider — idempotent re-registration
+              ;; RE-RECORDS but does NOT REPLAY `:initial-events`: the new
+              ;; `:initial-events` (durable frame config) lands in `:config` here,
+              ;; REPLACING the prior recording (and CLEARING it when the key is
+              ;; absent), while durable app-db / sub-cache / queue are preserved.
+              ;; The recorded setup is replayed ONLY by `reset-frame!` (the
+              ;; opt-in full replace), never on a surgical re-registration / a
+              ;; React remount / StrictMode double-invoke / Story re-eval.
               stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)]
           (swap! frames update id
                  assoc :config stored-config :generation (get config :rf.frame/generation))
@@ -1445,17 +1687,20 @@
   the lifecycle token `make-frame` returns. INTERNAL: the value carries the
   `:rf.frame/object` marker, its `:rf.frame/runnable-id` (= the id its record is
   keyed by), and the public `:rf.frame/id` + the creation inputs
-  (`:rf.frame/initial-db` / `:rf.frame/capabilities` / `:rf.frame/adapter`) when
-  present. The resolved generation is NOT embedded on the value — it lives on
-  the record (`:generation`), read by id via `frame-generation`, so a value and
-  its id resolve the same generation and a `reload-images!` swap is observed by
-  every holder of either. Pure map assembly; `id` is the public frame id (nil
-  for a no-id direct value), `runnable-id` the record address."
-  [{:keys [id runnable-id initial-db capabilities adapter]}]
+  (`:rf.frame/capabilities` / `:rf.frame/adapter`) when present. The resolved
+  generation is NOT embedded on the value — it lives on the record
+  (`:generation`), read by id via `frame-generation`, so a value and its id
+  resolve the same generation and a `reload-images!` swap is observed by every
+  holder of either. Pure map assembly; `id` is the public frame id (nil for a
+  no-id direct value), `runnable-id` the record address.
+
+  EP-0027 retired `:initial-db`: app-db seeding is now a setup event
+  (`:initial-events`), so the constructed value no longer carries an
+  `:rf.frame/initial-db` slot."
+  [{:keys [id runnable-id capabilities adapter]}]
   (cond-> {object-marker         true
            runnable-id-key       runnable-id}
     (some? id)           (assoc :rf.frame/id id)
-    (some? initial-db)   (assoc :rf.frame/initial-db initial-db)
     (some? capabilities) (assoc :rf.frame/capabilities capabilities)
     (some? adapter)      (assoc :rf.frame/adapter adapter)))
 
@@ -2116,7 +2361,17 @@
 (defn reset-frame!
   "destroy-frame! followed by reg-frame with the same config. Per Spec 002
   §reset-frame! — full replace, opt-in. The destroy + re-register target the
-  frame-id-keyed record directly."
+  frame-id-keyed record directly.
+
+  EP-0027 §Reset: because the recorded `:initial-events` is DURABLE frame config
+  (it stays on `:config`), re-registering with that config RE-DISPATCHES the
+  recorded `:initial-events` — the only thing that replays the setup, in place of
+  the old `:on-create` re-fire. The replay is a BEST-EFFORT re-run through the
+  CURRENT handlers (a vector now, exactly as `:on-create` re-fired one event
+  before): no snapshot, no replay tape, no atomicity. Because construction is
+  events-only, the recorded script IS the constructed state — there is no
+  separate baseline to restore. The other app-db reset verbs
+  (`reset-app-db!` / `replace-app-db!`) are unchanged."
   [id]
   (when-let [f (frame id)]
     (let [config (:config f)]

@@ -138,13 +138,13 @@
       (is (nil? (rf/frame-meta @captured-id))
           "the frame is destroyed even on exception"))))
 
-(deftest with-new-frame-on-create-fires-and-state-is-readable
-  (testing "(with-new-frame [f (make-frame {:on-create [...]})] body) —
-            on-create fires before body, body sees the seeded state,
+(deftest with-new-frame-initial-events-fires-and-state-is-readable
+  (testing "(with-new-frame [f (make-frame {:initial-events [[...]]})] body) —
+            :initial-events fires before body, body sees the seeded state,
             destroy runs after"
     (rf/reg-event :wf/initialise (fn [{:keys [db]} _] {:db {:counter 42}}))
     (let [captured-db (atom nil)]
-      (rf/with-new-frame [f (frame/make-anon-frame-record! {:on-create [:wf/initialise]})]
+      (rf/with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:wf/initialise]]})]
         (reset! captured-db (rf/app-db-value f)))
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))

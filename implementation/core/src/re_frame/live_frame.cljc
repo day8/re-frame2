@@ -421,8 +421,13 @@
 (def ^:private image-selection-opt-keys
   "The `make-frame` opts the unified constructor consumes directly (EP-0024) —
   resolved into the generation + the frame value, NOT passed to `reg-frame` as
-  record config. Everything else in the opts map is record-config."
-  #{:images :id :initial-db :capabilities :adapter})
+  record config. Everything else in the opts map is record-config.
+
+  EP-0027 retired `:initial-db`: it is NO LONGER an image-selection key. A
+  supplied `:initial-db` now flows through to `reg-frame` as record-config and is
+  rejected fail-loud there (`:rf.error/initial-db-retired`) — seeding app-db is
+  itself an event (`{:initial-events [[:rf/set-db {…}]]}`)."
+  #{:images :id :capabilities :adapter})
 
 ;; ===========================================================================
 ;; Generation resolution (shared by make-frame and reload-images!)
@@ -552,7 +557,7 @@
    ;; argument cannot silently register a garbage default frame or fail by an
    ;; obscure host ClassCastException.
    (validate-opts! opts)
-   (let [{:keys [images id initial-db capabilities adapter]} opts
+   (let [{:keys [images id capabilities adapter]} opts
          ;; The frame id the record is keyed by: the public `:id` when supplied
          ;; (so `(rf/dispatch [...] {:frame :counter/main})` finds the same
          ;; record), else a process-unique anonymous id so a no-id (direct) value
@@ -566,25 +571,23 @@
          generation  (when (some? images)
                        (resolve-generation! images capabilities descriptors))
          ;; Everything outside the image-selection/value keys is record-config
-         ;; passed verbatim to `reg-frame` — `:on-create` / `:fx-overrides` /
+         ;; passed verbatim to `reg-frame` — `:initial-events` / `:fx-overrides` /
          ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification.
          ;; EP-0024 option-(a): the unified constructor honours these, no
-         ;; fail-loud record-only-key redirect. We ALSO thread three reserved
-         ;; construction inputs through the config so `reg-frame` installs them
-         ;; on the record BEFORE it fires `:on-create` (CRITICAL — an
-         ;; `:on-create` cascade must resolve through the frame's OWN image
-         ;; generation and observe the seeded app-db, not the global registrar /
-         ;; an empty db):
+         ;; fail-loud record-only-key redirect. EP-0027: `:initial-events` is one
+         ;; of these record-config keys — it flows verbatim to `reg-frame`, which
+         ;; PREFLIGHT-validates it and runs the setup steps synchronously at
+         ;; construction (and a retired `:initial-db` / `:on-create` likewise flows
+         ;; through to reg-frame's fail-loud guard). We thread two reserved
+         ;; construction inputs through the config:
          ;;   :rf.frame/generation   — the resolved generation (nil ⇒ ordinary
          ;;                            configured frame; cleared on a re-make that
          ;;                            drops `:images`). reg-frame seats it into
          ;;                            the `:generation` slot and strips it from
-         ;;                            the stored config.
-         ;;   :rf.frame/initial-db   — the app-db seed (construction-only; seeded
-         ;;                            into the fresh frame-state on first create,
-         ;;                            NOT re-applied on an idempotent re-mount —
-         ;;                            durable state is preserved). Stripped from
-         ;;                            the stored config.
+         ;;                            the stored config. Installed BEFORE the
+         ;;                            `:initial-events` setup runs, so a setup
+         ;;                            cascade resolves through the frame's OWN
+         ;;                            image generation, not the global registrar.
          ;;   :rf.frame/capabilities — the host capability map (NOT an app config
          ;;                            field) so `reload-images!` / reprojection
          ;;                            re-check it by id; KEPT in the stored config.
@@ -593,22 +596,20 @@
          ;;                            image/frame view) can read it by id.
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
                          true                 (assoc :rf.frame/generation generation)
-                         (some? initial-db)   (assoc :rf.frame/initial-db initial-db)
                          (some? capabilities) (assoc :rf.frame/capabilities capabilities)
                          (some? adapter)      (assoc :rf.frame/adapter adapter))]
      ;; Create (or idempotently update) the ONE `frames`-registry record under
      ;; the id. `reg-frame` is idempotent on an existing id (surgical update
      ;; preserving runtime state — EP-0024 §Duplicate id policy), installs the
-     ;; generation + (first-create only) the initial-db seed BEFORE running
-     ;; `:on-create`, and applies the record-config (presets, classification,
-     ;; fx-overrides, …). Default-realm (the collapse supersedes the public realm
-     ;; dimension), so the record is keyed by the bare id.
+     ;; generation BEFORE running the `:initial-events` setup steps, and applies
+     ;; the record-config (presets, classification, fx-overrides, …). Default-realm
+     ;; (the collapse supersedes the public realm dimension), so the record is
+     ;; keyed by the bare id.
      (frame/reg-frame runnable-id record-config)
      ;; Return the frame VALUE — the lifecycle token (generation not embedded;
      ;; read from the record by id).
      (frame/make-frame-value {:id           id
                               :runnable-id  runnable-id
-                              :initial-db   initial-db
                               :capabilities capabilities
                               :adapter      adapter}))))
 
