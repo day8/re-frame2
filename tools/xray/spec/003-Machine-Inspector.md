@@ -952,7 +952,7 @@ of XState v5 typed context). It carries two consequences the Machine
 Inspector surfaces, both consumer-side of the framework work
 ([the declared Context shape](../../machines-viz/spec/001-Topology-Parity.md)
 is rf2-3q4k5b; the `:data` redaction is now **frame-owned** per
-[EP-0025](../../../docs/EP/EP-0025-frame-declared-sole-data-classification.md),
+[EP-0025](../../../docs/EP/EP-0025-data-classification.md),
 rf2-398kql — which reversed the EP-0005 `:data-schema`→marks redaction
 bridge). The `:data-schema` continues to VALIDATE `:data` and drive the
 declared Context shape; durable `:data` egress classification moved to the
