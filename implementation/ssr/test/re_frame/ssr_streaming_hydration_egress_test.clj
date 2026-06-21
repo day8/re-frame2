@@ -29,12 +29,22 @@
 
 (defn- reg-sensitive-server-frame!
   "Register a server frame whose classification marks [:session :token]
-  sensitive and seed its app-db with a sensitive child + public siblings."
+  sensitive and seed its app-db with a sensitive child + public siblings.
+
+  EP-0025 B4-ssr follow-on (rf2-ux7983): the durable `:session :token` app-db
+  path is classified through the post-purge mechanism — a B3 COMMIT-PLANE
+  `:sensitive` effect returned by the frame's init event alongside `:db`
+  (EP-0025 §How it works / §Examples). The effect writes the path into the
+  per-frame `[:rf.runtime/elision]` registry the `:rf.egress/ssr-hydration`
+  egress walk reads, replacing the retired `reg-frame :sensitive {:app-db}`
+  durable annotation (deleted by the EP-0025 B1b purge)."
   [db]
-  (rf/reg-event :rf.uc3cs4/seed (fn [{d :db} [_ v]] {:db v}))
+  (rf/reg-event :rf.uc3cs4/seed
+    (fn [_ [_ v]]
+      {:db        v
+       :sensitive [[:session :token]]}))
   (rf/reg-frame sframe
-    {:platform  :server
-     :sensitive {:app-db [[:session :token]]}
+    {:platform       :server
      :initial-events [[:rf.uc3cs4/seed db]]}))
 
 ;; ---- project-delta: allowlist + projection on the streaming delta ---------
