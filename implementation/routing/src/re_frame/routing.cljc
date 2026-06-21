@@ -26,6 +26,7 @@
   - `re-frame.routing.url`            — URL %-encode / %-decode primitives
   - `re-frame.routing.match`          — pattern parsing + match-against
   - `re-frame.routing.registry`       — reg-route + match-url + route-url + route-table cache
+  - `re-frame.routing.classification` — EP-0025 route data classification (projection-relative :sensitive/:large, lowered into the per-frame elision registry at activation)
   - `re-frame.routing.scroll`         — scroll-restoration helpers + :rf.nav/scroll fxs
   - `re-frame.routing.events`         — shared nav-event helpers + :rf.route.internal/settle-transition
   - `re-frame.routing.plan`           — pure pre-commit navigation-planning seam (fragment/not-found/classification/telemetry/scroll) shared by both nav entry points

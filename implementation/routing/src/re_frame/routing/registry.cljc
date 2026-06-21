@@ -20,6 +20,7 @@
             [re-frame.identity :as identity]
             [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]
+            [re-frame.routing.classification :as classification]
             [re-frame.routing.match :as match]
             [re-frame.routing.url :as url]
             [re-frame.source-coords :as source-coords]
@@ -143,6 +144,10 @@
   #{;; routing-owned (Spec 012 §Reserved route-metadata keys)
     :doc :path :params :query :query-defaults :query-retain
     :tags :parent :on-match :on-error :scroll :can-leave
+    ;; route-owned data classification (EP-0025, rf2-3r6k8i — the
+    ;; `reg-route` subsystem-matrix row; projection-relative `:sensitive` /
+    ;; `:large`, lowered into the per-frame elision registry at activation).
+    :sensitive :large
     ;; cross-feature: SSR head selection (Spec 011 §Head/meta contract)
     :head})
 
@@ -271,6 +276,15 @@
           ;; `:rf.route/*` / source-coord keys. `:path` is now present (merged
           ;; from the value slot) and is a reserved key, so it passes.
           (validate-route-metadata! id metadata)
+        ;; EP-0025 routes follow-on (rf2-3r6k8i): a `:sensitive` / `:large`
+        ;; projection-relative classification declaration is validated FAIL-LOUD
+        ;; at the authoring boundary (a malformed path / wrong shape / non-EDN
+        ;; segment throws `:rf.error/invalid-route-classification`), so it never
+        ;; reaches activation. The result is discarded here — lowering re-derives
+        ;; it from the stored route-meta at activation (`re-frame.routing.
+        ;; classification/lower-for-route`), keeping the stored meta a pure
+        ;; reflection map. Runs only when the route declares a classification key.
+        _            (classification/validate+extract id metadata)
         pattern      (match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)

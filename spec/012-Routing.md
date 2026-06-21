@@ -14,7 +14,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### Registration
 
-- **`reg-route`** — registers a route. Canonical 3-slot grammar `(reg-route id metadata path)` (rf2-wvh95f F1, [001 §Registration grammar](001-Registration.md#registration-grammar)): the URL **`:path` pattern is the third VALUE slot** (a route has no handler fn — its defining value is the pattern, the legitimate "handler-or-value" reading), and the middle slot is the pure reflection-metadata map. Reserved metadata keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave` (`:path` is the VALUE slot, no longer a metadata key — declaring it inside the metadata map is a loud `:rf.error/invalid-route-metadata`). See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+- **`reg-route`** — registers a route. Canonical 3-slot grammar `(reg-route id metadata path)` (rf2-wvh95f F1, [001 §Registration grammar](001-Registration.md#registration-grammar)): the URL **`:path` pattern is the third VALUE slot** (a route has no handler fn — its defining value is the pattern, the legitimate "handler-or-value" reading), and the middle slot is the pure reflection-metadata map. Reserved metadata keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave`, `:sensitive`, `:large` (`:path` is the VALUE slot, no longer a metadata key — declaring it inside the metadata map is a loud `:rf.error/invalid-route-metadata`). `:sensitive` / `:large` are EP-0025 projection-relative data classification — see [§Route data classification](#route-data-classification). See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 - **Path-pattern grammar** — five productions (literal, named param, optional segment group, splat, root). See [§Path-pattern grammar](#path-pattern-grammar-canonical).
 - **Route ranking** — six-rule cascade for resolving overlapping matches. See [§Route ranking algorithm](#route-ranking-algorithm).
 
@@ -97,6 +97,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
 - `:rf.error/invalid-route-metadata` — `reg-route` was passed a bare metadata key outside the reserved set (a likely typo), or non-map metadata. Thrown at registration (caller bug; dev *and* prod). Names the offending `:keys` and the `:reserved` vocabulary. See [§Authoring-boundary key validation](#authoring-boundary-key-validation).
+- `:rf.error/invalid-route-classification` — `reg-route`'s `:sensitive` / `:large` EP-0025 data-classification declaration is structurally malformed (a non-vector axis, a non-sequential path entry, or a non-EDN-identity path segment). Thrown at registration (caller bug; dev *and* prod), before any state mutates and before the route can activate. Names the offending `:axis` and `:bad-path`; a bad segment surfaces the inner `:rf.error/bad-path` under `:rf.error/cause`. `:where 'rf/reg-route`, `:recovery :fix-route-classification`. See [§Route data classification](#route-data-classification).
 - `:rf.error/navigate-arity-misuse` — `[:rf.route/navigate target params opts]` was dispatched with an opts-only key (`:replace?` / `:scroll` / `:fragment` / `:bypass-leave-guard?`) in the **params** slot that the target route does not declare as a path-param (the classic params/opts swap). Navigation rejected; `:where :event`. See [§Arities — params is 2nd, opts is 3rd](#arities--params-is-2nd-opts-is-3rd).
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
@@ -230,17 +231,18 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 #### Reserved route-metadata keys
 
-The pattern reserves eleven keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (rf2-wvh95f F1 — `:path` is no longer a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour) but the keys do not cluster naturally as one flat list. The three axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
+The pattern reserves thirteen keys on `reg-route`'s metadata map, plus the URL `:path` pattern in the third VALUE slot (rf2-wvh95f F1 — `:path` is no longer a metadata key; it is the canonical 3-slot value). All metadata keys are optional. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour, data classification) but the keys do not cluster naturally as one flat list. The four axes below name the clusters (the **Shape** axis additionally carries the value-slot `:path`) so generators reading "what does `reg-route` accept?" can branch on intent rather than scan the docstrings.
 
-##### The three axes
+##### The four axes
 
-The keys cluster into three axes by what each controls (the value-slot `:path` belongs to the **Shape** axis):
+The keys cluster into four axes by what each controls (the value-slot `:path` belongs to the **Shape** axis):
 
 | Axis | Keys | What it controls |
 |---|---|---|
 | **Shape** — URL ↔ params binding | `:path` (the VALUE slot), `:params`, `:query`, `:query-defaults`, `:query-retain` | What URLs match this route and how their parts coerce into a params/query map. The contract surface that `match-url` and `route-url` agree on. `:path` is the third positional VALUE; the rest are metadata keys. |
 | **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:on-error`, `:can-leave` | Events the runtime fires on route activation (`:on-match`), on `:on-match` errors (`:on-error`), and a sub-id consulted before navigation away (`:can-leave`). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. |
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
+| **Classification** — EP-0025 data hygiene | `:sensitive`, `:large` | Projection-relative paths (rooted at the route's `{:query … :params …}` projection) whose values are redacted (`:sensitive`) or kept off the wire (`:large`) at egress while the route is active. Lowered into the per-frame elision registry at activation, dropped on route change. See [§Route data classification](#route-data-classification). |
 
 The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
 
@@ -268,6 +270,8 @@ Because `reg-route` carries the largest shape in the surface, a typo'd key (`:on
 | `:on-error` | lifecycle | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
 | `:can-leave` | lifecycle | sub-id | A subscription whose value (boolean) gates navigation away from this route. **Strict contract**: `true` allows, `false` blocks, any other value blocks AND emits `:rf.error/can-leave-non-boolean`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol). |
 | `:scroll` | layout | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
+| `:sensitive` | classification | vector of projection-relative paths | EP-0025 data classification. Paths (each rooted at the route's `{:query … :params …}` projection) whose values are **redacted** at egress while the route is active. See [§Route data classification](#route-data-classification). |
+| `:large` | classification | vector of projection-relative paths | EP-0025 data classification. Paths whose values are kept **off the wire** (size marker) at egress while the route is active. Sensitive wins over large at the same path. See [§Route data classification](#route-data-classification). |
 
 ### The `:rf/route` slice
 
@@ -295,6 +299,40 @@ The framework reg-sub `[:rf/route]` reads against `[:rf.runtime/routing :current
 `:transition` is a tiny FSM driven by the runtime: `:idle` when no navigation is in flight; `:loading` while the active route's `:on-match` events are draining; `:error` if any `:on-match` event errors. See "Per-route data loading" and "Per-route error handling" below.
 
 A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice)).
+
+### Route data classification
+
+Per [EP-0025 (Data Classification)](../docs/EP/EP-0025-data-classification.md), every runtime subsystem classifies its own instance data **projection-relative** and lowers it into the per-frame elision registry — applied at instance creation, dropped at teardown. A route is the EP-0025 *subsystem-matrix* `reg-route` row: it is effectively a **singleton current-route** (only one route is active per frame, at `[:rf.runtime/routing :current]`), so the projection root is the current route's `{:query … :params …}`, the classification is applied at **route activation**, and dropped at **route change / deactivation**.
+
+#### Declaring it
+
+A route declares `:sensitive` / `:large` as vectors of paths **relative to the route's `{:query … :params …}` projection** — the author never names the absolute `[:rf.runtime/routing :current …]` storage position (the storage-position problem EP-0025 §Rationale calls out):
+
+```clojure
+(rf/reg-route :route/oauth-callback
+  {:sensitive [[:query :token] [:query :code]]   ;; redact these query values at egress
+   :large     [[:params :payload]]               ;; keep this path param off the wire
+   :query     [:map [:token :string] [:code :string]]}
+  "/oauth/callback")
+```
+
+The empty path `[]` is legal and marks the whole route projection. (Query keys are promoted to keyword keys only when the route declares them in its `:query` schema / `:query-defaults` / `:query-retain` — see [§Keyword-interning cap](#keyword-interning-cap-on-query-keys--values); a `:sensitive [[:query :token]]` declaration therefore pairs with a `:query` schema that names `:token` so the slice carries the keyword key the path targets.)
+
+#### Lowering and re-rooting
+
+At route activation the projection-relative paths are **re-rooted** under `[:rf.runtime/routing :current …]` — a declared `[:query :token]` classifies the runtime path `[:rf.runtime/routing :current :query :token]` — and installed into the frame's durable elision registry (`[:rf.runtime/elision …]`, per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)) tagged `:source :route`. The install lands **atomically with the slice publish** (the same `:rf.db/runtime` commit), so a route's classification protects its slice from the moment it activates. Classification is **value-independent** and read **only at egress** — the handler, subs, and views always see the real values while the route is active; only the trace bus / Xray / MCP / off-box / SSR egress copies are redacted (per [015 §Data classification](015-Data-Classification.md)).
+
+#### Singleton drop (no leak across a route change)
+
+Because a route is a singleton, activation **replaces** the prior route's `:source :route` entries: a route change drops the leaving route's classification, and a navigation to a route that declares none (including `:rf.route/not-found`) clears the route-sourced entries entirely. Other sources in the registry (`:source :frame` from [`reg-frame` classification](002-Frames.md), `:source :marks`, `:source :effect`) survive untouched and union at egress-lookup time. Frame teardown drops the whole runtime-db elision slot with the frame, so no separate teardown is needed.
+
+#### Sensitive wins over large
+
+A path declared **both** `:sensitive` and `:large` lowers as sensitive **only** — its large entry is dropped at lowering time, so no `:rf.size/large-elided` marker (which would leak path / byte size / digest) is ever emitted for it. This is the install-time complement of the elision walker's sensitive-before-large ordering, identical to the [`reg-frame` classification rule](002-Frames.md).
+
+#### Fail-loud at registration
+
+Per EP-0025's failure posture, a **malformed** declaration (a non-vector axis, a non-sequential path entry, a non-EDN-identity path segment) **fails loudly at `reg-route` time** — before any state mutates and before the route can ever activate — with the canonical thrown-error shape (per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)) carrying `:rf.error/id :rf.error/invalid-route-classification` (`:where 'rf/reg-route`, `:recovery :fix-route-classification`), naming the offending `:axis` and `:bad-path`. A non-EDN segment surfaces the inner `:rf.error/bad-path` cause under `:rf.error/cause`. A **forgotten** classification is fail-open (the value ships raw — the hygiene bargain, not a security boundary).
 
 ### Navigation is an event
 
