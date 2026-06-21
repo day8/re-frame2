@@ -5,10 +5,10 @@ This chapter is about the surfaces that bring a re-frame2 process up and take it
 | Lane | Who owns it | The surfaces | Where it's documented |
 |---|---|---|---|
 | **Application boot** | App authors | `init!`, then explicit `reg-frame` / `make-frame` + `frame-provider`; `configure!` to tune | [Application boot](#application-boot) (below) |
-| **Frame startup** | App authors (per frame) | `reg-frame` / `make-frame` and the `:on-create` event the new frame runs | [01 — Core §Frames](01-core.md#frames-the-scoping-primitive), [Pattern — Boot](../../spec/Pattern-Boot.md) |
+| **Frame startup** | App authors (per frame) | `reg-frame` / `make-frame` and the `:initial-events` the new frame runs | [01 — Core §Frames](01-core.md#frames-the-scoping-primitive), [Pattern — Boot](../../spec/Pattern-Boot.md) |
 | **Adapter-author internals** | Adapter authors | `install-adapter!`, `destroy-adapter!`, `current-adapter`, `current-adapter-spec`, `adapter-disposed?`, the adapter-spec map | [For adapter authors](#for-adapter-authors) (below) |
 
-An app author learns one boot sentence — **install an adapter with `init!`, then create your frame(s) explicitly** — and nothing else. The adapter-author surfaces (install / dispose / inspect, and the spec-map slots) are *not* peer choices beside `init!`; they sit one layer down and an ordinary app never touches them. The frame-startup lane is a third thing again: it's about what a *single frame* does when it comes alive (`:on-create`), independent of which substrate the process installed. Keep the three apart and the lifecycle reads cleanly.
+An app author learns one boot sentence — **install an adapter with `init!`, then create your frame(s) explicitly** — and nothing else. The adapter-author surfaces (install / dispose / inspect, and the spec-map slots) are *not* peer choices beside `init!`; they sit one layer down and an ordinary app never touches them. The frame-startup lane is a third thing again: it's about what a *single frame* does when it comes alive (`:initial-events`), independent of which substrate the process installed. Keep the three apart and the lifecycle reads cleanly.
 
 ## Application boot
 
@@ -17,11 +17,11 @@ This is the only lane an app author needs. It has exactly two steps: install the
 ```clojure
 (rf/init! reagent/adapter)                          ;; 1. install the substrate (once)
 
-(rf/reg-frame :app/main {:on-create [:app/boot]})   ;; 2. create your frame explicitly
+(rf/reg-frame :app/main {:initial-events [[:app/boot]]})   ;; 2. create your frame explicitly
 ;; …then establish it at your root with `frame-provider` (see the bootstrap pattern below).
 ```
 
-Step 2's `:on-create` is the seam into the **frame-startup** lane — the first event a new frame runs. For trivial apps it seeds app-db; for real apps it's the head of a boot sequence ([Pattern — Boot](../../spec/Pattern-Boot.md) is the canonical recipe, from chained events up to a dedicated boot state machine). The frames concept guide walks the whole app-boot shape end to end: [Frames: isolated worlds](../guide/concepts/frames.md).
+Step 2's `:initial-events` is the seam into the **frame-startup** lane — the events a new frame runs at creation (a vector of event vectors, dispatched in order). For trivial apps it seeds app-db (e.g. `[[:rf/set-db {…}]]`); for real apps it's the head of a boot sequence ([Pattern — Boot](../../spec/Pattern-Boot.md) is the canonical recipe, from chained events up to a dedicated boot state machine). The frames concept guide walks the whole app-boot shape end to end: [Frames: isolated worlds](../guide/concepts/frames.md).
 
 ### `init!`
 
@@ -45,10 +45,10 @@ After `init!`, create your frame(s) — that's the next subsection.
 
 `init!` installs host capability and creates **no** frame; per [EP-0002](../../spec/002-Frames.md#frame-target-resolution--the-carried-invariant) frame ownership is always explicit. So the app author's second move is to create the frame and establish it at the root:
 
-- **`reg-frame`** / **`make-frame`** create a frame atomically and run its `:on-create` event synchronously — the frame's startup lifecycle. Both are rowed in [01 — Core §Frames](01-core.md#frames-the-scoping-primitive).
+- **`reg-frame`** / **`make-frame`** create a frame atomically and run its `:initial-events` synchronously — the frame's startup lifecycle. Both are rowed in [01 — Core §Frames](01-core.md#frames-the-scoping-primitive).
 - **`frame-provider`** establishes a created frame at a point in the view tree, so every bare `dispatch` / `subscribe` underneath resolves against it.
 
-The `:on-create` event is where the frame's own startup logic lives — seed app-db for a trivial app, or kick a boot sequence for a real one. That sequence is its own pattern, not a lifecycle surface: see [Pattern — Boot](../../spec/Pattern-Boot.md) for the chained-events and boot-state-machine forms, and [Frames: isolated worlds](../guide/concepts/frames.md) for the app-author narrative (including why `init!` doesn't create a frame for you).
+The `:initial-events` are where the frame's own startup logic lives — seed app-db for a trivial app (`[[:rf/set-db {…}]]`), or kick a boot sequence for a real one. That sequence is its own pattern, not a lifecycle surface: see [Pattern — Boot](../../spec/Pattern-Boot.md) for the chained-events and boot-state-machine forms, and [Frames: isolated worlds](../guide/concepts/frames.md) for the app-author narrative (including why `init!` doesn't create a frame for you).
 
 ## For adapter authors
 
@@ -162,14 +162,14 @@ Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md
 (defn ^:export main []
   (rf/init! reagent/adapter)
   (rf/configure! {:trace-buffer {:cascades-retained 200}})
-  (rf/reg-frame :app/main {:on-create [:app/boot]})        ;; register the app frame
+  (rf/reg-frame :app/main {:initial-events [[:app/boot]]})  ;; register the app frame
   (rdom/render
     [rf/frame-provider-existing {:frame :app/main}         ;; scope it at the root
      [views/root]]
     (js/document.getElementById "app")))
 ```
 
-That's the whole boot, and it stays inside the **application-boot** lane end to end: `init!` installs the adapter and runtime capabilities (it creates no frame); the side-effecting requires register the handlers / subs / routes into the registrar; `reg-frame` creates the app frame and `frame-provider-existing` scopes it at the root, so every bare `dispatch` / `subscribe` under the tree resolves against it (and the frame's `:on-create` `[:app/boot]` runs the **frame-startup** lane); `configure` tunes the runtime; the substrate's render fn mounts the root view. No adapter-author surface appears — `init!` stands in for the whole install lane.
+That's the whole boot, and it stays inside the **application-boot** lane end to end: `init!` installs the adapter and runtime capabilities (it creates no frame); the side-effecting requires register the handlers / subs / routes into the registrar; `reg-frame` creates the app frame and `frame-provider-existing` scopes it at the root, so every bare `dispatch` / `subscribe` under the tree resolves against it (and the frame's `:initial-events` `[[:app/boot]]` run the **frame-startup** lane); `configure` tunes the runtime; the substrate's render fn mounts the root view. No adapter-author surface appears — `init!` stands in for the whole install lane.
 
 ## See also
 
@@ -177,7 +177,7 @@ App-boot and frame-startup lanes (what app authors read):
 
 - [01 — Core](01-core.md) — `reg-frame` / `make-frame` / `configure` rowed in registration and configuration.
 - [Frames: isolated worlds](../guide/concepts/frames.md) — the app-boot narrative, and why `init!` doesn't create a frame.
-- [Pattern — Boot](../../spec/Pattern-Boot.md) — the `:on-create` boot sequence, from chained events to a boot state machine.
+- [Pattern — Boot](../../spec/Pattern-Boot.md) — the `:initial-events` boot sequence, from chained events to a boot state machine.
 - [counter example](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter) — the minimal `init!` + `reg-frame` + `frame-provider` boot.
 
 Adapter-author lane (what substrate authors read):

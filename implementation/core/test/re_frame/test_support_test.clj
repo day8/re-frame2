@@ -44,7 +44,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `reg-frame …:on-create` still drains synchronously — the lifecycle
+  ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/reg-frame :rf/default {})
@@ -105,7 +105,7 @@
 
 (deftest dispatch-sequence-frame-opt
   (testing ":frame opt routes dispatches to a non-default frame"
-    ;; Register handlers first so :on-create can resolve them at
+    ;; Register handlers first so :initial-events can resolve them at
     ;; reg-frame time (Spec 002 §Frame lifecycle).
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])

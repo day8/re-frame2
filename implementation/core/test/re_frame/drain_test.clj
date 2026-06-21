@@ -29,7 +29,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `reg-frame …:on-create` still drains synchronously — the lifecycle
+  ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/reg-frame :rf/default {})
@@ -159,7 +159,7 @@
   ;; was written for the per-drain epoch model. Rule 3 needs tightening to
   ;; the per-event boundary — see rf2-nj6p7.
   (testing "a chain that overflows leaves :db with the durable per-event writes"
-    ;; Frame seeded via :on-create so the baseline is non-empty.
+    ;; Frame seeded via :initial-events so the baseline is non-empty.
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db {:step :pre-drain :counter 0}}))
     (rf/reg-frame :drain.rollback/main
@@ -524,7 +524,7 @@
           ":A's app-db is untouched (value-equal to pre-dispatch)")
       (is (= {:where :A :counter 0 :marker :pristine}
              (rf/app-db-value :drain.iso/A))
-          ":A's app-db remains exactly its :on-create state")
+          ":A's app-db remains exactly its :initial-events state")
 
       ;; --- (c) the depth-exceeded trace carries :B, not :A.
       (let [hit (some (fn [ev]

@@ -28,7 +28,7 @@
 
   This namespace is the frame metadata **schema + registry** for the three
   classification keys. It is the validation + install seam `reg-frame`
-  calls, atomically as part of frame creation, BEFORE `:on-create` runs.
+  calls, atomically as part of frame creation, BEFORE `:initial-events` run.
 
   - **`:sensitive :app-db` / `:large :app-db`** are vectors of `:rf/path`
     values (EP-0012). They are INSTALLED into the frame's durable elision
@@ -92,7 +92,7 @@
 
   Per EP-0015 §3, malformed paths, unknown classification keys, and
   non-string HTTP carrier names FAIL LOUDLY at frame registration — BEFORE
-  any state mutates and before `:on-create` runs. The thrown ex-info
+  any state mutates and before `:initial-events` run. The thrown ex-info
   carries the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) with `:rf.error/id :rf.error/bad-frame-classification`.
 
@@ -425,7 +425,7 @@
   Throws `:rf.error/bad-frame-classification` (canonical thrown-error shape)
   on ANY defect — malformed path, unknown classification key, non-string
   carrier name — so the failure fires at `reg-frame` time, before any state
-  mutates and before `:on-create` runs.
+  mutates and before `:initial-events` run.
 
   HTTP carriers and `:observability` are validated for shape here but are
   NOT extracted into the elision-bound result — they ride the frame's
@@ -586,12 +586,12 @@
   "The seam `reg-frame` calls: validate `config`'s classification keys
   (fail loud on any defect) and install the app-db paths into `frame-id`'s
   elision registry. Runs atomically as part of frame creation, BEFORE
-  `:on-create`. No-op (after validation) when `config` carries no
+  `:initial-events`. No-op (after validation) when `config` carries no
   classification key. Returns nil.
 
   Both validation AND install happen here so a malformed declaration throws
   at `reg-frame` time before the frame's container is observable and before
-  any `:on-create` cascade runs."
+  any `:initial-events` cascade runs."
   [frame-id config]
   (when (some #(contains? config %) classification-keys)
     (install! frame-id (validate+extract frame-id config)))
@@ -606,7 +606,7 @@
 ;; `reg-frame` splits the two phases to stay transactional: it
 ;; `validate+extract`s EARLY (pure — fails loud before the frame's container
 ;; is observable), then `install!`s into the elision slot AFTER the container
-;; exists, before `:on-create`. `install-from-config!` is the combined form
+;; exists, before `:initial-events`. `install-from-config!` is the combined form
 ;; the re-registration path uses (the container already exists there).
 (late-bind/set-fn! :frame-classification/validate+extract    validate+extract)
 (late-bind/set-fn! :frame-classification/install!            install!)

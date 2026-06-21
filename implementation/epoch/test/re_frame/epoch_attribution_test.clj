@@ -846,7 +846,7 @@
 ;; belong to?" family. The first three (renders / sub-runs / mount renders)
 ;; fire AFTER a cascade settled and are back-filled to their CAUSING cascade.
 ;; This one is different: a `:rf.frame/created` (or registry-time) emit belongs
-;; to NO cascade at all — `reg-frame` runs `:on-create` via dispatch-sync
+;; to NO cascade at all — `reg-frame` runs `:initial-events` via dispatch-sync
 ;; FIRST (which settles its own epoch), THEN emits `:rf.frame/created` with no
 ;; in-flight cascade and no `:rf.trace/dispatch-id`. Per Spec 009 §Dispatch correlation
 ;; it must stay uncorrelated. Pre-rf2-avvwm it lingered in the capture buffer
@@ -860,15 +860,15 @@
   (mapv (juxt :op-type :operation) (:trace-events record)))
 
 (deftest inv-6-frame-created-not-folded-into-next-epoch
-  (testing "rf2-avvwm — :rf.frame/created, emitted by reg-frame AFTER :on-create's
+  (testing "rf2-avvwm — :rf.frame/created, emitted by reg-frame AFTER :initial-events'
             epoch already settled, must NOT appear in the NEXT dequeued event's
             :trace-events. Mirrors the parallel-frames :below repro: boot the
-            frame with an :on-create, then dispatch a user event; that event's
+            frame with :initial-events, then dispatch a user event; that event's
             :trace-events must begin with its OWN ops, not [:frame
             :rf.frame/created]."
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; reg-frame dispatch-syncs :on-create (settles epoch 1), THEN emits the
+    ;; reg-frame dispatch-syncs :initial-events (settles epoch 1), THEN emits the
     ;; orphan :rf.frame/created.
     (rf/reg-frame :test/main {:initial-events [[:app/init]]})
     ;; The next dequeued user event.
@@ -876,7 +876,7 @@
 
     (let [history (rf/epoch-history :test/main)]
       (is (= [:app/init :inc] (mapv :event-id history))
-          "exactly two epochs — :on-create and the user :inc; :rf.frame/created
+          "exactly two epochs — :initial-events and the user :inc; :rf.frame/created
            is NOT a third epoch")
       (doseq [r history]
         (is (not-any? #(= [:rf.frame :rf.frame/created] %) (trace-ops r))

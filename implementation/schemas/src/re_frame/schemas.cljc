@@ -13,8 +13,8 @@
   registered against `:story.foo/empty` does NOT bleed into another
   frame's contract. EP-0002 — context-required frame-local: `(reg-app-schema
   path schema)` resolves the frame through the carried-invariant scope
-  chain (a `with-frame` / frame-provider scope, or a frame `:on-create`
-  hook) and raises `:rf.error/no-frame-context` under no scope; `(reg-app-schema
+  chain (a `with-frame` / frame-provider scope, or a frame `:initial-events`
+  step) and raises `:rf.error/no-frame-context` under no scope; `(reg-app-schema
   path schema {:frame frame-id})` names the frame explicitly (the *override*).
 
   Per Spec 010 §Non-Malli validators the validator/explainer fns are

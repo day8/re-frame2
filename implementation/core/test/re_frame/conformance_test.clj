@@ -696,7 +696,7 @@
   registration must happen AFTER `reg-frame` — otherwise the
   destroy-frame! teardown hook (rf2-wbtjn) clears the flows we just
   registered when the runner destroys :rf/default to fire the
-  fixture's `:on-create` cascade under its declared config.
+  fixture's `:initial-events` cascade under its declared config.
 
   The static flow shape lives under `:fixture/registry :flow` (with
   `:inputs` / `:output-path` / `:doc`) and the body DSL under
@@ -1526,10 +1526,10 @@
           scope-frame  (if (seq frames-spec)
                          (:id (first frames-spec))
                          :rf/default)
-          ;; reset-runtime! already created :rf/default WITHOUT an :on-create.
+          ;; reset-runtime! already created :rf/default WITHOUT any :initial-events.
           ;; reg-frame against an existing id is a surgical update that doesn't
-          ;; re-fire :on-create per Spec 002. We destroy first so :on-create
-          ;; fires when re-registered with the fixture's config.
+          ;; re-fire :initial-events per Spec 002. We destroy first so :initial-events
+          ;; fire when re-registered with the fixture's config.
           _            (rf/destroy-frame! :rf/default)
           ;; app-schema registrations — fixture's :fixture/registry :app-schemas
           ;; is a {path schema} map (per rf2-cq1ak the key is :app-schemas;
@@ -1537,7 +1537,7 @@
           ;; runs after each :db commit. Must be registered AFTER destroy-frame!
           ;; (which wipes the per-frame schema side-table via the rf2-wkxng /
           ;; rf2-6m0se on-frame-destroyed! hook) and BEFORE reg-frame so
-          ;; the fixture's :on-create event runs with schemas in place.
+          ;; the fixture's :initial-events run with schemas in place.
           ;; `reg-app-schema` is frame-scoped — establish the scope explicitly.
           _            (rf/with-frame scope-frame
                          (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]

@@ -394,8 +394,8 @@
   ;; EP-0024 (rf2-tu2vr7): `make-frame` is the ONE frame constructor over the ONE
   ;; `frames` registry — it backs onto the unified `re-frame.live-frame/make-frame`,
   ;; RETURNS THE FRAME VALUE (the lifecycle token), and accepts BOTH
-  ;; image-selection opts (`:images` / `:id` / `:initial-db` / `:capabilities` /
-  ;; `:adapter`) AND record-config opts (`:on-create` / `:fx-overrides` /
+  ;; image-selection opts (`:images` / `:id` / `:capabilities` /
+  ;; `:adapter`) AND record-config opts (`:initial-events` / `:fx-overrides` /
   ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification) in one
   ;; call. EP-0024 adopts the deferred option-(a) and REVERSES the rf2-32siq3.45
   ;; option-(b) `:rf.error/make-frame-record-only-key` fail-loud redirect (the

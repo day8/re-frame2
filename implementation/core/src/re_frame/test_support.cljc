@@ -421,7 +421,7 @@
                     ambient scope for bare dispatches (EP-0002). Pass `nil`
                     to OPT OUT: tests that create their own top-level frames
                     via `make-frame` / `with-new-frame` need a clear ambient
-                    scope so a frame's `:on-create` drains synchronously
+                    scope so a frame's `:initial-events` drain synchronously
                     rather than being treated as a mid-cascade child-frame
                     creation. No-op for adapter-less fixtures (they never
                     establish an ambient scope).
@@ -564,11 +564,11 @@
          ;; scope even when an adapter is installed. Tests that create their
          ;; OWN top-level frames via `make-frame` / `with-new-frame` (the
          ;; example testbeds: realworld, nine-states, long-running-work,
-         ;; todomvc) need this: a frame's `:on-create` dispatch branches on
+         ;; todomvc) need this: a frame's `:initial-events` dispatch branches on
          ;; `*current-frame*` to choose between a synchronous top-level drain
          ;; and an async child-frame queue (the in-flight-cascade heuristic,
          ;; rf2-cufbh). An ambient `:rf/default` makes a top-level
-         ;; `make-frame` look mid-cascade, so its `:on-create` is async-queued
+         ;; `make-frame` look mid-cascade, so its `:initial-events` are async-queued
          ;; and never drains before the test reads state. Clearing the ambient
          ;; scope models the genuine top-level boot those tests intend; their
          ;; in-body dispatches carry explicit `{:frame …}` or run inside a

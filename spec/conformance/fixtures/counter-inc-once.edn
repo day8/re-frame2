@@ -30,7 +30,7 @@
   :sub-values     {[:count] 1}
 
   :trace-emissions
-  [;; The :on-create event from frame setup.
+  [;; The :initial-events event from frame setup.
    {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :counter/initialise}}
    ;; The user dispatch.
    {:operation :rf.event/run-start :op-type :rf.event :tags {:rf.trace/event-id :counter/inc}}]

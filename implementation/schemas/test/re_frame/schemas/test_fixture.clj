@@ -61,7 +61,7 @@
   `(rf/with-frame :rf/default …)`. A test that registers against an
   explicit frame passes `{:frame …}`, which overrides this ambient pin.
   (The schemas conformance runner unbinds this scope around its own
-  `reg-frame` so its `:on-create` cascade still fires synchronously — see
+  `reg-frame` so its `:initial-events` cascade still fires synchronously — see
   `schemas_conformance_test`.)"
   (:require [re-frame.core :as rf]
             [re-frame.flows :as flows]

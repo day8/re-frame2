@@ -50,7 +50,7 @@ The classic shape: a starting state (frame configuration plus initial `app-db`),
  :fixture/handlers    {:event {:counter/initialise [[:set [:count] 0]]
                                :counter/inc        [[:update [:count] [:fn :inc]]]}
                        :sub   {:count [[:get [:count]]]}}
- :fixture/frame-config {:on-create [:counter/initialise]}
+ :fixture/frame-config {:initial-events [[:counter/initialise]]}
  :fixture/dispatches   [[:counter/inc]]
  :fixture/expect
  {:final-app-db        {:count 1}
@@ -194,7 +194,7 @@ The conventions above describe the schema; the corpus itself shows what those ta
 | Fixture | `:fixture/capabilities` | What the tag set means |
 |---|---|---|
 | `counter-inc-once.edn` | `#{:core/event-handler :core/sub}` | The simplest pattern-required-only fixture: a single event handler, one sub. Every conformant port runs this. |
-| `frame-lifecycle.edn` | `#{:core/event-handler :core/frame :core/trace}` | The default frame's `:on-create` / `:on-destroy` events fire at frame creation and destruction; the runtime emits `:rf.frame/created` / `:rf.frame/destroyed` trace ops. Verifies both the frame-lifecycle contract and the trace-bus emission. |
+| `frame-lifecycle.edn` | `#{:core/event-handler :core/frame :core/trace}` | The default frame's `:initial-events` / `:on-destroy` events fire at frame creation and destruction; the runtime emits `:rf.frame/created` / `:rf.frame/destroyed` trace ops. Verifies both the frame-lifecycle contract and the trace-bus emission. |
 | `frame-multi-instance.edn` | `#{:core/event-handler :core/sub :core/frame :core/trace}` | Two frames sharing one registrar with isolated app-db; each trace event carries a per-frame `:frame` tag so the bus is multi-frame addressable. |
 | `error-handler-exception.edn` | `#{:core/event-handler :core/error :core/trace}` | A handler throws; the runtime emits a structured `:rf.error/handler-exception` trace with `:op-type :error` and `:recovery :no-recovery`. The trace shape is the primary contract. |
 | `after-hierarchy.edn` | `#{:fsm/hierarchical :fsm/delayed-after}` | A parent compound state with an `:after` timer. Only ports that claim both hierarchical FSM and `:after` will run it. |
@@ -297,7 +297,7 @@ Each fixture defines an **invariant the implementation upholds**. The harness:
 
 1. **Bootstraps the registrar** — for each kind in `:fixture/registry`, register every id with the supplied metadata.
 2. **Realises handler bodies** — for each `:fixture/handlers` entry, interpret the DSL ops into a host-native closure and bind it to the id under the kind.
-3. **Creates the frame** — apply `:fixture/frame-config` via `make-frame` (or the host equivalent); this fires `:on-create` and any `:on-create` events seeded into the frame.
+3. **Creates the frame** — apply `:fixture/frame-config` via `make-frame` (or the host equivalent); this fires the frame's `:initial-events` seeded into it.
 4. **Runs `:fixture/dispatches`** — one event vector per call, each via `dispatch-sync`. Each settles to fixed point before the next.
 5. **Runs `:fixture/calls`** (if present) — direct invocations of pure primitives (`machine-transition`, `reg-machine`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`). Each call carries its own expectation; mismatches surface as fixture-level failures.
 6. **Captures observables** (Mode A) — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
@@ -348,7 +348,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `counter-inc-once.edn` | `:counter/inc-once` | Trivial event handler; sub computation; trace emission |
 | `counter-inc-multi.edn` | `:counter/inc-multi` | Multi-event drain to fixed point; final state visible to subs |
 | `frame-multi-instance.edn` | `:frame/multi-instance` | Multi-frame isolation with shared registrar |
-| `frame-lifecycle.edn` | `:frame/lifecycle` | `:on-create` and `:on-destroy` events; lifecycle trace emissions |
+| `frame-lifecycle.edn` | `:frame/lifecycle` | `:initial-events` and `:on-destroy` events; lifecycle trace emissions |
 | `dispatch-envelope.edn` | `:dispatch/envelope` | Envelope shape (`:event`, `:frame`, `:source`, `:trace-id`) surfacing in cofx |
 | `cofx-envelope-preserved.edn` | `:cofx/envelope-preserved` | EP-0017 Slice-A: the dispatch envelope's `:rf.cofx` recordable-coeffect map is delivered into the event context under `:rf.cofx`, preserved verbatim (a caller-supplied `:rf/time-ms` rides through unchanged). Expected app-db INCLUDES `:rf.cofx` — the `dispatch-envelope.edn` fixture's expected output omits it, so a port could drop the key and still pass the weaker fixture |
 | `cofx-declared-only-delivery.edn` | `:cofx/declared-only-delivery` | EP-0017 Slice-A: a handler receives EXACTLY its `:rf.cofx/requires` declarations, flat; a REGISTERED-but-undeclared coeffect is withheld. The `:final-app-db-absent` check FAILS a port that over-delivers (submap matching alone tolerates the extra) |

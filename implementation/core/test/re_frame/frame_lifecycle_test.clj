@@ -1040,7 +1040,7 @@
         (let [new-record (frame/frame :app/main)]
           (is (some? new-record)
               "the frame still exists post-reset (not destroyed)")
-          ;; Config metadata preserved: same :doc, same :on-create,
+          ;; Config metadata preserved: same :doc, same :initial-events,
           ;; same :fx-overrides.
           (is (= "frame with initial-events" (get-in new-record [:config :doc]))
               ":config :doc preserved across reset")
