@@ -184,13 +184,20 @@ forks from `:idle` by a guarded candidate vector — `:high` / `:low` /
 unguarded-fallback `:rejected`, the guard-fork divergence) — were added
 under rf2-vilpfa to cover the two xstate-render-divergence cases the
 original eight miss. A left-rail PICKER selects a track; selecting a
-track:
+track (the picker-row React `:on-click` calls a top-level `select-track!`
+boundary):
 
-1. sets the SHELL frame's (`:rf/default`) runner bookkeeping
-   (`:rf.runner/selected` + per-track `:rf.runner/cursors`),
-2. LAZILY creates the track's `:machine/<track>` frame on first entry
+1. LAZILY creates the track's `:machine/<track>` frame on first entry
    (`rf/reg-frame` with an `:initial-events` boot event — BOOT-ON-SELECT, so
-   the first observed epoch is the machine's START cascade), and
+   the first observed epoch is the machine's START cascade). Per EP-0027 a
+   frame is constructed by the VIEW or at TOP LEVEL, **never inside an event
+   handler cascade** (`:rf.error/frame-construction-in-handler`) — and an
+   `:fx` still runs inside `*handler-scope*` — so the `reg-frame` runs at the
+   React `:on-click` (and at boot in `run`) top level, BEFORE the select
+   event is dispatched, not in the `:machine-epochs/select` handler;
+2. dispatches `:machine-epochs/select`, which sets the SHELL frame's
+   (`:rf/default`) runner bookkeeping (`:rf.runner/selected` + per-track
+   `:rf.runner/cursors`), and
 3. re-points Xray at that frame via the host-facing focus channel
    (`day8.re-frame2-xray.focus/focus!` with `{:frame :machine/<track>}`,
    which fires `:rf.xray/select-frame`), so the Epoch panel cascade,
@@ -206,9 +213,12 @@ selection live in app-db (events + subs), not Reagent atoms (rf2-5sjbg).
 **Restart** resets the selected track's machine frame
 (`rf/reset-frame!` = destroy + re-`reg-frame` with the same
 `:initial-events`), so the ring clears and the machine re-arcs from boot;
-the track cursor clears. The fuse track's boot-on-select THROWS (its
-initial `:entry` action throws on boot) — that is the sole
-machine-action-exception trigger.
+the track cursor clears. Like select, the `reset-frame!` runs at the TOP
+LEVEL (a `restart-track!` boundary called from the restart button's
+`:on-click`), NOT in the `:machine-epochs/restart` handler (EP-0027 frame
+construction rule); the handler only clears the cursor and re-points Xray.
+The fuse track's boot-on-select THROWS (its initial `:entry` action throws
+on boot) — that is the sole machine-action-exception trigger.
 
 **Isolation invariant (the lens).** Each machine's progression is a
 clean scrubbable arc in its own ring — switching switches WHICH

@@ -639,16 +639,38 @@
 ;; `:rf.xray/select-frame` into Xray's own `:rf/xray` frame for us — the deck
 ;; never reaches into Xray internals.
 (rf/reg-event :machine-epochs/select
-  {:doc "Select a track: set :rf.runner/selected in the shell, lazily create +
-         boot the track's :machine/<id> frame (boot-on-select), and re-point
-         Xray (:rf.xray/select-frame) at that frame so every observation panel
-         shows ONLY that machine's isolated arc."}
+  {:doc "Select a track: set :rf.runner/selected in the shell and re-point Xray
+         (:rf.xray/select-frame) at that track's :machine/<id> frame so every
+         observation panel shows ONLY that machine's isolated arc.
+
+         EP-0027: a frame is constructed by the VIEW or at TOP LEVEL, NEVER
+         inside a handler cascade (`:rf.error/frame-construction-in-handler`).
+         So `reg-frame` for the machine frame does NOT happen here — the
+         caller (`select-track!`, run at the React-callback / boot top level)
+         creates + boots the frame BEFORE dispatching this event. The handler
+         only writes the shell slot; the re-point fx merely dispatches into
+         Xray's own frame, which is always allowed."}
   (fn handler-select [{:keys [db]} [_ track-id]]
-    (if-let [track (track-by-id track-id)]
-      (let [frame-id (ensure-machine-frame! track)]
-        {:db (assoc db :rf.runner/selected track-id)
-         :fx [[:machine-epochs/point-xray-at frame-id]]})
+    (if (track-by-id track-id)
+      {:db (assoc db :rf.runner/selected track-id)
+       :fx [[:machine-epochs/point-xray-at (machine-frame-id track-id)]]}
       {:db db})))
+
+;; TOP-LEVEL select boundary — EP-0027 frame construction belongs OUTSIDE any
+;; handler cascade. Called from the picker-row React `:on-click` (a plain
+;; callback, not a re-frame handler — `*handler-scope*` is unbound there) and
+;; from boot in `run`. It lazily `reg-frame`s + boots the track's machine
+;; frame (boot-on-select), THEN dispatches `:machine-epochs/select` to record
+;; the selection in the shell and re-point Xray.
+;;
+;; The select event targets the SHELL frame explicitly (`{:frame shell-frame}`)
+;; — this is a top-level fn (not a `reg-view` body), so there is no
+;; ambient frame binding to inherit; the shell slot it writes lives in
+;; `:rf/default`.
+(defn- select-track! [track-id]
+  (when-let [track (track-by-id track-id)]
+    (ensure-machine-frame! track)
+    (rf/dispatch [:machine-epochs/select track-id] {:frame shell-frame})))
 
 ;; The Xray re-point effect — kept as a named fx so the SELECT handler stays
 ;; declarative and the one place the deck reaches into Xray is isolated +
@@ -711,33 +733,43 @@
   (fn [_ctx [frame-id event]]
     (rf/dispatch event {:frame frame-id})))
 
-;; RESTART — reset the track's machine frame (destroy + re-`reg-frame` with the
-;; same :initial-events, so the ring clears and re-arcs from boot) and clear the
-;; track cursor. The :session track's spawned child is torn down by the frame
-;; destroy (the :rf.machine/destroy cascade on frame teardown). Re-points Xray
-;; at the freshly-reset frame so the operator sees the clean re-boot arc.
+;; RESTART (shell side) — clear the SELECTED track's cursor and re-point Xray
+;; at its (freshly-reset) frame so the operator sees the clean re-boot arc.
+;; The actual frame RESET (`reset-frame!` = destroy + re-`reg-frame`) is NOT
+;; done here: EP-0027 forbids frame construction inside a handler cascade
+;; (`:rf.error/frame-construction-in-handler`), and an fx still runs inside
+;; `*handler-scope*`. The reset happens at the TOP LEVEL in `restart-track!`
+;; (the React `:on-click`), which dispatches THIS event afterwards. The track
+;; is read from :rf.runner/selected (see :machine-epochs/run-step's note on the
+;; stale-closure race).
 (rf/reg-event :machine-epochs/restart
-  {:doc "Restart the CURRENTLY SELECTED track: RESET its :machine/<id> frame
-         (clears the ring, re-arcs from boot via the frame's :initial-events) and
-         clear the track cursor. Re-points Xray at the reset frame. The track
-         is read from :rf.runner/selected (see :machine-epochs/run-step's note
-         on the stale-closure race)."}
+  {:doc "Bookkeeping for a RESTART of the CURRENTLY SELECTED track: clear the
+         track cursor and re-point Xray at its frame. The frame RESET itself
+         runs at top level in `restart-track!` before this event is dispatched
+         (EP-0027 forbids reg-frame inside a handler)."}
   (fn handler-restart [{:keys [db]} _ev]
     (let [track-id (:rf.runner/selected db)]
       (if (track-by-id track-id)
         (let [frame-id (machine-frame-id track-id)]
           {:db (update db :rf.runner/cursors dissoc track-id)
-           :fx [[:machine-epochs/reset-frame frame-id]
-                [:machine-epochs/point-xray-at frame-id]]})
+           :fx [[:machine-epochs/point-xray-at frame-id]]})
         {:db db}))))
 
-;; Frame-reset fx — `rf/reset-frame!` is destroy + re-reg with the same config
-;; (including :initial-events), so the machine re-boots clean. Kept as a named fx
-;; so the RESTART handler stays declarative.
-(rf/reg-fx :machine-epochs/reset-frame
-  (fn [_ctx frame-id]
-    (when (rf/frame-meta frame-id)
-      (rf/reset-frame! frame-id))))
+;; TOP-LEVEL restart boundary — `reset-frame!` (destroy + re-`reg-frame`) must
+;; run OUTSIDE any handler cascade (EP-0027). Called from the restart button's
+;; React `:on-click` (a plain callback — `*handler-scope*` is unbound). It
+;; resets the selected track's machine frame (the ring clears and the machine
+;; re-arcs from boot via the frame's `:initial-events`; the :session track's
+;; spawned child is torn down by the `:rf.machine/destroy` cascade on frame
+;; teardown), THEN dispatches `:machine-epochs/restart` to clear the cursor and
+;; re-point Xray.
+(defn- restart-track! []
+  (when-let [track-id (:rf.runner/selected (rf/app-db-value shell-frame))]
+    (when (track-by-id track-id)
+      (let [frame-id (machine-frame-id track-id)]
+        (when (rf/frame-meta frame-id)
+          (rf/reset-frame! frame-id))
+        (rf/dispatch [:machine-epochs/restart] {:frame shell-frame})))))
 
 ;; ============================================================================
 ;; SUBS — selected / per-track cursor / per-track current state (shell)
@@ -790,7 +822,7 @@
         selected? (= track-id selected)
         states    (map (fn [mid] [mid (machine-state track-id mid)]) (:machines track))]
     [:button {:data-testid (str "machine-epochs-track-" (name track-id))
-              :on-click    #(dispatch [:machine-epochs/select track-id])
+              :on-click    #(select-track! track-id)
               :style {:display       "block" :width "100%" :text-align "left"
                       :cursor        "pointer" :margin "0.25em 0"
                       :padding       "0.5em 0.7em" :border-radius "6px"
@@ -890,8 +922,7 @@
                             :background "#7C5CFF" :color "#fff" :font-weight "bold"}}
            "⏭ Step"]
           [:button {:data-testid "machine-epochs-restart"
-                    :on-click #(dispatch [:machine-epochs/restart]
-                                         {:frame shell-frame})
+                    :on-click #(restart-track!)
                     :style {:padding "0.45em 0.9em" :cursor "pointer"
                             :border "1px solid #cfc8ff" :border-radius "6px"
                             :background "#fff" :color "#7C5CFF" :font-weight "bold"}}
@@ -943,16 +974,19 @@
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — register the SHELL frame explicitly and scope the boot
-  ;; dispatches to it. The per-track machine frames are reg-frame'd inside
-  ;; the `:machine-epochs/select` handler (a real cascade — `*handler-scope*`
-  ;; bound), so each track's `:initial-events` boot async-queues correctly. The
-  ;; render is wrapped in a `frame-provider-existing` on the shell frame
-  ;; (scope-only — the shell frame is already `reg-frame`'d).
+  ;; dispatches to it. EP-0027: the per-track machine frames are NOT
+  ;; reg-frame'd inside a handler (that fails loud,
+  ;; `:rf.error/frame-construction-in-handler`) — frame construction happens at
+  ;; the TOP LEVEL here (and at the picker-row React `:on-click`, also top
+  ;; level), via `ensure-machine-frame!`, BEFORE the `:machine-epochs/select`
+  ;; event is dispatched. The render is wrapped in a `frame-provider-existing`
+  ;; on the shell frame (scope-only — the shell frame is already `reg-frame`'d).
   (rf/reg-frame shell-frame {})
   ;; Seed the SHELL frame's bookkeeping, then auto-select the default track so
-  ;; the operator lands on a live arc (the SHELL-FRAME-FIRST-PAINT smaller
-  ;; call) rather than an empty shell. The select creates + boots the door
-  ;; frame and re-points Xray at it.
+  ;; the operator lands on a live arc rather than an empty shell. The default
+  ;; track's machine frame is created + booted at TOP LEVEL (here), then the
+  ;; select event records the selection and re-points Xray at it.
+  (ensure-machine-frame! (track-by-id default-track))
   (rf/with-frame shell-frame
     (rf/dispatch-sync [:machine-epochs/seed])
     (rf/dispatch-sync [:machine-epochs/select default-track]))
