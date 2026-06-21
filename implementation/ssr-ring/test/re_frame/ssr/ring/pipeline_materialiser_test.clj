@@ -434,7 +434,7 @@
           wrapped        (fn [_req] (reset! wrapped-called true)
                            {:status 204 :headers {} :body ""})
           app ((ssr-ring/ssr-middleware
-                 {:on-create      [:init/mw-blank]
+                 {:initial-events      [[:init/mw-blank]]
                   :root-view      [:pages/mw-blank]
                   :payload :rf.ssr.payload/whole-app-db})
                wrapped)
@@ -452,7 +452,7 @@
           wrapped        (fn [_req] (reset! wrapped-called true)
                            {:status 201 :headers {} :body "from wrapped"})
           app ((ssr-ring/ssr-middleware
-                 {:on-create      [:init/mw-blank]
+                 {:initial-events      [[:init/mw-blank]]
                   :root-view      [:pages/mw-blank]
                   :payload :rf.ssr.payload/whole-app-db})
                wrapped)]

@@ -7,7 +7,7 @@
 
   The server side ships ONE explicit handler-constructor:
 
-      (ssr-ring/ssr-handler {:on-create … :root-view … :payload …})
+      (ssr-ring/ssr-handler {:initial-events … :root-view … :payload …})
       ;; → a Ring handler that renders, builds the `__rf_payload`
       ;;   `<script>`, and writes the wire response.
 

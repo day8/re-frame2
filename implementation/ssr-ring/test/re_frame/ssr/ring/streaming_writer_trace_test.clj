@@ -144,7 +144,7 @@
     (let [throwing-root (fn [] (throw (ex-info "shell-render teardown probe"
                                                {:reason :rf2-u91hb})))
           handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.writer/init]
+                     {:initial-events [[:rf.test.writer/init]]
                       :root-view throwing-root
                       :payload :rf.ssr.payload/whole-app-db})
           ;; Frame ids BEFORE the request — baseline.
@@ -209,7 +209,7 @@
 
 (defn- setup-streaming-frame!
   "Register a real per-request server frame for `opts` and return its
-  frame-id. The `:on-create` event seeds the app-db the views read."
+  frame-id. The `:initial-events` event seeds the app-db the views read."
   [opts]
   (let [{:keys [frame-id]} (pipeline/setup-request-frame! opts {:uri "/" :request-method :get})]
     frame-id))
@@ -237,7 +237,7 @@
     (rf/reg-sub :rf.test.phase/n (fn [db _] (:n db)))
     (rf/reg-view ^{:rf/id :rf.test.phase/root} phase-root []
       [:main [:span @(subscribe [:rf.test.phase/n])]])
-    (let [opts     {:on-create [:rf.test.phase/init]
+    (let [opts     {:initial-events [[:rf.test.phase/init]]
                     :root-view [:rf.test.phase/root]
                     :emit-hash? true
                     :payload :rf.ssr.payload/whole-app-db}
@@ -291,7 +291,7 @@
        [:rf/suspense-boundary
         {:id :rf.test.phase/the-boundary :fallback [:p "loading"]}
         [:rf.test.phase/section]]])
-    (let [opts     {:on-create [:rf.test.phase/init-sb]
+    (let [opts     {:initial-events [[:rf.test.phase/init-sb]]
                     :root-view [:rf.test.phase/sb-root]
                     :emit-hash? true
                     :payload :rf.ssr.payload/whole-app-db}

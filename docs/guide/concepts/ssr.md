@@ -17,7 +17,7 @@ So none of these properties were added *for* SSR. They're the constraints the re
 ## A request, start to finish
 
 1. An HTTP request arrives. The host adapter creates a **frame for this request** and stashes the request map where handlers can read it.
-2. The handler's `:on-create` event fires: read the session, set the route, start data fetches.
+2. The handler's `:initial-events` fire in order: read the session, set the route, start data fetches.
 3. The runtime drains to a fixed point. State settles.
 4. The root view renders to hiccup; `render-to-string` turns it into HTML.
 5. The server ships the HTML **plus** a serialised state payload.
@@ -36,14 +36,14 @@ The Ring adapter ships one handler constructor, and it owns the whole lifecycle:
 
 (def handler
   (ssr-ring/ssr-handler
-    {:on-create [:rf/server-init]
-     :root-view [:app/root]
-     :payload   [:articles :session-user]}))   ;; allowlist of app-db keys to ship
+    {:initial-events [[:rf/server-init]]
+     :root-view      [:app/root]
+     :payload        [:articles :session-user]}))   ;; allowlist of app-db keys to ship
 
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
 
-`:on-create` here is the `ssr-handler`'s own request-init opt — an event vector (or a `(fn [request] event-vector)`) that the adapter lowers to the per-request frame's `:initial-events` for you. It is not the retired `reg-frame` / `make-frame` construction key; on a frame you write `:initial-events` directly.
+`:initial-events` here is the `ssr-handler`'s own request-init opt — the same [EP-0027](../../EP/EP-0027-frame-initial-events.md) setup vector you write on a frame, accepted either as a vector of events or as a `(fn [request] -> initial-events-vector)` that derives the setup from the Ring request. The adapter lowers it verbatim into the per-request frame's `:initial-events` for you.
 
 `:payload` is a security boundary, and it fails closed. A vector is an allowlist of top-level app-db keys; everything else stays on the server, *including keys you add next year*. Forget to set `:payload` and you get a loud error at boot (`:rf.error/ssr-missing-payload-policy`), not a quiet leak on the first request — the framework would rather stop you than surprise you. Shipping the whole app-db takes the explicit keyword `:rf.ssr.payload/whole-app-db`. A denylist was rejected on purpose, because it would silently leak every new server-only key the moment you introduce one.
 
@@ -184,7 +184,7 @@ The wiring mirrors what you've already seen, with streaming counterparts: `strea
 
 Two compositions of these primitives are common enough to have canonical write-ups. They're conventions over what you already know, not new machinery:
 
-- **[Pattern-SSR-Loaders](../../../spec/Pattern-SSR-Loaders.md)** — N parallel data fetches before render, the `Promise.all` of a Next.js loader. A [state machine](machines.md) spawned from the handler's `:on-create` event fans out HTTP-fetching children with `:spawn-all`, joins on all-complete, writes the slices. Wall-clock cost drops from the sum of the fetches to the max. The same machine drives client-side navigation fetch; only the spawn site moves.
+- **[Pattern-SSR-Loaders](../../../spec/Pattern-SSR-Loaders.md)** — N parallel data fetches before render, the `Promise.all` of a Next.js loader. A [state machine](machines.md) spawned from the handler's `:initial-events` fans out HTTP-fetching children with `:spawn-all`, joins on all-complete, writes the slices. Wall-clock cost drops from the sum of the fetches to the max. The same machine drives client-side navigation fetch; only the spawn site moves.
 - **[Pattern-FormAction](../../../spec/Pattern-FormAction.md)** — form POSTs that work before JS loads. The form renders with a real `method="POST"` and `action`. The server routes POST to the same domain event the client's `:on-submit` dispatches after hydration. Validation runs server-side via the event's schema, and success answers with `[:rf.server/redirect {:status 303 ...}]`. One handler tree, both entry points. Where the pattern reads the request, the spelling is the one you saw above: `:rf.cofx/requires [:rf.server/request]` on the registration, the value flat in the coeffects map.
 
 ## What you give up

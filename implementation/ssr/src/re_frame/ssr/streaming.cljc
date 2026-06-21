@@ -585,7 +585,7 @@
   ;; dispatch the fetch's event before the render — typical pattern).
   ;; For this v1 the delta is computed against the same db the shell
   ;; walked with. Apps that need true async-resolution per-subtree wire
-  ;; their fetches as :on-create-time fanout (the test below
+  ;; their fetches as initial-events-time fanout (the test below
   ;; demonstrates the pattern); see Spec 011 §Streaming SSR.
   (let [before-db (frame/frame-app-db-value frame-id)]
     (try

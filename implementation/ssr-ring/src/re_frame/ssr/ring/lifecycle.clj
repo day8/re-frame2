@@ -31,7 +31,7 @@
   Per Spec 011 §Request storage substrate + §Head/meta contract.
 
   Note (audit rf2-cegm7 A2 / rf2-j54ee): the prior `on-create-with-request`
-  helper conj'd the Ring request map onto the caller's `:on-create`
+  helper conj'd the Ring request map onto the caller's setup
   event vector as a fallback for handlers that pre-dated the
   `:rf.server/request` cofx. The conj path is gone — Spec 011 names the
   cofx as the canonical read surface; the positional-arg variant had a
@@ -282,75 +282,76 @@
       :html-attrs html-attrs
       :body-attrs body-attrs}]))
 
-(defn resolve-on-create!
-  "Resolve the caller's `:on-create` opt to the event vector dispatched at
-  per-request frame creation, given the live Ring `request`. Two accepted
-  forms (rf2-kzns7l):
+(defn resolve-initial-events!
+  "Resolve the caller's `:initial-events` opt to the EP-0027 setup vector
+  (an ordered vector of events) dispatched at per-request frame creation,
+  given the live Ring `request`. Two accepted forms (rf2-kzns7l):
 
-    1. an event VECTOR — passed through verbatim (the original contract).
-    2. a `(fn [request] event-vector)` — a 1-arity fn DERIVING the event
-       vector from the Ring request. Called EXACTLY ONCE here, before
-       `reg-frame`, with the request the host has already populated into
-       the per-request slot. The result MUST itself be an event vector,
-       validated the same way.
+    1. an `:initial-events` VECTOR — passed through verbatim (lowered into
+       the per-request `make-frame`'s `:initial-events`).
+    2. a `(fn [request] -> initial-events-vector)` — a 1-arity fn DERIVING
+       the setup vector from the Ring request. Called EXACTLY ONCE here,
+       before `reg-frame`, with the request the host has already populated
+       into the per-request slot. The result MUST itself be an
+       `:initial-events` vector, validated the same way.
 
   The fn form is the replay-safe way to fold a request-derived fact into
-  the boot event's PAYLOAD — the recordable causal boundary (Spec 011
+  a boot event's PAYLOAD — the recordable causal boundary (Spec 011
   §Request storage substrate, the durable request-derived-fact pattern):
 
-      :on-create (fn [req] [:auth/server-init {:user (extract-user req)}])
+      :initial-events (fn [req] [[:auth/server-init {:user (extract-user req)}]])
 
-  This is purely ADDITIVE. It is NOT a revival of the removed
-  `on-create-with-request` positional-conj helper (audit rf2-cegm7 A2 /
-  rf2-j54ee): that silently appended the WHOLE request to the caller's
-  vector (`[:rf/server-init]` → `[:rf/server-init {ring-request}]`),
-  putting the request in the wrong arg slot. Here the caller OWNS the
-  shape of the resulting event vector — only the extracted, sanitised
-  fact rides it. The ambient `:rf.server/request` cofx remains the
-  canonical surface for NON-durable request reads and is unaffected.
+  It is NOT a revival of the removed `on-create-with-request` positional-
+  conj helper (audit rf2-cegm7 A2 / rf2-j54ee): that silently appended the
+  WHOLE request to the caller's vector (`[:rf/server-init]` →
+  `[:rf/server-init {ring-request}]`), putting the request in the wrong
+  arg slot. Here the caller OWNS the shape of the resulting setup vector —
+  only the extracted, sanitised fact rides it. The ambient
+  `:rf.server/request` cofx remains the canonical surface for NON-durable
+  request reads and is unaffected.
 
-  `:on-create` is required (per `validate-required-opts!`), which a fn
-  satisfies as a truthy value — so the form check happens here, inside
+  `:initial-events` is required (per `validate-required-opts!`), which a
+  fn satisfies as a truthy value — so the form check happens here, inside
   the per-request setup try/catch. A value that is neither a vector nor a
   1-arity fn (or a fn whose result is not a vector) is a programmer
-  error: surface it as `:rf.error/invalid-on-create` rather than letting
-  `reg-frame` produce an obscure failure downstream."
-  [on-create request]
+  error: surface it as `:rf.error/invalid-initial-events` rather than
+  letting `reg-frame` produce an obscure failure downstream."
+  [initial-events request]
   (cond
-    (vector? on-create)
-    on-create
+    (vector? initial-events)
+    initial-events
 
-    (fn? on-create)
-    (let [derived (on-create request)]
+    (fn? initial-events)
+    (let [derived (initial-events request)]
       (if (vector? derived)
         derived
         (error/throw-error!
-          :rf.error/invalid-on-create
+          :rf.error/invalid-initial-events
           'rf.ssr/ssr-handler
-          (str ":on-create fn must return an event vector; the (fn [request] ...) "
-               "form derives the on-create event from the Ring request and its "
-               "result must be a vector.")
-          {:recovery :return-an-event-vector-from-the-on-create-fn
+          (str ":initial-events fn must return an :initial-events vector; the "
+               "(fn [request] ...) form derives the setup vector from the Ring "
+               "request and its result must be a vector.")
+          {:recovery :return-an-initial-events-vector-from-the-fn
            :extra    {:returned derived}})))
 
     :else
     (error/throw-error!
-      :rf.error/invalid-on-create
+      :rf.error/invalid-initial-events
       'rf.ssr/ssr-handler
-      (str ":on-create must be an event vector OR a (fn [request] event-vector); "
-           "pass one of those as :on-create.")
-      {:recovery :supply-an-event-vector-or-a-fn-of-the-request
-       :extra    {:received on-create}})))
+      (str ":initial-events must be a vector OR a (fn [request] initial-events-vector); "
+           "pass one of those as :initial-events.")
+      {:recovery :supply-a-vector-or-a-fn-of-the-request
+       :extra    {:received initial-events}})))
 
 (defn validate-required-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required handler opt (`:on-create` / `:root-view`).
+  caller omits a required handler opt (`:initial-events` / `:root-view`).
 
   Shared by `re-frame.ssr.ring/ssr-handler` AND
   `re-frame.ssr.ring.streaming/stream-handler` so both fail closed at
   handler-construction time (boot) rather than at first request — the
   canonical fail-closed pattern (rf2-gtgf9, extended here to the two
-  required opts). A streaming handler built without `:on-create` would
+  required opts). A streaming handler built without `:initial-events` would
   otherwise fail per-request inside `setup-request-frame!`; one built
   without `:root-view` would fail inside the writer thread, truncating
   the chunked response. Both must refuse to construct, exactly as the
@@ -361,13 +362,13 @@
   hosting the check here avoids the circular-require between the
   streaming sub-namespace and the façade — same rationale as
   `trust`/`payload-policy`."
-  [{:keys [on-create root-view] :as opts}]
-  (when-not on-create
+  [{:keys [initial-events root-view] :as opts}]
+  (when-not initial-events
     (error/throw-error!
-      :rf.error/ssr-ring-missing-on-create
+      :rf.error/ssr-ring-missing-initial-events
       'rf.ssr/ssr-handler
-      "ssr-handler requires :on-create (an event vector); supply :on-create in the handler opts."
-      {:recovery :supply-the-on-create-opt}))
+      "ssr-handler requires :initial-events (a vector of events); supply :initial-events in the handler opts."
+      {:recovery :supply-the-initial-events-opt}))
   (when-not root-view
     (error/throw-error!
       :rf.error/ssr-ring-missing-root-view
@@ -384,9 +385,9 @@
   MUST refuse to construct rather than fail per-request — the canonical
   fail-closed pattern (rf2-gtgf9). The three checks:
 
-    1. required-opt presence (`:on-create` / `:root-view`) via
+    1. required-opt presence (`:initial-events` / `:root-view`) via
        `validate-required-opts!` — a streaming handler built without
-       `:on-create` would otherwise fail per-request inside
+       `:initial-events` would otherwise fail per-request inside
        `setup-request-frame!`; one without `:root-view` would fail inside
        the writer thread, truncating the chunked response (rf2-ee38b.11).
     2. hydration-payload policy (the single `:payload` opt — vector

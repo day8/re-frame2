@@ -126,7 +126,7 @@
     (register-throwing-sub-view!)
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/ok]
+                    {:initial-events [[:init/ok]]
                      :root-view [:pages/uses-throwing-sub]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
@@ -172,7 +172,7 @@
           [:main [:h1 "clean"] [:p (str "value: " v)]])))
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/ok]
+                    {:initial-events [[:init/ok]]
                      :root-view [:pages/uses-clean-sub]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}

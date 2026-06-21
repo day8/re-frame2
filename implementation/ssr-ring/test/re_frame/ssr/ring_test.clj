@@ -243,7 +243,7 @@
                              {:id "b" :title "Article B"}])
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create    [:rf/server-init]
+                    {:initial-events    [[:rf/server-init]]
                      :root-view    [:pages/articles]
                      :fx-overrides {:http/get :http/get.canned}
                      :payload :rf.ssr.payload/whole-app-db})
@@ -282,7 +282,7 @@
                 (when (= :rf.frame/destroyed (:operation ev))
                   (swap! destroyed conj (:frame ev)))))
           handler (ssr-ring/ssr-handler
-                    {:on-create    [:rf/server-init]
+                    {:initial-events    [[:rf/server-init]]
                      :root-view    [:pages/articles]
                      :fx-overrides {:http/get :http/get.canned}
                      :payload :rf.ssr.payload/whole-app-db})
@@ -315,7 +315,7 @@
       (fn [] [:div "should not render under redirect"]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/redirect]
+                    {:initial-events [[:init/redirect]]
                      :root-view [:pages/should-not-render]
                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/secret" :request-method :get})]
@@ -345,7 +345,7 @@
         (fn [ev] (when (= :rf.ssr/ssr-redirect-no-target (:operation ev))
                    (swap! traces conj ev))))
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/redirect-no-target]
+                       {:initial-events [[:init/redirect-no-target]]
                         :root-view [:pages/noop-rt]
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/secret" :request-method :get})
@@ -381,7 +381,7 @@
       (fn [] [:div "cookied"]))
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/with-cookies]
+                     {:initial-events [[:init/with-cookies]]
                       :root-view [:pages/cookied]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -418,7 +418,7 @@
       (fn [] (throw (ex-info "boom-internal-jdbc-url-secret" {}))))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/ok]
+                    {:initial-events [[:init/ok]]
                      :root-view [:pages/broken]
                      :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/broken" :request-method :get})]
@@ -471,7 +471,7 @@
          :retryable? false}))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/ok]
+                    {:initial-events [[:init/ok]]
                      :root-view [:pages/broken-2]
                      :ssr       {:public-error-id :myapp/teapot}
                      :payload :rf.ssr.payload/whole-app-db})
@@ -512,7 +512,7 @@
          [:p.status (str status)]
          [:p.msg message]]))
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create  [:init/ok]
+                     {:initial-events  [[:init/ok]]
                       :root-view  [:pages/broken-ev]
                       :error-view :myapp/error-page
                       :payload :rf.ssr.payload/whole-app-db})
@@ -537,7 +537,7 @@
     (rf/reg-view* :pages/broken-evf
       (fn [] (throw (ex-info "boom" {}))))
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create  [:init/ok]
+                     {:initial-events  [[:init/ok]]
                       :root-view  [:pages/broken-evf]
                       :error-view (fn [public]
                                     [:section.fn-error
@@ -563,7 +563,7 @@
         (fn [ev] (when (= :rf.error/ssr-ring-error-view-failed (:operation ev))
                    (swap! traces conj ev))))
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create  [:init/ok]
+                       {:initial-events  [[:init/ok]]
                         :root-view  [:pages/broken-evt]
                         :error-view (fn [_public]
                                       (throw (ex-info "error-view itself broke" {})))
@@ -608,7 +608,7 @@
         (fn [] [:div.page "once"]))
 
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/ok-once]
+                       {:initial-events [[:init/ok-once]]
                         :root-view (fn []
                                      (swap! call-count inc)
                                      [:pages/once])
@@ -638,7 +638,7 @@
         (fn [n] [:div {:data-call n} "noni"]))
 
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/ok-noni]
+                       {:initial-events [[:init/ok-noni]]
                         :root-view (fn []
                                      [:pages/noni (swap! counter inc)])
                         :payload :rf.ssr.payload/whole-app-db})
@@ -712,7 +712,7 @@
 
     (let [mk      (fn [head]
                     (ssr-ring/ssr-handler
-                      {:on-create [:init/noop-head]
+                      {:initial-events [[:init/noop-head]]
                        :root-view [:pages/fixed-body]
                        :head      head
                        :payload   :rf.ssr.payload/whole-app-db}))
@@ -755,7 +755,7 @@
 
     (let [mk      (fn [init]
                     (ssr-ring/ssr-handler
-                      {:on-create [init]
+                      {:initial-events [[init]]
                        :root-view [:pages/shared-body]
                        :payload   :rf.ssr.payload/whole-app-db}))
           body-a  (:body ((mk :init/seed-head-a) {:uri "/" :request-method :get}))
@@ -790,7 +790,7 @@
 
     (let [mk      (fn [init]
                     (ssr-ring/ssr-handler
-                      {:on-create [init]
+                      {:initial-events [[init]]
                        :root-view [:pages/attrs-body]
                        :payload   :rf.ssr.payload/whole-app-db}))
           ha      (extract-wire+payload-hash
@@ -826,7 +826,7 @@
       (rf/reg-view* :pages/blank (fn [] [:div]))
 
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/capture-request-cofx]
+                       {:initial-events [[:init/capture-request-cofx]]
                         :root-view [:pages/blank]
                         :payload :rf.ssr.payload/whole-app-db})
             request  {:uri            "/articles/42"
@@ -851,12 +851,12 @@
       (rf/reg-view* :pages/blank2 (fn [] [:div]))
 
       (let [handler (ssr-ring/ssr-handler
-                      {:on-create [:init/capture-frame-id]
+                      {:initial-events [[:init/capture-frame-id]]
                        :root-view [:pages/blank2]
                        :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/x" :request-method :get})
         (is (some? @captured-fid)
-            "the on-create handler captured the per-request frame-id")
+            "the initial-events handler captured the per-request frame-id")
         (is (nil? (ssr/get-request @captured-fid))
             "the request slot was cleared on frame teardown — no leak across requests")))))
 
@@ -873,7 +873,7 @@
       (rf/reg-view* :pages/blank3 (fn [] [:div]))
 
       (let [handler (ssr-ring/ssr-handler
-                      {:on-create [:init/observe-request]
+                      {:initial-events [[:init/observe-request]]
                        :root-view [:pages/blank3]
                        :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/a" :request-method :get})
@@ -882,13 +882,13 @@
             "each request's handler saw its own URI — no slot bleed")))))
 
 ;; ===========================================================================
-;; rf2-kzns7l — :on-create accepts a (fn [request] event-vector) form
+;; rf2-kzns7l — :initial-events accepts a (fn [request] initial-events-vector) form
 ;;
-;; Additive convenience: alongside the event-VECTOR :on-create, a 1-arity fn
-;; may DERIVE the on-create event vector from the Ring request. It is called
-;; once per request (before the drain) and its result must be an event vector.
+;; Additive convenience: alongside the :initial-events VECTOR, a 1-arity fn
+;; may DERIVE the setup vector from the Ring request. It is called once per
+;; request (before the drain) and its result must be an :initial-events vector.
 ;; This is the ergonomic, replay-safe way to fold a request-derived fact into
-;; the boot event's PAYLOAD (the recordable causal boundary — Spec 011
+;; a boot event's PAYLOAD (the recordable causal boundary — Spec 011
 ;; §Durable request-derived facts), NOT the removed positional-conj helper.
 ;; ===========================================================================
 
@@ -902,9 +902,10 @@
       {:user "alice" :authed? true}
       {:user nil :authed? false})))
 
-(deftest on-create-fn-form-derives-event-from-request
-  (testing "a (fn [request] event-vector) :on-create bakes a request-derived
-            fact into the boot event payload — the durable-fact boundary"
+(deftest initial-events-fn-form-derives-vector-from-request
+  (testing "a (fn [request] initial-events-vector) :initial-events bakes a
+            request-derived fact into the boot event payload — the durable-fact
+            boundary"
     (let [seeded (atom ::not-seeded)]
       ;; The boot handler reads the PAYLOAD (the recordable leaf), not an
       ;; ambient cofx — the replay-safe shape.
@@ -917,9 +918,9 @@
       (rf/reg-view* :pages/blank-auth (fn [] [:div]))
 
       (let [handler (ssr-ring/ssr-handler
-                      ;; The fn form: derive the event vector from the request.
-                      {:on-create (fn [req]
-                                    [:auth/server-init (extract-user req)])
+                      ;; The fn form: derive the setup vector from the request.
+                      {:initial-events (fn [req]
+                                         [[:auth/server-init (extract-user req)]])
                        :root-view [:pages/blank-auth]
                        :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri            "/dashboard"
@@ -927,11 +928,11 @@
                                :headers        {"cookie" "session=abc123"}})]
         (is (= 200 (:status response)))
         (is (= {:user "alice" :authed? true} @seeded)
-            "the on-create fn derived the event vector from the request and the
-             boot handler saw the sanitised fact off the event payload")))))
+            "the initial-events fn derived the setup vector from the request and
+             the boot handler saw the sanitised fact off the event payload")))))
 
-(deftest on-create-fn-form-invoked-once-per-request-with-own-request
-  (testing "the :on-create fn is called once per request, each with its own
+(deftest initial-events-fn-form-invoked-once-per-request-with-own-request
+  (testing "the :initial-events fn is called once per request, each with its own
             request map (no slot bleed across requests)"
     (let [calls (atom [])]
       (rf/reg-event :init/noted
@@ -941,9 +942,9 @@
       (rf/reg-view* :pages/blank-once (fn [] [:div]))
 
       (let [handler (ssr-ring/ssr-handler
-                      {:on-create (fn [req]
-                                    (swap! calls conj (:uri req))
-                                    [:init/noted (:uri req)])
+                      {:initial-events (fn [req]
+                                         (swap! calls conj (:uri req))
+                                         [[:init/noted (:uri req)]])
                        :root-view [:pages/blank-once]
                        :payload :rf.ssr.payload/whole-app-db})]
         (handler {:uri "/p" :request-method :get})
@@ -951,8 +952,8 @@
         (is (= ["/p" "/q"] @calls)
             "the fn fired exactly once per request, each with that request's URI")))))
 
-(deftest on-create-vector-form-still-works
-  (testing "the original event-VECTOR :on-create form is preserved verbatim"
+(deftest initial-events-vector-form-still-works
+  (testing "the :initial-events VECTOR form is preserved verbatim"
     (let [seen (atom false)]
       (rf/reg-event :init/plain
         {:platforms #{:server}}
@@ -960,7 +961,7 @@
       (rf/reg-view* :pages/blank-plain (fn [] [:div]))
 
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/plain]
+                       {:initial-events [[:init/plain]]
                         :root-view [:pages/blank-plain]
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/x" :request-method :get})]
@@ -968,13 +969,13 @@
         (is (true? @seen)
             "the vector form dispatched the boot event unchanged")))))
 
-(deftest on-create-fn-returning-non-vector-fails-closed
-  (testing "an :on-create fn whose result is NOT an event vector throws
-            :rf.error/invalid-on-create inside setup — routed to on-error 500"
+(deftest initial-events-fn-returning-non-vector-fails-closed
+  (testing "an :initial-events fn whose result is NOT a vector throws
+            :rf.error/invalid-initial-events inside setup — routed to on-error 500"
     (rf/reg-view* :pages/blank-bad (fn [] [:div]))
     (let [handler  (ssr-ring/ssr-handler
-                     ;; Returns a map, not an event vector — programmer error.
-                     {:on-create (fn [_req] {:not "a vector"})
+                     ;; Returns a map, not a vector — programmer error.
+                     {:initial-events (fn [_req] {:not "a vector"})
                       :root-view [:pages/blank-bad]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/x" :request-method :get})]
@@ -983,24 +984,24 @@
       (is (map? response)
           "the handler returned a Ring response — the throw was contained"))))
 
-(deftest on-create-resolve-fn-unit-contract
-  (testing "lifecycle/resolve-on-create! — vector passthrough, fn resolution,
-            and the two invalid-shape throws (unit)"
+(deftest initial-events-resolve-fn-unit-contract
+  (testing "lifecycle/resolve-initial-events! — vector passthrough, fn
+            resolution, and the two invalid-shape throws (unit)"
     (let [req {:uri "/u" :headers {}}]
       ;; Vector passes through verbatim.
-      (is (= [:e 1] (lifecycle/resolve-on-create! [:e 1] req)))
+      (is (= [[:e 1]] (lifecycle/resolve-initial-events! [[:e 1]] req)))
       ;; A 1-arity fn is called with the request; its vector result is returned.
-      (is (= [:derived "/u"]
-             (lifecycle/resolve-on-create!
-               (fn [r] [:derived (:uri r)]) req)))
-      ;; A fn returning a non-vector throws invalid-on-create.
+      (is (= [[:derived "/u"]]
+             (lifecycle/resolve-initial-events!
+               (fn [r] [[:derived (:uri r)]]) req)))
+      ;; A fn returning a non-vector throws invalid-initial-events.
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"on-create fn must return an event vector"
-                            (lifecycle/resolve-on-create! (fn [_] {:nope true}) req)))
-      ;; A non-vector, non-fn value throws invalid-on-create.
+                            #"initial-events fn must return an :initial-events vector"
+                            (lifecycle/resolve-initial-events! (fn [_] {:nope true}) req)))
+      ;; A non-vector, non-fn value throws invalid-initial-events.
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"on-create must be an event vector OR a"
-                            (lifecycle/resolve-on-create! '(:list-not-vector) req))))))
+                            #"initial-events must be a vector OR a"
+                            (lifecycle/resolve-initial-events! '(:list-not-vector) req))))))
 
 ;; ===========================================================================
 ;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
@@ -1028,7 +1029,7 @@
       (rf/reg-view* :pages/blank-for-ssr-opt (fn [] [:div]))
 
       (let [handler (ssr-ring/ssr-handler
-                      {:on-create [:init/capture-ssr-meta]
+                      {:initial-events [[:init/capture-ssr-meta]]
                        :root-view [:pages/blank-for-ssr-opt]
                        :ssr       {:dev-error-detail? true
                                    :public-error-id   :myapp/projector}
@@ -1056,7 +1057,7 @@
     (rf/reg-view* :pages/echo (fn [] [:div "echo"]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create    [:init/many-keys]
+                    {:initial-events    [[:init/many-keys]]
                      :root-view    [:pages/echo]
                      :payload [:public/articles]})
           response (handler {:uri "/" :request-method :get})
@@ -1098,7 +1099,7 @@
     (rf/reg-view* :pages/echo (fn [] [:div "echo"]))
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-runtime]
+                     {:initial-events [[:init/seed-runtime]]
                       :root-view [:pages/echo]
                       :payload   [:public/page]})
           response (handler {:uri "/" :request-method :get})
@@ -1156,7 +1157,7 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-missing-payload-policy"
           (ssr-ring/ssr-handler
-            {:on-create [:init/no-policy]
+            {:initial-events [[:init/no-policy]]
              :root-view [:pages/no-policy]}))
         "ssr-handler MUST throw at construction time when the policy
          is unset — Spec 011 §Payload scope (canonical boundary) +
@@ -1173,38 +1174,38 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-missing-payload-policy"
           (ssr-ring/stream-handler
-            {:on-create [:init/no-policy-stream]
+            {:initial-events [[:init/no-policy-stream]]
              :root-view [:pages/no-policy-stream]}))
         "stream-handler MUST throw at construction time when the
          policy is unset — same fail-closed contract as ssr-handler")))
 
 ;; rf2-ee38b.11 — stream-handler MUST run the SAME required-opt
-;; (:on-create / :root-view) construction-time validation ssr-handler
+;; (:initial-events / :root-view) construction-time validation ssr-handler
 ;; does. Pre-fix it only checked the policy + trusted-shell opts, so a
 ;; misconfigured streaming handler shipped and failed per-request
-;; (missing :on-create → 500; missing :root-view → silently-truncated
+;; (missing :initial-events → 500; missing :root-view → silently-truncated
 ;; chunked response from the writer thread) instead of refusing to
 ;; construct. Now both share `lifecycle/validate-required-opts!`.
 
-(deftest ssr-handler-construction-fails-closed-when-missing-on-create
-  (testing "rf2-ee38b.11: ssr-handler with no :on-create throws
-            :rf.error/ssr-ring-missing-on-create at construction"
+(deftest ssr-handler-construction-fails-closed-when-missing-initial-events
+  (testing "rf2-ee38b.11: ssr-handler with no :initial-events throws
+            :rf.error/ssr-ring-missing-initial-events at construction"
     (rf/reg-view* :pages/no-oncreate (fn [] [:div]))
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-on-create"
+          #":rf\.error/ssr-ring-missing-initial-events"
           (ssr-ring/ssr-handler
             {:root-view [:pages/no-oncreate]
              :payload :rf.ssr.payload/whole-app-db})))))
 
-(deftest stream-handler-construction-fails-closed-when-missing-on-create
-  (testing "rf2-ee38b.11: stream-handler with no :on-create throws
-            :rf.error/ssr-ring-missing-on-create at construction — same
+(deftest stream-handler-construction-fails-closed-when-missing-initial-events
+  (testing "rf2-ee38b.11: stream-handler with no :initial-events throws
+            :rf.error/ssr-ring-missing-initial-events at construction — same
             fail-closed contract as ssr-handler (was missing pre-fix)"
     (rf/reg-view* :pages/no-oncreate-stream (fn [] [:div]))
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-on-create"
+          #":rf\.error/ssr-ring-missing-initial-events"
           (ssr-ring/stream-handler
             {:root-view [:pages/no-oncreate-stream]
              :payload :rf.ssr.payload/whole-app-db})))))
@@ -1219,7 +1220,7 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-root-view"
           (ssr-ring/stream-handler
-            {:on-create [:init/no-rootview-stream]
+            {:initial-events [[:init/no-rootview-stream]]
              :payload :rf.ssr.payload/whole-app-db})))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
@@ -1248,7 +1249,7 @@
                       ;; The allowlist names ONLY the public slice.
                       ;; Every other server-only key on app-db is
                       ;; un-permitted and MUST be dropped.
-                      {:on-create    [:init/with-secret]
+                      {:initial-events    [[:init/with-secret]]
                        :root-view    [:pages/policy-probe]
                        :payload [:public/articles]})
           response  (handler {:uri "/" :request-method :get})
@@ -1299,7 +1300,7 @@
       (fn [] [:div.page "whole app"]))
 
     (let [handler   (ssr-ring/ssr-handler
-                      {:on-create      [:init/wholeapp]
+                      {:initial-events      [[:init/wholeapp]]
                        :root-view      [:pages/wholeapp]
                        :payload :rf.ssr.payload/whole-app-db})
           response  (handler {:uri "/" :request-method :get})
@@ -1325,7 +1326,7 @@
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-unknown-payload-policy"
           (ssr-ring/ssr-handler
-            {:on-create [:init/typo-policy]
+            {:initial-events [[:init/typo-policy]]
              :root-view [:pages/typo-policy]
              :payload   :rf.ssr.payload/whole-db})) ; typo
         "typo'd :payload keyword does NOT silently fall into the
@@ -1362,7 +1363,7 @@
                      {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/trusted-opt-test (fn [] [:div]))
 
-    (let [base-opts {:on-create    [:init/trusted-opt-test]
+    (let [base-opts {:initial-events    [[:init/trusted-opt-test]]
                      :root-view    [:pages/trusted-opt-test]
                      :payload [:public/x]}]
 
@@ -1446,7 +1447,7 @@
                      {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/trusted-opt-stream (fn [] [:div]))
 
-    (let [base-opts {:on-create    [:init/trusted-opt-stream]
+    (let [base-opts {:initial-events    [[:init/trusted-opt-stream]]
                      :root-view    [:pages/trusted-opt-stream]
                      :payload [:public/x]}]
       (testing "stream-handler rejects non-string non-nil values on
@@ -1553,7 +1554,7 @@
     (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-route]
+                     {:initial-events [[:init/seed-route]]
                       :root-view [:pages/blank-for-title]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1575,7 +1576,7 @@
     (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/noop]
+                     {:initial-events [[:init/noop]]
                       :root-view [:pages/blank-no-head]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1604,7 +1605,7 @@
     (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-no-title]
+                     {:initial-events [[:init/seed-no-title]]
                       :root-view [:pages/blank-no-title]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1643,7 +1644,7 @@
                           :body-attrs {:class "page-article"}})
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-attrs-route]
+                     {:initial-events [[:init/seed-attrs-route]]
                       :root-view [:pages/blank-attrs]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1662,7 +1663,7 @@
     (register-attrs-app! {:title "T"}) ; no attr bags
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-attrs-route]
+                     {:initial-events [[:init/seed-attrs-route]]
                       :root-view [:pages/blank-attrs]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1679,7 +1680,7 @@
     (register-attrs-app! {:html-attrs {:data-theme "dark"}})
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-attrs-route]
+                     {:initial-events [[:init/seed-attrs-route]]
                       :root-view [:pages/blank-attrs]
                       :lang      "ja"
                       :payload :rf.ssr.payload/whole-app-db})
@@ -1706,7 +1707,7 @@
                                        :data-hidden false}})
 
     (let [handler  (ssr-ring/ssr-handler
-                     {:on-create [:init/seed-attrs-route]
+                     {:initial-events [[:init/seed-attrs-route]]
                       :root-view [:pages/blank-attrs]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1738,7 +1739,7 @@
                            (reset! wrapped-called true)
                            {:status 204 :headers {} :body ""})
           mw             (ssr-ring/ssr-middleware
-                           {:on-create    [:rf/server-init]
+                           {:initial-events    [[:rf/server-init]]
                             :root-view    [:pages/articles]
                             :fx-overrides {:http/get :http/get.canned}
                             :match?       (fn [req] (= "/ssr" (:uri req)))
@@ -1812,7 +1813,7 @@
       (fn [] [:div.page [:h1 "Public dashboard"]]))
 
     (let [handler   (ssr-ring/ssr-handler
-                      {:on-create [:auth/login]
+                      {:initial-events [[:auth/login]]
                        :root-view [:pages/dashboard]
                        :payload :rf.ssr.payload/whole-app-db})
           response  (handler {:uri            "/dashboard"
@@ -1940,7 +1941,7 @@
       (rf/reg-view* :pages/hostile-page (fn [] [:div "ok"]))
 
       (let [handler  (ssr-ring/ssr-handler
-                       {:on-create [:init/hostile]
+                       {:initial-events [[:init/hostile]]
                         :root-view [:pages/hostile-page]
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
@@ -2277,7 +2278,7 @@
                                (:operation ev))
                         (swap! traces conj ev))))
           handler (ssr-ring/ssr-handler
-                    {:on-create [:init/seed-throwing-head-route]
+                    {:initial-events [[:init/seed-throwing-head-route]]
                      :root-view [:pages/head-throws-body]
                      :payload   :rf.ssr.payload/whole-app-db})
           response (try
@@ -2339,7 +2340,7 @@
     (register-articles-app! [{:id "a" :title "Article A"}])
 
     (let [handler     (ssr-ring/ssr-handler
-                        {:on-create      [:rf/server-init]
+                        {:initial-events      [[:rf/server-init]]
                          :root-view      [:pages/articles]
                          :fx-overrides   {:http/get :http/get.canned}
                          :payload :rf.ssr.payload/whole-app-db})
@@ -2443,8 +2444,8 @@
             default-on-error 500 rather than letting the throwable
             escape as a raw container 500 with leaked internals.
 
-            Setup failure is driven by a non-vector :on-create
-            (`resolve-on-create!` throws inside `setup-request-frame!`,
+            Setup failure is driven by a non-vector :initial-events
+            (`resolve-initial-events!` throws inside `setup-request-frame!`,
             which runs OUTSIDE the handler body's try/catch). The
             caller's :on-error then throws — exercising the one
             :on-error call site that the handler body's catch does not
@@ -2454,7 +2455,7 @@
             (throw (ex-info "boom in the caller's on-error — leaks JDBC URL etc."
                             {:internal :topology})))
           handler (ssr-ring/ssr-handler
-                    {:on-create '(:rf/server-init) ;; non-vector → setup throws
+                    {:initial-events '(:rf/server-init) ;; non-vector → setup throws
                      :root-view [:div]
                      :payload [:x]
                      :on-error throwing-on-error})
@@ -2502,7 +2503,7 @@
           (fn [_req _t]
             (throw (ex-info "boom in the caller's on-error" {:internal :topology})))
           handler (ssr-ring/ssr-handler
-                    {:on-create [:rf.test/init-bad-cookie]
+                    {:initial-events [[:rf.test/init-bad-cookie]]
                      :root-view [:div "hello"]
                      :payload :rf.ssr.payload/whole-app-db
                      :on-error throwing-on-error})
@@ -2558,7 +2559,7 @@
     (let [seen (capture-always-on-categories!)]
       (with-redefs [interop/debug-enabled? false]
         (let [handler  (ssr-ring/ssr-handler
-                         {:on-create [:init/ok]
+                         {:initial-events [[:init/ok]]
                           :root-view [:pages/render-throws]
                           :payload   :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/render-throws" :request-method :get})]
@@ -2582,7 +2583,7 @@
     (let [seen (capture-always-on-categories!)]
       (with-redefs [interop/debug-enabled? false]
         (let [handler  (ssr-ring/ssr-handler
-                         {:on-create [:init/seed-throwing-head-route]
+                         {:initial-events [[:init/seed-throwing-head-route]]
                           :root-view [:pages/head-throws-body]
                           :payload   :rf.ssr.payload/whole-app-db})
               response (handler {:uri "/head-throws" :request-method :get})]
@@ -2611,7 +2612,7 @@
     (let [seen (capture-always-on-categories!)]
       (with-redefs [interop/debug-enabled? false]
         (let [handler  (ssr-ring/ssr-handler
-                         {:on-create  [:init/ok]
+                         {:initial-events  [[:init/ok]]
                           :root-view  [:pages/broken-evt-hhutya]
                           :error-view (fn [_public]
                                         (throw (ex-info "error-view itself broke" {})))

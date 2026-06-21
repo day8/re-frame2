@@ -37,7 +37,7 @@
     1. `concurrent-streaming-requests-isolate-state` — N=8 threads each
        fire M=20 requests against one Jetty-hosted `stream-handler`.
        Every request encodes a unique token in its URI; the
-       `:on-create` event reads the URI via the `:rf.server/request`
+       `:initial-events` event reads the URI via the `:rf.server/request`
        cofx and writes the token into the per-request app-db; the root
        view subscribes to it and renders `<span data-rf-token=...>`.
        Invariants:
@@ -139,7 +139,7 @@
 ;; ===========================================================================
 ;;
 ;; Each request URI is `/req/<token>` where `<token>` is unique per
-;; (thread, iter). The :on-create event reads the request via the
+;; (thread, iter). The :initial-events event reads the request via the
 ;; :rf.server/request cofx (Spec 011 §Request storage substrate) and
 ;; stamps the token into THIS frame's app-db. The root view
 ;; subscribes to the token and renders it inline; if the rendered
@@ -205,7 +205,7 @@
                 " requests against stream-handler — no drops, no bleed, no orphan threads")
     (register-echo-handlers!)
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.ozhy9/init]
+                    {:initial-events [[:rf.test.ozhy9/init]]
                      :root-view [:rf.test.ozhy9/root]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -341,7 +341,7 @@
                 " concurrent disconnect-mid-stream — no orphan threads, no hangs")
     (register-echo-handlers!)
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.ozhy9/init]
+                    {:initial-events [[:rf.test.ozhy9/init]]
                      :root-view [:rf.test.ozhy9/root]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -422,7 +422,7 @@
   (testing "writer-thread count bounded during burst, decays to zero after"
     (register-echo-handlers!)
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.ozhy9/init]
+                    {:initial-events [[:rf.test.ozhy9/init]]
                      :root-view [:rf.test.ozhy9/root]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]

@@ -165,7 +165,7 @@
                   (fn [] [(keyword "has space")]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/ok-bad-tag]
+                    {:initial-events [[:init/ok-bad-tag]]
                      :root-view [:pages/bad-tag]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -220,7 +220,7 @@
     (rf/reg-view* :pages/render-throw
                   (fn [] [(keyword "render throw")]))
     (let [handler-a (ssr-ring/ssr-handler
-                      {:on-create [:init/ok-render-throw]
+                      {:initial-events [[:init/ok-render-throw]]
                        :root-view [:pages/render-throw]
                        :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler-a]
@@ -238,7 +238,7 @@
           (rf/reg-view* :pages/drain-throw
                         (fn [] [:div "drain-throw page renders"]))
           (let [handler-b (ssr-ring/ssr-handler
-                            {:on-create [:init/drain-throw]
+                            {:initial-events [[:init/drain-throw]]
                              :root-view [:pages/drain-throw]
                              :payload :rf.ssr.payload/whole-app-db})]
             (ts/with-jetty [port-b handler-b]
@@ -304,7 +304,7 @@
                   (fn [] [:div.page "rendered after projection"]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/bad-cookie]
+                    {:initial-events [[:init/bad-cookie]]
                      :root-view [:pages/bad-cookie-page]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -350,7 +350,7 @@
                   (fn [] [:div.page "rendered after projection"]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/bad-header]
+                    {:initial-events [[:init/bad-header]]
                      :root-view [:pages/bad-header-page]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -402,7 +402,7 @@
                        [:p "Bytes-on-wire e2e proof."]])))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/ok]
+                    {:initial-events [[:init/ok]]
                      :root-view [:pages/greeting]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]

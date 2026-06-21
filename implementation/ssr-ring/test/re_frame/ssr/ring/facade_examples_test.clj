@@ -91,10 +91,10 @@
       ;; registered) — proving the example is actually constructible.
       (rf/reg-event :init/facade-example {:platforms #{:server}} (fn [_ _] {}))
       (rf/reg-view* :pages/facade-example (fn [] [:div "facade example"]))
-      (is (= (assoc opts :on-create [:init/facade-example]
+      (is (= (assoc opts :initial-events [[:init/facade-example]]
                          :root-view [:pages/facade-example])
              (lifecycle/validate-construction-opts!
-               (assoc opts :on-create [:init/facade-example]
+               (assoc opts :initial-events [[:init/facade-example]]
                            :root-view [:pages/facade-example])))
           "the ssr-handler example opts map passes validate-construction-opts!"))))
 

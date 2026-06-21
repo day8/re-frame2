@@ -4,7 +4,7 @@
   The handler is a 4-step pipeline:
 
     1. `setup-request-frame!` — gensym frame-id, populate request slot,
-       register the per-request frame (which drains :on-create
+       register the per-request frame (which drains :initial-events
        synchronously). On failure, returns a {:short-circuit ring-resp}
        map so the outer pipeline emits the on-error response without
        attempting render.
@@ -151,7 +151,7 @@
   render).
 
   The slot is populated BEFORE `reg-frame` so the synchronous
-  `:on-create` drain can resolve the `:rf.server/request` cofx (Spec
+  `:initial-events` drain can resolve the `:rf.server/request` cofx (Spec
   011 §Request storage substrate). `make-frame` gensyms the id
   internally and would return only after the drain, so we inline its
   (gensym + reg-frame) shape here and call `ssr/set-request!` between
@@ -163,7 +163,7 @@
   may be registered in the `frames` atom (see frame.cljc — `swap!
   frames` happens before `dispatch-sync`), so the best-effort destroy
   is required even though `reg-frame` threw."
-  [{:keys [on-create fx-overrides ssr on-error]} request]
+  [{:keys [initial-events fx-overrides ssr on-error]} request]
   ;; rf2-joibj: the gensym prefix MUST start with a non-numeric
   ;; character. Per the EDN spec (https://github.com/edn-format/edn)
   ;; symbol / keyword identifier names cannot begin with a digit, and
@@ -185,23 +185,24 @@
                  :platform  :server
                  ;; EP-0027 (rf2-7ae2to): the SSR-ring runtime LOWERS its
                  ;; request-derived init into the `:initial-events` construction
-                 ;; vector — `:on-create` is retired in `reg-frame`. The public
-                 ;; `ssr-handler` `:on-create` API stays ergonomic (see
-                 ;; `resolve-on-create!`); per request it resolves to ONE event
-                 ;; vector, which is wrapped as the single `:initial-events` step
-                 ;; `[[resolved-event]]` (EP-0027 §SSR — "a server computes its
-                 ;; :initial-events vector per request").
+                 ;; vector — the frame-level on-create key is retired in
+                 ;; `reg-frame`. The public
+                 ;; `ssr-handler` `:initial-events` opt IS the EP-0027 setup
+                 ;; vector (see `resolve-initial-events!`); per request it
+                 ;; resolves to an `:initial-events` vector, passed verbatim into
+                 ;; the per-request frame's `:initial-events` (EP-0027 §SSR —
+                 ;; "a server computes its :initial-events vector per request").
                  ;;
-                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: an event-VECTOR `:on-create`
+                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: a VECTOR `:initial-events`
                  ;; passes through verbatim — handlers read the request via the
                  ;; `:rf.server/request` cofx (the spec-documented canonical
                  ;; surface for NON-durable reads). rf2-kzns7l (additive): a
-                 ;; `(fn [request] event-vector)` `:on-create` is resolved HERE —
-                 ;; the request slot is already populated (set-request! above),
-                 ;; so the fn derives the event vector from the live Ring
-                 ;; request, baking a request-derived fact into the boot event's
-                 ;; PAYLOAD (the replay-safe recordable boundary).
-                 :initial-events [(lifecycle/resolve-on-create! on-create request)]}
+                 ;; `(fn [request] initial-events-vector)` is resolved HERE — the
+                 ;; request slot is already populated (set-request! above), so the
+                 ;; fn derives the setup vector from the live Ring request, baking
+                 ;; a request-derived fact into a boot event's PAYLOAD (the
+                 ;; replay-safe recordable boundary).
+                 :initial-events (lifecycle/resolve-initial-events! initial-events request)}
           fx-overrides (assoc :fx-overrides fx-overrides)
           ssr          (assoc :ssr           ssr)))
       {:frame-id frame-id}
@@ -333,7 +334,7 @@
    {:keys [root-view emit-hash? version schema-digest payload
            html-shell content-type]
     :as   opts}]
-  ;; rf2-er7qx2 — SSR blocking-resource drain. AFTER the `:on-create` drain
+  ;; rf2-er7qx2 — SSR blocking-resource drain. AFTER the `:initial-events` drain
   ;; (which resolved the route + enqueued the route's blocking resource
   ;; ensures) and BEFORE the render walk, drain the current nav-token's
   ;; blocking resources until they settle or the render deadline fires. A

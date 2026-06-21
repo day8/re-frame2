@@ -96,7 +96,7 @@
 
 (defn- register-baseline-handlers!
   "Seed the canonical streaming test handlers used by every test: a
-  server `:on-create` event that lays down an articles/comments
+  server `:initial-events` event that lays down an articles/comments
   app-db, the matching subs, and a single root-view with one
   `:rf/suspense-boundary`. Tests that need a different root override
   by re-registering `:test/root` after this runs."
@@ -263,7 +263,7 @@
   (testing "abrupt client disconnect → writer terminates cleanly, no orphan daemon thread"
     (register-baseline-handlers!)
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.server/init]
+                    {:initial-events [[:rf.test.server/init]]
                      :root-view [:test/root]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -342,7 +342,7 @@
                            (throw (ex-info ":rf.test/intentional-root-view-throw"
                                            {:reason "shell-render fail-closed probe"})))
           handler        (ssr-ring/stream-handler
-                           {:on-create [:rf.test.server/init-min]
+                           {:initial-events [[:rf.test.server/init-min]]
                             :root-view throwing-root
                             :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
@@ -411,7 +411,7 @@
           {:id :test/parker :fallback [:p "loading"]}
           [:test/parking-section]]])
       (let [handler  (ssr-ring/stream-handler
-                       {:on-create [:rf.test.server/init]
+                       {:initial-events [[:rf.test.server/init]]
                         :root-view [:test/parking-root]
                         :payload :rf.ssr.payload/whole-app-db})
             response (handler {:uri "/" :request-method :get})
@@ -494,7 +494,7 @@
   (testing "rf2-z5azc — a cookie that throws at head materialisation
             (escaped the fx boundary) short-circuits to :on-error with
             NO writer thread spawned + NO orphaned pipe"
-    ;; :on-create sets a cookie whose :expires is a non-integer string.
+    ;; :initial-events sets a cookie whose :expires is a non-integer string.
     ;; The fx boundary (`validate-cookie!`) is a CR/LF/NUL injection gate
     ;; — it str-coerces every attribute and bans header-splitting chars,
     ;; but does NOT type-check :expires — so this cookie (no injection
@@ -517,7 +517,7 @@
             (for [i (range 4000)]
               ^{:key i} [:p (str "row-" i "-padding-padding-padding")])))
     (let [handler   (ssr-ring/stream-handler
-                      {:on-create [:rf.test.server/init-bad-cookie]
+                      {:initial-events [[:rf.test.server/init-bad-cookie]]
                        :root-view [:test/big-root]
                        :payload :rf.ssr.payload/whole-app-db})
           ;; Direct handler call (no Jetty needed — the throw is on the
@@ -591,7 +591,7 @@
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.server/init-min]
+                    {:initial-events [[:rf.test.server/init-min]]
                      :root-view [:test/uses-throwing-sub]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
@@ -656,7 +656,7 @@
         [:test/wire-outer]]
        [:footer "End"]])
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.server/init-nested]
+                    {:initial-events [[:rf.test.server/init-nested]]
                      :root-view [:test/wire-nested-root]
                      :payload :rf.ssr.payload/whole-app-db})]
       (ts/with-jetty [port handler]
