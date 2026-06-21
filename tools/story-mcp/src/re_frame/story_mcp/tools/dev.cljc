@@ -164,9 +164,9 @@
                         :app-db       (egress/elide-app-db raw-db vk incl?)
                         :assertions   assertions
                         :checks       (vec (:checks outcome))
-                        ;; Derived trees re-key the same sensitive value at a
-                        ;; non-app-db path, so the path-based walker can't
-                        ;; reach them — value-redact instead.
+                        ;; Derived trees are PATH-projected through scrub-rendered:
+                        ;; a value AT a classified path redacts, a re-keyed copy
+                        ;; ships raw (EP-0025 fail-open).
                         :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
                         :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
                         :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
@@ -214,7 +214,7 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are value-scrubbed on BOTH egress axes against the same frame declarations: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, and a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the value reappears there at a non-app-db path the path walker can't reach; sensitive wins where both apply). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :rendered-hiccup [...]}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "

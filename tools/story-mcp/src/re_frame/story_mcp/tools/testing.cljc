@@ -64,15 +64,16 @@
     :schema-violations / :warnings / :effects / :sub-runs / :renders /
     :narrative          the .4 evidence-slot projections (one tape, one
                         projection); ALL value-bearing — each is
-                        value-redacted at egress (:narrative's
-                        per-beat :db-before/:db-after, :warnings trace
-                        events, :sub-runs sub :value all carry app-db
-                        slices that would otherwise ship sensitive
-                        values off-box raw)
+                        PATH-projected at egress (EP-0025 fail-open: a value
+                        AT a classified path redacts; a value re-keyed into
+                        :narrative beats / :warnings / :sub-runs at a
+                        non-app-db position ships RAW — classify the app-db
+                        PATH to redact it at the source)
     :app-db             post-run app-db, elided at egress
-    :rendered-hiccup / :snapshot  value-scrubbed derived trees
-                                  (sensitive -> :rf/redacted, large ->
-                                   :rf.size/large-elided)
+    :rendered-hiccup / :snapshot  PATH-projected derived trees (EP-0025
+                                  fail-open: value at a classified path ->
+                                  :rf/redacted / :rf.size/large-elided; a
+                                  re-keyed copy ships raw)
     :elapsed-ms         wall-clock run time
     :cannot-run         present iff the run carried :cannot-run refusals
 
@@ -119,16 +120,15 @@
                               :consumed-selectors (:consumed-selectors outcome #{})
                               ;; Evidence-slot projections (.4 — one tape, one
                               ;; projection). Every value-bearing slot is
-                              ;; value-redacted against the frame's declared-
-                              ;; sensitive values, same as :rendered-hiccup —
-                              ;; a secret reappears there at a non-app-db path
-                              ;; the path walker can't reach.
-                              ;; :narrative is a two-level evidence tree whose
-                              ;; inner beats carry :db-before/:db-after FULL
-                              ;; app-db snapshots; :warnings are trace-event
-                              ;; records; :sub-runs carry subscription :value —
-                              ;; all three egressed RAW would ship a declared-
-                              ;; sensitive value off-box verbatim. scrub-rendered
+                              ;; PATH-projected against the frame's
+                              ;; classification, same as :rendered-hiccup.
+                              ;; EP-0025 FAIL-OPEN: :narrative beats carry
+                              ;; :db-before/:db-after FULL app-db snapshots,
+                              ;; :warnings are trace-event records, :sub-runs
+                              ;; carry subscription :value — a secret re-keyed
+                              ;; into any of these non-app-db positions ships
+                              ;; RAW (value-match removed; classify the app-db
+                              ;; PATH to redact at the source). scrub-rendered
                               ;; recurses the nested trees and the gate stays
                               ;; symmetric (incl? true forwards raw).
                               :schema-violations  (egress/scrub-rendered (:schema-violations outcome) raw-db vk incl?)
@@ -137,8 +137,9 @@
                               :sub-runs           (egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
                               :renders            (egress/scrub-rendered (:renders outcome) raw-db vk incl?)
                               :narrative          (egress/scrub-rendered (:narrative outcome) raw-db vk incl?)
-                              ;; Derived trees re-key the same sensitive value
-                              ;; at a non-app-db path — value-redact.
+                              ;; Derived trees: PATH-projected. A value AT a
+                              ;; classified path redacts; a re-keyed copy ships
+                              ;; raw (EP-0025 fail-open).
                               :rendered-hiccup    (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
                               :elapsed-ms         (:elapsed-ms outcome)
                               :snapshot           (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
@@ -200,17 +201,17 @@
   Each axe-core violation NODE carries `:html` (the violating element's
   outerHTML), `:target` (CSS selectors) and `:failureSummary`; a sensitive
   value rendered into the DOM (`<input value=\"<token>\">`, a `data-*`
-  attribute, a PII text node) lands verbatim in node `:html`. So
-  `:violations` is value-scrubbed against the variant frame's frame
-  declarations via `egress/scrub-frame-value` — on BOTH egress axes: a leaf
-  equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf
-  equal to a declared-`:large` value becomes the `:rf.size/large-elided`
-  marker (the SAME value-based scrub `explain-variant` / `record-as-variant`
-  and the live-state tools apply; every Story-MCP payload crosses elided;
-  nothing raw). Fail-closed by default; pass `:include-sensitive true` to opt out
-  (gated by `--allow-sensitive-reads`, per spec/Tool-Pair.md §Direct-read
-  privacy posture). `read-a11y-violations` is `:readOnlyHint true` (agent
-  hosts auto-approve it), so an unscrubbed runtime read here is the wrong shape."
+  attribute, a PII text node) lands verbatim in node `:html`.
+  `:violations` is PATH-projected against the variant frame's classification
+  via `egress/scrub-frame-value` — on BOTH egress axes — the SAME PATH-based
+  projection `explain-variant` / `record-as-variant` and the live-state tools
+  apply. EP-0025 FAIL-OPEN: a value rendered into a node `:html` is a RE-KEYED
+  DOM position the classification path cannot reach, so it ships RAW
+  (value-match removed; classify the app-db PATH to redact a value before it
+  reaches the DOM). Pass `:include-sensitive true` to opt out (gated by
+  `--allow-sensitive-reads`, per spec/Tool-Pair.md §Direct-read privacy
+  posture). `read-a11y-violations` is `:readOnlyHint true` (agent hosts
+  auto-approve it)."
   [arguments]
   (targs/with-variant-id arguments
     (fn [vk]
@@ -290,7 +291,7 @@
   "Testing-category descriptors, in IMPL-SPEC §7.2 order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are value-scrubbed on BOTH egress axes against the same frame declarations: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the value reappears there at a non-app-db path the path walker can't reach — `:narrative` beats carry full `:db-before` / `:db-after` snapshots; sensitive wins where both apply). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
@@ -341,7 +342,7 @@
 
    {:name           "read-a11y-violations"
     :category       :testing
-    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is value-scrubbed against the variant frame's frame declarations by default — on BOTH egress axes: a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker (the same scrub `run-variant` / `explain-variant` apply); pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is PATH-projected against the variant frame's classification by default — on BOTH egress axes — the same projection `run-variant` / `explain-variant` apply. EP-0025 FAIL-OPEN: a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW (value-match removed; classify the app-db PATH to redact a value before it reaches the DOM). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
                          "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "

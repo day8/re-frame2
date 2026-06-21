@@ -486,40 +486,40 @@
     (rf/elide-wire-value v {:frame frame-id})))
 
 (defn- maybe-redact-derived
-  "Value-redact a DERIVED `tree` (rendered DOM text / an attribute map / a
+  "PATH-project a DERIVED `tree` (rendered DOM text / an attribute map / a
   focus descriptor) for off-box egress.
 
-  The path-based `elide-wire-value` walker redacts by DECLARED app-db path —
-  but rendered DOM text / attribute values sit at a NON-app-db position the
-  path walker can never reach, so a secret copied from a declared-sensitive
-  app-db slot into the DOM would ride off-box RAW. The framework boundary
-  `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind
-  (EP-0025 B4, rf2-ojp8pi) — is the value-based DUAL: it collects the live
-  values at the frame's declared-`:sensitive?` (and -`:large`) paths from the
-  frame's app-db (with the non-unique-secret guard, classified against the
-  elided wire bytes) and substitutes any matching leaf in `tree` with
-  `:rf/redacted` (or the `:rf.size/large-elided` marker), reading the SAME
-  per-frame classification registry the path walker reads (frame- / marks- /
-  EP-0025-commit-plane-effect-sourced declarations, unioned). This is the SAME
-  boundary Story-MCP routes its rendered hiccup / `:effective-args` through.
+  The path-based `elide-wire-value` walker redacts by DECLARED app-db path.
+  Rendered DOM text / attribute values that sit AT a classified path within
+  `tree` redact; values RE-KEYED to a non-app-db position the path walker can
+  never reach ship RAW. The framework boundary `re-frame.core/project-egress`
+  — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — walks
+  the tree through `elide-wire-value` against the frame's classification (the
+  SAME per-frame registry the `:app-db` path walker reads: frame- /
+  EP-0025-commit-plane-effect- / flow-sourced declarations, unioned).
+
+  EP-0025 FAIL-OPEN: the value-match (taint-by-equality) engine is REMOVED — a
+  secret copied from a declared-sensitive app-db slot into a non-app-db DOM
+  position ships off-box RAW. This is INTENDED (hygiene, not a guarantee); to
+  keep a value out of rendered content, classify its app-db PATH so it is
+  redacted at the source before a view renders it. This is the SAME boundary
+  Story-MCP routes its rendered hiccup / `:effective-args` through.
 
   Gate posture mirrors `maybe-elide-sample` / the MCP read surfaces:
 
   - Gate OFF (`:allow-raw-state? false`, the published-build default the MCP
     server signals via `configure-raw-state!` when its boot gate is OFF): the
-    tree is value-redacted against the frame's secrets under the
-    `:rf.egress/off-box-tool` profile. A secret rendered into the DOM lands as
-    `:rf/redacted` before crossing the off-box wire.
+    tree is PATH-walked under the `:rf.egress/off-box-tool` profile. A secret
+    AT a classified path within the tree lands as `:rf/redacted`; a re-keyed
+    copy ships raw (fail-open).
   - Gate ON (`--allow-sensitive-reads`): the operator's deliberate trusted-
     local raw read — `project-egress` under `:rf.egress/local-raw` passes the
-    tree through verbatim (the value-dual of the size walker's opt-out).
+    tree through verbatim.
 
   `project-egress` resolves the off-box-tool profile to the egress floor and
   reads the frame's live app-db itself (the derived-tree record's default
-  `:source-db`) as the secret source — byte-identical to what the path-based
-  `:app-db` egress ships under, so the non-unique-secret guard reasons about
-  the same wire bytes. A nil `tree` / nil source / no declared-sensitive
-  values short-circuits to `tree` unchanged (handled inside the boundary)."
+  `:source-db`). A nil `tree` / non-live frame short-circuits to `tree`
+  unchanged (handled inside the boundary)."
   [tree frame-id]
   (rf/project-egress
     {:kind  :rf.observe/derived-tree
@@ -3597,10 +3597,11 @@
        {:ok?  false :reason :no-target-arg
         :hint "pass exactly one of :view-id, :point {:x N :y N}, or :selector"}
 
-       ;; Fail CLOSED: off-box posture needs a frame to source the secret
-       ;; set for value-redaction; an ambiguous frame can't pick one, so
-       ;; refuse rather than ship raw content (acceptance: never synthesise
-       ;; :rf/default).
+       ;; Fail CLOSED: off-box posture needs a frame to source the PATH-based
+       ;; classification; an ambiguous frame can't pick one, so refuse rather
+       ;; than ship content with no frame to project against (acceptance:
+       ;; never synthesise :rf/default). NB EP-0025: the projection is
+       ;; path-based — a re-keyed DOM secret ships raw even with a frame.
        (and (not gate-on?) (nil? frame-id))
        (ambiguous-frame-error :read-ui)
 
@@ -3775,13 +3776,14 @@
 
    The `:dom` / `:focus` arms are DERIVED reads: a node's
    textContent / attribute / focus descriptor can carry a secret copied out
-   of a declared-sensitive app-db slot, a NON-app-db position the path-based
-   elider can't reach. They are value-redacted via `maybe-redact-derived`
-   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary) against the frame's secrets under
-   the off-box gate — the value-based dual of the `:app-db` / `:sub` elision.
-   `start-recording!` / `watch-until` refuse a `:dom` / `:focus` signal under
-   the off-box gate when no frame resolves (the secret source can't be
-   picked), so `frame-id` is non-nil here whenever redaction is required."
+   of a declared-sensitive app-db slot into a NON-app-db position. They are
+   PATH-projected via `maybe-redact-derived` (`re-frame.core/project-egress`,
+   the :rf.observe/derived-tree boundary). EP-0025 FAIL-OPEN: value-match is
+   removed, so a RE-KEYED secret in a `:dom` / `:focus` sample ships RAW —
+   classify its app-db PATH to redact it at the source. `start-recording!` /
+   `watch-until` still refuse a `:dom` / `:focus` signal under the off-box
+   gate when no frame resolves (no frame to project against), so `frame-id` is
+   non-nil here whenever the projection runs."
   ([signal frame-id] (sample-one-signal signal frame-id nil))
   ([signal frame-id elide-opts]
   (try

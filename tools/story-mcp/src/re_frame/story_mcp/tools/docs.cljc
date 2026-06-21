@@ -303,9 +303,10 @@
 
 (def ^:private explain-value-bearing-slots
   "The `explain` map slots that carry RUNTIME-RESOLVED / SEEDED VALUES
-  — the slots a value-redaction step
-  must scrub against the variant frame's declared-sensitive values before
-  the explain payload crosses the AI/off-box boundary:
+  — the slots the PATH-based projection (`scrub-explain-values`, EP-0025
+  fail-open) walks against the variant frame's classification before the
+  explain payload crosses the AI/off-box boundary (a value at a classified
+  path redacts; a re-keyed copy ships raw):
 
   - `:effective-args` / `:args` / `:substitutions` — the post-resolution
     arg map(s); a sensitive arg lands its value here.
@@ -344,23 +345,23 @@
    :sub-overrides :setup-order :script-order])
 
 (defn- scrub-explain
-  "Value-scrub the runtime/seeded VALUE slots of an `explain` map against
-  `variant-id`'s frame declarations — on BOTH egress axes
-  (EP-0015 peer axes): a leaf equal to a declared-`:sensitive?`
-  value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value
-  becomes the `:rf.size/large-elided` marker (sensitive wins where both
-  apply). Plan-structure slots pass through untouched — they are
-  author-published discovery metadata. `include?` opts out (the
-  `--allow-sensitive-reads` + per-call escape hatch).
+  "PATH-project the runtime/seeded VALUE slots of an `explain` map against
+  `variant-id`'s classification — on BOTH egress axes (EP-0015 peer axes).
+  EP-0025 FAIL-OPEN: a value AT a classified path within a slot redacts to
+  `:rf/redacted` / elides to `:rf.size/large-elided`; a value RE-KEYED to a
+  non-matching position ships RAW (value-match removed — classify the app-db
+  PATH to redact a value before it is re-surfaced). Plan-structure slots pass
+  through untouched — they are author-published discovery metadata.
+  `include?` opts out (the `--allow-sensitive-reads` + per-call escape hatch).
 
-  Delegates to `egress/scrub-explain-values`, which collects candidate
-  secrets from BOTH the live variant-frame app-db AND the plan's own
-  `:db-seed` slot. The plan-`:db-seed` source is the FAIL-CLOSED pre-frame
-  path: `explain-variant` is a no-run path a caller can hit
-  before any run allocates the frame, so a secret authored into `:db-seed`
-  (and re-surfaced in `:effective-args` / `:network` / a step payload)
-  must be value-matched against the plan's own seed, not just a live
-  app-db that does not yet exist."
+  Delegates to `egress/scrub-explain-values`, which PATH-walks each named
+  value slot at the variant frame's declared-sensitive paths. EP-0025
+  FAIL-OPEN: a slot whose shape mirrors the app-db (the `:db-seed` itself)
+  redacts at the matching path even pre-frame (the durable classification is
+  live from `reg-frame` time); a value RE-KEYED into `:effective-args` /
+  `:network` / a step payload at a non-matching position ships RAW. The
+  value-match (taint) engine that used to chase re-keyed copies is removed —
+  classify the app-db PATH to redact a value before it is re-surfaced."
   [explain variant-id include?]
   (egress/scrub-explain-values explain variant-id explain-value-bearing-slots include?))
 
@@ -386,16 +387,15 @@
   `:sub-overrides` override values / `:setup-order` + `:script-order` step
   payloads can carry a declared-sensitive value (a seeded token, a stubbed
   PII reply, a control-driven override, a setup-dispatched secret). Those
-  value-bearing slots are value-redacted against the variant frame's
-  declared-sensitive values at egress via
-  `egress/scrub-frame-value` — the SAME value-based redaction the live
-  tools apply to their derived trees. `:sub-overrides` /
-  `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME
-  `substitute-args` that feeds `:substitutions`) so they are scrubbed too;
-  the value-only redaction preserves their public step STRUCTURE. The
-  remaining plan-STRUCTURE slots (`:source-chain` / `:parent-chain` /
-  `:compose` / `:merge` / `:strict-conflicts` / `:tags` / …) are
-  author-published discovery metadata and pass through unredacted.
+  value-bearing slots are PATH-walked against the variant frame's
+  declared-sensitive paths at egress via `egress/scrub-explain-values` — the
+  SAME PATH-based projection the live tools apply to their derived trees.
+  EP-0025 FAIL-OPEN: a value at a classified path within a slot redacts; a
+  RE-KEYED copy ships RAW (the value-match engine is removed). The
+  plan-STRUCTURE is always preserved (it always was). The remaining
+  plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` /
+  `:merge` / `:strict-conflicts` / `:tags` / …) are author-published
+  discovery metadata and pass through unredacted.
   The `:extends`-resolved variant body is already public via
   `get-variant` / `variant->edn`; this adds the plan-compiler's
   source/merge/lowering reasoning on top. Pass `:include-sensitive true`
@@ -653,7 +653,7 @@
 
    {:name           "explain-variant"
     :category       :docs
-    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. The plan-STRUCTURE slots are public discovery metadata, but the runtime-RESOLVED VALUE slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed`) are value-scrubbed against the variant frame's frame declarations at egress on BOTH axes (rf2-12f2q, rf2-9o5ixx): a leaf equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value becomes the `:rf.size/large-elided` marker; pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). The agent mirror of the human Explain panel (rf2-ba86n.17). "
+    :description    (str "The variant-plan `:explain` projection for a variant — the SAME data the human Explain panel renders (spec/017 §Explain API). Answers 'why did the plan resolve this way': the `:extends` source/parent chain, resolved `:compose` fragments/checks, `:strict-conflicts` (winning + losing sources + the deciding rule), the per-field `:merge` rules, `:args` / `:substitutions` / `:effective-args`, view-arg schema + validation, `:network` route stubs + their lowered fx, `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`, `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`. The plan-STRUCTURE slots are public discovery metadata, but the runtime-RESOLVED VALUE slots (`:effective-args` / `:args` / `:substitutions` / `:network` route replies / `:db-seed`) are PATH-projected against the variant frame's classification at egress on BOTH axes (rf2-12f2q; EP-0025 fail-open). A value AT a classified path within a slot redacts (a `:db-seed` mirroring app-db reaches its path), but a value RE-KEYED to a non-matching position ships RAW — value-match was removed; classify the app-db PATH to redact a value before it is re-surfaced. Pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). The agent mirror of the human Explain panel (rf2-ba86n.17). "
                          "Examples: "
                          "1. Plain variant: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :explain {:source-chain [:story.cart/full] :parent-chain [] :compose [] :strict-conflicts [] :effective-args {...} :required-runner #{} ...}}. "
                          "2. Extends + compose: {:variant-id \":story.cart/full-with-discount\"} -> {:explain {:source-chain [:story.cart/full :story.cart/full-with-discount] :parent-chain [:story.cart/full] :compose [{:kind :fragment :id :frag/logged-in}] ...}}. "

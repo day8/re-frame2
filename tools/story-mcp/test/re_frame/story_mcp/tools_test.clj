@@ -2791,16 +2791,24 @@
               "nested sensitive slot rides through"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Derived-tree wire-egress redaction.
+;; Derived-tree wire-egress redaction — EP-0025 FAIL-OPEN posture.
 ;;
-;; `elide-app-db` scrubs the `:app-db` slot by PATH. But the same sensitive
-;; value reappears, verbatim, in `:rendered-hiccup` / `:effective-args` /
-;; `:snapshot` — at a hiccup-tree position the path-based walker can't reach.
-;; `scrub-rendered` closes that leak by VALUE: it collects the live values at
-;; the frame's declared-`:sensitive?` paths and substitutes any matching leaf
-;; in the derived tree with `:rf/redacted`. These tests pin that a redacted
-;; value MUST NOT appear in the rendered-hiccup wire output, and that the
-;; `:include-sensitive` opt-out forwards it.
+;; `elide-app-db` scrubs the `:app-db` slot by PATH. When the SAME sensitive
+;; value is re-keyed into `:rendered-hiccup` / `:effective-args` / `:snapshot`
+;; — at a hiccup-tree position NOT at the declared app-db path — the
+;; path-based walker is structurally blind to it. EP-0025 removed the
+;; value-match (taint-by-equality) redaction that used to scrub such re-keyed
+;; copies (§"What is removed": value-match is propagation/taint by another
+;; name, which a hygiene helper does not earn). `scrub-rendered` now projects
+;; the tree through `re-frame.core/project-egress`'s PATH-BASED
+;; `:rf.observe/derived-tree` record: a value AT a classified app-db path that
+;; happens to also occupy that path in the derived tree redacts, but a
+;; RE-KEYED copy at a non-app-db position ships RAW. This is the INTENDED
+;; FAIL-OPEN posture — hygiene, not a guarantee. A consumer that needs a value
+;; redacted in a derived tree must classify its app-db PATH.
+;;
+;; These tests pin the SHIPPED behavior: a re-keyed value ships raw
+;; (fail-open), and the `:include-sensitive` opt-out is a pass-through too.
 ;; ---------------------------------------------------------------------------
 
 (defn- tree-contains?
@@ -2829,12 +2837,14 @@
     (coll? tree) (boolean (some tree-contains-marker? tree))
     :else        false))
 
-(deftest scrub-rendered-redacts-sensitive-value-in-derived-tree
-  (testing "a value at a declared-sensitive app-db path is redacted wherever it appears in the derived tree"
+(deftest scrub-rendered-re-keyed-sensitive-ships-raw-fail-open
+  (testing "EP-0025 FAIL-OPEN: a sensitive value RE-KEYED into a derived tree at a non-app-db position ships RAW — value-match redaction was removed"
     (with-clean-frame [vid :story.button/primary]
       (let [db    {:public "ok" :token "TOPSECRET"}
-            ;; A rendered hiccup tree that embeds the sensitive value at
-            ;; a non-app-db position (an attribute value + a text node).
+            ;; A rendered hiccup tree that re-keys the sensitive value to a
+            ;; non-app-db position (an attribute value + a text node). The
+            ;; declared app-db path is [:token]; in the hiccup the value sits
+            ;; at [1 :value] / [2 2], which the PATH walker cannot reach.
             hiccup [:div {:class "card"}
                     [:input {:type "password" :value "TOPSECRET"}]
                     [:span "label: " "TOPSECRET"]]]
@@ -2842,14 +2852,35 @@
         (declare-sensitive! vid [:token])
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out "TOPSECRET"))
-              "the sensitive value MUST NOT survive anywhere in the derived tree")
-          (is (tree-contains? out :rf/redacted)
-              "matching leaves are replaced with the :rf/redacted sentinel")
+          (is (tree-contains? out "TOPSECRET")
+              "EP-0025 fail-open: the re-keyed value ships RAW (no value-match) — classify the app-db PATH to redact")
+          (is (not (tree-contains? out :rf/redacted))
+              "the path-based walk finds nothing to redact at the re-keyed positions — no sentinel")
           (is (tree-contains? out "label: ")
               "non-sensitive leaves are preserved")
           (is (= "card" (get-in out [1 :class]))
               "benign attribute values survive untouched"))))))
+
+(deftest scrub-rendered-value-at-classified-path-redacts
+  (testing "PATH-based redaction DOES hold: a derived tree that is itself the frame's app-db slice (the value at the classified PATH) redacts through the egress walk"
+    (with-clean-frame [vid :story.button/primary]
+      ;; When the derived tree carries the classified value AT its declared
+      ;; path (not re-keyed) — e.g. the egress projects the app-db slice — the
+      ;; PATH walker redacts it. This is the redaction story-mcp still
+      ;; guarantees post-purge.
+      (let [db   {:public "ok" :auth {:token "TOPSECRET"}}]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:auth :token])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              ;; The tree IS the app-db value — [:auth :token] is at its
+              ;; classified path, so the path walk reaches and redacts it.
+              out            (scrub-rendered db db vid false)]
+          (is (= :rf/redacted (get-in out [:auth :token]))
+              "a value at its declared app-db path redacts through the path walk")
+          (is (not (tree-contains? out "TOPSECRET"))
+              "the classified-path value MUST NOT survive")
+          (is (= "ok" (:public out))
+              "benign sibling slots survive untouched"))))))
 
 (deftest scrub-rendered-include?-true-forwards-raw-value
   (testing ":include? true bypasses the value-redaction walk entirely"
@@ -2866,43 +2897,41 @@
               "the opt-out forwards the raw sensitive value"))))))
 
 (deftest scrub-rendered-no-declarations-is-noop
-  (testing "with no declared-sensitive paths the tree is returned unwalked"
+  (testing "with no declared-sensitive paths the tree's VALUE is unchanged (path walk finds nothing to redact)"
     (with-clean-frame [vid :story.button/primary]
       (let [db     {:public "ok"}
             hiccup [:span "ok"]]
         (seed-app-db! vid db)
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
-          (is (identical? hiccup out)
-              "no secrets ⇒ no walk, input ref returned"))))))
+          (is (= hiccup out)
+              "no declarations ⇒ the path walk redacts nothing; the tree value is unchanged")
+          (is (not (tree-contains? out :rf/redacted))
+              "no sentinel is introduced"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Value-redaction over-scrub guard.
+;; EP-0025 FAIL-OPEN: no value-match ⇒ no over-scrub, no under-scrub.
 ;;
-;; The value-based walk substitutes EVERY derived-tree leaf `=` a
-;; declared-sensitive value. When a sensitive path holds a short/common
-;; scalar (`0`, `200`, `:ok`), naive matching scrubs every benign leaf that
-;; merely equals it — degrading the agent's view AND leaking the secret's
-;; value-CLASS. `sensitive-values` guards that: a candidate value that ALSO
-;; appears, verbatim, in the POST-elision `:app-db` (the actual wire bytes)
-;; is dropped from the secret set, because the path-based `:app-db` egress
-;; already ships that value (it is provably already disclosed, so excluding
-;; it leaks nothing new). These tests pin BOTH the precision win AND the
-;; fail-SAFE invariant (a value that is UNIQUELY secret — absent from the
-;; elided db — stays redacted).
+;; The pre-EP-0025 value-based walk substituted EVERY derived-tree leaf `=` a
+;; declared-sensitive value, and needed an over-scrub guard (a short/common
+;; scalar like `0` shipped at a benign path was dropped from the secret set so
+;; benign leaves equal to it survived). EP-0025 REMOVED value-match entirely:
+;; a re-keyed copy ships RAW, so there is no over-scrub to guard against AND no
+;; under-scrub guarantee to keep. These tests pin the SHIPPED reality — benign
+;; leaves are never scrubbed (no value-match), and a uniquely-secret value
+;; re-keyed off its app-db path ships raw (fail-open; classify the PATH to
+;; redact).
 ;; ---------------------------------------------------------------------------
 
-(deftest scrub-rendered-short-scalar-aliased-to-public-path-is-not-over-scrubbed
-  (testing "a short sensitive scalar that ALSO sits at a non-sensitive app-db path is provably public — benign leaves equal to it survive"
+(deftest scrub-rendered-benign-leaf-equal-to-secret-is-never-scrubbed
+  (testing "EP-0025 fail-open: no value-match ⇒ a benign leaf that merely EQUALS a sensitive scalar is never scrubbed (no over-scrub, the heuristic is gone)"
     (with-clean-frame [vid :story.button/primary]
-      ;; :http-status is sensitive and holds 0; :retry-count holds the SAME
-      ;; scalar 0 at a NON-sensitive path, so 0 is already shipped verbatim
-      ;; by the path-based :app-db egress — it is not a protectable secret.
+      ;; :http-status is sensitive and holds 0; the derived tree has many
+      ;; benign 0 leaves (tab-index, aria level). The removed value-match
+      ;; would have had to GUARD against scrubbing these; with no value-match
+      ;; they trivially survive.
       (let [db     {:http-status 0          ; sensitive path
-                    :retry-count 0           ; benign path, same scalar
                     :public      "ok"}
-            ;; Derived tree with many benign leaves equal to 0 (a tab-index,
-            ;; an aria level, a count) that the naive walk would have scrubbed.
             hiccup [:ul {:tabindex 0}
                     [:li {:data-level 0} "first"]
                     [:li {:data-level 0} "second"]]]
@@ -2911,21 +2940,18 @@
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
           (is (not (tree-contains? out :rf/redacted))
-              "0 appears at a non-sensitive app-db path, so it is dropped from the secret set — no benign 0 leaf is over-scrubbed")
+              "no value-match ⇒ no benign 0 leaf is scrubbed (no over-scrub)")
           (is (= 0 (get-in out [1 :tabindex]))
               "benign 0 attribute values survive untouched")
           (is (= 0 (get-in out [2 1 :data-level]))
-              "benign 0 leaves deep in the tree survive")
-          (is (identical? hiccup out)
-              "with no remaining secrets the tree is returned unwalked"))))))
+              "benign 0 leaves deep in the tree survive"))))))
 
-(deftest scrub-rendered-uniquely-secret-short-scalar-stays-redacted
-  (testing "FAIL-SAFE: a short scalar that sits ONLY at the sensitive path (no benign alias) is still redacted — no under-scrub"
+(deftest scrub-rendered-uniquely-secret-scalar-re-keyed-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a uniquely-secret scalar RE-KEYED into a non-app-db tree position ships RAW — value-match (taint) was removed"
     (with-clean-frame [vid :story.button/primary]
-      ;; The sensitive scalar 7 is UNIQUE to the sensitive path — it does NOT
-      ;; appear at any non-sensitive app-db path, so the guard must keep it in
-      ;; the secret set. (Over-scrub of any benign 7 elsewhere is the
-      ;; irreducible value-aliasing residual and is fail-SAFE.)
+      ;; 7 is unique to the sensitive path; in the hiccup it sits at [1 :value]
+      ;; (a non-app-db position). Pre-EP-0025 value-match redacted it; now the
+      ;; path walker is blind to the re-keyed copy and it ships raw.
       (let [db     {:pin    7
                     :public "ok"}
             hiccup [:input {:type "password" :value 7}]]
@@ -2933,155 +2959,94 @@
         (declare-sensitive! vid [:pin])
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out 7))
-              "the uniquely-secret scalar 7 MUST NOT survive on the wire (no under-scrub)")
-          (is (= :rf/redacted (get-in out [1 :value]))
-              "the sensitive leaf is replaced with the :rf/redacted sentinel"))))))
+          (is (= 7 (get-in out [1 :value]))
+              "fail-open: the re-keyed value ships raw — classify the app-db PATH to redact")
+          (is (not (tree-contains? out :rf/redacted))
+              "no value-match ⇒ the re-keyed leaf carries no sentinel"))))))
 
-(deftest scrub-rendered-genuine-long-secret-still-redacted
-  (testing "FAIL-SAFE regression: a genuinely-sensitive long secret on its path is still fully redacted (the guard does not weaken distinctive-secret redaction)"
+(deftest scrub-rendered-genuine-long-secret-re-keyed-ships-raw-fail-open
+  (testing "EP-0025 fail-open: even a distinctive long secret re-keyed into a derived tree ships RAW — fail-open is value-class-agnostic"
     (with-clean-frame [vid :story.button/primary]
-      (let [db     {:public "ok"
-                    :token  "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"}
+      (let [secret "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"
+            db     {:public "ok"
+                    :token  secret}
             hiccup [:div {:class "card"}
-                    [:input {:type "password"
-                             :value "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"}]
-                    [:span "token: " "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"]]]
+                    [:input {:type "password" :value secret}]
+                    [:span "token: " secret]]]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:token])
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"))
-              "the distinctive long secret MUST NOT survive anywhere in the derived tree")
-          (is (tree-contains? out :rf/redacted)
-              "matching leaves are replaced with the :rf/redacted sentinel")
+          (is (tree-contains? out secret)
+              "fail-open: the distinctive secret re-keyed off its path ships raw (no value-match)")
+          (is (not (tree-contains? out :rf/redacted))
+              "no sentinel — the path walk reaches none of the re-keyed positions")
           (is (= "card" (get-in out [1 :class]))
               "benign attribute values survive untouched"))))))
 
 ;; ---------------------------------------------------------------------------
-;; :large?-blind under-scrub guard.
+;; Path-based :app-db egress STILL redacts — the guarantee that survives.
 ;;
-;; The over-scrub guard drops any candidate that ALSO appears at a
-;; non-sensitive app-db path, on the premise that elide-app-db ships such a
-;; value verbatim. That premise is FALSE for a :large?-declared non-sensitive
-;; path: elide-wire-value replaces the slot with the :rf.size/large-elided
-;; marker, so the value is NOT on the wire. Classifying "public" against the
-;; RAW db would see the secret at the :large? position, classify it public,
-;; and drop it from the secret set — leaking it VERBATIM into the derived
-;; trees. So the guard classifies against the POST-elision :app-db (the
-;; actual wire bytes), and a value masked by ANY elision class stays
-;; redacted. These tests pin the no-under-scrub invariant on the in-scope
-;; MCP egress.
+;; EP-0025 removed value-match, but the path-based :app-db egress is KEPT and
+;; intact. A value AT its declared :sensitive / :large app-db path is redacted
+;; / elided in the :app-db slice. These tests pin the redaction story-mcp
+;; still guarantees — `elide-app-db` over the live frame slice.
 ;; ---------------------------------------------------------------------------
 
-(deftest scrub-rendered-secret-aliased-into-large-subtree-stays-redacted
-  (testing "FAIL-SAFE (rf2-f3kf7): a secret at a sensitive path that ALSO lives inside a :large?-declared subtree MUST stay redacted — the :large? slot is the marker on the wire, NOT the verbatim value, so it does not license dropping the secret"
+(deftest elide-app-db-sensitive-and-large-paths-redact-and-elide
+  (testing "PATH-based :app-db egress redacts a sensitive path and elides a large path (the kept guarantee)"
     (with-clean-frame [vid :story.button/primary]
-      ;; The repro: the token sits at sensitive [:auth :token] AND nested in
-      ;; [:cache :blob], which is :large?-declared. The :app-db egress ships
-      ;; [:cache :blob] as the :rf.size/large-elided marker (token NOT
-      ;; disclosed), so the token must remain a protected secret everywhere.
       (let [token  "sk-live-DISTINCTIVE-TOPSECRET-9f8a7b6c"
             db     {:public "ok"
                     :auth   {:token token}
-                    :cache  {:blob {:size 9001 :payload token}}}
-            ;; Derived trees re-embed the token at non-app-db positions
-            ;; (narrative :db-before/:after, rendered hiccup, snapshot).
-            hiccup [:div [:input {:type "password" :value token}]
-                    [:span "narrative db-before: " token]]]
+                    :cache  {:blob {:size 9001 :payload (vec (range 5000))}}}]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:auth :token])
         (declare-large! vid [:cache :blob])
-        ;; Sanity: the :app-db egress masks the :large? subtree (token gone)
-        ;; AND redacts the sensitive path — so the token is NOT on the
-        ;; :app-db wire via either route, which is exactly why the derived
-        ;; tree must keep it redacted.
         (let [elide-app-db (requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
               wire-db      (elide-app-db db vid false)]
-          (is (not (tree-contains? wire-db token))
-              "the token is NOT shipped verbatim in the :app-db slot (large-masked + sensitive-redacted)")
           (is (= :rf/redacted (get-in wire-db [:auth :token]))
-              "the sensitive path is redacted in the wire :app-db")
+              "the sensitive PATH is redacted in the wire :app-db")
+          (is (not (tree-contains? wire-db token))
+              "the token does not survive in the :app-db slot")
           (is (contains? (get-in wire-db [:cache :blob]) :rf.size/large-elided)
-              "the :large? subtree is replaced by the marker in the wire :app-db"))
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out token))
-              "the secret MUST NOT survive anywhere in the derived tree (no under-scrub)")
-          (is (tree-contains? out :rf/redacted)
-              "matching leaves are replaced with the :rf/redacted sentinel")
-          (is (= "narrative db-before: " (get-in out [2 1]))
-              "benign leaves are preserved"))))))
+              "the :large PATH is replaced by the marker in the wire :app-db")
+          (is (= "ok" (:public wire-db))
+              "benign slots survive untouched"))))))
 
-(deftest scrub-rendered-seq-indexed-sensitive-stays-redacted
-  (testing "FAIL-SAFE (rf2-f3kf7 secondary): a seq-indexed :sensitive? declaration [:tokens 0] keeps its element redacted in derived trees — the set/seq same-path walk no longer misclassifies it public"
+(deftest elide-app-db-seq-indexed-sensitive-path-redacts
+  (testing "PATH-based :app-db egress redacts a seq-indexed :sensitive declaration [:tokens 0] (the kept guarantee)"
     (with-clean-frame [vid :story.button/primary]
-      ;; [:tokens 0] is sensitive and is a UNIQUE value (no benign alias on
-      ;; the wire). The slot is a SEQ (list), a shape that needs care:
-      ;; walking set/seq elements at the PARENT path `[:tokens]` would make
-      ;; `under-prefix? [:tokens 0] [:tokens]` return false (prefix longer
-      ;; than the walk-path), treating the element as non-governed/public and
-      ;; dropping it from the secret set => under-scrub. Classifying against
-      ;; the POST-elision db avoids that: `elide-wire-value`'s walk-seq has
-      ;; indexed + redacted the element, so it never appears at a public wire
-      ;; position and stays in the set.
       (let [secret "uniq-seq-secret-TOPSECRET"
             db     {:public "ok"
-                    :tokens (list secret "second-public-token")}
-            hiccup [:ul [:li {:data-idx 0} secret]
-                    [:li {:data-idx 1} "second-public-token"]]]
+                    :tokens (list secret "second-public-token")}]
         (seed-app-db! vid db)
         (declare-sensitive! vid [:tokens 0])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out secret))
-              "the seq-indexed secret MUST NOT survive in the derived tree (no under-scrub)")
-          (is (tree-contains? out :rf/redacted)
+        (let [elide-app-db (requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
+              wire-db      (elide-app-db db vid false)]
+          (is (not (tree-contains? wire-db secret))
+              "the seq-indexed secret at its declared path MUST NOT survive in :app-db")
+          (is (tree-contains? wire-db :rf/redacted)
               "the matching leaf is replaced with the :rf/redacted sentinel")
-          (is (tree-contains? out "second-public-token")
+          (is (tree-contains? wire-db "second-public-token")
               "the non-sensitive sibling element survives untouched"))))))
 
-(deftest scrub-rendered-large-aliased-public-scalar-not-over-scrubbed
-  (testing "g7cd1 NOT regressed (rf2-f3kf7): a short sensitive scalar aliased to a PLAIN non-sensitive path is still un-over-scrubbed — the fix only tightens against ELIDED positions, not plain ones"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The g7cd1 common case must survive the elided-db reclassification:
-      ;; 0 sits at sensitive :http-status AND at the PLAIN non-sensitive
-      ;; :retry-count (no :large?, no :sensitive?), so 0 IS on the wire
-      ;; verbatim and must NOT scrub benign 0 leaves.
-      (let [db     {:http-status 0     ; sensitive
-                    :retry-count 0      ; plain non-sensitive, same scalar
-                    :public      "ok"}
-            hiccup [:ul {:tabindex 0}
-                    [:li {:data-level 0} "first"]
-                    [:li {:data-level 0} "second"]]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:http-status])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out :rf/redacted))
-              "0 is on the wire at the plain :retry-count path, so it is dropped from the secret set — no benign 0 over-scrubbed (g7cd1 preserved)")
-          (is (= 0 (get-in out [1 :tabindex]))
-              "benign 0 attribute values survive untouched")
-          (is (= 0 (get-in out [2 1 :data-level]))
-              "benign 0 leaves deep in the tree survive"))))))
-
 ;; ---------------------------------------------------------------------------
-;; Frame-declared :large values must elide in derived slots, not
-;; only in :app-db. EP-0015 treats sensitive + large as peer egress axes, so
-;; the derived-tree scrubber elides BOTH axes: a :large blob re-keyed into
-;; :rendered-hiccup / :snapshot / evidence / explain value slots is masked
-;; before it crosses the off-box boundary, and the :elided-large count
-;; reflects it.
+;; EP-0025 FAIL-OPEN — :large derived-tree elision was ALSO removed.
+;; EP-0025 removed value-match across BOTH egress axes. A :large blob RE-KEYED
+;; into :rendered-hiccup / :snapshot / evidence / an explain value slot at a
+;; non-app-db position is structurally invisible to the PATH walker, so it
+;; ships RAW too — same fail-open posture as the :sensitive axis. The :app-db
+;; PATH elision (where the blob is AT its declared path) is KEPT and tested
+;; above (`elide-app-db-sensitive-and-large-paths-redact-and-elide`).
 ;; ---------------------------------------------------------------------------
 
-(deftest scrub-rendered-large-value-elides-in-derived-tree
-  (testing "rf2-9o5ixx: a value at a declared-:large app-db path is elided to
-            :rf.size/large-elided wherever it is re-keyed into the derived tree
-            — not only in the :app-db slot"
+(deftest scrub-rendered-large-value-re-keyed-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a :large value RE-KEYED into a derived tree ships RAW — value-match (large axis) was removed"
     (with-clean-frame [vid :story.button/primary]
-      ;; A large blob lives at [:blob]; the view renders it into [:pre blob].
-      ;; The :app-db egress elides [:blob] to the marker, but the rendered copy
-      ;; must elide too rather than crossing raw.
+      ;; A large blob lives at [:blob]; the view re-keys it into [:pre blob],
+      ;; a non-app-db position. The :app-db egress elides [:blob], but the
+      ;; re-keyed copy ships raw (fail-open).
       (let [blob   (vec (range 5000))           ; a big, unique payload
             db     {:public "ok" :blob blob}
             hiccup [:div [:pre blob] [:span "label"]]]
@@ -3089,52 +3054,50 @@
         (declare-large! vid [:blob])
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out blob))
-              "the large blob MUST NOT survive verbatim in the derived tree")
-          (is (tree-contains-marker? out)
-              "the re-keyed large value is replaced with the :rf.size/large-elided marker")
+          (is (tree-contains? out blob)
+              "fail-open: the re-keyed large blob ships raw — classify the app-db PATH to elide")
+          (is (not (tree-contains-marker? out))
+              "no large-elided marker at the re-keyed position (path walk is blind to it)")
           (is (tree-contains? out "label")
               "benign leaves are preserved"))))))
 
-(deftest scrub-frame-value-large-value-elides
-  (testing "rf2-9o5ixx: the non-live captured/runtime scrub (scrub-frame-value)
-            also elides a declared-:large value re-keyed into its payload"
+(deftest scrub-frame-value-large-value-re-keyed-ships-raw-fail-open
+  (testing "EP-0025 fail-open: the non-live captured/runtime scrub (scrub-frame-value) ships a re-keyed :large value RAW"
     (with-clean-frame [vid :story.button/primary]
       (let [blob   (vec (range 5000))
             db     {:public "ok" :blob blob}
-            ;; a captured-event-style payload that echoes the blob
+            ;; a captured-event-style payload that echoes the blob at a
+            ;; non-app-db position
             tree   [[:evt/load {:payload blob}]]]
         (seed-app-db! vid db)
         (declare-large! vid [:blob])
         (let [scrub-frame-value (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-frame-value)
               out               (scrub-frame-value tree vid false)]
-          (is (not (tree-contains? out blob))
-              "the large blob MUST NOT survive verbatim in the captured payload")
-          (is (tree-contains-marker? out)
-              "the re-keyed large value is elided to the :rf.size/large-elided marker"))))))
+          (is (tree-contains? out blob)
+              "fail-open: the re-keyed large blob ships raw in the captured payload")
+          (is (not (tree-contains-marker? out))
+              "no large-elided marker — the captured slot is not at the declared app-db path"))))))
 
-(deftest scrub-explain-values-large-value-elides
-  (testing "rf2-9o5ixx: explain value slots elide a declared-:large value that
-            is re-surfaced into :effective-args / :network etc."
+(deftest scrub-explain-values-large-value-re-keyed-ships-raw-fail-open
+  (testing "EP-0025 fail-open: explain value slots ship a re-keyed :large value RAW"
     (with-clean-frame [vid :story.button/primary]
       (let [blob    (vec (range 5000))
             db      {:public "ok" :blob blob}
-            explain {:effective-args {:rows blob}     ; runtime value slot
+            explain {:effective-args {:rows blob}     ; runtime value slot, re-keyed
                      :source-chain   [:a :b]}]        ; plan-STRUCTURE slot (public)
         (seed-app-db! vid db)
         (declare-large! vid [:blob])
         (let [scrub-explain-values (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-explain-values)
               out                  (scrub-explain-values explain vid [:effective-args] false)]
-          (is (not (tree-contains? (:effective-args out) blob))
-              "the large blob MUST NOT survive in the explain value slot")
-          (is (tree-contains-marker? (:effective-args out))
-              "the re-keyed large value is elided to the :rf.size/large-elided marker")
+          (is (tree-contains? (:effective-args out) blob)
+              "fail-open: the re-keyed large blob ships raw in the explain value slot")
+          (is (not (tree-contains-marker? (:effective-args out)))
+              "no large-elided marker — the explain slot is not at the declared app-db path")
           (is (= [:a :b] (:source-chain out))
               "plan-STRUCTURE slots are untouched (intentionally public)"))))))
 
-(deftest scrub-rendered-large-include?-true-forwards-raw
-  (testing "rf2-9o5ixx: include? true forwards the raw large value (the
-            trusted-local opt-out covers BOTH axes)"
+(deftest scrub-rendered-include?-true-forwards-raw-large
+  (testing "include? true forwards the raw large value (trusted-local opt-out)"
     (with-clean-frame [vid :story.button/primary]
       (let [blob   (vec (range 5000))
             db     {:blob blob}
@@ -3145,23 +3108,6 @@
               out            (scrub-rendered hiccup db vid true)]
           (is (identical? hiccup out) "include? true returns the input unchanged")
           (is (tree-contains? out blob) "the opt-out forwards the raw large value"))))))
-
-(deftest scrub-rendered-sensitive-wins-over-large
-  (testing "rf2-9o5ixx: a value that is BOTH sensitive and large redacts to
-            :rf/redacted (sensitive wins), never the large marker"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The same blob sits at a sensitive path AND a large path.
-      (let [blob   (vec (range 5000))
-            db     {:secret blob :cache blob}
-            hiccup [:pre blob]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:secret])
-        (declare-large! vid [:cache])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out blob)) "the blob does not survive")
-          (is (tree-contains? out :rf/redacted)
-              "sensitive wins — the leaf redacts to :rf/redacted, not the large marker"))))))
 
 ;; The two integration tests below pin the WIRING — that `preview-variant`
 ;; and `run-variant` route `:rendered-hiccup` / `:effective-args` / `:snapshot`
@@ -3200,9 +3146,12 @@
    :warnings       [{:event :rf.trace/warn :data {:token "TOPSECRET"}}]
    :sub-runs       [{:sub [:auth/token] :value "TOPSECRET"}]})
 
-(deftest preview-variant-rendered-hiccup-redacts-sensitive-by-default
-  (testing "the secret MUST NOT leak through preview-variant's derived trees"
+(deftest preview-variant-path-redacts-matching-slot-derived-trees-fail-open
+  (testing "EP-0025: preview-variant redacts a derived slot WHERE the value sits AT the classified path (:app-db, :effective-args :token), but ships values RE-KEYED to non-matching positions RAW (:rendered-hiccup, :snapshot)"
     (with-clean-frame [vid :story.button/primary]
+      ;; The classified path is [:token]. A derived slot is path-walked at the
+      ;; frame's classification: a map carrying :token at the position the path
+      ;; reaches redacts; a value at a non-matching position ships raw.
       (declare-sensitive! vid [:token])
       (with-redefs [story/run-variant
                     (fn [_vk _opts]
@@ -3212,16 +3161,19 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db path-redaction still holds")
-          (is (not (tree-contains? (:rendered-hiccup s) "TOPSECRET"))
-              "rendered-hiccup MUST NOT carry the redacted value at egress")
-          (is (not (tree-contains? (:effective-args s) "TOPSECRET"))
-              "effective-args MUST NOT carry the redacted value at egress")
-          (is (not (tree-contains? (:snapshot s) "TOPSECRET"))
-              "snapshot MUST NOT carry the redacted value at egress"))))))
+              "app-db PATH-redaction still holds — the kept guarantee")
+          (is (= :rf/redacted (get-in s [:effective-args :token]))
+              "PATH still works: :effective-args carries :token at the classified path, so it redacts")
+          ;; The hiccup re-keys the value to [1 :value] (no :token key) and the
+          ;; snapshot nests it under :db — neither is at the classified [:token]
+          ;; position, so the path walk is blind and they ship raw.
+          (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
+              "fail-open: rendered-hiccup re-keys the value off its path, so it ships RAW")
+          (is (tree-contains? (:snapshot s) "TOPSECRET")
+              "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
-(deftest run-variant-rendered-hiccup-redacts-sensitive-by-default
-  (testing "the secret MUST NOT leak through run-variant's derived trees"
+(deftest run-variant-path-redacts-matching-slot-derived-trees-fail-open
+  (testing "EP-0025: run-variant redacts a derived slot where the value sits AT the classified path, but ships re-keyed positions RAW"
     (with-clean-frame [vid :story.button/primary]
       (declare-sensitive! vid [:token])
       (with-redefs [story/run-variant
@@ -3231,11 +3183,12 @@
         (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
-          (is (= :rf/redacted (get-in s [:app-db :token])))
-          (is (not (tree-contains? (:rendered-hiccup s) "TOPSECRET"))
-              "rendered-hiccup MUST NOT carry the redacted value at egress")
-          (is (not (tree-contains? (:snapshot s) "TOPSECRET"))
-              "snapshot MUST NOT carry the redacted value at egress"))))))
+          (is (= :rf/redacted (get-in s [:app-db :token]))
+              "app-db PATH-redaction still holds — the kept guarantee")
+          (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
+              "fail-open: rendered-hiccup re-keys the value off its path, so it ships RAW")
+          (is (tree-contains? (:snapshot s) "TOPSECRET")
+              "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
 (deftest run-variant-rendered-hiccup-forwards-secret-when-opted-in
   (testing ":include-sensitive true forwards the raw value through the derived trees"
@@ -3265,8 +3218,8 @@
 ;; opt-out as the sibling derived slots.
 ;; ---------------------------------------------------------------------------
 
-(deftest run-variant-narrative-redacts-sensitive-by-default
-  (testing "the secret MUST NOT leak through run-variant's :narrative / :warnings / :sub-runs"
+(deftest run-variant-narrative-ships-re-keyed-secret-raw-fail-open
+  (testing "EP-0025 fail-open: run-variant's :narrative / :warnings / :sub-runs evidence trees re-key the secret off its app-db path, so it ships RAW"
     (with-clean-frame [vid :story.button/primary]
       (declare-sensitive! vid [:token])
       (with-redefs [story/run-variant
@@ -3277,15 +3230,16 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db path-redaction still holds")
-          (is (not (tree-contains? (:narrative s) "TOPSECRET"))
-              ":narrative beats' :db-before/:db-after MUST NOT carry the secret at egress")
-          (is (tree-contains? (:narrative s) :rf/redacted)
-              "the secret in :narrative is replaced by the :rf/redacted sentinel")
-          (is (not (tree-contains? (:warnings s) "TOPSECRET"))
-              ":warnings trace-event data MUST NOT carry the secret at egress")
-          (is (not (tree-contains? (:sub-runs s) "TOPSECRET"))
-              ":sub-runs subscription :value MUST NOT carry the secret at egress"))))))
+              "app-db PATH-redaction still holds — the kept guarantee")
+          ;; The evidence beats embed the token at non-root positions
+          ;; (e.g. [0 :epochs 0 :db-before :token]); the path walk keyed at
+          ;; [:token] from the tree root never reaches them ⇒ fail-open.
+          (is (tree-contains? (:narrative s) "TOPSECRET")
+              "fail-open: :narrative beats re-key the secret, so it ships RAW")
+          (is (tree-contains? (:warnings s) "TOPSECRET")
+              "fail-open: :warnings trace-event data re-keys the secret, so it ships RAW")
+          (is (tree-contains? (:sub-runs s) "TOPSECRET")
+              "fail-open: :sub-runs subscription :value re-keys the secret, so it ships RAW"))))))
 
 (deftest run-variant-narrative-forwards-secret-when-opted-in
   (testing ":include-sensitive true forwards the raw value through :narrative / :warnings / :sub-runs"
@@ -3372,29 +3326,30 @@
 ;; slots — which is what the redaction prevents.
 ;; ---------------------------------------------------------------------------
 
-(deftest explain-variant-redacts-sensitive-effective-args-by-default
-  (testing "a declared-sensitive value resolved into the explain :effective-args is redacted at egress"
+(deftest explain-variant-re-keyed-effective-args-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a declared-sensitive value RE-SURFACED into the explain :effective-args / :network ships RAW — value-match removed"
     (with-clean-frame [vid :story.button/primary]
-      ;; The frame app-db carries the secret at a declared-sensitive path;
-      ;; the explain projection re-surfaces the same VALUE in a runtime-
-      ;; resolved value slot. value-redaction matches by VALUE, so we plant
-      ;; the same literal in a value-bearing explain slot via a redef.
+      ;; The frame app-db carries the secret at a declared-sensitive path; the
+      ;; explain projection re-surfaces the same VALUE into runtime-resolved
+      ;; value slots at NON-app-db positions (`[:effective-args :api-key]`,
+      ;; `[:network ... :reply :token]`). EP-0025 removed value-match, so the
+      ;; re-keyed copies ship raw.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (with-redefs [story/explain
                     (fn [_vk & _]
                       {:source-chain   [:story.button/primary]   ; structure — public
-                       :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"} ; value — must scrub
+                       :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"} ; re-keyed — fail-open
                        :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-EXPLAIN-SECRET"}}}})]
         (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
-          (is (not (tree-contains? (:explain s) "DISTINCTIVE-EXPLAIN-SECRET"))
-              "WITHOUT the fix this literal crosses verbatim; the value-bearing explain slots MUST NOT carry it by default")
           (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
               "plan-STRUCTURE slots are author-published discovery metadata — intentionally public, untouched")
-          (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
-              ":effective-args value matching a declared-sensitive value is redacted"))))))
+          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
+              "fail-open: the re-keyed :effective-args value ships RAW — classify the app-db PATH to redact")
+          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
+              "fail-open: the re-keyed :network reply value ships RAW"))))))
 
 (deftest explain-variant-includes-sensitive-when-opted-in
   (testing ":include-sensitive true forwards the raw explain value slots (gate open)"
@@ -3412,8 +3367,8 @@
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
               "the documented opt-in surfaces the raw value"))))))
 
-(deftest explain-variant-gate-closed-ignores-opt-in
-  (testing "gate closed: :include-sensitive true is silently ignored — explain value slots stay redacted"
+(deftest explain-variant-gate-closed-re-keyed-slot-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a RE-KEYED explain value slot ships RAW regardless of gate state — value-match removed, so the gate no longer governs re-keyed copies"
     (is (false? (config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
@@ -3425,8 +3380,8 @@
                                            :include-sensitive true})
               s (:structuredContent r)]
           (is (success? r))
-          (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
-              "gate closed: the opt-in cannot exfiltrate the declared-sensitive value"))))))
+          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
+              "fail-open: the re-keyed value ships raw whether the gate is open or closed (path is the only redaction route)"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-variant value-bearing slot composition coverage.
@@ -3445,13 +3400,14 @@
 ;; and assert it is redacted on the wire by default.
 ;; ---------------------------------------------------------------------------
 
-(deftest explain-variant-redacts-sensitive-sub-overrides-and-step-order-by-default
-  (testing "a declared-sensitive value resolved into :sub-overrides / :setup-order / :script-order is redacted at egress (rf2-q8ebq.1)"
+(deftest explain-variant-re-keyed-sub-overrides-and-step-order-ship-raw-fail-open
+  (testing "EP-0025 fail-open: a declared-sensitive value RE-SURFACED into :sub-overrides / :setup-order / :script-order ships RAW — value-match removed (rf2-q8ebq.1)"
     (with-clean-frame [vid :story.button/primary]
-      ;; The frame app-db carries the secret at a declared-sensitive path;
-      ;; the plan re-surfaces the SAME VALUE in each plan-RESOLVED value slot
-      ;; (override values + step payloads run the same substitute-args that
-      ;; feeds the scrubbed :substitutions). value-redaction matches by VALUE.
+      ;; The frame app-db carries the secret at a declared-sensitive path; the
+      ;; plan re-surfaces the SAME VALUE into plan-RESOLVED value slots at
+      ;; NON-app-db positions. EP-0025 removed value-match, so these re-keyed
+      ;; copies ship raw — the public step STRUCTURE is preserved verbatim
+      ;; (it always was) and the embedded value is no longer scrubbed.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (with-redefs [story/explain
@@ -3464,18 +3420,12 @@
         (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
-          (is (not (tree-contains? (get-in s [:explain :sub-overrides]) "DISTINCTIVE-SUBOVR-SECRET"))
-              "WITHOUT the fix the secret crosses verbatim in :sub-overrides; it MUST NOT by default")
-          (is (not (tree-contains? (get-in s [:explain :setup-order]) "DISTINCTIVE-SUBOVR-SECRET"))
-              "WITHOUT the fix the secret crosses verbatim in :setup-order — the substitute-args sibling of :substitutions")
-          (is (not (tree-contains? (get-in s [:explain :script-order]) "DISTINCTIVE-SUBOVR-SECRET"))
-              "WITHOUT the fix the secret crosses verbatim in :script-order — the same bypass")
-          (is (= :rf/redacted (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
-              ":sub-overrides override value matching a declared-sensitive value is redacted")
-          (is (= [[:dispatch [:auth/login {:token :rf/redacted}]]] (get-in s [:explain :setup-order]))
-              "value-only redaction preserves the public step STRUCTURE while scrubbing the embedded secret")
-          (is (= [[:dispatch [:api/call {:key :rf/redacted}]]] (get-in s [:explain :script-order]))
-              "ditto for :script-order — fx ids + ordering survive, only the value leaf is redacted")
+          (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
+              "fail-open: the re-keyed :sub-overrides value ships RAW")
+          (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]] (get-in s [:explain :setup-order]))
+              "fail-open: :setup-order ships the embedded value raw — the step STRUCTURE is intact (it always was)")
+          (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-SUBOVR-SECRET"}]]] (get-in s [:explain :script-order]))
+              "fail-open: :script-order ships the embedded value raw")
           (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
               "plan-STRUCTURE slots remain author-published discovery metadata — untouched")
           (is (= :ok (get-in s [:explain :sub-overrides :validation :status]))
@@ -3501,25 +3451,21 @@
               "and the raw setup-step value crosses too"))))))
 
 ;; ---------------------------------------------------------------------------
-;; explain-variant PRE-FRAME egress.
+;; explain-variant PRE-FRAME egress — EP-0025 PATH-based / fail-open.
 ;;
 ;; `explain-variant` is a documented NO-RUN path (spec/API.md §explain-variant:
 ;; "Plan-derived data — no run, no live :app-db slice"): a caller can read it
 ;; BEFORE any run-variant / preview-variant allocates the variant frame.
-;; Deriving candidate secrets ONLY from the LIVE frame app-db
-;; (`rf/app-db-value`) would miss this case — the live app-db is nil
-;; pre-frame, so a declared-sensitive value authored into a plan slot
-;; (:db-seed seed data, a stubbed :network reply, a resolved
-;; :effective-args / step payload) would have no live source to value-match.
 ;;
-;; So value-redaction ALSO collects candidate secrets from the plan's OWN
-;; :db-seed slot at the variant's frame-declared-sensitive PATHS — read from
-;; the frame's durable elision registry, which frame-owned classification
-;; populates at `reg-frame` time (EP-0015 §8), so the paths are live from
-;; frame creation onward without any RUN. These tests declare a sensitive
-;; path PRE-RUN (frame allocated, no run-variant / preview-variant has
-;; executed and seeded the live app-db), then assert the secret is redacted
-;; by default and surfaced only via the gated :include-sensitive opt-in.
+;; EP-0025 removed value-match (and the pre-frame `:db-seed` candidate-union it
+;; relied on). The explain value slots are PATH-walked at the frame's
+;; declared-sensitive paths — durable frame state, live from `reg-frame` time
+;; (EP-0015 §8), so the paths exist pre-run. A slot whose shape mirrors the
+;; app-db (the `:db-seed` itself) redacts at its matching path; a value
+;; RE-KEYED elsewhere (a stubbed `:network` reply, a resolved `:effective-args`
+;; / step payload at a non-matching position) ships RAW. These tests declare a
+;; sensitive path PRE-RUN, then assert the PATH-matching slot redacts while the
+;; re-keyed slots ship raw (fail-open).
 ;; ---------------------------------------------------------------------------
 
 (defn- declare-sensitive-prerun!
@@ -3529,22 +3475,25 @@
   durable elision registry (its runtime-db partition), so the frame
   container must exist; we `ensure-variant-frame!` (allocate at reg-frame
   time) then `frame-class/install!`. No run-variant / preview-variant has
-  executed, so the LIVE app-db is still empty — the candidate secrets come
-  from the plan's own :db-seed at these declared paths (EP-0015 §8)."
+  executed, so the LIVE app-db is still empty — the explain slots are
+  PATH-walked at these declared paths (EP-0015 §8); EP-0025 ships re-keyed
+  copies raw (fail-open)."
   [variant-id path]
   (ensure-variant-frame! variant-id)
   (frame-class/install! variant-id
     (frame-class/validate+extract variant-id {:sensitive {:app-db [(vec path)]}})))
 
-(deftest explain-variant-redacts-preframe-db-seed-by-default
-  (testing "PRE-RUN: a declared-sensitive value in the plan :db-seed (and re-surfaced in :effective-args / :network) is redacted with NO seeded live app-db (rf2-tag30h)"
+(deftest explain-variant-preframe-db-seed-path-redacts-others-fail-open
+  (testing "EP-0025: PRE-RUN, the plan :db-seed redacts BY PATH (its shape mirrors app-db, so [:auth :token] is reached), but values RE-KEYED into :effective-args / :network / a step ship RAW — value-match removed (rf2-tag30h superseded)"
     (with-clean-frame [vid :story.button/primary]
-      ;; No RUN has executed — the live app-db is still empty, so the
-      ;; candidate secrets must come from the plan's own :db-seed at the
-      ;; frame's declared-sensitive paths (EP-0015 §8).
+      ;; No RUN has executed — the live app-db carries no :auth content. The
+      ;; :db-seed slot mirrors the app-db shape, so the path-walk reaches
+      ;; [:auth :token] within it and redacts — PATH-based redaction, not
+      ;; value-match. The other slots re-key the value to positions the
+      ;; [:auth :token] path cannot reach, so they ship raw (fail-open).
       (declare-sensitive-prerun! vid [:auth :token])
-      (is (empty? (rf/app-db-value vid))
-          "precondition: no run has seeded the live app-db")
+      (is (nil? (get-in (rf/app-db-value vid) [:auth :token]))
+          "precondition: no run has seeded the live app-db with the secret")
       (with-redefs [story/explain
                     (fn [_vk & _]
                       {:source-chain   [:story.button/primary]                    ; structure — public
@@ -3555,16 +3504,14 @@
         (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
-          (is (not (tree-contains? (:explain s) "DISTINCTIVE-PREFRAME-SECRET"))
-              "PRE-RUN the secret MUST NOT cross in ANY value-bearing slot — no seeded live app-db is no excuse")
           (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
-              ":db-seed (the candidate source itself) is redacted")
-          (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
-              ":effective-args value matching the seeded secret is redacted")
-          (is (= :rf/redacted (get-in s [:explain :network [:get "/api/me"] :reply :token]))
-              ":network reply value matching the seeded secret is redacted")
-          (is (= [[:dispatch [:auth/login {:token :rf/redacted}]]] (get-in s [:explain :setup-order]))
-              ":setup-order value-only redaction preserves the step STRUCTURE")
+              "PATH still works: :db-seed mirrors app-db shape, so [:auth :token] redacts")
+          (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :effective-args :api-key]))
+              "fail-open: :effective-args re-keys to [:api-key] (off the classified path) ⇒ ships RAW")
+          (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
+              "fail-open: the re-keyed :network reply value ships RAW")
+          (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-PREFRAME-SECRET"}]]] (get-in s [:explain :setup-order]))
+              "fail-open: :setup-order's map lacks :auth, so [:auth :token] cannot reach it ⇒ ships raw")
           (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
               "plan-STRUCTURE slots remain author-published discovery metadata — untouched"))))))
 
@@ -3584,12 +3531,12 @@
           (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :db-seed :auth :token]))
               "the documented opt-in surfaces the raw seed value pre-frame too"))))))
 
-(deftest explain-variant-preframe-gate-closed-ignores-opt-in
-  (testing "PRE-RUN gate closed: :include-sensitive true is ignored — plan value slots stay redacted (rf2-tag30h)"
+(deftest explain-variant-preframe-gate-closed-db-seed-redacts-by-path
+  (testing "EP-0025: PRE-RUN gate closed: :include-sensitive true is ignored, so the path-walk runs and the :db-seed (which mirrors app-db shape) redacts [:auth :token] BY PATH — the kept guarantee (rf2-tag30h)"
     (is (false? (config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
       (declare-sensitive-prerun! vid [:auth :token])
-      (is (empty? (rf/app-db-value vid)))
+      (is (nil? (get-in (rf/app-db-value vid) [:auth :token])))
       (with-redefs [story/explain
                     (fn [_vk & _]
                       {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]
@@ -3598,7 +3545,7 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
-              "gate closed: the opt-in cannot exfiltrate the seeded secret pre-frame"))))))
+              "gate closed: the opt-in is ignored, the path-walk runs, and :db-seed redacts [:auth :token] BY PATH (its shape mirrors app-db)"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; read-a11y-violations egress scrub. axe-core violation nodes (incl. node
@@ -3624,12 +3571,13 @@
   [by-frame]
   (atom (atom by-frame)))
 
-(deftest read-a11y-violations-redacts-sensitive-violation-html-by-default
-  (testing "a declared-sensitive value rendered into an axe-core node :html is redacted at egress (rf2-q8ebq.2)"
+(deftest read-a11y-violations-re-keyed-html-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a declared-sensitive value rendered into an axe-core node :html is RE-KEYED off its app-db path, so it ships RAW — value-match removed (rf2-q8ebq.2 superseded)"
     (with-clean-frame [vid :story.button/primary]
-      ;; The frame app-db carries the secret at a declared-sensitive path;
-      ;; the rendered DOM (axe-core node :html) embeds the SAME literal.
-      ;; value-redaction matches by VALUE, so the leaf carrying it is scrubbed.
+      ;; The frame app-db carries the secret at a declared-sensitive path; the
+      ;; rendered DOM (axe-core node :html) embeds the SAME literal at a
+      ;; non-app-db position. EP-0025 removed value-match, so the re-keyed
+      ;; DOM copy ships raw. The public axe-core finding STRUCTURE is intact.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (let [vios     [{:id    "label"
@@ -3643,12 +3591,10 @@
           (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
                 s (:structuredContent r)]
             (is (success? r))
-            (is (not (tree-contains? (:violations s) "DISTINCTIVE-A11Y-SECRET"))
-                "WITHOUT the fix the secret rides node :html verbatim; it MUST NOT cross by default")
-            (is (= :rf/redacted (get-in s [:violations 0 :nodes 0 :html]))
-                "the node :html leaf matching a declared-sensitive value is redacted")
+            (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
+                "fail-open: the re-keyed node :html ships RAW — classify the app-db PATH to redact a value before it reaches the DOM")
             (is (= "label" (get-in s [:violations 0 :id]))
-                "the public axe-core finding STRUCTURE (id/impact/help/target) survives — only the value leaf is scrubbed")
+                "the public axe-core finding STRUCTURE (id/impact/help/target) survives")
             (is (= ["#api-key-input"] (get-in s [:violations 0 :nodes 0 :target]))
                 "non-sensitive node fields (CSS target selectors) pass through")
             (is (nil? (:note s))
@@ -3670,8 +3616,8 @@
             (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
                 "the documented opt-in surfaces the raw node :html")))))))
 
-(deftest read-a11y-violations-gate-closed-ignores-opt-in
-  (testing "gate closed: :include-sensitive true is silently ignored — violation :html stays redacted (rf2-q8ebq.2)"
+(deftest read-a11y-violations-gate-closed-re-keyed-html-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a RE-KEYED axe-core node :html ships RAW regardless of gate state — value-match removed (rf2-q8ebq.2 superseded)"
     (is (false? (config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
@@ -3683,16 +3629,16 @@
                                       :include-sensitive true})
                 s (:structuredContent r)]
             (is (success? r))
-            (is (= :rf/redacted (get-in s [:violations 0 :nodes 0 :html]))
-                "gate closed: the opt-in cannot exfiltrate the declared-sensitive value")))))))
+            (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
+                "fail-open: the re-keyed node :html ships raw whether the gate is open or closed (path is the only redaction route)")))))))
 
-(deftest record-as-variant-redacts-sensitive-captured-event-by-default
-  (testing "a captured event carrying a declared-sensitive value is redacted in :captured AND :play-snippet"
+(deftest record-as-variant-re-keyed-captured-event-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a captured event carrying a declared-sensitive value in its PAYLOAD is re-keyed off the app-db path, so it ships RAW in :captured AND :play-snippet — value-match removed"
     (with-clean-frame [vid :story.button/primary]
-      ;; The frame holds the secret at a declared-sensitive path; the
-      ;; recorded event carries the SAME literal in its payload, so the
-      ;; value-redaction step (matching by value against the frame's
-      ;; declared-sensitive values) must scrub it everywhere it lands.
+      ;; The frame holds the secret at a declared-sensitive path; the recorded
+      ;; event carries the SAME literal in its event PAYLOAD — a non-app-db
+      ;; position. EP-0025 removed value-match, so the captured payload ships
+      ;; raw. The non-sensitive event id is preserved (it always was).
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
@@ -3702,14 +3648,12 @@
             s (:structuredContent r)]
         (is (success? r))
         (is (= 1 (:recorded-event-count s)) "the event was captured")
-        (is (not (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET"))
-            "WITHOUT the fix this literal crosses verbatim in :captured; it MUST NOT by default")
-        (is (not (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s)))
-            "the :play-snippet text is rendered from the scrubbed events, so the secret is absent there too")
-        (is (tree-contains? (:captured s) :rf/redacted)
-            "the matching leaf is replaced with the :rf/redacted sentinel")
+        (is (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET")
+            "fail-open: the re-keyed captured-event payload ships RAW in :captured")
+        (is (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s))
+            "fail-open: the :play-snippet is rendered from the raw events, so the value rides it too")
         (is (re-find #":auth/login" (:play-snippet s))
-            "the non-sensitive event id survives — only the secret value is scrubbed")))))
+            "the non-sensitive event id survives")))))
 
 (deftest record-as-variant-includes-sensitive-when-opted-in
   (testing ":include-sensitive true forwards the raw captured event (gate open)"
@@ -3729,8 +3673,8 @@
         (is (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s))
             "and the raw value rides the snippet text")))))
 
-(deftest record-as-variant-gate-closed-ignores-opt-in
-  (testing "gate closed: :include-sensitive true is silently ignored — captured event stays redacted"
+(deftest record-as-variant-gate-closed-re-keyed-event-ships-raw-fail-open
+  (testing "EP-0025 fail-open: a captured-event PAYLOAD is re-keyed off the app-db path, so it ships RAW regardless of gate state — value-match removed"
     (is (false? (config/sensitive-reads-allowed?)))
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
@@ -3742,8 +3686,8 @@
                        :include-sensitive true})
             s (:structuredContent r)]
         (is (success? r))
-        (is (not (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET"))
-            "gate closed: the opt-in cannot exfiltrate the declared-sensitive value")))))
+        (is (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET")
+            "fail-open: the re-keyed captured-event payload ships raw whether the gate is open or closed")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).

@@ -270,13 +270,14 @@ Plan-derived data — no run, no live `:app-db` slice — but the plan
 RESOLVES author args into runtime VALUES, so the value-bearing slots
 (`:effective-args` / `:args` / `:substitutions` / `:network` route
 replies / `:db-seed` / `:sub-overrides` override values / `:setup-order`
-+ `:script-order` step payloads) are value-scrubbed against the variant
-frame's frame declarations at egress (rf2-12f2q, rf2-q8ebq.1, rf2-9o5ixx)
++ `:script-order` step payloads) are PATH-projected against the variant
+frame's classification at egress (rf2-12f2q, rf2-q8ebq.1; EP-0025 fail-open)
 via the shared `egress/scrub-explain-values` step — on BOTH egress axes
-(EP-0015 peer axes): a leaf equal to a declared-`:sensitive?` value becomes
-`:rf/redacted`, a leaf equal to a declared-`:large` value becomes the
-`:rf.size/large-elided` marker (sensitive wins where both apply) — the SAME
-value-based scrub the live tools apply. The remaining plan-STRUCTURE slots
+(EP-0015 peer axes). EP-0025 removed value-match: a value AT a classified
+path WITHIN a slot redacts (a `:db-seed` mirroring app-db reaches its path),
+but a value RE-KEYED to a non-matching position ships RAW (fail-open) —
+classify the app-db PATH to redact a value before it is re-surfaced. The
+SAME PATH-based projection the live tools apply. The remaining plan-STRUCTURE slots
 (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
 `:strict-conflicts` / `:tags` / …) are author-published discovery
 metadata and pass through unredacted. Pass `:include-sensitive true`
@@ -284,16 +285,17 @@ to opt out (gated by `--allow-sensitive-reads`, same posture as
 `preview-variant`). See [`002-Tool-Registry.md`](002-Tool-Registry.md)
 §`explain-variant` for the full value-vs-structure split.
 
-**Pre-frame egress (rf2-tag30h).** `explain-variant` is a no-run path: a
-caller can read it BEFORE any `run-variant` / `preview-variant` allocates
-the variant frame. The live-app-db reader yields no candidate secrets
-when the frame is unallocated, so the egress ALSO derives candidate
-secrets from the plan's OWN `:db-seed` slot at the variant's
-declared-sensitive PATHS (read straight from schema storage, which is
-keyed by frame id and exists pre-allocation). A secret authored into
-`:db-seed` and re-surfaced in `:effective-args` / `:network` / a step
-payload is therefore redacted even with no live frame — the no-run
-privacy contract holds fail-closed.
+**Pre-frame egress (rf2-tag30h; EP-0025 fail-open).** `explain-variant`
+is a no-run path: a caller can read it BEFORE any `run-variant` /
+`preview-variant` allocates the variant frame. The classification PATHS are
+durable frame state, live from `reg-frame` time, so the explain slots are
+PATH-walked pre-run. EP-0025 removed the value-match candidate-union that
+used to derive secrets from the plan's own `:db-seed`: a slot is now
+redacted only where a value sits AT a classified path WITHIN it. A
+`:db-seed` that mirrors the app-db shape redacts at its matching path even
+pre-frame; a secret RE-KEYED into `:effective-args` / `:network` / a step
+payload at a non-matching position ships RAW (fail-open). Classify the
+app-db PATH to redact a value before it is re-surfaced.
 
 **Errors.** `isError: true` when `:variant-id` is not registered.
 
@@ -394,10 +396,11 @@ proves the variant accessible.
 The `:violations` vec is live runtime DOM state — each axe-core node
 carries `:html` (the violating element's outerHTML), so a value
 rendered into the DOM lands verbatim there. `:violations` is
-value-scrubbed against the variant frame's frame declarations by default
-on BOTH egress axes (rf2-9o5ixx): a leaf equal to a declared-`:sensitive?`
-value becomes `:rf/redacted`, a leaf equal to a declared-`:large` value
-becomes the `:rf.size/large-elided` marker; `:include-sensitive true` opts out, following the
+PATH-projected against the variant frame's classification by default
+on BOTH egress axes. **EP-0025 FAIL-OPEN:** a value rendered into a node
+`:html` is a RE-KEYED DOM position the classification path cannot reach, so
+it ships RAW — value-match was removed; classify the app-db PATH to redact
+a value before it reaches the DOM. `:include-sensitive true` opts out, following the
 same `--allow-sensitive-reads` boot gate as `preview-variant`
 (rf2-g9fje) — one of the six value-surfacing tools that carry the
 opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
