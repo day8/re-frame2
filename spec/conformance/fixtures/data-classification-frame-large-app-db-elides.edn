@@ -18,7 +18,9 @@
 ;; 16384-byte auto-detect threshold). `:bytes` is the printed-representation
 ;; byte-count (`(count (pr-str "xy"))` = 4 — `pr-str` wraps the string in
 ;; quotes; identical on JVM `.getBytes UTF-8` and CLJS `count`). `:reason
-;; :marks` reflects the `add-marks` declaration source.
+;; :effect` reflects the declaration source (EP-0025: the harness installs the
+;; classification with `:source :effect`, the commit-plane classification-effect
+;; route; the imperative add-marks API is removed).
 ;;
 ;; Harness note: `:fixture/app-marks` declares the large path. Capability
 ;; `:data-classification/marks`.
@@ -60,7 +62,7 @@
                                      {:path   [:docs :csv-upload]
                                       :bytes  4
                                       :type   :string
-                                      :reason :marks
+                                      :reason :effect
                                       :hint   nil
                                       :handle [:rf.elision/at [:docs :csv-upload]]}}
                         :title "Q3"}}}}]}}

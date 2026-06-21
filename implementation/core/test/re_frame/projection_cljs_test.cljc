@@ -407,28 +407,32 @@
       (is (large-marker? (get-in out [:docs :blob]))))))
 
 ;; ---------------------------------------------------------------------------
-;; EP-0025 B4 (rf2-ojp8pi) — the `:rf.observe/derived-tree` record kind.
+;; EP-0025 B4 (rf2-ojp8pi) + EP-0025 purge (rf2-j3jlgu) — the
+;; `:rf.observe/derived-tree` record kind.
 ;;
-;; A derived tree re-surfaces a frame's app-db-sensitive / -large VALUES at a
-;; NON-app-db position the path walker cannot reach (a token copied out of
-;; `[:auth :token]` into a rendered `[:input {:value <token>}]`). project-egress
-;; value-redacts it against the SAME registry the path walker reads — including
-;; commit-plane `:sensitive` / `:large` EFFECT-sourced declarations (B3) — and
-;; is profile-aware (off-box redacts; local-raw passes). This is the single
-;; public boundary the off-box tool consumers (Story-MCP, re-frame2-pair)
-;; project a derived tree through.
+;; A derived tree re-surfaces a frame's app-db-sensitive value at a NON-app-db
+;; position the path walker cannot reach (a token copied out of `[:auth :token]`
+;; into a rendered `[:input {:value <token>}]`). EP-0025 §"What is removed"
+;; removed the VALUE-match (taint) redaction of such re-keyed copies — it is
+;; propagation/taint by another name. So `:rf.observe/derived-tree` is now a
+;; PATH-based projection: each tree slot is walked through `elide-wire-value`
+;; against the frame's classification. A re-keyed value at a non-app-db position
+;; ships RAW (intended FAIL-OPEN — hygiene, not a guarantee). A value sitting at
+;; an actual app-db PATH within the tree IS redacted; local-raw passes through.
 ;; ---------------------------------------------------------------------------
 
 (defn- derived-tree-with-token [token]
-  ;; A rendered hiccup tree: the sensitive token sits at a NON-app-db position
-  ;; (`[1 1 :value]`), not at `[:auth :token]` — the path walker is blind to it.
+  ;; A rendered hiccup tree: the token sits at a NON-app-db position
+  ;; (`[1 1 :value]`), not at `[:auth :token]` — the path walker is blind to it,
+  ;; so EP-0025 fail-open ships it raw.
   [:form
    [:input {:type "password" :value token}]
    [:span "public label"]])
 
-(deftest derived-tree-frame-declared-sensitive-value-redacts-off-box
-  (testing "a re-keyed declared-sensitive value in a derived tree redacts to
-            :rf/redacted under the off-box-tool profile (value-match dual)"
+(deftest derived-tree-rekeyed-value-ships-raw-fail-open
+  (testing "EP-0025: a re-keyed declared-sensitive value at a NON-app-db
+            position in a derived tree ships RAW under off-box (the value-match
+            redaction is removed — intended fail-open, hygiene not a guarantee)"
     (mk-frame! :proj/derived)
     (let [source-db {:auth {:token "super-secret-token"} :public {:count 3}}
           tree      (derived-tree-with-token "super-secret-token")
@@ -438,35 +442,37 @@
                        :tree      tree
                        :source-db source-db}
                       {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in out [1 1 :value]))
-          "the re-keyed sensitive token redacts in the derived tree")
+      (is (= "super-secret-token" (get-in out [1 1 :value]))
+          "the re-keyed sensitive token ships RAW (no value-match — fail-open)")
       (is (= "public label" (get-in out [2 1]))
-          "a benign sibling leaf survives (value-match is precise)"))))
+          "a benign sibling leaf is untouched"))))
 
-(deftest derived-tree-defaults-source-db-to-live-frame-app-db
-  (testing "with no explicit :source-db the derived-tree projector reads the
-            live :frame app-db as the secret source"
-    (mk-frame! :proj/derived-live)
-    ;; classify + seed a live value through an event so the app-db actually
-    ;; holds the secret the derived tree re-keys.
-    (rf/reg-event :proj/seed-secret
+(deftest derived-tree-app-db-path-position-redacts
+  (testing "EP-0025: a sensitive value sitting at its actual app-db PATH within a
+            derived tree IS redacted (path-based projection)"
+    (mk-frame! :proj/derived-path)
+    (rf/reg-event :proj/seed-path
       (fn [{:keys [db]} _]
-        {:db        (assoc-in db [:auth :token] "live-secret")
+        {:db        (assoc-in db [:auth :token] "path-secret")
          :sensitive [[:auth :token]]}))
-    (rf/with-frame :proj/derived-live
-      (rf/dispatch-sync [:proj/seed-secret]))
-    (let [tree (derived-tree-with-token "live-secret")
+    (rf/with-frame :proj/derived-path
+      (rf/dispatch-sync [:proj/seed-path]))
+    ;; The derived tree is an app-db-shaped map whose [:auth :token] position
+    ;; matches the frame's classified path — the path walker reaches it.
+    (let [tree {:auth {:token "path-secret"} :public {:count 3}}
           out  (rf/project-egress
-                 {:kind  :rf.observe/derived-tree
-                  :frame :proj/derived-live
-                  :tree  tree}                  ;; no :source-db ⇒ live app-db
+                 {:kind      :rf.observe/derived-tree
+                  :frame     :proj/derived-path
+                  :tree      tree}
                  {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in out [1 1 :value]))
-          "the live-frame secret redacts in the derived tree (default source-db)"))))
+      (is (redacted? (get-in out [:auth :token]))
+          "a value at its classified app-db PATH redacts (path-based)")
+      (is (= 3 (get-in out [:public :count]))
+          "an unclassified sibling rides verbatim"))))
 
 (deftest derived-tree-local-raw-passes-through
   (testing "under :rf.egress/local-raw the derived tree passes through verbatim
-            (the trusted-local opt-out — value-dual of the size walker's opt-out)"
+            (the trusted-local opt-out)"
     (mk-frame! :proj/derived-raw)
     (let [source-db {:auth {:token "super-secret-token"}}
           tree      (derived-tree-with-token "super-secret-token")
@@ -479,46 +485,15 @@
       (is (= tree out)
           "local-raw is the deliberate raw read — the tree crosses verbatim"))))
 
-(deftest derived-tree-commit-plane-effect-classified-path-redacts
-  (testing "a path classified by a B3 commit-plane :sensitive EFFECT redacts a
-            re-keyed copy in a derived tree through project-egress — the
-            value-match dual reads the SAME registry (effect-sourced decls
-            unioned at lookup) the path walker reads"
-    ;; NO reg-frame :sensitive declaration — the classification comes ONLY from
-    ;; the commit-plane effect (the B3 :source :effect route).
-    (rf/reg-frame :proj/effect-derived {})
-    (rf/reg-event :proj/effect-classify
-      (fn [{:keys [db]} _]
-        {:db        (assoc-in db [:user :token] "effect-secret-xyz")
-         :sensitive [[:user :token]]}))
-    (rf/with-frame :proj/effect-derived
-      (rf/dispatch-sync [:proj/effect-classify]))
-    ;; the effect-classified path redacts in a path-based egress…
-    (let [path-out (rf/project-egress (rf/app-db-value :proj/effect-derived)
-                     {:frame :proj/effect-derived
-                      :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in path-out [:user :token]))
-          "the effect-classified path redacts in the path-based projection"))
-    ;; …AND a re-keyed copy redacts in a derived tree (the value-match dual).
-    (let [tree [:div [:code {:data-token "effect-secret-xyz"} "effect-secret-xyz"]]
-          out  (rf/project-egress
-                 {:kind  :rf.observe/derived-tree
-                  :frame :proj/effect-derived
-                  :tree  tree}
-                 {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in out [1 1 :data-token]))
-          "the effect-classified secret redacts a re-keyed copy in the derived tree")
-      (is (redacted? (get-in out [1 2]))
-          "and the re-keyed text leaf redacts too"))))
-
-(deftest derived-tree-multi-slot-form-scrubs-named-slots
-  (testing "the MULTI-SLOT form scrubs each present :slot-keys value of a map,
-            leaving absent / non-named slots untouched"
+(deftest derived-tree-multi-slot-form-path-walks-named-slots
+  (testing "EP-0025: the MULTI-SLOT form PATH-walks each present :slot-keys value
+            of a map; a re-keyed (non-app-db-position) secret ships raw,
+            non-named slots are untouched"
     (mk-frame! :proj/derived-multi)
     (let [source-db {:auth {:token "super-secret-token"}}
           explain   {:effective-args {:headers {:auth "super-secret-token"}}
                      :network        ["GET" "super-secret-token"]
-                     :source-chain   [:a :b]}              ;; author prose — NOT scrubbed
+                     :source-chain   [:a :b]}              ;; author prose — NOT a named slot
           out       (rf/project-egress
                       {:kind      :rf.observe/derived-tree
                        :frame     :proj/derived-multi
@@ -526,29 +501,11 @@
                        :slot-keys [:effective-args :network]
                        :source-db source-db}
                       {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in out [:effective-args :headers :auth]))
-          "a named value slot is scrubbed")
-      (is (redacted? (get-in out [:network 1]))
-          "a second named value slot is scrubbed")
+      ;; The secret sits at non-app-db positions in the named slots, so the
+      ;; path-walk is a no-op for it (EP-0025 fail-open).
+      (is (= "super-secret-token" (get-in out [:effective-args :headers :auth]))
+          "a re-keyed secret in a named slot ships raw (fail-open)")
+      (is (= "super-secret-token" (get-in out [:network 1]))
+          "a re-keyed secret in a second named slot ships raw")
       (is (= [:a :b] (:source-chain out))
           "a NON-named author-prose slot is left untouched"))))
-
-(deftest derived-tree-extra-sensitive-source-seeds-pre-frame-candidates
-  (testing "the :rf.elision/extra-sensitive-source seeds candidate secrets from
-            a pre-frame source (a plan :db-seed) even with no live app-db —
-            the fail-closed no-run path"
-    ;; A frame declaring [:auth :token] sensitive, but with NO live value there
-    ;; (no run allocated the secret). The secret lives only in the pre-frame
-    ;; seed, re-surfaced into a derived value slot.
-    (rf/reg-frame :proj/derived-pre {:sensitive {:app-db [[:auth :token]]}})
-    (let [db-seed {:auth {:token "seed-secret"}}
-          tree    [:pre "seed-secret"]
-          out     (rf/project-egress
-                    {:kind      :rf.observe/derived-tree
-                     :frame     :proj/derived-pre
-                     :tree      tree
-                     :source-db nil                 ;; no live frame value
-                     :rf.elision/extra-sensitive-source db-seed}
-                    {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in out [1]))
-          "a secret authored in the pre-frame seed redacts in the derived tree"))))
