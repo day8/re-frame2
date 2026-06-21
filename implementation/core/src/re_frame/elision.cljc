@@ -25,6 +25,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.path :as path]
             [re-frame.privacy :as privacy]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
@@ -180,6 +181,162 @@
                                 old-runtime-db
                                 (f (get-in old-runtime-db [:rf.runtime/elision]))))))
   nil)
+
+;; ---- EP-0025 commit-plane classification effects -------------------------
+;;
+;; EP-0025 §How it works: a `reg-event` handler may return the four
+;; commit-plane classification effects alongside `:db` —
+;;
+;;   :sensitive       [[path] …]   ; classify path sensitive (redact at egress)
+;;   :large           [[path] …]   ; classify path large    (size marker at egress)
+;;   :clear-sensitive [[path] …]   ; un-classify sensitive
+;;   :clear-large     [[path] …]   ; un-classify large
+;;
+;; They are applied WITH the `:db` write (a frame-state transform at the
+;; commit point — `re-frame.router/commit-frame-effects!`), NOT as a later
+;; post-commit `:fx`, so a path classified in the SAME event is redacted from
+;; its first egress. They write into the per-frame elision registry's
+;; `:sensitive-declarations` (sensitive) / `:declarations` (large) sub-maps —
+;; the SAME slot `re-frame.frame-classification` (`:source :frame`) and
+;; `re-frame.marks` (`:source :marks`) populate — tagged `:source :effect`,
+;; unioned with the other sources at egress-lookup time (`elide-against-frame`
+;; reads both sub-maps verbatim, so no change to the value-match / wire walker
+;; is needed). Classification is VALUE-INDEPENDENT (mark a path before any
+;; value lands there) and read ONLY at egress.
+;;
+;; The two axes (`:sensitive` / `:large`) are INDEPENDENT — a
+;; `:clear-sensitive` never touches `:declarations`, and `:clear-large` never
+;; touches `:sensitive-declarations`. This mirrors the registration-layer
+;; `:sensitive` / `:large` reserved in Spec-Schemas and the `add-marks` /
+;; `set-marks` source-scoped write skeleton (`re-frame.marks/write-elision-slots`),
+;; reused here against an arbitrary base runtime-db value (the router folds the
+;; result into the atomic `:db`-write transition, not a live container swap).
+
+(def ^:private classification-effect-keys
+  "The four EP-0025 commit-plane classification effect keys a `reg-event`
+  handler may return alongside `:db`. Two SET axes (`:sensitive` / `:large`)
+  and their two CLEAR tails — ordinary set/unset symmetry per axis. These are
+  COMMIT-PLANE effects applied with the `:db` write, NOT `do-fx` reserved
+  fx-ids."
+  #{:sensitive :large :clear-sensitive :clear-large})
+
+(def ^:private classification-effect-axis
+  "Map each classification effect key to the registry slot it writes and
+  whether it SETS or CLEARS. `:slot` is the `[:rf.runtime/elision …]`
+  declaration sub-map; `:set?` true adds `{:source :effect}` decls, false
+  removes the named paths. The two axes are independent — a clear on one axis
+  never touches the other's slot."
+  {:sensitive       {:slot :sensitive-declarations :set? true}
+   :large           {:slot :declarations           :set? true}
+   :clear-sensitive {:slot :sensitive-declarations :set? false}
+   :clear-large     {:slot :declarations           :set? false}})
+
+(defn classification-effect?
+  "True when `effects` carries at least one of the four EP-0025 commit-plane
+  classification effect keys. A cheap pre-check so the common no-classification
+  cascade allocates nothing on the commit path."
+  [effects]
+  (boolean (some #(contains? effects %) classification-effect-keys)))
+
+(defn classification-effect-defect
+  "PURE fail-loud-INPUT validator for the four EP-0025 classification effect
+  payloads in `effects`. Returns the FIRST defect as a map
+  `{:offending-key <k> :value <bad> :reason <string>}` — or nil when every
+  present classification payload is well-shaped. Does NOT throw; the caller
+  (the router's FINAL-effects boundary) emits
+  `:rf.error/classification-effect-shape` in-band and aborts the event
+  pre-commit, mirroring the `legacy-runtime-root` rejection (so the abort never
+  escapes the drain).
+
+  A payload is well-shaped iff its value is a vector (`[[path] …]`) AND every
+  entry is a valid concrete `:rf/path` (EP-0012 — sequential and
+  segment-validated). A non-EDN-identity segment makes
+  `re-frame.path/normalize-concrete` throw `:rf.error/bad-path`; that is caught
+  here and reported as a defect (the fail-closed `:rf/path` boundary surfaced
+  as a classification-effect defect rather than a separate bad-path throw, so
+  the rejection routes through ONE error id). Value-INDEPENDENT: validates the
+  SHAPE of the declaration, never the runtime value at the path (which need not
+  yet exist)."
+  [effects]
+  (letfn [(path-defect [k p]
+            (cond
+              (not (sequential? p))
+              {:offending-key k
+               :value         p
+               :reason        (str "each path in the `" k "` classification effect "
+                                   "must be a path vector; got " (pr-str p))}
+              :else
+              (try
+                (path/normalize-concrete p)
+                nil
+                (catch #?(:clj Throwable :cljs :default) e
+                  {:offending-key k
+                   :value         p
+                   :reason        (str "an invalid path in the `" k
+                                       "` classification effect: "
+                                       (or (ex-message e) (str e)))}))))
+          (payload-defect [k payload]
+            (if-not (vector? payload)
+              {:offending-key k
+               :value         payload
+               :reason        (str "the `" k "` classification effect must be a vector "
+                                   "of paths; got a " (pr-str (type payload)))}
+              (some #(path-defect k %) payload)))]
+    (some (fn [k]
+            (when (contains? effects k)
+              (payload-defect k (get effects k))))
+          classification-effect-keys)))
+
+(defn apply-classification-effects
+  "Apply the four EP-0025 classification effects in `effects` onto a base
+  `runtime-db` value, returning the new runtime-db with its
+  `[:rf.runtime/elision …]` registry updated. PURE — operates on a value, not
+  a live container, so the router can fold the result into the atomic `:db`
+  commit transition (a partition-write alongside `:db`).
+
+  Each SET key (`:sensitive` / `:large`) adds `{:source :effect}` declarations
+  for its paths to the axis slot (`:sensitive-declarations` / `:declarations`);
+  each CLEAR key (`:clear-sensitive` / `:clear-large`) DISSOCs its paths from
+  the axis slot. The two axes are INDEPENDENT — clearing one never touches the
+  other's slot — and clearing removes only the named paths (other-sourced
+  entries for an unnamed path survive). Within one effect map, a SET on an axis
+  applies before its own CLEAR is irrelevant (a handler returns at most one of
+  each axis's set/clear), but if both an axis SET and that axis's CLEAR name
+  the same path, the CLEAR wins (last-write per axis). An empty/absent axis
+  slot is pruned (dissoc'd) rather than left as `{}` (matching
+  `write-elision-slot`). Assumes `effects` already passed
+  `validate-classification-effects!` (paths are valid concrete `:rf/path`s);
+  normalizes each to its canonical vector form here so the stored decl key
+  matches the wire walker's `(vec path)` lookup.
+
+  Pre-commit FAIL-OPEN posture: a path classified here is value-independent —
+  it redacts whatever later occupies the path, and is a harmless no-op over an
+  absent / differently-shaped value."
+  [runtime-db effects]
+  (let [base (or runtime-db {})
+        reg  (get base :rf.runtime/elision)
+        ;; Reduce the four effects (set axes first, clear axes second) so a
+        ;; same-axis set+clear on one path resolves to cleared. Order within a
+        ;; single map is fixed by the key sequence below.
+        new-reg
+        (reduce
+          (fn [reg k]
+            (if-not (contains? effects k)
+              reg
+              (let [{:keys [slot set?]} (classification-effect-axis k)
+                    paths   (map #(vec (path/normalize-concrete %)) (get effects k))
+                    cur     (get reg slot)
+                    updated (if set?
+                              (reduce (fn [m p] (assoc m p {:source :effect})) (or cur {}) paths)
+                              (apply dissoc (or cur {}) paths))]
+                (if (seq updated)
+                  (assoc reg slot updated)
+                  (dissoc reg slot)))))
+          (or reg {})
+          ;; SET axes before CLEAR axes — a same-event set+clear of one path on
+          ;; an axis resolves to cleared (the clear is the later write).
+          [:sensitive :large :clear-sensitive :clear-large])]
+    (write-elision-slot base new-reg)))
 
 (defn declarations
   "Return the frame-owned `:large` `:app-db` declarations for `frame-id`

@@ -492,36 +492,42 @@
   The path-based `elide-wire-value` walker redacts by DECLARED app-db path —
   but rendered DOM text / attribute values sit at a NON-app-db position the
   path walker can never reach, so a secret copied from a declared-sensitive
-  app-db slot into the DOM would ride off-box RAW. The framework composed
-  helper `re-frame.core/redact-derived-slots` is the value-based DUAL: it
-  collects the live values at the frame's declared-`:sensitive?` (and
-  -`:large`) paths from `source-db` (with the non-unique-secret guard,
-  classified against the elided wire bytes) and substitutes any matching leaf
-  in `tree` with `:rf/redacted` (or the `:rf.size/large-elided` marker). This
-  is the SAME engine Story-MCP routes its rendered hiccup / `:effective-args`
-  through.
+  app-db slot into the DOM would ride off-box RAW. The framework boundary
+  `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind
+  (EP-0025 B4, rf2-ojp8pi) — is the value-based DUAL: it collects the live
+  values at the frame's declared-`:sensitive?` (and -`:large`) paths from the
+  frame's app-db (with the non-unique-secret guard, classified against the
+  elided wire bytes) and substitutes any matching leaf in `tree` with
+  `:rf/redacted` (or the `:rf.size/large-elided` marker), reading the SAME
+  per-frame classification registry the path walker reads (frame- / marks- /
+  EP-0025-commit-plane-effect-sourced declarations, unioned). This is the SAME
+  boundary Story-MCP routes its rendered hiccup / `:effective-args` through.
 
   Gate posture mirrors `maybe-elide-sample` / the MCP read surfaces:
 
   - Gate OFF (`:allow-raw-state? false`, the published-build default the MCP
     server signals via `configure-raw-state!` when its boot gate is OFF): the
-    tree is value-redacted against the frame's secrets. A secret rendered
-    into the DOM lands as `:rf/redacted` before crossing the off-box wire.
+    tree is value-redacted against the frame's secrets under the
+    `:rf.egress/off-box-tool` profile. A secret rendered into the DOM lands as
+    `:rf/redacted` before crossing the off-box wire.
   - Gate ON (`--allow-sensitive-reads`): the operator's deliberate trusted-
-    local raw read — pass the tree through verbatim (the `local-raw`
-    boundary, the value-dual of the size walker's opt-out).
+    local raw read — `project-egress` under `:rf.egress/local-raw` passes the
+    tree through verbatim (the value-dual of the size walker's opt-out).
 
-  `source-db` is the frame's live app-db (`rf/app-db-value frame-id`) — the
-  source of the secret set. The `wire-opts` floor passed to the framework
-  helper is the off-box-tool default (`{}` → sensitive redacts, large elides),
-  byte-identical to what the path-based `:app-db` egress ships under, so the
-  non-unique-secret guard reasons about the same wire bytes. A nil `tree` /
-  nil `source-db` / no declared-sensitive values short-circuits to `tree`
-  unchanged (handled inside the framework helper)."
+  `project-egress` resolves the off-box-tool profile to the egress floor and
+  reads the frame's live app-db itself (the derived-tree record's default
+  `:source-db`) as the secret source — byte-identical to what the path-based
+  `:app-db` egress ships under, so the non-unique-secret guard reasons about
+  the same wire bytes. A nil `tree` / nil source / no declared-sensitive
+  values short-circuits to `tree` unchanged (handled inside the boundary)."
   [tree frame-id]
-  (if (:allow-raw-state? @raw-state-config)
-    tree
-    (rf/redact-derived-slots tree nil (rf/app-db-value frame-id) frame-id {})))
+  (rf/project-egress
+    {:kind  :rf.observe/derived-tree
+     :frame frame-id
+     :tree  tree}
+    {:rf.egress/profile (if (:allow-raw-state? @raw-state-config)
+                          :rf.egress/local-raw
+                          :rf.egress/off-box-tool)}))
 
 (declare attach-cascade db-diff-summary machine-transitions-summary cascade-summary)
 
@@ -3392,7 +3398,7 @@
    position the path-based `elide-wire-value` walker can never reach. Under
    the off-box egress posture (raw-state gate OFF — the published-build
    default) the matched nodes are value-redacted via `maybe-redact-derived`
-   (`re-frame.core/redact-derived-slots`) against the operating frame's
+   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary) against the operating frame's
    secrets, so a rendered secret lands as `:rf/redacted` before crossing
    the off-box wire. Gate ON (`--allow-sensitive-reads`) passes the nodes
    through verbatim (the operator's deliberate trusted-local raw read). When
@@ -3555,7 +3561,7 @@
    a no-op for this leak class, and never touches attrs). Under
    the off-box egress posture (raw-state gate OFF — the published-build
    default) the whole `:content` is value-redacted via `maybe-redact-derived`
-   (`re-frame.core/redact-derived-slots`) against the frame's secrets, so a
+   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary) against the frame's secrets, so a
    rendered secret lands as `:rf/redacted`. The hard per-node `max-text` cap
    still trims the common large case first. Gate ON (`--allow-sensitive-
    reads`) passes the content through verbatim (trusted-local raw). When the
@@ -3634,7 +3640,7 @@
                    ;; app-db secrets. The path-based `elide-wire-value`
                    ;; redacts by app-db PATH, and rendered text has none, so
                    ;; it can't catch a secret copied INTO the DOM, nor touch
-                   ;; attrs. `redact-derived-slots` is the value-based dual:
+                   ;; attrs. `project-egress` (:rf.observe/derived-tree) is the value-based dual:
                    ;; it substitutes any leaf `=` to a frame secret. Off-box
                    ;; default redacts; gate ON passes verbatim (trusted-local).
                    content   (maybe-redact-derived base frame-id)]
@@ -3771,7 +3777,7 @@
    textContent / attribute / focus descriptor can carry a secret copied out
    of a declared-sensitive app-db slot, a NON-app-db position the path-based
    elider can't reach. They are value-redacted via `maybe-redact-derived`
-   (`re-frame.core/redact-derived-slots`) against the frame's secrets under
+   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary) against the frame's secrets under
    the off-box gate — the value-based dual of the `:app-db` / `:sub` elision.
    `start-recording!` / `watch-until` refuse a `:dom` / `:focus` signal under
    the off-box gate when no frame resolves (the secret source can't be

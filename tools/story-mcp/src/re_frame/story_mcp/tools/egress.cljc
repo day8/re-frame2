@@ -68,9 +68,10 @@
   Value-matching is a heuristic; its one collateral hazard is a
   sensitive path holding a SHORT/COMMON scalar (`0`, `200`, `:ok`),
   which would scrub every benign leaf that equals it. The framework
-  composed helper `re-frame.core/redact-derived-slots` guards that
-  (rf2-g7cd1, hardened rf2-f3kf7; centralized rf2-i783h0; composed
-  rf2-leggev) by dropping any candidate that ALSO appears, VERBATIM, in the
+  `re-frame.core/project-egress` `:rf.observe/derived-tree` boundary guards
+  that (rf2-g7cd1, hardened rf2-f3kf7; centralized rf2-i783h0; composed
+  rf2-leggev; boundary-named rf2-ojp8pi) by dropping any candidate that ALSO
+  appears, VERBATIM, in the
   POST-elision `:app-db` (the actual wire bytes) — such a value is already
   disclosed by the path-based `:app-db` egress, so excluding it leaks nothing
   new while restoring the benign leaves. Classifying against the elided db
@@ -79,20 +80,26 @@
   is NOT disclosed and MUST stay redacted. See the framework helper for the
   fail-SAFE argument.
 
-  ## Centralized + composed value-match engine (rf2-i783h0, rf2-leggev)
+  ## One record-level boundary — `project-egress` (EP-0025 B4, rf2-ojp8pi)
 
   The value-match-redaction ENGINE — candidate collection, the
   non-unique-secret guard, and the matching-leaf substitution, across BOTH
   the sensitive and large egress axes — lives ONCE in `re-frame.elision` (the
-  value-based DUAL of `elide-wire-value`), assembled behind the SINGLE
-  composed multi-slot helper `re-frame.core/redact-derived-slots`
-  (rf2-leggev). The nine granular gears that used to be reached piecemeal
-  through the facade are no longer facade exports. The scrubbers below are
-  ORCHESTRATION only — resolve the egress floor from the posture, read the
-  source app-db (and, for the no-run explain path, pass the plan's `:db-seed`
-  as the helper's `:rf.elision/extra-sensitive-source`), apply the
-  `:include-sensitive` opt-out. This keeps the SECOND place EP-0015 egress
-  semantics could drift removed (EP-0015 best-practice review issue 2)."
+  value-based DUAL of `elide-wire-value`). EP-0025 B4 makes the SINGLE public
+  boundary a consumer projects a derived tree through
+  `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind,
+  naming the off-box `:rf.egress/profile` rather than a hand-resolved
+  `:rf.size/*` floor. `project-egress` resolves the profile to the egress
+  floor and delegates to the elision engine, reading the SAME per-frame
+  classification registry the path walker reads (frame- / marks- /
+  EP-0025-commit-plane-effect-sourced declarations, unioned at lookup) — so a
+  path classified by a `:sensitive` commit-plane effect redacts a re-keyed
+  copy in a derived tree too. The scrubbers below are ORCHESTRATION only —
+  build the derived-tree record (its `:source-db`, and for the no-run explain
+  path the plan's `:db-seed` as `:rf.elision/extra-sensitive-source`), name
+  the profile, apply the `:include-sensitive` opt-out. This keeps the SECOND
+  place EP-0015 egress semantics could drift removed (EP-0015 best-practice
+  review issue 2)."
   (:require [re-frame.core :as rf]
             [re-frame.mcp-base.egress :as base-egress]
             [re-frame.mcp-base.elision :as base-elision]
@@ -225,21 +232,24 @@
 ;; indexing so a seq-indexed `[:tokens 0]` is reached), the non-unique-secret
 ;; guard (drop any candidate already on the wire, classified against the
 ;; ELIDED db — rf2-g7cd1 / rf2-f3kf7), and the matching-leaf substitution —
-;; now lives ONCE in the framework `re-frame.elision` ns (EP-0015 issue 2,
-;; rf2-i783h0). It is the value-based DUAL of `elide-wire-value`, so it
-;; belongs beside it (one home for the egress fact; a SECOND place the
-;; semantics could drift is removed). story-mcp keeps only the ORCHESTRATION:
-;; resolve the egress floor from the posture, read the source app-db, apply
-;; the `:include-sensitive` opt-out. The behaviour is byte-identical — the
-;; engine moved, the contract did not.
+;; lives ONCE in the framework `re-frame.elision` ns (EP-0015 issue 2,
+;; rf2-i783h0), reached through the SINGLE public boundary
+;; `re-frame.core/project-egress` (EP-0025 B4, rf2-ojp8pi) — the
+;; `:rf.observe/derived-tree` record kind. It is the value-based DUAL of
+;; `elide-wire-value`, so it belongs beside it (one home for the egress fact;
+;; a SECOND place the semantics could drift is removed). story-mcp keeps only
+;; the ORCHESTRATION: build the derived-tree record (its `:source-db`), name
+;; the off-box egress profile, apply the `:include-sensitive` opt-out. The
+;; behaviour is byte-identical — the boundary name changed, the contract did
+;; not.
 
 (defn scrub-rendered
   "Value-redact AND value-elide a DERIVED tree (rendered hiccup,
   `:effective-args`, a snapshot body) before wire egress, keyed to
   `variant-id`'s frame. EP-0015 treats `:sensitive` + `:large` as PEER egress
   axes, so the derived-tree scrub runs BOTH (rf2-9o5ixx) — in ONE call to the
-  framework composed helper `re-frame.core/redact-derived-slots`
-  (rf2-leggev), the SINGLE-TREE form (`slot-keys nil`):
+  framework boundary `re-frame.core/project-egress` (rf2-ojp8pi), the
+  `:rf.observe/derived-tree` record's SINGLE-TREE form (`:slot-keys nil`):
 
     1. SENSITIVE: collect the live values at `variant-id`'s
        declared-`:sensitive?` paths from `app-db` — with the
@@ -269,24 +279,33 @@
   [tree app-db variant-id include?]
   (if include?
     tree
-    ;; Classify against the SAME `:rf.egress/off-box-tool` floor `elide-app-db`
-    ;; ships under (rf2-qus09h) so the wire-classification reasons about the
-    ;; identical bytes the `:app-db` egress actually emits. The composed helper
-    ;; runs sensitive first (it wins), then large over what survives, off ONE
-    ;; collection pass.
-    (rf/redact-derived-slots tree nil app-db variant-id
-                             (posture->elision-opts false))))
+    ;; Project through the SINGLE record-level boundary `re-frame.core/project-egress`
+    ;; (EP-0025 B4, rf2-ojp8pi): a `:rf.observe/derived-tree` record naming the
+    ;; off-box-tool egress PROFILE — `project-egress` resolves the profile to
+    ;; the `:rf.egress/off-box-tool` floor and value-redacts the tree against
+    ;; `variant-id`'s classification registry (sensitive first — it wins — then
+    ;; large over survivors, off ONE collection pass). The boundary reasons
+    ;; about the identical bytes the path-based `:app-db` egress emits, since
+    ;; the same registry + the same floor govern both surfaces. Naming the
+    ;; PROFILE (not the `:rf.size/*` floor) keeps the egress vocabulary in the
+    ;; framework boundary, not hand-rolled here.
+    (rf/project-egress
+      {:kind      :rf.observe/derived-tree
+       :frame     variant-id
+       :tree      tree
+       :source-db app-db}
+      {:rf.egress/profile (posture->profile false)})))
 
 (defn scrub-explain-values
   "Value-redact the runtime/seeded VALUE slots `value-slot-keys` of an
   `explain` map against `variant-id`'s declared-sensitive / -large values,
   before the explain payload crosses the AI/off-box boundary (rf2-12f2q,
   rf2-q8ebq.1, pre-frame hardening rf2-tag30h) — in ONE call to the framework
-  composed helper `re-frame.core/redact-derived-slots` (rf2-leggev), the
-  MULTI-SLOT form (each present key of `value-slot-keys` scrubbed off one
-  collection pass).
+  boundary `re-frame.core/project-egress` (rf2-leggev, boundary-named
+  rf2-ojp8pi), the `:rf.observe/derived-tree` record's MULTI-SLOT form (each
+  present key of `value-slot-keys` scrubbed off one collection pass).
 
-  Candidate sensitive secrets come from BOTH sources, unioned by the helper:
+  Candidate sensitive secrets come from BOTH sources, unioned by the boundary:
 
     - the LIVE variant-frame app-db (the `source-db` arg — the guarded live
       reader, classified against the elided db under the
@@ -318,10 +337,21 @@
   [explain variant-id value-slot-keys include?]
   (if (or include? (nil? explain))
     explain
-    (let [app-db (rf/app-db-value variant-id)
-          opts   (assoc (posture->elision-opts false)
-                        :rf.elision/extra-sensitive-source (:db-seed explain))]
-      (rf/redact-derived-slots explain value-slot-keys app-db variant-id opts))))
+    ;; Project through `re-frame.core/project-egress` (EP-0025 B4, rf2-ojp8pi)
+    ;; as a MULTI-SLOT `:rf.observe/derived-tree` record: `:slot-keys` names the
+    ;; runtime/seeded value slots to scrub, the plan's `:db-seed` rides as the
+    ;; FAIL-CLOSED pre-frame `:rf.elision/extra-sensitive-source` (the no-run
+    ;; candidate union), and `:source-db` is the live variant-frame app-db.
+    ;; `project-egress` resolves the off-box-tool profile to the egress floor
+    ;; and value-redacts each present slot against `variant-id`'s registry.
+    (rf/project-egress
+      {:kind      :rf.observe/derived-tree
+       :frame     variant-id
+       :tree      explain
+       :slot-keys value-slot-keys
+       :source-db (rf/app-db-value variant-id)
+       :rf.elision/extra-sensitive-source (:db-seed explain)}
+      {:rf.egress/profile (posture->profile false)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime/captured value scrub (rf2-12f2q)
@@ -374,7 +404,8 @@
   matching leaf in `tree` with `:rf/redacted`.
 
   Thin wrapper over `scrub-rendered`: it shares the exact same VALUE-based
-  redaction + the non-unique-secret guard, so a secret leaks identically
+  redaction through `re-frame.core/project-egress` (the `:rf.observe/derived-tree`
+  boundary) + the non-unique-secret guard, so a secret leaks identically
   (i.e. not at all, by default) whether it reaches the wire via a live
   derived tree or a plan-resolved / captured slot. The only difference is
   that this reads the source app-db rather than receiving it — when the

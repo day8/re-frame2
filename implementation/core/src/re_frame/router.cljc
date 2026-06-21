@@ -1165,6 +1165,17 @@
   [effects event-id event frame ctx db-before runtime-before]
   (let [app-effect?  (contains? effects :db)
         rt-effect?   (contains? effects :rf.db/runtime)
+        ;; EP-0025: the four commit-plane classification effects
+        ;; (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) are
+        ;; applied WITH the `:db` write at this commit point (NOT a post-commit
+        ;; `:fx`). They write the per-frame elision registry, which lives in the
+        ;; runtime-db partition (`[:rf.runtime/elision …]`), so a classification
+        ;; effect is committed as a RUNTIME-DB partition write folded into the
+        ;; SAME atomic `commit-frame-transition!` as `:db` — a same-event
+        ;; classify-then-egress therefore redacts. (The validation already ran
+        ;; fail-loud pre-commit in `events/commit-fx-effects`; here we only
+        ;; APPLY the validated declaration.)
+        class-effect? (elision/classification-effect? effects)
         ;; nil-coercion: app-db is ALWAYS a map, never nil. A
         ;; `:db nil` effect is coerced to `{}` HERE — at the `:db` effect →
         ;; `:rf.db/app` partition mapping, BEFORE `commit-frame-transition!` —
@@ -1190,7 +1201,7 @@
                          "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
                          "nil); for a deliberate clear, return `{:db {}}` (which emits no "
                          "diagnostic).")}))
-    (if (or app-effect? rt-effect?)
+    (if (or app-effect? rt-effect? class-effect?)
       (let [emit-event (privacy/redacted-event-from-ctx ctx)
             ;; A whole-value `:rf.db/runtime` effect REPLACES the
             ;; runtime-db partition (decision #5), but the elision declaration
@@ -1223,19 +1234,53 @@
             ;; `:rf.runtime/elision` is still honoured verbatim.) `runtime-before`
             ;; remains the rollback target below — rollback must restore the
             ;; PRE-handler state, so it correctly stays the chain-start snapshot.
-            live-runtime-db (when rt-effect?
+            ;; Read the LIVE runtime-db whenever a runtime-db OR a
+            ;; classification effect commits — both need the freshest registry
+            ;; (the flow drain may have just written propagated marks; see the
+            ;; reconcile fail-open note above) as their base.
+            live-runtime-db (when (or rt-effect? class-effect?)
                               (frame/frame-runtime-db-value frame))
-            new-runtime-db (when rt-effect?
+            ;; The reconciled runtime-db partition value (only when a
+            ;; `:rf.db/runtime` effect landed). EP-0025: a classification
+            ;; effect (`:sensitive` / `:large` / `:clear-sensitive` /
+            ;; `:clear-large`) is then APPLIED onto that base — onto the
+            ;; reconciled `:rf.db/runtime` value when one landed, else onto the
+            ;; live runtime-db — folding the per-frame elision-registry write
+            ;; (`[:rf.runtime/elision …]`) into the SAME atomic transition as
+            ;; `:db`. This is a partition-write alongside `:db`: it reuses the
+            ;; existing runtime-db reconcile protection (the registry survives a
+            ;; whole-value runtime-db effect) AND commits the classification at
+            ;; the exact `:db` boundary, so a same-event classify-then-egress
+            ;; redacts. The axes are independent and the write is
+            ;; value-independent (it marks a path, not a value).
+            reconciled-rt  (when rt-effect?
                              (elision/reconcile-runtime-db-effect
                                (:rf.db/runtime effects) live-runtime-db))
+            new-runtime-db (cond
+                             ;; classification effect → apply onto the base
+                             ;; runtime-db (reconciled rt-effect value or live).
+                             class-effect?
+                             (elision/apply-classification-effects
+                               (if rt-effect? reconciled-rt live-runtime-db)
+                               effects)
+                             ;; runtime-db effect only — reconciled value.
+                             rt-effect? reconciled-rt
+                             :else nil)
+            ;; Whether the runtime-db partition participates in this commit: a
+            ;; `:rf.db/runtime` effect OR a classification effect (which writes
+            ;; the elision registry, a runtime-db child). A no-op classification
+            ;; (e.g. clearing an unclassified path) collapses to no change at
+            ;; `commit-frame-transition!`, so a stray partition write is harmless.
+            rt-partition?  (or rt-effect? class-effect?)
             ;; Map the EFFECT keys (:db / :rf.db/runtime) to the frame-state
             ;; PARTITION keys (:rf.db/app / :rf.db/runtime). `:db` scopes to
-            ;; the app-db partition; `:rf.db/runtime` to runtime-db. A
-            ;; partition not present is carried forward unchanged by
-            ;; `commit-frame-transition!`. `new-db` is the nil-coerced value.
+            ;; the app-db partition; `:rf.db/runtime` (and the classification
+            ;; effects' registry write) to runtime-db. A partition not present
+            ;; is carried forward unchanged by `commit-frame-transition!`.
+            ;; `new-db` is the nil-coerced value.
             partitions (cond-> {}
-                         app-effect? (assoc frame/app-partition-key     new-db)
-                         rt-effect?  (assoc frame/runtime-partition-key new-runtime-db))
+                         app-effect?   (assoc frame/app-partition-key     new-db)
+                         rt-partition? (assoc frame/runtime-partition-key new-runtime-db))
             ;; ONE atomic frame-state install. Returns the set of partition
             ;; keys that actually changed by `=`.
             changed    (frame/commit-frame-transition! frame partitions)
@@ -1632,6 +1677,37 @@
       event event-id frame nil elapsed-ms end-ms
       (assoc tags :frame frame))))
 
+(defn- emit-classification-effect-shape!
+  "Surface `:rf.error/classification-effect-shape` (EP-0025) through BOTH the
+  always-on error-emit substrate AND the dev-only trace surface — the
+  FINAL-effects boundary rejection of a malformed commit-plane classification
+  effect (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`).
+
+  Like `emit-legacy-runtime-root!`, this is an IN-BAND rejection, not a throw:
+  the FINAL effects map may carry a malformed classification payload from a
+  handler return OR an `:after` interceptor; throwing here would escape into
+  `drain-emergency-release!` and abandon the rest of the queue. So we emit
+  in-band and abort THIS event only (`:error` outcome, NO `:db`/registry
+  commit, NO `:fx`), preserving the no-partial-commit promise while keeping the
+  drain alive. Fail-loud (a surfaced `:rf.error/*`), fail-CLOSED on the commit
+  (the classification is not installed and neither is the `:db` write).
+
+  `defect` is the `re-frame.elision/classification-effect-defect` map
+  (`{:offending-key … :value … :reason …}`)."
+  [defect event event-id frame start-ms]
+  (let [end-ms     (interop/now-ms)
+        elapsed-ms (elapsed-ms-from start-ms end-ms)]
+    (error-emit/emit-error-both!
+      :rf.error/classification-effect-shape
+      event event-id frame nil elapsed-ms end-ms
+      {:frame             frame
+       :rf.trace/event-id event-id
+       :rf.event/v        event
+       :offending-key     (:offending-key defect)
+       :value             (:value defect)
+       :recovery          :fix-effect
+       :reason            (:reason defect)})))
+
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
   / per-call overrides take effect. Per-frame :platform overrides the
@@ -2010,7 +2086,16 @@
         ;; `:rf.db/runtime` coeffect `assemble-initial-ctx` injected by
         ;; reference. Needed by `commit-frame-effects!` so an app-db schema
         ;; rollback unwinds the WHOLE transition (both partitions) coherently.
-        runtime-before (get-in final-ctx [:coeffects :rf.db/runtime])]
+        runtime-before (get-in final-ctx [:coeffects :rf.db/runtime])
+        ;; EP-0025: the FINAL-effects boundary check for a malformed commit-plane
+        ;; classification effect (`:sensitive` / `:large` / `:clear-sensitive` /
+        ;; `:clear-large`). Returns the first defect map (or nil) — a non-vector
+        ;; payload or a non-`:rf/path` entry. Checked HERE (not only on the
+        ;; handler return) so an `:after`-interceptor-injected malformed payload
+        ;; is also rejected; the rejection is in-band (no throw) so it aborts THIS
+        ;; event pre-commit without escaping the drain. nil (the common case) is a
+        ;; cheap walk over at-most-four absent keys.
+        class-defect   (elision/classification-effect-defect effects)]
     (when error
       (emit-pipeline-exception! error event-id event frame final-ctx start-ms))
     (cond
@@ -2043,6 +2128,19 @@
       (events/legacy-runtime-root? (:db effects))
       (do
         (emit-legacy-runtime-root! event event-id frame start-ms)
+        :error)
+      ;; EP-0025 FINAL-effects boundary: a malformed commit-plane classification
+      ;; effect (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`)
+      ;; whose payload is not a vector-of-paths. FAIL-LOUD pre-commit, in-band
+      ;; (like the legacy-root rejection above): emit
+      ;; `:rf.error/classification-effect-shape` and abort THIS event with NO
+      ;; `:db` / registry commit and NO `:fx` — the classification is not
+      ;; installed and the `:db` write does not land (no partial commit). Checked
+      ;; BEFORE `commit-frame-effects!`, which would otherwise fold the malformed
+      ;; declaration into the runtime-db partition.
+      class-defect
+      (do
+        (emit-classification-effect-shape! class-defect event event-id frame start-ms)
         :error)
       ;; Per Spec 010 §Per-step recovery row 4: `commit-frame-effects!`
       ;; returns false when post-commit app-db schema validation rejected

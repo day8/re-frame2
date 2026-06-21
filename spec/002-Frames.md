@@ -468,6 +468,26 @@ Which registrars mint authority:
 - **machines** — machine handlers carry the framework-owned `:rf/machine? true` stamp (minted by the machine registrar). The runtime folds that stamp into the authority check, so a machine implies framework-write authority **without** a separate `:rf/framework-authority?` key — its existing contract is unchanged.
 - **elision** and **SSR's non-event writes** — these subsystems write runtime-db through **privileged frame-state helpers** (`swap-runtime-db!` / `replace-frame-state!`), not through event handlers returning a `:rf.db/runtime` effect, so they never reach the event-handler diagnostic and mint no event-handler authority. (Elision's per-frame declaration registry and any full-frame install / restore path are in this category.)
 
+#### Commit-plane data-classification effects (EP-0025)
+
+The closed top-level effect map carries **four further commit-plane effects** beyond `:db` / `:rf.db/runtime` / `:fx` — the EP-0025 data-classification effects, reserved in [Conventions §Reserved commit-plane classification effects](Conventions.md#reserved-commit-plane-classification-effects):
+
+```clojure
+:sensitive       [[path] …]   ; classify a path sensitive (redact at egress)
+:large           [[path] …]   ; classify a path large    (size marker at egress)
+:clear-sensitive [[path] …]   ; un-classify sensitive
+:clear-large     [[path] …]   ; un-classify large
+```
+
+They are **commit-plane** effects, applied **WITH the `:db` write** at the commit step (a frame-state transform into the per-frame elision declaration registry, `[:rf.runtime/elision …]` in runtime-db) — **not** routed through the `:fx` do-fx plane, and **not** [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids) (which catalogues `do-fx`-dispatched fx, a different plane). Because the registry lives in runtime-db, a classification effect commits as a runtime-db partition write folded into the **same atomic frame-state transition** as `:db` (per §The two-partition frame contract). Consequences:
+
+- **Same-event ordering.** A path classified in an event is redacted from its *first* egress — the classification lands at the same commit boundary the value does. (A classification made earlier — at init, or any time before the value lands — trivially covers it.)
+- **Value-independent.** Classify a path *before* any value exists there; the classification redacts whatever later occupies the path. A classification over an absent / differently-shaped value is a harmless no-op.
+- **Read only at egress.** The application — handlers, subs, views — always sees real values while events run; redaction happens only at the mediated-egress projection. The two axes (`:sensitive` / `:large`) are **independent** — clearing one never touches the other; clearing removes only the named paths.
+- **Fail-loud, pre-commit.** A malformed payload (a non-vector value, or a non-`:rf/path` entry) is rejected on the **pre-commit-transactional path** with `:rf.error/classification-effect-shape` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) — the throw aborts the event with **no `:db` commit** (no partial commit), like any other commit-plane state-effect validation. A *forgotten* classification is fail-open (the value ships raw); a malformed one is fail-loud.
+
+The same `:sensitive` / `:large` vocabulary is reserved at the registration layer (transient event / effect / coeffect payloads and subsystem instance declarations) per [Spec-Schemas](Spec-Schemas.md); these four handler effects are the **durable app-db** lowering of that vocabulary. The full classification model — egress projection, subsystem declarations, failure posture — lives in [015 §Data Classification](015-Data-Classification.md).
+
 Host handles remain **outside** frame-state. Timers, AbortControllers, listeners, promise handles, and substrate objects are teardown resources, not serializable runtime-db values. Runtime-db records enough durable facts to reconstitute or clean up those handles; it does not store the handles themselves (per §Durable vs transient below).
 
 #### Subscriptions read the partition they belong to
