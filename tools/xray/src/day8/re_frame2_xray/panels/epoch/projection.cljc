@@ -2560,7 +2560,7 @@
   Each row carries `:render-args` — the positional render args/props
   passed to THIS render, off the `:rf.view/render-args` trace slot
   (rf2-rpgq8). The value is ALREADY ELIDED at the substrate emit
-  chokepoint (PRIVACY — `re-frame.marks/project-trace-event` routes it
+  chokepoint (PRIVACY — `re-frame.classification/project-trace-event` routes it
   through `elide-wire-value` against the frame's app-db elision
   registry before delivery, the identical treatment `:rf.event/db`
   gets); we consume the elided value as-is — NO re-elision.
@@ -3370,7 +3370,7 @@
   "True when an INTERCEPTORS row's `authored` ref (a bare keyword id or an
   `[id arg]` 2-vector) is the `summary-ref` carried in the per-dispatch
   `:rf.interceptor/override-summary` fact. The summary projection
-  (`re-frame.marks/project-override-summary-tags`) reduces an `[id arg]` ref to
+  (`re-frame.classification/project-trace-event`) reduces an `[id arg]` ref to
   its bare head id (the `arg` is dropped at the egress boundary as not
   privacy-safe), so a summary entry is always a bare keyword. A row therefore
   matches when its authored head id equals the summary ref — both an

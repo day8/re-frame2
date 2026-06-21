@@ -397,27 +397,31 @@
   Profile-aware opt-out: under `:rf.egress/local-raw` / explicit
   `:rf.size/include-sensitive? true` the tree passes through verbatim."
   [record frame-id elision-opts]
-  (let [tree (:tree record)]
-    (if (true? (:rf.size/include-sensitive? elision-opts))
-      ;; Trusted-local opt-out: the raw tree crosses (both axes).
+  (let [tree        (:tree record)
+        ;; A derived tree's positions are NON-app-db, so the path walk is
+        ;; FAIL-OPEN by nature (a re-keyed value ships raw). It must therefore
+        ;; never fail CLOSED: `elide-wire-value` redacts a whole value to the
+        ;; `:rf/redacted` sentinel when the frame is unresolvable / not live —
+        ;; correct for an app-db slot, WRONG for a derived tree (it would turn
+        ;; the whole tree into a sentinel keyword). So the derived-tree walk
+        ;; runs ONLY against a LIVE frame; otherwise the tree ships as-is.
+        live-frame? (and (some? frame-id) (some? (frame/frame frame-id)))]
+    (if (or (true? (:rf.size/include-sensitive? elision-opts))
+            (not live-frame?))
+      ;; Trusted-local opt-out, OR no live frame to apply path classification
+      ;; against ⇒ the tree passes through (fail-open hygiene).
       tree
-      (let [wire-opts (cond-> (assoc (dissoc elision-opts :path) :frame frame-id))
+      (let [wire-opts (assoc (dissoc elision-opts :path) :frame frame-id)
             walk      (fn [v] (elision/elide-wire-value v wire-opts))
             slot-keys (:slot-keys record)]
-        (cond
-          ;; Frameless ⇒ no per-frame policy to walk against; fail-open
-          ;; (path-based redaction has nothing to apply). The size walker's
-          ;; frameless fail-closed posture is for whole-value app-db slots, not
-          ;; a derived tree's non-app-db positions, so a derived tree with no
-          ;; frame ships as-is.
-          (nil? frame-id)            tree
-          (empty? slot-keys)         (walk tree)
-          :else                      (reduce (fn [m k]
-                                               (if (contains? m k)
-                                                 (update m k walk)
-                                                 m))
-                                             tree
-                                             slot-keys))))))
+        (if (empty? slot-keys)
+          (walk tree)
+          (reduce (fn [m k]
+                    (if (and (associative? m) (contains? m k))
+                      (update m k walk)
+                      m))
+                  tree
+                  slot-keys))))))
 
 ;; ---- dispatch ------------------------------------------------------------
 

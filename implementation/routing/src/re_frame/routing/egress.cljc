@@ -4,7 +4,7 @@
 
   EP-0015 treats trace/tool/log/epoch records as egress surfaces and requires
   off-box defaults to FAIL CLOSED. The framework's marks chokepoint
-  (`re-frame.marks/project-trace-event` via `re-frame.trace/build-event`)
+  (`re-frame.classification/project-trace-event` via `re-frame.trace/build-event`)
   already projects the KNOWN trace slots — `:rf.fx/args` against fx marks,
   the dispatched-event vector against event marks, etc. — so the routing fx
   (`:rf.nav/scroll`, `:rf.nav/capture-scroll`, `:rf.nav/push-url`,
