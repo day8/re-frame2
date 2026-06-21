@@ -27,7 +27,6 @@
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.frame-classification :as fc]
-            [re-frame.marks :as marks]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
 
@@ -110,23 +109,26 @@
     (is (empty? (elision/sensitive-declarations :app/d))
         "frame-sourced declarations cleared when the key is dropped")))
 
-(deftest re-registration-preserves-marks-sourced-declarations
-  (testing "schema/marks-sourced declarations survive a frame-classification replace"
+(deftest re-registration-preserves-other-sourced-declarations
+  (testing "non-frame-sourced declarations survive a frame-classification replace"
     (rf/reg-frame :app/m {:sensitive {:app-db [[:auth :token]]}})
-    ;; An imperative add-marks declaration (now an internal helper, no
-    ;; longer on the public façade — EP-0015 rf2-mngp4o) co-exists.
-    (marks/add-marks :app/m {[:user :ssn] :sensitive})
+    ;; EP-0025: the imperative add-marks/set-marks API is REMOVED. A non-frame
+    ;; declaration source (here a commit-plane `:sensitive` effect, `:source
+    ;; :effect`) co-exists and survives a frame-classification replace.
+    (elision/swap-elision-slot! :app/m
+      (fn [reg]
+        (assoc-in reg [:sensitive-declarations [:user :ssn]] {:source :effect})))
     (let [decls (elision/sensitive-declarations :app/m)]
       (is (= :frame (:source (get decls [:auth :token]))))
-      (is (= :marks (:source (get decls [:user :ssn])))))
-    ;; Re-register the frame with a new frame-owned set — the marks-sourced
+      (is (= :effect (:source (get decls [:user :ssn])))))
+    ;; Re-register the frame with a new frame-owned set — the effect-sourced
     ;; [:user :ssn] declaration MUST survive (it is not frame-owned).
     (rf/reg-frame :app/m {:sensitive {:app-db [[:tenant :key]]}})
     (let [decls (elision/sensitive-declarations :app/m)]
       (is (contains? decls [:tenant :key]) "new frame-owned declaration present")
       (is (not (contains? decls [:auth :token])) "old frame-owned declaration gone")
-      (is (= :marks (:source (get decls [:user :ssn])))
-          "marks-sourced declaration survived the frame-classification replace"))))
+      (is (= :effect (:source (get decls [:user :ssn])))
+          "effect-sourced declaration survived the frame-classification replace"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) sensitive-wins-over-large

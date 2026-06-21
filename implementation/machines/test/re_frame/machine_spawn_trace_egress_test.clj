@@ -3,7 +3,7 @@
 
   Three RAW child-owned payloads that could leave through the parent / spawn
   trace surfaces are projected at the egress chokepoint
-  (`re-frame.marks/project-trace-event`), like every other machine `:data`
+  (`re-frame.classification/project-trace-event`), like every other machine `:data`
   slot:
 
    1. **`:start` payload.** The accepted spawn path emits
@@ -33,7 +33,7 @@
   summarized to the `:rf/redacted` sentinel before it crosses the bus /
   epoch-capture / AI-MCP egress boundary."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.marks :as marks]))
+            [re-frame.classification :as classification]))
 
 ;; ---- shared helpers -------------------------------------------------------
 
@@ -71,7 +71,7 @@
                             :invoke-id  invoke-id
                             :start      [:begin {:token "secret-start-jwt"
                                                  :password "hunter2"}]}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           tags (:tags out)]
       ;; structural slots survive — consumers locate the spawn
       (is (= :rf.spawn-egress/worker#1 (:spawned-id tags)))
@@ -98,7 +98,7 @@
                 :tags      {:machine-id parent-id
                             :frame      :rf/default
                             :event      (spawn-error-event err)}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           tags (:tags out)
           proj-event (:event tags)]
       (is (= :rf.machine.spawn/error (first proj-event))
@@ -120,7 +120,7 @@
                             :event    (spawn-error-event err)
                             :before   {:state :working :data {}}
                             :after    {:state :failed  :data {}}}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           proj-event (get-in out [:tags :event])]
       (is (= :rf.machine.spawn/error (first proj-event)))
       (is (= invoke-id (second proj-event)))
@@ -140,7 +140,7 @@
                             :outcome  :pass
                             :input    {:data  {}
                                        :event (spawn-error-event err)}}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           proj-event (get-in out [:tags :input :event])]
       (is (= :rf.machine.spawn/error (first proj-event)))
       (is (= invoke-id (second proj-event)))
@@ -161,7 +161,7 @@
                             :outcome   :ok
                             :input     {:data  {}
                                         :event (spawn-error-event err)}}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           proj-event (get-in out [:tags :input :event])]
       (is (= :rf.machine.spawn/error (first proj-event)))
       (is (not (.contains (pr-str out) "4111-1111-1111-1111")))
@@ -179,7 +179,7 @@
                             :frame      :rf/default
                             ;; a plain app event with a plain payload
                             :event      [:user/login {:user "alice"}]}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           proj-event (get-in out [:tags :event])]
       (is (= [:user/login {:user "alice"}] proj-event)
           "a non-spawn-error machine event vector is not summarized"))))

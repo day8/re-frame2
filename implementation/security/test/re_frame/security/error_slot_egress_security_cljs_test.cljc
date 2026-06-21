@@ -34,7 +34,7 @@
   Both slots are elided at the trace egress chokepoint BEFORE the event
   crosses the bus / epoch-capture / AI-MCP boundary or reaches a log sink:
 
-    1. `re-frame.marks/project-machine-error-tags` (a NEW projection clause,
+    1. the `re-frame.classification` machine-error projection clause (a NEW projection clause,
        wired into `project-trace-event`) elides the WHOLE `:exception-data`
        slot to `:rf/redacted` and stamps `:sensitive? true` when the machine
        declares ANY `:sensitive` mark.
@@ -50,7 +50,7 @@
 
   ## Net property (verify-by-revert)
 
-  Reverting `project-machine-error-tags` (or its dispatch clause) to a
+  Reverting the machine-error projection clause (or its dispatch clause) to a
   pass-through makes the machine corpus + property go RED — the sentinel
   surfaces in `:exception-data`. Reverting `redact-route-error-tags` makes
   the navigate corpus go RED — the sentinel surfaces in `:error`. Confirmed
@@ -67,7 +67,7 @@
             ;; without it `route-url` soft-passes (no validation throw) and the
             ;; `:schemas/redact-validation-tags` sensitivity oracle is unbound.
             [re-frame.schemas.malli]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.mcp-base.sensitive :as sens]
             [re-frame.routing :as routing]
             ;; Call `navigate-handler` directly (the `reg-event` handler fn,
@@ -80,7 +80,7 @@
             [re-frame.routing.registry :as registry]
             [re-frame.test-support :as test-support]
             ;; SITE 1 drives the REAL production emit (`trace/emit-error!`),
-            ;; not direct `marks/project-trace-event` — so the test proves the
+            ;; not direct `classification/project-trace-event` — so the test proves the
             ;; full envelope production actually ships, including the top-level
             ;; `:sensitive?` hoist the MCP egress gate reads (rf2-md2wn0).
             [re-frame.trace :as trace]
@@ -111,9 +111,9 @@
 ;;
 ;; Driven through the REAL production emit `trace/emit-error!` — the exact
 ;; call `re-frame.machines.lifecycle-fx.registration/trace-action-failure!`
-;; makes (registration.cljc) — NOT direct `marks/project-trace-event`
+;; makes (registration.cljc) — NOT direct `classification/project-trace-event`
 ;; (rf2-md2wn0). `emit-error!` runs the full production pipeline:
-;; `build-event` → marks projection (`project-machine-error-tags`, which
+;; `build-event` → marks projection (the machine-error projection clause, which
 ;; stamps `[:tags :sensitive?]`) → the top-level `:sensitive?` hoist
 ;; (`hoist-projected-sensitive`) → delivery. We capture the delivered
 ;; envelope off a trace-tooling listener and assert what production ACTUALLY
@@ -136,7 +136,7 @@
   install (machine marks key under the `:event` kind because a machine IS an
   event handler). Post-rf2-ehexnw the marks are DERIVED from the registrar
   `:event` meta, so we register each id as an event carrying the author marks
-  (the snapshot analogue `project-machine-error-tags` keys off) rather than
+  (the snapshot analogue the machine-error projection clause keys off) rather than
   poking a deleted side-table."
   []
   ;; Sensitive machine — declares a sensitive `:data` path on its reg meta.
@@ -151,7 +151,7 @@
   `trace/emit-error!` (registration.cljc), carrying the sentinel-bearing
   `:exception-data`, with the addressed id keyed under `id-key`.
 
-  `project-machine-error-tags` resolves the schema lookup via
+  the machine-error projection clause resolves the schema lookup via
   `(or (:actor-id tags) (:machine-id tags))` (rf2-yyvtk5): a LIVE actor's
   exception row addresses the throwing instance under `:actor-id` (the
   preferred branch every production emit site now hits —
@@ -258,7 +258,7 @@
   (testing "rf2-zsm03 — a machine with no marks entry at all (never
             registered marks) rides :exception-data verbatim"
     ;; No declare-machine-marks! call — the id is unregistered, so the
-    ;; registrar carries no :event meta and `marks-for` derives nil marks.
+    ;; registrar carries no :event meta and `registration-classification` derives nil.
     (let [out  (emit-machine-action-exception-for :sec/unregistered)
           tags (:tags out)]
       (is (some? out) "the machine-action-exception trace was delivered")

@@ -15,7 +15,7 @@
       (a bare keyword id or `[id arg]` 2-vector head id). NO interceptor
       values, executable maps, fns, raw factory args, or raw replacement
       values ever egress.
-    * The marks chokepoint (`re-frame.marks/project-trace-event`) re-asserts
+    * The marks chokepoint (`re-frame.classification/project-trace-event`) re-asserts
       the id-only shape FAIL-CLOSED.
 
   Attach point is `:rf.event/run-start` (NOT `:rf.event/dispatched`, which
@@ -27,7 +27,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interceptor :as interceptor]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -213,7 +213,7 @@
                               :replaced []
                               :removed  [::log-a]
                               :count    1}}}
-          out   (marks/project-trace-event ev)
+          out   (classification/project-trace-event ev)
           summ  (-> out :tags :rf.interceptor/override-summary)]
       (is (= [::log-a] (:matched summ)))
       (is (= [::log-a] (:removed summ)))
@@ -229,7 +229,7 @@
                              :replaced [[:rf.interceptor/path {:secret "tok"}]]
                              :removed  []
                              :count    1}}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           summ (-> out :tags :rf.interceptor/override-summary)]
       (is (= [:rf.interceptor/path] (:matched summ))
           "[id arg] reduced to head id")
@@ -249,7 +249,7 @@
                              :replaced [leak]
                              :removed  []
                              :count    1}}}
-          out  (marks/project-trace-event ev)
+          out  (classification/project-trace-event ev)
           summ (-> out :tags :rf.interceptor/override-summary)]
       (is (= [privacy/redacted-sentinel] (:matched summ))
           "an interceptor VALUE map collapses to the redacted sentinel")
@@ -262,6 +262,6 @@
                :op-type   :rf.event
                :tags      {:frame :rf/default
                            :rf.interceptor/override-summary [:not :a :map]}}
-          out (marks/project-trace-event ev)]
+          out (classification/project-trace-event ev)]
       (is (not (contains? (:tags out) :rf.interceptor/override-summary))
           "malformed non-map summary slot is removed"))))
