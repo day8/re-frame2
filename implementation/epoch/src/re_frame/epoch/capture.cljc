@@ -449,7 +449,7 @@
   PAYLOAD-BEARING value slots (rf2-at60h): `:prev-value` and `:value`
   carry the sub's computed app-data, so this row is NOT value-free. The
   whole-output `:sensitive?` stamp (rf2-isdwf) is already honoured at the
-  marks emit site (`re-frame.marks/project-sub-tags`) — `:value` /
+  marks emit site (`re-frame.classification/project-sub-tags`) — `:value` /
   `:prev-value` arrive carrying the `:rf/redacted` sentinel, so no further
   projection is needed for the sensitive case. The whole-output `:large?`
   stamp, however, only marks largeness on the trace tag and leaves the raw

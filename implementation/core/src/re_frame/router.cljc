@@ -590,7 +590,7 @@
   interceptor value, executable map, fn, raw factory arg, or raw replacement
   value. A parameterized `[id arg]` ref is EDN-serializable but its `arg` could
   carry app data, so this surface egresses ids/counts only; the marks
-  chokepoint (`re-frame.marks/project-trace-event`) enforces the shape
+  chokepoint (`re-frame.classification/project-trace-event`) enforces the shape
   fail-closed should it ever grow. Unmatched override keys (a key that matched
   no chain entry — the `:rf.error/override-fallthrough` candidate) are NOT
   counted in `:matched`/`:replaced`/`:removed`/`:count`; the tag reports what

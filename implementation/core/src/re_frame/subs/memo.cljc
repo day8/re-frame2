@@ -189,7 +189,7 @@
 
   `:prev-value` and `:value` are wire-value-sensitive app data, but they
   are emitted RAW here and redacted DOWNSTREAM by the existing
-  `re-frame.marks/project-sub-tags` chokepoint that `re-frame.trace/
+  `re-frame.classification/project-sub-tags` chokepoint that `re-frame.trace/
   build-event` already runs for every `:sub/run` event. That chokepoint
   resolves the sub's sensitive/large state from process-scoped marks +
   the sub-output propagation table — NEVER by reading the frame's app-db
@@ -268,7 +268,7 @@
         ;; (op-type vocabulary parity with the prod path); the attribution
         ;; slots ride the dev gate so Closure DCEs the enriched tag map
         ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
-        ;; the existing `re-frame.marks/project-sub-tags` chokepoint
+        ;; the existing `re-frame.classification/project-sub-tags` chokepoint
         ;; (run by `trace/build-event`) redacts them from process-scoped
         ;; marks without a reactive container deref. See the ns docstring
         ;; §Privacy for why we MUST NOT elide here.

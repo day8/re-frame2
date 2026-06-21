@@ -39,14 +39,14 @@
   prefixing the instance's absolute snapshot prefix
   `[:rf.runtime/machines :snapshots <actor-id>]`, producing the absolute
   runtime-db declaration the egress read path already consumes
-  (`re-frame.marks/frame-snapshot-marks` re-roots it snapshot-relative; the
+  (`re-frame.classification/frame-snapshot-classification` re-roots it snapshot-relative; the
   SSR / trace / projection boundaries are UNCHANGED — only the SOURCE of the
   registry entry flips from `:source :frame` to `:source :machine`).
 
   ## Read path is untouched
 
   The registry is the single source of truth for snapshot-`:data` egress
-  classification (`frame-snapshot-marks` reads `(keys decls)` from
+  classification (`frame-snapshot-classification` reads `(keys decls)` from
   `re-frame.elision/sensitive-declarations` / `declarations`, unioning ALL
   sources). Lowering a machine declaration there at the absolute snapshot
   path makes the existing trace-egress / SSR-hydration redaction fire with
@@ -154,7 +154,7 @@
   "Re-root a snapshot-relative `:data`-rooted declaration `path` to the
   ABSOLUTE per-frame elision-registry path for the actor snapshot keyed
   under `actor-id` — `[:rf.runtime/machines :snapshots <actor-id> :data …]`
-  — the exact shape `re-frame.marks/frame-snapshot-marks` re-roots back
+  — the exact shape `re-frame.classification/frame-snapshot-classification` re-roots back
   snapshot-relative at egress. Pure."
   [actor-id path]
   (into (paths/snapshot-path actor-id) path))
@@ -200,7 +200,7 @@
   Writes through `re-frame.elision/swap-elision-slot!` — the SAME registry
   write surface the four commit-plane effects and the marks API share — so
   the lowered declaration unions with every other source at egress-lookup
-  time and the existing readers (`frame-snapshot-marks`, the SSR / trace
+  time and the existing readers (`frame-snapshot-classification`, the SSR / trace
   boundaries) redact with no change. Returns nil."
   [frame-id actor-id spec]
   (when actor-id

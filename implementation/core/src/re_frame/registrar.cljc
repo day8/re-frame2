@@ -488,7 +488,7 @@
   behaviour; `:schema` / `:data-schema` are the SOURCE the `:sensitive?` /
   `:large?` marks are PRECOMPUTED from at registration time (the marks are
   stored as plain declarations, not derived from the schema VALUE at
-  egress — see `re-frame.marks` / `re-frame.elision` boot population), and
+  egress — see `re-frame.classification` / `re-frame.elision` boot population), and
   remain a dev introspection surface, so they are retained. `:rf/id` and
   the handler fn ARE the registration.
 

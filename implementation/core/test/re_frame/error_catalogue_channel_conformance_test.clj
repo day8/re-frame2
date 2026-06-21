@@ -450,11 +450,22 @@
     - `:rf.error/unknown-registry-kind` — `re-frame.registrar/register!`
       unknown-kind guard; a framework-bug guard, not a consumer-facing category.
 
+  EP-0025 PURGE TRANSITION (rf2-j3jlgu):
+    - `:rf.error/bad-classification` — the fail-loud malformed-classification
+      reject at the reg-* boundary (`re-frame.classification/validate-classification!`),
+      the EP-0025 successor to the removed `:rf.error/bad-marks`. Held here
+      transitionally: the code-side purge emits the renamed error-id ahead of its
+      Spec 009 §Error event catalogue row, which is the EP-0025 spec-graduation
+      bead's job (B6, rf2-5fqlz1 — the hot-zone 009 file). When B6 catalogues the
+      row (renaming the old `:rf.error/bad-marks` row), `allow-list-stays-honest`
+      forces dropping this entry in the same PR.
+
   `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
   emitted, forcing the co-edit so the list cannot rot into a silent blanket
   suppression."
   #{:rf.error/flow-cycle-extract-invariant
-    :rf.error/unknown-registry-kind})
+    :rf.error/unknown-registry-kind
+    :rf.error/bad-classification})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
