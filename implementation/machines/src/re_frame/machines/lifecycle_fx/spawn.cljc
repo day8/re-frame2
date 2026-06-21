@@ -26,6 +26,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.machines.classification :as classification]
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.parallel :as parallel]
@@ -449,11 +450,18 @@
                          :invoke-id invoke-id
                          :track?    track?
                          :type-ref  type-ref})
-        ;; A machine's `:data-schema` is validation-only: it does not produce
-        ;; a per-instance marks table, so there is no schema-marks table to
-        ;; populate at spawn. A spawned actor's `:data` redaction (if any)
-        ;; rides the FRAME's declared paths, the sole app-db redaction
-        ;; mechanism.
+        ;; EP-0025 §subsystems (rf2-h3d8tf): LOWER the machine spec's
+        ;; PROJECTION-RELATIVE `:sensitive` / `:large` `:data` declarations
+        ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
+        ;; each snapshot-relative `[:data …]` path to this instance's absolute
+        ;; snapshot path. The classification travels with the machine def and
+        ;; applies to every generated `<type>#n`, dropped on destroy
+        ;; (`teardown-live-actor!`). The egress READ path
+        ;; (`re-frame.marks/frame-snapshot-marks`, SSR, trace) is unchanged —
+        ;; this flips the registry-entry SOURCE from `:source :frame`
+        ;; (rf2-398kql) to `:source :machine`. A spec declaring no
+        ;; classification is a clean no-op (fail-open).
+        (classification/lower-at-spawn! frame-id spawned-id spec'')
         ;; Record the spawned actor in the frame's spawn-order channel so
         ;; frame-destroy can walk in reverse-creation order per Spec 005
         ;; §Cross-Spec Interactions §1.

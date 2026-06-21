@@ -204,6 +204,80 @@
     (is (= {:slug "x"} (classification/project-params {:slug "x"} nil)))))
 
 ;; ===========================================================================
+;; 2c. EP-0025 §subsystems — projection-relative `:sensitive` / `:large`
+;;     declarations on the resource / mutation spec (rf2-h3d8tf). The canonical
+;;     surface (the matrix example), UNIONED with the schema-prop route, split
+;;     across the data / params projections, redacting at egress.
+;; ===========================================================================
+
+(deftest spec-declaration-marks-split-across-projections
+  (testing "EP-0025 — a spec's projection-relative :sensitive / :large
+            declarations split into the :data and :params projections (the
+            head segment selects the projection; a bare-rooted path defaults
+            to data; a :scope-rooted path rides params)"
+    (let [spec {:sensitive [[:data :ssn] [:params :account-id] [:bare-data] [:scope :tenant]]
+                :large     [[:data :avatar-bytes] [:params :cursor]]}
+          {:keys [data params]} (classification/spec-declaration-marks spec)]
+      (is (contains? (:sensitive data) [:ssn]) ":data-rooted sensitive → data projection (head stripped)")
+      (is (contains? (:sensitive data) [:bare-data]) "bare-rooted sensitive → data projection (shorthand)")
+      (is (contains? (:large data) [:avatar-bytes]) ":data-rooted large → data projection")
+      (is (contains? (:sensitive params) [:account-id]) ":params-rooted sensitive → params projection")
+      (is (contains? (:sensitive params) [:scope :tenant]) ":scope-rooted sensitive → params projection (whole path)")
+      (is (contains? (:large params) [:cursor]) ":params-rooted large → params projection"))))
+
+(deftest data-schema-marks-unions-projection-relative-declaration
+  (testing "EP-0025 — data-schema-marks UNIONS the projection-relative
+            :sensitive / :large :data declarations with the schema-prop marks
+            (both routes contribute; the projection-relative path is the
+            canonical surface)"
+    (let [spec {:sensitive [[:data :ssn]]
+                :large     [[:data :avatar-bytes]]
+                :data-schema [:map [:token {:sensitive? true} :string] [:title :string]]}
+          {:keys [sensitive large]} (classification/data-schema-marks spec)]
+      (is (contains? sensitive [:ssn]) "projection-relative sensitive :data path is present")
+      (is (contains? sensitive [:token]) "schema-prop sensitive slot is ALSO present (union)")
+      (is (contains? large [:avatar-bytes]) "projection-relative large :data path is present")
+      (is (true? (classification/data-schema-classifies? spec))))))
+
+(deftest project-data-redacts-projection-relative-declaration
+  (testing "EP-0025 matrix example — (rf/reg-resource :user-profile
+            {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]}): the
+            declared :data :ssn slot redacts at egress, the :avatar-bytes slot
+            elides, a plain sibling rides verbatim — no :data-schema needed"
+    (let [spec {:sensitive [[:data :ssn]]
+                :large     [[:data :avatar-bytes]]}
+          out  (classification/project-data
+                 {:ssn "123-45-6789" :avatar-bytes (apply str (repeat 200 "x")) :name "Alice"}
+                 spec nil :rf.egress/off-box-tool)]
+      (is (= privacy/redacted-sentinel (:ssn out)) "declared :data :ssn redacts")
+      (is (contains? (:avatar-bytes out) :rf.size/large-elided) "declared :data :avatar-bytes elides")
+      (is (= "Alice" (:name out)) "an undeclared sibling rides verbatim")
+      (is (not (str/includes? (pr-str out) "123-45-6789")) "the raw SSN does not ride"))))
+
+(deftest project-params-redacts-projection-relative-declaration
+  (testing "EP-0025 — a :params-rooted projection-relative declaration redacts
+            the scoped-key params at egress (the co-equal params projection),
+            no :params-schema prop needed"
+    (let [spec {:sensitive [[:params :account-id]]}
+          out  (classification/project-params {:account-id "acct-secret-7" :page 2} spec)]
+      (is (= privacy/redacted-sentinel (:account-id out)) "declared :params :account-id redacts")
+      (is (= 2 (:page out)) "a plain params slot rides verbatim")
+      (is (not (str/includes? (pr-str out) "acct-secret-7"))))))
+
+(deftest reg-resource-rejects-malformed-classification-declaration
+  (testing "EP-0025 fail-loud-input — reg-resource rejects a malformed
+            :sensitive / :large declaration at the registration boundary"
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #"malformed|invalid-resource-spec|classification"
+          (rf/reg-resource :rf.test/bad-decl
+            {:scope         :rf.scope/global
+             :params-schema [:map [:slug :string]]
+             :sensitive     {:data [:ssn]}}   ;; a MAP, not a vector-of-paths
+            (fn [_ _] {:request {:method :get :url "/x"}})))
+        "a non-vector :sensitive axis is rejected at reg-resource")))
+
+;; ===========================================================================
 ;; 3. project-data — defer to the merged frame-owned project-egress
 ;; ===========================================================================
 

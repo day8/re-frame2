@@ -30,11 +30,21 @@
 
    3. **Schema props do NOT classify.** A `:data-schema` `:sensitive?` slot
       does NOT, by itself, redact durable `:data` at snapshot egress — only
-      the frame-declared path does.
+      a declared path (frame OR machine) does.
 
-   4. **No top-level machine classification key.** A top-level `:sensitive` /
-      `:large` key on a `reg-machine` spec is ignored."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+   4. **EP-0025 §subsystems (rf2-h3d8tf) — the rf2-398kql REVERSAL.** A
+      top-level projection-relative `:sensitive` / `:large` key on a
+      `reg-machine` spec IS the canonical classification route: it travels
+      with the machine def and is LOWERED per actor instance at spawn /
+      first-boot into the per-frame elision registry, redacts at snapshot
+      egress through the SAME registry read path the frame mechanism uses, and
+      is DROPPED at the instance's destroy (no leak). This supersedes the prior
+      rf2-0k5ubx \"top-level key is not honoured\" disposition. The frame-owned
+      absolute-path mechanism (tests 1-2) still functions — the registry read
+      unions every source — but the machine declaration is the projection-
+      relative, per-instance-applied canonical surface."
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
             ;; (`:machines/reg-machine` etc.) so `rf/reg-machine` resolves.
@@ -338,47 +348,133 @@
       (is (= "huge-after" (get-in tags [:after :data :blob]))
           "a :large? :data-schema slot does NOT elide without a frame declaration"))))
 
-;; ---- (4) NEGATIVE: a top-level machine :sensitive / :large key is NOT a ----
-;;          classification route.
+;; ---- (4) EP-0025 §subsystems (rf2-h3d8tf) — the rf2-398kql REVERSAL: -------
+;;          a top-level projection-relative `:sensitive` / `:large` key on
+;;          `reg-machine` IS the canonical classification route, lowered per
+;;          actor instance into the per-frame elision registry at spawn /
+;;          first-boot and dropped at destroy. This SUPERSEDES the prior
+;;          rf2-0k5ubx "top-level key is not honoured" disposition (authorised
+;;          by Mike's B0 ruling).
 ;;
-;; `reg-machine` carries no TOP-LEVEL `:sensitive` / `:large` key (the
-;; spelling frames DO take). Machine :data classification belongs on the
-;; FRAME. The validator walks only the grammar keys, so a top-level key is
-;; IGNORED (not rejected), and it feeds NO classification — a token under such
-;; a spec rides RAW at snapshot egress unless the FRAME declares it.
+;; These tests drive LIVE machines (singleton + spawned) through the runtime so
+;; the spawn / first-boot lowering + the destroy drop are exercised end-to-end:
+;; the declaration travels with the machine def, the registry entry is added at
+;; the instance's birth + DROPPED at its death (no leak), and the egress
+;; chokepoint redacts the declared slot via the SAME registry read path the
+;; frame-declared mechanism uses (`frame-snapshot-marks`).
 
-(deftest top-level-machine-sensitive-key-is-not-honoured
-  (testing "a TOP-LEVEL :sensitive / :large key on a reg-machine spec is NOT a
-            classification route (rf2-0k5ubx): registration does not throw, and
-            a token written into :data under such a spec rides RAW at snapshot
-            egress — classification belongs on the FRAME (EP-0025)"
-    (let [neg-id :rf.machine-redaction/top-level-sensitive
-          registered?
-          (try
-            (rf/reg-machine neg-id
-              {:sensitive [[:data :token]]    ;; NOT a route — the rejected spelling
-               :large     [[:data :blob]]      ;; NOT a route
-               :initial   :anon
-               :data      {:token nil :blob nil}
-               :states    {:anon {} :authed {}}})
-            true
-            (catch clojure.lang.ExceptionInfo _ false)
-            (catch Throwable _ false))]
-      (is (true? registered?)
-          "reg-machine does not throw on a top-level :sensitive / :large key
-           — the key is ignored, never honoured as a classification route")
-      ;; Provably a no-op at egress: a snapshot-updated trace carrying a live
-      ;; token in :data rides RAW — nothing classified it (no frame declaration,
-      ;; and the top-level machine key is inert).
-      (let [ev   {:operation :rf.machine/snapshot-updated
-                  :tags      {:machine-id neg-id
-                              :frame      :rf/default
-                              :snapshot   {:state :authed
-                                           :data  {:token "rides-raw-jwt"
-                                                   :blob  "rides-raw-blob"}}}}
-            out  (marks/project-trace-event ev)
+(defn- snapshot-elision-reg
+  "The `:rf/default` frame's elision registry, read off runtime-db. A nil
+  registry (a frame that never classified) reads as `{}`."
+  []
+  (or (get (rf/runtime-db-value :rf/default) :rf.runtime/elision) {}))
+
+(deftest machine-declared-classification-lowers-at-singleton-boot
+  (testing "EP-0025 reversal — a SINGLETON's projection-relative :sensitive /
+            :large `:data` declaration lowers into the per-frame elision registry
+            at first-boot, redacts at snapshot egress, and is DROPPED at destroy"
+    (let [mid :rf.machine-redaction/declared-singleton
+          abs-token [:rf.runtime/machines :snapshots mid :data :token]
+          abs-blob  [:rf.runtime/machines :snapshots mid :data :blob]]
+      (rf/reg-machine mid
+        {:sensitive [[:data :token]]
+         :large     [[:data :blob]]
+         :initial   :anon
+         :data      {:token nil :blob nil :retries 0}
+         :states    {:anon {:on {:login :authed}} :authed {}}})
+      ;; registry empty before any instance is born
+      (is (not (contains? (:sensitive-declarations (snapshot-elision-reg)) abs-token))
+          "no registry entry before the singleton boots")
+      ;; first dispatch boots the singleton → lowering fires
+      (rf/dispatch-sync [mid [:rf.machine/noop]])
+      (let [reg (snapshot-elision-reg)]
+        (is (contains? (:sensitive-declarations reg) abs-token)
+            "sensitive `:data` path lowered to the ABSOLUTE snapshot path at boot")
+        (is (= :machine (get-in reg [:sensitive-declarations abs-token :source]))
+            "lowered under :source :machine")
+        (is (contains? (:declarations reg) abs-blob)
+            "large `:data` path lowered at boot"))
+      ;; the lowered registry entry redacts at the egress chokepoint, via the
+      ;; SAME read path (frame-snapshot-marks) the frame-declared mechanism uses
+      (let [out  (marks/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
-        (is (= "rides-raw-jwt" (get-in tags [:snapshot :data :token]))
-            "the token rides RAW — a top-level machine :sensitive key did NOT classify it")
-        (is (= "rides-raw-blob" (get-in tags [:snapshot :data :blob]))
-            "the blob rides RAW — a top-level machine :large key is inert")))))
+        (is (= :rf/redacted (get-in tags [:after :data :token]))
+            "machine-declared sensitive slot redacts at snapshot egress")
+        (is (contains? (get-in tags [:after :data :blob]) :rf.size/large-elided)
+            "machine-declared large slot elides at snapshot egress")
+        (is (= 1 (get-in tags [:after :data :retries])) "plain sibling rides verbatim")
+        (is (not (.contains (pr-str out) "secret-jwt"))))
+      ;; DESTROY drops the registry entry — no leak. The imperative
+      ;; `[:rf.machine/destroy <id>]` teardown is an FX returned from a
+      ;; handler (the XState-v5 `stopChild` spelling), not a directly
+      ;; dispatched event.
+      (rf/reg-event :rf.machine-redaction/destroy-singleton
+        (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
+      (rf/dispatch-sync [:rf.machine-redaction/destroy-singleton])
+      (let [reg (snapshot-elision-reg)]
+        (is (not (contains? (:sensitive-declarations reg) abs-token))
+            "sensitive entry DROPPED at destroy (no leak)")
+        (is (not (contains? (:declarations reg) abs-blob))
+            "large entry DROPPED at destroy (no leak)")))))
+
+(defn- live-instance-ids
+  "The live spawned-actor instance ids under `:rf/default`'s machines
+  snapshots map whose name starts with `prefix` (the `<type>#n` ids)."
+  [prefix]
+  (->> (get-in (rf/runtime-db-value :rf/default)
+               [:rf.runtime/machines :snapshots])
+       keys
+       (filter #(clojure.string/starts-with? (name %) prefix))))
+
+(deftest machine-declared-classification-lowers-per-spawned-instance
+  (testing "EP-0025 reversal — a SPAWNED actor's :data declaration travels with
+            the machine def and lowers PER INSTANCE at spawn (the generated
+            <type>#n is classified with no per-instance author code), dropped at
+            the actor's destroy"
+    (let [child-type :rf.machine-redaction/charge]
+      (rf/reg-machine child-type
+        {:sensitive [[:data :token]]
+         :initial   :charging
+         :data      {:token nil}
+         :states    {:charging {:on {:done :done}} :done {}}})
+      (rf/reg-machine :rf.machine-redaction/supervisor
+        {:initial :idle
+         :data    {}
+         :states  {:idle    {:on {:go :working}}
+                   :working {:spawn {:machine-id child-type}
+                             :on    {:stop :idle}}}})
+      (rf/dispatch-sync [:rf.machine-redaction/supervisor [:go]])
+      (let [spawned-id (first (live-instance-ids "charge"))]
+        (is (some? spawned-id) "a child actor instance was spawned")
+        (let [abs-token [:rf.runtime/machines :snapshots spawned-id :data :token]
+              reg       (snapshot-elision-reg)]
+          (is (contains? (:sensitive-declarations reg) abs-token)
+              "the spawned instance's :data :token lowered at spawn (per-instance)")
+          (is (= :machine (get-in reg [:sensitive-declarations abs-token :source])))
+          ;; egress redacts the spawned instance's declared slot
+          (let [out (marks/project-trace-event
+                      {:operation :rf.machine/snapshot-updated
+                       :tags      {:actor-id spawned-id
+                                   :frame    :rf/default
+                                   :snapshot {:state :charging
+                                              :data  {:token "secret-child-jwt"}}}})]
+            (is (= :rf/redacted (get-in out [:tags :snapshot :data :token]))
+                "spawned instance's declared slot redacts at egress")
+            (is (not (.contains (pr-str out) "secret-child-jwt"))))
+          ;; the parent exits :working → the spawned child is destroyed
+          (rf/dispatch-sync [:rf.machine-redaction/supervisor [:stop]])
+          (is (not (contains? (:sensitive-declarations (snapshot-elision-reg)) abs-token))
+              "spawned instance's entry DROPPED at its destroy (no leak)"))))))
+
+(deftest machine-classification-malformed-declaration-fails-loud
+  (testing "EP-0025 fail-loud-input — a malformed :sensitive / :large machine
+            declaration is rejected at reg-machine with
+            :rf.error/invalid-machine-classification"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo #"invalid-machine-classification|malformed"
+          (rf/reg-machine :rf.machine-redaction/bad-decl
+            {:sensitive {:data [:token]}   ;; a MAP, not a vector-of-paths
+             :initial   :idle
+             :data      {}
+             :states    {:idle {}}}))
+        "a non-vector :sensitive axis is rejected at registration")))

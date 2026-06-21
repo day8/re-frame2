@@ -34,8 +34,10 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.frame :as frame]
+            [re-frame.machines.classification :as classification]
             [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
+            [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.resource-release :as resource-release]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
@@ -131,9 +133,20 @@
   [frame-id actor-id teardown-args emit-destroyed!-fn]
   (exit-cascade/run-child-exit! frame-id actor-id)
   (finalize/abort-actor-in-flight-http! actor-id)
-  ;; Step 3: a machine's `:data-schema` is validation-only and produces no
-  ;; per-instance marks table, so there is no marks-table residue to drop
-  ;; here.
+  ;; Step 3 (EP-0025 §subsystems, rf2-h3d8tf): DROP this actor's
+  ;; per-instance classification declarations from the per-frame elision
+  ;; registry — the teardown half of `classification/lower-at-spawn!`. A
+  ;; subsystem instance's classification lives and dies with the instance,
+  ;; so the absolute snapshot-rooted `:sensitive` / `:large` decls the spawn
+  ;; lowered are dissoc'd here (no leak — an emptied axis slot is pruned).
+  ;; Resolve the spec BEFORE the teardown projection clears the snapshot, via
+  ;; the registered TYPE or the snapshot's `:rf/machine-type` (a `:spawn`
+  ;; instance carries no registrar entry). A spec that declared no
+  ;; classification is a clean no-op.
+  (let [snapshot (get-in (frame/frame-runtime-db-value frame-id)
+                         (paths/snapshot-path actor-id))]
+    (when-let [spec (resolver/spec-from-id-or-snapshot actor-id snapshot)]
+      (classification/drop-at-destroy! frame-id actor-id spec)))
   (timer/cancel-actor-timers! frame-id actor-id)
   ;; `teardown-actor` returns [new-runtime-db released-sid]; `swap-runtime-db!`
   ;; expects a fn returning the new runtime-db only, so capture the sid via a

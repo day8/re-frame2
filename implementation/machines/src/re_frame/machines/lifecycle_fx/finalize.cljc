@@ -36,6 +36,7 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.late-bind :as late-bind]
+            [re-frame.machines.classification :as classification]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
             [re-frame.machines.lifecycle-fx.resource-release :as resource-release]
             [re-frame.machines.lifecycle-fx.spawn-error :as spawn-error]
@@ -503,9 +504,15 @@
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
     (timer/cancel-actor-timers! frame-id machine-id)
-    ;; A machine's `:data-schema` is validation-only and produces no
-    ;; per-instance marks table, so there is no schema-marks residue to drop
-    ;; at this seam.
+    ;; EP-0025 §subsystems (rf2-h3d8tf): DROP this actor's per-instance
+    ;; classification declarations from the per-frame elision registry — the
+    ;; teardown half of `classification/lower-at-spawn!`, on the final-state
+    ;; AUTO-DESTROY path (which does NOT route through
+    ;; `destroy/teardown-live-actor!`). `machine` is the finishing actor's
+    ;; runtime-stamped spec; a spec that declared no classification is a clean
+    ;; no-op, so the registry entry added at spawn dies with the instance (no
+    ;; leak).
+    (classification/drop-at-destroy! frame-id machine-id machine)
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     ;; (7) Per Spec 005 §Final states §`:on-error`: when the child
