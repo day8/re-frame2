@@ -79,7 +79,7 @@
     (let [f (frame/make-anon-frame-record!
               {:doc       "head test frame"
                :platform  :server
-               :on-create [:set-test-state]})]
+               :initial-events [[:set-test-state]]})]
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — seed it via :rf.db/runtime; :articles stays in app-db.
       (rf/reg-event :set-test-state

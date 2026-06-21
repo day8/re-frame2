@@ -22,7 +22,7 @@
           :errors         [{:sink :my-app.sinks/sentry
                             :rf.egress/profile :rf.egress/off-box-observability}]}
 
-         :on-create [:app/init]})
+         :initial-events [[:app/init]]})
 
   ## What this namespace owns
 

@@ -271,7 +271,7 @@
            f   (rf/reg-frame fid
                  {:doc       "ssr-example per-request frame"
                   :platform  :server
-                  :on-create [:rf/server-init]})]
+                  :initial-events [[:rf/server-init]]})]
        (try
          (rf/with-frame f
            (let [final-db      (rf/app-db-value f)        ;; app-db partition

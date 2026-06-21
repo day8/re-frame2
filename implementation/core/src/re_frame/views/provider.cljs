@@ -129,7 +129,7 @@
 
   Reagent call shape:
 
-      [rf/frame-provider {:id :session :images [session-image] :initial-db {}}
+      [rf/frame-provider {:id :session :images [session-image] :initial-events []}
        [header]
        [main-area]
        [footer]]

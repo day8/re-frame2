@@ -176,7 +176,7 @@
            f   (rf/reg-frame fid
                  {:doc       "resources-ssr per-request frame"
                   :platform  :server
-                  :on-create [:rf/server-init]})]
+                  :initial-events [[:rf/server-init]]})]
        (try
          (rf/with-frame f
            ;; (1) settle the blocking page resource before rendering — the

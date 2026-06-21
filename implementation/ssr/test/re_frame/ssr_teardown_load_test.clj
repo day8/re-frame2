@@ -145,7 +145,7 @@
         (frame/make-anon-frame-record!
           {:doc       (str "load-test request " i)
            :platform  :server
-           :on-create [:load-test/server-init {:i i}]})]
+           :initial-events [[:load-test/server-init {:i i}]]})]
     ;; Step 2 — populate the per-frame request slot. Exercises the SSR
     ;; side-channel atom we just wired the destroy hook for.
     (ssr/set-request! server-frame
@@ -311,7 +311,7 @@
       (let [fid (frame/make-anon-frame-record!
                   {:doc       (str "error-buffer test " i)
                    :platform  :server
-                   :on-create [:load-test/server-init {:i i}]})]
+                   :initial-events [[:load-test/server-init {:i i}]]})]
         ;; Plant a fake pending error trace under this frame's slot.
         (swap! (pending-error-traces-atom)
                update fid (fnil conj [])

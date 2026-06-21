@@ -89,9 +89,9 @@
   (subs/reg-runtime-sub :hydration (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration]))))
 
 (defn- register-three-frames! []
-  (rf/reg-frame frame-a   {:on-create [::counter-init]})
-  (rf/reg-frame frame-b   {:on-create [::counter-init]})
-  (rf/reg-frame frame-log {:on-create [::log-init]}))
+  (rf/reg-frame frame-a   {:initial-events [[::counter-init]]})
+  (rf/reg-frame frame-b   {:initial-events [[::counter-init]]})
+  (rf/reg-frame frame-log {:initial-events [[::log-init]]}))
 
 (defn- hydrate-each-frame! [payload-map]
   ;; Mirror of testbeds/ssr_multi_frame/core.cljs `run` lines 198-199.

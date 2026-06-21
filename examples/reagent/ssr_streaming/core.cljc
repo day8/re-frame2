@@ -146,7 +146,7 @@
            _   (rf/reg-app-schema [:cards] {:schema CardsSchema :frame fid})
            _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"
                                   :platform :server
-                                  :on-create [:rf/server-init]})
+                                  :initial-events [[:rf/server-init]]})
            hiccup (rf/with-frame fid ((rf/view :dashboard/root)))
            {:keys [shell-html continuations]}
            (rf/with-frame fid (ssr/streaming-render-shell hiccup))

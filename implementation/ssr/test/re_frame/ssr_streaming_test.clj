@@ -40,18 +40,18 @@
 (rf/reg-event :rf.test/seed-db (fn [{:keys [db]} [_ new-db]] {:db new-db}))
 
 (defn- make-frame
-  "Register a per-request server frame and seed its app-db via the
-  `:on-create` event so the value lands inside the frame's container,
-  not on :rf/default."
+  "Register a per-request server frame and seed its app-db via an
+  `:initial-events` setup event so the value lands inside the frame's
+  container, not on :rf/default."
   [{:keys [db on-create]}]
   (let [fid (keyword "rf.frame" (str (gensym "")))]
     (rf/reg-frame fid
       {:doc       "streaming-test frame"
        :platform  :server
-       :on-create (or on-create
-                      (if db
-                        [:rf.test/seed-db db]
-                        [:rf.test/noop]))})
+       :initial-events [(or on-create
+                            (if db
+                              [:rf.test/seed-db db]
+                              [:rf.test/noop]))]})
     fid))
 
 (deftest render-shell-emits-fallback-template

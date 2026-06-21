@@ -11,7 +11,7 @@
   multi-cookie, redirect short-circuit, head-hash mismatch). The shape
   mirrors what a real SSR host would do per request:
 
-    1. Build a per-request frame via make-frame {:on-create [:rf/server-init request]}.
+    1. Build a per-request frame via make-frame {:initial-events [[:rf/server-init request]]}.
     2. The on-create event dispatches :http/get (stubbed via :fx-overrides).
     3. The drain settles synchronously — app-db-value reflects post-drain state.
     4. render-to-string against the registered root view emits HTML
@@ -123,7 +123,7 @@
     (let [server-frame (frame/make-anon-frame-record!
                          {:doc          "SSR request frame"
                           :platform     :server
-                          :on-create    [:rf/server-init {:uri "/articles"}]
+                          :initial-events    [[:rf/server-init {:uri "/articles"}]]
                           :fx-overrides {:http/get :http/get.canned-articles}})
           ;; (2)+(3) drain settled via :on-create + dispatch-sync chain
           server-db    (rf/app-db-value server-frame)]
@@ -555,7 +555,7 @@
       (rf/reg-event :redirect/shape-quirk
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
-      (let [f    (frame/make-anon-frame-record! {:platform :server :on-create [:redirect/shape-quirk]})
+      (let [f    (frame/make-anon-frame-record! {:platform :server :initial-events [[:redirect/shape-quirk]]})
             resp (get-response f)]
         (is (= loc (-> resp :redirect :location))
             (str "raw URL-shape quirk passes through the caller-trusted "
@@ -575,7 +575,7 @@
       (rf/reg-event :redirect/well-formed
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
-      (let [f    (frame/make-anon-frame-record! {:platform :server :on-create [:redirect/well-formed]})
+      (let [f    (frame/make-anon-frame-record! {:platform :server :initial-events [[:redirect/well-formed]]})
             resp (get-response f)]
         (is (= loc (-> resp :redirect :location))
             (str "well-formed redirect :location flows through: " loc))))))
@@ -627,7 +627,7 @@
               [:rf.server/set-header {:name "X-Whitespace"
                                       :value "tab\there space"}]
               [:rf.server/redirect    {:location "https://example.com/path?q=1&r=2"}]]}))
-    (let [f (frame/make-anon-frame-record! {:platform :server :on-create [:hdr/clean]})
+    (let [f (frame/make-anon-frame-record! {:platform :server :initial-events [[:hdr/clean]]})
           resp (get-response f)
           hdrs (:headers resp)]
       (is (some (fn [[k v]]
@@ -650,7 +650,7 @@
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
 
     (let [f (frame/make-anon-frame-record! {:platform     :server
-                            :on-create    [:auth/check-session]})]
+                            :initial-events    [[:auth/check-session]]})]
       (let [resp     (get-response f)
             redirect (:redirect resp)]
         (is (= {:status 302 :location "/login"} redirect)
@@ -679,7 +679,7 @@
       (fn [_ _]
         {:fx [[:rf.server/redirect {:location "/login"}]]}))
     (let [f (frame/make-anon-frame-record! {:platform  :server
-                            :on-create [:auth/check-no-status]})]
+                            :initial-events [[:auth/check-no-status]]})]
       (is (= 302 (-> (get-response f) :redirect :status))
           ":rf.server/redirect defaults :status to 302 per Spec 011 §Redirect"))))
 
@@ -740,7 +740,7 @@
           _              (rf/register-listener! :trace ::he (fn [ev] (swap! traces conj ev)))
           f              (frame/make-anon-frame-record!
                            {:platform :server
-                            :on-create [:rf/server-init]
+                            :initial-events [[:rf/server-init]]
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
           _              (rf/unregister-listener! :trace ::he)
@@ -1353,7 +1353,7 @@
           _      (rf/register-listener! :trace ::rpe (fn [ev] (swap! traces conj ev)))
           f      (frame/make-anon-frame-record!
                    {:platform  :server
-                    :on-create [:redirect-then-error]
+                    :initial-events [[:redirect-then-error]]
                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                 :dev-error-detail? false}})
           _      (rf/unregister-listener! :trace ::rpe)
@@ -2093,7 +2093,7 @@
                 :same-site "Strict"
                 :path      "/"
                 :expires   "Wed, 09 Jun 2027 10:18:14 GMT"}]]}))
-    (let [f       (frame/make-anon-frame-record! {:platform :server :on-create [:ck/clean-attrs]})
+    (let [f       (frame/make-anon-frame-record! {:platform :server :initial-events [[:ck/clean-attrs]]})
           cookies (:cookies (get-response f))]
       (is (= 1 (count cookies))
           "the clean cookie lands on the accumulator")
@@ -2116,7 +2116,7 @@
                                        :path    "/"
                                        :domain  "example.com"}]
               [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
-    (let [f (frame/make-anon-frame-record! {:platform :server :on-create [:clean/all]})
+    (let [f (frame/make-anon-frame-record! {:platform :server :initial-events [[:clean/all]]})
           resp (get-response f)]
       (is (some (fn [[k _]] (= "Cache-Control"   k)) (:headers resp)))
       (is (some (fn [[k _]] (= "X-Forwarded-For" k)) (:headers resp)))
@@ -2451,7 +2451,7 @@
       (let [traces (atom [])]
         (rf/register-listener! :trace ::ssr (fn [ev] (swap! traces conj ev)))
         (let [f  (frame/make-anon-frame-record!
-                   {:on-create    [:rf/server-init {:uri "/articles"}]
+                   {:initial-events    [[:rf/server-init {:uri "/articles"}]]
                     :fx-overrides {:http/get :http/get.canned-articles}})
               db (rf/app-db-value f)]
           (rf/unregister-listener! :trace ::ssr)

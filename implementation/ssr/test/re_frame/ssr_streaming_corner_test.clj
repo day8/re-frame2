@@ -48,15 +48,15 @@
          (finally (trace/unregister-listener! k)))))
 
 (defn- make-server-frame
-  "Register a per-request server frame and seed its app-db via :on-create.
-   Returns the frame-id."
+  "Register a per-request server frame and seed its app-db via an
+   :initial-events setup event. Returns the frame-id."
   ([] (make-server-frame {}))
   ([db]
    (let [fid (keyword "rf.frame" (str (gensym "")))]
      (rf/reg-frame fid
        {:doc       "streaming-corner frame"
         :platform  :server
-        :on-create (if (seq db) [:rf.test/seed-db db] [:rf.test/noop])})
+        :initial-events [(if (seq db) [:rf.test/seed-db db] [:rf.test/noop])]})
      fid)))
 
 ;; ===========================================================================
@@ -570,7 +570,7 @@
       (rf/reg-frame fid
         {:doc       "privacy-invariant frame"
          :platform  :server
-         :on-create [:test/server-write]})
+         :initial-events [[:test/server-write]]})
       (let [app-db (frame/frame-app-db-value fid)]
         ;; Spec 011 §Response storage substrate: NO app-db key may
         ;; carry the accumulator. Pin both the published reserved key
@@ -604,7 +604,7 @@
       (rf/reg-frame fid
         {:doc       "request-slot privacy frame"
          :platform  :server
-         :on-create [:rf.test/noop]})
+         :initial-events [[:rf.test/noop]]})
       (let [secret-request {:uri            "/secret"
                             :request-method :get
                             :headers        {"authorization" "Bearer SECRET_TOKEN"
