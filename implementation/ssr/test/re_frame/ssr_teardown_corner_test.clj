@@ -63,7 +63,7 @@
       (rf/reg-frame fid
         {:doc       "composition test"
          :platform  :server
-         :on-create [:rf.test.composition/noop]})
+         :initial-events [[:rf.test.composition/noop]]})
       (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
       (rf/render-head :head/composition-test {:frame fid})
 
@@ -109,7 +109,7 @@
       (rf/reg-frame fid
         {:doc       "idempotence test"
          :platform  :server
-         :on-create [:rf.test.composition/noop]})
+         :initial-events [[:rf.test.composition/noop]]})
       (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
       (rf/render-head :head/idempotence {:frame fid})
 
@@ -153,7 +153,7 @@
         (rf/reg-frame fid
           {:doc       (str "iso " (name fid))
            :platform  :server
-           :on-create [:rf.test.composition/noop]})
+           :initial-events [[:rf.test.composition/noop]]})
         (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
         (rf/render-head :head/iso {:frame fid}))
 

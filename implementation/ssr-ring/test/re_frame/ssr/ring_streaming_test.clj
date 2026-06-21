@@ -780,7 +780,7 @@
         [:test/comments-section]]
        [:footer "End"]])
     (let [fid (keyword "rf.frame" (str (gensym "f")))]
-      (rf/reg-frame fid {:platform :server :on-create [:rf.test.server/init]})
+      (rf/reg-frame fid {:platform :server :initial-events [[:rf.test.server/init]]})
       (try
         (rf/with-frame fid
           (let [;; The server streaming handler computes the final hash over

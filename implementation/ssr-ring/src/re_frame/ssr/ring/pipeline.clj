@@ -183,17 +183,25 @@
       (rf/reg-frame frame-id
         (cond-> {:doc       "ssr-ring per-request frame"
                  :platform  :server
-                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: an event-VECTOR
-                 ;; `:on-create` passes through verbatim — handlers read
-                 ;; the request via the `:rf.server/request` cofx (the
-                 ;; spec-documented canonical surface for NON-durable
-                 ;; reads). rf2-kzns7l (additive): a `(fn [request]
-                 ;; event-vector)` `:on-create` is resolved HERE — the
-                 ;; request slot is already populated (set-request! above),
+                 ;; EP-0027 (rf2-7ae2to): the SSR-ring runtime LOWERS its
+                 ;; request-derived init into the `:initial-events` construction
+                 ;; vector — `:on-create` is retired in `reg-frame`. The public
+                 ;; `ssr-handler` `:on-create` API stays ergonomic (see
+                 ;; `resolve-on-create!`); per request it resolves to ONE event
+                 ;; vector, which is wrapped as the single `:initial-events` step
+                 ;; `[[resolved-event]]` (EP-0027 §SSR — "a server computes its
+                 ;; :initial-events vector per request").
+                 ;;
+                 ;; Audit rf2-cegm7 A2 / rf2-j54ee: an event-VECTOR `:on-create`
+                 ;; passes through verbatim — handlers read the request via the
+                 ;; `:rf.server/request` cofx (the spec-documented canonical
+                 ;; surface for NON-durable reads). rf2-kzns7l (additive): a
+                 ;; `(fn [request] event-vector)` `:on-create` is resolved HERE —
+                 ;; the request slot is already populated (set-request! above),
                  ;; so the fn derives the event vector from the live Ring
-                 ;; request, baking a request-derived fact into the boot
-                 ;; event's PAYLOAD (the replay-safe recordable boundary).
-                 :on-create (lifecycle/resolve-on-create! on-create request)}
+                 ;; request, baking a request-derived fact into the boot event's
+                 ;; PAYLOAD (the replay-safe recordable boundary).
+                 :initial-events [(lifecycle/resolve-on-create! on-create request)]}
           fx-overrides (assoc :fx-overrides fx-overrides)
           ssr          (assoc :ssr           ssr)))
       {:frame-id frame-id}

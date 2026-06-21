@@ -56,7 +56,7 @@
     (with-redefs [interop/debug-enabled? false]
       (let [f (frame/make-anon-frame-record!
                 {:platform  :server
-                 :on-create [:rf/server-init]
+                 :initial-events [[:rf/server-init]]
                  :ssr       {:public-error-id   :rf.ssr/default-error-projector
                              :dev-error-detail? false}})
             response (ssr/get-response f)]
