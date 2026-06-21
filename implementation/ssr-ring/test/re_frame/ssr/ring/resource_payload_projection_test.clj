@@ -64,9 +64,10 @@
 
 (defn- register-sensitive-feed-app!
   "Register the resource-scope resolver + the `{:from-db}` feed resource into
-  the active registrar. The FRAME `:sensitive` declaration is supplied per
-  frame at `reg-frame` time by the caller (the gensym handler frame can't
-  carry it, so the regression registers its OWN frame — see the test)."
+  the active registrar. The FRAME `:sensitive` classification is supplied per
+  frame by the caller via a commit-plane `:sensitive` effect run through
+  `:initial-events` at frame construction (the gensym handler frame can't carry
+  it, so the regression registers its OWN frame — see the test)."
   []
   (registrar/clear-kind! :resource-scope)
   (registrar/clear-kind! :resource)
@@ -100,8 +101,9 @@
   "Install a single loaded feed entry into `frame-id`'s runtime-db resource
   cache (byte-key-id `:entries` shape). `swap-runtime-db!` (NOT
   `replace-runtime-db!`) so the frame's elision registry at
-  `[:rf.runtime/elision]` — where `reg-frame`'s `:sensitive` declaration is
-  installed — is PRESERVED; a wholesale replace would clobber it and the
+  `[:rf.runtime/elision]` — where the frame's `:initial-events` commit-plane
+  `:sensitive` classification effect installs its declaration (EP-0025 clean
+  break) — is PRESERVED; a wholesale replace would clobber it and the
   derived-sensitivity classification would silently see no frame-sensitive
   paths."
   [frame-id username page data]
@@ -136,11 +138,20 @@
             raw viewer identity (\"jake\") + data ({:articles …}) leaked."
     (register-sensitive-feed-app!)
     (let [fid :p026f5/req-frame]
+      ;; FRAME classification (EP-0025 clean break): the viewer-identity path is
+      ;; sensitive. Post-purge, durable app-db egress classification rides the
+      ;; B3 COMMIT-PLANE effect — a `reg-event` returns `:sensitive` alongside
+      ;; `:db`, run via `:initial-events` at frame construction, writing the
+      ;; per-frame `[:rf.runtime/elision]` registry the egress walk reads.
+      ;; Replaces the retired `reg-frame :sensitive {:app-db}` durable annotation
+      ;; (deleted by rf2-lug7v5). Mirrors the migrated sibling
+      ;; `app-db-egress-projection-test`.
+      (rf/reg-event :p026f5/classify
+        (fn [_ _] {:sensitive [[:auth :user :username]]}))
       (rf/reg-frame fid
-        {:platform  :server
-         :doc       "rf2-p026f5 per-request frame"
-         ;; FRAME classification: the viewer-identity path is sensitive.
-         :sensitive {:app-db [[:auth :user :username]]}})
+        {:platform       :server
+         :doc            "rf2-p026f5 per-request frame"
+         :initial-events [[:p026f5/classify]]})
       (try
         ;; Seed a loaded feed entry whose derived session scope embeds the
         ;; sensitive viewer identity ("jake"), with article data.
@@ -209,10 +220,13 @@
     (rf/reg-view* :p026f5/root2 (fn [] [:main [:h1 "Prefs"]]))
     (let [fid :p026f5/req-frame-2]
       ;; frame declares a DIFFERENT path sensitive — the locale input does NOT
-      ;; overlap, so no inheritance.
+      ;; overlap, so no inheritance. Classified via the B3 commit-plane effect
+      ;; (EP-0025 clean break) — see the first deftest's note.
+      (rf/reg-event :p026f5/classify-2
+        (fn [_ _] {:sensitive [[:auth :user :username]]}))
       (rf/reg-frame fid
-        {:platform  :server
-         :sensitive {:app-db [[:auth :user :username]]}})
+        {:platform       :server
+         :initial-events [[:p026f5/classify-2]]})
       (try
         (let [sk    (state/scoped-resource-key [:rf.scope/locale {:locale :en}]
                                                :p026f5/prefs {})
