@@ -561,8 +561,8 @@ Per-artefact unit tests cover implementation-specific propagation mechanism; the
 
 - [EP-0015 (Frame-Owned Egress Policy)](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the accepted proposal this Spec graduates; §Specification (1–16) and the twelve dispositioned open issues are the rationale record.
 - [EP-0007 (One Name Per Fact)](../docs/EP/EP-0007-one-name-per-fact.md) — rule 3 (cross-layer distinctions are named rules) grounds the `:sensitive` / `:sensitive?` pairing.
-- [EP-0005 (Machine `:data` Schema)](../docs/EP/EP-0005-machine-data-schema.md) — the machine `:data-schema` (VALIDATION) stands; its schema→marks redaction bridge is REVERSED by [EP-0025](../docs/EP/EP-0025-frame-declared-sole-data-classification.md).
-- [EP-0025 (Frame-Declared Paths As The Sole Data Classification)](../docs/EP/EP-0025-frame-declared-sole-data-classification.md) — kills schema-attached `:sensitive?` / `:large?` field classification for app-db / runtime-db (incl. machine `:data`); frame-declared paths are the one mechanism.
+- [EP-0005 (Machine `:data` Schema)](../docs/EP/EP-0005-machine-data-schema.md) — the machine `:data-schema` (VALIDATION) stands; its schema→marks redaction bridge is REVERSED by [EP-0025](../docs/EP/EP-0025-data-classification.md).
+- [EP-0025 (Frame-Declared Paths As The Sole Data Classification)](../docs/EP/EP-0025-data-classification.md) — kills schema-attached `:sensitive?` / `:large?` field classification for app-db / runtime-db (incl. machine `:data`); frame-declared paths are the one mechanism.
 - [001-Registration §Registration grammar](001-Registration.md#registration-grammar) — the metadata-map shape registration-owned `:sensitive` / `:large` extend.
 - [002-Frames §Routing — the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope) — the event arg-map shape event marks index into; the no-default-frame rule projection inherits.
 - [005-StateMachines §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) — frame-owned machine `:data` classification (EP-0025); `reg-machine` carries no `:sensitive` / `:large` key.
