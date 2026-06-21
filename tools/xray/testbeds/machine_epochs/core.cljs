@@ -29,7 +29,7 @@
 
   - SELECT — `:machine-epochs/select <track-id>` sets `:rf.runner/selected`
     in the shell, LAZILY creates the track's `:machine/<id>` frame (boot on
-    first entry via the frame's `:on-create`), and re-points Xray with
+    first entry via the frame's `:initial-events`), and re-points Xray with
     `:rf.xray/select-frame :machine/<id>` (through the host-facing
     `day8.re-frame2-xray.focus/focus!` channel — the same channel the runner
     uses to pin focus, so the deck never reaches into Xray's `:rf/xray`
@@ -40,7 +40,7 @@
     epochs: a cursor write in the shell + the machine cascade in the machine
     frame (observed).
   - RESTART — `:machine-epochs/restart <track-id>` RESETS the machine frame
-    (`rf/reset-frame!` = destroy + re-`reg-frame` with the same `:on-create`,
+    (`rf/reset-frame!` = destroy + re-`reg-frame` with the same `:initial-events`,
     so the ring clears and re-arcs from boot) and clears the track cursor.
 
   ## Boot-on-select
@@ -62,7 +62,7 @@
   A `tracks` vector is the single source of truth. Each track is
   `{:id :label :blurb :machines #{machine-ids} :path [{:label :event :watch}
   …]}`. `:machines` is a SET so the media track can own TWO machine-ids
-  (`:media/shallow` + `:media/deep`) in one observed domain; `:on-create`
+  (`:media/shallow` + `:media/deep`) in one observed domain; `:initial-events`
   boots every machine in the set. Every track drives exactly its own
   domain — there are no cross-machine fan-out steps.
 
@@ -292,14 +292,14 @@
      :fx (history-restore-fx :media/deep)}))
 
 ;; ============================================================================
-;; PER-TRACK BOOT EVENTS — each frame's `:on-create` (boot-on-select)
+;; PER-TRACK BOOT EVENTS — each frame's `:initial-events` (boot-on-select)
 ;; ============================================================================
 ;;
 ;; A track's machine frame is created lazily on first SELECT via
-;; `rf/reg-frame :machine/<id> {:on-create [<boot-event>]}`. The boot event
-;; runs synchronously IN the new frame, so its initial-entry cascade is the
-;; ring's FIRST observed epoch — the machine's START badge. `reset-frame!`
-;; (RESTART) re-runs the SAME `:on-create`, so a restart re-arcs from boot.
+;; `rf/reg-frame :machine/<id> {:initial-events [[<boot-event>]]}`. The boot
+;; event runs synchronously IN the new frame, so its initial-entry cascade is
+;; the ring's FIRST observed epoch — the machine's START badge. `reset-frame!`
+;; (RESTART) re-runs the SAME `:initial-events`, so a restart re-arcs from boot.
 ;;
 ;; `[id [:rf.machine/start]]` is the eager kick (xstate `createActor().start()`):
 ;; per F‴ it runs the initial-entry cascade then STOPS — a PURE
@@ -307,7 +307,7 @@
 
 (defn- boot-machines-fx
   "An :fx vector that starts every machine in `machine-ids` to its initial
-  state. The frame's `:on-create` for a track."
+  state. The frame's `:initial-events` boot for a track."
   [machine-ids]
   (mapv (fn [id] [:dispatch [id [:rf.machine/start]]]) machine-ids))
 
@@ -372,7 +372,7 @@
 ;;              :path [{:label :event :watch} …]}.
 ;;
 ;; - `:machines` is a SET (media = two machine-ids in one observed domain).
-;; - `:boot` is the frame's `:on-create` event — runs in the machine frame so
+;; - `:boot` is the frame's `:initial-events` boot event — runs in the machine frame so
 ;;   the START cascade is the ring's first observed epoch (boot-on-select).
 ;; - `:path` is the ordered step list. Each step's `:event` is dispatched INTO
 ;;   the track's machine frame. There is no explicit 'start machine' row —
@@ -620,17 +620,17 @@
 
 (defn- ensure-machine-frame!
   "LAZILY create the track's `:machine/<id>` frame if it does not yet exist,
-  with the track's boot event as `:on-create` (boot-on-select). Idempotent —
+  with the track's boot event as `:initial-events` (boot-on-select). Idempotent —
   `rf/frame` returns nil for an unregistered/destroyed frame; a re-select of
   an already-created frame is a no-op (its ring + cursor are preserved, so
   switch-and-return RESUMES). Returns the frame id."
   [track]
   (let [frame-id (machine-frame-id (:id track))]
     (when-not (rf/frame-meta frame-id)
-      (rf/reg-frame frame-id {:on-create [(:boot track)]
-                              :doc       (str "machine-epochs observed frame for the "
-                                              (:label track) " track — owns its own "
-                                              "epoch ring + machine snapshot(s).")}))
+      (rf/reg-frame frame-id {:initial-events [[(:boot track)]]
+                              :doc            (str "machine-epochs observed frame for the "
+                                                   (:label track) " track — owns its own "
+                                                   "epoch ring + machine snapshot(s).")}))
     frame-id))
 
 ;; SELECT — set the selected track in the SHELL, lazily create + boot its
@@ -712,13 +712,13 @@
     (rf/dispatch event {:frame frame-id})))
 
 ;; RESTART — reset the track's machine frame (destroy + re-`reg-frame` with the
-;; same :on-create, so the ring clears and re-arcs from boot) and clear the
+;; same :initial-events, so the ring clears and re-arcs from boot) and clear the
 ;; track cursor. The :session track's spawned child is torn down by the frame
 ;; destroy (the :rf.machine/destroy cascade on frame teardown). Re-points Xray
 ;; at the freshly-reset frame so the operator sees the clean re-boot arc.
 (rf/reg-event :machine-epochs/restart
   {:doc "Restart the CURRENTLY SELECTED track: RESET its :machine/<id> frame
-         (clears the ring, re-arcs from boot via the frame's :on-create) and
+         (clears the ring, re-arcs from boot via the frame's :initial-events) and
          clear the track cursor. Re-points Xray at the reset frame. The track
          is read from :rf.runner/selected (see :machine-epochs/run-step's note
          on the stale-closure race)."}
@@ -732,7 +732,7 @@
         {:db db}))))
 
 ;; Frame-reset fx — `rf/reset-frame!` is destroy + re-reg with the same config
-;; (including :on-create), so the machine re-boots clean. Kept as a named fx
+;; (including :initial-events), so the machine re-boots clean. Kept as a named fx
 ;; so the RESTART handler stays declarative.
 (rf/reg-fx :machine-epochs/reset-frame
   (fn [_ctx frame-id]
@@ -945,7 +945,7 @@
   ;; absence — register the SHELL frame explicitly and scope the boot
   ;; dispatches to it. The per-track machine frames are reg-frame'd inside
   ;; the `:machine-epochs/select` handler (a real cascade — `*handler-scope*`
-  ;; bound), so each track's `:on-create` async-queues correctly. The
+  ;; bound), so each track's `:initial-events` boot async-queues correctly. The
   ;; render is wrapped in a `frame-provider-existing` on the shell frame
   ;; (scope-only — the shell frame is already `reg-frame`'d).
   (rf/reg-frame shell-frame {})

@@ -698,8 +698,8 @@
 ;; EP-0024 (rf2-tu2vr7): `rf/make-frame` is the ONE public frame constructor.
 ;; It backs onto `re-frame.live-frame/make-frame` — the unified constructor over
 ;; the ONE `frames` registry — which accepts BOTH image-selection opts
-;; (`:images` / `:id` / `:initial-db` / `:capabilities` / `:adapter`) AND
-;; record-config opts (`:on-create` / `:fx-overrides` / `:platform` / `:ssr` /
+;; (`:images` / `:id` / `:capabilities` / `:adapter`) AND
+;; record-config opts (`:initial-events` / `:fx-overrides` / `:platform` / `:ssr` /
 ;; `:doc` / `:preset` / `:tags` / …) in ONE call, and returns the frame VALUE.
 ;;
 ;; EP-0024 adopts the previously-deferred option-(a) and REVERSES the
@@ -732,15 +732,15 @@
                    policy). When ABSENT, the frame is LOCAL-ONLY — keep the
                    returned value and pass it (or its id) to dispatch / subscribe
                    / test helpers.
-    :initial-db    the frame's initial app-db value (optional). Seeds the frame's
-                   app-db partition so an immediate subscribe/read observes it.
     :capabilities  the host capability map the image's `:rf.image/requires` is
                    checked against (optional, fail-loud on a missing capability).
     :adapter       the active-substrate adapter binding/configuration (optional).
 
-  EVERY OTHER key is RECORD-CONFIG, honoured in the same call: `:on-create`,
-  `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, the EP-0015
-  classification keys, etc. So
+  EVERY OTHER key is RECORD-CONFIG, honoured in the same call: `:initial-events`
+  (a vector of event vectors dispatch-sync'd into the new frame at construction,
+  in order, draining to fixed point before the call returns — seed a literal
+  app-db with `[[:rf/set-db {…}]]`; EP-0027), `:fx-overrides`, `:platform`,
+  `:ssr`, `:doc`, `:preset`, `:tags`, the EP-0015 classification keys, etc. So
   `(rf/make-frame {:id :todo/left :images [todo-image] :fx-overrides {...}})`
   configures the frame in one call (EP-0024 adopts option-(a) and reverses the
   rf2-32siq3.45 option-(b) record-only-key fail-loud redirect).
@@ -1381,7 +1381,7 @@
 ;;   * frame-provider          — OWNED lifecycle: creates the frame on
 ;;                               mount (via make-frame), provides its id
 ;;                               to descendants, destroys it on unmount.
-;;                               Takes {:id :images :initial-db …}.
+;;                               Takes {:id :images :initial-events …}.
 ;;   * frame-provider-existing — SCOPE-only: provides an ALREADY-CREATED
 ;;                               frame id through React context; creates /
 ;;                               refreshes / destroys nothing. Takes

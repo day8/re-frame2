@@ -909,7 +909,7 @@
     ;; straight onto the variant's `reg-frame` config (`frames/variant-
     ;; frame-config`), so the framework's `re-frame.frame-classification`
     ;; validates + installs them atomically as part of frame creation —
-    ;; BEFORE `:on-create`. Classification is owned at frame creation, not
+    ;; BEFORE `:initial-events`. Classification is owned at frame creation, not
     ;; mutated post-creation (spec/015 §Frame-owned durable classification).
     ;;
     ;; Loose `:map` here on purpose: the framework's frame-classification

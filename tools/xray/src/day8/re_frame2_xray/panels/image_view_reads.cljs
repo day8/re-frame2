@@ -315,7 +315,7 @@
   ## Trace-emission gate (rf2-2qaqh — preserved)
 
   `make-frame` is the EP-0023 OBJECT constructor: it honours only the
-  frame-creation opts (`:images` / `:id` / `:initial-db` / …) and would reject
+  frame-creation opts (`:images` / `:id` / `:initial-events` / …) and would reject
   the record-config `:rf.trace/frame-no-emit?` flag. That flag is frame-scoped
   trace state owned by `re-frame.trace`, keyed by frame-id independently of the
   generation, so it is set DIRECTLY via `trace/set-frame-no-emit!` — the same

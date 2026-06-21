@@ -189,7 +189,7 @@ track:
 1. sets the SHELL frame's (`:rf/default`) runner bookkeeping
    (`:rf.runner/selected` + per-track `:rf.runner/cursors`),
 2. LAZILY creates the track's `:machine/<track>` frame on first entry
-   (`rf/reg-frame` with an `:on-create` boot event — BOOT-ON-SELECT, so
+   (`rf/reg-frame` with an `:initial-events` boot event — BOOT-ON-SELECT, so
    the first observed epoch is the machine's START cascade), and
 3. re-points Xray at that frame via the host-facing focus channel
    (`day8.re-frame2-xray.focus/focus!` with `{:frame :machine/<track>}`,
@@ -205,7 +205,7 @@ selection live in app-db (events + subs), not Reagent atoms (rf2-5sjbg).
 
 **Restart** resets the selected track's machine frame
 (`rf/reset-frame!` = destroy + re-`reg-frame` with the same
-`:on-create`), so the ring clears and the machine re-arcs from boot;
+`:initial-events`), so the ring clears and the machine re-arcs from boot;
 the track cursor clears. The fuse track's boot-on-select THROWS (its
 initial `:entry` action throws on boot) — that is the sole
 machine-action-exception trigger.
