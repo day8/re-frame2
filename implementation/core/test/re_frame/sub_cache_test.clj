@@ -829,16 +829,23 @@
 
 (defn- make-n-frame
   "A live frame OBJECT running an INLINE image that registers the layer-1 `:n`
-  sub (reading `(:n db)`), seeded with `initial-db`. The inline image keeps the
-  frame off the default whole-store projection (which would collide with the
-  framework standards in this fixture), so the frame is self-contained: its
-  generation resolves exactly `:n`. `opts` may carry `:id`."
-  [opts]
+  sub (reading `(:n db)`) plus a local `:ts3fuk/seed` setup event, seeded with
+  `seed-db`. The inline image keeps the frame off the default whole-store
+  projection (which would collide with the framework standards in this fixture),
+  so the frame is self-contained. EP-0027: app-db seeding is a setup EVENT — the
+  image registers a local `:ts3fuk/seed` ({:db new-db}) and the seed rides
+  `:initial-events`. (`:rf/set-db` — the framework-standard seed — lands in a
+  parallel image-registry bead; an inline-image local seed exercises the same
+  `:initial-events` path without that dependency.) `opts` may carry `:id` and
+  `:seed-db`."
+  [{:keys [seed-db] :as opts}]
   (live-frame/make-frame
     (merge {:images [(rf/image {:id :ts3fuk/img
                                 :registrations
-                                {:reg-sub [[:n {:doc "n"} (fn [db _] (:n db))]]}})]}
-           opts)))
+                                {:reg-sub   [[:n {:doc "n"} (fn [db _] (:n db))]]
+                                 :reg-event [[:ts3fuk/seed {:doc "seed"} (fn [_ [_ new-db]] {:db new-db})]]}})]
+            :initial-events (when (some? seed-db) [[:ts3fuk/seed seed-db]])}
+           (dissoc opts :seed-db))))
 
 (deftest unsubscribe-object-target-tears-down-the-entry
   (testing "subscribe with a frame OBJECT then unsubscribe with the SAME object
@@ -848,7 +855,7 @@
             genuinely different spellings of the same frame."
     ;; No-id (direct) frame object — its runnable-id is a gensym, distinct from
     ;; the object map. Seed app-db so the read resolves.
-    (let [frame-obj (make-n-frame {:initial-db {:n 7}})]
+    (let [frame-obj (make-n-frame {:seed-db {:n 7}})]
       ;; Subscribe via the OBJECT target → keyed by the runnable-id.
       (let [r (rf/subscribe frame-obj [:n])]
         (is (= 7 @r) "object-target subscribe reads the frame's seeded app-db")
@@ -867,7 +874,7 @@
             spellings (object vs. runnable-id keyword) interchangeably — the
             entry is evicted whichever spelling teardown uses (rf2-ts3fuk)"
     (testing "subscribe by KEYWORD id, unsubscribe by the equivalent OBJECT"
-      (let [frame-obj (make-n-frame {:id :ts3fuk/a :initial-db {:n 1}})
+      (let [frame-obj (make-n-frame {:id :ts3fuk/a :seed-db {:n 1}})
             rid       (frame/frame-target->id frame-obj)]
         (is (= :ts3fuk/a rid) "an :id-bearing object's runnable-id IS the public id")
         (rf/subscribe rid [:n])
@@ -878,7 +885,7 @@
             "object-target unsubscribe evicts the entry the keyword subscribe made")
         (rf/destroy-frame! frame-obj)))
     (testing "subscribe by OBJECT, unsubscribe by the equivalent runnable-id KEYWORD"
-      (let [frame-obj (make-n-frame {:id :ts3fuk/b :initial-db {:n 2}})
+      (let [frame-obj (make-n-frame {:id :ts3fuk/b :seed-db {:n 2}})
             rid       (frame/frame-target->id frame-obj)]
         (rf/subscribe frame-obj [:n])
         (is (contains? (object-cache-keys frame-obj) [:n]))
@@ -893,7 +900,7 @@
             — its internal teardown unsubscribe now normalizes the object target
             symmetrically, so the one-shot read's slot is disposed in-tick
             instead of leaking (rf2-ts3fuk)"
-    (let [frame-obj (make-n-frame {:initial-db {:n 9}})]
+    (let [frame-obj (make-n-frame {:seed-db {:n 9}})]
       (is (= 9 (rf/subscribe-once frame-obj [:n]))
           "object-target subscribe-once returns the seeded value")
       (is (not (contains? (object-cache-keys frame-obj) [:n]))

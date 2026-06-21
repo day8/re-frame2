@@ -353,37 +353,37 @@
         (is (empty? @calls-real)
             "the canonical :http handler was not invoked under either override")))))
 
-;; ---- Spec 002 §reg-frame is atomic — :on-create runs synchronously -------
+;; ---- Spec 002 §reg-frame is atomic — :initial-events runs synchronously --
 
-(deftest reg-frame-on-create-runs-synchronously
-  (testing ":on-create completes inside reg-frame; app-db is fully populated by the time it returns"
+(deftest reg-frame-initial-events-runs-synchronously
+  (testing ":initial-events completes inside reg-frame; app-db is fully populated by the time it returns (EP-0027)"
     (let [observed (atom nil)]
       (rf/reg-event :boot
         (fn [{:keys [db]} [_ payload]]
           {:db {:booted? true :payload payload :seq [:a :b :c]}}))
-      ;; Hook a trace listener so we can assert the ordering between
-      ;; :on-create dispatch and :rf.frame/created emission. Per Spec 002
-      ;; §reg-frame is atomic — :on-create runs first, then :rf.frame/created
+      ;; Hook a trace listener so we can assert the ordering between the
+      ;; setup-step dispatch and :rf.frame/created emission. Per Spec 002
+      ;; §reg-frame is atomic — the setup runs first, then :rf.frame/created
       ;; is emitted (the frame becomes observable to listeners).
       (let [traces (atom [])]
         (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
         (rf/reg-frame :booted
-                      {:doc       "frame with on-create"
-                       :on-create [:boot {:hello "world"}]})
+                      {:doc            "frame with initial-events"
+                       :initial-events [[:boot {:hello "world"}]]})
         (rf/unregister-listener! :trace ::oc)
 
         ;; The moment reg-frame returned, app-db must already reflect
-        ;; the :on-create event's commit.
+        ;; the setup event's commit.
         (reset! observed (rf/app-db-value :booted))
         (is (true? (:booted? @observed))
-            ":on-create ran synchronously — app-db reflects its commit")
+            ":initial-events ran synchronously — app-db reflects its commit")
         (is (= {:hello "world"} (:payload @observed))
-            ":on-create payload landed in app-db")
+            ":initial-events payload landed in app-db")
         (is (= [:a :b :c] (:seq @observed))
-            "full :on-create handler body completed before reg-frame returned")
+            "full setup handler body completed before reg-frame returned")
 
         ;; Ordering: the :rf.event/run-end for :boot precedes :rf.frame/created
-        ;; (reg-frame emits :rf.frame/created AFTER on-create dispatch-syncs).
+        ;; (reg-frame emits :rf.frame/created AFTER the setup dispatch-syncs).
         (let [run-end-idx (->> @traces
                                (keep-indexed
                                  (fn [i ev]
@@ -398,11 +398,11 @@
                                      i)))
                                first)]
           (is (some? run-end-idx)
-              "expected an :event :run-end trace for the :on-create event")
+              "expected an :event :run-end trace for the setup event")
           (is (some? created-idx)
               "expected a :rf.frame/created trace")
           (is (< run-end-idx created-idx)
-              ":on-create's :run-end precedes :rf.frame/created — frame is fully booted before listeners observe it"))))))
+              "the setup's :run-end precedes :rf.frame/created — frame is fully booted before listeners observe it"))))))
 
 ;; ---- rf2-68kok — destroy-frame! interrupts active drain on next dequeue --
 ;;
@@ -553,140 +553,87 @@
             "no :rf.frame/drain-interrupted — the drain never started
              on the already-destroyed frame")))))
 
-;; ---- rf2-cufbh — child-frame :on-create is queued asynchronously --------
+;; ---- EP-0027 — handler-time frame construction is FORBIDDEN --------------
 ;;
-;; Per Spec 002 §`reg-frame` / `make-frame` called from inside a handler:
-;; when a handler spawns a child frame, the child's `:on-create` MUST be
-;; dispatched (queued on the child's router) rather than dispatch-sync'd.
-;; Synchronous dispatch from inside a handler is an error (per Spec 002
-;; §dispatch-sync inside a handler is an error), and the no-cross-frame-
-;; drain rule (Spec 002 §Run-to-completion) forbids interleaving the two
-;; cascades anyway.
-;;
-;; These tests pin both halves of the contract:
-;;
-;;   (1) top-level reg-frame (no in-flight handler) — `:on-create` is
-;;       dispatch-sync'd, the cascade settles before reg-frame returns
-;;       (already covered by `reg-frame-on-create-runs-synchronously`
-;;       above; the rf2-cufbh test below adds the negative-axis pin —
-;;       no async-queue residue under the top-level path).
-;;   (2) handler-created reg-frame — `:on-create` is dispatched
-;;       asynchronously. The child frame's :on-create handler does NOT
-;;       run before the parent handler returns; it runs on a later
-;;       drain cycle for the child's router.
+;; Per EP-0027 §Construction: frames are created by the VIEW (frame-provider) or
+;; at TOP LEVEL (tests, boot, SSR per request). Constructing a frame INSIDE an
+;; event handler is not supported — a handler changes app-db, and the view
+;; materializes frames from it — and fails loud with
+;; `:rf.error/frame-construction-in-handler`. This REMOVES the prior rf2-cufbh
+;; two-regime `:on-create` handling (the mid-cascade case used to async-queue the
+;; child's `:on-create`; it is now a fail-loud error). The signal for "inside a
+;; handler" is `trace/*handler-scope*` being bound (the router binds it for the
+;; duration of a handler's run and ONLY then; a bare ambient `with-frame` scope
+;; does not bind it), so a genuine TOP-LEVEL construction still runs setup
+;; synchronously.
 
-(deftest child-frame-on-create-is-async-when-created-from-handler
-  (testing "reg-frame called inside a handler queues the child's :on-create
-            asynchronously on the child's router — Spec 002 §reg-frame /
-            make-frame called from inside a handler"
-    ;; EP-0002 (rf2-9o48ih): the parent frame is the carried scope for the
-    ;; bare parent dispatch below — register `:rf/default` explicitly (the
-    ;; fixture no longer synthesises it) and target it. The child frame is
-    ;; reg'd INSIDE the handler, so `*handler-scope*` is bound there and its
-    ;; `:on-create` correctly async-queues regardless of this scope.
+(deftest reg-frame-in-handler-fails-loud
+  (testing "reg-frame called inside a handler fails
+            :rf.error/frame-construction-in-handler and leaves no half-registered
+            child (EP-0027 §Construction)"
+    ;; EP-0002 (rf2-9o48ih): the parent frame is the carried scope for the bare
+    ;; parent dispatch below — register `:rf/default` explicitly (the fixture no
+    ;; longer synthesises it) and target it.
     (rf/reg-frame :rf/default {})
-    (let [event-order  (atom [])
-          captured-tick (atom [])]
+    (let [caught (atom nil)]
       (rf/reg-event :child/boot
-        (fn [{:keys [db]} _]
-          (swap! event-order conj :child/boot-ran)
-          {:db (assoc db :child-booted? true)}))
+        (fn [{:keys [db]} _] {:db (assoc db :child-booted? true)}))
       (rf/reg-event :parent/spawn-child
-        (fn [_ _]
-          (swap! event-order conj :parent/before-reg-frame)
-          (rf/reg-frame :child {:on-create [:child/boot]})
-          (swap! event-order conj :parent/after-reg-frame)
-          {}))
-      ;; Capture the child's next-tick so we can deterministically inspect
-      ;; the queue state at the moment the parent handler returns.
-      (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch-sync [:parent/spawn-child] {:frame :rf/default})
+        (fn [{:keys [db]} _]
+          ;; Capture the construction throw inside the handler so we can assert
+          ;; its id without depending on how dispatch-sync surfaces it.
+          (reset! caught
+                  (try (rf/reg-frame :child {:initial-events [[:child/boot]]})
+                       nil
+                       (catch clojure.lang.ExceptionInfo e
+                         (:rf.error/id (ex-data e)))))
+          {:db db}))
+      (rf/dispatch-sync [:parent/spawn-child] {:frame :rf/default})
+      (is (= :rf.error/frame-construction-in-handler @caught)
+          "a handler-time reg-frame fails loud")
+      (is (nil? (frame/frame :child))
+          "the just-created child container was torn back down — no half-registered frame"))))
 
-        ;; The parent's handler body ran end-to-end, but the child's
-        ;; :on-create handler did NOT run inline.
-        (is (= [:parent/before-reg-frame :parent/after-reg-frame]
-               @event-order)
-            ":child/boot is NOT in the order — it was queued, not dispatch-sync'd")
-
-        ;; The child frame exists; its app-db reflects the pre-:on-create
-        ;; state (fresh {}, not the booted shape).
-        (let [child (frame/frame :child)]
-          (is (some? child) ":child frame is registered")
-          (is (= {} (rf/app-db-value :child))
-              "child app-db is still {} — :on-create has not yet drained")
-          ;; The child's router queue holds exactly the :on-create event.
-          (let [queue (:queue @(:router child))]
-            (is (= 1 (count queue))
-                "child router has the :on-create envelope queued")
-            (is (= [:child/boot] (-> queue first :event))
-                "queued event is :child/boot"))))
-
-      ;; Now run the captured tick — the child's drain fires and
-      ;; :child/boot runs on the child's drain cycle, after the parent
-      ;; cascade settled.
-      (doseq [tick @captured-tick] (tick))
-      (is (= [:parent/before-reg-frame
-              :parent/after-reg-frame
-              :child/boot-ran]
-             @event-order)
-          ":child/boot ran AFTER the parent cascade settled, on the
-           child's own drain cycle")
-      (is (true? (:child-booted? (rf/app-db-value :child)))
-          "child app-db reflects :on-create commit once the child drain fires"))))
-
-(deftest top-level-reg-frame-on-create-still-runs-synchronously
-  (testing "Top-level reg-frame (NOT inside a handler) still dispatch-sync's
-            :on-create — the rf2-cufbh fix preserves the fast path"
+(deftest top-level-reg-frame-initial-events-runs-synchronously
+  (testing "Top-level reg-frame (NOT inside a handler) runs :initial-events
+            synchronously — the fast path is preserved (EP-0027 §Construction)"
     (let [order (atom [])]
       (rf/reg-event :top/init
         (fn [{:keys [db]} _]
           (swap! order conj :top/init-ran)
           {:db {:initialised? true}}))
-      ;; No in-flight handler; *current-frame* is nil. :on-create must run
+      ;; No in-flight handler; *current-frame* is nil. The setup must run
       ;; synchronously, before reg-frame returns.
-      (rf/reg-frame :top {:on-create [:top/init]})
+      (rf/reg-frame :top {:initial-events [[:top/init]]})
       (is (= [:top/init-ran] @order)
           ":top/init ran inside reg-frame (synchronous top-level path)")
       (is (true? (:initialised? (rf/app-db-value :top)))
-          "top-level app-db reflects :on-create commit by reg-frame return"))))
+          "top-level app-db reflects the setup commit by reg-frame return"))))
 
-(deftest child-frame-via-make-frame-also-async-from-handler
-  (testing "make-frame from inside a handler also queues :on-create
-            asynchronously — it shares the reg-frame code path"
-    ;; EP-0002 (rf2-9o48ih): register `:rf/default` as the carried scope for
-    ;; the bare parent dispatch (the fixture no longer synthesises it). The
-    ;; child is make-frame'd INSIDE the handler (`*handler-scope*` bound), so
-    ;; its `:on-create` async-queues correctly.
+(deftest make-frame-record-in-handler-fails-loud
+  (testing "make-frame / make-anon-frame-record! from inside a handler also fails
+            loud — it shares the reg-frame construction guard (EP-0027)"
     (rf/reg-frame :rf/default {})
-    (let [order         (atom [])
-          captured-tick (atom [])
-          child-id      (atom nil)]
+    (let [caught   (atom nil)
+          child-id (atom nil)]
       (rf/reg-event :sub-actor/boot
-        (fn [{:keys [db]} _]
-          (swap! order conj :sub-actor/boot-ran)
-          {:db (assoc db :booted? true)}))
+        (fn [{:keys [db]} _] {:db (assoc db :booted? true)}))
       (rf/reg-event :parent/spawn-sub-actor
-        (fn [_ _]
-          (swap! order conj :parent/before-make-frame)
-          (reset! child-id (frame/make-anon-frame-record! {:on-create [:sub-actor/boot]}))
-          (swap! order conj :parent/after-make-frame)
-          {}))
-      (with-redefs [interop/next-tick (fn [f] (swap! captured-tick conj f) nil)]
-        (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
-        (is (= [:parent/before-make-frame :parent/after-make-frame] @order)
-            ":sub-actor/boot did not run inline")
-        (is (some? @child-id) "make-frame returned a gensym'd id")
-        (is (= {} (rf/app-db-value @child-id))
-            "child app-db is still empty before its own drain runs"))
-      ;; Drain the child's tick.
-      (doseq [tick @captured-tick] (tick))
-      (is (= [:parent/before-make-frame
-              :parent/after-make-frame
-              :sub-actor/boot-ran]
-             @order)
-          ":sub-actor/boot ran on the child's own drain cycle")
-      (is (true? (:booted? (rf/app-db-value @child-id)))
-          "child app-db reflects :on-create commit after its drain"))))
+        (fn [{:keys [db]} _]
+          (reset! caught
+                  (try (reset! child-id
+                               (frame/make-anon-frame-record!
+                                 {:initial-events [[:sub-actor/boot]]}))
+                       nil
+                       (catch clojure.lang.ExceptionInfo e
+                         (:rf.error/id (ex-data e)))))
+          {:db db}))
+      (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
+      (is (= :rf.error/frame-construction-in-handler @caught)
+          "a handler-time make-anon-frame-record! fails loud")
+      (when @child-id
+        (is (nil? (frame/frame @child-id))
+            "no half-registered child frame is left behind")))))
 
 ;; ---- Spec 002 §Frame presets — closed v1 expansion table -----------------
 ;;
@@ -1052,27 +999,27 @@
 ;; this test pins the contract that flows from that definition:
 ;;   - app-db is reset (fresh container).
 ;;   - sub-cache is cleared (sub re-registers against the fresh frame).
-;;   - The config metadata is preserved (same :doc, same :on-create, etc.).
-;;   - :on-create re-runs (the new frame is freshly booted).
+;;   - The config metadata is preserved (same :doc, same :initial-events, etc.).
+;;   - :initial-events re-runs (the new frame is freshly booted; EP-0027).
 ;;   - The frame is still queryable (not in the destroyed state).
 
 (deftest reset-frame-preserves-config-resets-app-db
   (testing "rf/reset-frame!: app-db is reset, config metadata is preserved,
-            :on-create re-runs, frame remains queryable"
+            :initial-events re-runs, frame remains queryable (EP-0027)"
     (let [boot-count (atom 0)]
       (rf/reg-event :seed
         (fn [{:keys [db]} [_ payload]]
           (swap! boot-count inc)
           {:db {:booted? true :payload payload :extra :seeded}}))
       (rf/reg-frame :app/main
-                    {:doc       "frame with on-create"
-                     :on-create [:seed {:hello "world"}]
+                    {:doc            "frame with initial-events"
+                     :initial-events [[:seed {:hello "world"}]]
                      :fx-overrides {:custom :value}})
-      ;; First :on-create dispatch increments the counter.
-      (is (= 1 @boot-count) ":on-create ran once at reg-frame time")
+      ;; First setup dispatch increments the counter.
+      (is (= 1 @boot-count) ":initial-events ran once at reg-frame time")
       (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
              (rf/app-db-value :app/main))
-          "app-db reflects :on-create commit")
+          "app-db reflects the setup commit")
 
       ;; Mutate app-db: a subsequent event extends the value.
       (rf/reg-event :extend (fn [{:keys [db]} _] {:db (assoc db :runtime-write? true)}))
@@ -1095,11 +1042,11 @@
               "the frame still exists post-reset (not destroyed)")
           ;; Config metadata preserved: same :doc, same :on-create,
           ;; same :fx-overrides.
-          (is (= "frame with on-create" (get-in new-record [:config :doc]))
+          (is (= "frame with initial-events" (get-in new-record [:config :doc]))
               ":config :doc preserved across reset")
-          (is (= [:seed {:hello "world"}]
-                 (get-in new-record [:config :on-create]))
-              ":config :on-create preserved across reset")
+          (is (= [[:seed {:hello "world"}]]
+                 (get-in new-record [:config :initial-events]))
+              ":config :initial-events preserved across reset")
           (is (= {:custom :value} (get-in new-record [:config :fx-overrides]))
               ":config :fx-overrides preserved across reset")
           ;; The slot identity-replaceable parts are FRESH containers.
@@ -1110,15 +1057,15 @@
           (is (not (identical? orig-router (:router new-record)))
               "router atom is fresh post-reset"))
 
-        ;; :on-create re-ran on the fresh frame: counter incremented.
+        ;; :initial-events re-ran on the fresh frame: counter incremented.
         (is (= 2 @boot-count)
-            ":on-create re-dispatches against the freshly-registered frame")
+            ":initial-events re-dispatches against the freshly-registered frame")
 
         ;; The runtime mutation is gone — fresh app-db reflects only
-        ;; :on-create's commit, not the prior :extend.
+        ;; the setup's commit, not the prior :extend.
         (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
                (rf/app-db-value :app/main))
-            "app-db is reset to :on-create state; runtime writes are gone")
+            "app-db is reset to the :initial-events state; runtime writes are gone")
         (is (nil? (:runtime-write? (rf/app-db-value :app/main)))
             "the :extend handler's write is absent — reset wiped runtime state")))))
 

@@ -190,7 +190,7 @@
   `:rf.error/bad-frame-provider-arg` and throws (rf2-9kpigo), so a typo like
   `{:frame \"app\"}` fails loudly rather than being silently coerced to
   `:app` by the lower-level context reader. A frame-CONSTRUCTION / lifecycle
-  opt (`:id` / `:images` / `:initial-db` / `:on-create` / …) is a MISUSE: it
+  opt (`:id` / `:images` / `:initial-events` / …) is a MISUSE: it
   emits + throws `:rf.error/frame-provider-existing-lifecycle-opt` pointing
   the caller at the OWNED `rf/frame-provider`, because a scope-only provider
   neither creates nor owns a frame.

@@ -53,11 +53,11 @@
       (rf/reg-frame :app/main
         {:sensitive {:app-db [[:auth :token]]}
          :large     {:app-db [[:documents :csv-upload]]}
-         :on-create [:app/init]})
-      ;; The handler captured the registry as it stood DURING :on-create.
-      (is (not= :unset @seen) ":on-create ran")
+         :initial-events [[:app/init]]})
+      ;; The handler captured the registry as it stood DURING :initial-events.
+      (is (not= :unset @seen) ":initial-events ran")
       (is (contains? @seen [:auth :token])
-          "sensitive declaration was present before :on-create ran")
+          "sensitive declaration was present before :initial-events ran")
       (is (= :frame (:source (get @seen [:auth :token])))
           "frame-owned declaration is tagged :source :frame")
       ;; And after creation the large declaration is installed too.

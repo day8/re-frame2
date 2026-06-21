@@ -67,7 +67,7 @@
    Both reach the same end-state: parent machine at :idle with cleared
    :data."
   []
-  (frame/make-anon-frame-record! {:on-create [:work/flow [:reset]]}))
+  (frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
 
 ;; ============================================================================
 ;; (1) SPAWN CASCADE — :start spawns 3 children

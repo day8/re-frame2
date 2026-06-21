@@ -20,7 +20,7 @@
 
     - **create-on-mount** — `acquire-owned-frame!` runs the unified
       `re-frame.live-frame/make-frame` over the provider's `{:id :images
-      :initial-db …}` opts, returning the resolved frame id.
+      :initial-events …}` opts, returning the resolved frame id.
     - **provide-frame-id-to-descendants** — the per-adapter shell wraps
       children in the shared React Context (via
       `re-frame.adapter.context/provider-element`) with the resolved id.
@@ -92,8 +92,9 @@
 
 (defn acquire-owned-frame!
   "CREATE-ON-MOUNT (EP-0024). Run the unified `make-frame` over the owned
-  frame-provider's `opts` (`{:id :images :initial-db …}` plus any record-config
-  keys) and return the resolved frame id. Idempotent under the same `:id`:
+  frame-provider's `opts` (`{:id :images :initial-events …}` plus any
+  record-config keys) and return the resolved frame id. Idempotent under the same
+  `:id`:
   re-acquiring refreshes config + resolved generation while preserving durable
   state (EP-0024 §Duplicate id policy) AND cancels any pending deferred destroy
   for that id, so a StrictMode remount / hot reload reclaims the live frame
@@ -153,8 +154,12 @@
   "Normalise the owned frame-provider's prop map into the `make-frame` opts the
   lifecycle consumes. Strips the `:children` carrier (the substrate element
   macros fold trailing children onto `:children`; it is not a frame option) and
-  passes EVERY OTHER key through — `:id`, `:images`, `:initial-db`, and the
-  record-config keys `make-frame` honours (`:fx-overrides`, `:on-create`, …)."
+  passes EVERY OTHER key through — `:id`, `:images`, `:initial-events`, and the
+  record-config keys `make-frame` honours (`:fx-overrides`, `:preset`, …). The
+  provider runs `:initial-events` once per frame-id lifetime (EP-0027): the
+  first creation runs the setup; a genuine remount / StrictMode re-acquire under
+  the same id RE-RECORDS but does NOT replay (idempotent re-registration
+  preserves durable state)."
   [props]
   (dissoc props :children))
 
@@ -178,7 +183,7 @@
       (str "frame-provider is the UI-OWNED lifecycle boundary (EP-0024): it "
            "CREATES the frame on mount, so it needs an explicit keyword `:id` "
            "to own and destroy. Got " (pr-str id) ". Pass `{:id :your/frame …}` "
-           "(plus optional :images / :initial-db). To merely SCOPE descendants "
+           "(plus optional :images / :initial-events). To merely SCOPE descendants "
            "to a frame that ALREADY EXISTS, use `rf/frame-provider-existing "
            "{:frame :your/frame}` (or `rf/with-frame` outside React render).")
       {:recovery :no-frame-context
@@ -189,7 +194,7 @@
 ;; The SCOPE-only provider (`rf/frame-provider-existing`) provides an
 ;; already-created frame and creates / refreshes / destroys NOTHING. Per the
 ;; EP-0024 name-family ruling it takes `:frame` ONLY — any frame-CONSTRUCTION /
-;; lifecycle opt (`:id`, `:images`, `:initial-db`, `:on-create`, … — i.e. the
+;; lifecycle opt (`:id`, `:images`, `:initial-events`, … — i.e. the
 ;; opts the OWNED provider consumes) is a hard MISUSE and MUST fail loud, so a
 ;; caller cannot silently expect a scope-only provider to create or own a
 ;; frame. The guard lives here (beside the owned-provider id guard) so both
@@ -202,13 +207,19 @@
   `rf/frame-provider`. Passing any of these to the SCOPE-only
   `rf/frame-provider-existing` is a misuse (it neither creates nor owns a
   frame). `:children` is the substrate trailing-children carrier, not a
-  lifecycle opt, so it is excluded."
-  #{:id :images :initial-db :on-create :fx-overrides})
+  lifecycle opt, so it is excluded.
+
+  EP-0027: `:initial-events` is the construction setup key (it replaces the
+  retired `:initial-db` / `:on-create`); both retired keys are kept in this set
+  so a caller who still passes them to the scope-only provider gets the
+  use-the-owned-provider diagnostic rather than silently nothing (the owned
+  provider itself then fails them loud via `reg-frame`)."
+  #{:id :images :initial-events :initial-db :on-create :fx-overrides})
 
 (defn ^:no-doc reject-lifecycle-opts!
   "Fail loud when a SCOPE-only `rf/frame-provider-existing` is handed any
-  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-db` /
-  `:on-create` / …). `props` is the provider's already-native-read prop map
+  frame-CONSTRUCTION / lifecycle opt (`:id` / `:images` / `:initial-events` /
+  …). `props` is the provider's already-native-read prop map
   (minus `:children`); `where-sym` names the calling shell for the diagnostic.
   Emits + throws `:rf.error/frame-provider-existing-lifecycle-opt` so a caller
   who expected scope-only-provides-an-existing-frame semantics but passed
@@ -334,7 +345,7 @@
   adapters' native `frame-provider` shells delegate to, parallel to
   `re-frame.substrate.spine/build-frame-provider-element` for the scope-only
   path. Given the provider's already-native-read prop map `props`
-  (`{:id :images :initial-db …}`), the React children value `children`, and
+  (`{:id :images :initial-events …}`), the React children value `children`, and
   `where-sym` (the calling shell's fn symbol, for the fail-loud `:id`
   diagnostic): validate `:id`, separate the `make-frame` opts, and return a
   `createElement` over `owned-frame-fc` so React owns the create-on-mount /

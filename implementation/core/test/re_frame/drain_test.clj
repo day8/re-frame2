@@ -163,7 +163,7 @@
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db {:step :pre-drain :counter 0}}))
     (rf/reg-frame :drain.rollback/main
-      {:on-create   [:seed/init]
+      {:initial-events   [[:seed/init]]
        :drain-depth 4})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::rollback (fn [ev] (swap! traces conj ev)))
@@ -201,7 +201,7 @@
     ;; (no rollback).
     (rf/reg-event :seed2/init (fn [{:keys [db]} _] {:db {:phase :seeded :n 0}}))
     (rf/reg-frame :drain.rollback/two
-      {:on-create   [:seed2/init]
+      {:initial-events   [[:seed2/init]]
        :drain-depth 3})
     ;; First drain: a clean settle that mutates :phase.
     (rf/reg-event :advance (fn [{:keys [db]} _] {:db (assoc db :phase :first-settled)}))
@@ -486,11 +486,11 @@
     (rf/reg-event :seed/A (fn [{:keys [db]} _] {:db {:where :A :counter 0 :marker :pristine}}))
     (rf/reg-event :seed/B (fn [{:keys [db]} _] {:db {:where :B :counter 0 :marker :pristine}}))
     (rf/reg-frame :drain.iso/A
-                  {:on-create   [:seed/A]
+                  {:initial-events   [[:seed/A]]
                    :drain-depth 50})
     ;; Frame :B has the tight drain-depth so :B's loop event trips it.
     (rf/reg-frame :drain.iso/B
-                  {:on-create   [:seed/B]
+                  {:initial-events   [[:seed/B]]
                    :drain-depth 4})
 
     ;; Capture :A's pre-dispatch state — this is what we'll compare to.

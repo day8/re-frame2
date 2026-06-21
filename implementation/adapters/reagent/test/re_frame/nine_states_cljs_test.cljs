@@ -77,7 +77,7 @@
 
 (defn- new-frame []
   (frame/make-anon-frame-record!
-    {:on-create    [:nine-states.app/initialise]
+    {:initial-events [[:nine-states.app/initialise]]
      :fx-overrides demo-overrides}))
 
 ;; ----------------------------------------------------------------------------
@@ -201,7 +201,7 @@
     (is (some? (rf/handler-meta :event :nine-states.story/load-failing))
         ":nine-states.story/load-failing registered (stories.cljs required)")
     (with-new-frame [f (frame/make-anon-frame-record!
-                         {:on-create    [:nine-states.app/initialise]
+                         {:initial-events [[:nine-states.app/initialise]]
                           :fx-overrides story-failure-overrides})]
       ;; Drive the variant's setup load event. The canned-failure stub
       ;; resolves synchronously (no :after-ms), dispatching :on-failure →
@@ -227,7 +227,7 @@
     ;; SEPARATELY represented (acceptance: keep the success lifecycle
     ;; variant proving canned-success).
     (with-new-frame [f (frame/make-anon-frame-record!
-                         {:on-create    [:nine-states.app/initialise]
+                         {:initial-events [[:nine-states.app/initialise]]
                           :fx-overrides {:rf.http/managed
                                          :rf.http/managed-canned-success}})]
       ;; `:nine-states.story/load` carries the synthetic todos on `:value`

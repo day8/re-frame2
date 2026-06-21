@@ -246,7 +246,7 @@
   ;; way. (We DO need the synthetic `[:rf.machine.timer/after-elapsed
   ;; delay epoch]` events to drive `:after` directly, which we do by
   ;; dispatching them ourselves.)
-  (frame/make-anon-frame-record! {:on-create    [:ws.app/initialise]
+  (frame/make-anon-frame-record! {:initial-events [[:ws.app/initialise]]
                   :fx-overrides {:dispatch-later nil}}))
 
 (defn- with-sync-mock! [f]

@@ -109,7 +109,7 @@
     ;; reg-frame time (Spec 002 §Frame lifecycle).
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])
-    (rf/reg-frame :test-support/seq-frame {:on-create [:counter/init]})
+    (rf/reg-frame :test-support/seq-frame {:initial-events [[:counter/init]]})
     (let [final (ts/dispatch-sequence
                   [[:counter/inc] [:counter/add 5]]
                   {:frame :test-support/seq-frame})]
@@ -151,7 +151,7 @@
   (testing ":frame opt selects which frame's app-db is asserted against"
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])
-    (rf/reg-frame :test-support/assert-frame {:on-create [:counter/init]})
+    (rf/reg-frame :test-support/assert-frame {:initial-events [[:counter/init]]})
     (rf/dispatch-sync [:counter/add 3] {:frame :test-support/assert-frame})
     (let [outcomes (record-reports
                      (fn []
@@ -164,7 +164,7 @@
   (testing ":frame opt also selects the frame for the full-db form"
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])
-    (rf/reg-frame :test-support/assert-db-frame {:on-create [:counter/init]})
+    (rf/reg-frame :test-support/assert-db-frame {:initial-events [[:counter/init]]})
     (rf/dispatch-sync [:counter/add 4] {:frame :test-support/assert-db-frame})
     (let [outcomes (record-reports
                      (fn []
