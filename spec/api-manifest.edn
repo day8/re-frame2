@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 485,
+ :var-count 486,
  :tier-vocab
  [:front-porch
   :advanced
@@ -216,6 +216,7 @@
   {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "clear-flow", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flow-algebra-view", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.flows", :var "flow-meta-at", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flows-snapshot", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reg-flow", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}

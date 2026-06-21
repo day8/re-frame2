@@ -1048,6 +1048,12 @@
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "clear-flow"]            {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
+  ;; The canonical per-frame flow introspection surface — the flows analogue of
+  ;; `re-frame.schemas/app-schema-meta-at` (rf2-en00bk, applying the rf2-0frdi
+  ;; precedent). Frame-divergent-per-id; the `(handler-meta :flow flow-id)`
+  ;; replacement. `:tooling` (pair-tools / 10x panels / source-coord tests),
+  ;; mirroring `app-schema-meta-at`'s classification.
+  ["re-frame.flows" "flow-meta-at"]          {:tier :tooling :owner "013" :status "v1"}
   ;; EP-0015: the raw `last-inputs-snapshot` is `^:no-doc` (internal / test /
   ;; rollback seam, NOT an egress boundary), so it stays off the public
   ;; manifest. Off-box reads ride the elided trace path, not a dedicated
