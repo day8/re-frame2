@@ -604,7 +604,7 @@ Any other key throws `:rf.error/create-class-key-unsupported` at `create-class` 
            :reason          (str "create-class accepts a 7-key cap. "
                                  "Unsupported: " (pr-str unsupported) ". "
                                  "Migrate to the supported keys, restructure "
-                                 "via :on-create / :on-destroy events, or "
+                                 "via :initial-events / :on-destroy events, or "
                                  "switch to the bridge adapter day8/re-frame2-reagent.")
            :keys            (vec unsupported)
            :supported-keys  supported})))
@@ -641,7 +641,7 @@ The CLJS implementation uses `goog.object/extend` + `js/Object.assign` to attach
 
 ### §6.5 `:component-did-catch` integration
 
-This is THE one cap key that re-frame2's `:on-create`/`:on-destroy` events cannot replace — there is no Form-1 alternative for an error boundary, because React's error-boundary contract requires a class component (function components do NOT support `componentDidCatch`). Test coverage critical (per the bead description).
+This is THE one cap key that re-frame2's `:initial-events` / `:on-destroy` events cannot replace — there is no Form-1 alternative for an error boundary, because React's error-boundary contract requires a class component (function components do NOT support `componentDidCatch`). Test coverage critical (per the bead description).
 
 Stage 4 ships these tests:
 1. `error-boundary-catches-render-error`: a child component throws in render; the boundary's `:component-did-catch` fires with `(error, info)`; the boundary re-renders a fallback.
@@ -1145,7 +1145,7 @@ The dropped surfaces (§2.2 list) were audit-confirmed zero-usage across re-com 
 
 | Dropped surface | Migration |
 |---|---|
-| `r/with-let` | Re-frame2: register a `reg-event`-shaped `:on-create` handler; clean up via `:on-destroy`. Reagent-classic: keep using `with-let`. |
+| `r/with-let` | Re-frame2: seed setup via `:initial-events` (a `reg-event`-shaped handler); clean up via `:on-destroy`. Reagent-classic: keep using `with-let`. |
 | `r/cursor` | Re-frame2: define a layer-2 sub. Reagent-classic: keep using `cursor`. |
 | `r/track`, `r/track!` | Re-frame2: define a `reg-sub`. Reagent-classic: keep using `track` / `track!`. |
 | `r/wrap` | Already deprecated in stock Reagent. Re-frame2: dispatch a `reg-event` from the on-change callback. Reagent-classic: keep using `wrap`. |

@@ -172,7 +172,7 @@ re-frame2's reactive substrate already gates render at the subscription level
 component is re-rendering too often, the diagnosis is usually "your sub is
 firing too often," not "this component needs a manual gate."
 
-### `:get-initial-state` → outer-fn Form-2 closure, or `:on-create` event
+### `:get-initial-state` → outer-fn Form-2 closure, or `:initial-events`
 
 `getInitialState` (a Reagent shim over React's pre-hooks pattern) returned the
 initial value of `this`'s state atom. Two replacements:
@@ -184,11 +184,11 @@ initial value of `this`'s state atom. Two replacements:
     (fn render [_]
       [:button {:on-click #(swap! count inc)} @count])))
 
-;; :on-create on the surrounding frame — for app-state init
-(rf/reg-frame :feature/counter {:on-create [:counter/initialise]})
+;; :initial-events on the surrounding frame — for app-state init
+(rf/reg-frame :feature/counter {:initial-events [[:counter/initialise]]})
 ```
 
-The frame `:on-create` path is preferred when the state belongs to app-db (the
+The frame `:initial-events` path is preferred when the state belongs to app-db (the
 event is named, registered, queryable, and visible in the trace stream). The
 Form-2 closure path is appropriate when the state is genuinely view-local
 (component instance lifetime, never read elsewhere).
@@ -458,7 +458,7 @@ Form-3 is the right tool for **imperative DOM library integration**. For
 everything else, prefer the re-frame2 idioms — they are simpler, named,
 and visible in the trace stream.
 
-### Use frame `:on-create` / `:on-destroy`, not Form-3, for app-state side effects
+### Use frame `:initial-events` / `:on-destroy`, not Form-3, for app-state side effects
 
 If a "mount-time" effect updates app-db (load data, register a listener that
 dispatches events, etc.), put it on the surrounding frame, not in a Form-3
@@ -471,7 +471,7 @@ dispatches events, etc.), put it on the surrounding frame, not in a Form-3
    :reagent-render      ...})
 
 ;; Right — frame-level init event
-(rf/reg-frame :counter-frame {:on-create [:counter/initialise]})
+(rf/reg-frame :counter-frame {:initial-events [[:counter/initialise]]})
 ```
 
 The frame event is named, registered, queryable, traceable in re-frame-10x,
@@ -528,7 +528,7 @@ event handler triggered by whatever changes the data, not in the view at all.
 | Need | Tool |
 |---|---|
 | Wrap an imperative JS library | **Form-3** with the 5-part shape from §4 |
-| Mount-time app-state side effect | Frame `:on-create` event |
+| Mount-time app-state side effect | Frame `:initial-events` |
 | DOM element handle for an event handler | `:ref` callback on Form-1 |
 | React to data changes | Subscription inside Form-1 |
 | Error boundary | **Form-3** with `:component-did-catch` (no substitute exists) |

@@ -142,7 +142,7 @@
       (let [reason (str "create-class accepts a 7-key cap. "
                         "Unsupported: " (pr-str unsupported) ". "
                         "Migrate to the supported keys, restructure "
-                        "via :on-create / :on-destroy events, or "
+                        "via :initial-events / :on-destroy events, or "
                         "switch to the bridge adapter day8/re-frame2-reagent.")]
         (throw
           (ex-info (str reason " [:rf.error/create-class-key-unsupported]")

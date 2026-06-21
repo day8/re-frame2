@@ -204,14 +204,14 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  ;; Register the three frames before any dispatch. `:on-create`
+  ;; Register the three frames before any dispatch. `:initial-events`
   ;; seeds each frame's app-db via the corresponding init handler;
-  ;; the framework runs each frame's `:on-create` against that
-  ;; frame's empty app-db, so the same init handler can be shared
-  ;; across both counter frames.
-  (rf/reg-frame frame-a   {:on-create [::counter-init]})
-  (rf/reg-frame frame-b   {:on-create [::counter-init]})
-  (rf/reg-frame frame-log {:on-create [::log-init]})
+  ;; the framework dispatches each frame's setup events synchronously
+  ;; against that frame's empty app-db, so the same init handler can be
+  ;; shared across both counter frames.
+  (rf/reg-frame frame-a   {:initial-events [[::counter-init]]})
+  (rf/reg-frame frame-b   {:initial-events [[::counter-init]]})
+  (rf/reg-frame frame-log {:initial-events [[::log-init]]})
   ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view`, so its wrapper resolves
   ;; a frame at render time for its injected bindings — it must render
   ;; under a provider. Use a neutral SHELL frame (`:rf/default`) as the

@@ -60,7 +60,7 @@ Massive. Every dropped surface drops source code, transitively-required modules,
 
 ### Re-frame2-fit impact
 
-Several of the dropped surfaces have direct re-frame2 idiomatic replacements that are usually better. `cursor` collapses into a layer-2 sub. `with-let`'s setup-and-teardown maps onto `:on-create`/`:on-destroy` events on a registered view. `track` is what subs are. `next-tick` overlaps re-frame2's own scheduling primitives. Apps using these surfaces are not stranded — they migrate to re-frame2 idiom and usually end up with cleaner code.
+Several of the dropped surfaces have direct re-frame2 idiomatic replacements that are usually better. `cursor` collapses into a layer-2 sub. `with-let`'s setup-and-teardown maps onto `:initial-events` / `:on-destroy` events on a registered view. `track` is what subs are. `next-tick` overlaps re-frame2's own scheduling primitives. Apps using these surfaces are not stranded — they migrate to re-frame2 idiom and usually end up with cleaner code.
 
 ### Migration note
 

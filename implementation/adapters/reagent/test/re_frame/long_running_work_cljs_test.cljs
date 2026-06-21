@@ -38,7 +38,7 @@
   (test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each test spins its OWN top-level frame via
     ;; `make-frame`; opt out of the ambient `:rf/default` scope so the new
-    ;; frame's `:on-create` drains synchronously (top-level boot) rather than
+    ;; frame's `:initial-events` drain synchronously (top-level boot) rather than
     ;; being treated as a mid-cascade child-frame creation.
     {:adapter       reagent-adapter/adapter
      :ambient-frame nil}))
@@ -60,8 +60,8 @@
   (get-in (rf/frame-state-value frame) [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]))
 
 (defn- new-frame
-  "Spin up a fresh test frame. We dispatch :work/flow [:reset] inside the
-   :on-create rather than going through the :app/initialise fanout so the
+  "Spin up a fresh test frame. We dispatch :work/flow [:reset] via
+   :initial-events rather than going through the :app/initialise fanout so the
    test ns doesn't transitively depend on long-running-work.core (which
    pulls in Reagent's DOM-only namespaces and a defonce root-creation).
    Both reach the same end-state: parent machine at :idle with cleared
