@@ -279,12 +279,15 @@
             leak across a destroy→reuse cycle even though teardown runs no
             explicit elision scrub"
     ;; First incarnation: register a flow whose output is whole-sensitive.
+    ;; EP-0025: classify the whole output explicitly with `:sensitive [[]]` (the
+    ;; whole-value convention) — the removed `:rf.egress/output-sensitivity`
+    ;; propagation claim's replacement.
     (rf/reg-frame :fc/scratch {:doc "first incarnation"})
-    (rf/reg-flow {:id                           :token
-                  :inputs                       [[:n]]
-                  :derive                       (fn [n] {:jwt n})
-                  :output-path                         [:auth :token]
-                  :rf.egress/output-sensitivity :rf.egress/sensitive}
+    (rf/reg-flow {:id          :token
+                  :inputs      [[:n]]
+                  :derive      (fn [n] {:jwt n})
+                  :output-path [:auth :token]
+                  :sensitive   [[]]}
                  {:frame :fc/scratch})
     (is (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token])
         "precondition: the first incarnation installed a whole-output sensitive mark")
