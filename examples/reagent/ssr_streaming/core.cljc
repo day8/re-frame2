@@ -138,10 +138,10 @@
      [_request]
      (let [fid (keyword "rf.frame" (str (gensym "")))
            ;; Register the app schema AGAINST THIS per-request server frame
-           ;; BEFORE `:on-create` fires `:rf/server-init` — the
+           ;; BEFORE the `:initial-events` `:rf/server-init` step runs — the
            ;; per-request frame is where the server-side `:cards` commit
            ;; actually validates, so the schema must bind here. `reg-frame` runs
-           ;; the `:on-create` cascade synchronously before returning, so the
+           ;; the `:initial-events` cascade synchronously before returning, so the
            ;; schema must be in place first; register under `fid`, then create.
            _   (rf/reg-app-schema [:cards] {:schema CardsSchema :frame fid})
            _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"

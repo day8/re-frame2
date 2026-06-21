@@ -22,7 +22,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 **1. Dispatch.** `(rf/dispatch [:event-id args])` builds an envelope `{:event ... :frame ... :dispatch-id ...}` and appends it to the target frame's router queue (`dispatch!` / `enqueue-envelope!` in `router.cljc`). Returns `nil` immediately — non-blocking.
 
-**2. Drain scheduled.** The router schedules a drain via the substrate's microtask hook. `dispatch-sync` (`dispatch-sync!` in `router.cljc`) bypasses the queue and drains immediately — outside-the-runtime callers only (tests, REPL, `:on-create`).
+**2. Drain scheduled.** The router schedules a drain via the substrate's microtask hook. `dispatch-sync` (`dispatch-sync!` in `router.cljc`) bypasses the queue and drains immediately — outside-the-runtime callers only (tests, REPL, `:initial-events`).
 
 **3. Drain pops envelope.** For each event, the runtime looks up the registered handler's interceptor chain.
 

@@ -119,8 +119,8 @@ Two images may both contain a `:counter/inc` event. Two live frames may not both
 
 ;; Same ids inside each image (:counter/inc, :counter/value), different meaning.
 ;; Distinct frame ids, because frame ids are globally unique.
-(rf/make-frame {:id :docs.counter/basic-frame  :images [counter-basic]  :initial-db {:count 0}})
-(rf/make-frame {:id :docs.counter/parity-frame :images [counter-parity] :initial-db {:count 0}})
+(rf/make-frame {:id :docs.counter/basic-frame  :images [counter-basic]  :initial-events [[:rf/set-db {:count 0}]]})
+(rf/make-frame {:id :docs.counter/parity-frame :images [counter-parity] :initial-events [[:rf/set-db {:count 0}]]})
 ```
 
 The reader sees one small vocabulary evolve across lessons instead of `:counter-v1/inc`, `:counter-v2/inc`, `:counter-v3/inc`. The image supplies the meaning; the frame ids keep the live instances apart.
@@ -151,12 +151,12 @@ Tests and stories want controlled behaviour *and* controlled state. The image gi
                           "checkout.test-doubles.**"]}))
 
 (let [frame (rf/make-frame {:images [checkout-test-image]
-                            :initial-db {:cart/items []}})]
+                            :initial-events [[:rf/set-db {:cart/items []}]]})]
   (rf/dispatch-sync frame [:cart/add "SKU-1"])
   @(rf/subscribe frame [:cart/items]))
 ```
 
-State setup stays a frame concern — `:initial-db`, a restored frame-state value, or setup events. Behaviour setup is an image concern — select or override registrations before the frame runs. (Targeting the frame *object* directly, as above, is the test/harness path; mounted product code targets a frame *id*. Both are in [Frames](frames.md).)
+State setup stays a frame concern — `:initial-events` (e.g. a leading `[:rf/set-db {…}]`), a restored frame-state value, or setup events. Behaviour setup is an image concern — select or override registrations before the frame runs. (Targeting the frame *object* directly, as above, is the test/harness path; mounted product code targets a frame *id*. Both are in [Frames](frames.md).)
 
 ### Overriding a registration is explicit
 

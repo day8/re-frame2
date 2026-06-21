@@ -37,8 +37,8 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
   ;; sees the seeded app-db. This explicit dispatch-sync is the reset
   ;; boundary the generator ships: the reg-frame above is a surgical
   ;; (app-db-preserving) update on a hot reload, and this re-seeds the
-  ;; demo state each time. (Seeding via :on-create would only run on the
-  ;; first registration.)
+  ;; demo state each time. (Seeding via :initial-events would only run on
+  ;; the first registration.)
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:your-app/initialise]))
   (rdc/render react-root
@@ -58,7 +58,7 @@ The entry symbol is `init`, matching the generator template's `:init-fn {{namesp
 
 1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter. (`init!` installs the adapter and runtime capabilities only; it creates **no** frame.)
 2. **`(rf/reg-frame :rf/default {})`** — register the app frame. On a hot reload this is a **surgical update** that preserves the existing app-db / sub-cache / queue and only replaces metadata/config.
-3. **`(rf/with-frame :rf/default (rf/dispatch-sync [:your-app/initialise]))`** — seed the app-db under a live frame scope, synchronously, before render. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo/initial state on **every** hot reload (the surgical update in step 2 does not rerun any `:on-create`). Some apps instead seed lazily on first interaction; either way the frame must be registered before render. **A frame-local schema attach belongs in this same scope** — `(register-schema!)` (calling `reg-app-schema`) runs here, before the seed, because app-db schemas target a frame and cannot register at ns-load (`:rf.error/no-frame-context`); see [`first-counter.md` §Schema](first-counter.md) for the full shape the generator ships.
+3. **`(rf/with-frame :rf/default (rf/dispatch-sync [:your-app/initialise]))`** — seed the app-db under a live frame scope, synchronously, before render. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo/initial state on **every** hot reload (the surgical update in step 2 does not rerun any `:initial-events`). Some apps instead seed lazily on first interaction; either way the frame must be registered before render. **A frame-local schema attach belongs in this same scope** — `(register-schema!)` (calling `reg-app-schema`) runs here, before the seed, because app-db schemas target a frame and cannot register at ns-load (`:rf.error/no-frame-context`); see [`first-counter.md` §Schema](first-counter.md) for the full shape the generator ships.
 4. **`(rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [counter-app]])`** — mount the React tree **wrapped in `frame-provider-existing`** so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`. (Scope-only: the frame already exists from step 2's `reg-frame`, so you scope it rather than own it. The owned `rf/frame-provider` — which creates the frame on mount and destroys it on unmount — is for view-owned frame lifetimes, e.g. comparison pages or Story canvases, not the app root.)
 
 If you render *without* the provider (or before `reg-frame`), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, the views call `subscribe` against an uninstalled adapter and you get `:rf.error/no-adapter-installed`.

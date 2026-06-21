@@ -145,7 +145,7 @@ A user reports: "I favorited an article, then unfavorited it, and the count stuc
 
 (deftest issue-217-unfavorite-leaves-count-stale
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:app/init])   ;; seed via a setup dispatch, not :on-create
+    (rf/dispatch-sync [:app/init])   ;; seed via a setup dispatch (or :initial-events on make-frame)
     (ts/dispatch-sequence [[:article/loaded {:slug "ten-tips" :favorites-count 0}]
                            [:article/favorite "ten-tips"]
                            [:article/unfavorite "ten-tips"]])

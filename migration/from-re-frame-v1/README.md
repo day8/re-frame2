@@ -527,17 +527,17 @@ Per [012 §Tooling and AI-amenability](../../spec/012-Routing.md#tooling-and-ai-
 
 ---
 
-### M-15. `reg-frame` always starts with an empty `app-db` — seed via `:on-create`
+### M-15. `reg-frame` always starts with an empty `app-db` — seed via `:initial-events`
 
 **Type B** (semantic flag).
 
-Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fresh* `reg-frame` (i.e. the first registration for a given keyword) initialises `app-db` to `{}` and then runs `:on-create`. Apps that synchronously poke `re-frame.db/app-db` at top level (`(reset! re-frame.db/app-db {...})` in a namespace body, before any `reg-frame` runs) are doubly affected: M-1 forbids the private-namespace access (mechanical rewrite to `(reg-frame frame-id {:on-create [:app/seed initial-state]})`, where `frame-id` is your explicit root frame id — a migration may pick `:rf/default`, but it is registered, never inferred), and the seeded value must move into the `:on-create` event.
+Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fresh* `reg-frame` (i.e. the first registration for a given keyword) initialises `app-db` to `{}` and then runs its `:initial-events`. Apps that synchronously poke `re-frame.db/app-db` at top level (`(reset! re-frame.db/app-db {...})` in a namespace body, before any `reg-frame` runs) are doubly affected: M-1 forbids the private-namespace access (mechanical rewrite to `(reg-frame frame-id {:initial-events [[:rf/set-db initial-state]]})`, where `frame-id` is your explicit root frame id — a migration may pick `:rf/default`, but it is registered, never inferred), and the seeded value must move into the `:initial-events` vector (the standard `[:rf/set-db {…}]` event seeds a literal app-db).
 
 **What to look for:** top-level `(reset! re-frame.db/app-db ...)` (or `(swap! re-frame.db/app-db ...)`) calls in namespace bodies.
 
-**What to do:** if M-1 surfaces a `re-frame.db/app-db` reset, rewrite the seeding to an `:on-create` dispatch on the root frame.
+**What to do:** if M-1 surfaces a `re-frame.db/app-db` reset, rewrite the seeding to an `:initial-events` step on the root frame (a leading `[:rf/set-db {…}]`).
 
-**Why:** `app-db` is no longer a top-level mutable atom; it lives inside the frame's record and is initialised by the frame's `:on-create` cascade.
+**Why:** `app-db` is no longer a top-level mutable atom; it lives inside the frame's record and is initialised by the frame's `:initial-events`.
 
 ---
 
@@ -3025,7 +3025,7 @@ If the user wants to adopt the standard surface, the migration shape is:
 3. **Split path params from query params.** v1 routers usually flattened these; re-frame2 keeps them in distinct `:params` and `:query` schemas (and distinct `:route` slice keys).
 4. **Replace any `pushState` calls in views with `[rf/route-link {:to ...}]`.** Views should never call browser APIs directly.
 5. **Replace `popstate` listener bodies with `(rf/dispatch [:rf.route/transitioned url])`** and remove the application's bespoke URL-changed handler — the runtime ships `:rf.route/handle-url-change` as the default.
-6. **For server-side rendering**, dispatch `:rf.route/transitioned` against the request URL in `:on-create`; the same `:on-match` events run server- and client-side. No bespoke SSR-routing code needed.
+6. **For server-side rendering**, dispatch `:rf.route/transitioned` against the request URL via the frame's `:initial-events`; the same `:on-match` events run server- and client-side. No bespoke SSR-routing code needed.
 
 This is a meaningful migration of consumer code, not a mechanical rewrite. Do not apply unless the user has explicitly asked to adopt the standard routing surface.
 

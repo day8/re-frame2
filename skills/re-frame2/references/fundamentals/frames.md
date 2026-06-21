@@ -49,11 +49,11 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 ;; opts AND record-config opts in one call; returns the live frame VALUE
 ;; (a lifecycle token; read its id with (rf/frame-value->id f)). dispatch /
 ;; subscribe / destroy-frame! accept the value OR its id.
-(rf/make-frame opts)            ;; e.g. {:id :todo :images [todo-image] :initial-db {} :on-create [...]}
+(rf/make-frame opts)            ;; e.g. {:id :todo :images [todo-image] :initial-events [[:rf/set-db {}] [...]]}
 
 ;; Destroy / reset.
 (rf/destroy-frame! :frame-id)
-(rf/reset-frame!   :frame-id)        ;; destroy + re-register: clears BOTH partitions, re-fires :on-create
+(rf/reset-frame!   :frame-id)        ;; destroy + re-register: clears BOTH partitions, re-dispatches :initial-events
                                      ;; (for app-db-only reset that keeps live machines/routes: reset-app-db!)
 
 ;; Inspect.
@@ -145,7 +145,7 @@ The metadata map (`reg-frame` in `re-frame.frame`) accepts:
 - `:fx-overrides` — `{original-id replacement-id-or-fn}`. Two active override forms (resolved by `fx/resolve-fx-with-overrides`): a **keyword** redirects the lookup to another registered fx (portable, SSR-safe pattern-level form), and a **function** `(fn [m args] ...)` runs inline with no registry lookup (one-shot CLJS-reference convenience for test fixtures and story decorators). A value that is neither (and an absent key) is treated as no override — the original fx-id flows through. The id-redirect form is preferred when the stub is reused; the fn form when one test wants a bespoke response without registering a parallel fx. Per-call `:fx-overrides` in `dispatch` / `dispatch-sync` opts accepts the same forms.
 - `:platform` — `:client` or `:server`; gates fx whose `:platforms` set excludes the active platform.
 - `:drain-depth` — bound on dispatch-cascade depth (default 100; `:story` preset tightens to 16).
-- `:on-create` / `:on-destroy` — event vectors fired synchronously at lifecycle transitions.
+- `:initial-events` — an ordered vector of event vectors dispatched synchronously at construction (seed app-db with a leading `[:rf/set-db {…}]`); `:on-destroy` — an event vector fired synchronously at teardown.
 
 User-supplied keys win on conflict with preset expansion.
 
@@ -153,16 +153,16 @@ User-supplied keys win on conflict with preset expansion.
 
 EP-0024 splits the React-context provider surface into a **name family** of two per-adapter components — choose by intent:
 
-- **`frame-provider-existing`** — the **scope-only** member. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `reg-frame`, a direct `make-frame`, a tool runtime, or an enclosing `frame-provider`). It takes `:frame` **only**, and creates / refreshes / destroys nothing. A lifecycle opt (`:id` / `:images` / `:initial-db` / `:on-create`) fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`):
+- **`frame-provider-existing`** — the **scope-only** member. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `reg-frame`, a direct `make-frame`, a tool runtime, or an enclosing `frame-provider`). It takes `:frame` **only**, and creates / refreshes / destroys nothing. A lifecycle opt (`:id` / `:images` / `:initial-events`) fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`):
 
   ```clojure
   [rf/frame-provider-existing {:frame :stories} [my-story-shell]]
   ```
 
-- **`frame-provider`** — the **UI-owned lifecycle** boundary. A component that **creates a frame on mount, provides its id to descendants, and destroys it on unmount** (idempotent re-mount). It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-db` / record-config) — for view-owned frame lifetimes: comparison pages, Story canvases, embedded widgets, modal stacks, multi-instance widgets:
+- **`frame-provider`** — the **UI-owned lifecycle** boundary. A component that **creates a frame on mount, provides its id to descendants, and destroys it on unmount** (idempotent re-mount). It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config) — for view-owned frame lifetimes: comparison pages, Story canvases, embedded widgets, modal stacks, multi-instance widgets:
 
   ```clojure
-  [rf/frame-provider {:id :todo/left :images [todo-image] :initial-db {...}} [todo-pane]]
+  [rf/frame-provider {:id :todo/left :images [todo-image] :initial-events [[:rf/set-db {...}]]} [todo-pane]]
   ```
 
 (Before EP-0024 `frame-provider` was the scope-only shortcut; that scope-only job is now `frame-provider-existing`, and the `frame-provider` name is reused for the owned lifecycle boundary. `with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`.)
@@ -171,7 +171,7 @@ EP-0024 splits the React-context provider surface into a **name family** of two 
 
 ## Common gotchas
 
-- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
+- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
 - **Wrapping plain Reagent fns in a provider (`frame-provider-existing` or `frame-provider`) doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
@@ -197,7 +197,7 @@ You almost certainly do not need to name an image. The two facts an author shoul
 
 > **The landed public surface.** `rf/image` is exported on `re-frame.core` today: `(rf/image {:include-ns [<ns-glob> …]})` returns an **inert image value** — pure data, no registrar, no side effect. `:include-ns` selects already-loaded registrations by their *source* namespace (`:rf.provenance/ns`), not by the registration-id namespace; the glob grammar is `*` (one segment) / `**` (zero or more), case-sensitive, whole-namespace match, and a pattern that matches **zero** descriptors fails image assembly loud. Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …), `:rf.image/requires` (a `:rf.capability/*` set), and the declared-winner maps `:replace` / `:replace-standard` round out the spec map. Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs; reload swaps that generation while preserving frame memory.
 >
-> **`make-frame` is one constructor returning the frame value (EP-0024).** EP-0024 collapsed the EP-0023 two-constructor split into **one** `make-frame` that accepts image-selection opts (`:images`) AND record-config opts (`:id` / `:initial-db` / `:on-create` / `:fx-overrides` / …) in one call and **returns the live frame value** (a lifecycle token; read its id via `frame-value->id`). The old two-constructor split — an object constructor that raised `:rf.error/make-frame-record-only-key` on record-config keys, beside an advanced record-config constructor that gensym'd an id — is gone, along with that redirect; the advanced `re-frame.frame/make-frame` is demoted to an internal helper. A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Teach the model; for a callable frame at the app root, `reg-frame` it and scope it with `frame-provider-existing` (above); construct image *values* with `rf/image`; for a per-mount lifetime use `make-frame` + `destroy-frame!` (or the owned `frame-provider`).
+> **`make-frame` is one constructor returning the frame value (EP-0024).** EP-0024 collapsed the EP-0023 two-constructor split into **one** `make-frame` that accepts image-selection opts (`:images`) AND record-config opts (`:id` / `:initial-events` / `:fx-overrides` / …) in one call and **returns the live frame value** (a lifecycle token; read its id via `frame-value->id`). The old two-constructor split — an object constructor that raised `:rf.error/make-frame-record-only-key` on record-config keys, beside an advanced record-config constructor that gensym'd an id — is gone, along with that redirect; the advanced `re-frame.frame/make-frame` is demoted to an internal helper. A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Teach the model; for a callable frame at the app root, `reg-frame` it and scope it with `frame-provider-existing` (above); construct image *values* with `rf/image`; for a per-mount lifetime use `make-frame` + `destroy-frame!` (or the owned `frame-provider`).
 
 ### Frame isolation is the whole isolation story
 

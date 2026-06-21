@@ -22,7 +22,7 @@ State that *lives* in `app-db` is owned by the frame. That covers tokens, partne
 (rf/reg-frame :app/main
   {:sensitive {:app-db [[:auth :token] [:auth :refresh-token]]}
    :large     {:app-db [[:documents :csv-upload]]}
-   :on-create [:app/init]})
+   :initial-events [[:app/init]]})
 ```
 
 A path declared both sensitive and large redacts as sensitive, because even "there's a 5MB blob here" says too much about a secret. Malformed paths fail loudly at registration, not silently at leak time, so a typo can't quietly disable your protection. Two rules worth remembering. First, a `reg-app-schema` slot prop does **not** classify app-db; the frame is the one owner of durable app-db privacy. Second, re-registering a frame replaces its policy wholesale, so keep everything in one declaration — step 4 grows this same map.
@@ -90,7 +90,7 @@ Production observation records route by the frame's `:observability` policy. Nam
    :observability {:handled-events
                    [{:sink :my-app.sinks/datadog
                      :rf.egress/profile :rf.egress/off-box-observability}]}
-   :on-create     [:app/init]})
+   :initial-events [[:app/init]]})
 
 (rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]

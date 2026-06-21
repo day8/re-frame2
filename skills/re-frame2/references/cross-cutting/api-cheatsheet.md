@@ -35,7 +35,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
 | `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |
 | `rf/frame-provider-existing` | (CLJS) per-adapter React-context component `[frame-provider-existing {:frame ...} & children]` — **scope-only**: provides an already-existing frame id; `:frame` only, a lifecycle opt fails loud; creates / destroys nothing (EP-0024) |
-| `rf/frame-provider` | (CLJS) per-adapter React-context component — **UI-owned lifecycle**: `[frame-provider {:id ... :images ... :initial-db ...} & children]` creates the frame on mount, provides its id to descendants, destroys it on unmount (same constructor opts as `make-frame`; EP-0024) |
+| `rf/frame-provider` | (CLJS) per-adapter React-context component — **UI-owned lifecycle**: `[frame-provider {:id ... :images ... :initial-events ...} & children]` creates the frame on mount, provides its id to descendants, destroys it on unmount (same constructor opts as `make-frame`; EP-0024) |
 | `rf/frame-handle` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; operation bundle captured at creation, survives async |
 | `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
 | `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
@@ -64,7 +64,7 @@ The public multi-frame model is `image -> frame -> event stream`: an image is th
 |---|---|
 | `rf/image` | `({:include-ns [<ns-glob> …] :registrations {…} :rf.image/requires #{…} :replace {…} :replace-standard {…} :id …})` → **inert image value** (pure data, no registrar side effect). `:include-ns` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match pattern fails image assembly. Supplied to a frame via the `:images` vector. |
 
-`make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts (`:id` / `:initial-db` / `:on-create` / …) in one call and returns the live frame **value** (read its id via `frame-value->id`; `dispatch` / `subscribe` / `destroy-frame!` take the value or its id). A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Construct image *values* with `rf/image`; for a callable frame at the app root, `reg-frame` it and scope with `frame-provider-existing` (see [`../fundamentals/frames.md`](../fundamentals/frames.md)); for a per-mount lifetime use `make-frame` + `destroy-frame!` or the owned `frame-provider`.
+`make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts (`:id` / `:initial-events` / `:on-destroy` / …) in one call and returns the live frame **value** (read its id via `frame-value->id`; `dispatch` / `subscribe` / `destroy-frame!` take the value or its id). A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Construct image *values* with `rf/image`; for a callable frame at the app root, `reg-frame` it and scope with `frame-provider-existing` (see [`../fundamentals/frames.md`](../fundamentals/frames.md)); for a per-mount lifetime use `make-frame` + `destroy-frame!` or the owned `frame-provider`.
 
 ## Composition: `image → frame → event stream`
 
@@ -184,7 +184,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` |
 | `rf/require-feature!` | `(feature)` → `true`, or throws `:rf.error/feature-not-loaded` carrying the exact Maven coord + require form. Self-explaining early guard before a feature-dependent path |
 | `rf/frame-ids` / `rf/view` | registry reads |
-| `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:on-create` `:on-destroy` `:sensitive` `:large` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. **No `:on-error` recovery-policy slot** — recovery is framework-owned, that key was removed |
+| `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:initial-events` `:on-destroy` `:sensitive` `:large` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. **No `:on-error` recovery-policy slot** — recovery is framework-owned, that key was removed |
 | `rf/sub-cache` (CLJS) / `rf/sub-topology` | dynamic / static sub graph reads |
 
 Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (registrations / writes) or degrade to `nil`/`[]`/`false` (read-only queries) when the artefact is absent.

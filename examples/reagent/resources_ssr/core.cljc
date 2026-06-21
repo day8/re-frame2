@@ -150,8 +150,8 @@
 ;; SERVER ENTRY POINT
 ;; ============================================================================
 ;;
-;; Mirrors examples/reagent/ssr/ — a per-request frame whose `:on-create`
-;; dispatches `:rf/server-init`, a DRAIN to settle the blocking page resource,
+;; Mirrors examples/reagent/ssr/ — a per-request frame whose `:initial-events`
+;; dispatch `:rf/server-init`, a DRAIN to settle the blocking page resource,
 ;; a render to string, and a hydration payload carrying the ALLOWED resource
 ;; projection in `:rf/runtime-db`. The per-request frame is torn down in a
 ;; `finally` on every exit path (memory hygiene).

@@ -132,7 +132,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 #### V3 Mount/unmount
 
-- **Lifecycle hooks:** <how mount fires `:on-create` / unmount fires `:on-destroy` on the surrounding frame>
+- **Lifecycle hooks:** <how mount runs the frame's `:initial-events` / unmount fires `:on-destroy` on the surrounding frame>
 
 ### Tracing & instrumentation (T1–T3)
 
@@ -172,7 +172,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 ## D5b. Data classification (Sensitive + Large) — v1-required (not D3-gated)
 
-- **Frame-owned durable classification:** <where the frame's `:sensitive {:app-db […] :http {…}}` / `:large {:app-db […]}` path maps land and how they're installed — e.g. "atomically at frame creation, before `:on-create`, into a per-frame registry"; re-registering a frame REPLACES its classification (no additive merge); malformed paths / unknown keys fail loudly at registration. (`add-marks` / `set-marks` and `declare-sensitive-header!` / `declare-sensitive-query-param!` are removed from the public façade — frame config replaces both.)>
+- **Frame-owned durable classification:** <where the frame's `:sensitive {:app-db […] :http {…}}` / `:large {:app-db […]}` path maps land and how they're installed — e.g. "atomically at frame creation, before `:initial-events` run, into a per-frame registry"; re-registering a frame REPLACES its classification (no additive merge); malformed paths / unknown keys fail loudly at registration. (`add-marks` / `set-marks` and `declare-sensitive-header!` / `declare-sensitive-query-param!` are removed from the public façade — frame config replaces both.)>
 - **Schema-prop owners (machines / resources / HTTP bodies):** <confirm owner-local schema'd data classifies via `:sensitive?` / `:large?` Malli props on the owning schema — machine `:data-schema` (rooted under `[:data …]`), resource `:data-schema` / `:params-schema`, an HTTP request's `:decode` schema. The schema-first route is the ONLY route for these shapes: `reg-machine` is `(reg-machine machine-id machine-spec)` / `(reg-machine machine-id opts machine-spec)`, the optional `opts` carrying an event-vector `:schema` and NO top-level `:sensitive` / `:large` keys — neither `opts` nor the machine spec carries sensitivity/large metadata (EP-0005 stands — see Spec 015 §Machine-owned / Spec 005 §Privacy)>
 - **Registration-owned transient classification:** <confirm `reg-event` (the one public event registrar — EP-0018) / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` accept `{:sensitive [paths] :large [paths]}` indexing into that registration's primary shape (`[[]]` marks the whole shape); derived outputs declassify via `:rf.egress/output-sensitivity` (`:rf.egress/inherit` / `:rf.egress/sensitive` / `:rf.egress/public`), NOT a `:sensitive false` boolean>
 - **Propagation mechanism:** <write-time taint-tracking OR emit-time path-graph union — both conform; covers the framework-known dataflow (events → app-db → subs → flows → machine `:data` → fx inputs); arbitrary handler-body provenance is NOT tracked; `:rf.egress/public` is trusted by design>

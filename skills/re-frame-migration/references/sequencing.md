@@ -115,7 +115,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 
 | Order | Rule | Why here |
 |---|---|---|
-| 26 | **M-15** | App-db seeding via `:on-create` (pairs with M-1's private-ns rewrite). |
+| 26 | **M-15** | App-db seeding via `:initial-events` (pairs with M-1's private-ns rewrite). |
 | 27 | **M-11** | Plain (non-`reg-view`) Reagent fns can't read a surrounding `frame-provider`'s frame (no `:contextType`); a bare ambient `subscribe`/`dispatch` raises `:rf.error/no-frame-context` (EP-0002). Fix: `reg-view`, a captured `frame-handle`, or a `with-frame` scope. Type B. Most acute in multi-frame apps, but a bare ambient call in an unregistered plain fn raises even under a single root provider. |
 | 28 | **M-13** | `reg-event-error-handler` removed; no app-steering recovery policy in v2. Type B. Detail in [`guided-handlers-state.md` §M-13](guided-handlers-state.md#m-13--reg-event-error-handler). |
 | 29 | **M-18** | `reg-sub-raw` removed. Four rewrite paths (read-only-app-db, fx-driven, machine, anti-pattern). Type B. |
