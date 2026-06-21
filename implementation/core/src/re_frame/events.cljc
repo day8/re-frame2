@@ -38,6 +38,7 @@
   The dev-gated marks PROJECTION hooks stay late-bound. No imperative stash."
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
+            [re-frame.image-assembly :as image-assembly]
             [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.late-bind :as late-bind]
@@ -857,10 +858,62 @@
       (validate-refs-registered! meta-interceptors)
       [(dissoc meta :interceptors) meta-interceptors])))
 
+;; ---- reserved framework-standard event ids (EP-0027) ----------------------
+;;
+;; A small closed set of `:rf/*` event ids are FRAMEWORK STANDARDS the
+;; framework itself owns and registers (into both the regular registrar and the
+;; EP-0023 image standard registry). App code MUST NOT re-register one through
+;; the public `reg-event` — a re-registration is a RESERVED-ID COLLISION that
+;; fails loud (`:rf.error/reserved-event-id`), per Conventions §Reserved
+;; namespaces ("A user may not `(reg-event :rf/hydrate ...)`") and EP-0027
+;; §`:rf/set-db`. The framework's OWN registration goes through the private
+;; `registrar/register!` path (see `register-set-db-standard!`), so this guard —
+;; which fires only on the public `register-event!` entry — does not reject the
+;; framework's own seeding. The set is deliberately narrow (today only
+;; `:rf/set-db`): the OTHER framework `:rf/*` events (`:rf/hydrate`,
+;; `:rf/url-requested`, `:rf/server-init`, …) are still registered through the
+;; public `reg-event` by their owning feature artefacts, so they are NOT listed
+;; here; widening the set is a Spec change.
+
+(def reserved-event-ids
+  "The closed set of framework-standard `:event` ids the public `reg-event`
+  refuses to register over (EP-0027 §`:rf/set-db`). A reserved id is owned and
+  seeded by the framework via the private registrar path; an app `reg-event`
+  targeting one is a loud reserved-id collision (`:rf.error/reserved-event-id`).
+  Today: `#{:rf/set-db}`. Fixed-and-additive — adding a member is a Spec change."
+  #{:rf/set-db})
+
+(defn- reject-reserved-event-id!
+  "Throw `:rf.error/reserved-event-id` (ex-info) when a PUBLIC `reg-event` names
+  a framework-standard reserved event id (`reserved-event-ids`). Per EP-0027
+  §`:rf/set-db` + Conventions §Reserved namespaces — the `:rf/*` single-root is
+  framework-owned; re-registering a reserved standard in app code is a
+  collision that fails loud rather than silently shadowing framework behaviour.
+  A no-op for any non-reserved id (the overwhelming common case), so the public
+  registration hot path pays one set membership check."
+  [reg-fn-name id]
+  (when (contains? reserved-event-ids id)
+    (error/throw-error!
+      :rf.error/reserved-event-id
+      'rf/reg-event
+      (str reg-fn-name " cannot register `" id "` — it is a RESERVED "
+           "framework-standard event id (EP-0027). The `:rf/*` single-root "
+           "namespace is framework-owned; `" id "` is registered by the "
+           "framework itself (in both the regular registrar and the image "
+           "standard registry) and may not be re-registered in app code. "
+           "Choose an application-namespaced id (e.g. `:my-app/" (name id) "`).")
+      {:recovery :fix-registration
+       :extra    {:reg-fn reg-fn-name
+                  :id     id}}))
+  nil)
+
 (defn- register-event!
   "Registration body for `reg-event` — the one public event form (EP-0018).
 
   Steps:
+    0. reject a RESERVED framework-standard event id (EP-0027 — e.g.
+       `:rf/set-db`): the `:rf/*` single-root is framework-owned, so an app
+       `reg-event` over one is a loud reserved-id collision;
     1. parse the variadic tail into [metadata handler];
     2. resolve the interceptor chain from metadata `:interceptors` via
        `resolve-interceptors`: validates the map value and strips
@@ -875,6 +928,7 @@
 
   Returns the event id."
   [reg-fn-name id args]
+  (reject-reserved-event-id! reg-fn-name id)
   (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
         [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
         wrapped (wrap-event-handler handler-fn)]
@@ -991,6 +1045,128 @@
   full-context work), `dispatch`, `dispatch-sync`."
   [id & args]
   (register-event! "reg-event" id args))
+
+;; ---- :rf/set-db — the framework-standard app-db seeding event (EP-0027) ----
+;;
+;; EP-0027 §`:rf/set-db`: the framework registers ONE standard event for
+;; seeding app-db. Construction is events-only (there is no `:initial-db` data
+;; key) — seeding app-db is itself an ordinary, traceable event, `[:rf/set-db
+;; {…}]`.
+;;
+;;   - The handler returns `{:db new-db}`, so it replaces the APP-DB PARTITION
+;;     ONLY (it cannot touch runtime-db) and rides the NORMAL post-commit app-db
+;;     schema validation / rollback like any `:db` effect — no special-cased
+;;     direct write.
+;;   - It validates EXACTLY ONE MAP ARGUMENT: a missing, `nil`, or non-map
+;;     argument fails with `:rf.error/set-db-bad-value`, raised through
+;;     `error/throw-error!` so it THROWS (EP-0027 §Failure — a bad `[:rf/set-db
+;;     x]` argument is a setup-step throw). Set app-db empty with `[:rf/set-db
+;;     {}]`.
+;;   - It REPLACES all of app-db (it is NOT a merge); for partial updates, write
+;;     an ordinary event.
+;;
+;; It is registered as a framework standard in BOTH the regular registrar AND
+;; the EP-0023 image standard registry (`register-set-db-standard!`), so it
+;; resolves whether or not a frame's image generation is in scope and every
+;; frame can dispatch it. Re-registering `:rf/set-db` in app code is a
+;; reserved-id collision (`reserved-event-ids` → `:rf.error/reserved-event-id`).
+
+(def set-db-event-id
+  "The framework-standard app-db-seeding event id (EP-0027 §`:rf/set-db`). Lives
+  in the single-root `:rf/*` namespace; `:rf.db/*` stays reserved for partition
+  slots."
+  :rf/set-db)
+
+(defn- valid-set-db-arg?
+  "True iff `x` is the EXACTLY-one-map argument `:rf/set-db` accepts — a map
+  (`{}` included; that is the legal empty-app-db case). A missing arg arrives
+  here as `nil`; `nil` and any non-map value are rejected. Per EP-0027
+  §`:rf/set-db`."
+  [x]
+  (map? x))
+
+(defn set-db-handler
+  "The `:rf/set-db` event handler (EP-0027 §`:rf/set-db`). A pure `(fn
+  [coeffects event-vec] effect-map)`: it reads the SECOND element of the event
+  vector (`[:rf/set-db new-db]`) and returns `{:db new-db}`, replacing the whole
+  app-db partition.
+
+  Validates exactly one MAP argument: a missing / `nil` / non-map `new-db`
+  raises `:rf.error/set-db-bad-value` through `error/throw-error!` (so it THROWS
+  — a setup-step failure per EP-0027 §Failure). A valid map (including `{}`)
+  returns `{:db new-db}` and rides the normal post-commit app-db schema
+  validation / rollback. It REPLACES app-db (not a merge)."
+  [_coeffects event]
+  (let [new-db (second event)]
+    (when-not (valid-set-db-arg? new-db)
+      (error/throw-error!
+        :rf.error/set-db-bad-value
+        'rf/set-db
+        (str "`[:rf/set-db x]` requires EXACTLY ONE MAP argument — the new "
+             "app-db. Got " (if (nil? new-db) "no argument (or nil)"
+                                (str "`" (pr-str new-db) "` (a "
+                                     (pr-str (type new-db)) ")"))
+             ". `:rf/set-db` REPLACES the whole app-db partition; pass a map "
+             "(use `[:rf/set-db {}]` to empty app-db).")
+        {:recovery :no-recovery
+         :extra    {:event new-db
+                    :rf.event/v event}}))
+    {:db new-db}))
+
+(def ^:private set-db-standard-meta
+  "The Spec 001 registration metadata the `:rf/set-db` standard ships. Shared by
+  the regular-registrar registration and the EP-0023 framework-standard registry
+  descriptor so both surfaces carry an identical `:doc` (rf2-v1xzoo). NOT
+  marked replaceable / invariant-coupled: it is an ordinary developer-friendly
+  standard (default non-replaceable, no conformance invariant)."
+  {:doc "Framework-standard app-db seeding event (EP-0027). `[:rf/set-db
+        {…}]` REPLACES the whole app-db partition with the supplied map and
+        rides normal post-commit schema validation / rollback. Validates
+        exactly one map argument (missing / nil / non-map → throws
+        :rf.error/set-db-bad-value). Use `[:rf/set-db {}]` to empty app-db."})
+
+(defn register-set-db-standard!
+  "Register the framework-standard `:rf/set-db` event (EP-0027 §`:rf/set-db`)
+  into the active registrar AND the EP-0023 framework-standard registry.
+  Idempotent — called at namespace load AND from `re-frame.core/init!` so the
+  standard survives a test fixture's `registrar/clear-all!` (which wipes the
+  `:event` kind). Mirrors `std-interceptors/register-standard-interceptors!`.
+
+  TWO surfaces, ONE handler:
+
+    * the REGULAR registrar (the default-image / no-generation resolution path,
+      where `registrar/lookup` reads the registrar atom directly). The
+      framework registers via the PRIVATE `registrar/register!` path — NOT the
+      public `reg-event` — so the `reserved-event-ids` guard (which fires only
+      on the public `register-event!` entry) does not reject the framework's
+      own seeding while still rejecting an app `(reg-event :rf/set-db …)`.
+
+    * the EP-0023 FRAMEWORK-STANDARD registry (`image-assembly/register-
+      standard!`) — so the descriptor is unioned into EVERY resolved image
+      generation. Without this, an image-loaded frame whose construction
+      dispatches `[:rf/set-db …]` under a bound `*generation*` could not
+      resolve it (generation-routed `lookup` reads ONLY the generation's
+      resolver — no fallback to the registrar atom).
+
+  Both surfaces carry the SAME runnable descriptor shape `register-event!`
+  installs — `:handler-fn` + the `:interceptors` chain whose tail is the
+  `:rf/event-handler` wrapper (built by `event-handler-meta`) — so a
+  generation-routed resolution returns a value byte-shape-identical to the
+  registrar path and the handler RUNS through a frame-targeted dispatch."
+  []
+  (let [descriptor (event-handler-meta set-db-standard-meta [] set-db-handler)]
+    ;; Regular registrar — private path (bypasses the public reserved-id guard).
+    (registrar/register! :event set-db-event-id descriptor)
+    ;; EP-0023 framework-standard registry — same descriptor, unioned into every
+    ;; resolved image generation. Default non-replaceable, no conformance
+    ;; invariant (an ordinary developer-friendly standard).
+    (image-assembly/register-standard! :event set-db-event-id descriptor))
+  set-db-event-id)
+
+;; Register at namespace load so standalone require'rs (no `init!`) can dispatch
+;; `[:rf/set-db …]`; `init!` re-registers (idempotent) for the post-clear-all!
+;; test path. Mirrors `std-interceptors`' load-time + `init!` re-seed.
+(register-set-db-standard!)
 
 ;; ---- retired public names — facade-exported throwing stubs ----------------
 ;;

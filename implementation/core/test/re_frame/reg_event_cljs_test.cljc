@@ -22,6 +22,9 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.events :as events]
+            [re-frame.image-assembly :as image-assembly]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -223,3 +226,116 @@
           "the recovery names reg-interceptor (the public authoring form)")
       (is (not (re-find #"->interceptor" reason))
           "the recovery does NOT name ->interceptor (internal-only post-EP-0022)"))))
+
+;; ===========================================================================
+;; 5. :rf/set-db — the framework-standard app-db seeding event (EP-0027,
+;;    rf2-v1xzoo)
+;; ===========================================================================
+
+(defn- handler-throw-id
+  "Call the `:rf/set-db` handler directly with `event` (the event vector) and
+  return the `:rf.error/id` it raises, or `:no-throw` if it returned normally.
+  The handler's bad-argument validation throws via `error/throw-error!`, so the
+  unit-level contract is asserted directly on the handler (a dispatch-level
+  throw is captured by the cascade as `:rf.error/handler-exception` and
+  recovered, so it would not surface to the `dispatch-sync` caller)."
+  [event]
+  (try (events/set-db-handler {} event)
+       :no-throw
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (:rf.error/id (ex-data e)))))
+
+(deftest set-db-sets-app-db
+  (testing "[:rf/set-db {:n 0}] REPLACES app-db with the supplied map (EP-0027
+            §:rf/set-db) — read back through a layer-1 subscription"
+    (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
+    (rf/dispatch-sync [:rf/set-db {:n 0}])
+    (is (= {:n 0} @(rf/subscribe [:reg-event-test/whole-db]))
+        "app-db is replaced wholesale with {:n 0}")))
+
+(deftest set-db-replaces-not-merges
+  (testing ":rf/set-db REPLACES all of app-db (it is NOT a merge) — a second
+            set-db with a disjoint map leaves only the new map"
+    (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
+    (rf/dispatch-sync [:rf/set-db {:a 1 :b 2}])
+    (rf/dispatch-sync [:rf/set-db {:c 3}])
+    (is (= {:c 3} @(rf/subscribe [:reg-event-test/whole-db]))
+        "the second set-db replaced app-db entirely — :a / :b are gone")))
+
+(deftest set-db-empty-map-empties-app-db
+  (testing "[:rf/set-db {}] empties app-db (the legal empty-app-db case,
+            EP-0027 §:rf/set-db)"
+    (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
+    (rf/dispatch-sync [:rf/set-db {:seed :present}])
+    (rf/dispatch-sync [:rf/set-db {}])
+    (is (= {} @(rf/subscribe [:reg-event-test/whole-db]))
+        "app-db is emptied to {}")))
+
+(deftest set-db-bad-value-throws-set-db-bad-value
+  (testing "a missing / nil / non-map argument to [:rf/set-db x] fails with
+            :rf.error/set-db-bad-value (EP-0027 §:rf/set-db) — the handler
+            validates exactly one map argument"
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db]))
+        "[:rf/set-db] (no argument) fails :rf.error/set-db-bad-value")
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db nil]))
+        "[:rf/set-db nil] fails :rf.error/set-db-bad-value")
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db 5]))
+        "[:rf/set-db 5] (non-map) fails :rf.error/set-db-bad-value")
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db "nope"]))
+        "[:rf/set-db \"nope\"] (non-map) fails :rf.error/set-db-bad-value"))
+  (testing "a valid map argument (including {}) does NOT throw and returns the
+            {:db new-db} effect"
+    (is (= {:db {:n 0}} (events/set-db-handler {} [:rf/set-db {:n 0}]))
+        "a map argument returns {:db new-db}")
+    (is (= {:db {}} (events/set-db-handler {} [:rf/set-db {}]))
+        "the empty map is valid — returns {:db {}}")))
+
+(deftest set-db-resolves-in-both-registrars
+  (testing ":rf/set-db is registered as a framework standard in BOTH the regular
+            registrar AND the EP-0023 image standard registry (EP-0027
+            §:rf/set-db) — so it resolves whether or not a frame's image
+            generation is in scope"
+    ;; Re-seed idempotently (mirrors `init!`): sibling test nses may have called
+    ;; `image-assembly/clear-standards!` and re-seeded only `:rf.interceptor/path`
+    ;; — in the shared cljs.test bundle that would strand `:rf/set-db` from the
+    ;; standard registry by the time this test runs. `register-set-db-standard!`
+    ;; restores BOTH registrars, so this assertion is run-order-independent.
+    (events/register-set-db-standard!)
+    ;; Regular registrar: the runnable descriptor is present with the
+    ;; :rf/event-handler wrapper at the tail of its :interceptors chain.
+    (let [meta (registrar/handler-meta :event :rf/set-db)]
+      (is (some? meta)
+          ":rf/set-db resolves in the regular registrar")
+      (is (= events/set-db-handler (:handler-fn meta))
+          "the regular registrar carries the framework set-db handler-fn")
+      (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
+          "the runnable :rf/event-handler wrapper is the chain tail"))
+    ;; Image standard registry: the same descriptor is unioned into every
+    ;; resolved image generation (stamped :standard true). Read through the
+    ;; public `standard-descriptors` seq and find the [:event :rf/set-db] entry.
+    (let [std (->> (image-assembly/standard-descriptors)
+                   (filter #(and (= :event (:kind %)) (= :rf/set-db (:id %))))
+                   first)]
+      (is (some? std)
+          ":rf/set-db resolves in the image standard registry")
+      (is (true? (:standard std))
+          "the standard descriptor is stamped :standard true")
+      (is (= events/set-db-handler (:handler-fn std))
+          "the standard descriptor carries the same framework set-db handler-fn"))))
+
+(deftest set-db-app-reregistration-is-reserved-id-collision
+  (testing "re-registering :rf/set-db in app code via the public reg-event is a
+            RESERVED-ID COLLISION that fails loud (:rf.error/reserved-event-id,
+            EP-0027 §:rf/set-db) — the :rf/* single-root is framework-owned"
+    (let [thrown (try (rf/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
+                      :no-throw
+                      (catch #?(:clj clojure.lang.ExceptionInfo
+                                :cljs cljs.core/ExceptionInfo) e
+                        (:rf.error/id (ex-data e))))]
+      (is (= :rf.error/reserved-event-id thrown)
+          "an app reg-event of :rf/set-db raises :rf.error/reserved-event-id"))
+    ;; The framework's own :rf/set-db registration is intact — the app attempt
+    ;; registered nothing (the guard fires before any registrar write).
+    (is (= events/set-db-handler
+           (:handler-fn (registrar/handler-meta :event :rf/set-db)))
+        "the framework :rf/set-db handler is unchanged after the rejected app re-registration")))

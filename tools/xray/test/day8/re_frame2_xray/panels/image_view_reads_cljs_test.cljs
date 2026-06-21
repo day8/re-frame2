@@ -218,15 +218,19 @@
       (is (some? row) "the registered frame is projected")
       ;; EP-0023 §Image: the resolved generation = the 2 selected application
       ;; descriptors + the framework-standard registrations the assembly unions
-      ;; into EVERY generation (`:rf.interceptor/path`, stamped :standard true;
-      ;; rf2-32siq3.41) — so the frame resolves 3 [kind id] entries, not 2.
-      (is (= 3 (:descriptor-count (:image row)))
+      ;; into EVERY generation. TWO framework standards ride in today:
+      ;; `:rf.interceptor/path` (the interceptor standard, stamped :standard
+      ;; true; rf2-32siq3.41) and `:rf/set-db` (the EP-0027 app-db-seeding event
+      ;; standard; rf2-v1xzoo) — so the frame resolves 4 [kind id] entries, not 2.
+      (is (= 4 (:descriptor-count (:image row)))
           "the frame's resolved image carries its 2 app descriptors + the
-           framework standard the assembly unions in")
+           2 framework standards the assembly unions in")
       (is (contains? kids [:event :counter/inc])
           "the resolved descriptor set is the frame's image as a value")
       (is (contains? kids [:interceptor :rf.interceptor/path])
           "the framework standard :rf.interceptor/path rides into the generation")
+      (is (contains? kids [:event :rf/set-db])
+          "the framework standard :rf/set-db (EP-0027) rides into the generation")
       (let [std-row (first (filter #(= [:interceptor :rf.interceptor/path]
                                        [(:kind %) (:id %)])
                                    (:descriptors (:image row))))]
