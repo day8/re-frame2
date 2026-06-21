@@ -84,44 +84,39 @@ scopes the marks to the OBSERVED runtime, not to authored registration
 data, so the egress classifies each payload as runtime/captured VALUE
 (scrubbed) vs. author-published static metadata (intentionally public):
 
-- **Runtime / captured VALUE slots — scrubbed by default.** Every slot
-  that carries observed runtime state or a captured/plan-resolved value
-  is run through the egress scrubbers (path-based
-  `re-frame.core/elide-wire-value` for `:app-db`; value-based redaction
-  for derived / non-live trees). EP-0015 treats `:sensitive` and `:large`
-  as PEER egress axes, so a derived tree is scrubbed on BOTH in ONE call
-  to the framework composed helper `re-frame.core/redact-derived-slots`:
-  it substitutes any leaf equal to a declared-`:sensitive?` value with
-  `:rf/redacted`, and any leaf equal to a declared-`:large` value with
-  the `:rf.size/large-elided` marker (sensitive collected and substituted
-  first, then large over the survivors) — so a large blob declared at,
-  e.g., `[:blob]` and re-keyed into
-  `:rendered-hiccup` / `:snapshot` / evidence / `:effective-args` elides
-  on the wire rather than crossing raw, and the `:elided-large` indicator
-  count sees those derived-slot markers. Sensitive WINS over large (the
-  sensitive pass runs first; a value declared both redacts to
-  `:rf/redacted`). Both value-match engines are centralized in
-  `re-frame.elision` (the duals of `elide-wire-value`, EP-0015 issue 2 /
-  rf2-9o5ixx). This covers the live-state tools' `:app-db` /
-  `:rendered-hiccup` / `:snapshot` / evidence slots and assertion
-  records (`preview-variant` / `run-variant` / `read-failures`),
-  `read-a11y-violations`'s `:violations` (axe-core nodes — the violating element's
-  `:html` outerHTML is rendered runtime DOM that can embed a sensitive
-  value), AND the non-live value-bearing slots: `explain-variant`'s
-  plan-RESOLVED `:effective-args` / `:args` / `:substitutions` /
-  `:network` / `:db-seed` / `:sub-overrides` override values /
-  `:setup-order` + `:script-order` step payloads, and
+- **Runtime / captured VALUE slots — PATH-projected by default
+  (EP-0025 fail-open).** Every slot that carries observed runtime state or
+  a captured/plan-resolved value is run through the egress projectors:
+  `re-frame.core/elide-wire-value` for `:app-db`, and
+  `re-frame.core/project-egress`'s `:rf.observe/derived-tree` record for
+  derived / non-live trees. Both are PATH-BASED, on the `:sensitive` and
+  `:large` PEER axes: a value AT a classified app-db path redacts to
+  `:rf/redacted` / elides to the `:rf.size/large-elided` marker, in the
+  `:app-db` slot AND in any derived slot WHERE the value still occupies
+  that path (a derived slot whose shape mirrors the app-db — e.g. an
+  `:effective-args {:token …}` slice with `[:token]` classified, or a
+  `:db-seed` mirroring app-db). **EP-0025 removed the value-match
+  (taint-by-equality) engine** (§"What is removed": value-match is
+  propagation/taint by another name, which a hygiene helper does not
+  earn). A value RE-KEYED to a position the classification path cannot
+  reach — a token copied into rendered hiccup at `[1 :value]`, into a
+  `:network` reply, into a captured-event payload, into an axe-core node
+  `:html` — is NOT covered and ships **RAW (INTENDED FAIL-OPEN)**. A
+  consumer that needs a value redacted in a derived tree must classify its
+  app-db PATH so the value lands AT that path before it is re-surfaced.
+  This path-projection covers the live-state tools' `:app-db` /
+  `:rendered-hiccup` / `:snapshot` / evidence slots and assertion records
+  (`preview-variant` / `run-variant` / `read-failures`),
+  `read-a11y-violations`'s `:violations` (axe-core nodes), AND the
+  non-live value-bearing slots: `explain-variant`'s plan-RESOLVED
+  `:effective-args` / `:args` / `:substitutions` / `:network` /
+  `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`, and
   `record-as-variant`'s `:captured` event vectors + the `:play-snippet`
-  text rendered from them. `:sub-overrides` / `:setup-order` /
-  `:script-order` carry resolved arg VALUES (the SAME `substitute-args`
-  that feeds `:substitutions`), so the value-only redaction scrubs the
-  embedded secrets while preserving their public step STRUCTURE — leaving
-  them raw would be a clean bypass of the `:substitutions` scrub
-  (rf2-q8ebq.1). A declared-sensitive value
-  cannot cross any of these raw by default. The shared
+  text. Plan step STRUCTURE is always preserved. The shared
   `--allow-sensitive-reads` + per-call `:include-sensitive` opt-in is the
   one documented escape hatch (gate closed ⇒ the opt-in is omitted from
-  `tools/list` and silently ignored at egress).
+  `tools/list` and silently ignored at egress); note that the opt-in only
+  governs values that path-redact — a re-keyed copy already ships raw.
 - **Author-published STATIC metadata — intentionally public, NOT
   scrubbed.** The docs-discovery surfaces return the catalogue an author
   publishes: `get-story` / `get-variant` / `variant->edn` bodies,

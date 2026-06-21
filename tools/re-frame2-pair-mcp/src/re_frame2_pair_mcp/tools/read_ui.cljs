@@ -69,21 +69,20 @@
   works on ANY re-frame2 app with NO app-specific test ids — it never
   guesses a selector and never re-implements view discovery.
 
-  ## Privacy — value-redact derived content
+  ## Privacy — PATH-project derived content (EP-0025 fail-open)
 
-  The runtime value-redacts the WHOLE rendered `:content` (text AND attrs)
-  through `re-frame.core/redact-derived-slots` against the frame's declared-
-  `:sensitive?` app-db values, under the off-box egress posture (the
-  published-build default). Rendered DOM text / attrs sit at a non-app-db
-  position the path-based `elide-wire-value` walker can never reach — a path-
-  based `(elide-wire-value text {:frame …})` over an anonymous string is a
-  no-op for a secret copied INTO the DOM, and never touches attrs. The
-  value-based redaction catches both text and attrs. A hard per-node
-  `max-text` cap trims the common large case first; raw content is the
-  trusted-local read (launched with
-  `--allow-sensitive-reads`); an unresolvable frame fails closed with
-  `:ambiguous-frame`. The wire-boundary cap step (`tools.cljs` §`:apply-cap`)
-  remains the backstop.
+  The runtime PATH-projects the rendered `:content` (text AND attrs) through
+  `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary)
+  against the frame's classification, under the off-box egress posture (the
+  published-build default). EP-0025 removed value-match (taint-by-equality),
+  so a secret copied out of a declared-sensitive app-db slot INTO a non-app-db
+  DOM position SHIPS RAW (FAIL-OPEN) — the path walker reaches only values at
+  a classified path. To keep a value out of rendered content, classify its
+  app-db PATH so it is redacted at the source before a view renders it. A hard
+  per-node `max-text` cap trims the common large case first; raw content is
+  the trusted-local read (launched with `--allow-sensitive-reads`); an
+  unresolvable frame still fails closed with `:ambiguous-frame`. The
+  wire-boundary cap step (`tools.cljs` §`:apply-cap`) remains the backstop.
 
   ## Read-only by construction
 

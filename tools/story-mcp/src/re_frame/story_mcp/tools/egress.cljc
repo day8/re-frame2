@@ -4,9 +4,25 @@
 
   Per spec/Tool-Pair.md §Direct-read privacy posture (lines 544-566):
   every pair-shaped tool surfacing live frame state MUST route the
-  value through `re-frame.core/elide-wire-value` (or the value-based
-  derived-tree redaction below) before the value crosses the wire
+  value through `re-frame.core/elide-wire-value` (or the PATH-BASED
+  derived-tree projection below) before the value crosses the wire
   egress.
+
+  ## EP-0025 fail-open posture (value-match removed)
+
+  EP-0025 REMOVED value-match (taint-by-equality) redaction of re-keyed
+  copies (§\"What is removed\": value-match is propagation/taint by another
+  name, which a hygiene helper does not earn). Both the path-based `:app-db`
+  egress AND the derived-tree projection are now PATH-BASED ONLY. A value at
+  a CLASSIFIED app-db path redacts in the `:app-db` slice AND in any derived
+  slot WHERE the value still occupies that path (a slot whose shape mirrors
+  the app-db, e.g. an `:effective-args {:token …}` slice with `[:token]`
+  classified, or a `:db-seed` that mirrors app-db). A value RE-KEYED to a
+  position the classification path cannot reach (a token copied into rendered
+  hiccup at `[1 :value]`, into a `:network` reply, into a captured-event
+  payload) is NOT covered and ships RAW — INTENDED FAIL-OPEN (hygiene, not a
+  guarantee). A consumer that needs a value redacted in a derived tree must
+  classify its app-db PATH so the value lands AT that path.
 
   In story-mcp the two surfaces that ship live-state reads are
   `preview-variant` / `run-variant` (which return the variant frame's
@@ -28,7 +44,7 @@
   `:args` / `:substitutions` / `:network` / `:db-seed`) and
   `record-as-variant`'s `:captured` event vectors (+ the `:play-snippet`
   rendered from them). `scrub-frame-value` gives those payloads the SAME
-  value-based redaction `scrub-rendered` applies to live derived trees,
+  PATH-based projection `scrub-rendered` applies to live derived trees,
   keyed to the variant frame — it reads the frame's app-db itself rather
   than receiving it. Author-published STATIC registration metadata
   (story/variant bodies, registry enumerations, the explain plan-
@@ -43,63 +59,39 @@
   records stamped `:sensitive? true` are dropped). The shared
   `:include-sensitive` arg is the documented opt-in escape hatch.
 
-  ## Derived-tree value-based redaction (rf2-ee38b.17, `scrub-rendered`)
+  ## Derived-tree PATH-based projection (`scrub-rendered`, EP-0025 fail-open)
 
-  `elide-app-db` closes the leak for the `:app-db` slot — but the same
-  sensitive value reappears, VERBATIM, in `:rendered-hiccup` (the variant
-  view renders `[:input {:value <token>}]`), in `:effective-args` (the
-  resolved arg map that fed the render), and in any `:snapshot` body.
-  Those are derived from the same app-db, but they are NOT keyed by
-  app-db path — the token sits at a hiccup-tree position
-  (`[1 :value]`), not at `[:user :token]`. `elide-wire-value` matches
-  the frame-declared SENSITIVE PATHS, so running it over a hiccup
-  tree finds nothing: the path-based walker is structurally blind to
-  the re-keyed copy.
+  `elide-app-db` redacts the `:app-db` slot. The same value also appears in
+  `:rendered-hiccup` (the variant view renders `[:input {:value <token>}]`),
+  in `:effective-args` (the resolved arg map), and in any `:snapshot` body.
+  Some of those derived positions still match a classified path (an
+  `:effective-args {:token …}` slice with `[:token]` classified); others
+  re-key the value to a position the path cannot reach (the token at hiccup
+  `[1 :value]`, not at `[:user :token]`).
 
-  The sound posture for a DERIVED tree is VALUE-based redaction:
-  collect the live values sitting at the frame's frame-declared
-  `:sensitive` app-db paths, then substitute any leaf in the derived tree that
-  EQUALS one of them with the same `:rf/redacted` sentinel
-  `elide-wire-value` emits. This honours the Tool-Pair §Direct-read
-  privacy MUST intent — 'live runtime state crossing the MCP egress
-  is scrubbed' — for the rendered surface, with the same
-  `:include-sensitive` opt-out escape hatch as `:app-db`.
-
-  Value-matching is a heuristic; its one collateral hazard is a
-  sensitive path holding a SHORT/COMMON scalar (`0`, `200`, `:ok`),
-  which would scrub every benign leaf that equals it. The framework
-  `re-frame.core/project-egress` `:rf.observe/derived-tree` boundary guards
-  that (rf2-g7cd1, hardened rf2-f3kf7; centralized rf2-i783h0; composed
-  rf2-leggev; boundary-named rf2-ojp8pi) by dropping any candidate that ALSO
-  appears, VERBATIM, in the
-  POST-elision `:app-db` (the actual wire bytes) — such a value is already
-  disclosed by the path-based `:app-db` egress, so excluding it leaks nothing
-  new while restoring the benign leaves. Classifying against the elided db
-  (not the raw db) is load-bearing: a secret aliased into a `:large?`-declared
-  subtree is replaced by the `:rf.size/large-elided` marker on the wire, so it
-  is NOT disclosed and MUST stay redacted. See the framework helper for the
-  fail-SAFE argument.
+  EP-0025 REMOVED the value-match (taint-by-equality) redaction that used to
+  scrub the re-keyed copies — value-match is propagation/taint by another
+  name, which a hygiene helper does not earn (§\"What is removed\"). The
+  derived-tree projection is PATH-BASED: `elide-wire-value` walks the tree
+  against the frame's classification, redacting a value AT a classified path
+  and leaving a RE-KEYED copy RAW (INTENDED FAIL-OPEN). A consumer that needs
+  a re-keyed value redacted must classify its app-db PATH so the derived slot
+  lands the value AT that path. The `:include-sensitive` opt-out forwards the
+  raw tree (same escape hatch as `:app-db`).
 
   ## One record-level boundary — `project-egress` (EP-0025 B4, rf2-ojp8pi)
 
-  The value-match-redaction ENGINE — candidate collection, the
-  non-unique-secret guard, and the matching-leaf substitution, across BOTH
-  the sensitive and large egress axes — lives ONCE in `re-frame.elision` (the
-  value-based DUAL of `elide-wire-value`). EP-0025 B4 makes the SINGLE public
-  boundary a consumer projects a derived tree through
+  The derived-tree projection runs through the SINGLE public boundary
   `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind,
   naming the off-box `:rf.egress/profile` rather than a hand-resolved
   `:rf.size/*` floor. `project-egress` resolves the profile to the egress
-  floor and delegates to the elision engine, reading the SAME per-frame
-  classification registry the path walker reads (frame- / marks- /
-  EP-0025-commit-plane-effect-sourced declarations, unioned at lookup) — so a
-  path classified by a `:sensitive` commit-plane effect redacts a re-keyed
-  copy in a derived tree too. The scrubbers below are ORCHESTRATION only —
-  build the derived-tree record (its `:source-db`, and for the no-run explain
-  path the plan's `:db-seed` as `:rf.elision/extra-sensitive-source`), name
-  the profile, apply the `:include-sensitive` opt-out. This keeps the SECOND
-  place EP-0015 egress semantics could drift removed (EP-0015 best-practice
-  review issue 2)."
+  floor and PATH-walks the tree against the SAME per-frame classification
+  registry the `:app-db` path walker reads (frame- /
+  EP-0025-commit-plane-effect- / flow-sourced declarations, unioned at
+  lookup). The scrubbers below are ORCHESTRATION only — build the
+  derived-tree record (its `:source-db`), name the profile, apply the
+  `:include-sensitive` opt-out. This keeps the SECOND place EP-0015 egress
+  semantics could drift removed (EP-0015 best-practice review issue 2)."
   (:require [re-frame.core :as rf]
             [re-frame.mcp-base.egress :as base-egress]
             [re-frame.mcp-base.elision :as base-elision]
@@ -217,78 +209,67 @@
     :else          (sensitive/strip-sensitive records false)))
 
 ;; ---------------------------------------------------------------------------
-;; Derived-tree value-based redaction (rf2-ee38b.17; centralized rf2-i783h0)
+;; Derived-tree PATH-based projection (EP-0025 fail-open, rf2-ojp8pi)
 ;; ---------------------------------------------------------------------------
 ;;
-;; `elide-app-db` closes the leak for the `:app-db` slot by PATH — but the
-;; same sensitive value reappears, VERBATIM, in `:rendered-hiccup`,
-;; `:effective-args`, a `:snapshot` body, and the explain plan-resolved value
-;; slots, at a non-app-db position the path-based walker can never reach. The
-;; sound posture for a derived tree is VALUE-based redaction: collect the live
-;; values at the frame's declared-`:sensitive?` paths and substitute any
-;; matching leaf with `:rf/redacted`.
+;; `elide-app-db` redacts the `:app-db` slot by PATH. A derived tree
+;; (`:rendered-hiccup`, `:effective-args`, a `:snapshot` body, the explain
+;; plan-resolved value slots) re-surfaces the same app-db value at a position
+;; that MAY or MAY NOT still match a classified path.
 ;;
-;; The VALUE-MATCH ENGINE — candidate collection (mirroring the elider's
-;; indexing so a seq-indexed `[:tokens 0]` is reached), the non-unique-secret
-;; guard (drop any candidate already on the wire, classified against the
-;; ELIDED db — rf2-g7cd1 / rf2-f3kf7), and the matching-leaf substitution —
-;; lives ONCE in the framework `re-frame.elision` ns (EP-0015 issue 2,
-;; rf2-i783h0), reached through the SINGLE public boundary
+;; EP-0025 REMOVED the value-match (taint-by-equality) engine that used to
+;; collect live values at the declared paths and substitute any matching leaf
+;; (§"What is removed": value-match is propagation/taint by another name). The
+;; derived-tree projection is now PATH-BASED: each tree (or named slot) is
+;; walked through `elide-wire-value` against the frame's classification. A
+;; value AT a classified path within the tree redacts; a value RE-KEYED to a
+;; position the path cannot reach ships RAW (fail-open).
+;;
+;; The projection runs through the SINGLE public boundary
 ;; `re-frame.core/project-egress` (EP-0025 B4, rf2-ojp8pi) — the
-;; `:rf.observe/derived-tree` record kind. It is the value-based DUAL of
-;; `elide-wire-value`, so it belongs beside it (one home for the egress fact;
-;; a SECOND place the semantics could drift is removed). story-mcp keeps only
-;; the ORCHESTRATION: build the derived-tree record (its `:source-db`), name
-;; the off-box egress profile, apply the `:include-sensitive` opt-out. The
-;; behaviour is byte-identical — the boundary name changed, the contract did
-;; not.
+;; `:rf.observe/derived-tree` record kind, the path-based dual of
+;; `elide-wire-value`. story-mcp keeps only the ORCHESTRATION: build the
+;; derived-tree record (its `:source-db`), name the off-box egress profile,
+;; apply the `:include-sensitive` opt-out.
 
 (defn scrub-rendered
-  "Value-redact AND value-elide a DERIVED tree (rendered hiccup,
-  `:effective-args`, a snapshot body) before wire egress, keyed to
-  `variant-id`'s frame. EP-0015 treats `:sensitive` + `:large` as PEER egress
-  axes, so the derived-tree scrub runs BOTH (rf2-9o5ixx) — in ONE call to the
+  "PATH-redact a DERIVED tree (rendered hiccup, `:effective-args`, a snapshot
+  body) before wire egress, keyed to `variant-id`'s frame — in ONE call to the
   framework boundary `re-frame.core/project-egress` (rf2-ojp8pi), the
-  `:rf.observe/derived-tree` record's SINGLE-TREE form (`:slot-keys nil`):
+  `:rf.observe/derived-tree` record's SINGLE-TREE form (`:slot-keys nil`).
 
-    1. SENSITIVE: collect the live values at `variant-id`'s
-       declared-`:sensitive?` paths from `app-db` — with the
-       non-unique-secret guard, classified against the elided db under the
-       `:rf.egress/off-box-tool` floor — and substitute any matching leaf in
-       `tree` with `:rf/redacted` (rf2-ee38b.17).
-    2. LARGE: collect the live values at `variant-id`'s declared-`:large`
-       paths and substitute any matching leaf with the `:rf.size/large-elided`
-       marker — so a large blob declared at `[:blob]` and re-keyed into
-       `[:pre blob]` / a snapshot / evidence echo elides on the wire rather
-       than crossing raw, and the `:elided-large` indicator count
-       (`count-elided`) sees the markers.
-
-  SENSITIVE WINS: the helper runs the sensitive pass FIRST and its large
-  collector skips any node also declared sensitive, so a value that is both
-  redacts to `:rf/redacted` (never the large marker). The large pass then
-  sees only the sensitive-survived tree.
+  EP-0025 FAIL-OPEN: the value-match (taint-by-equality) engine is REMOVED. The
+  projection walks `tree` through `elide-wire-value` against `variant-id`'s
+  classification registry (frame- / commit-plane-effect- / flow-sourced
+  declarations, unioned) on BOTH the `:sensitive` and `:large` axes. A value
+  that occupies a CLASSIFIED app-db path WITHIN `tree` (a derived slot whose
+  shape mirrors the app-db — e.g. an `:effective-args {:token …}` slice with
+  `[:token]` classified) redacts to `:rf/redacted` / elides to the
+  `:rf.size/large-elided` marker. A value RE-KEYED to a position the path
+  cannot reach (a token at hiccup `[1 :value]`, a blob at `[:pre blob]`) is
+  NOT covered and ships RAW — INTENDED FAIL-OPEN. The `app-db` arg is retained
+  as the record's `:source-db` but no longer seeds a value-candidate set; the
+  redaction is purely positional.
 
   Short-circuits, mirroring `elide-app-db`:
 
     - `include? true` returns `tree` unchanged (the opt-out escape hatch —
       covers BOTH axes, matching the `:rf.egress/local-raw` floor).
-    - A nil `tree` or nil `app-db` returns `tree` (handled by the framework
-      helper — nothing to scrub / no source of values).
-    - No declared-sensitive/large (or all-disclosed) values ⇒ `tree` is
-      returned unwalked."
+    - A nil `tree` or non-live frame returns `tree` (the framework helper runs
+      the walk ONLY against a live frame; a derived-tree walk must never fail
+      CLOSED to a whole-tree sentinel)."
   [tree app-db variant-id include?]
   (if include?
     tree
     ;; Project through the SINGLE record-level boundary `re-frame.core/project-egress`
     ;; (EP-0025 B4, rf2-ojp8pi): a `:rf.observe/derived-tree` record naming the
     ;; off-box-tool egress PROFILE — `project-egress` resolves the profile to
-    ;; the `:rf.egress/off-box-tool` floor and value-redacts the tree against
+    ;; the `:rf.egress/off-box-tool` floor and PATH-walks the tree against
     ;; `variant-id`'s classification registry (sensitive first — it wins — then
-    ;; large over survivors, off ONE collection pass). The boundary reasons
-    ;; about the identical bytes the path-based `:app-db` egress emits, since
-    ;; the same registry + the same floor govern both surfaces. Naming the
-    ;; PROFILE (not the `:rf.size/*` floor) keeps the egress vocabulary in the
-    ;; framework boundary, not hand-rolled here.
+    ;; large over survivors). A value AT a classified path redacts; a re-keyed
+    ;; copy ships raw (EP-0025 fail-open). Naming the PROFILE (not the
+    ;; `:rf.size/*` floor) keeps the egress vocabulary in the framework
+    ;; boundary, not hand-rolled here.
     (rf/project-egress
       {:kind      :rf.observe/derived-tree
        :frame     variant-id
@@ -297,40 +278,23 @@
       {:rf.egress/profile (posture->profile false)})))
 
 (defn scrub-explain-values
-  "Value-redact the runtime/seeded VALUE slots `value-slot-keys` of an
-  `explain` map against `variant-id`'s declared-sensitive / -large values,
-  before the explain payload crosses the AI/off-box boundary (rf2-12f2q,
-  rf2-q8ebq.1, pre-frame hardening rf2-tag30h) — in ONE call to the framework
-  boundary `re-frame.core/project-egress` (rf2-leggev, boundary-named
+  "PATH-redact the runtime/seeded VALUE slots `value-slot-keys` of an `explain`
+  map against `variant-id`'s classification, before the explain payload crosses
+  the AI/off-box boundary (rf2-12f2q, rf2-q8ebq.1) — in ONE call to the
+  framework boundary `re-frame.core/project-egress` (rf2-leggev, boundary-named
   rf2-ojp8pi), the `:rf.observe/derived-tree` record's MULTI-SLOT form (each
-  present key of `value-slot-keys` scrubbed off one collection pass).
+  present key of `value-slot-keys` walked at the frame's classification path).
 
-  Candidate sensitive secrets come from BOTH sources, unioned by the boundary:
-
-    - the LIVE variant-frame app-db (the `source-db` arg — the guarded live
-      reader, classified against the elided db under the
-      `:rf.egress/off-box-tool` floor) — the source once `run-variant` /
-      `preview-variant` has allocated and seeded the frame; AND
-    - the PLAN's OWN `:db-seed` slot (passed as the helper's
-      `:rf.elision/extra-sensitive-source`) — the FAIL-CLOSED pre-frame
-      source. `explain-variant` is a documented no-run path: a caller can
-      read it BEFORE any run allocates the frame. With only the live reader,
-      a secret authored into `:db-seed` and re-surfaced in `:effective-args`
-      / `:network` / a step payload would cross raw (the live app-db is nil
-      ⇒ no candidates). The helper walks the seed at the frame's
-      declared-sensitive paths (unguarded — fail-SAFE) and unions those
-      candidates, so the no-run secret still redacts with no live frame.
-
-  LARGE axis (rf2-9o5ixx): EP-0015 treats `:large` as a PEER egress axis, so
-  each value slot is ALSO value-elided against `variant-id`'s declared-`:large`
-  values — a large blob re-surfaced into `:effective-args` / `:network` / a
-  step payload elides to the `:rf.size/large-elided` marker rather than
-  crossing raw. The marker map is collected ONCE (from the live app-db
-  `source-db`) and substituted per slot. Sensitive runs FIRST (it wins); the
-  large pass sees the sensitive-survived slots. The large source is the live
-  frame app-db only — the pre-frame `:db-seed` source feeds the SENSITIVE
-  union (a fail-closed no-run secret), while a large classification's
-  value-match is driven from the live values.
+  EP-0025 FAIL-OPEN: the value-match engine — and the pre-frame `:db-seed`
+  candidate-union it relied on — is REMOVED. Each named slot is PATH-walked: a
+  value that occupies a classified path WITHIN the slot redacts (a `:db-seed`
+  or `:effective-args` slice whose shape mirrors the app-db reaches the path),
+  while a value RE-KEYED to a non-matching position (a `:network` reply, a
+  `:sub-overrides` override value, a step payload lacking the path's parent
+  keys) ships RAW. A pre-frame `:db-seed` secret is covered ONLY because its
+  own shape mirrors the app-db — NOT because the seed is unioned into a
+  candidate set. A consumer that needs a re-keyed value redacted must classify
+  its app-db PATH so the derived slot lands the value AT that path.
 
   `include?` opts out (the `--allow-sensitive-reads` + per-call escape
   hatch) — when true the raw values cross (the operator signed off; BOTH axes)."
@@ -339,18 +303,17 @@
     explain
     ;; Project through `re-frame.core/project-egress` (EP-0025 B4, rf2-ojp8pi)
     ;; as a MULTI-SLOT `:rf.observe/derived-tree` record: `:slot-keys` names the
-    ;; runtime/seeded value slots to scrub, the plan's `:db-seed` rides as the
-    ;; FAIL-CLOSED pre-frame `:rf.elision/extra-sensitive-source` (the no-run
-    ;; candidate union), and `:source-db` is the live variant-frame app-db.
-    ;; `project-egress` resolves the off-box-tool profile to the egress floor
-    ;; and value-redacts each present slot against `variant-id`'s registry.
+    ;; runtime/seeded value slots to PATH-walk, and `:source-db` is the live
+    ;; variant-frame app-db (retained as the record's source; the projection is
+    ;; positional, not value-candidate-driven). `project-egress` resolves the
+    ;; off-box-tool profile to the egress floor and path-redacts each present
+    ;; slot against `variant-id`'s registry.
     (rf/project-egress
       {:kind      :rf.observe/derived-tree
        :frame     variant-id
        :tree      explain
        :slot-keys value-slot-keys
-       :source-db (rf/app-db-value variant-id)
-       :rf.elision/extra-sensitive-source (:db-seed explain)}
+       :source-db (rf/app-db-value variant-id)}
       {:rf.egress/profile (posture->profile false)})))
 
 ;; ---------------------------------------------------------------------------
@@ -367,17 +330,15 @@
 ;; with a real token, an `:effective-args` slot resolved from a sensitive
 ;; arg, a captured event dispatched with a secret payload.
 ;;
-;; Those tools did NOT route their value-bearing slots through any
-;; scrubber until rf2-12f2q, so the wire-elision contract in
-;; `tools/story/spec/006-MCP-Surface.md` ("every Story-MCP payload crosses
-;; elided; nothing raw") was a promise the implementation only kept for
-;; the three live-state tools. The split is closed here by giving the
-;; non-live tools the SAME value-based redaction — keyed to the variant
-;; frame's declared-sensitive values — that `scrub-rendered` already
-;; applies to the live derived trees. The slot is value-bearing and
-;; frame-keyed (the recorder records against `vk`; the plan is compiled
-;; for `vk`), so the same framework `elision-sensitive-value-set` candidate
-;; set (for `vk`) governs it.
+;; Those tools route their value-bearing slots through the SAME PATH-based
+;; derived-tree projection `scrub-rendered` applies to the live derived
+;; trees (rf2-12f2q), keyed to the variant frame's classification. EP-0025
+;; FAIL-OPEN: a value that occupies a classified path WITHIN the slot redacts;
+;; a value re-keyed to a non-matching position (a captured-event payload, a
+;; `:network` reply) ships RAW. The wire-elision contract in
+;; `tools/story/spec/006-MCP-Surface.md` is now "every Story-MCP payload is
+;; PATH-projected; re-keyed copies are fail-open" — see that spec for the
+;; EP-0025 graduation.
 ;;
 ;; INTENTIONALLY-PUBLIC (NOT scrubbed): the docs-discovery surfaces that
 ;; return author-published STATIC registration prose — `get-story` /
@@ -396,22 +357,18 @@
 ;; §Wire-elision boundary for the single-sourced classification.
 
 (defn scrub-frame-value
-  "Value-redact a non-live, value-bearing payload `tree` that is keyed to
-  variant `variant-id`'s frame, before wire egress (rf2-12f2q). Reads the
-  frame's live `:app-db` itself (via `re-frame.core/app-db-value`) — the
-  non-live handlers do not already hold it — collects the values sitting
-  at the frame's declared-`:sensitive?` paths, and substitutes any
-  matching leaf in `tree` with `:rf/redacted`.
+  "PATH-redact a non-live, value-bearing payload `tree` keyed to variant
+  `variant-id`'s frame, before wire egress (rf2-12f2q). Reads the frame's live
+  `:app-db` itself (via `re-frame.core/app-db-value`) — the non-live handlers do
+  not already hold it — to seed the projection's `:source-db`.
 
-  Thin wrapper over `scrub-rendered`: it shares the exact same VALUE-based
-  redaction through `re-frame.core/project-egress` (the `:rf.observe/derived-tree`
-  boundary) + the non-unique-secret guard, so a secret leaks identically
-  (i.e. not at all, by default) whether it reaches the wire via a live
-  derived tree or a plan-resolved / captured slot. The only difference is
-  that this reads the source app-db rather than receiving it — when the
-  frame has not been allocated (`app-db-value` ⇒ nil) there are no
-  declared-sensitive values to collect, so the payload passes through
-  unwalked.
+  Thin wrapper over `scrub-rendered`: same PATH-based projection through
+  `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary).
+  EP-0025 FAIL-OPEN — a value at a classified path WITHIN `tree` redacts; a
+  value re-keyed to a non-matching position ships RAW. The only difference from
+  `scrub-rendered` is that this reads the source app-db rather than receiving
+  it — when the frame has not been allocated (`app-db-value` ⇒ nil) the
+  framework helper's non-live-frame short-circuit returns the payload unwalked.
 
   `include?` is the same `--allow-sensitive-reads` + per-call
   `:include-sensitive` opt-out the live tools honour — when true the raw

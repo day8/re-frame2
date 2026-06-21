@@ -85,18 +85,20 @@
   the agent recognises an elision at a glance. The wire-boundary cap step
   (`tools.cljs` §`:apply-cap`) remains the backstop.
 
-  ## Privacy — value-redact derived content
+  ## Privacy — PATH-project derived content (EP-0025 fail-open)
 
   Rendered DOM text / attribute values can carry a secret copied out of a
-  declared-sensitive app-db slot — a non-app-db position the path-based
-  `elide-wire-value` walker can never reach. Under the off-box egress
-  posture (the published-build default) the runtime value-redacts the
-  matched nodes through `re-frame.core/redact-derived-slots` against the
-  operating frame's declared-`:sensitive?` values, so a rendered secret
-  lands as `:rf/redacted` before crossing the off-box wire. The optional
-  `:frame` arg names the source frame; raw rendered content is the trusted-
-  local read (launched with `--allow-sensitive-reads`); an unresolvable
-  frame under the off-box gate fails closed with `:ambiguous-frame`.
+  declared-sensitive app-db slot into a non-app-db DOM position. Under the
+  off-box egress posture (the published-build default) the runtime
+  PATH-projects the matched nodes through `re-frame.core/project-egress`
+  (the `:rf.observe/derived-tree` boundary) against the operating frame's
+  classification. EP-0025 removed value-match (taint-by-equality), so a
+  RE-KEYED secret in a DOM node SHIPS RAW (FAIL-OPEN) — to keep a value out
+  of rendered content, classify its app-db PATH so it is redacted at the
+  source before a view renders it. The optional `:frame` arg names the
+  source frame; raw rendered content is the trusted-local read (launched
+  with `--allow-sensitive-reads`); an unresolvable frame under the off-box
+  gate still fails closed with `:ambiguous-frame`.
 
   ## Wire contract
 
@@ -184,10 +186,11 @@
   Only present keys ride: an explicit `attrs` vector ⇒ exactly those
   names (no `data-*`/`aria-*` sweep); omitting it (nil) ⇒ the curated
   default set + the sweep, resolved runtime-side. A `frame` keyword (when
-  supplied) names the frame whose declared-sensitive app-db values the
-  rendered nodes are value-redacted against; omitting it lets
-  the runtime resolve the operating frame. The runtime fn is read-only
-  (querySelectorAll + textContent + attribute strings)."
+  supplied) names the frame whose classification the rendered nodes are
+  PATH-projected against (EP-0025 fail-open — a re-keyed DOM secret ships
+  raw); omitting it lets the runtime resolve the operating frame. The
+  runtime fn is read-only (querySelectorAll + textContent + attribute
+  strings)."
   [selector sub-selector limit max-text attrs frame]
   (let [opts (cond-> {:selector selector
                       :limit    limit
@@ -215,10 +218,10 @@
         max-text     (let [m (wire/arg raw-args :max-text)]
                        (if (and (number? m) (pos? m)) (long m) default-max-text))
         attrs        (parse-attrs-arg (wire/arg raw-args :attrs))
-        ;; The frame whose declared-sensitive app-db values the
-        ;; rendered nodes are value-redacted against (off-box gate). Omitted
-        ;; ⇒ the runtime resolves the operating frame and fails closed on an
-        ;; ambiguous one.
+        ;; The frame whose classification the rendered nodes are PATH-projected
+        ;; against (off-box gate; EP-0025 fail-open — re-keyed DOM secrets ship
+        ;; raw). Omitted ⇒ the runtime resolves the operating frame and fails
+        ;; closed on an ambiguous one.
         frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         build-id     (wire/arg-build conn raw-args)]
     (cond

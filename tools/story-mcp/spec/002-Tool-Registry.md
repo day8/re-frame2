@@ -336,18 +336,17 @@ Plan-derived data — no run, no live `:app-db` slice — but the plan
 RESOLVES author args into runtime VALUES. The runtime-resolved value
 slots (`:effective-args` / `:args` / `:substitutions` / `:network` route
 replies / `:db-seed` / `:sub-overrides` override values / `:setup-order` +
-`:script-order` step payloads) are value-scrubbed against the variant
-frame's frame declarations at egress (rf2-12f2q, rf2-q8ebq.1, rf2-9o5ixx)
+`:script-order` step payloads) are PATH-projected against the variant
+frame's classification at egress (rf2-12f2q, rf2-q8ebq.1; EP-0025 fail-open)
 via the shared `egress/scrub-explain-values` step — on BOTH egress axes
-(EP-0015 peer axes): a leaf equal to a declared-`:sensitive?` value becomes
-`:rf/redacted`, a leaf equal to a declared-`:large` value becomes the
-`:rf.size/large-elided` marker (sensitive wins where both apply) — the SAME
-value-based scrub the live tools apply to their derived trees.
-`:sub-overrides` / `:setup-order` / `:script-order` carry resolved arg
-values (the SAME `substitute-args` that feeds `:substitutions`), so they
-are scrubbed too; the value-only redaction preserves their public step
-STRUCTURE — leaving them raw would be a clean bypass of the
-`:substitutions` scrub. The remaining plan-STRUCTURE slots
+(EP-0015 peer axes). EP-0025 removed value-match: a value AT a classified
+path WITHIN a slot redacts to `:rf/redacted` / elides to the
+`:rf.size/large-elided` marker (a slot whose shape mirrors the app-db, e.g.
+a `:db-seed`, reaches its path), but a value RE-KEYED to a non-matching
+position (a `:network` reply, a `:sub-overrides` override value, a step
+payload lacking the path's parent keys) ships RAW (fail-open) — classify the
+app-db PATH to redact a value before it is re-surfaced. Plan step STRUCTURE
+is always preserved. The remaining plan-STRUCTURE slots
 (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
 `:strict-conflicts` / `:tags` /
 `:platforms` / …) are author-published discovery metadata and cross
@@ -419,19 +418,17 @@ axe-core's JS violation objects. Each violation NODE carries `:html` (the
 violating element's outerHTML), `:target` (CSS selectors) and
 `:failureSummary`; a sensitive value rendered into the DOM (e.g.
 `<input value="<token>">`, a `data-*` attribute, a PII text node) lands
-verbatim in node `:html`. So `:violations` is value-scrubbed against the
-variant frame's frame declarations via the shared
-`egress/scrub-frame-value` step — on BOTH egress axes (rf2-9o5ixx): a leaf
-equal to a declared-`:sensitive?` value becomes `:rf/redacted`, a leaf
-equal to a declared-`:large` value becomes the `:rf.size/large-elided`
-marker — the SAME value-based scrub `explain-variant` /
-`record-as-variant` and the live tools apply. The
-value-only scrub preserves the public finding structure (`:id` /
-`:impact` / `:help` / `:target`) while scrubbing the embedded secret.
-Fail-closed by default; `:include-sensitive true` (gated by
-`--allow-sensitive-reads`) opts out. `read-a11y-violations` is `:readOnlyHint true`
-(agent hosts auto-approve it), so an unscrubbed runtime read here would be
-the wrong shape.
+verbatim in node `:html`. `:violations` is PATH-projected against the
+variant frame's classification via the shared `egress/scrub-frame-value`
+step — on BOTH egress axes — the SAME PATH-based projection `explain-variant`
+/ `record-as-variant` and the live tools apply. **EP-0025 FAIL-OPEN:** a
+sensitive value rendered into a node `:html` is a RE-KEYED DOM position the
+classification path cannot reach, so it ships RAW — value-match was removed;
+classify the app-db PATH to redact a value before it reaches the DOM. The
+public finding structure (`:id` / `:impact` / `:help` / `:target`) is always
+preserved. `:include-sensitive true` (gated by `--allow-sensitive-reads`)
+opts out. `read-a11y-violations` is `:readOnlyHint true` (agent hosts
+auto-approve it).
 
 ### `read-failures`
 
@@ -544,19 +541,20 @@ contract per
 [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
 §Test Codegen.
 
-Wire-egress posture (rf2-12f2q): the captured event vectors cross the
-AI/off-box boundary in BOTH the `:captured` slot and the `:play-snippet`
-text. A recorded event can carry a declared-sensitive value in its
-payload (a token, a PII field dispatched into the canvas), so the
-captured events are value-redacted against the source variant frame's
-declared-`:sensitive?` values via `egress/scrub-frame-value` before
-egress — the SAME value-based redaction the live-state tools apply to
-their derived trees — and the snippet is rendered FROM the scrubbed
-events so the secret is absent from both wire slots. Pass
-`:include-sensitive true` (gated by `--allow-sensitive-reads`) to opt
-out. The WRITE-BACK path (below) re-registers the RAW events on-box for
-replay fidelity — that is an operator-gated registration via
-`--allow-writes`, not a wire egress.
+Wire-egress posture (rf2-12f2q, EP-0025 fail-open): the captured event
+vectors cross the AI/off-box boundary in BOTH the `:captured` slot and
+the `:play-snippet` text. The captured events are PATH-projected against
+the source variant frame's declared-`:sensitive?` paths via
+`egress/scrub-frame-value` before egress — the SAME PATH-based projection
+the live-state tools apply to their derived trees. **EP-0025 FAIL-OPEN:**
+an event PAYLOAD is a re-keyed position the app-db path cannot reach, so a
+declared-sensitive value dispatched into an event ships RAW (the
+value-match engine that used to chase re-keyed copies is removed). To
+redact such a value, classify its app-db PATH so it is redacted before it
+is dispatched into an event. Pass `:include-sensitive true` (gated by
+`--allow-sensitive-reads`) to opt out. The WRITE-BACK path (below)
+re-registers the RAW events on-box for replay fidelity — that is an
+operator-gated registration via `--allow-writes`, not a wire egress.
 
 **Recordable-coeffect replay fidelity (EP-0017).** Each captured
 dispatch carries its flat `:rf.cofx` envelope — the framework-stamped
@@ -572,11 +570,13 @@ opts, so a handler that declares `:rf.cofx/requires` re-presents the
 recorded value rather than restamping a fresh `:rf/time-ms` or failing
 `:rf.error/missing-required-cofx` for a provided fact. The captured
 `:rf.cofx` maps are value-bearing and follow the SAME egress posture as
-the event payloads: each captured-coeffect leaf is value-redacted
-against the source frame's declared-`:sensitive?` values before it
-crosses the wire (in the snippet / `:captured` slots), while
-`:rf/time-ms` is always safe to surface (EP-0017 §3) and passes through
-verbatim. The write-back threads the RAW (unscrubbed) envelope on-box
+the event payloads: each captured-coeffect leaf is PATH-projected
+against the source frame's classification before it crosses the wire (in
+the snippet / `:captured` slots). EP-0025 FAIL-OPEN — a captured coeffect /
+event PAYLOAD is a re-keyed position the app-db path cannot reach, so a
+declared-sensitive value in it ships RAW; classify the app-db PATH to
+redact it before it is dispatched. `:rf/time-ms` is always safe to surface
+(EP-0017 §3). The write-back threads the RAW (unscrubbed) envelope on-box
 for full replay fidelity (an operator-gated `--allow-writes`
 registration, not a wire egress). No `:rf.world/inputs` naming is
 introduced — the retired predecessor spelling does not appear on any
