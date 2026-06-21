@@ -52,7 +52,7 @@
   :sub-values {[:count] 1}
 
   :trace-emissions
-  [;; :rf.event/* category — event lifecycle. The :on-create
+  [;; :rf.event/* category — event lifecycle. The :initial-events
    ;; :counter/initialise is the first hit; the explicit :rf.event matcher
    ;; covers the canonical lifecycle emit point (Spec 009 §:rf.event
    ;; trace-event vocabulary).

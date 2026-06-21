@@ -121,7 +121,7 @@ These surfaces work the same across Reagent, UIx, and Helix. They're how views i
   ```clojure
   [rf/frame-provider {:id :todo :images [todo-image]} & children]
   ```
-- **Description**: The view-owned lifecycle boundary — it **creates** the frame on mount (via `make-frame`, taking the same constructor opts: `:id` / `:images` / `:initial-db` / record-config), provides its id to descendants, and **destroys** it on unmount. Reach for it when a component should own a frame for exactly as long as it is mounted (comparison pages, Story canvases, embedded widgets, modal stacks). To merely *scope* an already-created frame, use `frame-provider-existing` (below).
+- **Description**: The view-owned lifecycle boundary — it **creates** the frame on mount (via `make-frame`, taking the same constructor opts: `:id` / `:images` / record-config incl. `:initial-events`), provides its id to descendants, and **destroys** it on unmount. Reach for it when a component should own a frame for exactly as long as it is mounted (comparison pages, Story canvases, embedded widgets, modal stacks). To merely *scope* an already-created frame, use `frame-provider-existing` (below).
 
 ### `frame-provider-existing`
 

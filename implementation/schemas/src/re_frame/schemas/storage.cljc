@@ -46,7 +46,7 @@
   app-db schemas are CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
   opt (the *override*) wins, else the carried-invariant scope chain via
   `frame/require-current-frame!` (a `with-frame` / frame-provider scope, or
-  a frame `:on-create` hook). Called under no established scope and no
+  a frame `:initial-events` step). Called under no established scope and no
   explicit `:frame`, it raises the always-on `:rf.error/no-frame-context`
   (per Spec 002 §Frame target resolution) rather than resolving to a
   synthesised `:rf/default` floor — namespace-load time is not a reason to
@@ -738,7 +738,7 @@
   EP-0002 — context-required frame-local: the frame comes from the
   explicit :frame metadata key (the *override*), else the carried-invariant
   scope chain (a (with-frame ...) wrapper, a frame-provider, or a frame
-  :on-create hook). Registering under no established scope and no
+  :initial-events step). Registering under no established scope and no
   explicit :frame raises :rf.error/no-frame-context — namespace-load time
   is not a reason to register against a synthesised :rf/default.
 
@@ -1094,7 +1094,7 @@
   frame would persist and re-fire when the frame is re-registered
   — under the rf2-wkxng / rf2-6m0se rollback contract that
   manifests as spurious rollbacks against orphan paths the new
-  frame's :on-create never wrote. Idempotent — a missing frame
+  frame's :initial-events never wrote. Idempotent — a missing frame
   entry is a no-op `dissoc`."
   [frame-id]
   (swap! schemas-by-frame dissoc frame-id))

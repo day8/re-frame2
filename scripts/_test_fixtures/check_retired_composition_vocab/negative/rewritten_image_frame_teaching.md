@@ -5,7 +5,7 @@ retired, so this fenced example must stay GREEN.
 
 ```clojure
 (def app-image (rf/image {:include-ns ["my.app.**"]}))
-(def frame (rf/make-frame {:id :app/main :images [app-image] :initial-db {}}))
+(def frame (rf/make-frame {:id :app/main :images [app-image] :initial-events []}))
 (rf/reload-images! :app/main [app-image])
 (rf/destroy-frame! frame)
 ```

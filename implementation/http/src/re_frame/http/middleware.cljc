@@ -174,7 +174,7 @@
                       ;; CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
                       ;; (the *override*) wins, else the carried-invariant
                       ;; scope chain (a `with-frame` / frame-provider scope,
-                      ;; or a frame `:on-create` hook). Registering under no
+                      ;; or a frame `:initial-events` step). Registering under no
                       ;; scope and no explicit `:frame` raises the always-on
                       ;; `:rf.error/no-frame-context` rather than installing
                       ;; the interceptor against a synthesised `:rf/default`

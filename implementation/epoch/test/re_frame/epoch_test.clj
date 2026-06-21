@@ -439,32 +439,32 @@
             "parent and :fx-dispatched child have DISTINCT :dispatch-ids
              — the child is a separate dequeued event / epoch")))))
 
-(deftest on-create-event-is-its-own-epoch
+(deftest initial-events-event-is-its-own-epoch
   (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): the frame-creation
-            :on-create event is itself a dequeued event, so it commits its
+            :initial-events event is itself a dequeued event, so it commits its
             OWN epoch — distinct from any later user dispatch's epoch"
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; reg-frame dispatch-syncs the :on-create event at registration.
+    ;; reg-frame dispatch-syncs the :initial-events event at registration.
     (rf/reg-frame :test/main {:initial-events [[:app/init]]})
 
     (let [after-create (rf/epoch-history :test/main)]
       (is (= 1 (count after-create))
-          "the :on-create cascade settled its own epoch at reg-frame time")
+          "the :initial-events cascade settled its own epoch at reg-frame time")
       (let [r (first after-create)]
         (is (= :app/init (:event-id r))
-            "the :on-create event is the trigger of its own epoch")
+            "the :initial-events event is the trigger of its own epoch")
         (is (= {} (:db-before r)))
         (is (= {:booted true :n 0} (:db-after r))
-            ":on-create's epoch carries its own db-before / db-after pair")))
+            ":initial-events' epoch carries its own db-before / db-after pair")))
 
     (rf/dispatch-sync [:inc] {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)]
       (is (= 2 (count history))
-          ":on-create epoch (pos 0) + the user :inc epoch (pos 1)")
+          ":initial-events epoch (pos 0) + the user :inc epoch (pos 1)")
       (is (= [:app/init :inc] (mapv :event-id history))
-          ":on-create and the user dispatch are SEPARATE epochs")
+          ":initial-events and the user dispatch are SEPARATE epochs")
       (is (apply distinct? (mapv :epoch-id history))
           "each has its own :epoch-id"))))
 

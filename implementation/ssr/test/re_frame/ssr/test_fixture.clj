@@ -104,7 +104,7 @@
   ;; test in `(with-frame :rf/default …)`. SSR tests that drive their own
   ;; per-request server frames re-bind via an inner `with-frame` / pass an
   ;; explicit `{:frame …}`; both win over this ambient scope. A top-level
-  ;; `reg-frame …:on-create` still drains synchronously — the lifecycle
+  ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/reg-frame :rf/default {})

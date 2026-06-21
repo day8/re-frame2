@@ -1511,10 +1511,10 @@
         ;; classification key / non-string carrier name throws here, BEFORE
         ;; the registrar write and BEFORE any container exists, so a bad
         ;; declaration leaves no half-registered frame and never reaches
-        ;; `:on-create`. The extracted result (app-db sensitive/large paths,
+        ;; `:initial-events`. The extracted result (app-db sensitive/large paths,
         ;; sensitive-wins-resolved) is installed into the durable elision
         ;; registry once the container exists (below, atomically before
-        ;; `:on-create`). Reached via late-bind: `re-frame.frame-classification`
+        ;; `:initial-events`). Reached via late-bind: `re-frame.frame-classification`
         ;; requires `elision` which requires this ns, so a static require
         ;; would cycle; `re-frame.core` requires it at boot so the hook is
         ;; always published before any runtime `reg-frame`. Returns nil when
@@ -1556,7 +1556,7 @@
           (swap! frames assoc id f)
           ;; EP-0015 §3: install the frame-owned app-db
           ;; classification into the durable elision registry NOW — the
-          ;; container exists, and this MUST land before `:on-create` runs
+          ;; container exists, and this MUST land before `:initial-events` run
           ;; (a `:rf/path` declared sensitive must be redacted in any trace
           ;; the init cascade emits). Already validated above, so this only
           ;; mutates the runtime-db elision slot; no-op when the config

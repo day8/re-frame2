@@ -29,7 +29,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `reg-frame …:on-create` still drains synchronously — the lifecycle
+  ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/reg-frame :rf/default {})
@@ -111,8 +111,8 @@
   "Pattern-Boot §The simple form — chained events / §The state-machine
   canonical form / §Standard boot states. Verifies both the chained-event
   variant for trivial boots and the canonical machine variant exercising
-  :configuring → :loading → :ready driven by :on-create."
-  (testing "chained-events boot — :on-create dispatch threads through to :ready"
+  :configuring → :loading → :ready driven by :initial-events."
+  (testing "chained-events boot — :initial-events dispatch threads through to :ready"
     (rf/reg-event :app/init
       (fn [_ _] {:fx [[:dispatch [:config/load]]]}))
     (rf/reg-event :config/load
@@ -136,11 +136,11 @@
                                           :action :record-config}}}
           :loading     {:on {:loaded     {:target :ready}}}
           :ready       {}}}))
-    ;; :on-create kicks the boot machine; subsequent dispatched lifecycle
+    ;; :initial-events kick the boot machine; subsequent dispatched lifecycle
     ;; events drive the documented progression to :ready.
     (let [f (frame/make-anon-frame-record! {:initial-events [[:app/boot [:configured {:url "/api"}]]]})]
       (is (= :loading (get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :app/boot :state]))
-          ":on-create transitioned :configuring → :loading")
+          ":initial-events transitioned :configuring → :loading")
       (rf/dispatch-sync [:app/boot [:loaded]] {:frame f})
       (is (= :ready (get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :app/boot :state]))
           "lifecycle events drove machine to :ready")

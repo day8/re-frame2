@@ -36,7 +36,7 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/initialise}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc}}]
 
-  ;; Two settled drains: the :on-create cascade (position 0) and the
+  ;; Two settled drains: the :initial-events cascade (position 0) and the
   ;; user :counter/inc (position 1). Both commit an :ok record carrying
   ;; the :db-before / :db-after pair. Partial-submap match — extra slots
   ;; (`:effects`, `:sub-runs`, `:renders`, `:trace-events`, `:epoch-id`,

@@ -586,7 +586,7 @@
     ;; the machines / SSR / privacy destroy hooks). Schemas registered
     ;; before the runner's destroy+reg-frame cycle would be cleared by
     ;; the new hook; the runner registers them after `destroy-frame!` and
-    ;; before `reg-frame` so the :on-create cascade fires with the
+    ;; before `reg-frame` so the :initial-events cascade fires with the
     ;; fixture's declared schema slate.
     ;; machine registrations
     (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
@@ -604,7 +604,7 @@
 (defn- realise-app-schemas!
   "Register the fixture's app-db schemas. Called AFTER the runner's
   destroy-frame! step (so the new `:schemas/on-frame-destroyed!` hook
-  doesn't wipe them) and BEFORE `reg-frame` (so the :on-create cascade
+  doesn't wipe them) and BEFORE `reg-frame` (so the :initial-events cascade
   validates the seeded state against the schemas). Per rf2-wkxng /
   rf2-6m0se."
   [fixture]
@@ -1312,14 +1312,14 @@
           scope-frame  (if (seq frames-spec)
                          (:id (first frames-spec))
                          :rf/default)
-          ;; reset-runtime! created :rf/default WITHOUT an :on-create.
+          ;; reset-runtime! created :rf/default WITHOUT any :initial-events.
           ;; reg-frame against an existing id is a surgical update; destroy
-          ;; first so :on-create fires when re-registered.
+          ;; first so :initial-events fire when re-registered.
           _            (rf/destroy-frame! :rf/default)
           ;; Per rf2-wkxng / rf2-6m0se: register schemas AFTER the
           ;; destroy (the new `:schemas/on-frame-destroyed!` hook drops
           ;; the frame's schema entries on destroy) and BEFORE the
-          ;; re-create so the :on-create cascade validates against the
+          ;; re-create so the :initial-events cascade validates against the
           ;; fixture's declared slate. `reg-app-schema` is frame-scoped,
           ;; so establish the scope explicitly.
           _            (rf/with-frame scope-frame

@@ -127,7 +127,7 @@
 (defn- one-request!
   "Drive one request through the SSR runtime end-to-end:
 
-    1. make-frame with :platform :server and a synthetic :on-create.
+    1. make-frame with :platform :server and synthetic :initial-events.
     2. set-request! populates the per-frame request slot (Ring-adapter
        parity — exercises the side-channel that needs cleanup).
     3. Drain settles synchronously via dispatch-sync.

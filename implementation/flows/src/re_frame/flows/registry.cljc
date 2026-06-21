@@ -1080,7 +1080,7 @@
   EP-0002 — flows are CONTEXT-REQUIRED FRAME-LOCAL registration. The
   frame to register against is the explicit `:frame` opt (the *override*),
   else the carried-invariant scope chain via `frame/require-current-frame!`
-  (a `with-frame` / frame-provider scope, or a frame `:on-create` hook). A
+  (a `with-frame` / frame-provider scope, or a frame `:initial-events` step). A
   `reg-flow` issued under no established scope and no explicit `:frame`
   raises the always-on `:rf.error/no-frame-context` (per Spec 002 §Frame
   target resolution) rather than silently registering against `:rf/default`

@@ -30,9 +30,9 @@
        `:fixture/registry :flow` paired with `:fixture/flow-bodies`
        (via `re-frame.conformance/realise-flow-output-fn`).
     4. Registers the default frame with the fixture's
-       `:fixture/frame-config` (including any `:on-create` seed events).
+       `:fixture/frame-config` (including any `:initial-events` seed events).
        Re-registers because reset-runtime created a vanilla
-       `:rf/default`; the fixture's `:on-create` cascade fires here.
+       `:rf/default`; the fixture's `:initial-events` cascade fires here.
     5. Drives `:fixture/dispatches` through `rf/dispatch-sync`. Dispatches
        are either bare event vectors or envelope maps `{:event [...]
        :frame <id> ...}` (the multi-frame shape per
@@ -62,7 +62,7 @@
          `#{ids}` reads `:rf/default`'s slot (single-frame), or a map
          `{frame-id #{ids}}` reads each frame's slot (multi-frame).
 
-  Frame topology is declared via `:fixture/frames [{:id ... :on-create ...} ...]`
+  Frame topology is declared via `:fixture/frames [{:id ... :initial-events ...} ...]`
   (multi-frame, per Spec 013 §Frame-scoping) OR `:fixture/frame-config`
   (single-frame, configures `:rf/default`).
 
@@ -146,8 +146,8 @@
   ;; :rf/default floor). Register :rf/default as an
   ;; ordinary frame here so the scope is available — but do NOT pin
   ;; `*current-frame*` around the whole body: `run-fixture`'s `reg-frame`
-  ;; must run with no in-flight scope so its `:on-create` cascade fires
-  ;; SYNCHRONOUSLY (frame/reg-frame async-queues on-create when
+  ;; must run with no in-flight scope so its `:initial-events` cascade fires
+  ;; SYNCHRONOUSLY (frame/reg-frame async-queues initial-events when
   ;; `*current-frame*` is bound — Spec 002 §reg-frame from inside a
   ;; handler). `run-fixture` pins the scope itself, after `reg-frame`,
   ;; around `realise-flows!` + the dispatch loop.
@@ -546,10 +546,10 @@
           err-records  (collect-error-emit-records fid)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
-          ;; `reset-runtime` already created :rf/default WITHOUT an
-          ;; :on-create. `reg-frame` against an existing id is a
-          ;; surgical update that does NOT re-fire :on-create (Spec 002).
-          ;; Destroy first so the fixture's :on-create cascade fires
+          ;; `reset-runtime` already created :rf/default WITHOUT any
+          ;; :initial-events. `reg-frame` against an existing id is a
+          ;; surgical update that does NOT re-fire :initial-events (Spec 002).
+          ;; Destroy first so the fixture's :initial-events cascade fires
           ;; under its declared config.
           ;;
           ;; Multi-frame fixtures (per Spec 013 §Frame-scoping) declare
@@ -558,17 +558,17 @@
           ;; shape (`:fixture/frame-config` configures `:rf/default`).
           ;;
           ;; Order: event / sub / fx handlers must be registered BEFORE
-          ;; `reg-frame` fires the `:on-create` cascade — `:on-create`
-          ;; dispatches the fixture's seed event, which needs its handler
+          ;; `reg-frame` fires the `:initial-events` cascade — `:initial-events`
+          ;; dispatch the fixture's seed event, which needs its handler
           ;; resolved. Flow registration MUST come AFTER `reg-frame`: the
           ;; destroy-frame! teardown hook clears any flows registered against
           ;; the frame being destroyed, so registering them before the destroy
           ;; would wipe them.
           _            (rf/destroy-frame! :rf/default)
           _            (realise-event-sub-fx-handlers fixture)
-          ;; reg-frame runs with NO in-flight scope so its `:on-create`
+          ;; reg-frame runs with NO in-flight scope so its `:initial-events`
           ;; cascade fires SYNCHRONOUSLY (Spec 002 §reg-frame from inside a
-          ;; handler async-queues on-create when `*current-frame*` is bound;
+          ;; handler async-queues initial-events when `*current-frame*` is bound;
           ;; EP-0002). The carried-invariant scope is pinned AFTER reg-frame,
           ;; around `realise-flows!` + the dispatch loop.
           _            (if (seq frames-spec)

@@ -549,7 +549,7 @@
                         takes a props map or similar.
        :frame-config    extra map merged into the frame's config map
                         (passed to `make-frame` / `reg-frame`). Use for
-                        `:on-create`, `:fx-overrides`, `:interceptor-overrides`,
+                        `:initial-events`, `:fx-overrides`, `:interceptor-overrides`,
                         `:interceptors` and the rest of the frame-shape
                         contract per Spec 002.
 

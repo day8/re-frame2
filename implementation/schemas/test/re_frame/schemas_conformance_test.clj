@@ -411,7 +411,7 @@
     ;; schema registration must follow the runner's destroy+reg-frame
     ;; cycle. Event / sub / cofx / fx registrations are global on
     ;; the registrar and survive destroy-frame!, so they continue to
-    ;; live here so `:on-create` can fire against them.
+    ;; live here so `:initial-events` can fire against them.
     nil))
 
 (defn- realise-app-schemas
@@ -560,10 +560,10 @@
           traces       (collect-traces fid)
           _            (realise-handlers fixture)
           frame-config (or (:fixture/frame-config fixture) {})
-          ;; `reset-runtime` already created :rf/default WITHOUT an
-          ;; :on-create. `reg-frame` against an existing id is a
-          ;; surgical update that does NOT re-fire :on-create (Spec 002).
-          ;; Destroy first so the fixture's :on-create cascade fires
+          ;; `reset-runtime` already created :rf/default WITHOUT any
+          ;; :initial-events. `reg-frame` against an existing id is a
+          ;; surgical update that does NOT re-fire :initial-events (Spec 002).
+          ;; Destroy first so the fixture's :initial-events cascade fires
           ;; under its declared frame config.
           _            (rf/destroy-frame! :rf/default)
           ;; Per rf2-wkxng / rf2-6m0se: register app-db schemas
@@ -571,14 +571,14 @@
           ;; `:schemas/on-frame-destroyed!` hook drops the frame's
           ;; schemas on destroy, so registering them BEFORE the
           ;; destroy would leak them through). Schemas must also
-          ;; precede `reg-frame` so the :on-create cascade fires
-          ;; with the schemas in place — the on-create's db commit
+          ;; precede `reg-frame` so the :initial-events cascade fires
+          ;; with the schemas in place — the initial-events' db commit
           ;; will trigger validate-app-schema! against the new slate.
           _            (realise-app-schemas fixture)
           ;; EP-0002 (rf2-5q7um6): the shared `tf/reset-runtime` pins
           ;; `*current-frame* :rf/default` for the body. Unbind it around
-          ;; `reg-frame` so the fixture's `:on-create` cascade fires
-          ;; SYNCHRONOUSLY — `frame/reg-frame` async-queues on-create when
+          ;; `reg-frame` so the fixture's `:initial-events` cascade fires
+          ;; SYNCHRONOUSLY — `frame/reg-frame` async-queues initial-events when
           ;; `*current-frame*` is bound (Spec 002 §reg-frame from inside a
           ;; handler), which would land the seed AFTER the first dispatch.
           _            (binding [frame/*current-frame* nil]

@@ -338,7 +338,7 @@
              ;; dispatch (frame-init, internal continuations, REPL
              ;; eval) is never misattributed as UI-driven. UI
              ;; handler call-sites stamp `:source :ui` explicitly; the
-             ;; `:on-create` frame-init dispatch (frame.cljc) stamps
+             ;; `:initial-events` frame-init dispatch (frame.cljc) stamps
              ;; `:source :frame-init`; fx-emit dispatches (fx.cljc)
              ;; inherit the parent's `:source`; tests / REPL stamp
              ;; their own kind. `:unknown` surfaces "we lost track"
@@ -3260,7 +3260,7 @@
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; Other namespaces that load BEFORE this one (re-frame.frame for :on-create
+;; Other namespaces that load BEFORE this one (re-frame.frame for :initial-events
 ;; / :on-destroy, re-frame.fx for :dispatch / :dispatch-later) need to call
 ;; into the router. They cannot `:require` this namespace without a cyclic
 ;; load order, so we publish our entry points through the late-bind hook

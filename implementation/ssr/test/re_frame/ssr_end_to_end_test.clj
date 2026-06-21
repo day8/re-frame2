@@ -125,7 +125,7 @@
                           :platform     :server
                           :initial-events    [[:rf/server-init {:uri "/articles"}]]
                           :fx-overrides {:http/get :http/get.canned-articles}})
-          ;; (2)+(3) drain settled via :on-create + dispatch-sync chain
+          ;; (2)+(3) drain settled via :initial-events + dispatch-sync chain
           server-db    (rf/app-db-value server-frame)]
 
       (is (= 2 (count (:articles server-db)))

@@ -125,7 +125,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `reg-frame …:on-create` still drains synchronously — the lifecycle
+  ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/reg-frame :rf/default {})
@@ -229,7 +229,7 @@
     (install-canned-articles-stub!)
     ;; The example's `:rf/server-init` fires `:rf.http/managed`; redirect it
     ;; to the canned stub via the lexical-scope `with-fx-overrides` so the
-    ;; per-request frame's `:on-create` drain (which runs synchronously
+    ;; per-request frame's `:initial-events` drain (which runs synchronously
     ;; inside `reg-frame`, inside this dynamic scope) routes through the stub
     ;; — no real network traffic. (The same seam the state-machine example
     ;; test uses; we don't redefine the `reg-frame` macro.)
@@ -288,7 +288,7 @@
 ;;
 ;; The fix held the app schema as a value (`ArticlesSchema`) and registered it
 ;; explicitly against EACH frame family — the per-request server frame in
-;; `handle-request` (BEFORE `:on-create` fires `:rf/server-init`) and the
+;; `handle-request` (BEFORE `:initial-events` fires `:rf/server-init`) and the
 ;; fixed client hydration frame in `run`. The earlier bare ns-load
 ;; registration either raised `:rf.error/no-frame-context` or (under a naive
 ;; `with-frame :rf/default`) bound the schema to the client frame ONLY,
@@ -315,8 +315,8 @@
     (install-canned-articles-stub!)
     (let [articles-schema @(resolve 'ssr.core/ArticlesSchema)
           ;; Drive a per-request server frame exactly as handle-request does:
-          ;; register the schema against the gensym frame BEFORE :on-create
-          ;; fires :rf/server-init (which commits the canned articles).
+          ;; register the schema against the gensym frame BEFORE :initial-events
+          ;; fire :rf/server-init (which commits the canned articles).
           fid             (keyword "rf.frame" (str (gensym "f")))
           _               (ssr/set-request! fid {:uri "/articles"})
           _               (rf/reg-app-schema [:articles] {:schema articles-schema :frame fid})
