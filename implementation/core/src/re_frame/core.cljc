@@ -2265,11 +2265,12 @@
 ;; on-match-error trap, the SSR error projector).
 
 (def ^{:doc "Walk `v` and substitute the frame's declared sensitive or
-  large paths for wire egress (the durable declarations are frame-owned —
-  installed by `reg-frame` `:sensitive` / `:large {:app-db …}`, EP-0015 §8).
-  Sensitive wins over large when both declarations match. Sensitive paths
-  become `:rf/redacted`; large paths become `:rf.size/large-elided`. Per
-  Spec 009 §Wire elision and Security.md §Off-box egress."}
+  large paths for wire egress (the durable declarations are classified by the
+  EP-0025 commit-plane classification effects — a `reg-event` returns
+  `:sensitive` / `:large` alongside `:db`, EP-0015 §8). Sensitive wins over
+  large when both declarations match. Sensitive paths become `:rf/redacted`;
+  large paths become `:rf.size/large-elided`. Per Spec 009 §Wire elision and
+  Security.md §Off-box egress."}
   elide-wire-value                 elision/elide-wire-value)
 
 (def ^{:doc "Project a record or value for egress across a trust boundary
@@ -2322,10 +2323,11 @@
 ;; `populate-sensitive-from-schemas!` facade exports are REMOVED. They were
 ;; the public route that walked `reg-app-schema` `{:large? true}` /
 ;; `{:sensitive? true}` slot props into the app-db egress registry — a
-;; second route to classify a durable app-db path the frame now owns
-;; (`reg-frame` `:sensitive` / `:large {:app-db …}`). Schemas describe
+;; second route to classify a durable app-db path. Schemas describe
 ;; shape, not durable app-db egress policy; durable app-db classification is
-;; installed once at `reg-frame` time by `re-frame.frame-classification`.
+;; declared (EP-0025) by the commit-plane classification effects — a
+;; `reg-event` returns `:sensitive` / `:large` alongside `:db`,
+;; `re-frame.elision/apply-classification-effects`.
 
 ;; EP-0025: the derived-tree VALUE-match egress helper (`redact-derived-slots`)
 ;; and its granular value-match gears are REMOVED from the façade AND from

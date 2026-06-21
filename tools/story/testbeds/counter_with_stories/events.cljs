@@ -29,6 +29,17 @@
   (fn [{:keys [db]} [_ initial-count]]
     {:db (assoc db :count (or initial-count 0))}))
 
+;; EP-0025: durable app-db egress classification rides the commit-plane
+;; classification effects. This event classifies the `[:user/avatar-pdf]`
+;; slot LARGE by returning the `:large` effect alongside `:db`, so
+;; `elide-wire-value` substitutes the `:rf.size/large-elided` marker on that
+;; slot at wire egress. (Schemas describe shape only; the classification rides
+;; the effect, not a frame annotation.)
+(rf/reg-event :counter/classify-avatar-large
+  (fn [{:keys [db]} _event]
+    {:db db
+     :large [[:user/avatar-pdf]]}))
+
 (rf/reg-event :counter/inc
   (fn [{:keys [db]} _event]
     {:db (update db :count inc)}))

@@ -27,7 +27,7 @@
 {:fixture/id           :data-classification/machine-no-top-level-sensitive-key
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :fsm/registration-validation}
- :fixture/doc          "A reg-machine spec carrying a frame-shaped TOP-LEVEL :sensitive / :large key validates SILENTLY — the key is ignored, not a classification route (rf2-0k5ubx). Per EP-0025 machine :data egress classification is FRAME-OWNED (reg-frame :sensitive / :large {:app-db ...}); reg-machine carries no classification key at all (neither top-level :sensitive/:large nor — post-EP-0025 — a classifying :data-schema prop)."
+ :fixture/doc          "A reg-machine spec carrying a frame-shaped TOP-LEVEL :sensitive / :large key validates SILENTLY — the key is ignored, not a classification route (rf2-0k5ubx). Per EP-0025 machine :data egress classification is declared by the commit-plane :sensitive / :large effects (a reg-event returns :sensitive / :large alongside :db); reg-machine carries no classification key at all (neither top-level :sensitive/:large nor — post-EP-0025 — a classifying :data-schema prop)."
 
  :fixture/calls
  [;; A machine spec with frame-shaped top-level :sensitive / :large keys —

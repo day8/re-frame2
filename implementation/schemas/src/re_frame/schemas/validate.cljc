@@ -170,13 +170,13 @@
   (`:path`, `:bytes`, `:type`, `:reason`, `:hint`, `:handle`) is therefore
   identical to every other framework emission and cannot drift (rf2-9wvwpa).
 
-  `:reason :frame` — post-EP-0015 §8 the egress `:reason` enum is
-  `[:frame :marks]` (Spec-Schemas §`:rf/elision-marker`); `:frame` is the
-  declarative/registration-time default in `->marker`. No imperative mark
-  created this elision, and the validation-failure provenance is already on
-  the enclosing trace envelope (`:operation
+  `:reason :effect` — EP-0025 removed the durable `:sensitive` / `:large`
+  *frame annotation* (and the imperative marks API); the canonical
+  declarative classification provenance is now `:effect` (the commit-plane
+  classification effects), the default in `->marker`. The validation-failure
+  provenance is already on the enclosing trace envelope (`:operation
   :rf.error/schema-validation-failure` + `:where` + `:tags :large? true`), so
-  the marker carries no `:reason :schema` carve-out.
+  the marker carries no `:reason :schema` carve-out — it rides the default.
 
   `:hint nil` — the slot is REQUIRED by the contract (Spec 009 §Wire marker
   permits a nil value); the whole-value substitution has no human-facing
@@ -186,7 +186,7 @@
   the whole-payload nature of these slots (a single marker, not a path-walk;
   the value-bearing slots carry the whole checked value, not a leaf)."
   [v]
-  (elision/->marker v [] {:reason :frame :hint nil}))
+  (elision/->marker v [] {:reason :effect :hint nil}))
 
 (defn- elide-large-slots
   "Substitute the `:rf.size/large-elided` marker (for `v`, the whole checked

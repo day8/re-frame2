@@ -92,9 +92,15 @@
   (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! []
-  (rf/reg-frame frame-id
-    {:sensitive {:app-db [[:token] [:secret-big]]}
-     :large     {:app-db [[:blob] [:secret-big]]}}))
+  (rf/reg-frame frame-id {})
+  ;; EP-0025: durable app-db classification rides the commit-plane effect
+  ;; path (:source :effect) — no longer a frame annotation. The egress walker
+  ;; enforces sensitive-wins-over-large, so [:secret-big] (declared both)
+  ;; still redacts.
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:token] [:secret-big]]
+                :large     [[:blob] [:secret-big]]}))))
 
 ;; A reply `:value` body whose leaves sit at the declared coordinates (seeded
 ;; via `:path []`, so `[:token]` / `[:blob]` / `[:secret-big]` are the walk

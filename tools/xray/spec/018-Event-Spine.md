@@ -1021,7 +1021,7 @@ The category table below is retained as the canonical **"what counts as an issue
 |---|---|---|
 | **JS exceptions** | uncaught errors; React lifecycle exceptions; promise rejections at handler scope | red; full stack-trace in the Epoch panel's "Exception Thrown" block |
 | **Schema violations** | Malli registration on app-db / event-args / sub-output | yellow; offending path + expected vs actual in the Epoch EFFECT HANDLERS step |
-| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before classification applied · per-declaration classification-misses (a frame `:sensitive {:app-db …}` / registration `:sensitive` path pointing at nothing — typo detection) | magenta; marker-aware so the warning itself doesn't leak the value |
+| **Sensitive-data warnings** | `:rf/redacted` paths that escaped via `console.error` before classification applied · per-declaration classification-misses (a commit-plane `:sensitive` effect / registration `:sensitive` path pointing at nothing — typo detection) | magenta; marker-aware so the warning itself doesn't leak the value |
 | **Hydration mismatches** | SSR-only; mismatched server/client tree | yellow; node path + server vs client text |
 | **Perf-budget overruns** | cascades exceeding configured perf budget | orange; actual vs budget + cascade-id |
 | **App console errors/warns** | host app's `console.error` / `console.warn` calls (captured via hook) | dim grey (advisory); raw text |
@@ -1778,7 +1778,7 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 
 Per [spec/015-Data-Classification §The ownership split](../../../spec/015-Data-Classification.md) — classification is attached to whoever owns the data shape. This **supersedes** the earlier "seven first-class marking sites" framing and the public `add-marks` / `set-marks` app-db surface. Xray consumes the resulting sentinels; it renders them identically regardless of owner.
 
-1. **Frame** (`reg-frame`) — durable frame-wide facts classified by the frame's `:sensitive {:app-db …}` / `:large {:app-db …}` path maps (and `:sensitive {:http {…}}` carriers). This is the durable app-db classification path; schema-attached app-db classification and the imperative `add-marks` / `set-marks` surface are removed.
+1. **Commit-plane classification effects** (`reg-event` returning `:sensitive` / `:large` alongside `:db`) — durable app-db facts classified into the per-frame elision registry under `:source :effect`. This is the durable app-db classification path; the durable `:sensitive` / `:large {:app-db …}` frame annotation, schema-attached app-db classification, and the imperative `add-marks` / `set-marks` surface are all removed. (Frame-local `:sensitive {:http {…}}` HTTP carriers still ride `reg-frame`.)
 2. **Event handler** (`reg-event`) — `{:sensitive [paths]}` on the registration map (event-arg transient payloads).
 3. **Subscription** — output classification via `{:sensitive [paths]}` and the closed `:rf.egress/output-sensitivity` declassification claim (`:rf.egress/inherit` default · `:rf.egress/sensitive` force-mark · `:rf.egress/public` declassify). Sensitivity propagates from sensitive input paths unless declassified.
 4. **Effect** (`reg-fx`) — input marking on the fx-args.

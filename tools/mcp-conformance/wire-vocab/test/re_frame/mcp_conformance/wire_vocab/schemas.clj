@@ -271,7 +271,13 @@
    [:path    [:vector :any]]
    [:bytes   :int]
    [:type    [:enum :map :vector :set :scalar :string]]
-   [:reason  [:enum :frame :marks]]
+   ;; EP-0025: `:reason` is the declaration SOURCE that classified the path.
+   ;; The durable `:sensitive`/`:large {:app-db …}` frame annotation (`:frame`)
+   ;; and the imperative marks API (`:marks`) are REMOVED; the surviving sources
+   ;; are the commit-plane classification effects (`:effect`, the canonical
+   ;; default), `reg-flow` outputs (`:flow`), and the subsystem
+   ;; projection-relative declarations (`:route` / `:machine`).
+   [:reason  [:enum :effect :flow :route :machine]]
    [:hint    [:maybe :string]]
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]
    [:digest  {:optional true} :string]])
@@ -583,39 +589,39 @@
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
     ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits today. The
-    ;; `:reason` slot carries the declaration provenance per EP-0015 §8
-    ;; (rf2-d2r3um): the large declaration is now FRAME-OWNED (`:source
-    ;; :frame` — `re-frame.frame-classification/install!`), so `:reason`
-    ;; is `:frame` for a frame-declared slot, or `:marks` for an
-    ;; imperative `add-marks`/`set-marks` declaration (`re-frame.marks`).
-    ;; The pre-EP-0015 `:schema` nomination path is gone. Three fixtures
-    ;; below cover both `:reason` variants × two body shapes
-    ;; (string-with-hint / map-with-digest / set-via-marks).
+    ;; `:reason` slot carries the declaration provenance (the `:source` that
+    ;; classified the path). EP-0025: the durable `:sensitive`/`:large {:app-db
+    ;; …}` frame annotation (`:frame`) and the imperative `add-marks`/`set-marks`
+    ;; API (`:marks`) are REMOVED; the surviving sources are the commit-plane
+    ;; classification effects (`:effect`, the canonical default), `reg-flow`
+    ;; outputs (`:flow`), and the subsystem projection-relative declarations
+    ;; (`:route` / `:machine`). Three fixtures below cover the `:effect` source
+    ;; across body shapes (string-with-hint / map-with-digest / set).
     :servers  #{:re-frame2-pair-mcp}
-    :fixtures {:re-frame2-pair-mcp-frame-string
+    :fixtures {:re-frame2-pair-mcp-effect-string
                {:rf.size/large-elided
                 {:path   [:user :uploaded-pdf]
                  :bytes  102400
                  :type   :string
-                 :reason :frame
+                 :reason :effect
                  :hint   "User-uploaded PDF; fetch via get-path."
                  :handle [:rf.elision/at [:user :uploaded-pdf]]}}
-               :re-frame2-pair-mcp-frame-with-digest
+               :re-frame2-pair-mcp-effect-with-digest
                {:rf.size/large-elided
                 {:path   [:cofx :db]
                  :bytes  524288
                  :type   :map
-                 :reason :frame
+                 :reason :effect
                  :hint   nil
                  :handle [:rf.elision/at [:cofx :db]]
                  :digest "sha256:deadbeefcafef00d"}}
-               :re-frame2-pair-mcp-marks-set
+               :re-frame2-pair-mcp-effect-set
                {:rf.size/large-elided
                 {:path   [:scratch :payload]
                  :bytes  262144
                  :type   :set
-                 :reason :marks
-                 :hint   "Imperatively marked via set-marks; fetch via get-path."
+                 :reason :effect
+                 :hint   "Classified large via the commit-plane :large effect; fetch via get-path."
                  :handle [:rf.elision/at [:scratch :payload]]}}}}
 
    {:key      :rf.mcp/cache-hit

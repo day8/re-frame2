@@ -1,11 +1,17 @@
 (ns re-frame.elision
   "Frame-owned wire-boundary elision.
 
-  Canonical durable app-db classification comes from the **frame**:
-  `(rf/reg-frame :app/main {:large {:app-db [[:docs :csv]]}})` hydrates
-  `[:rf.runtime/elision :declarations]`, and `:sensitive {:app-db …}`
-  hydrates `[:rf.runtime/elision :sensitive-declarations]` (installed by
-  `re-frame.frame-classification` under `:source :frame`). EP-0015 §8
+  Canonical durable app-db classification comes from the EP-0025
+  commit-plane classification effects: a `reg-event` handler returns
+  `:large [[:docs :csv]]` alongside `:db` to hydrate
+  `[:rf.runtime/elision :declarations]`, and `:sensitive [[…]]` to hydrate
+  `[:rf.runtime/elision :sensitive-declarations]` (written by
+  `apply-classification-effects` under `:source :effect`). EP-0025: the
+  durable `:sensitive` / `:large {:app-db …}` *frame annotation* is REMOVED
+  — a frame is not app-db's definition site. The other sources that populate
+  these slots are `reg-flow` output declarations (`:source :flow`) and
+  subsystem projection-relative declarations (resources / routing); all
+  sources union at egress-lookup time. EP-0015 §8
   (Schemas Describe Shape, Not Public Egress Policy): schemas describe
   shape and validation, NOT durable app-db egress policy — a
   `reg-app-schema` `{:sensitive? true}` / `{:large? true}` slot prop is
@@ -93,7 +99,7 @@
 
   Internal helper; exposed (with `^:no-doc`) so the EP-0025 commit-plane
   classification effects (`apply-classification-effects`) and
-  `re-frame.frame-classification` share a single source of truth for the prune
+  `re-frame.flows.registry` share a single source of truth for the prune
   logic. Not part of the public API.
 
   EP-0001: operates on the runtime-db partition value (the
@@ -122,12 +128,12 @@
   effect replaces only runtime-db; router commit decision #5). But the
   elision declaration registry at `[:rf.runtime/elision]` is a CROSS-CUTTING
   durable subsystem child mutated OUT-OF-BAND by `reg-flow` / the EP-0025
-  classification effects / the frame-classification walker — NOT by the event
-  returning the effect.
+  classification effects / subsystem projection-relative declarations — NOT by
+  the event returning the effect.
   A whole-value runtime-db effect that seeds an UNRELATED subsystem (e.g.
   `:rf.runtime/routing`) and does not itself carry `:rf.runtime/elision`
   would otherwise DROP the registry on commit, silently losing every
-  flow-sourced / mark-sourced / frame-declared elision declaration — so the
+  flow-sourced / effect-sourced elision declaration — so the
   post-commit frame would emit raw values that were correctly redacted
   pre-commit (the durable privacy/trace contract breaks after any
   runtime-db-writing event).
@@ -166,9 +172,8 @@
   container does not exist. Returns nil.
 
   Internal helper; exposed (with `^:no-doc`) so the EP-0025 classification
-  effects and `re-frame.frame-classification` / `re-frame.flows.registry` share
-  a single source of truth for the read-transform-write skeleton. Not part of
-  the public API.
+  effects and `re-frame.flows.registry` share a single source of truth for the
+  read-transform-write skeleton. Not part of the public API.
 
   EP-0001: writes through `frame/swap-runtime-db!` (the
   runtime-db partition of the one physical frame-state container) — the
@@ -197,8 +202,8 @@
 ;; post-commit `:fx`, so a path classified in the SAME event is redacted from
 ;; its first egress. They write into the per-frame elision registry's
 ;; `:sensitive-declarations` (sensitive) / `:declarations` (large) sub-maps —
-;; the SAME slot `re-frame.frame-classification` (`:source :frame`) and
-;; `re-frame.flows.registry` (`:source :flow`) populate — tagged
+;; the SAME slot `re-frame.flows.registry` (`:source :flow`) and the subsystem
+;; projection-relative declarations populate — tagged
 ;; `:source :effect`, unioned with the other sources at egress-lookup time
 ;; (`elide-against-frame` reads both sub-maps verbatim, so no change to the wire
 ;; walker is needed). Classification is VALUE-INDEPENDENT (classify a path before
@@ -338,8 +343,10 @@
     (write-elision-slot base new-reg)))
 
 (defn declarations
-  "Return the frame-owned `:large` `:app-db` declarations for `frame-id`
-  (installed by `re-frame.frame-classification` under `:source :frame`).
+  "Return the `:large` `:app-db` declarations for `frame-id` (the union of
+  every source that populates the slot — EP-0025 commit-plane effects under
+  `:source :effect`, `reg-flow` outputs under `:source :flow`, subsystem
+  projection-relative declarations).
   EP-0002 — the zero-arity ambient form resolves the frame through the
   carried-invariant scope chain (`frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
@@ -351,8 +358,10 @@
    (or (get (registry-of frame-id) :declarations) {})))
 
 (defn sensitive-declarations
-  "Return the frame-owned `:sensitive` `:app-db` declarations for `frame-id`
-  (installed by `re-frame.frame-classification` under `:source :frame`).
+  "Return the `:sensitive` `:app-db` declarations for `frame-id` (the union
+  of every source that populates the slot — EP-0025 commit-plane effects
+  under `:source :effect`, `reg-flow` outputs under `:source :flow`,
+  subsystem projection-relative declarations).
   EP-0002 — the zero-arity ambient form resolves the frame through the
   carried-invariant scope chain (`frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
@@ -365,10 +374,11 @@
 
 ;; EP-0015 §8: the schema-attached `{:sensitive? true}` /
 ;; `{:large? true}` slot props are NOT a route into this app-db
-;; egress registry. Durable app-db classification is frame-owned —
-;; `re-frame.frame-classification/install!` writes `:source :frame`
-;; declarations at `reg-frame` time. Schemas describe shape, not durable
-;; app-db egress policy. Schema `:sensitive?` drives
+;; egress registry. Durable app-db classification rides the EP-0025
+;; commit-plane classification effects — a `reg-event` returns `:sensitive` /
+;; `:large` alongside `:db`, written `:source :effect` at the commit point.
+;; Schemas describe shape, not durable app-db egress policy. Schema
+;; `:sensitive?` drives
 ;; schema-validation-failure-trace redaction (`re-frame.schemas`), and
 ;; machine `:data-schema` props classify machine `:data` (EP-0005) —
 ;; both consult the schema directly, not this registry.
@@ -425,11 +435,12 @@
   (let [body (cond-> {:path   (vec path)
                       :bytes  (pr-str-bytes v)
                       :type   (value-type v)
-                      ;; EP-0015 §8: the declaration source is
-                      ;; frame-owned (`:source :frame`) — carry that
-                      ;; provenance in `:reason` (defaults to `:frame`
-                      ;; when the decl omits an explicit source).
-                      :reason (or reason :frame)
+                      ;; Carry the declaration's source provenance in
+                      ;; `:reason` (EP-0025: the canonical source is
+                      ;; `:source :effect`, the commit-plane classification
+                      ;; effect — defaulted here when the decl omits an
+                      ;; explicit source).
+                      :reason (or reason :effect)
                       :hint   hint
                       :handle (handle-of (vec path) as-of-epoch)}
                include-digests? (assoc :digest (sha256-hex v)))]
@@ -459,7 +470,7 @@
                      {:frame    frame-id
                       :path     (vec path)
                       :bytes    bytes
-                      :hint     "Add this path to the frame's `:large {:app-db [...]}` classification (EP-0015)."
+                      :hint     "Classify this path large by returning `:large [[...]]` from the event that writes it (EP-0025 commit-plane classification effect, alongside `:db`)."
                       :recovery :no-recovery})))))
 
 ;; ---- collection-coordinate declaration matching --------------------------
@@ -833,9 +844,10 @@
 (defn elide-wire-value
   "Walk `v` and substitute the frame's declared sensitive or large paths for
   wire egress (the durable declarations live in `[:rf.runtime/elision …]`,
-  installed frame-owned by `re-frame.frame-classification` under
-  `:source :frame` — EP-0015 §8). Sensitive wins over large when both
-  declarations match.
+  written by the EP-0025 commit-plane classification effects under
+  `:source :effect`, plus `reg-flow` outputs and subsystem
+  projection-relative declarations — EP-0015 §8). Sensitive wins over large
+  when both declarations match.
 
   EP-0002 — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
@@ -908,7 +920,7 @@
 ;; values`, the `redact-matching-*` walkers, the non-unique-secret guard, and
 ;; the composed `redact-derived-slots`) were the value-based dual of the
 ;; path-based `elide-wire-value` above: they collected the live values at a
-;; frame's declared-`:sensitive` / `:large` app-db paths and substituted any
+;; frame's classified `:sensitive` / `:large` app-db paths and substituted any
 ;; EQUAL leaf in a derived tree (rendered hiccup, `:effective-args`, a snapshot
 ;; body). EP-0025 §"What is removed" disclaims this as "propagation / taint by
 ;; another name" — a universal "same value redacted everywhere" backstop that a
@@ -922,7 +934,8 @@
 ;; (a no-op for re-keyed values — the documented fail-open posture).
 ;; ---------------------------------------------------------------------------
 
-;; EP-0015 §8: there is no `:elision/populate-from-schemas!` hook — frame
-;; policy owns the app-db egress registry; schemas describe shape only.
+;; EP-0015 §8: there is no `:elision/populate-from-schemas!` hook — the
+;; commit-plane classification effects own the app-db egress registry;
+;; schemas describe shape only.
 (late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
 (late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)

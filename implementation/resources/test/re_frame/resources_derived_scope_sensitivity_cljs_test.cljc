@@ -23,6 +23,8 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.elision :as elision]
+   [re-frame.frame :as frame]
    [re-frame.privacy :as privacy]
    [re-frame.registrar :as registrar]
    [re-frame.resources.classification :as classification]
@@ -50,7 +52,11 @@
   (registrar/clear-kind! :resource-scope)
   (registrar/clear-kind! :resource)
   ;; FRAME classification: the viewer-identity path is sensitive.
-  (rf/reg-frame frame-id {:sensitive {:app-db [[:auth :user :username]]}})
+  ;; EP-0025: classified via the commit-plane effect path (:source :effect) —
+  ;; no longer a frame annotation.
+  (rf/reg-frame frame-id {})
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :user :username]]})))
   ;; resolver reading the sensitive viewer-identity path (default :inherit)
   (rf/reg-resource-scope :t/session
     {:inputs  {:username [:db [:auth :user :username]]}

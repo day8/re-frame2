@@ -105,9 +105,13 @@
   (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
-  (rf/reg-frame frame-id
-    {:sensitive {:app-db [[:token] [:partner-key] [:detail :token]]}
-     :large     {:app-db [[:doc]]}}))
+  (rf/reg-frame frame-id {})
+  ;; EP-0025: durable app-db classification rides the commit-plane effect
+  ;; path (:source :effect) — no longer a frame annotation.
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:token] [:partner-key] [:detail :token]]
+                :large     [[:doc]]}))))
 
 ;; ---------------------------------------------------------------------------
 ;; PROPERTY 1 — framed trace egress: every wire-bearing slot routes through

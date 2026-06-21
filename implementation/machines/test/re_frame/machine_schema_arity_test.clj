@@ -14,9 +14,9 @@
 
   A `:data-schema` is validation-only; it does not run a second
   egress-classification side-effect. Durable machine `:data` egress
-  classification is frame-owned (`reg-frame` `:sensitive` / `:large {:app-db
-  …}`), and that frame-owned redaction surface is pinned by
-  `machine-data-schema-redaction-test`.
+  classification rides the projection-relative subsystem declaration / the
+  commit-plane `:sensitive` / `:large` effects (EP-0025), and that redaction
+  surface is pinned by `machine-data-schema-redaction-test`.
 
   Contract under test:
 

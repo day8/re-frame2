@@ -83,8 +83,8 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.disposable :as rf-disposable]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.interop :as interop]
             [re-frame.subs :as subs]
             [re-frame.late-bind :as late-bind]
@@ -1536,14 +1536,15 @@
     (let [id     (mint-kw substrate-kw "view-rendered-args-sensitive")
           traces (record-view-rendered!)]
       ;; Declare [:auth :password] sensitive on this frame's app-db elision
-      ;; registry — the SAME registry :rf.event/db consults. EP-0015 §8
-      ;; (rf2-d2r3um): durable app-db classification is frame-owned; the
-      ;; frame-classification install! seam writes a `:source :frame`
-      ;; declaration (index-free :rf/path) the walker reads. The fixture
-      ;; reg-frames the ambient :rf/default the render lands in.
-      (frame-class/install! :rf/default
-        (frame-class/validate+extract :rf/default
-          {:sensitive {:app-db [[:auth :password]]}}))
+      ;; registry — the SAME registry :rf.event/db consults. EP-0025:
+      ;; durable app-db classification rides the commit-plane classification
+      ;; effects; `elision/apply-classification-effects` writes a
+      ;; `:source :effect` declaration (index-free :rf/path) the walker reads
+      ;; — the same registry write a `reg-event` returning `:sensitive`
+      ;; performs. The fixture reg-frames the ambient :rf/default the render
+      ;; lands in.
+      (frame/swap-runtime-db! :rf/default
+        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
       (rf/reg-view* id (fn [_props] (React/createElement "span" #js {} "ok")))
       ;; Pass a render arg whose [:auth :password] leaf mirrors the
       ;; sensitive app-db path. The marks chokepoint elides it before

@@ -105,11 +105,12 @@
 ;; the form. Open by default; the regex/min-length checks describe the
 ;; shape the inner handler relies on.
 ;;
-;; Frame-declared `:sensitive` / `:large {:app-db …}` paths (`reg-frame`)
-;; are the sole app-db data-classification mechanism. `Credentials` is the
-;; machine's EVENT-arg schema (it rides `AuthLoginEvent` via the machine's
-;; event `:schema`); the password is never written to durable app-db or the
-;; machine `:data` slot, so there is no app-db path to frame-declare for it.
+;; The EP-0025 commit-plane `:sensitive` / `:large` classification effects (a
+;; `reg-event` returns them alongside `:db`) are the durable app-db
+;; data-classification mechanism. `Credentials` is the machine's EVENT-arg
+;; schema (it rides `AuthLoginEvent` via the machine's event `:schema`); the
+;; password is never written to durable app-db or the machine `:data` slot, so
+;; there is no app-db path to classify for it.
 ;;
 ;; The password's real off-box egress path is the HTTP request body — redacted
 ;; by the per-request `:sensitive? true` flag on the managed-HTTP call in

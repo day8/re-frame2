@@ -1,166 +1,38 @@
 (ns re-frame.frame-classification-cljs-test
-  "EP-0015 §3 + §9 (rf2-ueg1tn) — frame-owned durable classification on
-  `reg-frame`. Pins the four acceptance legs the bead enumerates:
+  "EP-0015 §3 (HTTP carriers) + §9 (observability sink policy) — the
+  surviving frame-owned policy on `reg-frame`. EP-0025 REMOVED the durable
+  `:sensitive` / `:large {:app-db …}` app-db classification annotation (a
+  frame is not app-db's definition site); durable app-db classification now
+  rides the commit-plane classification effects (`re-frame.elision`,
+  `:source :effect`). This suite pins what `re-frame.frame-classification`
+  still owns:
 
-    (a) install-before-`:initial-events` — frame-owned `:sensitive` / `:large`
-        `:app-db` paths are installed into the durable elision registry
-        ATOMICALLY as part of frame creation, BEFORE the `:initial-events`
-        setup cascade runs (so a path declared sensitive is already redacted
-        in any trace the init cascade emits).
-    (b) replace-on-rereg — re-registering a frame REPLACES its frame-owned
-        classification (the declaration IS the policy; no additive merge);
-        schema- and marks-sourced declarations survive.
-    (c) sensitive-wins-over-large — a path declared BOTH sensitive and large
-        installs as sensitive ONLY; no large declaration entry is created
-        for it, so no `:rf.size/large-elided` marker can leak.
-    (d) fail-loud — malformed paths, unknown classification keys, and
-        non-string HTTP carrier names throw `:rf.error/bad-frame-classification`
-        at `reg-frame` time, before any state mutates / before `:initial-events`.
+    (a) the retired `:app-db` key (and the whole `:large` frame key) FAIL
+        LOUD with `:rf.error/bad-frame-classification` at `reg-frame` time —
+        the clean-break guard against the removed annotation;
+    (b) HTTP carriers (`:sensitive {:http {:headers … :query-params …}}`) and
+        `:observability` sink policy validate (shape-only) and ride the
+        frame's `:config` verbatim for the later HTTP / observability slices;
+    (c) fail-loud — unknown classification keys, non-string HTTP carrier
+        names, malformed observability entries, and unknown egress profiles
+        throw `:rf.error/bad-frame-classification` at `reg-frame` time,
+        before any state mutates / before `:initial-events`.
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
-  `clojure -M:test` runner both pick it up. The classification install +
-  validation is plain CLJC; no DOM dependency."
+  `clojure -M:test` runner both pick it up. The validation is plain CLJC;
+  no DOM dependency."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as fc]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture
     {:adapter plain-atom/adapter}))
-
-;; ---------------------------------------------------------------------------
-;; (a) install-before-:initial-events
-;; ---------------------------------------------------------------------------
-
-(deftest classification-installed-before-initial-events
-  (testing "frame-owned :sensitive / :large :app-db paths are in the elision
-            registry BEFORE the :initial-events setup cascade runs"
-    (let [seen (atom :unset)]
-      ;; The :initial-events setup handler observes the elision registry
-      ;; mid-init. If classification installs atomically before setup, the
-      ;; handler sees the sensitive declaration already present.
-      (rf/reg-event :app/init
-        (fn [{:keys [db]} _]
-          (reset! seen (elision/sensitive-declarations :app/main))
-          {:db db}))
-      (rf/reg-frame :app/main
-        {:sensitive {:app-db [[:auth :token]]}
-         :large     {:app-db [[:documents :csv-upload]]}
-         :initial-events [[:app/init]]})
-      ;; The handler captured the registry as it stood DURING :initial-events.
-      (is (not= :unset @seen) ":initial-events ran")
-      (is (contains? @seen [:auth :token])
-          "sensitive declaration was present before :initial-events ran")
-      (is (= :frame (:source (get @seen [:auth :token])))
-          "frame-owned declaration is tagged :source :frame")
-      ;; And after creation the large declaration is installed too.
-      (is (contains? (elision/declarations :app/main) [:documents :csv-upload])
-          "large declaration installed")
-      (is (= :frame (:source (get (elision/declarations :app/main)
-                                  [:documents :csv-upload])))))))
-
-(deftest classification-app-db-paths-normalize-to-vectors
-  (testing ":rf/path entries are normalised to canonical vectors (EP-0012)"
-    ;; A seq path normalises to a vector; the stored declaration key is a
-    ;; vector.
-    (rf/reg-frame :app/n
-      {:sensitive {:app-db [(list :auth :token)]}})
-    (let [decls (elision/sensitive-declarations :app/n)]
-      (is (contains? decls [:auth :token])
-          "seq path normalised to a vector declaration key"))))
-
-(deftest no-classification-keys-is-a-no-op
-  (testing "a frame with no classification keys installs no frame-sourced declarations"
-    (rf/reg-frame :app/plain {:doc "no classification"})
-    (is (empty? (elision/sensitive-declarations :app/plain)))
-    (is (empty? (elision/declarations :app/plain)))))
-
-;; ---------------------------------------------------------------------------
-;; (b) replace-on-rereg
-;; ---------------------------------------------------------------------------
-
-(deftest re-registration-replaces-frame-classification
-  (testing "re-registering a frame REPLACES its frame-owned classification"
-    (rf/reg-frame :app/r
-      {:sensitive {:app-db [[:auth :token] [:auth :refresh-token]]}})
-    (is (contains? (elision/sensitive-declarations :app/r) [:auth :token]))
-    (is (contains? (elision/sensitive-declarations :app/r) [:auth :refresh-token]))
-    ;; Re-register with a DIFFERENT sensitive set — the old one is gone.
-    (rf/reg-frame :app/r
-      {:sensitive {:app-db [[:tenant :partner-api-key]]}})
-    (let [decls (elision/sensitive-declarations :app/r)]
-      (is (contains? decls [:tenant :partner-api-key]) "new declaration present")
-      (is (not (contains? decls [:auth :token]))
-          "old frame-owned declaration was replaced, not merged")
-      (is (not (contains? decls [:auth :refresh-token]))))))
-
-(deftest re-registration-dropping-classification-clears-it
-  (testing "re-registering WITHOUT classification clears prior frame-sourced declarations"
-    (rf/reg-frame :app/d {:sensitive {:app-db [[:auth :token]]}})
-    (is (contains? (elision/sensitive-declarations :app/d) [:auth :token]))
-    ;; Absent-key clears (Spec 002 §Re-registration — the declaration IS the policy).
-    (rf/reg-frame :app/d {:doc "classification dropped"})
-    (is (empty? (elision/sensitive-declarations :app/d))
-        "frame-sourced declarations cleared when the key is dropped")))
-
-(deftest re-registration-preserves-other-sourced-declarations
-  (testing "non-frame-sourced declarations survive a frame-classification replace"
-    (rf/reg-frame :app/m {:sensitive {:app-db [[:auth :token]]}})
-    ;; EP-0025: the imperative add-marks/set-marks API is REMOVED. A non-frame
-    ;; declaration source (here a commit-plane `:sensitive` effect, `:source
-    ;; :effect`) co-exists and survives a frame-classification replace.
-    (elision/swap-elision-slot! :app/m
-      (fn [reg]
-        (assoc-in reg [:sensitive-declarations [:user :ssn]] {:source :effect})))
-    (let [decls (elision/sensitive-declarations :app/m)]
-      (is (= :frame (:source (get decls [:auth :token]))))
-      (is (= :effect (:source (get decls [:user :ssn])))))
-    ;; Re-register the frame with a new frame-owned set — the effect-sourced
-    ;; [:user :ssn] declaration MUST survive (it is not frame-owned).
-    (rf/reg-frame :app/m {:sensitive {:app-db [[:tenant :key]]}})
-    (let [decls (elision/sensitive-declarations :app/m)]
-      (is (contains? decls [:tenant :key]) "new frame-owned declaration present")
-      (is (not (contains? decls [:auth :token])) "old frame-owned declaration gone")
-      (is (= :effect (:source (get decls [:user :ssn])))
-          "effect-sourced declaration survived the frame-classification replace"))))
-
-;; ---------------------------------------------------------------------------
-;; (c) sensitive-wins-over-large
-;; ---------------------------------------------------------------------------
-
-(deftest sensitive-wins-over-large-at-install
-  (testing "a path declared BOTH sensitive and large installs as sensitive ONLY"
-    (rf/reg-frame :app/w
-      {:sensitive {:app-db [[:auth :token]]}
-       :large     {:app-db [[:auth :token]      ;; SAME path — sensitive wins
-                            [:documents :csv]]}}) ;; large-only path survives
-    (let [sens  (elision/sensitive-declarations :app/w)
-          large (elision/declarations :app/w)]
-      (is (contains? sens [:auth :token]) "the dual path is sensitive")
-      (is (not (contains? large [:auth :token]))
-          "the dual path emits NO large declaration entry — no large marker can leak")
-      (is (contains? large [:documents :csv])
-          "a large-only path still gets its large declaration"))))
-
-(deftest sensitive-wins-extract-shape
-  (testing "validate+extract resolves sensitive-wins: large-app-db excludes any sensitive path"
-    (let [{:keys [sensitive-app-db large-app-db]}
-          (fc/validate+extract :app/x
-            {:sensitive {:app-db [[:a :b]]}
-             :large     {:app-db [[:a :b] [:c :d]]}})]
-      (is (= [[:a :b]] sensitive-app-db))
-      (is (= [[:c :d]] large-app-db)
-          "the both-path [:a :b] is dropped from large-app-db"))))
-
-;; ---------------------------------------------------------------------------
-;; (d) fail-loud
-;; ---------------------------------------------------------------------------
 
 (defn- bad-classification-ex
   "Run thunk and return the caught ex-data when it throws
@@ -170,27 +42,91 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
          (ex-data e))))
 
-(deftest fail-loud-on-malformed-path
-  (testing "a non-sequential :app-db path entry fails loudly at reg-frame"
+;; ---------------------------------------------------------------------------
+;; (a) EP-0025 clean break — the retired durable app-db annotation fails loud
+;; ---------------------------------------------------------------------------
+
+(deftest retired-sensitive-app-db-key-fails-loud
+  (testing "EP-0025: the retired `:sensitive {:app-db …}` frame annotation
+            fails loud at reg-frame — durable app-db classification moved to
+            the commit-plane classification effects, so the only valid
+            `:sensitive` key is now `:http`"
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad1
-                    {:sensitive {:app-db [:auth]}}))] ;; bare keyword, not a path
+                 #(rf/reg-frame :app/retired-sens
+                    {:sensitive {:app-db [[:auth :token]]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :app-db] (:bad-key data)))
-      (is (= :auth (:bad-path data))))
-    ;; The :app-db value itself must be a vector of paths.
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad1b
-                    {:large {:app-db {:not :a-vector}}}))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:large :app-db] (:bad-key data))))))
+      (is (= [:sensitive :app-db] (:bad-key data))
+          "the retired :app-db key is the offending slot"))
+    ;; The frame must NOT have been registered (fail-loud is transactional).
+    (is (nil? (frame/frame :app/retired-sens))
+        "the retired annotation threw before any frame state mutated")))
+
+(deftest retired-large-frame-key-installs-no-classification
+  (testing "EP-0025: `:large` is no longer a frame classification key — it
+            installs NO durable app-db classification (the commit-plane
+            `:large` effect owns that now). A lone `:large` frame key rides
+            `:config` as inert data, exactly like any unrecognized config key,
+            and is NOT a route into the elision registry."
+    (rf/reg-frame :app/retired-large
+      {:large {:app-db [[:documents :csv-upload]]}})
+    (is (some? (frame/frame :app/retired-large)) "the frame registered")
+    (is (empty? (elision/declarations :app/retired-large))
+        "no large declaration was installed from the inert :large frame key")
+    (is (empty? (elision/sensitive-declarations :app/retired-large)))))
+
+;; ---------------------------------------------------------------------------
+;; (b) HTTP carriers + observability ride the frame config (the surviving
+;;     surface). Durable app-db classification is asserted via the
+;;     commit-plane effect path (`elision/apply-classification-effects`).
+;; ---------------------------------------------------------------------------
+
+(deftest valid-http-and-observability-retained-on-config
+  (testing "well-formed :http carriers and :observability ride the frame config"
+    (rf/reg-frame :app/full
+      {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
+                          :query-params ["shop_token"]}}
+       :observability {:handled-events [{:sink :my-app.sinks/datadog
+                                         :rf.egress/profile :rf.egress/off-box-observability
+                                         :opts {:service "checkout-spa"}}]
+                       :errors         [{:sink :my-app.sinks/sentry}]}})
+    (let [meta (rf/frame-meta :app/full)]
+      (is (= ["X-Honeycomb-Team"]
+             (get-in meta [:sensitive :http :headers]))
+          ":http carriers ride the frame config (read via frame-meta)")
+      (is (= :my-app.sinks/datadog
+             (get-in meta [:observability :handled-events 0 :sink]))
+          ":observability sink policy rides the frame config"))))
+
+(deftest commit-plane-effect-classifies-app-db-path
+  (testing "EP-0025: durable app-db classification rides the commit-plane
+            `:sensitive` / `:large` effects (the replacement for the removed
+            frame annotation), written into the elision registry under
+            `:source :effect`"
+    (rf/reg-frame :app/effects {})
+    ;; The same registry write a reg-event returning `:sensitive` / `:large`
+    ;; alongside `:db` performs.
+    (frame/swap-runtime-db! :app/effects
+      (fn [rt] (elision/apply-classification-effects rt
+                 {:sensitive [[:auth :token]]
+                  :large     [[:documents :csv-upload]]})))
+    (let [sens  (elision/sensitive-declarations :app/effects)
+          large (elision/declarations :app/effects)]
+      (is (contains? sens [:auth :token])
+          "the :sensitive effect classified [:auth :token]")
+      (is (= :effect (:source (get sens [:auth :token])))
+          "the declaration is tagged :source :effect")
+      (is (contains? large [:documents :csv-upload])
+          "the :large effect classified [:documents :csv-upload]"))))
+
+;; ---------------------------------------------------------------------------
+;; (c) fail-loud
+;; ---------------------------------------------------------------------------
 
 (deftest fail-loud-on-unknown-classification-key
-  (testing "an unknown classification block key fails loudly"
+  (testing "an unknown :sensitive block key fails loudly (only :http is valid)"
     (let [data (bad-classification-ex
                  #(rf/reg-frame :app/bad2
-                    {:sensitive {:app-db [[:a]]
-                                 :bogus  [:x]}}))]
+                    {:sensitive {:bogus [:x]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:sensitive :bogus] (:bad-key data))))
     ;; Unknown :observability stream key.
@@ -323,88 +259,9 @@
            (get-in (rf/frame-meta :app/nil-opts)
                    [:observability :handled-events 0 :sink])))))
 
-(deftest fail-loud-leaves-no-frame-state
-  (testing "a malformed classification throws BEFORE the frame is registered (transactional)"
-    (bad-classification-ex
-      #(rf/reg-frame :app/never
-         {:sensitive {:app-db [:not-a-path]}}))
-    (is (nil? (frame/frame :app/never))
-        "the frame was never registered — validation fails before any state mutates")))
-
-;; ---------------------------------------------------------------------------
-;; valid classification surfaces are retained on the frame config (HTTP
-;; carriers + observability ride :config verbatim for the later slices).
-;; ---------------------------------------------------------------------------
-
-(deftest valid-http-and-observability-retained-on-config
-  (testing "well-formed :http carriers and :observability ride the frame config"
-    (rf/reg-frame :app/full
-      {:sensitive {:app-db [[:auth :token]]
-                   :http   {:headers      ["X-Honeycomb-Team"]
-                            :query-params ["shop_token"]}}
-       :observability {:handled-events [{:sink :my-app.sinks/datadog
-                                         :rf.egress/profile :rf.egress/off-box-observability
-                                         :opts {:service "checkout-spa"}}]
-                       :errors         [{:sink :my-app.sinks/sentry}]}})
-    (let [meta (rf/frame-meta :app/full)]
-      (is (= ["X-Honeycomb-Team"]
-             (get-in meta [:sensitive :http :headers]))
-          ":http carriers ride the frame config (read via frame-meta)")
-      (is (= :my-app.sinks/datadog
-             (get-in meta [:observability :handled-events 0 :sink]))
-          ":observability sink policy rides the frame config"))))
-
-;; ---------------------------------------------------------------------------
-;; concrete path host-segment rejection (rf2-orcbow point 2)
-;;
-;; `:sensitive :app-db` / `:large :app-db` entries are concrete `:rf/path`
-;; vectors (EP-0012). A concrete path's SEGMENTS must be portable EDN identity
-;; values — Conventions §Path shape: "Concrete runtime paths MUST NOT contain
-;; host values; such values are rejected at the boundary that accepts the
-;; path." The existing fail-loud tests above cover path-SHAPE rejection
-;; (a bare keyword, a non-vector :app-db) and list->vector normalization, but
-;; NOT opaque host-OBJECT segments inside an otherwise well-shaped path.
-;;
-;; HARDENED (rf2-w9x5fv) — `normalize-app-db-paths` now routes each path
-;; through `path/normalize-concrete`, the VALIDATED concrete boundary (item 2:
-;; "Split shape coercion from validated concrete normalization ... use the
-;; validated helper at concrete boundaries such as frame classification").
-;; `normalize` still coerces container shape only; `normalize-concrete`
-;; additionally validates the segment domain, so an opaque host-object segment
-;; like `[:auth (Object.)]` FAILS CLOSED at reg-frame (item 3 / Conventions
-;; §Segment domain) rather than silently riding in a stored elision path.
-;; ---------------------------------------------------------------------------
-
-(deftest host-object-path-segment-is-rejected
-  (testing "rf2-w9x5fv (items 2 + 3): an opaque host-object path segment FAILS
-            LOUDLY at reg-frame — the concrete declaration boundary routes
-            through path/normalize-concrete, which rejects non-EDN segments
-            (Conventions §Path shape / §Segment domain: concrete paths MUST NOT
-            contain host values; rejected at the boundary that accepts them)"
-    (let [host #?(:clj (java.lang.Object.) :cljs #js {:opaque true})]
-      (let [data (bad-classification-ex
-                   #(rf/reg-frame :app/host-seg
-                      {:sensitive {:app-db [[:auth host]]}}))]
-        (is (= :rf.error/bad-frame-classification (:rf.error/id data))
-            "a host-object segment is rejected with the frame-classification error")
-        (is (= [:sensitive :app-db] (:bad-key data))
-            "the offending classification key is named")
-        (is (= [:auth host] (:bad-path data))
-            "the offending path is named")
-        (is (identical? host (:bad-segment data))
-            "the offending host segment is surfaced from the path boundary"))
-      ;; The frame must NOT have been registered (fail-loud is transactional).
-      (is (nil? (frame/frame :app/host-seg))
-          "the malformed classification threw before any frame state mutated"))))
-
-(deftest existing-segment-shape-rejections-still-hold
-  (testing "well-formed concrete paths (incl. the root []) still validate + normalize"
-    ;; A vector of concrete EDN segments — and the explicit root [] — are
-    ;; accepted; this anchors the negative (host-segment) case above against
-    ;; the positive baseline so a future over-broad rejection is caught.
-    (let [{:keys [sensitive-app-db]}
-          (fc/validate+extract :app/ok-paths
-            {:sensitive {:app-db [[:auth :token]
-                                  [:cart :items 42 :qty]  ;; integer segment OK
-                                  []]}})]                  ;; root path OK
-      (is (= [[:auth :token] [:cart :items 42 :qty] []] sensitive-app-db)))))
+(deftest no-policy-keys-is-a-no-op
+  (testing "a frame with no policy keys installs no classification + registers cleanly"
+    (rf/reg-frame :app/plain {:doc "no classification"})
+    (is (some? (frame/frame :app/plain)) "the frame registered")
+    (is (empty? (elision/sensitive-declarations :app/plain)))
+    (is (empty? (elision/declarations :app/plain)))))

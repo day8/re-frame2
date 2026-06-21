@@ -44,8 +44,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -707,19 +707,19 @@
 ;; redact end-to-end.
 
 (defn- seed-sensitive-schema! []
-  ;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is frame-owned.
-  ;; The frame-classification install! seam writes a `:source :frame`
-  ;; declaration (index-free :rf/path) onto the frame's
+  ;; EP-0025: durable app-db classification rides the commit-plane
+  ;; classification effects. `elision/apply-classification-effects` writes a
+  ;; `:source :effect` declaration (index-free :rf/path) onto the frame's
   ;; `:sensitive-declarations` so the wire walker substitutes `:rf/redacted`
-  ;; for that path on off-box egress.
+  ;; for that path on off-box egress (the same registry write a reg-event
+  ;; returning `:sensitive` performs).
   ;;
   ;; The `:sensitive-declarations` live in the frame's runtime-db partition
   ;; at `[:rf.runtime/elision :sensitive-declarations]` (EP-0001), so a
   ;; whole-db `:db` reset (a reg-event handler returning a fresh map) no
   ;; longer wipes them — a `:db` reset replaces only app-db, never runtime-db.
-  (frame-class/install! :rf/default
-    (frame-class/validate+extract :rf/default
-      {:sensitive {:app-db [[:auth :password]]}})))
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
 
 (deftest egress-value-redacts-sensitive-on-the-safe-default-path
   (testing "`egress-value` with no opts (the SHORT path) redacts a
@@ -930,15 +930,14 @@
 ;; fail-closed default (redact / size-elide) AND the operator opt-in.
 
 (defn- seed-large-schema! []
-  ;; EP-0015 §8 (rf2-d2r3um): the frame-owned :large declaration (index-free
-  ;; :rf/path) installs onto the per-frame `:declarations` so the wire walker
-  ;; substitutes the `:rf.size/large-elided` marker for that path on off-box
-  ;; egress (the size sibling of `seed-sensitive-schema!`). The declaration
-  ;; lives in runtime-db at `[:rf.runtime/elision :declarations]` (EP-0001),
-  ;; so a whole-db `:db` reset leaves it untouched.
-  (frame-class/install! :rf/default
-    (frame-class/validate+extract :rf/default
-      {:large {:app-db [[:blob :payload]]}})))
+  ;; EP-0025: the commit-plane :large classification (index-free :rf/path)
+  ;; writes onto the per-frame `:declarations` so the wire walker substitutes
+  ;; the `:rf.size/large-elided` marker for that path on off-box egress (the
+  ;; size sibling of `seed-sensitive-schema!`, `:source :effect`). The
+  ;; declaration lives in runtime-db at `[:rf.runtime/elision :declarations]`
+  ;; (EP-0001), so a whole-db `:db` reset leaves it untouched.
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
 
 (deftest get-app-db-path-scoped-redacts-sensitive-leaf-by-default
   (testing "a PATH-scoped get-app-db over a frame-declared sensitive
@@ -1366,10 +1365,11 @@
   ;; A sensitive leaf (`[:secret]`) that sits INSIDE the scope / cause map
   ;; values, plus a large leaf (`[:blob]`). The walker substitutes
   ;; :rf/redacted / :rf.size/large-elided for those paths on off-box egress.
-  (frame-class/install! :rf/default
-    (frame-class/validate+extract :rf/default
-      {:sensitive {:app-db [[:secret]]}
-       :large     {:app-db [[:blob]]}})))
+  ;; EP-0025: classified via the commit-plane effects (`:source :effect`).
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:secret]]
+                :large     [[:blob]]}))))
 
 ;; A scope value carrying a declared-sensitive leaf alongside a plain identity
 ;; leaf (which must survive — the scope's non-PII shape stays inspectable).
@@ -1622,10 +1622,9 @@
   ;; Register a non-default frame, install a sensitive declaration on IT
   ;; (NOT :rf/default), and seed the secret into ITS app-db. The ambient
   ;; fixture scope stays :rf/default (no declaration there).
-  (rf/reg-frame host-frame {:doc "non-default host frame for frame-owned egress"})
-  (frame-class/install! host-frame
-    (frame-class/validate+extract host-frame
-      {:sensitive {:app-db [[:auth :password]]}}))
+  (rf/reg-frame host-frame {:doc "non-default host frame for egress classification"})
+  (frame/swap-runtime-db! host-frame
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   (rf/reg-event :host/seed-auth
     (fn [{:keys [db]} _] {:db {:auth {:username "ada" :password "shh"}}}))
   (rf/dispatch-sync [:host/seed-auth] {:frame host-frame}))
@@ -1726,9 +1725,8 @@
     ;; (the fixture's scope) carries NO such declaration, so under the bug the
     ;; value would project under :rf/default and leak.
     (rf/reg-frame host-frame {:doc "host frame for trace-event-frame egress"})
-    (frame-class/install! host-frame
-      (frame-class/validate+extract host-frame
-        {:sensitive {:app-db [[:tags :secret]]}}))
+    (frame/swap-runtime-db! host-frame
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:tags :secret]]})))
     (let [ev {:op-type   :sub
               :operation :rf.sub/run
               :tags      {:frame  host-frame

@@ -38,8 +38,10 @@
   sensitive event payload + exception ex-data."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.event-emit :as event-emit]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.observability :as observability]
@@ -183,8 +185,13 @@
         (rf/reg-frame :gate/raw
           {:observability
            {:errors [{:sink :test.sinks/sentry
-                      :rf.egress/profile :rf.egress/off-box-observability}]}
-           :sensitive {:app-db [[:hook-failures :exception-data :token]]}})
+                      :rf.egress/profile :rf.egress/off-box-observability}]}})
+        ;; EP-0025: classify the sensitive app-db path via the commit-plane
+        ;; effect path (`:source :effect`) — the durable frame annotation is
+        ;; removed. Same registry write a reg-event returning `:sensitive` makes.
+        (frame/swap-runtime-db! :gate/raw
+          (fn [rt] (elision/apply-classification-effects rt
+                     {:sensitive [[:hook-failures :exception-data :token]]})))
         (error-emit/dispatch-frame-teardown-report!
           :gate/raw
           [{:hook           :flows/teardown-on-frame-destroy!
@@ -218,8 +225,11 @@
         (rf/reg-frame :gate/evt
           {:observability
            {:errors [{:sink :test.sinks/sentry
-                      :rf.egress/profile :rf.egress/off-box-observability}]}
-           :sensitive {:app-db [[:auth :token]]}})
+                      :rf.egress/profile :rf.egress/off-box-observability}]}})
+        ;; EP-0025: classify the sensitive app-db path via the commit-plane
+        ;; effect path (`:source :effect`) — the durable frame annotation is removed.
+        (frame/swap-runtime-db! :gate/evt
+          (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
         (rf/reg-event :gate/login {:frame :gate/evt}
                          (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {}))}))
         (rf/dispatch-sync [:gate/login {:auth {:token secret}}] {:frame :gate/evt})

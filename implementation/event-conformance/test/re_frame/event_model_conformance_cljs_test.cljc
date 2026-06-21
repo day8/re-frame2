@@ -93,8 +93,10 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.cofx :as cofx]
+            [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.event-emit :as event-emit]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.observability :as observability]
             [re-frame.privacy :as privacy]
@@ -1452,10 +1454,13 @@
       (rf/reg-frame :evt-conf/obs-err
         {:observability
          {:errors [{:sink :evt-conf.sinks/sentry
-                    :rf.egress/profile :rf.egress/off-box-observability}]}
-         ;; The frame classifies [:auth :token]; the projector applies that
-         ;; path to the event's arg map inside the error record.
-         :sensitive {:app-db [[:auth :token]]}})
+                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; EP-0025: classify [:auth :token] via the commit-plane effect path
+      ;; (:source :effect) — durable app-db classification is no longer a frame
+      ;; annotation. The projector applies that path to the event's arg map
+      ;; inside the error record.
+      (frame/swap-runtime-db! :evt-conf/obs-err
+        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
       (rf/reg-event :evt-conf/obs-throw
         {:frame :evt-conf/obs-err}
         (fn [_ _] (throw (ex-info "kaboom" {:cause :test}))))
@@ -1475,7 +1480,7 @@
             EVENT-side of the contract this umbrella tier intersects): event
             args are REGISTRATION-owned transient payloads. A `reg-event`
             registered with `:sensitive [[:password]]` AND a frame that
-            declares NO matching `:sensitive {:app-db …}` must STILL redact the
+            classifies NO matching app-db path must STILL redact the
             declared event arg on the off-box error sink — proving the one-form
             registration path carries the `:sensitive` classification metadata
             through to projection. A non-declared sibling arg rides through. A
@@ -1505,7 +1510,7 @@
         (is (= :evt-conf/obs-reg-login (:event-id r)))
         (is (redacted? (get-in (:event r) [1 :password]))
             "the handler-declared-sensitive :password arg is redacted via the
-             one-form reg-event registration marks, with NO frame :sensitive {:app-db …}")
+             one-form reg-event registration marks, with NO frame app-db classification")
         (is (= "ann" (get-in (:event r) [1 :user]))
             "a non-declared sibling arg rides through (only the declared path redacts)")))))
 

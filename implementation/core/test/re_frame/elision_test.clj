@@ -1,37 +1,40 @@
 (ns re-frame.elision-test
-  "Frame-owned wire elision tests.
+  "Wire elision tests.
 
-  EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED —
-  `(rf/reg-frame :app {:sensitive {:app-db [[…]]} :large {:app-db [[…]]}})`
-  installs the declarations the elision walker reads (via
-  `re-frame.frame-classification`, `:source :frame`). Schema-attached
-  `{:sensitive? true}` / `{:large? true}` slot props are NO LONGER a route
-  into this registry. These tests therefore seed declarations through frame
-  policy; the walker behaviour (marker shape, sensitive-wins-over-large,
+  EP-0025: durable app-db classification is declared by the commit-plane
+  classification effects — a `reg-event` returns `:sensitive` / `:large`
+  alongside `:db`, written into the per-frame elision registry under
+  `:source :effect` (`elision/apply-classification-effects`). The durable
+  `:sensitive` / `:large {:app-db …}` *frame annotation* is REMOVED.
+  Schema-attached `{:sensitive? true}` / `{:large? true}` slot props are NOT
+  a route into this registry. These tests seed declarations through the
+  effect path; the walker behaviour (marker shape, sensitive-wins-over-large,
   idempotence, threshold interaction, frame isolation) is unchanged."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 (defn- install-class!
-  "Seed the frame's elision registry through the frame-owned classification
-  path (EP-0015 §3 / §8) — the successor to the removed schema→elision
-  population. `sensitive` / `large` are vectors of `:rf/path` vectors."
+  "Seed the frame's elision registry through the EP-0025 commit-plane
+  classification effect path — the same registry write a `reg-event`
+  returning `:sensitive` / `:large` alongside `:db` performs
+  (`elision/apply-classification-effects`, `:source :effect`). `sensitive` /
+  `large` are vectors of `:rf/path` vectors. (EP-0025 removed the durable
+  `:sensitive` / `:large {:app-db …}` frame annotation; tests seed via the
+  surviving effect mechanism.)"
   ([sensitive large] (install-class! :rf/default sensitive large))
   ([frame-id sensitive large]
-   (frame-class/install!
-     frame-id
-     (frame-class/validate+extract frame-id
-       (cond-> {}
-         (seq sensitive) (assoc :sensitive {:app-db (vec sensitive)})
-         (seq large)     (assoc :large     {:app-db (vec large)}))))))
+   (let [effects (cond-> {}
+                   (seq sensitive) (assoc :sensitive (mapv vec sensitive))
+                   (seq large)     (assoc :large     (mapv vec large)))]
+     (frame/swap-runtime-db! frame-id
+       (fn [rt] (elision/apply-classification-effects rt effects))))))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -78,12 +81,12 @@
         out   (rf/elide-wire-value
                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         slot  (get-in out [:user :uploaded-pdf])]
-    (is (= {:source :frame}
+    (is (= {:source :effect}
            (get decls [:user :uploaded-pdf])))
     (is (elision/marker? slot))
     (is (= [:user :uploaded-pdf]
            (get-in slot [:rf.size/large-elided :path])))
-    (is (= :frame (get-in slot [:rf.size/large-elided :reason])))
+    (is (= :effect (get-in slot [:rf.size/large-elided :reason])))
     (is (= "Ada" (get-in out [:user :name])))))
 
 (deftest include-large-bypasses-frame-elision
@@ -105,7 +108,7 @@
       (is (= 1 (count warnings)))
       (is (= [:user :photo] (get-in (first warnings) [:tags :path])))
       (is (pos-int? (get-in (first warnings) [:tags :bytes])))
-      (is (= "Add this path to the frame's `:large {:app-db [...]}` classification (EP-0015)."
+      (is (= "Classify this path large by returning `:large [[...]]` from the event that writes it (EP-0025 commit-plane classification effect, alongside `:db`)."
              (get-in (first warnings) [:tags :hint]))))
     (rf/unregister-listener! :trace :elision-test/unschema'd)))
 
@@ -269,7 +272,7 @@
         marker (get-in out [:b :rf.size/large-elided])]
     (is (= [:rf.elision/at [:b] :as-of-epoch 42] (:handle marker)))
     (is (= :string (:type marker)))
-    (is (= :frame (:reason marker)))
+    (is (= :effect (:reason marker)))
     (is (string? (:digest marker)))))
 
 ;; ---------------------------------------------------------------------------
@@ -323,19 +326,22 @@
          a map whose only key (`:rf.size/large-elided`) sits at a path
          that is not itself `:large?`-declared")))
 
-(deftest nested-frame-classification
+(deftest nested-classification
   (install-class! [[:root :a :b :token]] [[:root :a :b :c]])
   (is (contains? (elision/declarations) [:root :a :b :c]))
   (is (contains? (elision/sensitive-declarations) [:root :a :b :token]))
-  (is (= {:source :frame}
+  (is (= {:source :effect}
          (get (elision/declarations) [:root :a :b :c]))))
 
-(deftest frame-reclassification-replaces-frame-entries
-  ;; Re-classifying a frame REPLACES its `:source :frame` declarations
-  ;; (the declaration IS the frame's policy — EP-0015 §3).
+(deftest clear-large-effect-removes-declaration
+  ;; EP-0025: the commit-plane classification effects are additive per axis;
+  ;; a path is un-classified by the `:clear-large` effect (the set/unset
+  ;; symmetry of the axis), NOT by an absent-key replace (the frame
+  ;; annotation's replace semantics are gone).
   (install-class! [] [[:user :pdf]])
   (is (contains? (elision/declarations) [:user :pdf]))
-  (install-class! [] [])
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:clear-large [[:user :pdf]]})))
   (is (not (contains? (elision/declarations) [:user :pdf]))))
 
 (deftest registries-are-frame-isolated
@@ -768,7 +774,7 @@
         "collection-nested :large slot emits a size marker")
     (is (= [:docs 0 :blob] (get-in slot [:rf.size/large-elided :path]))
         "marker :path is the concrete indexed runtime path (re-fetchable)")
-    (is (= :frame (get-in slot [:rf.size/large-elided :reason])))))
+    (is (= :effect (get-in slot [:rf.size/large-elided :reason])))))
 
 (deftest collection-nested-sensitive-wins-over-large
   ;; rf2-wm9kp Finding 1 (symmetry) — when a collection-nested slot is

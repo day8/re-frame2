@@ -42,9 +42,13 @@
   (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
-  (rf/reg-frame frame-id
-    {:sensitive {:app-db [[:auth :token]]}
-     :large     {:app-db [[:docs :blob]]}}))
+  (rf/reg-frame frame-id {})
+  ;; EP-0025: durable app-db classification rides the commit-plane effect
+  ;; path (`:source :effect`) — the durable frame annotation is removed.
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:auth :token]]
+                :large     [[:docs :blob]]}))))
 
 (defn- sample-value []
   {:auth {:token "super-secret-token"}
@@ -174,9 +178,11 @@
 
 (deftest sensitive-wins-over-large
   (testing "a path declared BOTH sensitive and large redacts, never large-elides"
-    (rf/reg-frame :proj/both
-      {:sensitive {:app-db [[:secret]]}
-       :large     {:app-db [[:secret]]}})
+    (rf/reg-frame :proj/both {})
+    (frame/swap-runtime-db! :proj/both
+      (fn [rt] (elision/apply-classification-effects rt
+                 {:sensitive [[:secret]]
+                  :large     [[:secret]]})))
     (let [out (rf/project-egress {:secret big-string}
                 {:frame :proj/both
                  :rf.egress/profile :rf.egress/off-box-observability})]

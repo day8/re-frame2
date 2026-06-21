@@ -22,9 +22,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core         :as rf]
+            [re-frame.elision      :as elision]
             [re-frame.event-emit   :as event-emit]
             [re-frame.frame        :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.late-bind    :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -69,14 +69,15 @@
   (rf/reg-app-schema [:user/avatar-pdf]
                      {:schema [:maybe :string]
                       :frame :rf/default})
-  ;; EP-0015 §8: durable app-db egress classification is
-  ;; FRAME-owned. Install the `[:user/avatar-pdf]` large declaration
-  ;; (index-free :rf/path) onto :rf/default's elision registry via the
-  ;; frame-classification seam so `elide-wire-value` finds a declared-large
-  ;; entry and substitutes the `:rf.size/large-elided` marker on that slot.
-  (frame-class/install! :rf/default
-    (frame-class/validate+extract :rf/default
-      {:large {:app-db [[:user/avatar-pdf]]}})))
+  ;; EP-0025: durable app-db egress classification rides the commit-plane
+  ;; classification effects. Classify the `[:user/avatar-pdf]` large path
+  ;; (index-free :rf/path) onto :rf/default's elision registry via
+  ;; `elision/apply-classification-effects` (`:source :effect`) — the same
+  ;; registry write a `reg-event` returning `:large` performs — so
+  ;; `elide-wire-value` finds a declared-large entry and substitutes the
+  ;; `:rf.size/large-elided` marker on that slot.
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:large [[:user/avatar-pdf]]}))))
 
 (defn- after! []
   (when-let [snap @registrar-snapshot]
@@ -134,15 +135,15 @@
 ;; ---- 3. :large? schema slot drives the wire-walker substitution ----------
 
 (deftest large-schema-slot-becomes-wire-marker
-  (testing "The `:user/avatar-pdf` slot is declared `:large` on the frame's
-            own classification (EP-0015 §8 — frame-owned durable
-            classification, NOT schema-attached). Running
-            `rf/elide-wire-value` against a snapshot of the app-db payload
-            that includes a non-trivial value at the slot substitutes the
-            value with a `:rf.size/large-elided` marker map carrying
-            byte-count + path + `:reason :frame` (the install-time
-            provenance). Schema-attached `:hint` no longer propagates — the
-            schema describes shape, not durable egress policy."
+  (testing "The `:user/avatar-pdf` slot is classified `:large` via the
+            EP-0025 commit-plane classification effect (NOT schema-attached,
+            NOT a frame annotation). Running `rf/elide-wire-value` against a
+            snapshot of the app-db payload that includes a non-trivial value
+            at the slot substitutes the value with a `:rf.size/large-elided`
+            marker map carrying byte-count + path + `:reason :effect` (the
+            commit-plane classification provenance). Schema-attached `:hint`
+            no longer propagates — the schema describes shape, not durable
+            egress policy."
     (rf/dispatch-sync [:user.avatar-pdf/set {:bytes 5000}])
     (let [db     (rf/app-db-value :rf/default)
           blob   (:user/avatar-pdf db)
@@ -156,10 +157,10 @@
             "marker carries a :bytes count")
         (is (= [:user/avatar-pdf] (:path marker))
             "marker carries the index-free :rf/path of the elided slot")
-        (is (= :frame (:reason marker))
-            "the marker's :reason is :frame — the frame-owned classification
-             source (schema-attached props no longer feed the registry,
-             EP-0015 §8)")))))
+        (is (= :effect (:reason marker))
+            "the marker's :reason is :effect — the EP-0025 commit-plane
+             classification source (schema-attached props no longer feed the
+             registry; the frame annotation is removed)")))))
 
 ;; ---- 4. unschema'd inline event payloads are not size-elided -------------
 

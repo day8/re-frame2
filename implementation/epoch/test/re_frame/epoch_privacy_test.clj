@@ -29,7 +29,6 @@
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.interop :as interop]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -71,27 +70,26 @@
   "Declare a `[:auth :password]` sensitive path against `frame-id`.
   Returns nil.
 
-  EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED —
-  seeded through the frame-classification install seam (the index-free
-  `:rf/path` is the frame's declaration). The frame container is
-  reg-frame'd by each deftest before this runs. Unlike a registered
-  schema, frame classification does NOT enforce per-commit validation, so
+  EP-0025: durable app-db classification rides the commit-plane
+  classification effects — seeded through `elision/apply-classification-
+  effects` (`:source :effect`), the same registry write a `reg-event`
+  returning `:sensitive` performs. The frame container is reg-frame'd by
+  each deftest before this runs. Classification is value-independent, so
   cascades that legitimately leave `:auth` absent (a non-auth event) or
   clear `:password` mid-cascade need no `:maybe` / `:optional` wrapper."
   [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db [[:auth :password]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- install-large-schema!
-  "Declare a `[:blob :payload]` large path against `frame-id` (EP-0015 §8,
-  rf2-d2r3um — frame-owned durable classification). The frame container is
-  reg-frame'd by each deftest before this runs."
+  "Declare a `[:blob :payload]` large path against `frame-id` (EP-0025 —
+  commit-plane classification effect, `elision/apply-classification-effects`
+  under `:source :effect`). The frame container is reg-frame'd by each
+  deftest before this runs."
   [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:large {:app-db [[:blob :payload]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
   nil)
 
 (defn- big-string [n]
@@ -703,14 +701,15 @@
             never as a :rf.size/large-elided marker (the marker would
             leak :path / :bytes / :digest)"
     (rf/reg-frame :test/main {})
-    ;; EP-0015 §8 (rf2-d2r3um): declare `[:secret-pdf]` BOTH sensitive AND
-    ;; large via frame-owned classification. The install seam applies the
-    ;; sensitive-wins-over-large rule (drops the path from the large set),
-    ;; so the projected slot lands as `:rf/redacted`, never a large marker.
-    (frame-class/install! :test/main
-      (frame-class/validate+extract :test/main
-        {:sensitive {:app-db [[:secret-pdf]]}
-         :large     {:app-db [[:secret-pdf]]}}))
+    ;; EP-0025: classify `[:secret-pdf]` BOTH sensitive AND large via the
+    ;; commit-plane classification effect path. The egress WALKER applies the
+    ;; sensitive-wins-over-large rule (sensitive is checked before large per
+    ;; node), so the projected slot lands as `:rf/redacted`, never a large
+    ;; marker, even though both decls are present in the registry.
+    (frame/swap-runtime-db! :test/main
+      (fn [rt] (elision/apply-classification-effects rt
+                 {:sensitive [[:secret-pdf]]
+                  :large     [[:secret-pdf]]})))
     (rf/reg-event :store-pdf
                      (fn [{:keys [db]} [_ payload]]
                        {:db (assoc db :secret-pdf payload)}))

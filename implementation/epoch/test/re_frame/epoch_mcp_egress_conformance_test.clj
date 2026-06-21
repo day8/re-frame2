@@ -58,7 +58,7 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
-            [re-frame.frame-classification :as frame-class]
+            [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -92,18 +92,19 @@
   `frame-id`. Matches the shape an app exercising both privacy defences
   would declare.
 
-  EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
-  Seeded through the frame-classification install seam — the index-free
-  `:rf/path`s are the frame's declarations. The frame container is
-  reg-frame'd by each deftest before this runs. (No schema validation is
-  imposed: the cascade legitimately leaves each path absent in some steps,
-  and frame classification — unlike a registered schema — does not enforce
-  per-commit validation.)"
+  EP-0025: durable app-db classification rides the commit-plane
+  classification effects. Seeded through `elision/apply-classification-
+  effects` (`:source :effect`) — the same registry write a `reg-event`
+  returning `:sensitive` / `:large` performs. The frame container is
+  reg-frame'd by each deftest before this runs. (Classification is
+  value-independent: the cascade legitimately leaves each path absent in
+  some steps, and a classified path is a harmless no-op over an absent
+  value.)"
   [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db [[:auth :password]]}
-       :large     {:app-db [[:blob :payload]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:auth :password]]
+                :large     [[:blob :payload]]})))
   nil)
 
 (defn- drive-mixed-ring!

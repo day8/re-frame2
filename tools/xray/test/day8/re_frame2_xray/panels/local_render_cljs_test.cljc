@@ -35,7 +35,8 @@
        panel hands the edn-inspector is already projected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame-classification :as frame-class]
+            [re-frame.elision :as elision]
+            [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
@@ -53,12 +54,12 @@
 (def plain-frame  :app/plain)
 
 (defn- install-policy! []
-  (frame-class/install!
-    secure-frame
-    (frame-class/validate+extract
-      secure-frame
-      {:sensitive {:app-db [[:auth :token]]}
-       :large     {:app-db [[:catalog :rows]]}})))
+  ;; EP-0025: durable app-db classification rides the commit-plane
+  ;; classification effects (`:source :effect`) — the frame annotation is removed.
+  (frame/swap-runtime-db! secure-frame
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:auth :token]]
+                :large     [[:catalog :rows]]}))))
 
 (defn- init-fn []
   (rf/reg-frame plain-frame {})

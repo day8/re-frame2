@@ -167,18 +167,18 @@ boundaries it owns.
 
 The posture is normative across Story's surfaces:
 
-1. **Authoring — frame-owned classification at frame creation.**
-   Each variant *is* a frame (per [§Relationship-with-frames](../../../spec/007-Stories.md)),
-   so durable app-db classification is **frame-owned** (EP-0015): a variant
-   declares its sensitive / large app-db paths via the `:sensitive` /
-   `:large` slots on its body — the SAME owner model `reg-frame` uses
+1. **Authoring — classification at frame creation.**
+   Each variant *is* a frame (per [§Relationship-with-frames](../../../spec/007-Stories.md)).
+   A variant declares its sensitive / large app-db paths via the
+   `:sensitive` / `:large` slots on its body
    (`:sensitive {:app-db [[:auth :token]]}`, per
-   [spec/015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md#frame-owned-durable-classification)).
-   The runtime threads them onto the variant's `reg-frame` config, so the
-   framework installs the classification atomically as part of frame
-   creation — there is **no public post-creation `add-marks` / `set-marks`
-   mutation surface** (EP-0015 superseded it; the underlying fns are
-   framework-internal / test helpers only). The `:loaders` / `:events` /
+   [spec/015 §Data classification](../../../spec/015-Data-Classification.md)).
+   EP-0025: the runtime lowers these into the variant frame's elision registry
+   as commit-plane classification effects (`apply-variant-classification!`,
+   `:source :effect`) right after frame creation, before its lifecycle / init
+   events — there is **no durable frame annotation** (removed) and **no public
+   post-creation `add-marks` / `set-marks` mutation surface** (the underlying
+   fns are framework-internal / test helpers only). The `:loaders` / `:events` /
    `:play-script` registrations on a variant continue to accept
    `:sensitive` / `:large` on their registration maps via the standard
    registration grammar for transient payloads (per

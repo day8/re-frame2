@@ -458,9 +458,10 @@
         ;; applies to every generated `<type>#n`, dropped on destroy
         ;; (`teardown-live-actor!`). The egress READ path
         ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is unchanged —
-        ;; this flips the registry-entry SOURCE from `:source :frame`
-        ;; (rf2-398kql) to `:source :machine`. A spec declaring no
-        ;; classification is a clean no-op (fail-open).
+        ;; this writes the registry-entry SOURCE `:source :machine` (a peer of
+        ;; the general commit-plane `:source :effect` route; EP-0025 removed
+        ;; the prior `:source :frame` annotation, rf2-398kql). A spec declaring
+        ;; no classification is a clean no-op (fail-open).
         (classification/lower-at-spawn! frame-id spawned-id spec'')
         ;; Record the spawned actor in the frame's spawn-order channel so
         ;; frame-destroy can walk in reverse-creation order per Spec 005

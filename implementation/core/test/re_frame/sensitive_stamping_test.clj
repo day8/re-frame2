@@ -1,15 +1,16 @@
 (ns re-frame.sensitive-stamping-test
-  "Runtime sensitivity stamping and frame-classification auto-redaction
-  tests.
+  "Runtime sensitivity stamping and classification auto-redaction tests.
 
-  EP-0015 §8 (rf2-d2r3um): the event-payload `:sensitive?` stamp + redaction
-  for a path-scoped handler is driven by the frame-owned `:sensitive
-  {:app-db …}` overlap (the frame elision registry), NOT schema-attached
-  `{:sensitive? true}` slot props (which no longer feed that registry)."
+  EP-0025: the event-payload `:sensitive?` stamp + redaction for a
+  path-scoped handler is driven by the classified `:sensitive` app-db
+  overlap (the per-frame elision registry, written by the commit-plane
+  classification effects under `:source :effect`), NOT schema-attached
+  `{:sensitive? true}` slot props (which no longer feed that registry) and no
+  longer a frame annotation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -17,12 +18,13 @@
             [re-frame.trace :as trace]))
 
 (defn- install-sensitive!
-  "Seed the frame's sensitive app-db classification via the frame-owned
-  path (EP-0015 §3 / §8) — the successor to schema→elision population."
+  "Seed the frame's sensitive app-db classification via the EP-0025
+  commit-plane classification effect path (`elision/apply-classification-
+  effects`, `:source :effect`) — the same registry write a `reg-event`
+  returning `:sensitive` performs."
   [frame-id paths]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db (vec paths)}})))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)

@@ -23,16 +23,18 @@
      intentionally modeled with handler metadata because it is not an
      app-db path-scoped write.
 
-  3. **`:large` frame-owned app-db slot** — the `:user/avatar-pdf`
-     slot is nominated as durable-large on the testbed's `:rf/default`
-     frame via `reg-frame {:large {:app-db [[:user/avatar-pdf]]}}`
-     (EP-0015 §8 — durable app-db egress is FRAME-owned, not a schema
-     prop). When `rf/elide-wire-value` walks an app-db payload that
-     includes this slot at its declared path, the value is replaced
-     with a `{:rf.size/large-elided {:bytes … :path … :reason :frame}}`
-     marker. The marker's `:reason :frame` records the install-time
-     provenance; there is no schema-attached `:hint` to propagate (the
-     schema describes shape only).
+  3. **`:large` classified app-db slot** — the `:user/avatar-pdf`
+     slot is classified durable-large on the testbed's `:rf/default`
+     frame by the `:counter/classify-avatar-large` event, which returns
+     the EP-0025 commit-plane `:large [[:user/avatar-pdf]]` effect
+     alongside `:db` (durable app-db egress classification rides the
+     effects, not a schema prop, not a frame annotation). When
+     `rf/elide-wire-value` walks an app-db payload that includes this
+     slot at its classified path, the value is replaced with a
+     `{:rf.size/large-elided {:bytes … :path … :reason :effect}}`
+     marker. The marker's `:reason :effect` records the commit-plane
+     classification provenance; there is no schema-attached `:hint` to
+     propagate (the schema describes shape only).
 
   4. **Always-on `event-emit` listener** — the demo registers a
      console-logger via `register-listener!` (the `:events`
@@ -65,10 +67,10 @@
   - **Click 'Walk app-db through elision'** — runs
     `rf/elide-wire-value` over a snapshot of the live frame's
     app-db. The console shows the `:user/avatar-pdf` slot replaced
-    by the `:rf.size/large-elided` marker, carrying `:reason :frame`
-    (the frame-owned classification provenance). This is the
-    FRAME-driven branch — the same substitution Xray applies when it
-    renders `app-db` in its inspector panel.
+    by the `:rf.size/large-elided` marker, carrying `:reason :effect`
+    (the commit-plane classification provenance). This is the
+    classification-driven branch — the same substitution Xray applies
+    when it renders `app-db` in its inspector panel.
 
   Pre-alpha."
   (:require [reagent.core :as r]
@@ -82,21 +84,23 @@
 ;; SCHEMAS  (Spec 010 §`:large?` per-slot meta)
 ;; ============================================================================
 ;;
-;; The `:user/avatar-pdf` slot is nominated durable-large on the
-;; testbed's `:rf/default` frame (`reg-frame {:large {:app-db …}}` in
+;; The `:user/avatar-pdf` slot is classified durable-large on the
+;; testbed's `:rf/default` frame by the `:counter/classify-avatar-large`
+;; event (the EP-0025 commit-plane `:large` effect, dispatched in
 ;; `core/run`), so the wire-walker substitutes its value with the
 ;; `:rf.size/large-elided` marker (carrying byte-count + path +
-;; `:reason :frame`) whenever any wire consumer walks app-db through
-;; `rf/elide-wire-value`. EP-0015 §8: durable app-db egress
-;; classification is FRAME-owned, not a schema prop — the schema below
+;; `:reason :effect`) whenever any wire consumer walks app-db through
+;; `rf/elide-wire-value`. EP-0025: durable app-db egress classification
+;; rides the commit-plane effects, not a schema prop — the schema below
 ;; describes SHAPE only.
 
 ;; Schema describes SHAPE only (EP-0015 §8): `:user/avatar-pdf` is an
-;; optional string. Durable app-db egress classification is FRAME-owned —
-;; the `:large {:app-db [[:user/avatar-pdf]]}` declaration on the testbed's
-;; `:rf/default` frame (see `core/run`) is what makes this slot elide to the
-;; `:rf.size/large-elided` marker at wire egress. Schemas no longer carry
-;; `:large?` / `:sensitive?` app-db egress markers.
+;; optional string. Durable app-db egress classification rides the EP-0025
+;; commit-plane effects — the `:counter/classify-avatar-large` event returns
+;; `:large [[:user/avatar-pdf]]` alongside `:db` (see `core/run`) and that is
+;; what makes this slot elide to the `:rf.size/large-elided` marker at wire
+;; egress. Schemas no longer carry `:large?` / `:sensitive?` app-db egress
+;; markers.
 ;;
 ;; The runtime ROLLS BACK on a post-commit app-db schema failure — the slot
 ;; may be `nil` (when the user hasn't uploaded yet), so the schema permits
@@ -146,10 +150,10 @@
                  :submitted? true})}))
 
 (rf/reg-event :user.avatar-pdf/set
-  {:doc "Demo: write a synthetic large blob into the frame-nominated
+  {:doc "Demo: write a synthetic large blob into the classified
          `:large` app-db slot. Walking app-db through `rf/elide-wire-value`
          substitutes the slot value with a `:rf.size/large-elided`
-         marker carrying `:reason :frame` (the frame-owned classification
+         marker carrying `:reason :effect` (the commit-plane classification
          provenance)."}
   (fn [{:keys [db]} [_ {:keys [bytes]}]]
     {:db (assoc db :user/avatar-pdf (str/join (repeat (or bytes 5000) "A")))}))
@@ -168,8 +172,9 @@
          runtime size auto-elision, so an unschema'd / unnominated
          inline payload rides through the event-emit listener UNCHANGED
          (no `:rf.size/large-elided` substitution). Large-value egress
-         is declared, not auto-detected: nominate app-db slots on the
-         frame (`:large {:app-db …}`), the contrast to the frame-driven
+         is declared, not auto-detected: classify app-db slots via the
+         commit-plane `:large` effect (a reg-event returning `:large`
+         alongside `:db`), the contrast to the classification-driven
          branch above."}
   (fn [{:keys [db]} [_ {:keys [_blob]}]]
     ;; We don't keep the blob; the point is the elision at the wire
@@ -229,9 +234,9 @@
   "Register the demo console listener. Idempotent — re-registering
   under the same id replaces.
 
-  EP-0015 §8: no schema→elision population step — durable app-db
-  classification is frame-owned and installed at `reg-frame` time (see
-  `core/run`'s `:large {:app-db [[:user/avatar-pdf]]}`), so the
+  EP-0025: no schema→elision population step — durable app-db
+  classification rides the commit-plane `:large` effect, dispatched at boot
+  (see `core/run`'s `[:counter/classify-avatar-large]` dispatch), so the
   `[:rf.runtime/elision :declarations]` registry is already live before any
   wire consumer asks for it."
   []
@@ -311,7 +316,7 @@
              (str uploads " uploads — listener saw the blob raw (not elided)")
              "dispatch a 20 kB inline blob — rides through raw, no auto-detect")]]
 
-         ;; -- 3. :large frame-owned path (app-db walk) ------------
+         ;; -- 3. :large classified path (app-db walk) ------------
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"
                         :margin-bottom "0.6em"}}
           [:button {:on-click   #(dispatch [:user.avatar-pdf/set {:bytes 5000}])
@@ -326,8 +331,8 @@
              "Clear"])
           [:span {:style {:font-size "12px" :color "#595959"}}
            (if avatar-size
-             (str avatar-size " bytes in app-db — frame-declared :large")
-             "write blob to a :large frame-nominated app-db slot")]]
+             (str avatar-size " bytes in app-db — classified :large")
+             "write blob to a :large-classified app-db slot")]]
 
          ;; -- 4. inspect via elide-wire-value ----------------------
          [:div {:style {:display "flex" :align-items "center" :gap "0.5em"}}
@@ -337,4 +342,4 @@
            "Walk app-db through elision"]
           [:span {:style {:font-size "12px" :color "#595959"}}
            "console.log app-db after rf/elide-wire-value — :user/avatar-pdf "
-           "becomes the marker map carrying :reason :frame"]]]))))
+           "becomes the marker map carrying :reason :effect"]]]))))

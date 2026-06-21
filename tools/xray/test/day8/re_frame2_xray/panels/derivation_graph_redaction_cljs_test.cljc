@@ -44,8 +44,8 @@
        the `:rf.size/large-elided` marker, again keeping structure."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.panels.derivation-graph-helpers :as h]))
@@ -66,15 +66,14 @@
 (def plain-frame  :app/plain)
 
 (defn- install-policy! []
-  ;; Frame-owned classification, the EP-0015 §8 successor to the removed
-  ;; schema→elision route — install :sensitive / :large :app-db declarations
-  ;; directly through the frame-classification path (same seam reg-frame uses).
-  (frame-class/install!
-    secure-frame
-    (frame-class/validate+extract
-      secure-frame
-      {:sensitive {:app-db [[:current :params :token]]}
-       :large     {:app-db [[:cart :items]]}})))
+  ;; EP-0025: durable app-db classification rides the commit-plane
+  ;; classification effects. Write :sensitive / :large declarations directly
+  ;; via `elision/apply-classification-effects` (`:source :effect`) — the same
+  ;; registry write a reg-event returning `:sensitive` / `:large` performs.
+  (frame/swap-runtime-db! secure-frame
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:current :params :token]]
+                :large     [[:cart :items]]}))))
 
 (defn- init-fn []
   (rf/reg-frame plain-frame {})

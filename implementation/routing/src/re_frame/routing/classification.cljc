@@ -59,9 +59,9 @@
   A path declared BOTH `:sensitive` and `:large` lowers as sensitive ONLY — its
   large entry is dropped at lowering time, so no `:rf.size/large-elided` marker
   (which would leak path / byte size / digest) is ever emitted for it. This is
-  the install-time complement of the elision walker's sensitive-before-large
-  ordering (`re-frame.elision/walk`), mirroring the same drop in
-  `re-frame.frame-classification/validate+extract`.
+  the lowering-time complement of the elision walker's sensitive-before-large
+  ordering (`re-frame.elision/walk`), which is the single point where
+  sensitive-wins is enforced at egress (EP-0025).
 
   ## Lowering writes a runtime-db VALUE (not a live container swap)
 
@@ -202,8 +202,8 @@
           ;; BOTH lowers as sensitive ONLY — drop it from large so no
           ;; `:rf.size/large-elided` marker (path / bytes / digest) can ever
           ;; leak for it. The walker's sensitive-before-large ordering is the
-          ;; runtime complement; this is the install-time guarantee (mirrors
-          ;; `re-frame.frame-classification/validate+extract`).
+          ;; authoritative runtime enforcement (EP-0025); this lowering-time
+          ;; drop is a belt-and-braces complement for route declarations.
           large-only  (into [] (remove sens-set) large-paths)]
       {:sensitive sens-paths
        :large     large-only})))
@@ -213,11 +213,12 @@
 ;; A route is a SINGLETON current-route, so lowering REPLACES the whole
 ;; `:source :route` declaration set: route activation drops the leaving route's
 ;; route-sourced entries and installs the entering route's. Other sources
-;; (`:source :frame` / `:source :effect` / `:source :flow`) survive untouched
-;; and union at egress-lookup time (`re-frame.elision/elide-against-frame`
-;; reads both `:sensitive-declarations` / `:declarations` sub-maps verbatim).
-;; This mirrors how `re-frame.frame-classification/install!` replaces only its
-;; own `:source :frame` entries.
+;; (`:source :effect` commit-plane classification effects / `:source :flow`
+;; flow outputs) survive untouched and union at egress-lookup time
+;; (`re-frame.elision/elide-against-frame` reads both `:sensitive-declarations`
+;; / `:declarations` sub-maps verbatim). This mirrors how the commit-plane
+;; classification effects (`re-frame.elision/apply-classification-effects`)
+;; touch only their own `:source :effect` entries.
 
 (defn- without-route-sourced
   "Drop `:source :route` entries from a `{path decl}` declaration map,

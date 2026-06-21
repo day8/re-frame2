@@ -36,8 +36,10 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.event-emit :as event-emit]
+            [re-frame.frame :as frame]
             [re-frame.observability :as observability]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
@@ -74,8 +76,12 @@
         {:observability
          {:handled-events [{:sink :test.sinks/datadog
                             :rf.egress/profile :rf.egress/off-box-observability
-                            :opts {:service "checkout-spa"}}]}
-         :sensitive {:app-db [[:auth :token]]}})
+                            :opts {:service "checkout-spa"}}]}})
+      ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
+      ;; effect path (the durable frame annotation is removed) so the
+      ;; projector has policy to apply.
+      (frame/swap-runtime-db! :obs/main
+        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
       (rf/reg-event :auth/login
                        {:frame :obs/main}
                        (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "super-secret")}))
@@ -137,10 +143,12 @@
       (rf/reg-frame :obs/err
         {:observability
          {:errors [{:sink :test.sinks/sentry
-                    :rf.egress/profile :rf.egress/off-box-observability}]}
-         ;; classify the event-arg path [1 :auth :token] sensitive so the
-         ;; projector redacts it inside the error record's :event tree slot.
-         :sensitive {:app-db [[:auth :token]]}})
+                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
+      ;; effect path (the durable frame annotation is removed) so the
+      ;; projector redacts it inside the error record's :event tree slot.
+      (frame/swap-runtime-db! :obs/err
+        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
       (rf/reg-event :auth/login
                        {:frame :obs/err}
                        (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {:cause :test}))}))

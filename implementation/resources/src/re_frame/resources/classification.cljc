@@ -47,8 +47,9 @@
   more conservative shape (it still announces an entry exists, but emits no
   `:rf.size/large-elided` marker that could leak path / byte size / digest /
   fetch-handle). This mirrors the walker's sensitive-before-large ordering
-  (`re-frame.elision/walk`) and the frame-classification install-time rule
-  (`re-frame.frame-classification`).
+  (`re-frame.elision/walk`) — the single point where sensitive-wins is
+  enforced at egress (EP-0025 removed the install-time complement along with
+  the frame annotation).
 
   ## What this slice does NOT touch
 
@@ -137,10 +138,11 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- frame-sensitive-paths
-  "The frame's declared sensitive app-db paths for `frame-id` — the keys of the
-  frame-owned `:sensitive` elision declarations (union of `:source :frame` and
-  any `:source :effect` / `:source :flow` entries; `re-frame.elision/`
-  `sensitive-declarations`). A nil `frame-id` (a frameless / pure projection —
+  "The frame's classified sensitive app-db paths for `frame-id` — the keys of
+  the `:sensitive` elision declarations (the union of every source:
+  `:source :effect` commit-plane effects, `:source :flow` flow outputs,
+  `:source :route` / `:source :machine` subsystem declarations;
+  `re-frame.elision/sensitive-declarations`). A nil `frame-id` (a frameless / pure projection —
   no resolvable frame scope) yields `[]`: there is no frame classification to
   inherit from, and the primary owner `:sensitive?` boundary still governs."
   [frame-id]

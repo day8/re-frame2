@@ -31,13 +31,14 @@
   Durable app-db classification lives in the per-frame elision registry
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations` in the
   frame's runtime-db partition — EP-0001 rf2-vzld77), populated by the EP-0025
-  commit-plane classification effects (`re-frame.elision`, `:source :effect`),
-  by `reg-frame` `:sensitive` / `:large {:app-db …}` (`re-frame.frame-
-  classification`, `:source :frame`), and by `reg-flow` output declarations
-  (`re-frame.flows.registry`, `:source :flow`). The sources union at lookup
-  time. EP-0025: classification does NOT propagate — you redact exactly the
-  paths you classify; nothing is inherited (no derived-output sensitivity, no
-  value-match)."
+  commit-plane classification effects (`re-frame.elision`, `:source :effect` —
+  a `reg-event` returns `:sensitive` / `:large` alongside `:db`), by `reg-flow`
+  output declarations (`re-frame.flows.registry`, `:source :flow`), and by
+  subsystem projection-relative declarations (resources / routing). The sources
+  union at lookup time. EP-0025: the durable `:sensitive` / `:large {:app-db …}`
+  *frame annotation* is REMOVED (a frame is not app-db's definition site), and
+  classification does NOT propagate — you redact exactly the paths you classify;
+  nothing is inherited (no derived-output sensitivity, no value-match)."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
             [re-frame.frame :as frame]

@@ -1681,9 +1681,10 @@
 
 (deftest large-marker-fields
   (testing "rf2-vmhu4i / rf2-9wvwpa — the elided value-bearing slot carries a
-            well-formed :rf.size/large-elided marker conformant to the
-            post-EP-0015 §8 [:frame :marks] :reason enum (NOT the retired
-            :reason :schema), with the REQUIRED :hint slot present"
+            well-formed :rf.size/large-elided marker carrying the canonical
+            :reason :effect provenance (EP-0025 — the commit-plane
+            classification default; NOT the removed :frame annotation, NOT the
+            retired :reason :schema), with the REQUIRED :hint slot present"
     (let [blob   (apply str (repeat 200 "X"))
           traces (atom [])]
       (rf/register-listener! :trace ::lgm (fn [ev] (swap! traces conj ev)))
@@ -1696,8 +1697,8 @@
             marker (-> v :tags :value :rf.size/large-elided)]
         (is (some? v) "a validation-failure trace fired")
         (is (map? marker) ":value carries a :rf.size/large-elided marker")
-        (is (= :frame (:reason marker))
-            ":reason :frame — conforms to the post-EP-0015 [:frame :marks] enum")
+        (is (= :effect (:reason marker))
+            ":reason :effect — the EP-0025 canonical classification provenance default")
         (is (contains? marker :hint) ":hint slot present (REQUIRED by the contract)")
         (is (integer? (:bytes marker)) ":bytes is a byte count")
         (is (= [:rf.elision/at []] (:handle marker)) ":handle is the fetch handle")

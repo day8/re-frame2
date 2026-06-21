@@ -46,16 +46,17 @@
 
   ## Net property (verify-by-revert)
 
-  Reverting `re-frame.frame-classification/install!` (so `reg-frame` no
-  longer installs the durable `:source :frame` declarations) makes the
+  Reverting the commit-plane classification write (so the durable
+  `:source :effect` sensitive declarations are no longer installed) makes the
   framed projection tests go RED — `project-egress` ships the sensitive leaf
-  raw. Reverting the install-time sensitive-wins drop makes
+  raw. Reverting the walker's sensitive-wins-over-large ordering makes
   `sensitive-wins-over-large-at-projection` go RED (a large marker, leaking
   path/size/digest, surfaces for a sensitive path). Confirmed by temporary
   local revert + restore (see PR Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.classification :as classification]
             ;; The low-level plumbing helper, exercised ONLY in the labelled
@@ -87,9 +88,13 @@
 (def ^:private big-string (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
-  (rf/reg-frame frame-id
-    {:sensitive {:app-db [[:auth :token]]}
-     :large     {:app-db [[:docs :blob]]}}))
+  (rf/reg-frame frame-id {})
+  ;; EP-0025: durable app-db classification rides the commit-plane effect
+  ;; path (:source :effect) — no longer a frame annotation.
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:auth :token]]
+                :large     [[:docs :blob]]}))))
 
 (defn- app-db-value []
   {:auth   {:token sentinel}
@@ -172,9 +177,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest large-app-db-elides-to-structural-marker
-  (testing "a frame-owned :large :app-db leaf elides to a structural marker —
+  (testing "a classified :large :app-db leaf elides to a structural marker —
             the off-box-tool profile carries the indicator, no raw bytes"
-    (rf/reg-frame :pub/large {:large {:app-db [[:upload]]}})
+    (rf/reg-frame :pub/large {})
+    (frame/swap-runtime-db! :pub/large
+      (fn [rt] (elision/apply-classification-effects rt {:large [[:upload]]})))
     (let [out (rf/project-egress {:upload big-string :public "ok"}
                 {:frame :pub/large :rf.egress/profile :rf.egress/off-box-tool})]
       (is (gen/large-marker? (:upload out)) "the large leaf is a structural marker")
@@ -184,9 +191,11 @@
 (deftest sensitive-wins-over-large-at-projection
   (testing "a path declared BOTH :sensitive and :large redacts, never
             large-elides — so NO path/size/digest marker can leak for it"
-    (rf/reg-frame :pub/both
-      {:sensitive {:app-db [[:secret]]}
-       :large     {:app-db [[:secret]]}})
+    (rf/reg-frame :pub/both {})
+    (frame/swap-runtime-db! :pub/both
+      (fn [rt] (elision/apply-classification-effects rt
+                 {:sensitive [[:secret]]
+                  :large     [[:secret]]})))
     (let [out (rf/project-egress {:secret big-string}
                 {:frame :pub/both
                  :rf.egress/profile :rf.egress/off-box-observability})]
@@ -214,8 +223,17 @@
                      (let [path  (vec path)
                            fid   :pub/gen
                            value (assoc-in {} path sentinel)]
-                       ;; Re-register the frame with this draw's sensitive path.
-                       (rf/reg-frame fid {:sensitive {:app-db [path]}})
+                       ;; EP-0025: classify this draw's sensitive path via the
+                       ;; commit-plane effect path. Each draw reuses :pub/gen,
+                       ;; so clear the prior draw's declarations (dissoc the
+                       ;; elision slot) before applying — the effect APPENDS, so
+                       ;; a fresh slot per draw preserves the original
+                       ;; re-registration-REPLACES semantics.
+                       (rf/reg-frame fid {})
+                       (frame/swap-runtime-db! fid
+                         (fn [rt]
+                           (-> (dissoc rt :rf.runtime/elision)
+                               (elision/apply-classification-effects {:sensitive [path]}))))
                        (let [out (rf/project-egress value
                                    {:frame fid
                                     :rf.egress/profile :rf.egress/off-box-tool})]

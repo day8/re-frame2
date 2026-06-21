@@ -32,10 +32,11 @@
 ;; SCHEMAS
 ;; ============================================================================
 
-;; Frame-declared `:sensitive` / `:large {:app-db …}` paths (`reg-frame`)
-;; are the sole app-db classification mechanism. The password never lands
-;; in app-db (it rides the machine EVENT-arg schema and the HTTP body), so
-;; there is no app-db path to frame-declare. The managed-HTTP request below
+;; The EP-0025 commit-plane `:sensitive` / `:large` classification effects (a
+;; `reg-event` returns them alongside `:db`) are the durable app-db
+;; classification mechanism. The password never lands in app-db (it rides the
+;; machine EVENT-arg schema and the HTTP body), so there is no app-db path to
+;; classify. The managed-HTTP request below
 ;; carries `:sensitive? true` to scrub the password off the wire — a
 ;; different axis (Spec 014 §Privacy) and the working, observable
 ;; redaction. Parity across reagent/login + helix.

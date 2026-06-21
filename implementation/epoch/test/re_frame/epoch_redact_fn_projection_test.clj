@@ -30,9 +30,9 @@
   projection. It never runs at storage time."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision]
+            [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
-            [re-frame.frame-classification :as frame-class]
+            [re-frame.frame :as frame]
             [re-frame.privacy :as privacy]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -58,25 +58,25 @@
 (defn- last-record [frame-id]
   (last (rf/epoch-history frame-id)))
 
-;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
-;; Seed sensitive declarations through the frame-classification install
-;; seam (the index-free `:rf/path` is the frame declaration). The frame
+;; EP-0025: durable app-db classification rides the commit-plane
+;; classification effects. Seed sensitive declarations through
+;; `elision/apply-classification-effects` (`:source :effect`) — the same
+;; registry write a `reg-event` returning `:sensitive` performs. The frame
 ;; container is reg-frame'd by each deftest before these run.
 (defn- install-sensitive-schema!
   "Declare a `[:auth :password]` sensitive path against `frame-id`."
   [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db [[:auth :password]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- install-two-sensitive-paths-schema!
   "Declare two sensitive paths against `frame-id` — `[:auth :password]`
   and `[:auth :token]`."
   [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db [[:auth :password] [:auth :token]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt
+               {:sensitive [[:auth :password] [:auth :token]]})))
   nil)
 
 ;; ============================================================================

@@ -468,27 +468,31 @@ one route per fact: frame config owns durable app-db classification;
 schemas own shape — see
 [§Schemas describe shape, not durable app-db egress policy](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy).)
 
-The starter counter has nothing sensitive, so its `reg-frame` config is
-the empty `{}`. As soon as you add auth/API data to app-db — say an
-`[:auth]` slice with a token, or a `[:documents]` slice that holds a
-large upload — declare it on the frame where the counter registers
-`:rf/default` in `core.cljs`:
+The starter counter has nothing sensitive. As soon as you add auth/API
+data to app-db — say an `[:auth]` slice with a token, or a `[:documents]`
+slice that holds a large upload — classify it from the event that writes
+it: return the `:sensitive` / `:large` commit-plane effects alongside
+`:db` (EP-0025). Frame-local HTTP carrier names stay on the frame config.
 
 ```clojure
-;; core.cljs — replace (rf/reg-frame :rf/default {}) with the
-;; classification config once your app-db carries sensitive/large paths.
+;; events.cljs — classify durable app-db paths from the event that writes
+;; them. The :sensitive / :large effects ride alongside :db.
+(rf/reg-event :auth/init
+  (fn [{:keys [db]} _]
+    {:db        (assoc db :auth {})
+     ;; Durable app-db paths whose VALUES must never reach an observation
+     ;; surface. They project to :rf/redacted at every egress boundary.
+     :sensitive [[:auth :token]
+                 [:auth :refresh-token]]
+     ;; Durable app-db paths too large to ship whole — they project to
+     ;; :rf.size/large-elided (sensitive wins over large).
+     :large     [[:documents :upload]]}))
+
+;; core.cljs — frame-local HTTP carrier names (headers / query params) that
+;; carry secret material on this app's requests stay on the frame config.
 (rf/reg-frame :rf/default
-  {;; Durable app-db paths whose VALUES must never reach an observation
-   ;; surface. They project to :rf/redacted at every egress boundary.
-   :sensitive {:app-db [[:auth :token]
-                        [:auth :refresh-token]]
-               ;; Frame-local HTTP carrier names (headers / query params)
-               ;; that carry secret material on this app's requests.
-               :http   {:headers      ["Authorization"]
-                        :query-params ["api_key"]}}
-   ;; Durable app-db paths too large to ship whole — they project to
-   ;; :rf.size/large-elided (sensitive wins over large).
-   :large     {:app-db [[:documents :upload]]}})
+  {:sensitive {:http {:headers      ["Authorization"]
+                      :query-params ["api_key"]}}})
 ```
 
 Real values still flow through events → handlers → app-db → subs → views

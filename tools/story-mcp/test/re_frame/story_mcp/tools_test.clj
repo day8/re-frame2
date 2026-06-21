@@ -12,7 +12,8 @@
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame-classification :as frame-class]
+            [re-frame.elision :as elision]
+            [re-frame.frame :as frame]
             [re-frame.mcp-base.cap :as base-cap]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]
@@ -52,14 +53,14 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 
-;; Per-variant frame-owned classification accumulator (EP-0015 §8). Each
-;; `declare-sensitive!` / `declare-large!` call adds ONE `:rf/path` to the
-;; variant's classification config; `frame-class/install!` REPLACES the
-;; frame's `:source :frame` declarations on each install, so the helpers
-;; install the FULL accumulated config every time (a variant that declares
-;; both a sensitive and a large path keeps both). Cleared per test by the
-;; fixture so a prior test's paths don't bleed in. Defined here (above the
-;; fixture) so `reset-story-and-config` can clear it.
+;; Per-variant classification accumulator (EP-0025 commit-plane effects).
+;; Each `declare-sensitive!` / `declare-large!` call adds ONE `:rf/path` to
+;; the variant's classification config; the commit-plane effects are additive
+;; per axis, so the helpers apply the FULL accumulated config every time (a
+;; variant that declares both a sensitive and a large path keeps both — the
+;; superset is re-asserted idempotently). Cleared per test by the fixture so a
+;; prior test's paths don't bleed in. Defined here (above the fixture) so
+;; `reset-story-and-config` can clear it.
 (def ^:private declared-class (atom {}))
 
 (defn reset-story-and-config
@@ -139,27 +140,25 @@
      :doc      "Pin http effect to a known response."
      :fx-id    :http
      :response {:status 200 :body "ok"}})
-  ;; EP-0015 §8 — a test helper event the
-  ;; privacy tests wire into a variant's `:setup` so the frame-owned
-  ;; durable classification (`:sensitive` / `:large {:app-db …}`) is
-  ;; RE-INSTALLED on every fresh run. `run-variant`
-  ;; resets the variant frame's state IN PLACE on each run, which
-  ;; overwrites the runtime-db partition with `{}` — wiping the frame's
-  ;; elision registry (the `[:rf.runtime/elision …]` slot frame
-  ;; classification installs). For the wire-egress redaction to bite at
-  ;; egress (the END of the run), the declarations must be present on the
-  ;; reset frame — so we re-install them from a `:setup` event (phase 2,
-  ;; after allocation/reset). `frame-class/install!` writes directly to
-  ;; the named frame's elision registry, so the re-install lands on the
-  ;; live variant frame regardless of the dispatch scope. Idempotent —
-  ;; re-installing the same classification REPLACES the prior `:source
-  ;; :frame` entries.
+  ;; EP-0025 — a test helper event the privacy tests wire into a variant's
+  ;; `:setup` so the durable classification (`:sensitive` / `:large`
+  ;; commit-plane effects) is RE-APPLIED on every fresh run. `run-variant`
+  ;; resets the variant frame's state IN PLACE on each run, which overwrites
+  ;; the runtime-db partition with `{}` — wiping the frame's elision registry
+  ;; (the `[:rf.runtime/elision …]` slot the classification effects write).
+  ;; For the wire-egress redaction to bite at egress (the END of the run),
+  ;; the declarations must be present on the reset frame — so we re-apply
+  ;; them from a `:setup` event (phase 2, after allocation/reset). The handler
+  ;; RETURNS the commit-plane `:sensitive` / `:large` effects (the canonical
+  ;; EP-0025 form), which the router folds into the per-frame elision registry
+  ;; at commit. The registry is empty at this point (just reset), so the
+  ;; additive write installs the full classification fresh.
+  ;; `classification-config` is the flat effect map `{:sensitive [[..]]
+  ;; :large [[..]]}`.
   (rf/reg-event
     ::reapply-frame-class
-    (fn [{:keys [db]} [_ frame-id classification-config]]
-      (frame-class/install! frame-id
-        (frame-class/validate+extract frame-id classification-config))
-      {:db db}))
+    (fn [{:keys [db]} [_ _frame-id classification-config]]
+      (merge {:db db} classification-config)))
   (try
     (t)
     (finally
@@ -2589,44 +2588,48 @@
     ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
 
 (defn- classification-config
-  "The accumulated `reg-frame` classification map for `variant-id` —
-  `{:sensitive {:app-db [..]} :large {:app-db [..]}}`, omitting an empty
-  block."
+  "The accumulated EP-0025 commit-plane classification-effect map for
+  `variant-id` — `{:sensitive [[..]] :large [[..]]}` (a flat vector of
+  `:rf/path`s per axis), omitting an empty axis. This is the value a
+  `reg-event` returns alongside `:db` to classify the paths; it replaced the
+  removed `reg-frame` `:sensitive`/`:large {:app-db …}` annotation form."
   [variant-id]
   (let [{:keys [sensitive large]} (get @declared-class variant-id)]
     (cond-> {}
-      (seq sensitive) (assoc :sensitive {:app-db (vec sensitive)})
-      (seq large)     (assoc :large {:app-db (vec large)}))))
+      (seq sensitive) (assoc :sensitive (mapv vec sensitive))
+      (seq large)     (assoc :large (mapv vec large)))))
 
 (defn- declare-classification!
   "Accumulate `path` under `kind` (`:sensitive` / `:large`) for
   `variant-id` and install the full classification onto the variant's
   frame, in a way that survives `run-variant`'s fresh-run boundary.
 
-  Two seams, mirroring `seed-app-db!`:
+  Two seams, mirroring `seed-app-db!` (EP-0025 commit-plane classification
+  effects, `:source :effect`):
 
-  1. DIRECT INSTALL — `frame-class/install!` against the live frame, so a
-     non-lifecycle reader (`read-failures`, the direct-`elide-app-db` unit
-     tests) sees the declaration immediately. The frame container must
-     exist (the elision registry lives in its runtime-db partition), so we
-     `ensure-variant-frame!` first.
+  1. DIRECT WRITE — `elision/apply-classification-effects` onto the live
+     frame's runtime-db, so a non-lifecycle reader (`read-failures`, the
+     direct-`elide-app-db` unit tests) sees the declaration immediately. The
+     frame container must exist (the elision registry lives in its runtime-db
+     partition), so we `ensure-variant-frame!` first.
 
-  2. `:events` RE-INSTALL — append a `[::reapply-frame-class frame config]`
-     step to the variant body's `:events` so each fresh run re-installs the
+  2. `:events` RE-APPLY — append a `[::reapply-frame-class frame config]`
+     step to the variant body's `:events` so each fresh run re-applies the
      classification onto the reset frame (phase 2, after allocation/reset).
      Without this the declarations are wiped when `ensure-fresh-frame!`
      resets the pre-run frame's runtime-db to `{}`, and the wire-egress
      walker (which runs at the END of the run) finds no sensitive/large
-     paths to redact. The step is idempotent — re-installing REPLACES the
-     `:source :frame` entries. Skipped when `variant-id` is not a
-     registered variant (nothing to append to). Because the config carries
-     ALL accumulated paths, only the LATEST appended re-install step
-     matters — the prior steps re-install a subset of the same config."
+     paths to redact. The step is idempotent — the commit-plane effects are
+     additive per axis, and the config carries ALL accumulated paths (a
+     superset), so re-applying re-asserts the same `:source :effect` entries.
+     Skipped when `variant-id` is not a registered variant (nothing to append
+     to)."
   [variant-id kind path]
   (swap! declared-class update-in [variant-id kind] (fnil conj #{}) (vec path))
   (ensure-variant-frame! variant-id)
   (let [config (classification-config variant-id)]
-    (frame-class/install! variant-id (frame-class/validate+extract variant-id config))
+    (frame/swap-runtime-db! variant-id
+      (fn [rt] (elision/apply-classification-effects rt config)))
     (when-let [body (story-registrar/handler-meta :variant variant-id)]
       (story-registrar/reg-variant*
         variant-id
@@ -2634,17 +2637,17 @@
                 [::reapply-frame-class variant-id config])))))
 
 (defn- declare-sensitive!
-  "Declare `path` frame-owned `:sensitive` on the named variant's frame
-  (EP-0015 §8). The egress walker returns `:rf/redacted` for a
-  frame-declared-sensitive slot."
+  "Classify `path` `:sensitive` on the named variant's frame via the EP-0025
+  commit-plane `:sensitive` effect. The egress walker returns `:rf/redacted`
+  for a sensitive-classified slot."
   [variant-id path]
   (declare-classification! variant-id :sensitive path))
 
 (defn- declare-large!
-  "Declare `path` frame-owned `:large` on the named variant's frame
-  (EP-0015 §8). The egress walker substitutes the slot's value with the
-  `:rf.size/large-elided` marker — the leaf the `:elided-large` indicator
-  counts."
+  "Classify `path` `:large` on the named variant's frame via the EP-0025
+  commit-plane `:large` effect. The egress walker substitutes the slot's
+  value with the `:rf.size/large-elided` marker — the leaf the `:elided-large`
+  indicator counts."
   [variant-id path]
   (declare-classification! variant-id :large path))
 
@@ -3469,19 +3472,20 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- declare-sensitive-prerun!
-  "Install a frame-owned `:sensitive` `:app-db` declaration for a slot on
-  the named variant's frame PRE-RUN — the no-run posture `explain-variant`
-  must defend. Frame-owned classification lives in the frame's
-  durable elision registry (its runtime-db partition), so the frame
-  container must exist; we `ensure-variant-frame!` (allocate at reg-frame
-  time) then `frame-class/install!`. No run-variant / preview-variant has
-  executed, so the LIVE app-db is still empty — the explain slots are
-  PATH-walked at these declared paths (EP-0015 §8); EP-0025 ships re-keyed
-  copies raw (fail-open)."
+  "Classify a `:sensitive` `:app-db` path for a slot on the named variant's
+  frame PRE-RUN — the no-run posture `explain-variant` must defend.
+  Classification lives in the frame's durable elision registry (its
+  runtime-db partition), so the frame container must exist; we
+  `ensure-variant-frame!` (allocate at reg-frame time) then write the
+  classification via the EP-0025 commit-plane `:sensitive` effect
+  (`elision/apply-classification-effects`, `:source :effect`). No run-variant
+  / preview-variant has executed, so the LIVE app-db is still empty — the
+  explain slots are PATH-walked at these declared paths; EP-0025 ships
+  re-keyed copies raw (fail-open)."
   [variant-id path]
   (ensure-variant-frame! variant-id)
-  (frame-class/install! variant-id
-    (frame-class/validate+extract variant-id {:sensitive {:app-db [(vec path)]}})))
+  (frame/swap-runtime-db! variant-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [(vec path)]}))))
 
 (deftest explain-variant-preframe-db-seed-path-redacts-others-fail-open
   (testing "EP-0025: PRE-RUN, the plan :db-seed redacts BY PATH (its shape mirrors app-db, so [:auth :token] is reached), but values RE-KEYED into :effective-args / :network / a step ship RAW — value-match removed (rf2-tag30h superseded)"

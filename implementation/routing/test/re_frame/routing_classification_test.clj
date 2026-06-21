@@ -221,16 +221,16 @@
 ;; ===========================================================================
 
 (deftest apply-route-classification-replaces-route-sourced-only
-  (testing "lowering preserves other-sourced (frame/marks/effect) entries"
+  (testing "lowering preserves other-sourced (effect/flow) entries"
     (let [base {:rf.runtime/elision
                 {:sensitive-declarations
-                 {[:auth :token]                              {:source :frame}
+                 {[:auth :token]                              {:source :effect}
                   [:rf.runtime/routing :current :query :old]  {:source :route}}}}
           out  (classification/apply-route-classification
                  base {:sensitive [[:query :new]] :large []})
           sens (get-in out [:rf.runtime/elision :sensitive-declarations])]
-      (is (= {:source :frame} (get sens [:auth :token]))
-          "the frame-sourced entry survives")
+      (is (= {:source :effect} (get sens [:auth :token]))
+          "the effect-sourced entry survives")
       (is (nil? (get sens [:rf.runtime/routing :current :query :old]))
           "the prior route-sourced entry is dropped (singleton replacement)")
       (is (= {:source :route}

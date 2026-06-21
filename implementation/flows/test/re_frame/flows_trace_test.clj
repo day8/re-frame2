@@ -15,7 +15,6 @@
             [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -66,29 +65,30 @@
   [op]
   (filterv #(= op (:operation %)) @*captured*))
 
-;; EP-0015 §8: durable app-db egress classification is frame-owned
-;; (`reg-frame` `:sensitive` / `:large {:app-db …}`, installed by
-;; `re-frame.frame-classification` under `:source :frame`). Schema-attached
+;; EP-0025: durable app-db egress classification rides the commit-plane
+;; classification effects (a `reg-event` returns `:sensitive` / `:large`
+;; alongside `:db`, written `:source :effect` by
+;; `elision/apply-classification-effects`). The durable `:sensitive` /
+;; `:large {:app-db …}` frame annotation is REMOVED; schema-attached
 ;; `{:sensitive? true}` / `{:large? true}` slot props do not feed the frame
 ;; elision registry the walker reads. These helpers seed the classification
-;; via the frame-owned path.
+;; via the surviving effect path.
 
 (defn- install-large!
-  "Seed the frame's large app-db classification (frame-owned, `:source
-  :frame`). Marker `:reason` for these paths is `:frame`."
+  "Seed the frame's large app-db classification via the commit-plane effect
+  path (`:source :effect`). Marker `:reason` for these paths is `:effect`."
   [frame-id & paths]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:large {:app-db (vec paths)}})))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:large (mapv vec paths)}))))
 
 (defn- install-sensitive!
-  "Seed the frame's sensitive app-db classification (frame-owned, `:source
-  :frame`). Drives the router's per-handler schema-derived overlap stamp +
-  on-wire redaction, the same way schema-sensitive slots formerly did."
+  "Seed the frame's sensitive app-db classification via the commit-plane
+  effect path (`:source :effect`). Drives the router's per-handler overlap
+  stamp + on-wire redaction, the same way schema-sensitive slots formerly
+  did."
   [frame-id & paths]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db (vec paths)}})))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
 
 (defn- record-all-traces
   "Capture every emitted trace event (not just `:op-type :flow`) for the
@@ -769,9 +769,9 @@
           ":result is replaced by the `:rf.size/large-elided` marker")
       (let [marker (:rf.size/large-elided (:result tags))]
         (is (= [:derived :blob] (:path marker))
-            "marker carries the frame-declared path")
-        (is (= :frame (:reason marker))
-            "marker carries :reason :frame for frame-large paths")))))
+            "marker carries the classified path")
+        (is (= :effect (:reason marker))
+            "marker carries :reason :effect for commit-plane-classified large paths")))))
 
 (deftest failed-trace-elides-inputs
   (testing ":rf.flow/failed :inputs rides through elide-wire-value"
@@ -1174,9 +1174,9 @@
           ":result is similarly elided (sanity)")
       (let [marker (:rf.size/large-elided (:before tags))]
         (is (= [:derived :blob] (:path marker))
-            "before-marker carries the frame-declared path")
-        (is (= :frame (:reason marker))
-            "before-marker carries :reason :frame")))))
+            "before-marker carries the classified path")
+        (is (= :effect (:reason marker))
+            "before-marker carries :reason :effect")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. `:sensitive?` inheritance on `:rf.flow/*` traces (Spec 013 §`:sensitive?`

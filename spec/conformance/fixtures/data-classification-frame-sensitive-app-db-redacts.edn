@@ -1,8 +1,8 @@
 ;; Conformance fixture: data-classification/frame-sensitive-app-db-redacts
 ;;
-;; Per Spec 015 §Tests (the `frame-sensitive-app-db-redacts.edn` row) and
-;; §3 / §8 (frame-owned durable app-db classification) — a frame declaring
-;; `:sensitive {:app-db [[:auth :token]]}`, after an event writes a token to
+;; Per Spec 015 §Tests (the `frame-sensitive-app-db-redacts.edn` row) — a
+;; frame that classifies `[:auth :token]` sensitive (EP-0025 commit-plane
+;; `:sensitive` classification effect), after an event writes a token to
 ;; `[:auth :token]`, projects `:rf/redacted` at that path in any off-box
 ;; record; an unmarked sibling passes through.
 ;;
@@ -21,14 +21,16 @@
 ;;
 ;; Harness note: `:fixture/app-marks` declares the sensitive path against the
 ;; established frame scope (`{:add-marks {[:auth :token] :sensitive}}`),
-;; equivalent to the frame's `:sensitive {:app-db …}` config for the egress
-;; registry the projection consults. Capability `:data-classification/marks`.
+;; installing it into the elision registry under `:source :effect` —
+;; equivalent to a reg-event returning `:sensitive [[:auth :token]]` alongside
+;; `:db` (EP-0025 commit-plane classification effect). Capability
+;; `:data-classification/marks`.
 
 {:fixture/id           :data-classification/frame-sensitive-app-db-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
                          :data-classification/marks}
- :fixture/doc          "A frame with :sensitive {:app-db [[:auth :token]]}, after an event writes a token to [:auth :token], projects :rf/redacted at that path in the t1 :rf.event/db-pending trace event's :rf.event/db slot; an unmarked sibling ([:auth :user]) rides egress verbatim. The committed app-db carries the raw value — redaction is a trace-egress concern."
+ :fixture/doc          "A frame that classifies [:auth :token] sensitive (EP-0025 commit-plane :sensitive effect), after an event writes a token to [:auth :token], projects :rf/redacted at that path in the t1 :rf.event/db-pending trace event's :rf.event/db slot; an unmarked sibling ([:auth :user]) rides egress verbatim. The committed app-db carries the raw value — redaction is a trace-egress concern."
 
  :fixture/registry
  {:event {:dc/login {:doc "Writes a secret token + an unmarked user id into app-db."}}}

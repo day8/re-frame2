@@ -502,10 +502,12 @@
 ;; The SSR hydration projector for durable machine snapshots.
 ;; `re-frame.ssr.payload-policy/project-runtime-db` consults this hook to project
 ;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted /
-;; elided per the FRAME's declared `:sensitive` / `:large {:app-db …}` paths
-;; under `:rf.egress/ssr-hydration` BEFORE it rides the wire — keeping
-;; classified machine data out of the hydration payload. Frame-owned
-;; classification is the sole app-db mechanism.
+;; elided per the per-frame elision registry's classified `:sensitive` /
+;; `:large` paths under `:rf.egress/ssr-hydration` BEFORE it rides the wire —
+;; keeping classified machine data out of the hydration payload. EP-0025:
+;; machine `:data` classification rides the projection-relative subsystem
+;; declaration (lowered per actor under `:source :effect`); the commit-plane
+;; effects are the general app-db mechanism.
 ;; Late-bound so SSR never statically requires the machines artefact.
 (late-bind/set-fn! :machines/project-ssr-runtime-db
                    machines-ssr/project-ssr-runtime-db)

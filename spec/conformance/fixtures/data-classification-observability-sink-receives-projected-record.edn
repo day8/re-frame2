@@ -36,7 +36,15 @@
  :fixture/doc          "A frame's :observability sink consumes ALREADY-PROJECTED records (Spec 015 §9): a handled-event record under off-box-observability has its :event args slot OMITTED, and an error record has the frame-sensitive [:auth :token] inside its :event REDACTED. The framework projects; the sink never re-implements redaction. (Runtime sink ROUTING is pinned e2e by re-frame.observability-routing-cljs-test.)"
 
  :fixture/frames
- [{:id :obs/main :sensitive {:app-db [[:auth :token]]}}]
+ [{:id :obs/main}]
+
+ ;; EP-0025: durable app-db classification rides the commit-plane
+ ;; `:sensitive` / `:large` effects, not a frame annotation. The corpus
+ ;; `:fixture/app-marks` op installs the classification into the frame's
+ ;; elision registry under `:source :effect` (the same write a reg-event
+ ;; returning `:sensitive [[:auth :token]]` performs).
+ :fixture/app-marks
+ [{:add-marks {[:auth :token] :sensitive}}]
 
  :fixture/calls
  [;; 1. The handled-event record the :handled-events sink receives: off-box

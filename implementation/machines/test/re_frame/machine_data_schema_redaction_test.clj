@@ -1,6 +1,7 @@
 (ns re-frame.machine-data-schema-redaction-test
-  "Machine `:data` trace-egress redaction via FRAME-DECLARED classification
-  (the frame-owned sole app-db mechanism).
+  "Machine `:data` trace-egress redaction via the per-frame elision registry
+  (the EP-0025 commit-plane classification effects / projection-relative
+  machine declaration write through it).
 
   Machine `:data` validation ships separately: a `:data-schema` Malli form
   validates the machine's `:data` slot, and the validation-failure trace
@@ -10,14 +11,15 @@
   of `:rf.machine/*` traces when the FRAME declares its runtime-db snapshot
   path sensitive / large.
 
-  Classification of durable `:data` for egress is frame-owned: the frame
-  declares the machine snapshot's `:data` path via `reg-frame`
-  `:sensitive` / `:large {:app-db …}` (the absolute runtime-db path
-  `[:rf.runtime/machines :snapshots <actor-id> :data …]`); the trace egress
-  chokepoint re-roots that snapshot-relative (`classification/frame-snapshot-classification`)
-  and redacts the matching slot. A `:sensitive?` / `:large?` Malli prop on a
-  `:data-schema` slot is VALIDATION ONLY and does not classify durable
-  `:data` for egress.
+  Classification of durable `:data` for egress lives in the per-frame elision
+  registry. EP-0025: a classified machine snapshot `:data` path (the absolute
+  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]`) is
+  written under `:source :effect` — by the commit-plane classification effects
+  or the projection-relative machine declaration lowered per actor; the trace
+  egress chokepoint re-roots that snapshot-relative
+  (`classification/frame-snapshot-classification`) and redacts the matching
+  slot. A `:sensitive?` / `:large?` Malli prop on a `:data-schema` slot is
+  VALIDATION ONLY and does not classify durable `:data` for egress.
 
   The contract under test:
 
@@ -67,9 +69,10 @@
 
 (def ^:private auth-schema
   "A `:data-schema` is VALIDATION ONLY: per-slot props do not classify durable
-  `:data` for snapshot egress; frame-declared paths are the sole egress
-  mechanism. It carries `:sensitive?` / `:large?` props to PROVE they do not
-  classify durable `:data` at snapshot egress (test (3))."
+  `:data` for snapshot egress; the classified registry paths (EP-0025
+  commit-plane effects / projection-relative machine declaration) are the
+  egress mechanism. It carries `:sensitive?` / `:large?` props to PROVE they
+  do not classify durable `:data` at snapshot egress (test (3))."
   [:map
    [:retries :int]
    [:token   {:sensitive? true} [:maybe :string]]
@@ -87,12 +90,12 @@
                     :authed {}}})))
 
 (defn- declare-frame-marks!
-  "Declare the machine snapshot's `:data` token slot SENSITIVE and the blob slot
-  LARGE on `:rf/default` — the frame-owned classification (the sole app-db
-  mechanism), keyed by the absolute runtime-db snapshot path. EP-0025: the
-  imperative add-marks API is removed, so we install the classification directly
-  into the frame's elision registry (the kept substrate the EP-0025 commit-plane
-  `:sensitive` / `:large` effects write through, `:source :effect`) that
+  "Classify the machine snapshot's `:data` token slot SENSITIVE and the blob
+  slot LARGE on `:rf/default`, keyed by the absolute runtime-db snapshot path.
+  EP-0025: the durable frame annotation and the imperative add-marks API are
+  both removed, so we install the classification directly into the frame's
+  elision registry under `:source :effect` — the kept substrate the
+  commit-plane `:sensitive` / `:large` effects write through — that
   `frame-snapshot-classification` reads at trace egress."
   ([] (declare-frame-marks! auth-id))
   ([actor-id]

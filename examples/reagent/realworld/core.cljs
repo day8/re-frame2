@@ -98,6 +98,21 @@
           [:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]]}))
 
+;; Durable app-db classification (EP-0025): the JWT at [:auth :token] is
+;; sensitive — declare it via the commit-plane `:sensitive` classification
+;; effect, returned alongside `:db` from an event the frame runs at creation
+;; (`:initial-events`, before any boot dispatch or off-box egress). The
+;; framework folds the declaration into the per-frame elision registry, so any
+;; off-box egress (Xray/observability capture, an off-box tool, an SSR
+;; hydration payload) sees the token redacted while on-box rendering keeps the
+;; raw value. (EP-0025 removed the durable `:sensitive {:app-db …}` frame
+;; annotation — a frame is not app-db's definition site.)
+(rf/reg-event :auth/classify-token
+  {:doc "Classifies the durable JWT path [:auth :token] sensitive at frame
+         creation (EP-0025 commit-plane classification effect)."}
+  (fn handler-auth-classify-token [{:keys [db]} _]
+    {:db db :sensitive [[:auth :token]]}))
+
 ;; ============================================================================
 ;; APP-SHELL VIEWS
 ;; ============================================================================
@@ -510,13 +525,14 @@
   ;; carries `:url-bound? true` so it owns the browser URL (Spec 012
   ;; §Multi-frame routing). The boot dispatch runs under `with-frame` and the
   ;; render is wrapped in a `frame-provider` below.
-  ;; EP-0015 (frame-owned egress policy): durable, frame-wide sensitive facts
-  ;; are declared on the frame. The JWT lives at [:auth :token] in app-db, so
-  ;; that path is declared `:sensitive`. Classification is declarative and
-  ;; local to the owner; projection happens at the trust boundary, so any
-  ;; off-box egress — Xray/observability capture, an off-box tool, an SSR
-  ;; hydration payload — sees the token redacted while on-box rendering (the
-  ;; navbar, the live header the request actually sends) keeps the raw value.
+  ;; EP-0025 (durable egress classification): the JWT lives at [:auth :token]
+  ;; in app-db, so that path is classified `:sensitive`. Classification rides
+  ;; the commit-plane `:sensitive` effect (`:auth/classify-token`, run from the
+  ;; frame's `:initial-events` at frame creation, before any boot dispatch or
+  ;; off-box egress). Projection happens at the trust boundary, so any off-box
+  ;; egress — Xray/observability capture, an off-box tool, an SSR hydration
+  ;; payload — sees the token redacted while on-box rendering (the navbar, the
+  ;; live header the request actually sends) keeps the raw value.
   ;;
   ;; The outbound `Authorization` Bearer header is NOT declared here: it is
   ;; already on the framework's immutable built-in HTTP carrier denylist
@@ -530,11 +546,11 @@
   ;; password draft is transient form state, owned by its registration, not a
   ;; durable frame fact (and is never sent off-box from app-db). This is the
   ;; canonical issue-5 case from the EP, surfaced only where the data is real.
-  (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
-                             :url-bound?   true
-                             :sensitive    {:app-db [[:auth :token]]}
-                             :interceptors [:realworld.routing/auth-guard]
-                             :fx-overrides {:rf.http/managed :realworld.demo/http-stub}})
+  (rf/reg-frame :rf/default {:doc             "Realworld demo frame."
+                             :url-bound?      true
+                             :initial-events  [[:auth/classify-token]]
+                             :interceptors    [:realworld.routing/auth-guard]
+                             :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:
   ;; before :app/initialise dispatches, since session-restore will fire
   ;; authenticated requests as soon as the JWT is hydrated.

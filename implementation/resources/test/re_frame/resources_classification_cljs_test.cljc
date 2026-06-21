@@ -27,6 +27,8 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.elision :as elision]
+   [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
    [re-frame.privacy :as privacy]
    ;; the unit under test + the SSR projection that consumes it.
@@ -312,10 +314,12 @@
             frame-classified sensitive sub-path is REDACTED on projection
             (frame-owned source of truth), while unclassified siblings ride
             verbatim"
-    ;; declare a frame-owned sensitive app-db path; the elision registry the
-    ;; project-egress walker reads is populated from it.
-    (rf/reg-frame :rcfg/main
-      {:sensitive {:app-db [[:secret]]}})
+    ;; EP-0025: classify a sensitive app-db path via the commit-plane effect
+    ;; path (:source :effect); the elision registry the project-egress walker
+    ;; reads is populated from it. (No longer a frame annotation.)
+    (rf/reg-frame :rcfg/main {})
+    (frame/swap-runtime-db! :rcfg/main
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:secret]]})))
     (let [projected (classification/project-data
                       {:secret "tok-123" :title "public"}
                       {}
@@ -332,7 +336,9 @@
   (testing "EP-0015 §6: owner per-slot marks (a) AND frame classification (b)
             COMPOSE — both a resource-owned :data-schema sensitive slot and a
             frame-classified app-db slot redact in one projection"
-    (rf/reg-frame :rcfg/both {:sensitive {:app-db [[:frame-secret]]}})
+    (rf/reg-frame :rcfg/both {})
+    (frame/swap-runtime-db! :rcfg/both
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:frame-secret]]})))
     (let [spec {:data-schema [:map [:owner-secret {:sensitive? true} :string]]}
           projected (rf/with-frame :rcfg/both
                       (classification/project-data
@@ -421,8 +427,11 @@
             sub-path is redacted even though the resource itself carries no
             coarse claim (defense in depth via the frame-owned source of truth)"
     ;; the SSR projection resolves the current frame; declare classification on
-    ;; it, then project under it.
-    (rf/reg-frame :rcfg/ssr {:sensitive {:app-db [[:secret]]}})
+    ;; it, then project under it. EP-0025: classified via the commit-plane
+    ;; effect path (:source :effect), no longer a frame annotation.
+    (rf/reg-frame :rcfg/ssr {})
+    (frame/swap-runtime-db! :rcfg/ssr
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:secret]]})))
     (let [k   (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
           e   (entry {:resource-id :article/by-slug
                       :data {:secret "tok-xyz" :title "hello"}})
