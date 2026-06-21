@@ -47,7 +47,6 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.marks :as marks]
             [re-frame.path :as path]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
@@ -394,13 +393,12 @@
 ;; into the topo / evaluator stack.
 ;;
 ;; The OPTIONAL output data-classification keys (`:sensitive` / `:large` /
-;; `:rf.egress/output-sensitivity` / `:large?`, Spec 015 §Derived sensitivity)
-;; are validated in the same table. They are validated FAIL-CLOSED: a malformed
-;; declaration (`:sensitive [:token]`, `:large "blob"`, a typo'd enum value) is
-;; rejected rather than silently installing no redaction — the worst failure
-;; for a safety feature. The boolean `:sensitive?` declassify spelling is
-;; REJECTED; derived-output sensitivity is declared with
-;; `:rf.egress/output-sensitivity` (Spec 015:425).
+;; `:large?`, EP-0025) are validated in the same table. They are validated
+;; FAIL-CLOSED: a malformed declaration (`:sensitive [:token]`, `:large "blob"`)
+;; is rejected rather than silently installing no redaction — the worst failure
+;; for a safety feature. EP-0025 removed propagation: the boolean `:sensitive?`
+;; spelling and the `:rf.egress/output-sensitivity` enum are both REJECTED (a
+;; flow classifies its OWN output directly — no input inheritance).
 
 (defn- valid-path-element?
   "True iff `x` is admissible as a flow path segment — the SHARED
@@ -583,36 +581,29 @@
     :extras   (fn [flow] {:bad-key     :large
                           :bad-entries (vec (remove valid-output-subpath? (:large flow)))})}
 
-   ;; Derived-output sensitivity (Spec 015): a flow declares its output's
-   ;; sensitivity with the closed `:rf.egress/output-sensitivity` enum
-   ;; (`:rf.egress/inherit` default | `:rf.egress/sensitive` force |
-   ;; `:rf.egress/public` declassify). A boolean `:sensitive?` key is REJECTED
-   ;; with a recovery hint naming the enum (Spec 015:425); an unknown enum
-   ;; value is fail-closed (a typo is a loud error, never a silent permissive
-   ;; inherit).
+   ;; EP-0025 — flow output sensitivity PROPAGATION is removed: a flow no
+   ;; longer inherits its inputs' classification, and there is no
+   ;; `:rf.egress/output-sensitivity` enum (`:inherit` / `:sensitive` /
+   ;; `:public`). A flow classifies its OWN output directly with per-path
+   ;; `:sensitive` / `:large` (`[[]]` = whole output) or the `:large?`
+   ;; whole-output size override. The boolean `:sensitive?` spelling stays
+   ;; rejected (use `:sensitive [[]]` for a whole-output mark).
    {:pred     (fn [flow] (not (contains? flow :sensitive?)))
     :error-kw :rf.error/flow-bad-marks
-    :reason   (str "the boolean :sensitive? declassify/force spelling is rejected on a "
-                   "flow output (Spec 015) — declare derived-output sensitivity with "
-                   ":rf.egress/output-sensitivity, whose closed value set is "
-                   (pr-str marks/output-sensitivity-values)
-                   " (:rf.egress/public to declassify, :rf.egress/sensitive to force-mark, "
-                   ":rf.egress/inherit — the default — to inherit from inputs)")
+    :reason   (str "the boolean :sensitive? spelling is rejected on a flow output "
+                   "(EP-0025) — classify the whole output with :sensitive [[]] (the "
+                   "[[]] whole-value convention) or a per-path :sensitive [paths]")
     :extras   (fn [flow] {:bad-key :sensitive?
                           :bad-value (:sensitive? flow)
-                          :use :rf.egress/output-sensitivity})}
+                          :use :sensitive})}
 
-   {:pred     (fn [flow] (or (not (contains? flow :rf.egress/output-sensitivity))
-                             (contains? marks/output-sensitivity-values
-                                        (:rf.egress/output-sensitivity flow))))
+   {:pred     (fn [flow] (not (contains? flow :rf.egress/output-sensitivity)))
     :error-kw :rf.error/flow-bad-marks
-    :reason   (str ":rf.egress/output-sensitivity, when present, must be one of "
-                   (pr-str marks/output-sensitivity-values)
-                   " — :rf.egress/inherit (default) inherits from inputs, "
-                   ":rf.egress/sensitive force-marks, :rf.egress/public declassifies")
+    :reason   (str ":rf.egress/output-sensitivity is removed (EP-0025 — no flow "
+                   "input→output propagation). Classify the flow's own output "
+                   "directly with :sensitive [paths] / :large [paths] / :large?")
     :extras   (fn [flow] {:bad-key   :rf.egress/output-sensitivity
-                          :bad-value (:rf.egress/output-sensitivity flow)
-                          :valid     marks/output-sensitivity-values})}
+                          :bad-value (:rf.egress/output-sensitivity flow)})}
 
    {:pred     (fn [flow] (or (not (contains? flow :large?))
                              (boolean? (:large? flow))))
@@ -626,40 +617,21 @@
             (throw (flow-error error-kw reason flow (when extras (extras flow))))))
         validation-rules))
 
-;; ---- Spec 015 §7 flow-output data classification -------------------------
+;; ---- flow-output data classification (EP-0025) --------------------------
 ;;
-;; A `reg-flow` registration may carry data-classification keys describing
-;; the SENSITIVITY / SIZE of the flow's OWN OUTPUT value:
+;; A `reg-flow` registration may carry data-classification keys describing the
+;; SENSITIVITY / SIZE of the flow's OWN OUTPUT value:
 ;;
-;;   :rf.egress/output-sensitivity — the closed derived-output declassification
-;;        enum: :rf.egress/inherit (default) | :rf.egress/sensitive
-;;        (force the whole output sensitive) | :rf.egress/public (declassify)
 ;;   :large?     true   — the whole output is large
 ;;   :sensitive  [paths]— per-output-path sensitive sub-slots ([[]] = whole)
 ;;   :large      [paths]— per-output-path large sub-slots ([[]] = whole)
 ;;
-;; PLUS — per Spec 015:313 — a flow OUTPUT inherits the data-classification of
-;; its INPUT paths. A flow reading a sensitive app-db (or runtime-db-qualified)
-;; input emits a sensitive output unless the author explicitly declassifies
-;; with `:rf.egress/output-sensitivity :rf.egress/public` (Spec 015:425). This
-;; is the same propagation/override grammar subscriptions implement
-;; (`marks/resolve-sub-output-marks`) — flows just need their OWN trigger
-;; because a flow does not recompute on a mark-only change (subs re-resolve on
-;; every compute pass). Propagation is FAIL-CLOSED: an over-redacted derived
-;; value is visibly wrong in dev; an under-redacted one is an invisible privacy
-;; leak. Format-preserving derivations (copy / reformat / concat — e.g. 015's
-;; :computed/full-name) propagate by default; de-sensitising derivations (hash /
-;; mask / aggregate) declassify with `:rf.egress/output-sensitivity
-;; :rf.egress/public` (015's :computed/hashed-token).
-;;
-;; :large is ASYMMETRIC and is NOT auto-propagated: :sensitive is TRANSITIVE
-;; (derived-from-sensitive is sensitive), but a flow usually SHRINKS a large
-;; input (count / summary / first-N), so :large-by-default would over-elide the
-;; common case and force `:large? false` everywhere. The consequence asymmetry
-;; confirms it — under-redact-sensitive is a LEAK; mis-:large is mild either
-;; way. So :large marks come ONLY from explicit flow declarations
-;; (`:large? true` / `:large [paths]`); :sensitive marks come from explicit
-;; declarations UNION propagated input marks.
+;; EP-0025 — there is NO flow input->output PROPAGATION. A flow does NOT inherit
+;; the data-classification of its input paths; the `:rf.egress/output-sensitivity`
+;; enum (`:inherit` / `:sensitive` / `:public`) is REMOVED. If you derive a
+;; secret into a flow's output, classify that output path EXPLICITLY (the same
+;; rule as subs: classify exactly what you mark, nothing is inherited). This
+;; keeps the helper lightweight (EP-0025 §"What is removed").
 ;;
 ;; The flow's output lands in app-db at `(:output-path flow)`, so a sensitive /
 ;; large output value egresses through TWO observation channels:
@@ -667,92 +639,68 @@
 ;;      `:rf.flow/failed` failure path), and
 ;;   2. the app-db destination slot itself — visible to App-DB-Diff style
 ;;      observation, the `:rf.event/db` pending-db trace (the t2
-;;      `:rf.event/db-pending-post-flow` stamp — Spec 015:568), view
-;;      render-arg egress, and any downstream sub reading the slot.
+;;      `:rf.event/db-pending-post-flow` stamp), view render-arg egress, and any
+;;      downstream sub reading the slot.
 ;;
-;; Rather than projecting the registration marks at each flow emit site (a
-;; flow-id→marks table is wrong for flows — Spec 013 lets the SAME flow-id
-;; carry DIFFERENT definitions, hence different marks, in different frames),
-;; we make the marks FIRST-CLASS through the SAME per-frame elision registry
-;; the schema-first wire walker (`elision/elide-wire-value`) already reads.
-;; We translate the registration's output-rooted marks (explicit + propagated)
-;; into ABSOLUTE app-db declarations rooted at `(:output-path flow)` and write them
-;; into the frame's `[:rf.runtime/elision :sensitive-declarations]` /
-;; `:declarations` slots.
+;; Rather than projecting the registration declarations at each flow emit site (a
+;; flow-id->declarations table is wrong for flows — Spec 013 lets the SAME
+;; flow-id carry DIFFERENT definitions, hence different declarations, in
+;; different frames), we make the declarations FIRST-CLASS through the SAME
+;; per-frame elision registry the schema-first wire walker
+;; (`elision/elide-wire-value`) already reads. We translate the registration's
+;; output-rooted EXPLICIT declarations into ABSOLUTE app-db declarations rooted
+;; at `(:output-path flow)` and write them into the frame's
+;; `[:rf.runtime/elision :sensitive-declarations]` / `:declarations` slots,
+;; stamped `{:source :flow :flow-id <id>}`.
 ;;
-;; ONE walker then covers BOTH channels:
-;;   - the flow trace `:result` / `:before` already ride
-;;     `elide-wire-value` rooted at `(:output-path flow)` (see `re-frame.flows`),
-;;     so they pick the declarations up with no emit-site change; and
-;;   - `project-db-tags` / `project-view-rendered-tags` (re-frame.marks)
-;;     elide the app-db destination slot through the SAME registry, so the
-;;     db-diff / pending-db / view egress paths redact it too.
+;; ONE walker then covers BOTH channels: the flow trace `:result` / `:before`
+;; ride `elide-wire-value` rooted at `(:output-path flow)`; `project-db-tags` /
+;; `project-view-rendered-tags` (re-frame.classification) elide the app-db
+;; destination slot through the SAME registry.
 ;;
-;; THE PROPAGATION TRIGGER: the input-path marks a flow inherits arrive on the
-;; frame's elision registry AFTER the flow registers (`add-marks` /
-;; `set-marks` / schema population / an upstream flow's propagated mark). A
-;; flow does NOT recompute on a mark-only change, so it needs a
-;; MARK-MUTATION-aware refresh. We resolve at TWO points,
-;; FRAME-SCOPED and TOPO-ORDERED:
-;;   1. at `reg-flow` time (initial install — covers add-marks-then-reg-flow),
-;;   2. at the START of every `run-flows-on-db` drain, walking the frame's
-;;      flows in dependency order and re-deriving each flow's `:source :flow`
-;;      output declarations (covers marks added after registration AND the
-;;      flow-DAG case — flow B reading flow A's `:output-path` inherits A's already-
-;;      refreshed propagated mark because A is refreshed first in topo order).
-;; The drain refresh is the flows analogue of subs' per-compute re-resolution;
-;; it stays within the flows artefact (no add-marks/set-marks hook into core).
+;; The EXPLICIT declarations are known at `reg-flow` time and do not change with
+;; app-db mutation (no propagation), so they are installed ONCE at registration
+;; (`write-flow-output-marks!`) and dropped on `clear-flow` — there is no
+;; drain-time mark-mutation refresh (that machinery existed only to recompute
+;; propagated marks, now removed).
 ;;
-;; Frame-scoping is structural: the declarations live in the FRAME's own
-;; app-db elision registry, so the same flow-id registered against two
-;; frames with different marks writes into two different registries — no
-;; cross-frame bleed. Entries are stamped `{:source :flow :flow-id <id>}`
-;; so lifecycle cleanup (clear-flow / path-change re-register / frame
-;; destroy) can drop exactly this flow's contributions while leaving
-;; schema-sourced (`:source :schema`) and add-marks-sourced
-;; (`:source :marks`) entries untouched. A flow's
-;; `:rf.egress/output-sensitivity :rf.egress/public` declassify suppresses only
-;; the FLOW's own propagated/whole mark — it can never unmark a schema- or
-;; add-marks-sourced declaration on the same path (union semantics,
-;; Spec 015:295).
+;; Frame-scoping is structural: the declarations live in the FRAME's own app-db
+;; elision registry, so the same flow-id registered against two frames writes
+;; into two different registries — no cross-frame bleed. Entries are stamped
+;; `{:source :flow :flow-id <id>}` so lifecycle cleanup (clear-flow / path-change
+;; re-register / frame destroy) drops exactly this flow's contributions while
+;; leaving frame-, effect-, and other-flow-sourced entries untouched.
 
 (defn- explicit-flow-output-mark-paths
-  "Translate a flow's EXPLICIT output-rooted classification keys into
-  ABSOLUTE app-db declaration paths rooted at the flow's `:output-path`. Returns
+  "Translate a flow's EXPLICIT output-rooted classification keys into ABSOLUTE
+  app-db declaration paths rooted at the flow's `:output-path`. Returns
   `[sensitive-paths large-paths]` (each a vector of absolute path vectors).
-  This is the author's hand-declared set; the PROPAGATED whole-output
-  sensitive mark (input-inherited) is layered on by the resolver below.
 
-  - `:rf.egress/output-sensitivity :rf.egress/sensitive` ⇒ the flow's
-    `:output-path` itself (force-mark the whole output sensitive); `:large? true`
-    ⇒ the `:output-path` itself (force-mark large);
-  - per-path `:sensitive` / `:large` entries ⇒ `(:output-path flow)` ++ sub-path
-    (`[[]]` whole-value mark ⇒ the `:output-path` itself);
-  - `:rf.egress/output-sensitivity :rf.egress/public` / `:large? false` ⇒ NO
-    whole-output mark here (the `:public` declassify suppresses propagation
-    too — see the resolver); per-path entries, if any, still apply."
+  - `:large? true` => the `:output-path` itself (force-mark the whole output
+    large);
+  - per-path `:sensitive` / `:large` entries => `(:output-path flow)` ++ sub-path
+    (`[[]]` whole-value mark => the `:output-path` itself).
+
+  EP-0025: there is no `:rf.egress/output-sensitivity` whole-output force-mark —
+  classify the whole output with `:sensitive [[]]` (which lands here as the
+  `:output-path` itself via the per-path arm)."
   [flow]
-  (let [base       (:output-path flow)
-        abs        (fn [sub] (into (vec base) sub))
+  (let [base       (vec (:output-path flow))
+        abs        (fn [sub] (into base sub))
         per-sens   (->> (:sensitive flow) (filter vector?) (map abs))
         per-large  (->> (:large flow)     (filter vector?) (map abs))
-        whole-sens (when (= :rf.egress/sensitive (:rf.egress/output-sensitivity flow))
-                     [(vec base)])
-        whole-lg   (when (true? (:large? flow))     [(vec base)])]
-    [(vec (concat whole-sens per-sens))
-     (vec (concat whole-lg   per-large))]))
+        whole-lg   (when (true? (:large? flow))     [base])]
+    [(vec per-sens)
+     (vec (concat whole-lg per-large))]))
 
 ;; ---- partition-qualified input primitives (EP-0001 §535-551) -------------
 ;;
 ;; The ONE home for the binary `:inputs`-path partition syntax shared across
 ;; the flows artefact: a bare leading path element resolves against app-db; a
 ;; leading `:rf.db/runtime` opts the input into the runtime-db partition and is
-;; stripped before the path is used. Three consumers ride these primitives so
-;; the rule lives once:
+;; stripped before the path is used. Two consumers ride these primitives:
 ;;   - `re-frame.flows/resolve-input` — reads the input VALUE against the
 ;;     pending app-db / runtime-db partitions (strips for the runtime read);
-;;   - `re-frame.flows/elide-inputs` + `input-overlaps-declaration?` below —
-;;     resolve the declaration-COORDINATE path (`input-resolve-path`);
 ;;   - `re-frame.flows.tooling/declared-input` — lowers to the algebra
 ;;     `[:db …]` / `[:runtime …rest]` declared-input form.
 ;; `registry` is required by both `re-frame.flows` and `re-frame.flows.tooling`
@@ -761,9 +709,9 @@
 (def ^:no-doc runtime-partition-key
   "The reserved partition key that, as a leading `:inputs`-path element, opts a
   flow input into the runtime-db partition (`:rf.db/runtime`). Bare paths (any
-  other leading element) resolve against app-db. The single const all three
-  flow-artefact consumers (resolver / elision / algebra projection) key on so
-  the rule, the resolver, and the doc stay in lockstep."
+  other leading element) resolve against app-db. The single const all flow-
+  artefact consumers key on so the rule, the resolver, and the doc stay in
+  lockstep."
   :rf.db/runtime)
 
 (defn ^:no-doc runtime-input?
@@ -775,70 +723,36 @@
   (= runtime-partition-key (first path)))
 
 (defn ^:no-doc input-resolve-path
-  "Resolve one flow `:inputs` path to the absolute declaration-coordinate
-  path the elision registry is keyed by (plain path vectors, partition-
-  blind — `add-marks` / schema / a flow's own propagated mark all store
-  bare path vectors). A bare input is an app-db path verbatim; a runtime-
-  db-qualified input `[:rf.db/runtime …rest]` drops the partition key so its
-  `…rest` matches a declaration on that runtime-db slot (e.g. a sensitive
-  route param / machine-data slot declared via `add-marks`). Partition-aware
-  by construction — the SAME machinery, one pass.
+  "Resolve one flow `:inputs` path to the absolute declaration-coordinate path
+  the elision registry is keyed by (plain path vectors, partition-blind). A bare
+  input is an app-db path verbatim; a runtime-db-qualified input
+  `[:rf.db/runtime …rest]` drops the partition key so its `…rest` matches a
+  declaration on that runtime-db slot. Partition-aware by construction.
 
-  This is the SHARED strip-partition primitive: a runtime input drops its
-  leading `runtime-partition-key`; a bare input is returned verbatim (as a
-  vector). `re-frame.flows/resolve-input` uses it for the runtime-db value
-  read and `re-frame.flows.tooling/declared-input` for the algebra
-  `[:runtime …rest]` / `[:db …]` lowering, so all partition stripping routes
-  through this one fn.
-
-  Public so `re-frame.flows/elide-inputs` can reuse this SAME normalization
-  when seeding `elision/elide-wire-value`'s `:path` opt for a flow's per-input
-  trace value, so the `:rf.flow/computed` `:input-values` and
-  `:rf.flow/failed` `:inputs` slots elide a runtime-qualified input against
-  the STRIPPED declaration path — matching how the registry keys the sensitive
-  declaration at the stripped path."
+  Public so `re-frame.flows/resolve-input` (the runtime-db value read) and
+  `re-frame.flows.tooling/declared-input` (the algebra `[:runtime …rest]` /
+  `[:db …]` lowering) and `re-frame.flows/elide-inputs` (seeding
+  `elision/elide-wire-value`'s `:path` opt for a flow's per-input trace value)
+  all route partition stripping through this one fn."
   [input-path]
   (if (runtime-input? input-path)
     (subvec (vec input-path) 1)
     (vec input-path)))
 
-(defn- input-overlaps-declaration?
-  "True iff ANY of the flow's resolved input paths overlaps ANY path in the
-  `decls` declaration map (one a prefix of the other, either direction —
-  `topo/output-paths-overlap?` is exactly this prefix test). An input that
-  reads a sensitive slot, a parent of one, or a child of one all count: a
-  flow reading `[:user]` when `[:user :ssn]` is sensitive may surface the
-  ssn in its output, and a flow reading `[:user :ssn]` directly obviously
-  does. Conservative (footgun-prevention, not security-grade taint — same
-  posture as subs' layer-1 check), and fail-closed."
-  [flow decls]
-  (boolean
-    (when (seq decls)
-      (let [decl-paths (keys decls)]
-        (some (fn [input-path]
-                (let [p (input-resolve-path input-path)]
-                  (some #(topo/output-paths-overlap? p %) decl-paths)))
-              (:inputs flow))))))
-
 (defn- flow-declares-marks?
-  "True when the flow registration carries any output data-classification
-  key. Used (alongside a non-nil prior registration) to gate the elision-
-  registry write at `reg-flow` time. NOTE: propagation may install a mark
-  even for a flow with no explicit classification key, so the drain-time
-  refresh (`refresh-flow-output-declarations!`) ALWAYS runs for every
-  registered flow regardless of this predicate — this gate only governs the
-  reg-flow-time first-touch write."
+  "True when the flow registration carries any output data-classification key
+  (`:sensitive` / `:large` / `:large?`). Used to gate the elision-registry write
+  at `reg-flow` time — a flow that declares no classification installs nothing
+  (EP-0025: no propagation, so a no-classification flow can never acquire an
+  inherited mark either)."
   [flow]
   (or (contains? flow :sensitive)
       (contains? flow :large)
-      (contains? flow :rf.egress/output-sensitivity)
       (contains? flow :large?)))
 
 (defn- drop-flow-sourced
-  "Remove every `{:source :flow :flow-id <flow-id>}` entry from a
-  declaration map, preserving schema- and marks-sourced entries (and any
-  OTHER flow's entries — disjoint output paths guarantee none overlap, but
-  the `:flow-id` filter keeps the operation surgical regardless)."
+  "Remove every `{:source :flow :flow-id <flow-id>}` entry from a declaration
+  map, preserving every other-sourced entry (and any OTHER flow's entries)."
   [decls flow-id]
   (when decls
     (reduce-kv (fn [acc path decl]
@@ -851,70 +765,26 @@
 
 (defn- assoc-flow-paths
   "Add `paths` to `existing` declaration map, each stamped
-  `{:source :flow :flow-id <flow-id>}` so lifecycle cleanup can find
-  them. The stamped value carries no `:hint`; the large-elision walker
-  (`elision/elide-wire-value`) treats a hint-less declaration as a plain
-  large mark — `(:hint nil)` ⇒ no hint on the emitted marker."
+  `{:source :flow :flow-id <flow-id>}` so lifecycle cleanup can find them."
   [existing paths flow-id]
   (reduce (fn [acc path]
             (assoc acc (vec path) {:source :flow :flow-id flow-id}))
           (or existing {})
           paths))
 
-(defn- resolve-flow-sensitive-paths
-  "Resolve `flow`'s absolute sensitive output declaration paths against the
-  CURRENT registry `reg` (after THIS flow's own `:source :flow` entries have
-  been dropped, so propagation never feeds back on itself). The set is:
-
-    explicit `:rf.egress/output-sensitivity :rf.egress/sensitive` (force) /
-           `:sensitive [paths]` declarations
-    UNION  the PROPAGATED whole-output mark — installed iff (a) the flow did
-           not declassify with `:rf.egress/output-sensitivity :rf.egress/public`,
-           and (b) some input path overlaps an existing sensitive declaration
-           on the frame.
-
-  `:rf.egress/output-sensitivity :rf.egress/public` is the DECLASSIFY claim
-  (Spec 015): it suppresses BOTH the whole-output force-mark and the
-  propagated mark (per-path
-  `:sensitive` entries, being explicit author intent on sub-slots, still
-  apply). It cannot unmark a schema-/add-marks-sourced declaration on the same
-  path — those entries are never `:source :flow`, so they survive the
-  `drop-flow-sourced` carry and re-union at read time (Spec 015:295)."
-  [flow reg]
-  (let [base        (vec (:output-path flow))
-        [explicit-s _] (explicit-flow-output-mark-paths flow)
-        opted-out?  (= :rf.egress/public (:rf.egress/output-sensitivity flow))
-        ;; Propagate against the carried (non-flow) declarations PLUS any
-        ;; OTHER flow's already-resolved sensitive declarations — so a flow
-        ;; reading an upstream flow's sensitive `:output-path` inherits it (the
-        ;; topo-ordered drain refresh guarantees the upstream is resolved
-        ;; first). The carried map here already excludes THIS flow.
-        propagate?  (and (not opted-out?)
-                         (input-overlaps-declaration?
-                           flow (get reg :sensitive-declarations)))
-        propagated  (when propagate? [base])]
-    (vec (distinct (concat explicit-s propagated)))))
-
 (defn- fold-flow-declarations
-  "Fold ONE flow's `:source :flow` output declarations into the registry
+  "Fold ONE flow's `:source :flow` EXPLICIT output declarations into the registry
   `reg` (pure). Drops THIS flow's prior `:source :flow` entries first (so a
-  re-registration / mark-mutation refresh replaces cleanly), then overlays
-  the freshly-resolved absolute declarations. The sensitive set is EXPLICIT
-  ∪ PROPAGATED (input-inherited, fail-closed) per Spec 015:313; the large set
-  is EXPLICIT-ONLY (:large is not auto-propagated — see the asymmetry note on
-  the classification block above). Resolving the propagation against the CARRY
-  (this-flow-dropped) registry means a flow never inherits from its own prior
-  mark (idempotence + no self-loop), and — because the caller folds flows in
-  topo order — a flow reading an upstream flow's `:output-path` resolves
-  against the upstream's already-folded propagated mark."
+  re-registration replaces cleanly), then overlays the flow's explicit absolute
+  declarations. EP-0025: explicit-only — no input->output propagation, no
+  resolution against the carried registry."
   [reg flow]
-  (let [flow-id        (:id flow)
-        [_ explicit-l] (explicit-flow-output-mark-paths flow)
-        carry-s        (drop-flow-sourced (get reg :sensitive-declarations) flow-id)
-        carry-l        (drop-flow-sourced (get reg :declarations) flow-id)
-        sens-abs       (resolve-flow-sensitive-paths flow {:sensitive-declarations carry-s})
-        new-s          (assoc-flow-paths carry-s sens-abs flow-id)
-        new-l          (assoc-flow-paths carry-l explicit-l flow-id)]
+  (let [flow-id            (:id flow)
+        [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)
+        carry-s            (drop-flow-sourced (get reg :sensitive-declarations) flow-id)
+        carry-l            (drop-flow-sourced (get reg :declarations) flow-id)
+        new-s              (assoc-flow-paths carry-s explicit-s flow-id)
+        new-l              (assoc-flow-paths carry-l explicit-l flow-id)]
     (cond-> (or reg {})
       (seq new-s)    (assoc :sensitive-declarations new-s)
       (empty? new-s) (dissoc :sensitive-declarations)
@@ -922,120 +792,13 @@
       (empty? new-l) (dissoc :declarations))))
 
 (defn- write-flow-output-marks!
-  "Install (or refresh) a SINGLE `flow`'s output marks into `frame-id`'s
-  app-db elision registry (the `reg-flow`-time path). Delegates the
-  resolution to `fold-flow-declarations`; shares `swap-elision-slot!` with
-  `re-frame.marks` so the runtime-prune semantics stay uniform."
+  "Install (or refresh) a SINGLE `flow`'s EXPLICIT output declarations into
+  `frame-id`'s app-db elision registry (the `reg-flow`-time path). Delegates to
+  `fold-flow-declarations`; shares `swap-elision-slot!` so the runtime-prune
+  semantics stay uniform."
   [frame-id flow]
   (elision/swap-elision-slot! frame-id
     (fn [reg] (fold-flow-declarations reg flow))))
-
-(defn refresh-flow-output-declarations!
-  "Re-derive EVERY flow's `:source :flow` output declarations for `frame-id`,
-  walking the frame's flows in TOPOLOGICAL (dependency) order so a flow that
-  reads an upstream flow's `:output-path` inherits the upstream's just-refreshed
-  propagated mark. Frame-scoped. Called at the START of
-  `re-frame.flows/run-flows-on-db` (before any flow computes, so the refreshed
-  declaration is in the registry when the t2 `:rf.event/db-pending-post-flow`
-  trace and the `:rf.flow/computed` `:result` slot project — Spec 015:568) —
-  the MARK-MUTATION-aware refresh flows need because a flow does not recompute
-  on a mark-only `add-marks` / `set-marks` / schema change (subs re-resolve on
-  every compute pass; flows do not).
-
-  Read-resolve-write-IF-CHANGED: reads the frame's two declaration sub-maps,
-  folds all flows through them in one pure pass, and calls the runtime-db
-  write surface ONLY when the resolved declarations actually differ — so a
-  frame whose flows declare and inherit nothing (or whose declarations are
-  already settled, the steady state after the first event) pays a pure-data
-  fold and NO runtime-db write / reactive churn on the per-event hot path.
-
-  Reads the flow registry through `flows-snapshot` — the SAME accessor the
-  caller `re-frame.flows/run-flows-on-db` reads (its `flow-map` binding and
-  this refresh resolve identical values; the shared drain-lock makes any
-  divergence unreachable). Consistent-accessor use, not a correctness fix."
-  [frame-id]
-  (when-let [flow-map (get (flows-snapshot) frame-id)]
-    (when (seq flow-map)
-      (let [ordered (topo/topo-sort flow-map)
-            ;; Current declaration sub-maps (the only two slots flows touch).
-            cur-s    (elision/sensitive-declarations frame-id)
-            cur-l    (elision/declarations frame-id)
-            reg0     (cond-> {}
-                       (seq cur-s) (assoc :sensitive-declarations cur-s)
-                       (seq cur-l) (assoc :declarations cur-l))
-            reg'     (reduce (fn [acc flow-id]
-                               (fold-flow-declarations acc (get flow-map flow-id)))
-                             reg0
-                             ordered)]
-        ;; Only write when the fold changed something. The fold is pure, so
-        ;; this comparison is exact — no spurious runtime-db replace / reactive
-        ;; invalidation when the declarations are already settled.
-        (when (not= reg0 reg')
-          (elision/swap-elision-slot! frame-id
-            (fn [reg]
-              ;; Re-fold against the live `reg` inside the swap (it carries any
-              ;; non-flow `:source :schema` / `:source :marks` entries reg0's
-              ;; two-submap reconstruction already preserved, plus guards
-              ;; against a concurrent mutation between the read and the swap).
-              (reduce (fn [acc flow-id]
-                        (fold-flow-declarations acc (get flow-map flow-id)))
-                      reg
-                      ordered))))))))
-
-;; ---- flow output-declaration snapshot / rollback -------------------------
-;;
-;; `refresh-flow-output-declarations!` writes the frame's runtime-db elision
-;; registry IMMEDIATELY (via `swap-elision-slot!`), BEFORE the flow walk in
-;; `re-frame.flows/run-flows-on-db` runs. A flow throw is a PRE-INSTALL throw
-;; that aborts the WHOLE event (Spec 013 §Failure semantics), so the pending
-;; `:db` effect and the draining frame's `last-inputs` advances are discarded
-;; — but the refresh's runtime-db write would SURVIVE, leaving the elision
-;; declarations out of sync with the committed (rolled-back) frame state and
-;; violating the all-or-nothing two-partition contract (Spec 013:284,288 —
-;; a pre-install flow throw must leave BOTH app-db and runtime-db unchanged).
-;;
-;; These two helpers let the drain snapshot the frame's flow output-declaration
-;; slots BEFORE the refresh and restore them EXACTLY on a throw — the precise
-;; mirror of the `frame-last-inputs-snapshot` / `reset-frame-last-inputs-to!`
-;; pair this same walk uses for the dirty-check rollback. Frame-scoped: both
-;; name `frame-id` and touch only that frame's runtime-db elision slot, so a
-;; concurrently-draining sibling frame is structurally untouched.
-
-(defn ^:no-doc flow-output-declarations-snapshot
-  "Snapshot `frame-id`'s flow-touchable elision declaration sub-maps — the
-  two slots `refresh-flow-output-declarations!` (and `fold-flow-declarations`)
-  ever mutate: `:sensitive-declarations` and `:declarations`. Returned as a
-  plain map suitable for `restore-flow-output-declarations!`. The drain-start
-  snapshot for the throw-path rollback."
-  [frame-id]
-  {:sensitive-declarations (elision/sensitive-declarations frame-id)
-   :declarations           (elision/declarations frame-id)})
-
-(defn ^:no-doc restore-flow-output-declarations!
-  "Restore `frame-id`'s flow output-declaration slots to `prior` (a snapshot
-  from `flow-output-declarations-snapshot`), rolling back any mark-mutation
-  refresh that landed before an aborted flow walk. Writes the two declaration
-  sub-maps back EXACTLY through `swap-elision-slot!` (pruning an emptied slot
-  the same way `fold-flow-declarations` does), leaving any other elision-slot
-  keys the refresh never touches unchanged. Frame-scoped."
-  [frame-id prior]
-  (let [prior-s (:sensitive-declarations prior)
-        prior-l (:declarations prior)]
-    (elision/swap-elision-slot! frame-id
-      (fn [reg]
-        (cond-> (or reg {})
-          (seq prior-s)    (assoc :sensitive-declarations prior-s)
-          (empty? prior-s) (dissoc :sensitive-declarations)
-          (seq prior-l)    (assoc :declarations prior-l)
-          (empty? prior-l) (dissoc :declarations))))))
-
-(defn- clear-flow-output-marks!
-  "Drop `flow-id`'s `:source :flow` declarations from `frame-id`'s elision
-  registry. Called on `clear-flow` (`registry.cljc` §clear-flow) so a
-  *single* deregistered flow leaves no orphaned redaction declaration behind
-  while its frame and the frame's other flows live on. Schema- and
-  marks-sourced entries survive.
-
   NOT called on frame-destroy teardown (`teardown-on-frame-destroy!`),
   and deliberately so: the elision registry lives in the frame's runtime-db
   partition at `[:rf.runtime/elision]` (re-frame.elision §registry-of),
@@ -1255,32 +1018,23 @@
                  (if (frame/in-drain? frame-id)
                    (record-abandoned-output-path! frame-id old-path)
                    (vacate-output-path! frame-id old-path)))))
-           ;; Spec 015 §7: install this flow's output data-classification marks
-           ;; (EXPLICIT ∪ PROPAGATED-from-inputs) into the frame's app-db
-           ;; elision registry, rooted at `(:path flow)`.
-           ;; `write-flow-output-marks!` drops THIS flow's prior
-           ;; `:source :flow` entries first, so a re-registration that changed
-           ;; `:output-path` or the mark set replaces cleanly (covering the
-           ;; old-path declarations the value-vacate above does not touch).
-           ;; Inside the serialized region so a concurrent drain's
+           ;; EP-0025: install this flow's EXPLICIT output data-classification
+           ;; declarations into the frame's app-db elision registry, rooted at
+           ;; `(:output-path flow)`. `write-flow-output-marks!` drops THIS flow's
+           ;; prior `:source :flow` entries first, so a re-registration that
+           ;; changed `:output-path` or the declaration set replaces cleanly
+           ;; (covering the old-path declarations the value-vacate above does not
+           ;; touch). Inside the serialized region so a concurrent drain's
            ;; `elide-wire-value` read cannot observe a half-updated registry.
            ;;
            ;; Gate: skip the registry write only for a FIRST registration that
-           ;; (a) declares no classification key AND (b) inherits nothing —
-           ;; none of its input paths overlap an existing sensitive declaration
-           ;; on the frame. Such a flow has no mark to install or clear, so it
-           ;; pays zero cost and triggers no spurious invalidation. A
-           ;; re-registration (`prior-on-frame` non-nil) ALWAYS writes (even a
-           ;; now-unmarked replacement must CLEAR the prior definition's marks);
-           ;; and a flow that inherits a sensitive input (the realistic
-           ;; add-marks-THEN-reg-flow ordering) writes its propagated mark
-           ;; eagerly so an observer reading the registry right after reg-flow
-           ;; sees it (the drain refresh would otherwise install it only on the
-           ;; first event).
+           ;; declares no classification key. Such a flow has nothing to install
+           ;; or clear (EP-0025: no propagation, so it can never acquire an
+           ;; inherited mark either). A re-registration (`prior-on-frame`
+           ;; non-nil) ALWAYS writes (even a now-unmarked replacement must CLEAR
+           ;; the prior definition's declarations).
            (when (or (flow-declares-marks? flow)
-                     (some? @prior-on-frame)
-                     (input-overlaps-declaration?
-                       flow (elision/sensitive-declarations frame-id)))
+                     (some? @prior-on-frame))
              (write-flow-output-marks! frame-id flow))
            ;; Per Spec 001 §Hot-reload semantics + Spec 013 §Re-registration:
            ;; a same-frame REPLACEMENT must (1) drop THIS frame's stale

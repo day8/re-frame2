@@ -60,7 +60,7 @@
   ## Per-slot `:sensitive?` and `:large?` (rf2-jhyccs)
 
   `classify-decoded` applies BOTH the `:decode` schema's `:sensitive?` and
-  `:large?` per-slot marks via the shared `re-frame.marks/redact-with-paths`
+  `:large?` per-slot marks via the shared `re-frame.classification/redact-with-paths`
   walker (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`,
   sensitive wins over large) — the SAME walker the resource / app-schema
   surfaces use, never a body-private walker. `decode-schema-marks` extracts
@@ -85,7 +85,7 @@
   at trace-emit / capture sites that gate on `interop/debug-enabled?`; in
   production builds the trace surface elides entirely and no body walk runs."
   (:require [re-frame.late-bind :as late-bind]
-            [re-frame.marks :as marks]))
+            [re-frame.classification :as classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -228,7 +228,7 @@
 ;; `classify-decoded` is the IN-PROCESS dev-trace projection (the local
 ;; operator sees their own process); `off-box-classify-body` is the OFF-BOX
 ;; egress projection (fail-closed for an unschematized body). Both delegate
-;; to the shared `re-frame.marks/redact-with-paths` walker (sensitive →
+;; to the shared `re-frame.classification/redact-with-paths` walker (sensitive →
 ;; `:rf/redacted`, large → `:rf.size/large-elided`, sensitive wins over large)
 ;; — never a body-private walker.
 ;; ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@
   marks to a decoded response body `decoded` for the IN-PROCESS dev trace:
   each `:sensitive?` slot redacts to the `:rf/redacted` sentinel, each
   `:large?` slot elides to the `:rf.size/large-elided` marker, via the shared
-  `re-frame.marks/redact-with-paths` walker (sensitive wins over large at the
+  `re-frame.classification/redact-with-paths` walker (sensitive wins over large at the
   same slot — the shared `re-frame.elision/walk` ordering, EP-0015 issue 5).
 
   This is the FINE-grained, schema-driven layer: it fires irrespective of the
@@ -255,7 +255,7 @@
   [decoded decode]
   (let [{:keys [sensitive large]} (decode-schema-marks decode)]
     (if (or (seq sensitive) (seq large))
-      (marks/redact-with-paths decoded (keys sensitive) (keys large))
+      (classification/redact-with-paths decoded (keys sensitive) (keys large))
       decoded)))
 
 (defn off-box-classify-body

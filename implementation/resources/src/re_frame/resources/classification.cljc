@@ -62,7 +62,7 @@
     + Spec-Schemas — EP-0015 bead-plan item 9)."
   (:require [re-frame.elision :as elision]
             [re-frame.late-bind :as late-bind]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.path :as path]
             [re-frame.projection :as projection]
             [re-frame.resources.scope-registry :as scope-registry]))
@@ -480,7 +480,7 @@
 ;;
 ;;   (a) the RESOURCE-OWNED per-slot `:data-schema` `:sensitive?` AND `:large?`
 ;;       marks (the canonical fine-grained owner surface, issue 11) project
-;;       through the shared frame-independent `re-frame.marks/redact-with-paths`
+;;       through the shared frame-independent `re-frame.classification/redact-with-paths`
 ;;       walker — `:sensitive?` slots redact to the `:rf/redacted` sentinel,
 ;;       `:large?` slots elide to the `:rf.size/large-elided` marker. This is
 ;;       the OWNER's declaration firing irrespective of frame app-db
@@ -513,7 +513,7 @@
   rooted at the value root) in the two composed layers:
 
     (a) the owner `:sensitive?` / `:large?` per-slot marks project through the
-        shared `re-frame.marks/redact-with-paths` walker (sensitive →
+        shared `re-frame.classification/redact-with-paths` walker (sensitive →
         `:rf/redacted`, large → `:rf.size/large-elided`, sensitive wins at a
         co-marked slot) — frame-independent;
     (b) the result is projected through the merged frame-owned
@@ -526,7 +526,7 @@
   [value marks frame-id boundary-profile]
   (let [{:keys [sensitive large]} marks
         owner-projected (if (or (seq sensitive) (seq large))
-                          (marks/redact-with-paths value (keys sensitive) (keys large))
+                          (classification/redact-with-paths value (keys sensitive) (keys large))
                           value)]
     (if frame-id
       (projection/project-egress owner-projected
@@ -566,7 +566,7 @@
   Both branches compose two SHARED primitives (never a family-private elider):
 
     (a) the owner per-slot `:sensitive?` AND `:large?` marks through the shared
-        `re-frame.marks/redact-with-paths` walker — `:sensitive?` slots redact
+        `re-frame.classification/redact-with-paths` walker — `:sensitive?` slots redact
         to the `:rf/redacted` sentinel, `:large?` slots elide to the
         `:rf.size/large-elided` marker (sensitive wins at a co-marked slot) —
         the OWNER's fine-grained declaration, firing regardless of frame app-db
@@ -637,7 +637,7 @@
       `:rf.size/large-elided` marker.
 
   Both axes go through the SHARED frame-independent
-  `re-frame.marks/redact-with-paths` walker (sensitive → `:rf/redacted`,
+  `re-frame.classification/redact-with-paths` walker (sensitive → `:rf/redacted`,
   large → `:rf.size/large-elided`, sensitive wins over large at the same
   slot) — the SAME walker the HTTP response-body surface
   (`re-frame.http.privacy-body/classify-decoded`) uses, never a
@@ -650,7 +650,7 @@
   [params spec]
   (let [{:keys [sensitive large]} (params-schema-marks spec)]
     (if (or (seq sensitive) (seq large))
-      (marks/redact-with-paths params (keys sensitive) (keys large))
+      (classification/redact-with-paths params (keys sensitive) (keys large))
       params)))
 
 ;; ---------------------------------------------------------------------------
