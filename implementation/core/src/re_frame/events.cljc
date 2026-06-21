@@ -27,15 +27,15 @@
   Per Spec 015 §1. Event handlers — the registration meta-map accepts
   optional `:sensitive [paths]` and `:large [paths]` keys that index
   into the dispatched event vector's arg-map (the second element).
-  The marks are DERIVED from the registrar meta at `re-frame.marks/marks-for`
-  read time; reg-event only VALIDATES them fail-loud via
-  `re-frame.marks/validate-marks!` — an ALWAYS-ON registration-time validator
-  reached by DIRECT REQUIRE. `re-frame.marks` is core-owned, lives
-  in the SAME artefact as events/fx/subs, and is pinned into every
-  production bundle (it is side-effect-required by `re-frame.core`); the
-  validator fail-louds in prod as well as dev. The direct require is
-  cycle-free (marks' transitive closure touches none of events/fx/cofx/subs).
-  The dev-gated marks PROJECTION hooks stay late-bound. No imperative stash."
+  The classification is DERIVED from the registrar meta at
+  `re-frame.classification/registration-classification` read time; reg-event
+  only VALIDATES it fail-loud via
+  `re-frame.classification/validate-classification!` — an ALWAYS-ON
+  registration-time validator reached by DIRECT REQUIRE. `re-frame.classification`
+  is core-owned, lives in the SAME artefact as events/fx/subs, and is pinned into
+  every production bundle (it is side-effect-required by `re-frame.core`); the
+  validator fail-louds in prod as well as dev. The direct require is cycle-free.
+  The dev-gated PROJECTION hook stays late-bound. No imperative stash."
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.image-assembly :as image-assembly]
@@ -44,7 +44,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.cofx :as cofx]
             [re-frame.error :as error]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -979,17 +979,17 @@
     ;; EP-0018: `:rf.cofx/requires` is uniformly available — the one form is
     ;; coeffects-in.
     ;; Per Spec 015 §1. Event handlers: VALIDATE any declared `:sensitive` /
-    ;; `:large` marks fail-loud BEFORE the registrar write; the marks
-    ;; themselves are DERIVED from the registrar meta at `marks-for` read
-    ;; time, no imperative stash. DIRECT REQUIRE: `marks` is core-owned,
-    ;; same-artefact, pinned into the prod bundle, and always-on, so the
-    ;; require needs no late-bind hop (no DCE seam, no optional-artefact
-    ;; decoupling) and is cycle-free. Runs for MACHINE registrations too: a
-    ;; machine's author marks ride its `:event` reg meta (via `reg-machine`
-    ;; opts); `marks-for :event <id>` returns those registrar-derived author
-    ;; marks (EP-0025 — frame-declared paths are the sole app-db classification
-    ;; mechanism).
-    (marks/validate-marks! :event meta)
+    ;; `:large` classification fail-loud BEFORE the registrar write; the
+    ;; classification itself is DERIVED from the registrar meta at
+    ;; `registration-classification` read time, no imperative stash. DIRECT
+    ;; REQUIRE: `classification` is core-owned, same-artefact, pinned into the
+    ;; prod bundle, and always-on, so the require needs no late-bind hop and is
+    ;; cycle-free. Runs for MACHINE registrations too: a machine's author
+    ;; classification rides its `:event` reg meta (via `reg-machine` opts);
+    ;; `registration-classification :event <id>` returns those registrar-derived
+    ;; author paths (EP-0025 — frame-declared paths are the sole app-db
+    ;; classification mechanism).
+    (classification/validate-classification! :event meta)
     (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
       (registrar/register! :event id
         (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)

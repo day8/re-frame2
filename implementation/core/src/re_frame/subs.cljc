@@ -36,7 +36,7 @@
             [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.live-frame :as live-frame]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -234,20 +234,14 @@
                                          :recovery  :no-recovery}))
                    (throw e)))
         {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
-    ;; Per Spec 015 §Derived sensitivity — VALIDATE declarations fail-loud
-    ;; BEFORE the registrar write:
-    ;;   :sensitive / :large — per-output-path marks
-    ;;   :rf.egress/output-sensitivity — the derived-output declassification
-    ;;     enum (:rf.egress/inherit | :rf.egress/sensitive | :rf.egress/public;
-    ;;     the :sensitive? overload throws here for the :sub kind)
-    ;;   :large? — whole-output size override
-    ;; The marks themselves are DERIVED from the registrar meta at `marks-for`
-    ;; read time (no imperative stash). The propagation table
-    ;; (`re-frame.marks/mark-sub-output!`) is updated on each sub-cache compute
-    ;; pass — see `compute-and-cache!`. The always-on, same-artefact
-    ;; `validate-marks!` is called directly (no late-bind hop): no DCE seam
-    ;; needed, no decoupling, cycle-free.
-    (marks/validate-marks! :sub meta)
+    ;; EP-0025 — VALIDATE the sub's `:sensitive` / `:large` / `:large?`
+    ;; classification declarations fail-loud BEFORE the registrar write. The
+    ;; classification is DERIVED from the registrar meta at read time (no
+    ;; imperative stash). EP-0025 removed sub-output PROPAGATION (no
+    ;; derived-output sensitivity enum, no input→output inheritance), so there
+    ;; is no propagation table to update. The always-on, same-artefact
+    ;; `validate-classification!` is called directly (no late-bind hop).
+    (classification/validate-classification! :sub meta)
     (registrar/register! :sub id
       (cond-> (assoc (source-coords/merge-coords meta)
                      :handler-fn    handler-fn
@@ -270,13 +264,13 @@
   reads ONE frame-state container directly (no `:<-` / `input-fn` producer,
   so `:input-signals` is empty `[]`).
 
-  VALIDATE marks fail-loud BEFORE the registrar write; marks are
-  DERIVED from the registrar meta at read time, no imperative stash. Emits the
+  VALIDATE classification fail-loud BEFORE the registrar write; classification
+  is DERIVED from the registrar meta at read time, no imperative stash. Emits the
   Spec 009 §`:rf.sub/create` materialisation trace. Returns `id`. The
   always-on, same-artefact validator is called directly, not via a
   late-bind hop."
   [id meta handler-fn input-kind]
-  (marks/validate-marks! :sub meta)
+  (classification/validate-classification! :sub meta)
   (registrar/register! :sub id
     (assoc (source-coords/merge-coords meta)
            :handler-fn    handler-fn
@@ -934,23 +928,12 @@
         input-signals input-qs
         cache         (:sub-cache (frame/frame frame-id))
         k             (cache-key query-v)]
-    ;; Per Spec 015 §App-db → subs / §Subs → fx propagation: when this
-    ;; sub is being built, resolve whether its output should be marked
-    ;; sensitive/large for downstream emit-time consultation. Honours
-    ;; the `:rf.egress/output-sensitivity` declassification enum (sensitive
-    ;; axis) and the `:large?` whole-output override on the sub's
-    ;; registration meta. Late-bound — when the marks
-    ;; artefact is absent, this is a silent no-op. Gated by debug so
-    ;; production builds DCE the lookup.
-    ;; INVARIANT: this `mark!` write only happens under `debug-enabled?`, so the
-    ;; sub-output marks table is EMPTY in production — any future egress consumer
-    ;; reading it MUST be dev-gated too, or it reads empty and fails open.
-    (when interop/debug-enabled?
-      (when sub-meta
-        (when-let [resolve (late-bind/get-fn :marks/resolve-sub-output-marks)]
-          (when-let [mark! (late-bind/get-fn :marks/mark-sub-output!)]
-            (let [[s? l?] (resolve frame-id query-id input-signals layer-1?)]
-              (mark! frame-id query-id s? l?))))))
+    ;; EP-0025 — sub-output sensitivity PROPAGATION is removed. A sub no longer
+    ;; inherits its inputs' (or its layer-1 app-db's) sensitivity; there is no
+    ;; propagation table and the build no longer resolves/records one. A sub's
+    ;; trace output is redacted ONLY against its own registration's declared
+    ;; `:sensitive` / `:large` paths (`classification/project-sub-tags`). If you
+    ;; derive a secret into a sub's output, classify that sub's output path.
     ;; Skip caching the no-such-sub miss — see the docstring's
     ;; unknown-sub note. The reaction is built so callers that hold a reference
     ;; deref to nil (per Spec 009 §Error contract recovery

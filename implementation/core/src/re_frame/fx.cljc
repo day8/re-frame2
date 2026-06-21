@@ -23,7 +23,7 @@
             [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.performance :as performance
              #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
@@ -34,27 +34,22 @@
 
 ;; ---- registration ---------------------------------------------------------
 
-(defn register-with-marks!
+(defn register-with-classification!
   "Shared registration tail for `reg-fx` and `reg-cofx` (rf2-a3pl56). Both
-  register sites validate any declared `:sensitive` / `:large` marks fail-loud
-  BEFORE the registrar write (rf2-ehexnw — the marks themselves are DERIVED
-  from the registrar meta at `marks-for` read time, no imperative stash), then
-  write the registrar entry as the merged source-coords + the `:handler-fn`
-  callable slot. `kind` is `:fx` / `:cofx` (drives both the marks-validation
-  kind and the registrar kind); `extra-slots` is an optional map of
-  kind-specific registrar slots merged on top — `nil` for `reg-fx`, the
-  `:recordable?` / `:provided?` grade flags for `reg-cofx`. `re-frame.cofx`
-  reaches this through its existing `fx/` alias (the same single-definition
-  pattern as `runs-on-platform?` / `platform-for-frame-record`, rf2-4ymm0).
+  register sites validate any declared `:sensitive` / `:large` classification
+  fail-loud BEFORE the registrar write (rf2-ehexnw — the classification itself is
+  DERIVED from the registrar meta at `registration-classification` read time, no
+  imperative stash), then write the registrar entry as the merged source-coords +
+  the `:handler-fn` callable slot. `kind` is `:fx` / `:cofx`; `extra-slots` is an
+  optional map of kind-specific registrar slots merged on top — `nil` for
+  `reg-fx`, the `:recordable?` / `:provided?` grade flags for `reg-cofx`.
 
-  Marks validation is a DIRECT call into `re-frame.marks/validate-marks!`
-  (rf2-58bq1r): an ALWAYS-ON registration-time validator in the same core
-  artefact, already pinned into every production bundle, reached without the
-  former `:marks/validate-marks!` late-bind hop (which was neither a DCE seam
-  nor optional-artefact decoupling for this always-on, same-artefact key; the
-  require is cycle-free)."
+  Classification validation is a DIRECT call into
+  `re-frame.classification/validate-classification!`: an ALWAYS-ON
+  registration-time validator in the same core artefact, already pinned into
+  every production bundle; the require is cycle-free."
   [kind id meta handler-fn extra-slots]
-  (marks/validate-marks! kind meta)
+  (classification/validate-classification! kind meta)
   (registrar/register! kind id (merge (assoc (source-coords/merge-coords meta)
                                              :handler-fn handler-fn)
                                       extra-slots)))
@@ -118,7 +113,7 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
-    (register-with-marks! :fx id meta handler-fn nil)
+    (register-with-classification! :fx id meta handler-fn nil)
     id))
 
 (defn clear-fx
