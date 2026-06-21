@@ -406,6 +406,21 @@ The two are held as **ONE physical frame-state container** with **app-db and run
 
 The reserved set is **fixed-and-additive**: existing partition keys cannot be repurposed; new ones are added by Spec change.
 
+<a id="reserved-commit-plane-classification-effects"></a>
+
+### Reserved commit-plane classification effects
+
+The closed top-level effect map a `reg-event` handler returns reserves **four further commit-plane effect keys** beyond `:db` / `:rf.db/runtime` / `:fx` — the EP-0025 data-classification effects. They are **commit-plane** effects, applied **WITH the `:db` write** at the commit step (a frame-state transform into the per-frame elision declaration registry, `[:rf.runtime/elision …]`) — **not** `do-fx`-dispatched fx-ids, so they do **not** belong to the [§Reserved fx-ids](#reserved-fx-ids) table (a different plane). User code MUST NOT use these top-level keys for any other meaning.
+
+| Reserved effect key | Plane | Used for | Spec |
+|---|---|---|---|
+| `:sensitive` | commit-plane | Classify each `[path]` **sensitive** — durable app-db egress redaction (redaction sentinel). Value-independent; applied with the `:db` write. | 015 / 002 |
+| `:large` | commit-plane | Classify each `[path]` **large** — durable app-db egress size-marker. Value-independent; applied with the `:db` write. | 015 / 002 |
+| `:clear-sensitive` | commit-plane | Un-classify each `[path]` from the sensitive axis (independent of `:large`). | 015 / 002 |
+| `:clear-large` | commit-plane | Un-classify each `[path]` from the large axis (independent of `:sensitive`). | 015 / 002 |
+
+Each takes a **vector of `:rf/path` vectors** (`[[path] …]`); a malformed payload is rejected **fail-loud pre-commit** with [`:rf.error/classification-effect-shape`](009-Instrumentation.md#error-event-catalogue) (no `:db` commit). The two axes are independent and the writes are value-independent (classify a path before any value lands). The same `:sensitive` / `:large` names are reserved at the **registration layer** (transient payload + subsystem declarations, per [Spec-Schemas](Spec-Schemas.md)); these four are the **durable app-db** lowering. See [002 §Commit-plane data-classification effects](002-Frames.md#commit-plane-data-classification-effects-ep-0025) and [015 §Data Classification](015-Data-Classification.md). The reserved set is **fixed-and-additive**.
+
 <a id="the-legacy-rfruntime-root-hard-error-in-final-form"></a>
 
 ### The legacy `:rf/runtime` root — hard error in final form

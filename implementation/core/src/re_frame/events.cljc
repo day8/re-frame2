@@ -285,11 +285,26 @@
 
 (def ^:private closed-effect-map-keys
   "The closed set of top-level effect-map keys a `reg-event` handler may
-  return. Per Spec-Schemas §:rf/effect-map — `:db` (app-db partition),
-  `:rf.db/runtime` (runtime-db partition, framework-authority by convention,
-  EP-0001), and `:fx` (everything else). Widening this set is a
-  Spec change; any other top-level key is a shape error."
-  #{:db :rf.db/runtime :fx})
+  return. Per Spec-Schemas §:rf/effect-map + Spec 002 §commit-plane effects:
+
+    - `:db`              — app-db partition write;
+    - `:rf.db/runtime`   — runtime-db partition write (framework-authority by
+                           convention, EP-0001);
+    - `:fx`              — everything else (the open do-fx plane);
+    - `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` —
+                           the four EP-0025 commit-plane data-classification
+                           effects, applied WITH the `:db` write at the commit
+                           point (a frame-state transform into the per-frame
+                           elision registry), NOT routed through do-fx.
+
+  These are all COMMIT-PLANE effects (state-bearing, applied at the atomic
+  commit boundary), distinct from the open `:fx` do-fx plane. The four
+  classification keys (EP-0025) join `:db` / `:rf.db/runtime` here so
+  `police-final-effects!` does NOT drop them as foreign top-level keys.
+  Widening this set is a Spec change; any other top-level key is a shape
+  error."
+  #{:db :rf.db/runtime :fx
+    :sensitive :large :clear-sensitive :clear-large})
 
 (defn- police-effect-map-shape!
   "Emit :rf.error/effect-map-shape for each top-level key in `effects`
@@ -588,6 +603,16 @@
     (do
       (police-effect-map-shape! effects event)
       (police-runtime-effect-authority! ctx event effects)
+      ;; EP-0025: the four commit-plane classification effects (`:sensitive` /
+      ;; `:large` / `:clear-sensitive` / `:clear-large`) are carried through the
+      ;; context here so the router applies them WITH the `:db` write at the
+      ;; atomic commit point (`commit-frame-effects!`) — a frame-state transform
+      ;; into the per-frame elision registry, NOT a post-commit `:fx`. Their
+      ;; FAIL-LOUD shape validation runs at the router's FINAL-effects boundary
+      ;; (`commit-and-flow!`), in-band like the legacy-runtime-root rejection, so
+      ;; a malformed payload (incl. one injected by an `:after` interceptor)
+      ;; aborts the event pre-commit with NO `:db` commit and emits
+      ;; `:rf.error/classification-effect-shape` without escaping the drain.
       (cond-> ctx
         (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
         ;; runtime-db partition effect (EP-0001). Carried through the
@@ -596,7 +621,14 @@
         ;; already fired for a non-framework writer; the effect is applied either way.
         (contains? effects :rf.db/runtime) (interceptor/assoc-effect :rf.db/runtime (:rf.db/runtime effects))
         (and (contains? effects :fx)
-             (fx-value-ok? effects event)) (interceptor/assoc-effect :fx (:fx effects))))))
+             (fx-value-ok? effects event)) (interceptor/assoc-effect :fx (:fx effects))
+        ;; EP-0025 commit-plane classification effects — carry the (validated)
+        ;; payloads through the context so the router's atomic commit applies
+        ;; them WITH the `:db` write. Each is carried verbatim.
+        (contains? effects :sensitive)       (interceptor/assoc-effect :sensitive (:sensitive effects))
+        (contains? effects :large)           (interceptor/assoc-effect :large (:large effects))
+        (contains? effects :clear-sensitive) (interceptor/assoc-effect :clear-sensitive (:clear-sensitive effects))
+        (contains? effects :clear-large)     (interceptor/assoc-effect :clear-large (:clear-large effects))))))
 
 (def event-handler-interceptor-id
   "The single `:id` the framework stamps on the handler-wrapping interceptor
