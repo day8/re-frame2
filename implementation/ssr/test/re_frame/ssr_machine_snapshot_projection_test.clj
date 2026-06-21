@@ -3,10 +3,11 @@
   `:data`.
 
   EP-0025 (rf2-398kql): durable machine `:data` egress classification is
-  FRAME-OWNED — the frame declares the machine snapshot's `:data` path sensitive
-  / large via `reg-frame` `:sensitive` / `:large {:app-db …}` (the absolute
-  runtime-db path `[:rf.runtime/machines :snapshots <actor-id> :data …]`, the
-  sole app-db mechanism). Hydration is a serialized-state egress boundary
+  FRAME-OWNED — the frame classifies the machine snapshot's `:data` path
+  sensitive / large by its absolute runtime-db path
+  `[:rf.runtime/machines :snapshots <actor-id> :data …]`, the sole app-db
+  mechanism (post-purge: a B3 commit-plane `:sensitive` / `:large` effect — see
+  the follow-on note below). Hydration is a serialized-state egress boundary
   projected under `:rf.egress/ssr-hydration`. The SSR `:rf/runtime-db` payload
   ships `:rf.runtime/machines` so the client re-materialises actors — but the
   prior `project-runtime-db` copied the machines slice WHOLESALE, so a snapshot
@@ -18,13 +19,22 @@
   `:data-schema` still VALIDATES `:data`) and a FRAME-declared classification of
   the snapshot `:data` path; the machines artefact is loaded so the late-bound
   `:machines/project-ssr-runtime-db` hook is bound. (EP-0025 removed the EP-0005
-  `:data-schema`→marks SSR-classification bridge; classification is frame-side.)"
+  `:data-schema`→marks SSR-classification bridge; classification is frame-side.)
+
+  EP-0025 B4-ssr follow-on (rf2-ux7983): the snapshot `:data` path is classified
+  through the post-purge mechanism — a B3 COMMIT-PLANE `:sensitive` / `:large`
+  effect returned by a `reg-event` handler alongside `:db` (EP-0025 §How it
+  works). It writes the absolute runtime-db snapshot path into the SAME per-frame
+  `[:rf.runtime/elision]` registry the `:rf.egress/ssr-hydration` egress walk
+  reads (tagged `:source :effect`, unioned at egress-lookup), so the SSR
+  projection redacts/elides it exactly as a `:source :frame` declaration would.
+  This replaces the retired imperative `marks/add-marks` API (deleted by the
+  EP-0025 B1b purge); the classification is read ONLY at egress, so it redacts
+  whatever value later occupies the path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading machines publishes :machines/project-ssr-runtime-db.
             [re-frame.machines]
-            ;; marks/add-marks declares the frame-owned snapshot classification.
-            [re-frame.marks :as marks]
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -50,14 +60,34 @@
      :states      {:anon   {:on {:login :authed}}
                    :authed {}}}))
 
+;; Classify the snapshot `:data` token slot SENSITIVE and blob slot LARGE on the
+;; ambient `:rf/default` frame via a B3 COMMIT-PLANE classification effect
+;; (EP-0025 §How it works) — a `reg-event` handler returning `:sensitive` /
+;; `:large` alongside `:db`. The effect writes the absolute runtime-db snapshot
+;; path into the per-frame `[:rf.runtime/elision]` registry (tagged
+;; `:source :effect`), the SAME slot the `:rf.egress/ssr-hydration` egress walk
+;; reads — value-independent, read only at egress. This is the post-purge app-db
+;; classification mechanism (the imperative `marks/add-marks` API was retired by
+;; the EP-0025 B1b purge).
+
+(def ^:private classify-event :rf.ssr-machine/classify-snapshot)
+
+(defn- reg-classify-event! []
+  (rf/reg-event classify-event
+    (fn [_ _]
+      ;; No `:db` change — classification is value-independent; we mark the
+      ;; absolute runtime-db snapshot paths BEFORE the projection reads them.
+      {:sensitive [[:rf.runtime/machines :snapshots auth-id :data :token]]
+       :large     [[:rf.runtime/machines :snapshots auth-id :data :blob]]})))
+
 (defn- declare-frame-marks!
-  "Declare the machine snapshot's `:data` token slot SENSITIVE and blob slot
-  LARGE on the ambient `:rf/default` frame (the frame-owned classification, the
-  sole app-db mechanism) by its absolute runtime-db snapshot path."
+  "Classify the machine snapshot's `:data` token slot SENSITIVE and blob slot
+  LARGE on the ambient `:rf/default` frame by its absolute runtime-db snapshot
+  path, through a B3 commit-plane classification effect (the post-purge
+  frame-owned app-db mechanism)."
   []
-  (marks/add-marks :rf/default
-    {[:rf.runtime/machines :snapshots auth-id :data :token] :sensitive
-     [:rf.runtime/machines :snapshots auth-id :data :blob]  :large}))
+  (reg-classify-event!)
+  (rf/dispatch-sync [classify-event]))
 
 (defn- runtime-db-with-secret-snapshot
   "A runtime-db carrying ONE durable machine snapshot whose `:data` holds a

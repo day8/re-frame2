@@ -874,12 +874,21 @@
             trace keeps it raw. The sensitive deserialised payload value never
             fans out to a corpus listener raw."
     (register-baseline-handlers!)
+    ;; EP-0025 B4-ssr follow-on (rf2-ux7983): the rejected client frame declares
+    ;; the untrusted `:payload-frame-id` slot :sensitive through the post-purge
+    ;; mechanism — a B3 COMMIT-PLANE `:sensitive` effect the frame's init event
+    ;; returns alongside `:db` (EP-0025 §How it works / §Examples) — writing it
+    ;; into the per-frame `[:rf.runtime/elision]` registry. So project-egress
+    ;; redacts it on the off-box leg, replacing the retired
+    ;; `:sensitive {:app-db}` durable annotation (deleted by the B1b purge).
+    (rf/reg-event :rf.b5/classify
+      (fn [_ _] {:sensitive [[:payload-frame-id]]}))
     (let [;; the rejected client frame declares the untrusted payload slot
           ;; :sensitive — so project-egress redacts it on the off-box leg.
           client-frame (frame/make-anon-frame-record!
-                         {:doc       "B5 sensitive payload-frame-id client"
-                          :platform  :client
-                          :sensitive {:app-db [[:payload-frame-id]]}})
+                         {:doc            "B5 sensitive payload-frame-id client"
+                          :platform       :client
+                          :initial-events [[:rf.b5/classify]]})
           ;; the corpus-listener stand-in (the off-box shipper) records the
           ;; ALWAYS-ON union record.
           corpus       (atom [])

@@ -27,10 +27,19 @@
 
 (defn- reg-sensitive-frame! []
   ;; A server frame whose classification marks the nested :session :token path
-  ;; sensitive — the canonical durable app-db egress route (EP-0015 §3/§8).
+  ;; sensitive — the canonical durable app-db egress route. EP-0025 B4-ssr
+  ;; follow-on (rf2-ux7983): the path is classified through the post-purge
+  ;; mechanism — a B3 COMMIT-PLANE `:sensitive` effect the frame's init event
+  ;; returns alongside `:db` (EP-0025 §How it works / §Examples) — writing it
+  ;; into the per-frame `[:rf.runtime/elision]` registry the
+  ;; `:rf.egress/ssr-hydration` egress walk reads. Replaces the retired
+  ;; `reg-frame :sensitive {:app-db}` durable annotation (deleted by the
+  ;; EP-0025 B1b purge). Value-independent — classified at init, read at egress.
+  (rf/reg-event :rf.bt9kct/classify
+    (fn [_ _] {:sensitive [[:session :token]]}))
   (rf/reg-frame server-frame
-    {:platform  :server
-     :sensitive {:app-db [[:session :token]]}}))
+    {:platform       :server
+     :initial-events [[:rf.bt9kct/classify]]}))
 
 (def ^:private app-db
   "An app-db whose allowlisted :session key carries a frame-sensitive child
