@@ -1,620 +1,358 @@
 # EP-0027: Frame Initial Events
 
-Status: proposal
+Status: draft
 Type: standards-track
 
-> **Design note.** This draft folds in the adversarial review that previously
-> lived at the end of this document. The review found the central direction
-> sound, but identified four missing decisions: Story `:setup` has a tagged
-> grammar, frame construction has different top-level and mid-cascade regimes,
-> reset must deliberately re-apply recorded construction state, and
-> `frame-provider` must run setup once per frame lifetime rather than once per
-> mount. Those decisions are now part of the specification below.
+> **Scope note.** Deliberately small: a declarative way to write the setup events that
+> tests and docs currently fire by hand after `make-frame`. Guiding rule —
+> **`:initial-events` is no more capable than the loop it replaces** (no replay tapes, no
+> snapshots, no atomic staging, no outcome capture). Not yet implemented; where the text
+> refers to current behaviour it says "today".
 
 ## Abstract
 
-This EP replaces `:on-create` with `:initial-events`, an ordered event script
-recorded on a frame and run as part of frame construction after `:initial-db`.
-
-Frame initialization has two orthogonal data forms:
-
-- `:initial-db` directly seeds app-db.
-- `:initial-events` runs ordinary events through the event pipeline to produce
-  additional initial state.
-
-One boot event is represented as a one-step script:
+This EP adds `:initial-events` — an ordered vector of events dispatched synchronously,
+in order, into a frame during construction. It replaces the common hand-written setup
+pattern:
 
 ```clojure
-{:initial-events [[:app/boot]]}
-```
-
-Multi-step setup uses the same shape:
-
-```clojure
-{:initial-events [[:checkout/open]
-                  [:checkout/add-item "SKU-1"]
-                  [:checkout/select-shipping :express]]}
-```
-
-The frame setup runner is shared with Story only at the normalized dispatch-step
-layer. Frame `:initial-events` and Story `:setup` keep different authoring
-grammars because they live at different lifecycle layers.
-
-## Motivation
-
-Frame construction already has a direct data seed:
-
-```clojure
-(rf/make-frame
-  {:id :counter/story
-   :images [counter-image]
-   :initial-db {:counter/value 0}})
-```
-
-It also has the older single-event lifecycle hook:
-
-```clojure
-(rf/make-frame
-  {:id :counter/story
-   :images [counter-image]
-   :on-create [:counter/initialise]})
-```
-
-That hook is too small for the way tests, Story variants, and examples actually
-prepare a useful frame. They commonly do this immediately after construction:
-
-```clojure
-(let [frame (rf/make-frame {:id :checkout/story
-                            :images [checkout-story-image]
-                            :initial-db {}})]
-  (rf/dispatch-sync [:checkout/open] {:frame :checkout/story})
-  (rf/dispatch-sync [:checkout/add-item "SKU-1"] {:frame :checkout/story})
-  (rf/dispatch-sync [:checkout/add-item "SKU-2"] {:frame :checkout/story})
+(let [frame (rf/make-frame {:id :checkout/story :images [checkout-story-image]})]
+  (rf/dispatch-sync [:checkout/open]                  {:frame :checkout/story})
+  (rf/dispatch-sync [:checkout/add-item "SKU-1"]      {:frame :checkout/story})
+  (rf/dispatch-sync [:checkout/add-item "SKU-2"]      {:frame :checkout/story})
   (rf/dispatch-sync [:checkout/select-shipping :express] {:frame :checkout/story})
   frame)
 ```
 
-That event sequence is not incidental glue. It is part of the constructed
-runtime instance:
+with one declarative vector:
 
-- tests need it to be deterministic;
-- Story variants need it to be inspectable;
-- tools need to know how the frame reached this state;
-- failures should point to a specific setup event;
-- reset should be able to return to the full constructed initial state.
+```clojure
+(rf/make-frame {:id :checkout/story
+                :images [checkout-story-image]
+                :initial-events [[:checkout/open]
+                                 [:checkout/add-item "SKU-1"]
+                                 [:checkout/add-item "SKU-2"]
+                                 [:checkout/select-shipping :express]]})
+```
 
-Hiding the sequence in ad hoc post-construction dispatches makes the frame
-declaration incomplete. Hiding it inside one large boot event preserves event
-semantics, but it turns an inspectable scenario into handler-private code.
+`:initial-events` **is** that loop, written as data. Construction is **events-only**:
+there is no separate `:initial-db` data key — seeding app-db is itself an event,
+`[:rf/set-db {…}]`. Both `:initial-db` and `:on-create` are retired.
 
-There is also a safety motivation. Previous examples have accidentally run a
-boot event twice: once through a frame hook and once through an explicit
-post-construction dispatch. Boot handlers are often not harmless; they can start
-machines, emit effects, increment counters, or stamp durable state. A frame
-should have exactly one declarative event-based initialization surface, and it
-should state when that surface runs.
+## Motivation
+
+The setup sequence after `make-frame` is not incidental glue — it is part of the
+constructed instance. Written as N post-construction `dispatch-sync` calls it makes the
+frame declaration incomplete, repeats `{:frame …}` on every line, and hides the scenario
+in imperative code. Tests and docs do this constantly; one declarative vector is
+shorter, reads as a scenario, and keeps the whole construction in one place.
+
+Because every step is an ordinary event (including the db seed), the whole of
+construction is visible in the trace/epoch stream — useful for Story and tooling — with
+no special-cased direct write.
+
+**Primary consumers are unit tests and docs.** Apps use it lightly (usually a single init
+event). Story has the same *need* but its own richer lifecycle (loaders, `:rf.story/*`),
+which this EP leaves alone (see §Out of scope). The design is sized for exactly that: a
+thin, declarative front door, nothing more.
 
 ## Goals
 
-- Add `:initial-events` to `reg-frame`, `make-frame`, and owned
-  `frame-provider` construction maps.
-- Retire `:on-create` rather than widening it.
-- Make one boot event and multi-event setup use one unambiguous script shape.
-- Allow per-step dispatch opts, especially `:rf.cofx`, so setup is replayable
-  and deterministic.
-- Define top-level construction and mid-cascade construction separately.
-- Make `reset-frame!` restore the recorded `:initial-db` and replay the recorded
-  `:initial-events`.
-- Make idempotent re-registration and `frame-provider` re-mount record new setup
-  data without replaying it into live durable state.
-- Align Story `:setup` with frame setup through a shared normalized dispatch-step
-  runner while keeping Story's tagged authoring grammar.
+- Add `:initial-events` to `reg-frame`, `make-frame`, and owned `frame-provider`.
+- Retire `:on-create` and `:initial-db`; provide `[:rf/set-db {…}]` for app-db seeding.
+- One unambiguous vector shape; an optional per-step `:rf.cofx` for test determinism.
+- Run setup synchronously at construction, behaving like the hand-written loop.
 
 ## Non-Goals
 
-- Do not replace `:initial-db` with events. Direct app-db seeding and event
-  setup are separate tools.
-- Do not make frame construction own Story `:script`, DOM interaction, waits,
-  assertions, reporting, or post-render behavior.
-- Do not let setup steps target a sibling frame.
-- Do not make asynchronous effects complete before `make-frame` returns.
-- Do not make the event-script runner public in the first design.
-- Do not add setup-step labels in the first grammar.
-- Do not provide a compatibility shim for `:on-create`; re-frame2 is pre-alpha.
+This EP draws its scope tightly. It does **not**:
 
-## Terminology
+- change, or couple to, Story's setup grammar or lifecycle (see §Out of scope);
+- specify an SSR request→steps lowering (see §Out of scope);
+- change the app-db reset verbs (`reset-app-db!` / `replace-app-db!`) or any
+  Tool-Pair / MCP / epoch surface;
+- add setup-step labels;
+- provide a compatibility shim (pre-alpha).
 
-**Initial db** is the value supplied through `:initial-db`. It is direct app-db
-data, not an event.
-
-**Initial events** are the ordered setup steps supplied through
-`:initial-events`.
-
-**Setup script** means the whole `:initial-events` vector.
-
-**Setup step** means one member of the setup script.
-
-**Normalized dispatch step** means:
-
-```clojure
-{:event event-vector
- :opts  dispatch-opts}
-```
-
-The shared runner consumes normalized dispatch steps. Each authoring surface
-owns its own normalization into that shape.
-
-**Top-level construction** means frame construction performed when no event
-cascade is currently running.
-
-**Mid-cascade construction** means frame construction performed from inside an
-event handler or another event-cascade context.
+(The larger machinery weighed and dropped during design is recorded under §Rejected
+alternatives.)
 
 ## Specification
 
-### Construction Keys
+### The `:rf/set-db` event
 
-Frame construction accepts:
-
-```clojure
-:initial-db
-:initial-events
-```
-
-`:on-create` is retired. Supplying `:on-create` to a public frame construction
-map MUST fail loudly.
-
-`:initial-db` directly seeds app-db for a newly created frame. This EP changes
-`:initial-db` from a first-create-only implementation detail into recorded
-construction state: the latest registered value is the value `reset-frame!`
-uses when it returns the frame to its constructed initial state.
-
-`:initial-events` is an ordered vector of setup steps. Omitting
-`:initial-events` and supplying `[]` both mean "no setup events."
-
-A bare event vector is not a valid top-level `:initial-events` value. This is
-deliberate:
+The framework registers one standard event for seeding app-db. (re-frame2 has a single
+event form, `reg-event`; EP-0018 removed `reg-event-db` / `reg-event-fx`.)
 
 ```clojure
-;; valid: one-step script
-{:initial-events [[:app/boot]]}
-
-;; invalid: ambiguous top-level shape
-{:initial-events [:app/boot]}
+;; schematic — the real registration also validates its argument
+(reg-event :rf/set-db (fn [_ [_ new-db]] {:db new-db}))
 ```
 
-The common single-event case pays one extra bracket. The trade-off is worth it:
-accepting "one event or a vector of events" would recreate the overloaded shape
-this EP removes from `:on-create`.
+- It returns a `{:db new-db}` effect, so it replaces the **app-db partition only**
+  (it cannot touch runtime-db) and rides the **normal post-commit app-db schema
+  validation / rollback** like any `:db` effect.
+- It **validates exactly one map argument**: a missing, `nil`, or non-map argument fails
+  with `:rf.error/set-db-bad-value`. Set app-db empty with `[:rf/set-db {}]`.
+- It **replaces all of app-db** (it is not a merge); for partial updates, write an
+  ordinary event.
+- It is **public and developer-friendly** — intended for tests, docs, and apps alike —
+  and is registered as a **framework standard in both the regular registrar and the image
+  standard registry** (so it resolves whether or not a frame's image generation is in
+  scope, and every frame can dispatch it). Re-registering `:rf/set-db` in app code is a
+  reserved-id collision and fails loudly.
 
-### Setup Step Grammar
+It lives in the single-root `:rf/*` namespace; `:rf.db/*` stays reserved for partition
+slots.
 
-A setup step is either a bare event vector:
+### `:initial-events`
+
+`:initial-events` is an ordered vector of setup steps. Omitting it and supplying `[]`
+both mean "no setup events." A **bare event vector is not a valid top-level value**:
+
+```clojure
+{:initial-events [[:rf/set-db {:n 0}]]}   ;; valid: a one-step vector
+{:initial-events [:rf/set-db {:n 0}]}     ;; invalid: fails with a message that names the
+                                          ;;          fix — wrap it as [[:rf/set-db {:n 0}]]
+```
+
+The single-step case pays one extra bracket; accepting "one event *or* a vector of
+events" would reintroduce the `[:a :b]` ambiguity this shape avoids.
+
+A step is a **bare event vector**, or a **map** for the case where a step needs dispatch
+opts:
 
 ```clojure
 [:checkout/open]
+{:event [:todo/add "milk"] :opts {:rf.cofx {:rf/time-ms 1781078400123}}}
 ```
 
-or a map:
+In the map form, `:event` is required and must be a non-empty event vector, and `:opts`
+is **the ordinary `dispatch-sync` opts** — exactly what the hand-written loop passes — with
+one restriction: **`:frame` is forced to the frame being constructed and may not be
+supplied** (a `:frame` in `:opts` is rejected). Keeping the same opt surface as the loop is
+what makes `:initial-events` no *less* capable than the code it replaces; the common case is
+a deterministic clock for tests (`{:rf.cofx {:rf/time-ms …}}`), but any opt the loop could
+pass to `dispatch-sync` (e.g. `:rf.cofx/mint-policy`) is allowed.
 
-```clojure
-{:event [:todo/add "milk"]
- :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}
-```
+### Construction
 
-The normalized shape is:
+Construction creates the frame (app-db starts `{}`), installs the frame's configuration
+(interceptors, classification, overrides), then **dispatches each setup step
+synchronously, in order**, draining each to a fixed point before the next — exactly as
+the hand-written loop would. By the time `make-frame` returns, the synchronous setup has
+settled. Asynchronous effects started by setup are not awaited.
 
-```clojure
-{:event event-vector
- :opts  dispatch-opts}
-```
+Construction runs at **top level** (tests, boot, SSR per request — see §Out of scope) or
+in the **view tree** (`frame-provider`). Constructing a frame **inside an event handler
+is not supported** — frame creation is a view / top-level concern (a handler changes
+app-db; the view materializes frames from it) — and fails loudly
+(`:rf.error/frame-construction-in-handler`).
 
-Map form has these rules:
+This is a **foundational Spec 002 change**, not just an `:initial-events` detail: today
+Spec 002 (and the code) explicitly *allow* `make-frame` / `reg-frame` inside a handler by
+queuing the creation event. Forbidding it states a principle — **handlers mutate app-db;
+views and top-level materialize frames** — so graduating this EP requires that Spec 002
+decision. It *removes* today's two-regime `:on-create` handling rather than adding
+machinery.
 
-- `:event` is required.
-- `:opts` defaults to `{}`.
-- `:event` MUST be a non-empty event vector.
-- `:opts` MUST be a map.
-- Unknown keys fail loudly.
-- A user-supplied `:frame` inside `:opts` fails loudly.
+### Failure
 
-The target frame is always the frame being constructed or reset. A setup script
-must not mutate a sibling frame by smuggling `{:frame ...}` through dispatch
-opts.
+Setup failures fall into three categories, and none adds detection beyond what the
+hand-written loop already gives:
 
-Per-step opts are ordinary dispatch opts after the `:frame` restriction. They
-are useful for causal facts:
+- **Preflight validation** — an invalid `:initial-events` shape, an invalid step, a step
+  `:opts` violation, or a supplied `:on-create` / `:initial-db`. Caught **before any step
+  runs**; **throws** (`:rf.error/*`); no frame is left registered.
+- **A setup step that throws at runtime** — construction aborts and the partially created
+  frame is **torn down** (no half-created frame is left live); the error names the failing
+  **step index** and event. A bad `[:rf/set-db x]` argument falls here: its diagnostic is
+  raised through `error/throw-error!`, so it throws.
+- **A setup step whose failure re-frame traces and recovers** — a missing handler, or a
+  handler/interceptor error that `dispatch-sync` records as an error *trace* rather than
+  re-throwing. The frame is **left alive in whatever state resulted**, exactly as after the
+  manual loop; tests assert on that, as they do today.
 
-```clojure
-(rf/make-frame
-  {:id :todo/story
-   :images [todo-image]
-   :initial-events
-   [{:event [:todo/add "milk"]
-     :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}]})
-```
+### Provenance
 
-Reset replays recorded setup steps verbatim, including recorded `:opts` and
-recorded `:rf.cofx`. It does not re-stamp a fresh `:rf/time-ms`.
-
-### Construction Order
-
-For a new frame, construction proceeds in this order:
-
-```text
-1. validate the construction map
-2. resolve images and the frame's image generation
-3. create and register the live frame value, when an id is supplied
-4. install frame configuration, classification, interceptors, and overrides
-5. seed app-db with :initial-db, or {} when none is supplied
-6. run or schedule :initial-events
-7. return the frame value
-```
-
-Initial events run through the ordinary event pipeline. They are not a direct
-write into app-db. They produce normal event/cascade/trace records, see the
-frame's resolved image generation, and observe the frame configuration already
-installed in steps 3 and 4.
-
-### Top-Level Construction
-
-During top-level construction, setup steps run synchronously in vector order
-before `make-frame` or `reg-frame` returns.
-
-The next setup step starts only after the previous step's synchronous event
-cascade has completed. Child dispatches emitted by a setup event follow the
-normal queue/drain rules for that event. By the time construction returns, all
-synchronous setup cascades have reached a fixed point.
-
-Asynchronous effects started by setup events are not awaited. The guarantee is
-run-to-completion of the synchronous cascade for each setup step, not completion
-of future continuation events.
-
-### Mid-Cascade Construction
-
-Frame construction is legal inside an event handler. In that regime, the
-implementation MUST NOT call `dispatch-sync` for setup steps, because
-`dispatch-sync` inside a handler is already an error.
-
-Instead, the setup script is enqueued as one ordered batch on the new frame's
-queue. `make-frame` returns after the frame has been created and the setup batch
-has been scheduled, not after setup has completed.
-
-The queued setup batch preserves step order and drains before unrelated events
-can interleave on that fresh frame. Events emitted by setup steps still follow
-normal child-dispatch semantics.
-
-This mirrors the existing `:on-create` two-regime contract, but makes the
-multi-step ordering explicit. Top-level construction returns a fully initialized
-frame. Mid-cascade construction returns a frame whose setup has been scheduled.
-
-### Failure Semantics
-
-Invalid construction maps, invalid setup scripts, invalid step maps,
-non-event-vector steps, and step opts containing `:frame` fail loudly before the
-affected setup step runs.
-
-If a setup step throws or otherwise fails during first creation:
-
-- no later setup steps run;
-- construction fails loudly;
-- the error data MUST identify the setup step index and event;
-- the implementation MUST tear down or unregister the partially created frame so
-  failed construction does not leave a live half-created frame.
-
-On the owned `frame-provider` path, cleanup follows the provider's
-StrictMode-safe deferred-destroy discipline. A failed first mount must not leave
-a pending deferred destroy or a registered-but-dead id.
-
-A setup script is replayable as a causal sequence. It is not a transaction.
-External effects fired by successful earlier setup steps are not rolled back
-when a later step fails. Keep irreversible effects out of setup steps, or make
-them idempotent.
-
-Diagnostic error ids belong in the implementation slice, but they MUST live in
-the `:rf.error/*` family and carry enough data for tooling to show the failed
-step.
-
-### Re-Registration And Hot Reload
-
-Calling `reg-frame` or `make-frame` again with an existing live frame id performs
-EP-0024 idempotent replacement:
-
-- frame configuration and image generation are updated;
-- the recorded `:initial-db` is replaced by the new value, or cleared when the
-  key is absent;
-- the recorded `:initial-events` script is replaced by the new value, or cleared
-  when the key is absent;
-- live app-db and runtime-db are preserved;
-- `:initial-events` are not replayed.
-
-This is the same hot-reload trade-off frames already make. Editing setup data in
-source records the new setup for the next explicit reset; it does not silently
-replay setup into live durable state.
+Each setup step is dispatched with light **construction provenance**, so the trace and
+tools can tell frame-init events apart from ordinary runtime events — the visibility this EP
+is partly motivated by. A setup-step dispatch carries `:source :rf.frame/init` and its
+**step index**. Source-code coordinates come for free: the frame already auto-captures
+`:ns` / `:line` / `:file` at the `make-frame` / `reg-frame` call-site — which is where
+`:initial-events` is declared — so a setup event attributes back to its declaration via the
+frame. (Per-step source lines — a distinct line per element of the vector — are out of
+scope; the call-site is enough to navigate back.) This is the one place `:initial-events`
+does slightly more than the manual loop, whose dispatches carry no such tag — a small
+`:source` addition, not a schema/conformance overhaul.
 
 ### Reset
 
-`reset-frame!` returns a frame to its full constructed initial state:
+`:initial-events` is **durable frame config** — stored on the frame the way `:on-create`
+is today. Re-registering the frame **replaces** it (and **clears** it when the key is
+absent); it is **not** replayed on re-registration.
 
-```text
-1. destroy the current frame state and runtime partitions
-2. recreate the frame from the latest recorded construction config
-3. seed app-db with the latest recorded :initial-db, or {} when none is recorded
-4. run or schedule the latest recorded :initial-events
-```
+`reset-frame!` today destroys the frame, re-registers it, and re-fires `:on-create`; under
+this EP it re-dispatches the recorded `:initial-events` instead — the only thing that
+replays the setup. The replay is a **best-effort re-run through the current handlers**, not
+a snapshot or faithful reconstruction (a vector now, exactly as `:on-create` re-fired one
+event today): no snapshot, no replay tape, no atomicity. (Because construction is
+events-only, the script *is* the constructed state; there is no separate baseline to
+restore.) The other app-db reset verbs are unchanged.
 
-This is a deliberate behavior change from the prior `:on-create` model, where
-reset cleared app-db to `{}` and re-fired one creation event. Under this EP,
-`:initial-db` is part of the recorded reset baseline.
+### Frame provider
 
-Tests and Story reset buttons should use `reset-frame!` when they want to return
-to the scenario's constructed initial state. For an app-db-only reset that
-preserves runtime-db, use the app-db-specific reset surface instead.
+Owned `frame-provider` accepts `:initial-events` alongside `:id` / `:images` and runs it
+on the **first creation of a frame id** only. On a genuine **remount / re-acquire** under
+the same id (React StrictMode, a true unmount→mount, Story re-eval) the setup is re-recorded
+but **not** replayed, and durable state is preserved (idempotent re-registration); an
+ordinary prop-change re-render does not re-call `make-frame` at all, so it neither
+re-records nor replays. A step that throws during acquire **destroys the just-created frame,
+then rethrows**. Because provider setup
+runs during React render, keep it **effect-light** (seed app-db, light init), and drive
+heavier side-effecting init from app-db state via the view. (Render-abort-after-acquire
+remains a known pre-existing provider edge; it is not solved here.)
 
-### Frame Provider
+### Diagnostics
 
-Owned `rf/frame-provider` accepts `:initial-db` and `:initial-events` in the same
-construction map as `:id` and `:images`:
+All ids live in the `:rf.error/*` family and are raised through `error/throw-error!`:
 
-```clojure
-[rf/frame-provider {:id :quickstart/counter
-                    :images [counter-image]
-                    :initial-events [[:counter/initialise]]}
- [counter]]
-```
+| id | raised when |
+|---|---|
+| `:rf.error/on-create-retired` | `:on-create` supplied to construction |
+| `:rf.error/initial-db-retired` | `:initial-db` supplied to construction |
+| `:rf.error/initial-events-bare-event` | top-level value is a bare event vector |
+| `:rf.error/initial-events-bad-step` | a step is neither event-vector nor map |
+| `:rf.error/initial-events-bad-event` | a map step's `:event` is missing / empty / non-vector |
+| `:rf.error/initial-events-bad-opts` | `:opts` is not a map, or contains `:frame` |
+| `:rf.error/initial-events-step-failed` | a setup step threw (carries `:step-index`, `:event`) |
+| `:rf.error/frame-construction-in-handler` | construction attempted while a cascade is in flight |
+| `:rf.error/set-db-bad-value` | `[:rf/set-db x]` with missing / `nil` / non-map `x` |
 
-The provider runs `:initial-events` on the first mount of a given frame id only.
-A re-mount under the same id, including React StrictMode dev double-invoke, hot
-reload, or Story re-evaluation, uses idempotent replacement: setup data is
-re-recorded, but the script is not replayed into the live frame.
+## Out of scope
 
-Setup fires once per frame lifetime, not once per mount. An explicit
-`reset-frame!` starts a new constructed lifetime and replays the recorded setup.
-
-### Story Setup
-
-Story has a larger lifecycle:
-
-```text
-loaders -> setup -> render -> script
-```
-
-Core frame `:initial-events` aligns with Story `:setup`, not Story `:script`.
-The two surfaces do not share an authoring grammar.
-
-Frame `:initial-events` steps are bare events or maps:
-
-```clojure
-:initial-events [[:auth/initialise]
-                 {:event [:auth/email-changed "alice@example.com"]
-                  :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}]
-```
-
-Story `:setup` remains a tagged-step grammar:
-
-```clojure
-:setup [[:dispatch [:auth/initialise]]
-        [:dispatch [:auth/email-changed "alice@example.com"]]]
-```
-
-The shared primitive is below both grammars. Frame construction normalizes its
-steps to `{:event ... :opts ...}`. Story normalizes dispatch-flavored setup
-steps to the same shape, after its loaders complete. Non-dispatch Story setup
-tags, if any are added by Story, remain Story-owned.
-
-Story `:script` is post-render behavior under test. It may contain assertions,
-DOM interaction, waits, reporting, and runner-owned concerns. A frame
-constructor does not own that phase.
-
-When a Story has async loaders, its setup cannot be encoded entirely in
-`make-frame :initial-events`, because setup must run after loaders complete.
-Story should create or acquire the variant frame, wait for loaders, then feed the
-normalized setup dispatch steps to the shared runner.
+- **Story** keeps its own richer lifecycle and tagged setup grammar; this EP neither
+  changes nor couples to it. (Story may later choose to converge on `:initial-events`-
+  style steps; that is not required here.)
+- **SSR**: since `:on-create` is retired, a server that needs request-derived init computes
+  its `:initial-events` **vector** per request — from the request — and passes it to a
+  top-level `make-frame` (e.g. `[[:rf/set-db (seed req)] [:app/hydrate (route req)]]`).
+  Server frames are ephemeral (built, rendered, discarded per request), so the recorded
+  setup and `reset-frame!` do not apply server-side. A supplied `:on-create` raises
+  `:rf.error/on-create-retired` here too. Streaming parity and hydrate ordering are
+  `ssr-ring` adapter details to confirm against the current implementation; this EP
+  specifies no further request→steps lowering.
 
 ## Rationale
 
-### Why Not Widen `:on-create`
+- **Why a vector, not N dispatches.** The sequence is construction data; writing it as
+  data makes the declaration complete, drops the repeated `{:frame …}`, and reads as a
+  scenario — the actual point of the change.
+- **Why events-only.** One concept (the event script) instead of two channels; the seed
+  becomes an ordinary, traceable event; no special-cased direct write.
+- **Why the strict `[[:e]]` shape.** Clarity over the single-event ergonomic; "one event
+  or many" reintroduces the `[:a :b]` ambiguity.
+- **Why no machinery.** The feature replaces a hand-written loop; it should be no more
+  capable, no more clever, and no more failure-aware than that loop. Replay fidelity,
+  snapshots, and atomic reset are real ideas, but out of proportion to this goal.
+- **Why no handler-time construction.** Frames are created by the view or at top level;
+  forbidding the handler case *removes* a regime rather than adding one.
 
-Widening `:on-create` to mean "one event or many events" keeps the old name but
-creates a worse shape. `:on-create [:app/boot]` is one event; `:on-create
-[[:a] [:b]]` is a script; `:on-create [:a :b]` becomes ambiguous to teach.
+## Rejected alternatives
 
-`:initial-events` says what it contains: events, plural, in order. One event is
-a one-step script.
+- **Keep `:initial-db`** (as a data key, or as sugar lowering to a leading
+  `[:rf/set-db …]`). One concept + a fully visible construction log won out; pre-alpha
+  means a clean break with no shim.
+- **A lenient `:initial-events` shape** ("one event or a vector of events"). Rejected for
+  the `[:a :b]` ambiguity; the strict vector-of-vectors is the bright line.
+- **Replay machinery** — an executed-setup record, a construction snapshot, a cofx-capture
+  tape, baseline versioning, atomic / build-then-swap reset, shadow-frame staging.
+  Rejected as out of proportion: the loop this replaces has none of it, and reset is a
+  best-effort re-run, not a faithful reconstruction.
+- **A shared setup-runner primitive with outcome detection**, and coupling Story's grammar
+  onto it. Rejected: dispatch each step like the loop; Story keeps its own grammar.
+- **Mid-cascade frame construction** (or a frame-creation effect). Rejected: frames are
+  created by the view or at top level; handler-time construction is an error.
 
-### Why Keep `:initial-db`
+## Backwards compatibility and migration
 
-Direct data is still the simplest way to say "this is the starting app-db."
-Events are the right way to exercise the event pipeline, derive state, stamp
-coeffects, and prove a scenario through public behavior. The two mechanisms are
-orthogonal.
-
-The useful mental model is:
-
-```text
-constructed app-db = initial-db, then initial-events
-```
-
-### Why Reset Re-Applies `:initial-db`
-
-The phrase "reset to initial state" should mean the full constructed initial
-state, not `{}` plus a boot event. Since `:initial-db` is part of frame
-construction, reset must restore it before replaying setup events.
-
-This makes `:initial-db` recorded construction state. Re-registration may update
-it for a future reset, but does not apply it to live app-db immediately.
-
-### Why Top-Level And Mid-Cascade Differ
-
-Top-level construction can run setup synchronously because no event cascade is
-already in progress. Mid-cascade construction cannot do that without violating
-the existing "no `dispatch-sync` inside a handler" rule.
-
-The two-regime contract is less magical than pretending every construction site
-is synchronous. It also preserves the run-to-completion rule for the creating
-event.
-
-### Why Story Shares The Runner But Not The Grammar
-
-Story setup is a tagged-step language because Story has more lifecycle concepts
-than a frame constructor: loaders, setup, render, script, assertions, and
-runner-owned reporting. Frame setup is just event initialization.
-
-Forcing both surfaces into one authoring grammar would either make frame setup
-too ceremonial or make Story setup too small. Normalizing both into a shared
-dispatch-step runner gives the implementation reuse without muddling the public
-vocabulary.
-
-## Backwards Compatibility And Migration
-
-re-frame2 is pre-alpha. No compatibility shim is required.
-
-`:on-create` must be removed from public specs, examples, tools, guide text, and
-skills. A public frame construction map that still supplies `:on-create` should
-fail loudly.
-
-Migration is mechanical:
+Pre-alpha; no shim. `:on-create` and `:initial-db` are removed; a construction map that
+still supplies either fails loudly.
 
 ```clojure
-;; old
-{:on-create [:app/boot]}
+{:on-create [:app/boot]}                       ;; old
+{:initial-events [[:app/boot]]}                 ;; new
 
-;; new
-{:initial-events [[:app/boot]]}
+{:initial-db {:n 0}}                            ;; old
+{:initial-events [[:rf/set-db {:n 0}]]}         ;; new
 ```
 
-Ad hoc post-construction setup:
+Update the surfaces that teach `:initial-db` / `:on-create`: `spec/002-Frames.md`,
+`spec/007-Stories.md`, `spec/API.md`, `spec/008-Testing.md`, the guide (frame / app-db
+docs), the `frame-provider` docs, examples, skills, and conformance / schema fixtures.
 
-```clojure
-(let [frame (rf/make-frame frame-spec)]
-  (rf/dispatch-sync [:checkout/open] {:frame :checkout/story})
-  (rf/dispatch-sync [:checkout/add-item "SKU-1"] {:frame :checkout/story})
-  frame)
-```
+## Reference implementation — work items (beads)
 
-becomes construction data:
+The implementation decomposes into the beads below. They are **designed here but not yet
+filed**; create them with `bd create` when EP-0027 implementation is scheduled. Sequencing:
+the doc/spec sweeps (B7, B8) land **in lockstep with** the code retirement (B6), never ahead
+of it, so no doc ever describes a key the code still has.
 
-```clojure
-(rf/make-frame
-  (assoc frame-spec
-         :initial-events [[:checkout/open]
-                          [:checkout/add-item "SKU-1"]]))
-```
+- **B1 — `:rf/set-db` standard event.** _[task · P2]_ Register `:rf/set-db` (handler returns
+  `{:db new-db}`; validates exactly one map argument, else `:rf.error/set-db-bad-value`) in
+  **both the regular registrar and the image standard registry**; reserved-id collision guard
+  on app re-registration.
+- **B2 — `:initial-events` normalizer + setup runner.** _[task · P2]_ Validate the strict
+  top-level shape; a step is an event vector or `{:event … :opts …}` where `:opts` is ordinary
+  `dispatch-sync` opts with `:frame` forbidden. At construction, dispatch each step through the
+  existing synchronous dispatch path, in order, tagging each with `:source :rf.frame/init` +
+  step index; on a throw, tear down the partial frame.
+- **B3 — Wire into the three construction surfaces.** _[task · P2]_ `reg-frame`, `make-frame`,
+  and owned `frame-provider` accept `:initial-events`; the provider runs setup once per
+  frame-id lifetime and destroy-then-rethrows on an acquire throw.
+- **B4 — Forbid handler-time construction (Spec 002 decision).** _[task · P1]_ Replace the
+  `trace/*handler-scope*` `:on-create` branch in `reg-frame` with the fail-loud
+  `:rf.error/frame-construction-in-handler` guard; record the Spec 002 principle (handlers
+  mutate app-db; views/top-level materialize frames). Touches `spec/002-Frames.md` — hot-zone,
+  sequential.
+- **B5 — `reset-frame!` replays `:initial-events`.** _[task · P2]_ Re-dispatch the recorded
+  `:initial-events` in place of the `:on-create` re-fire; `:initial-events` is durable frame
+  config, replaced on re-registration and cleared when absent; best-effort, no snapshot.
+- **B6 — Retire `:on-create` / `:initial-db` (code) + diagnostics.** _[task · P1]_ Reject both
+  in construction maps; add the full `:rf.error/*` set from §Diagnostics.
+- **B7 — Sweep `/spec` for stale references.** _[task · P2]_ A careful `git grep` over
+  **tracked** files under `/spec` for every stale reference — `:on-create`, `:initial-db`,
+  `:rf.frame/initial-db`, the old `reset-app-db!` `{}`-clear wording, and any mid-cascade /
+  handler-time frame-construction language — removing or rewriting each to the
+  `:initial-events` / `[:rf/set-db …]` forms. **Tracked files only** (`git grep`, so the
+  generated `site/` and build copies are skipped — the residue trap). `spec/*` are hot-zone
+  (sequential). Pre-alpha clean break: no shim, no deprecation note. Land in lockstep with B6.
+- **B8 — Sweep `/docs/guide` + examples / skills / conformance.** _[task · P2]_ The same
+  careful, tracked-files-only `git grep` over `/docs/guide`, plus `examples/`, `skills/`, the
+  conformance / schema fixtures, and any teaching README. Land in lockstep with B6.
 
-Spec 002 currently contains older text saying frames always start with `{}` and
-initialization happens through `:on-create`. Graduation of this EP must update
-that text: frames start from recorded `:initial-db` when supplied, then run or
-schedule `:initial-events`.
+## Acceptance criteria
 
-## Reference Implementation Plan
-
-Expected implementation slices:
-
-1. Add an internal setup-step normalizer for frame `:initial-events`.
-2. Add an internal normalized dispatch-step runner over
-   `{:event event-vector :opts dispatch-opts}`.
-3. Add `:initial-events` to `reg-frame`, `make-frame`, and owned
-   `frame-provider` construction specs.
-4. Store recorded `:initial-db` and `:initial-events` as reset baseline state.
-5. Retire `:on-create` from implementation, specs, examples, tools, guide text,
-   and skills.
-6. Reject bad top-level shapes, bad step maps, non-event-vector steps, unknown
-   step keys, and step opts containing `:frame`.
-7. Implement top-level synchronous setup and mid-cascade queued-batch setup.
-8. Make setup failure clean up first-create frames, including the owned
-   `frame-provider` path.
-9. Make idempotent re-registration and provider re-mount record setup data
-   without replaying it.
-10. Make `reset-frame!` restore recorded `:initial-db` and replay recorded
-    `:initial-events`.
-11. Normalize Story `:setup` dispatch steps into the shared dispatch-step runner
-    after loaders complete, while leaving Story `:script` post-render.
-12. Add diagnostics carrying setup phase, step index, event vector, and frame id.
-
-## Acceptance Criteria
-
-A complete implementation satisfies all of:
-
-- `:initial-events` works for `reg-frame`, `make-frame`, and owned
-  `frame-provider`.
-- `:on-create` is rejected in public frame construction maps.
-- One setup event is written as `[[:event/id ...]]`; bare top-level event vectors
-  are rejected.
-- Map steps support `{:event ... :opts ...}` and reject unknown keys.
-- Step opts containing `:frame` fail loudly.
-- Per-step `:rf.cofx` reaches the event handler and is replayed verbatim on
-  reset.
-- Top-level construction runs setup synchronously before returning.
-- Mid-cascade construction queues setup as one ordered batch on the created
-  frame.
-- Setup failure identifies the failing step and leaves no half-created live
-  frame.
-- External effects from earlier successful setup steps are not claimed to roll
-  back.
-- Idempotent re-registration records new `:initial-db` and `:initial-events`
-  without applying or replaying them to live state.
-- Owned `frame-provider` runs setup once per frame lifetime, not once per
-  StrictMode/hot-reload re-mount.
-- `reset-frame!` recreates the frame from recorded construction state, seeding
-  `:initial-db` before replaying `:initial-events`.
-- Story `:setup` dispatch steps and frame `:initial-events` both lower to the
-  shared normalized dispatch-step runner, while Story `:script` remains
-  post-render and Story-owned.
-- Specs, API docs, guide text, examples, skills, and conformance no longer teach
-  `:on-create`.
-
-## Rejected Alternatives
-
-### Keep `:on-create`
-
-Rejected. `:on-create` names a lifecycle callback, not an ordered event script.
-Keeping it would either preserve the too-small single-event surface or widen it
-into an overloaded shape.
-
-### Accept A Bare Event Vector As `:initial-events`
-
-Rejected. `:initial-events [:app/boot]` for one event and `:initial-events
-[[:a] [:b]]` for many events looks convenient, but it leaves `[:a :b]`
-ambiguous to readers: one event with one argument, or two event ids? The
-one-script-shape rule is noisier but clearer.
-
-### Share Story And Frame Authoring Grammars
-
-Rejected. Story setup is a tagged-step language; frame setup is an event script.
-The shared implementation unit is the normalized dispatch step, not the authoring
-surface.
-
-### Replay Setup On Every Provider Mount
-
-Rejected. Replaying setup on every mount would double-fire boot effects under
-React StrictMode, hot reload, and Story re-evaluation. Setup runs once per frame
-lifetime and again only on explicit reset.
-
-### Await Async Effects During Frame Construction
-
-Rejected. Frame construction guarantees synchronous cascade completion. Async
-continuations are ordinary future events. Waiting for arbitrary async effects
-would make frame construction host-dependent and would blur the event queue
-model.
-
-### Make The Runner Public Immediately
-
-Rejected for the first design. The runner is an internal/tool-tier primitive
-until there is a concrete second public use outside frame construction and Story.
-
-### Add Step Labels Now
-
-Rejected for the first grammar. Diagnostics already carry step indexes and event
-vectors. Labels can be added later if tooling demonstrates a real need.
+- `:initial-events` works for `reg-frame`, `make-frame`, and `frame-provider`, dispatching
+  each step synchronously in order; `:on-create` and `:initial-db` are rejected.
+- `:rf/set-db` is public, registered as a framework standard (regular registrar + image
+  standard registry), replaces app-db only, rejects a missing / `nil` / non-map argument,
+  and rides normal schema validation / rollback.
+- One setup event is `[[:event/id …]]`; bare top-level event vectors are rejected with the
+  fix-naming diagnostic; a map step is `{:event … :opts …}` with `:opts` the ordinary
+  `dispatch-sync` opts and `:frame` forbidden.
+- Constructing a frame inside a handler fails loudly; a step that throws tears down the
+  partial frame and names the step.
+- `reset-frame!` re-dispatches the recorded `:initial-events`; the other app-db reset
+  verbs are unchanged.
+- `frame-provider` runs setup once per frame lifetime; a setup throw destroys the
+  just-created frame, then rethrows.
+- Specs, API, guide, provider docs, examples, skills, and conformance no longer teach
+  `:on-create` / `:initial-db`.
 
 ## Recommendation
 
-Accept `:initial-events` as the single event-based frame initialization surface
-and retire `:on-create`.
-
-The final design keeps the good part of the original proposal -- setup as
-ordered, replayable construction data -- while making the lifecycle precise:
-top-level setup is synchronous, mid-cascade setup is queued, reset restores the
-full recorded construction baseline, provider re-mount does not replay setup,
-and Story shares the normalized dispatch-step runner without adopting the frame
-grammar.
+Adopt `:initial-events` as the single declarative frame-setup surface, with `:rf/set-db`
+for app-db seeding, and retire `:on-create` and `:initial-db`. Keep it exactly as light as
+the loop it replaces — the value is in the readable, complete, replayable declaration, not
+in new lifecycle machinery.
