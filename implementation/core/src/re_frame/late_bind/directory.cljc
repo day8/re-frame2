@@ -193,60 +193,39 @@
     :design-bead "rf2-w3n5u"
     :description "Reset the once-per-(frame,path) :rf.warning/large-value-unschema'd cache."}
 
-   ;; ---- re-frame.marks (Spec 015 data classification) ----------------------
-   ;; NOT an optional-artefact decoupling: `re-frame.marks` ships IN
+   ;; ---- re-frame.classification (EP-0025 data classification) --------------
+   ;; NOT an optional-artefact decoupling: `re-frame.classification` ships IN
    ;; core and is boot side-effect-required (core.cljc), so these hooks are bound
-   ;; in every canonical build. For the DEV-GATED projection hooks the indirection
-   ;; is the production-DCE/elision SEAM — their emit-time surface rides
+   ;; in every canonical build. For the DEV-GATED projection hook the indirection
+   ;; is the production-DCE/elision SEAM — its emit-time surface rides
    ;; `interop/debug-enabled?` and is gated at the trace/emit! call sites, so the
    ;; late-bind hop keeps the lookup off the always-on registration path:
-   ;;   :marks/marks-for, :marks/project-trace-event,
-   ;;   :marks/resolve-sub-output-marks, :marks/mark-sub-output!,
-   ;;   :marks/clear-marks!, :marks/clear-sub-output-marks!.
+   ;;   :classification/registration-classification,
+   ;;   :classification/project-trace-event, :classification/clear-classification!.
    ;; ALWAYS-ON production survivor still reached through the indirection:
-   ;;   :marks/redact-event-by-registration (the production egress redactor).
-   ;; `re-frame.marks/validate-marks!` is reached by DIRECT REQUIRE rather than
-   ;; a late-bind hook: it is the ONE always-on, NON-dev-gated marks surface, so
-   ;; the DCE-seam rationale does not apply. `re-frame.marks` lives in the SAME
-   ;; artefact as its callers (events / fx / cofx / subs), is pinned into every
-   ;; production bundle, fail-louds in prod, and the require is cycle-free
-   ;; (marks' transitive closure touches none of events/fx/cofx/subs).
-   ;; `add-marks` / `set-marks` are likewise DIRECT-REQUIRE test /
-   ;; conformance-only helpers (the marks tests + the conformance corpus
-   ;; harness), with no late-bind hook and no public imperative façade export
-   ;; (EP-0015 §3 keeps the imperative surface out of the public API).
-   {:key         :marks/marks-for
-    :producer-ns 're-frame.marks
+   ;;   :classification/redact-event-by-registration (the production egress redactor).
+   ;; `re-frame.classification/validate-classification!` is reached by DIRECT
+   ;; REQUIRE rather than a late-bind hook: it is the ONE always-on, NON-dev-gated
+   ;; surface, so the DCE-seam rationale does not apply. EP-0025 removed the
+   ;; imperative add-marks / set-marks API and ALL sub-output propagation, so the
+   ;; former :marks/resolve-sub-output-marks / :marks/mark-sub-output! /
+   ;; :marks/clear-sub-output-marks! hooks are GONE (no propagation table).
+   {:key         :classification/registration-classification
+    :producer-ns 're-frame.classification
     :design-bead "rf2-w46fpt"
-    :description "Read the mark declaration for a (kind, id), or nil — DERIVED at read time from registrar/handler-meta (rf2-ehexnw), no side-table, uniformly for every kind. EP-0025 (rf2-398kql): the prior :event-kind machine :data-schema→marks union is GONE — schema-field classification is killed in favour of frame-declared paths. Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress) now calls `re-frame.marks/marks-for` by direct require, not through this late-bind hook."}
-   ;; NOTE (EP-0025): frame-declared :sensitive / :large {:app-db …} paths are
-   ;; the sole app-db classification mechanism. There is no schema-sourced
-   ;; machine-id->schema-marks table and no :data-schema→marks redaction bridge,
-   ;; so marks carries no machine-schema-marks writer hooks.
-   {:key         :marks/project-trace-event
-    :producer-ns 're-frame.marks
+    :description "Read the classification declaration for a (kind, id), or nil — DERIVED at read time from registrar/handler-meta (rf2-ehexnw), no side-table, uniformly for every kind. EP-0025: there is no derived-output sensitivity (no propagation). Hook retained for the directory contract; re-frame.machines (snapshot / SSR trace egress) calls `re-frame.classification/registration-classification` by direct require."}
+   {:key         :classification/project-trace-event
+    :producer-ns 're-frame.classification
     :design-bead "rf2-vw7f5"
-    :description "Emit-time chokepoint for trace bus — walks the assembled trace event's tags and substitutes sentinels at declared paths (Spec 015 §Implementation notes recommendation B)."}
-   {:key         :marks/redact-event-by-registration
-    :producer-ns 're-frame.marks
+    :description "Emit-time chokepoint for trace bus — walks the assembled trace event's tags and substitutes sentinels at declared paths (Spec 015 §Egress projection). EP-0025: no value-match, no propagation — path-based redaction only."}
+   {:key         :classification/redact-event-by-registration
+    :producer-ns 're-frame.classification
     :design-bead "rf2-qe6v1u"
-    :description "ALWAYS-ON (NOT a DCE seam, rf2-eq7m0x — the registration marks table is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large marks to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot so a frame-owned :observability sink redacts a declared-sensitive event arg even with no matching frame :sensitive {:app-db …} classification (rf2-qe6v1u)."}
-   {:key         :marks/resolve-sub-output-marks
-    :producer-ns 're-frame.marks
+    :description "ALWAYS-ON (NOT a DCE seam, rf2-eq7m0x — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot."}
+   {:key         :classification/clear-classification!
+    :producer-ns 're-frame.classification
     :design-bead "rf2-vw7f5"
-    :description "Compute the sensitive/large propagation flags for a sub's most recent output (Spec 015 §App-db → subs / §Subs → fx)."}
-   {:key         :marks/mark-sub-output!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-vw7f5"
-    :description "Record the resolved sensitive/large state of a sub's most recent output in the per-(frame, sub-id) propagation table."}
-   {:key         :marks/clear-marks!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-vw7f5"
-    :description "Drop every registered marks declaration (test isolation)."}
-   {:key         :marks/clear-sub-output-marks!
-    :producer-ns 're-frame.marks
-    :design-bead "rf2-vw7f5"
-    :description "Drop the per-frame sub-output propagation table (test isolation)."}
+    :description "No-op retained for test-isolation directory symmetry — the author classification lives in the registrar (snapshot/restored by the runtime fixture); there is no side-table to clear."}
 
    ;; ---- re-frame.frame-classification (EP-0015 §3 + §9 frame-owned classification) ----
    ;; `re-frame.frame/reg-frame` consults these to validate + install

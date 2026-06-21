@@ -269,19 +269,19 @@
                "omit its supplier — its owner stamps the value onto the token. "
                "An ambient supplier must be a value-returning fn.")))
       ;; Per Spec 015 §5. Coeffects — VALIDATE any declared `:sensitive` /
-      ;; `:large` marks fail-loud BEFORE the registrar write (rf2-ehexnw); the
-      ;; marks themselves are DERIVED from the registrar meta at `marks-for`
-      ;; read time (emit-time projection redacts the delivered coeffect value's
-      ;; slots in trace events that surface `:coeffects`), no imperative stash.
-      ;; Shares the validate-marks + merge-coords + register tail with `reg-fx`
-      ;; via `fx/register-with-marks!` (rf2-a3pl56). The value-returning
-      ;; supplier rides the registrar's conventional `:handler-fn` slot (so
-      ;; `registrar/handler` + descriptor lifting resolve it like every other
-      ;; kind); nil for a provided fact with no generator. The cofx-specific
-      ;; `:recordable?` / `:provided?` grade flags ride the `extra-slots` map.
-      (fx/register-with-marks! :cofx id meta supplier
-                               {:recordable? recordable?
-                                :provided?   provided?}))
+      ;; `:large` classification fail-loud BEFORE the registrar write (rf2-ehexnw);
+      ;; the classification itself is DERIVED from the registrar meta at
+      ;; `registration-classification` read time (emit-time projection redacts the
+      ;; delivered coeffect value's slots in trace events that surface
+      ;; `:coeffects`), no imperative stash. Shares the validate + merge-coords +
+      ;; register tail with `reg-fx` via `fx/register-with-classification!`
+      ;; (rf2-a3pl56). The value-returning supplier rides the registrar's
+      ;; conventional `:handler-fn` slot; nil for a provided fact with no
+      ;; generator. The cofx-specific `:recordable?` / `:provided?` grade flags
+      ;; ride the `extra-slots` map.
+      (fx/register-with-classification! :cofx id meta supplier
+                                        {:recordable? recordable?
+                                         :provided?   provided?}))
     id))
 
 ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------

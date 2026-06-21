@@ -479,9 +479,9 @@
   (rf2-md2wn0) so the MCP egress gate — which reads the top-level flag
   — fails closed on projection-classified-sensitive events."
   [event]
-  ;; Sticky hook (rf2-f72pd) — `:marks/project-trace-event` is
-  ;; published once at re-frame.marks load and never withdrawn.
-  (if-let [project (late-bind/get-fn-cached :marks/project-trace-event)]
+  ;; Sticky hook (rf2-f72pd) — `:classification/project-trace-event` is
+  ;; published once at re-frame.classification load and never withdrawn.
+  (if-let [project (late-bind/get-fn-cached :classification/project-trace-event)]
     (hoist-projected-sensitive (project event))
     event))
 

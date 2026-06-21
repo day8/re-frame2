@@ -59,21 +59,20 @@
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
             [re-frame.projection :as projection]
-            ;; EP-0015 §3 + §7 (bead item 2, rf2-mngp4o): the imperative
-            ;; `add-marks` / `set-marks` façade exports are removed (frame-
-            ;; owned classification + `project-egress` are the public
-            ;; boundary now). `re-frame.marks` stays a side-effect-only
-            ;; require — it publishes the `:marks/*` late-bind hooks (the
-            ;; trace bus's `:marks/project-trace-event` emit chokepoint and
-            ;; `:marks/marks-for` — which DERIVES per-(kind,id) marks from the
-            ;; registrar metadata at read time, no imperative side-table:
-            ;; rf2-ehexnw) that must be bound at boot. The reg-* boundary
-            ;; fail-loud check is no longer a hook: events / fx / cofx / subs
-            ;; call `re-frame.marks/validate-marks!` by DIRECT REQUIRE
-            ;; (rf2-58bq1r — always-on, same-artefact, cycle-free, already
-            ;; bundled, so the hop bought nothing). No `marks/*` symbols are
-            ;; referenced from this façade any more.
-            [re-frame.marks]
+            ;; EP-0025: the imperative `add-marks` / `set-marks` API and ALL
+            ;; sensitivity propagation are removed; the egress-projection
+            ;; substrate is kept (renamed off "marks"). `re-frame.classification`
+            ;; stays a side-effect-only require — it publishes the
+            ;; `:classification/*` late-bind hooks (the trace bus's
+            ;; `:classification/project-trace-event` emit chokepoint and
+            ;; `:classification/registration-classification` — which DERIVES
+            ;; per-(kind,id) classification from the registrar metadata at read
+            ;; time, no imperative side-table: rf2-ehexnw) that must be bound at
+            ;; boot. The reg-* boundary fail-loud check is no longer a hook:
+            ;; events / fx / cofx / subs call
+            ;; `re-frame.classification/validate-classification!` by DIRECT
+            ;; REQUIRE (always-on, same-artefact, cycle-free, already bundled).
+            [re-frame.classification]
             ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect
             ;; only — it publishes the `:frame-classification/*` late-bind
             ;; hooks `re-frame.frame/reg-frame` consults to validate + install
@@ -810,19 +809,18 @@
 ;; source-coords and have no owned-namespace macro form, so registration
 ;; stays easy to reach per the bead's "registration must stay central" rule.
 
-;; ---- data classification (Spec 015) -------------------------------------
+;; ---- data classification (Spec 015 / EP-0025) ---------------------------
 ;;
-;; EP-0015 (frame-owned egress policy, accepted 2026-06-11). The public
-;; classification boundary is now (a) frame-owned `:sensitive` / `:large`
-;; classification declared on `reg-frame` / `make-frame`, plus (b)
-;; `project-egress` and the six `:rf.egress/*` profiles at trust
-;; boundaries. The imperative `add-marks` / `set-marks` path-marks API is
-;; NO LONGER part of the public `re-frame.core` façade (EP-0015 §3 + bead
-;; plan item 2). The underlying `re-frame.marks/add-marks` /
-;; `re-frame.marks/set-marks` fns remain as internal / test / generated-
-;; code helpers (the conformance corpus and the marks unit tests exercise
-;; them via their home namespace), but they are not the normal authoring
-;; surface — declare durable app-db classification on the frame instead.
+;; EP-0025 (data classification, a lightweight hygiene helper). The public
+;; classification surface is (a) the four commit-plane effects (`:sensitive`
+;; / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns
+;; alongside `:db`, plus subsystem projection-relative declarations; and (b)
+;; `project-egress` and the `:rf.egress/*` profiles at trust boundaries.
+;; EP-0025 REMOVED the imperative `add-marks` / `set-marks` API, durable
+;; app-db frame annotations, durable-state schema-prop classification, and
+;; ALL sensitivity propagation (no derived-output inheritance, no value-match).
+;; The egress-projection substrate is kept in `re-frame.classification`
+;; (renamed off "marks").
 
 ;; ---- clearing ------------------------------------------------------------
 
