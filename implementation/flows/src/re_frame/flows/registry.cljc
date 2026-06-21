@@ -799,6 +799,13 @@
   [frame-id flow]
   (elision/swap-elision-slot! frame-id
     (fn [reg] (fold-flow-declarations reg flow))))
+
+(defn- clear-flow-output-marks!
+  "Drop `flow-id`'s `:source :flow` declarations from `frame-id`'s elision
+  registry. Called on `clear-flow` so a *single* deregistered flow leaves no
+  orphaned redaction declaration behind while its frame and the frame's other
+  flows live on. Other-sourced entries survive.
+
   NOT called on frame-destroy teardown (`teardown-on-frame-destroy!`),
   and deliberately so: the elision registry lives in the frame's runtime-db
   partition at `[:rf.runtime/elision]` (re-frame.elision §registry-of),
