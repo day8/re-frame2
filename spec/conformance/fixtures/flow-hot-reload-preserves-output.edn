@@ -37,7 +37,7 @@
           :doubled/poke   [[:set [:tick] [:event-arg 1]]]}}
 
  :fixture/frame-config
- {:on-create [:doubled/init]}
+ {:initial-events [[:doubled/init]]}
 
  ;; Sequence:
  ;;   on-create [:doubled/init]   — :n 7

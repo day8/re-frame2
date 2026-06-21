@@ -19,7 +19,7 @@
   :sub   {:count [[:get [:count]]]
           :user  [[:get [:user]]]}}
 
- :fixture/frame-config {:on-create []}
+ :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
  [;; Hydrate from server-supplied payload.

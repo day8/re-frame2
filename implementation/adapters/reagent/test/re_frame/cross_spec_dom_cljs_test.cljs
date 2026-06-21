@@ -155,26 +155,26 @@
 
 (deftest boot-order-adapter-ready
   "#3 Machine spawn at boot before substrate adapter ready —
-   :on-create runs synchronously after the adapter is installed."
+   :initial-events runs synchronously after the adapter is installed."
   ;; In :node-test the adapter is installed by reset-runtime before any
-  ;; reg-frame call, so :on-create always runs against a ready adapter.
-  ;; This test pins that property: a frame's :on-create event reaches a
-  ;; live sub-cache and the spawned machine's snapshot lands in app-db.
+  ;; reg-frame call, so :initial-events always runs against a ready adapter.
+  ;; This test pins that property: a frame's :initial-events setup event
+  ;; reaches a live sub-cache and the spawned machine's snapshot lands in app-db.
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
   (rf/reg-event :init-shape
     (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed
                                                                             :data  {}}}}}}))
   ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
-  ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:on-create` dispatch
-  ;; branches on `*current-frame*` (in-flight-cascade heuristic, rf2-cufbh)
-  ;; between a synchronous top-level drain and an async child-frame queue.
-  ;; This test models a TOP-LEVEL boot — clear the ambient scope so the
-  ;; `:on-create` cascade drains synchronously and its seed is observable.
+  ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:initial-events`
+  ;; dispatch branches on `*current-frame*` (in-flight-cascade heuristic,
+  ;; rf2-cufbh) between a synchronous top-level drain and an async child-frame
+  ;; queue. This test models a TOP-LEVEL boot — clear the ambient scope so the
+  ;; `:initial-events` cascade drains synchronously and its seed is observable.
   (binding [frame/*current-frame* nil]
-    (rf/reg-frame :booted {:on-create [:init-shape]}))
+    (rf/reg-frame :booted {:initial-events [[:init-shape]]}))
   (let [rt (rf/runtime-db-value :booted)]
     (is (= :armed (get-in rt [:rf.runtime/machines :snapshots :flow/boot :state]))
-        ":on-create completed against an installed adapter — runtime-db carries the seed")))
+        ":initial-events completed against an installed adapter — runtime-db carries the seed")))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 4 — Machines under SSR (allowed-subset)

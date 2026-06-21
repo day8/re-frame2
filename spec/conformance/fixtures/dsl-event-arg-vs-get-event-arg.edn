@@ -44,7 +44,7 @@
           :default-fires     [[:get [:default-fires]]]}}
 
  :fixture/frame-config
- {:on-create [:dsl/init]}
+ {:initial-events [[:dsl/init]]}
 
  :fixture/dispatches
  [[:dsl/store-event-arg     {:foo 42}]

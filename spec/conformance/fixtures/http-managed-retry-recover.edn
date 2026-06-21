@@ -46,7 +46,7 @@
                  :value {:ok true :recovered-on :attempt-2}}]]]}}
 
  :fixture/frame-config
- {:on-create    []
+ {:initial-events []
   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
 
  :fixture/dispatches

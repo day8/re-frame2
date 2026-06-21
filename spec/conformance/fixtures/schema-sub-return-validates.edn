@@ -33,7 +33,7 @@
           :items/break [[:set [:items] [1 2 3]]]}
   :sub   {:items [[:get [:items]]]}}
 
- :fixture/frame-config {:on-create [:items/init]}
+ :fixture/frame-config {:initial-events [[:items/init]]}
 
  :fixture/dispatches
  [[:items/break]]

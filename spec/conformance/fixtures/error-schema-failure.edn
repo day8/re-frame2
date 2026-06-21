@@ -28,7 +28,7 @@
           :counter/set-bad [[:set [:count] "not-a-number"]]}    ;; intentionally violates [:int]
   :sub   {:count [[:get [:count]]]}}
 
- :fixture/frame-config {:on-create [:counter/init]}
+ :fixture/frame-config {:initial-events [[:counter/init]]}
 
  :fixture/dispatches
  [[:counter/set-bad]]

@@ -57,7 +57,7 @@
    [[:dispatch [:article/load-reply {:kind :success :value {:stubbed true}}]]]}}
 
  :fixture/frame-config
- {:on-create    []
+ {:initial-events []
   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
 
  :fixture/dispatches

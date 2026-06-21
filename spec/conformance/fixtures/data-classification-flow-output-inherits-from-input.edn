@@ -53,7 +53,7 @@
  [{:add-marks {[:user :ssn] :sensitive}}]
 
  :fixture/frame-config
- {:on-create [:dc/init]}
+ {:initial-events [[:dc/init]]}
 
  :fixture/dispatches
  [[:dc/init]]

@@ -22,7 +22,7 @@
  {:event {:rf/server-init     [[:fx [[:dispatch [:auth/check-session]]]]]
           :auth/check-session [[:fx [[:rf.server/redirect {:status 302 :location "/login"}]]]]}}
 
- :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
+ :fixture/frame-config {:initial-events [[:rf/server-init]] :platform :server}
 
  :fixture/dispatches []                                              ;; the :on-create cascade is sufficient
 

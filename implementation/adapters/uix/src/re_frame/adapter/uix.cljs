@@ -65,7 +65,7 @@
   every other UIx component and mirroring Reagent's trailing-hiccup mental
   model (rf2-7kii2):
 
-      ($ frame-provider {:id :session :images [session-image] :initial-db {}}
+      ($ frame-provider {:id :session :images [session-image] :initial-events []}
          ($ header)
          ($ main))
 

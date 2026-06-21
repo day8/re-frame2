@@ -106,6 +106,17 @@
             ;; as already-seated (or fail loud on the duplicate id) — the single
             ;; reset is the whole clear (rf2-32siq3.32 / rf2-rjml45 / rf2-ji3tvy).
             [re-frame.frame :as frame]
+            ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db`
+            ;; event into BOTH the regular registrar AND the EP-0023 image
+            ;; standard registry on each reset (mirroring how `init!` re-seeds
+            ;; it after a `registrar/clear-all!`). A sibling test ns whose
+            ;; fixture calls `image-assembly/clear-standards!` (frame-resolution,
+            ;; ep0023-conformance, facade-frame-read, image-assembly-cache) would
+            ;; otherwise leave the image standard registry EMPTY for the next ns,
+            ;; so an image-loaded frame seeding via `:initial-events [[:rf/set-db
+            ;; …]]` could not resolve `:rf/set-db` through its sealed generation.
+            ;; (`events` is already in the dep graph via `router`; no new cycle.)
+            [re-frame.events :as events]
             ;; The flows / schemas / machines / routing / http-managed /
             ;; epoch artefacts ship in separate Maven coordinates and are
             ;; reached only through late-bind hooks — see the
@@ -519,6 +530,14 @@
          (when adapter
            (adapter/install-adapter! adapter)
            (frame/ensure-default-frame!))
+         ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db`
+         ;; event so it resolves on EVERY test — including image-loaded frames
+         ;; that seed via `:initial-events [[:rf/set-db …]]` through a sealed
+         ;; generation (which unions the image standard registry, not the
+         ;; registrar atom). A sibling ns's `image-assembly/clear-standards!`
+         ;; can empty that registry; this re-seed (idempotent, mirrors `init!`)
+         ;; restores it at the head of every reset so the next ns is clean.
+         (events/register-set-db-standard!)
          (doseq [k clear-kinds]
            (registrar/clear-kind! k))
          ;; App-db schemas live OUTSIDE the registrar (rf2-cq1ak); the

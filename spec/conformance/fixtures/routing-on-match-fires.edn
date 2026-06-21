@@ -33,7 +33,7 @@
    :cart/load-items [[:update [:load-log] [:fn :conj] :cart/load-items]]
    :user/load-prefs [[:update [:load-log] [:fn :conj] :user/load-prefs]]}}
 
- :fixture/frame-config {:on-create [:rf/init]}
+ :fixture/frame-config {:initial-events [[:rf/init]]}
 
  :fixture/dispatches
  ;; URL-driven navigation: :rf.route/transitioned dispatches the on-match events.

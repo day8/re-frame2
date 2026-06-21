@@ -2,11 +2,11 @@
   "EP-0015 §3 + §9 (rf2-ueg1tn) — frame-owned durable classification on
   `reg-frame`. Pins the four acceptance legs the bead enumerates:
 
-    (a) install-before-`:on-create` — frame-owned `:sensitive` / `:large`
+    (a) install-before-`:initial-events` — frame-owned `:sensitive` / `:large`
         `:app-db` paths are installed into the durable elision registry
-        ATOMICALLY as part of frame creation, BEFORE the `:on-create`
-        cascade runs (so a path declared sensitive is already redacted in
-        any trace the init cascade emits).
+        ATOMICALLY as part of frame creation, BEFORE the `:initial-events`
+        setup cascade runs (so a path declared sensitive is already redacted
+        in any trace the init cascade emits).
     (b) replace-on-rereg — re-registering a frame REPLACES its frame-owned
         classification (the declaration IS the policy; no additive merge);
         schema- and marks-sourced declarations survive.
@@ -15,7 +15,7 @@
         for it, so no `:rf.size/large-elided` marker can leak.
     (d) fail-loud — malformed paths, unknown classification keys, and
         non-string HTTP carrier names throw `:rf.error/bad-frame-classification`
-        at `reg-frame` time, before any state mutates / before `:on-create`.
+        at `reg-frame` time, before any state mutates / before `:initial-events`.
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
@@ -36,16 +36,16 @@
     {:adapter plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
-;; (a) install-before-:on-create
+;; (a) install-before-:initial-events
 ;; ---------------------------------------------------------------------------
 
-(deftest classification-installed-before-on-create
+(deftest classification-installed-before-initial-events
   (testing "frame-owned :sensitive / :large :app-db paths are in the elision
-            registry BEFORE the :on-create cascade runs"
+            registry BEFORE the :initial-events setup cascade runs"
     (let [seen (atom :unset)]
-      ;; The :on-create handler observes the elision registry mid-init. If
-      ;; classification installs atomically before :on-create, the handler
-      ;; sees the sensitive declaration already present.
+      ;; The :initial-events setup handler observes the elision registry
+      ;; mid-init. If classification installs atomically before setup, the
+      ;; handler sees the sensitive declaration already present.
       (rf/reg-event :app/init
         (fn [{:keys [db]} _]
           (reset! seen (elision/sensitive-declarations :app/main))

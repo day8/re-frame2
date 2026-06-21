@@ -39,7 +39,7 @@
           :user/register  [[:update [:users] [:fn :conj [:event-arg 1]]]]}
   :sub   {:users [[:get [:users]]]}}
 
- :fixture/frame-config {:on-create [:user/init]}
+ :fixture/frame-config {:initial-events [[:user/init]]}
 
  :fixture/dispatches
  ;; First a well-typed payload (the handler runs and the user lands in :users),

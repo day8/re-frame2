@@ -62,7 +62,7 @@
           ;; appear on the public response.
           [[:throw "Postgres unreachable: PASSWORD=hunter2"]]}}
 
- :fixture/frame-config {:on-create [:rf/server-init]
+ :fixture/frame-config {:initial-events [[:rf/server-init]]
                         :platform  :server
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}

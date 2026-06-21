@@ -32,7 +32,7 @@
   {:rf/init       [[:set [:load-count] 0]]
    :article/load  [[:update [:load-count] [:fn :inc]]]}}
 
- :fixture/frame-config {:on-create [:rf/init]}
+ :fixture/frame-config {:initial-events [[:rf/init]]}
 
  :fixture/dispatches
  [;; Step 1: Navigate to /articles/A. :article/load fires.

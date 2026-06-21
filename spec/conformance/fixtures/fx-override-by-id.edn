@@ -24,7 +24,7 @@
           :http.canned-user  [[:dispatch [:user/loaded {:id "u-1" :name "Test User"}]]]}}
 
  :fixture/frame-config
- {:on-create     []                                   ;; no init
+ {:initial-events []                                   ;; no init
   :fx-overrides  {:http :http.canned-user}}           ;; ID-VALUED override
 
  :fixture/dispatches

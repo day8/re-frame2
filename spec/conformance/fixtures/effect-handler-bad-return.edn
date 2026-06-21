@@ -41,7 +41,7 @@
           :bad-ret/nil-ctrl [[:return-raw nil]]}
   :sub   {:value [[:get [:value]]]}}
 
- :fixture/frame-config {:on-create [:bad-ret/init]}
+ :fixture/frame-config {:initial-events [[:bad-ret/init]]}
 
  :fixture/dispatches
  [[:bad-ret/vector]

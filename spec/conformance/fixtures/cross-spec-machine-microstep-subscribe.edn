@@ -69,7 +69,7 @@
   :machine-guard
   {:quiz/enough-correct? [[:fn :>= [:get [:correct-count]] 10]]}}
 
- :fixture/frame-config {:on-create [:boot/init]}
+ :fixture/frame-config {:initial-events [[:boot/init]]}
 
  :fixture/dispatches
  ;; Single event into the machine. Internal sequence:

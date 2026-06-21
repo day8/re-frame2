@@ -32,7 +32,7 @@
                             :id-prefix  :worker/proc
                             :system-id  :primary}]]}}
 
- :fixture/frame-config {:on-create []}
+ :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
  ;; Spawn twice; both target :primary. The second binding shadows the

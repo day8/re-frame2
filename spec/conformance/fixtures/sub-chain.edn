@@ -23,7 +23,7 @@
                         [:fn :item-amount]]]}}        ;; sum of (qty * price) for each item
 
  :fixture/frame-config
- {:on-create [:cart/initialise]}
+ {:initial-events [[:cart/initialise]]}
 
  :fixture/dispatches
  [[:cart.item/add {:id "a" :qty 2 :price 9.99}]

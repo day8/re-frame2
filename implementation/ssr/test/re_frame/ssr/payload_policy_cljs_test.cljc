@@ -95,9 +95,9 @@
       (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
           "a lazy seq allowlist projects the expected slice"))
     (testing "construction-time arm agrees — a list :payload validates OK"
-      (is (= {:on-create [:init] :payload '(:public/articles)}
+      (is (= {:initial-events [[:init]] :payload '(:public/articles)}
              (payload-policy/validate-policy-opts!
-               {:on-create [:init] :payload '(:public/articles)}))
+               {:initial-events [[:init]] :payload '(:public/articles)}))
           "validate-policy-opts! returns opts unchanged for a list allowlist"))))
 
 (deftest apply-policy-set-payload-fails-closed
@@ -178,7 +178,7 @@
             see exactly what to fix"
     (try
       (payload-policy/validate-policy-opts!
-        {:on-create [:init] :payload [:public/articles "user-id" nil]})
+        {:initial-events [[:init]] :payload [:public/articles "user-id" nil]})
       (is false "should have thrown")
       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
         (let [data (ex-data e)]
@@ -199,7 +199,7 @@
       (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
           "all-keyword vector allowlist accepted"))
     (testing "construction-time arm agrees"
-      (let [opts {:on-create [:init] :payload [:public/articles]}]
+      (let [opts {:initial-events [[:init]] :payload [:public/articles]}]
         (is (= opts (payload-policy/validate-policy-opts! opts)))))))
 
 ;; ---- apply-policy: whole-app-db branch (:payload keyword) ----------------
@@ -270,14 +270,14 @@
 
 (deftest validate-policy-opts-passes-allowlist
   (testing "valid :payload vector passes validation + returns opts unchanged"
-    (let [opts {:on-create [:init] :payload [:public/articles]}]
+    (let [opts {:initial-events [[:init]] :payload [:public/articles]}]
       (is (= opts (payload-policy/validate-policy-opts! opts))
           "returns opts unchanged on success — composes cleanly into
            threading/let positions"))))
 
 (deftest validate-policy-opts-passes-whole-app-db
   (testing "valid :payload whole-app-db keyword passes validation"
-    (let [opts {:on-create [:init] :payload :rf.ssr.payload/whole-app-db}]
+    (let [opts {:initial-events [[:init]] :payload :rf.ssr.payload/whole-app-db}]
       (is (= opts (payload-policy/validate-policy-opts! opts))))))
 
 (deftest validate-policy-opts-fails-closed
@@ -287,7 +287,7 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-missing-payload-policy"
-          (payload-policy/validate-policy-opts! {:on-create [:init]})))))
+          (payload-policy/validate-policy-opts! {:initial-events [[:init]]})))))
 
 (deftest validate-policy-opts-throws-on-unknown-policy
   (testing "construction-time arm also catches typo'd :payload keywords"
@@ -295,14 +295,14 @@
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #":rf\.error/ssr-unknown-payload-policy"
           (payload-policy/validate-policy-opts!
-            {:on-create [:init] :payload :rf.ssr.payload/whole-db})))))
+            {:initial-events [[:init]] :payload :rf.ssr.payload/whole-db})))))
 
 (deftest error-ex-data-carries-recovery-tag
   (testing "rf2-gtgf9: the structured error carries `:recovery
             :declare-payload-policy` so trace tooling can suggest the
             fix — Spec 009 error catalogue convention"
     (try
-      (payload-policy/validate-policy-opts! {:on-create [:init]})
+      (payload-policy/validate-policy-opts! {:initial-events [[:init]]})
       (is false "should have thrown")
       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
         (is (= :declare-payload-policy

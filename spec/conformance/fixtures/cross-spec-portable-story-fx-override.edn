@@ -54,7 +54,7 @@
           :http.canned-200  [[:dispatch [:user/loaded {:id "u-1" :name "Story User"}]]]}}
 
  :fixture/frame-config
- {:on-create    []
+ {:initial-events []
   ;; ID-VALUED override — portable across the story → test transition
   ;; per Spec 002 §Per-frame and per-call overrides §pattern-level vs
   ;; CLJS reference. A function-valued lambda would NOT survive the wire.

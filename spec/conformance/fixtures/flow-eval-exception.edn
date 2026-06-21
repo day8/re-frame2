@@ -55,7 +55,7 @@
  {:tries [[:fn :count [:event-arg 0]]]}
 
  :fixture/frame-config
- {:on-create [:flow/init]}
+ {:initial-events [[:flow/init]]}
 
  ;; First dispatch drives a successful flow eval — :token is the seeded
  ;; vector [1 2 3]; :tries computes (count [1 2 3]) = 3 and writes.

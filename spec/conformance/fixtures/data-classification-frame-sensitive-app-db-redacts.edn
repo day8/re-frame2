@@ -43,7 +43,7 @@
  [{:add-marks {[:auth :token] :sensitive}}]
 
  :fixture/frame-config
- {:on-create [:dc/login]}
+ {:initial-events [[:dc/login]]}
 
  :fixture/dispatches
  [[:dc/login]]

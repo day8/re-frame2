@@ -40,7 +40,7 @@
   {:add-marks {[:secret] :sensitive}}]
 
  :fixture/frame-config
- {:on-create [:dc/store]}
+ {:initial-events [[:dc/store]]}
 
  :fixture/dispatches
  [[:dc/store]]

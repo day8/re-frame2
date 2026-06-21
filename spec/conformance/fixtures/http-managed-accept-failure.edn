@@ -47,7 +47,7 @@
                            :decoded {:meta {:status "ok"}}}}]]]}}
 
  :fixture/frame-config
- {:on-create    []
+ {:initial-events []
   :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
 
  :fixture/dispatches

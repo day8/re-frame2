@@ -51,7 +51,7 @@
  ;; :platform :client so the navigation fxs (declared `:platforms
  ;; #{:client}`) are actually routed, mirroring the routing-navigate.edn
  ;; fixture shape.
- :fixture/frame-config {:on-create [:rf/init] :platform :client}
+ :fixture/frame-config {:initial-events [[:rf/init]] :platform :client}
 
  :fixture/dispatches
  [;; Simulate a popstate landing on /articles/intro.

@@ -70,8 +70,8 @@
  ;; each frame's :on-create cascade, so :x lands in both :left and
  ;; :right's app-db independently.
  :fixture/frames
- [{:id :left  :on-create [:tenant/init]}
-  {:id :right :on-create [:tenant/init]}]
+ [{:id :left  :initial-events [[:tenant/init]]}
+  {:id :right :initial-events [[:tenant/init]]}]
 
  ;; Sequence (frames are isolated; flows fire on the next drain after
  ;; their registering event):

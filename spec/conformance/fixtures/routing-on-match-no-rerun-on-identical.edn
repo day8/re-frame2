@@ -38,7 +38,7 @@
   {:rf/init    [[:set [:load-count] 0]]
    :cart/load  [[:update [:load-count] [:fn :inc]]]}}
 
- :fixture/frame-config {:on-create [:rf/init]}
+ :fixture/frame-config {:initial-events [[:rf/init]]}
 
  :fixture/dispatches
  [;; Step 1: Navigate to /cart. :cart/load fires (count → 1).

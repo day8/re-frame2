@@ -217,8 +217,8 @@
           img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})
           ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
           ;; DIFFERENT initial-db. No reg-frame, no shared frame id.
-          fa   (lf/make-frame {:images [img] :initial-db {:n 0}}   pool)
-          fb   (lf/make-frame {:images [img] :initial-db {:n 100}} pool)]
+          fa   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
+          fb   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
       (is (= (lf/frame-generation fa) (lf/frame-generation fb))
           "both frames run the SAME resolved image generation (one shared image)")
       (is (not= (:rf.frame/runnable-id fa) (:rf.frame/runnable-id fb))

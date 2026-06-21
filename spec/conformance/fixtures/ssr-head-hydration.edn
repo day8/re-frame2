@@ -28,7 +28,7 @@
              :meta  [{:name "description" :content "How re-frame2 ships SSR"}]
              :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}]]}}
 
- :fixture/frame-config {:on-create [] :platform :client}
+ :fixture/frame-config {:initial-events [] :platform :client}
 
  :fixture/dispatches
  ;; Per Spec 011 §The :rf/hydrate event the payload's `:rf/app-db`

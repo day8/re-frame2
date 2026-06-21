@@ -40,8 +40,8 @@
        frame errors cleanly.
     8. The one frame constructor (EP-0024 §One constructor) — `rf/make-frame`
        is the SINGLE public constructor, returning the frame VALUE (not a bare
-       id keyword), with `:on-create` firing AFTER the resolved generation and
-       seeded app-db are installed on the record.
+       id keyword), with `:initial-events` setup events running AFTER the
+       resolved generation and seeded app-db are installed on the record.
 
   Every fail-loud assertion branches on the `:rf.error/id` DISCRIMINATOR, never
   the message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -809,30 +809,31 @@
             "the :doc record-config key landed on the frame's config")
         (rf/destroy-frame! f)))))
 
-(deftest s8-on-create-runs-after-generation-and-initial-db-installed
-  (testing "EP-0024 (rf2-tu2vr7) ordering: when make-frame is given :images +
-            :initial-db + :on-create in one call, the resolved generation AND the
-            seeded app-db are installed on the record BEFORE :on-create fires —
-            so the :on-create cascade resolves through the frame's image
+(deftest s8-initial-events-seed-installed-before-later-setup-events
+  (testing "EP-0027 §Construction ordering (was EP-0024 rf2-tu2vr7): when
+            make-frame is given :initial-events that SEED app-db first
+            ([:rf/set-db …]) then run a setup event, the resolved generation AND
+            the seeded app-db are installed on the record BEFORE the later setup
+            event fires — so the setup cascade resolves through the frame's image
             generation and observes the seed, and its writes are NOT clobbered by
-            a later initial-db seed."
-    ;; A real event handler that reads the seeded db (proving the seed is live at
-    ;; :on-create time) and writes a key (proving the write survives — not
-    ;; clobbered by a post-on-create seed). No `:images` ⇒ an ordinary configured
-    ;; frame whose :on-create resolves via the shared registrar where the handler
-    ;; is registered; this pins the :initial-db-before-:on-create ordering (bug
-    ;; fix rf2-tu2vr7) without depending on default-image whole-store projection.
+            the seed."
+    ;; A real event handler that reads the seeded db (proving the seed is live
+    ;; when it runs) and writes a key (proving the write survives — not clobbered
+    ;; by the seed). No `:images` ⇒ an ordinary configured frame whose setup
+    ;; event resolves via the shared registrar where the handler is registered;
+    ;; this pins the seed-before-setup ordering (bug fix rf2-tu2vr7) without
+    ;; depending on default-image whole-store projection.
     (rf/reg-event :ep0024.oc/init
       (fn [{:keys [db]} _] {:db (assoc db :saw-seed (:seed db) :booted? true)}))
     (let [f   (rf/make-frame {:id      :ep0024/oc-frame
-                              :initial-db {:seed 42}
-                              :on-create [:ep0024.oc/init]})
+                              :initial-events [[:rf/set-db {:seed 42}]
+                                               [:ep0024.oc/init]]})
           db  (rf/app-db-value :ep0024/oc-frame)]
       (is (lf/frame-object? f))
-      (is (= 42 (:seed db))   "the :initial-db seed survives :on-create (not clobbered)")
-      (is (= 42 (:saw-seed db)) ":on-create OBSERVED the seeded app-db (seed installed first)")
+      (is (= 42 (:seed db))   "the :rf/set-db seed survives the later setup event (not clobbered)")
+      (is (= 42 (:saw-seed db)) "the setup event OBSERVED the seeded app-db (seed installed first)")
       (is (true? (:booted? db))
-          ":on-create's event resolved and ran")
+          "the setup event resolved and ran")
       (rf/destroy-frame! f))))
 
 ;; ===========================================================================

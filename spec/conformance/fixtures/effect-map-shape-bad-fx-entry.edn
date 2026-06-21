@@ -46,7 +46,7 @@
   :fx    {:shape/good  [[:set [:good-ran?] true]]
           :shape/good2 [[:set [:good2-ran?] true]]}}
 
- :fixture/frame-config {:on-create [:shape/init]}
+ :fixture/frame-config {:initial-events [[:shape/init]]}
 
  :fixture/dispatches
  [[:shape/bad-fx-entry]]

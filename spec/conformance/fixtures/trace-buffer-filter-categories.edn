@@ -36,7 +36,7 @@
   :fx    {:log [[:update [:log] [:fn :conj [:get-event-arg 1 :msg]]]]}}
 
  :fixture/frame-config
- {:on-create [:counter/initialise]}
+ {:initial-events [[:counter/initialise]]}
 
  :fixture/dispatches
  [[:counter/inc]

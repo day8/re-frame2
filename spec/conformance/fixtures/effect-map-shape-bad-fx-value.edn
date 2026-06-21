@@ -36,7 +36,7 @@
                                              :fx :oops}]]}
   :sub   {:seeded? [[:get [:seeded?]]]}}
 
- :fixture/frame-config {:on-create [:shape/init]}
+ :fixture/frame-config {:initial-events [[:shape/init]]}
 
  :fixture/dispatches
  [[:shape/bad-fx-value]]

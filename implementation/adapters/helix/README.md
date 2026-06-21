@@ -9,7 +9,7 @@ See [`../README.md`](../README.md) for the wider adapter tier and the substrate 
 ## Adapter-specific surface
 
 - `re-frame.adapter.helix/use-subscribe` — Helix hook returning the current value of a subscription; re-renders the calling component when the value changes. Resolves the frame from the surrounding frame provider (`frame-provider` or `frame-provider-existing`) via React context. Override via the 2-arg form to pin to an explicit frame-id.
-- `re-frame.adapter.helix/frame-provider` — **owned** frame lifecycle boundary: takes `:id` (plus `:images` / `:initial-db` / record-config), creates the frame on mount, provides its id to descendants, and destroys it on unmount.
+- `re-frame.adapter.helix/frame-provider` — **owned** frame lifecycle boundary: takes `:id` (plus `:images` / `:initial-events` / record-config), creates the frame on mount, provides its id to descendants, and destroys it on unmount.
 - `re-frame.adapter.helix/frame-provider-existing` — **scope-only** provider: takes `:frame` (an already-created frame's id) and provides it to descendants via React context — creates, refreshes, and destroys nothing. Use this to scope a tree to a frame owned elsewhere (the scope-into-React counterpart to `rf/with-frame`).
 - `re-frame.adapter.helix/flush-views!` — test helper; wraps React's `act()` to flush pending renders synchronously.
 - `re-frame.adapter.helix/use-current-frame` — Helix hook returning the current frame keyword from the surrounding React context (the narrow raw `useContext` read), or the no-provider sentinel when no frame provider (`frame-provider` or `frame-provider-existing`) sits above. For the full resolution chain, prefer `(rf/current-frame-id)`.

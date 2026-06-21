@@ -24,7 +24,7 @@
           :greeting [[:get [:greeting]]]}}
 
  :fixture/frame-config
- {:on-create [:counter/init]}                                       ;; client seeds something different than the server
+ {:initial-events [[:counter/init]]}                                       ;; client seeds something different than the server
 
  :fixture/dispatches
  ;; Hydrate with a payload that carries the server's render-hash.

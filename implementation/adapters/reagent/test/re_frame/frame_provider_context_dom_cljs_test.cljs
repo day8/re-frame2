@@ -598,13 +598,13 @@
 ;; the cancel on every effect SETUP, so the remount's effect-setup cancels
 ;; the pending destroy. This test mounts an owned `rf/frame-provider` under
 ;; StrictMode, advances past the 0ms deferred destroy, and asserts the frame
-;; is STILL LIVE with its `:initial-db` intact.
+;; is STILL LIVE with its `:initial-events`-seeded app-db intact.
 
 (deftest scenario-6-owned-strict-mode-preserves-durable-state
   "Scenario 6 (OWNED) — StrictMode double-invoke must NOT destroy an owned
    frame-provider's durable state (rf2-i02deh, Spec 002 §002:1419 / §002:1424).
 
-   Mount `[rf/frame-provider {:id :test/owned :initial-db {:n 7}} …]` inside
+   Mount `[rf/frame-provider {:id :test/owned :initial-events [[:rf/set-db {:n 7}]]} …]` inside
    `React.StrictMode`. StrictMode runs the owned-frame effect's cleanup (which
    SCHEDULES the deferred destroy) and re-setup on the same fiber. After the
    0ms deferred destroy's macrotask window passes, the frame MUST still be live
@@ -646,7 +646,7 @@
             ;; subtree is not needed to exercise the lifecycle bug).
             child      (React/createElement "div" #js {} "owned-strict")
             owned-el   (owned-frame/owned-frame-react-element
-                         {:id target :initial-db {:n 7}}
+                         {:id target :initial-events [[:rf/set-db {:n 7}]]}
                          child
                          'scenario-6-owned-strict-mode-preserves-durable-state)
             tree       (React/createElement (.-StrictMode React) nil owned-el)
@@ -672,7 +672,7 @@
                   (is (some? (frame/frame target))
                       "owned frame-provider created the frame on mount")
                   (is (= {:n 7} (rf/app-db-value target))
-                      ":initial-db seeded the durable app-db")
+                      ":initial-events seeded the durable app-db")
                   (js/setTimeout
                     (fn []
                       (js/setTimeout
@@ -724,7 +724,7 @@
             root       (react-dom-client/createRoot mount-node)
             child      (React/createElement "div" #js {} "owned-teardown")
             owned-el   (owned-frame/owned-frame-react-element
-                         {:id target :initial-db {:n 3}}
+                         {:id target :initial-events [[:rf/set-db {:n 3}]]}
                          child
                          'scenario-6-owned-genuine-unmount-destroys)
             act-fn     (get-act)]

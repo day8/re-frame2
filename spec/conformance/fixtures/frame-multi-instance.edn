@@ -21,8 +21,8 @@
   :sub   {:count [[:get [:count]]]}}
 
  :fixture/frames
- [{:id :left  :on-create [:counter/initialise]}
-  {:id :right :on-create [:counter/initialise]}]
+ [{:id :left  :initial-events [[:counter/initialise]]}
+  {:id :right :initial-events [[:counter/initialise]]}]
 
  :fixture/dispatches
  [{:event [:counter/inc]      :frame :left}

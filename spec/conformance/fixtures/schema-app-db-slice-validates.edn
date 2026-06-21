@@ -39,7 +39,7 @@
           :user/set-bad  [[:set [:user] {:id "not-an-int" :email "carol@example.com"}]]}
   :sub   {:user [[:get [:user]]]}}
 
- :fixture/frame-config {:on-create [:user/init]}
+ :fixture/frame-config {:initial-events [[:user/init]]}
 
  :fixture/dispatches
  ;; First the well-typed payload (no error trace), then the malformed one
