@@ -19,10 +19,13 @@
     5. value-independence — a path may be classified BEFORE a value lands there;
        the classification redacts whatever later occupies the path.
 
-  This work is ADDITIVE to EP-0025 (build-new → repoint → purge-old): the
-  existing frame-owned `:source :frame` and `add-marks` `:source :marks`
-  routes still populate the SAME registry slots; these effects add a
-  `:source :effect` route that unions with them at egress-lookup time.
+  EP-0025 (clean break complete): the durable `:sensitive` / `:large {:app-db
+  …}` *frame annotation* and the imperative `add-marks` API are both REMOVED.
+  These commit-plane effects (`:source :effect`) are the canonical durable
+  app-db classification route; they populate the SAME registry slots that
+  `reg-flow` outputs (`:source :flow`) and the subsystem projection-relative
+  declarations (`:source :route` / `:source :machine`) write, unioning with
+  them at egress-lookup time.
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run

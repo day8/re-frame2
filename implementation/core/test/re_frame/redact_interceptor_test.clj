@@ -21,8 +21,8 @@
   empty path scrubs the entire payload."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -226,9 +226,8 @@
             paths. The user interceptor's `:before` reads the frame-class
             interceptor's already-stashed `:rf/redacted-event` and extends
             it, rather than overwriting it (EP-0015 §8)."
-    (frame-class/install! :rf/default
-      (frame-class/validate+extract :rf/default
-        {:sensitive {:app-db [[:auth :password]]}}))
+    (frame/swap-runtime-db! :rf/default
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
     (let [seen (atom nil)]
       (rf/reg-interceptor* :rf/redact-interceptor
         (privacy/redact-interceptor [[:token]]))

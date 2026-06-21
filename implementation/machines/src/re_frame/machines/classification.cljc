@@ -40,8 +40,9 @@
   `[:rf.runtime/machines :snapshots <actor-id>]`, producing the absolute
   runtime-db declaration the egress read path already consumes
   (`re-frame.classification/frame-snapshot-classification` re-roots it snapshot-relative; the
-  SSR / trace / projection boundaries are UNCHANGED — only the SOURCE of the
-  registry entry flips from `:source :frame` to `:source :machine`).
+  SSR / trace / projection boundaries are UNCHANGED — the SOURCE of the
+  registry entry is `:source :machine`, a peer of the general commit-plane
+  `:source :effect` route).
 
   ## Read path is untouched
 
@@ -165,7 +166,7 @@
   (`{:sensitive [paths] :large [paths]}`) on a base elision-registry value
   `reg`. SET writes `{:source :machine}` at each axis slot
   (`:sensitive-declarations` / `:declarations` — the SAME slots the four
-  commit-plane effects and the frame-classification walker populate); DROP
+  commit-plane effects and `reg-flow` outputs populate); DROP
   dissocs exactly the named absolute paths (other-sourced entries survive).
   An emptied axis slot is pruned. Returns the new registry value."
   [reg actor-id decls set?]

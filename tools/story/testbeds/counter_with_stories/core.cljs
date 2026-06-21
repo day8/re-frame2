@@ -91,15 +91,18 @@
   ;; `frame-provider-existing` wrapper passed to the host below — the
   ;; `:rf/default` frame is already `reg-frame`'d above).
   ;;
-  ;; EP-0015 §8: durable app-db size/sensitivity classification is FRAME-owned
-  ;; — declared here as `:large {:app-db …}` so the `:user/avatar-pdf` slot
-  ;; elides to the `:rf.size/large-elided` marker at wire egress. (Schemas
-  ;; describe shape only; app-db egress markers are frame-owned.)
-  (rf/reg-frame :rf/default
-    {:large {:app-db [[:user/avatar-pdf]]}})
+  ;; EP-0025: durable app-db size/sensitivity classification rides the
+  ;; commit-plane classification effects (the frame annotation is removed).
+  ;; The frame is registered plain; the `[:user/avatar-pdf]` slot is classified
+  ;; LARGE by the `:counter/classify-avatar-large` event dispatched in the boot
+  ;; scope below, so the slot elides to the `:rf.size/large-elided` marker at
+  ;; wire egress. (Schemas describe shape only.)
+  (rf/reg-frame :rf/default {})
   (rf/with-frame :rf/default
     ;; Seed the live app's `:count` slot.
     (rf/dispatch-sync [:counter/initialise 5])
+    ;; Classify the avatar-pdf slot large (EP-0025 commit-plane effect).
+    (rf/dispatch-sync [:counter/classify-avatar-large])
     ;; Install the always-on event-emit listener. The listener prints
     ;; every dispatched event's elided record to the browser console —
     ;; visitors can see `:rf/redacted` substitution for the `:sensitive?`

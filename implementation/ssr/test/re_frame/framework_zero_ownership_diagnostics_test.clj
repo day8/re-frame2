@@ -58,7 +58,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
-            [re-frame.frame-classification :as frame-class]
             ;; The routing / ssr / machines subsystem namespaces are loaded
             ;; (and re-installed between tests) by `tf/reset-runtime`, so
             ;; their `:rf.route/*` / `:rf/hydrate` / machine-lifecycle event
@@ -234,32 +233,35 @@
 ;; ===========================================================================
 
 (deftest elision-population-fires-no-ownership-diagnostic
-  (testing "frame-owned classification install stays silent"
-    ;; EP-0015 §8 (rf2-d2r3um): durable app-db egress classification is
-    ;; FRAME-OWNED. `frame-class/install!` writes the `:source :frame`
-    ;; declarations into `[:rf.runtime/elision …]` through
-    ;; `elision/swap-elision-slot!` → `frame/swap-runtime-db!` (a privileged
-    ;; frame-state helper) — NOT through an event-effect, so it never reaches
-    ;; the `:rf.db/runtime` effect path. This guards against a future change
-    ;; that routes it through an app-visible event handler. (The frame
-    ;; container — `:rf/default` — already exists via `tf/reset-runtime`.)
+  (testing "commit-plane classification effects stay silent"
+    ;; EP-0025: durable app-db egress classification rides the commit-plane
+    ;; classification effects — a `reg-event` returns `:sensitive` / `:large`
+    ;; alongside `:db`, and the router folds them into the SAME atomic frame-
+    ;; state commit (a privileged runtime-db partition write, NOT an app-
+    ;; visible `:rf.db/runtime` effect — see
+    ;; `router/commit-frame-effects!`). So classifying a path from a handler
+    ;; writes `[:rf.runtime/elision …]` WITHOUT tripping any ownership
+    ;; diagnostic. This guards against a future change that routes the
+    ;; classification write through the app-visible runtime-db effect path.
+    ;; (The frame container — `:rf/default` — already exists via
+    ;; `tf/reset-runtime`.)
     (let [diags (record-ownership-diagnostics! ::elision)]
-      (frame-class/install!
-        :rf/default
-        (frame-class/validate+extract
-          :rf/default
-          {:large     {:app-db [[:profile :avatar]]}
-           :sensitive {:app-db [[:profile :ssn]]}}))
+      (rf/reg-event :test/classify-profile
+                    (fn [{:keys [db]} _]
+                      {:db        (assoc db :profile {:avatar :x :ssn :y})
+                       :large     [[:profile :avatar]]
+                       :sensitive [[:profile :ssn]]}))
+      (rf/dispatch-sync [:test/classify-profile])
       (is (seq (elision/declarations :rf/default))
-          "the :large frame path was installed into the elision registry")
+          "the :large path was classified into the elision registry")
       (is (seq (elision/sensitive-declarations :rf/default))
-          "the :sensitive frame path was installed into the elision registry")
+          "the :sensitive path was classified into the elision registry")
       (is (some? (get-in (rf/runtime-db-value :rf/default)
                          [:rf.runtime/elision]))
-          "the frame-owned install wrote its declaration registry into runtime-db")
+          "the commit-plane effect wrote its declaration registry into runtime-db")
       (is (empty? @diags)
-          (str "frame-owned classification install writes runtime-db through "
-               "privileged frame-state helpers — no ownership diagnostic; got "
+          (str "commit-plane classification effects write runtime-db through "
+               "the privileged frame-state commit — no ownership diagnostic; got "
                (diagnostic-ids diags))))))
 
 ;; ===========================================================================

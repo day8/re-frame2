@@ -69,17 +69,17 @@ README markets as a headline feature:
   those out and surfaces `[● REDACTED N]` in the bottom rail).
 - **Upload large avatar (inline)** dispatches `:user.avatar/upload`
   with a 20 kB string in the event payload. Path D removed runtime
-  size auto-elision, so an unschema'd / unnominated event-vector blob
+  size auto-elision, so an unschema'd / unclassified event-vector blob
   rides through the listener unchanged; large-value egress is declared,
-  not auto-detected — nominate app-db slots on the frame via
-  `:large {:app-db …}`.
+  not auto-detected — classify app-db slots via the commit-plane `:large`
+  effect (a `reg-event` returning `:large` alongside `:db`).
 - **Set avatar PDF (large)** writes a synthetic blob into
-  `[:user/avatar-pdf]` in app-db — a slot nominated `:large` on the
-  testbed's `:rf/default` frame via `reg-frame {:large {:app-db
-  [[:user/avatar-pdf]]}}` (EP-0015 §8 — durable app-db egress is
-  FRAME-owned, not a schema prop). Walking app-db through
-  `rf/elide-wire-value` substitutes the slot with a marker map carrying
-  `:reason :frame` (the frame-owned classification provenance).
+  `[:user/avatar-pdf]` in app-db — a slot classified `:large` on the
+  testbed's `:rf/default` frame by the `:counter/classify-avatar-large`
+  event (the EP-0025 commit-plane `:large` effect — durable app-db egress
+  rides the effects, not a schema prop, not a frame annotation). Walking
+  app-db through `rf/elide-wire-value` substitutes the slot with a marker
+  map carrying `:reason :effect` (the commit-plane classification provenance).
 - **Walk app-db through elision** runs the live frame's app-db
   through `rf/elide-wire-value` and logs the result. The
   `:user/avatar-pdf` slot shows up as the marker map; everything
@@ -99,8 +99,8 @@ with `(not ^boolean re-frame.interop/debug-enabled?)` per the
 chapter-22 recipe.
 
 Tests at [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs)
-assert every branch — frame-owned `:large` app-db elision (`:reason
-:frame`), unschema'd inline payloads riding through raw, the
+assert every branch — commit-plane-classified `:large` app-db elision
+(`:reason :effect`), unschema'd inline payloads riding through raw, the
 `:sensitive?` registration-meta read-back, and the event-emit listener
 firing per dispatch.
 

@@ -13,16 +13,18 @@
   `:digest`; the default observability boundary omits it), proving the wrapper
   passes `:rf.egress/profile` through rather than only the legacy booleans.
 
-  JVM-only (`.clj`): it requires the epoch + machines artefacts and uses
-  `frame-classification/install!` to declare the frame's EP-0015 §8 durable
-  `:large` path — the same setup the epoch artefact's own privacy suite uses.
-  Lives in core's test tree because the surface under test is the CORE facade
-  wrapper, not the artefact internals."
+  JVM-only (`.clj`): it requires the epoch + machines artefacts and declares
+  the frame's durable `:large` path via the EP-0025 commit-plane
+  classification effect (`elision/apply-classification-effects`, the same
+  registry write a `reg-event` returning `:large` performs) — the same setup
+  the epoch artefact's own privacy suite uses. Lives in core's test tree
+  because the surface under test is the CORE facade wrapper, not the artefact
+  internals."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.error :as error]
-            [re-frame.frame-classification :as frame-class]
+            [re-frame.frame :as frame]
             [re-frame.projection :as projection]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -40,9 +42,8 @@
   (last (rf/epoch-history frame-id)))
 
 (defn- install-large-path! [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:large {:app-db [[:blob :payload]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
   nil)
 
 (defn- big-string [n] (apply str (repeat n "X")))

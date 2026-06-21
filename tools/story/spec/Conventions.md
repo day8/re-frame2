@@ -127,9 +127,9 @@ Per [016-Design-Tokens.md](016-Design-Tokens.md), chrome consumers consume **des
 
 The bans are in the linter / CI rules, not just doc'd — see [016-Design-Tokens.md](016-Design-Tokens.md) §Token contract. Third-party Story panel authors honour the same contract: panels that ship in user repos use the same token namespaces so light / dark / future themes apply uniformly.
 
-## Privacy — frame-owned `:sensitive` / `:large` classification
+## Privacy — `:sensitive` / `:large` classification
 
-Per [framework spec/015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md#frame-owned-durable-classification), durable app-db classification is **owned by the frame** and declared at frame creation. Since a variant *is* a frame, a variant declares its sensitive / large app-db paths via the `:sensitive` / `:large` slots on its body — the SAME owner model `reg-frame` uses:
+Per [framework spec/015 §Data classification](../../../spec/015-Data-Classification.md), durable app-db classification rides the EP-0025 commit-plane classification effects. A variant declares its sensitive / large app-db paths via the `:sensitive` / `:large` slots on its body — the convenience authoring grammar Story exposes:
 
 ```clojure
 (story/reg-variant :story.auth/login-form
@@ -140,7 +140,7 @@ Per [framework spec/015 §Frame-owned durable classification](../../../spec/015-
    :large     {:app-db [[:docs :csv-upload]]}})
 ```
 
-The runtime threads these onto the variant's `reg-frame` config (`re-frame.story.frames/variant-frame-config`), so the framework's `re-frame.frame-classification` validates and installs them atomically as part of frame creation — a malformed declaration FAILS LOUDLY at registration. This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation.
+EP-0025: the runtime lowers these `:app-db` paths into the variant frame's elision registry as commit-plane classification effects (`re-frame.story.frames/apply-variant-classification!` → `re-frame.elision/apply-classification-effects`, `:source :effect`) right after the frame is created, BEFORE its lifecycle / init events — the same registry write a `reg-event` returning `:sensitive` / `:large` performs. (The durable `:sensitive` / `:large {:app-db …}` frame annotation is removed; a variant's `:sensitive` block may still carry `:http` carriers, which stay on the frame config.) This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation API.
 
 **Story does NOT publish `add-marks` / `set-marks`** (rf2-bsk1d9). EP-0015 moved durable app-db classification onto the frame owner and explicitly superseded the public post-creation `add-marks` / `set-marks` mutation surface (the underlying fns are framework-internal / test helpers only — [framework spec/015 §Supersession note](../../../spec/015-Data-Classification.md#frame-owned-durable-classification)). A Story re-export would re-open that exact escape hatch and guide authors back to the pre-EP-0015 imperative mark-mutation model, so it is deliberately absent. Transient payloads (event args, fx/cofx values) are still classified via `:sensitive` / `:large` registration metadata on `reg-event` / `reg-fx` / `reg-cofx`, per the framework registration grammar.
 

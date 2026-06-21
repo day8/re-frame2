@@ -76,6 +76,18 @@
     {:fx [[:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]]}))
 
+;; Durable app-db classification (EP-0025): the JWT at [:auth :token] is
+;; sensitive — declare it via the commit-plane `:sensitive` effect, returned
+;; alongside `:db` from an event the frame runs at creation (`:initial-events`,
+;; before any boot dispatch or off-box egress). EP-0025 removed the durable
+;; `:sensitive {:app-db …}` frame annotation; a frame is not app-db's
+;; definition site.
+(rf/reg-event :auth/classify-token
+  {:doc "Classifies the durable JWT path [:auth :token] sensitive at frame
+         creation (EP-0025 commit-plane classification effect)."}
+  (fn [{:keys [db]} _]
+    {:db db :sensitive [[:auth :token]]}))
+
 ;; ============================================================================
 ;; APP-SHELL VIEWS
 ;; ============================================================================
@@ -223,11 +235,13 @@
   ;; EP-0022 — + routes
   ;; the demo `:rf.http/managed` through the in-process backend stub so reads
   ;; (resources) and writes (mutations) run without a network.
-  ;; EP-0015 (frame-owned egress policy): the JWT is a durable, frame-wide
+  ;; EP-0025 (durable egress classification): the JWT is a durable, frame-wide
   ;; sensitive fact — it lives at [:auth :token] in app-db, so that path is
-  ;; declared `:sensitive`. Projection happens at the trust boundary, so
-  ;; off-box egress (Xray / observability capture, an off-box tool, an SSR
-  ;; hydration payload) never sees the raw token, while on-box use keeps it.
+  ;; classified `:sensitive` via the commit-plane `:sensitive` effect
+  ;; (`:auth/classify-token`, run from the frame's `:initial-events` at frame
+  ;; creation). Projection happens at the trust boundary, so off-box egress
+  ;; (Xray / observability capture, an off-box tool, an SSR hydration payload)
+  ;; never sees the raw token, while on-box use keeps it.
   ;;
   ;; The outbound `Authorization` Bearer header (the interceptor above) is NOT
   ;; declared here — it is already on the framework's immutable built-in HTTP
@@ -238,11 +252,11 @@
   ;; secret, so it is deliberately NOT classified — over-redacting would
   ;; obscure the cache-leak boundary this example exists to show.
   (rf/reg-frame app-frame
-    {:doc          "RealWorld-on-resources demo frame."
-     :url-bound?   true
-     :sensitive    {:app-db [[:auth :token]]}
-     :interceptors [:realworld-resources.routing/auth-guard]
-     :fx-overrides {:rf.http/managed :realworld-resources.demo/http-stub}})
+    {:doc             "RealWorld-on-resources demo frame."
+     :url-bound?      true
+     :initial-events  [[:auth/classify-token]]
+     :interceptors    [:realworld-resources.routing/auth-guard]
+     :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot, BEFORE :app/initialise
   ;; dispatches — session-restore fires an authenticated `GET /user` as soon as
   ;; the JWT is hydrated, so the header must already be wired.

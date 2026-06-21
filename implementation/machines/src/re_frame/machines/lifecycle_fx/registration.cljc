@@ -64,8 +64,10 @@
 ;;
 ;; The home runs exactly one `:data-schema` side-effect: the validation-stamp.
 ;; A machine's `:data-schema` is VALIDATION-ONLY — per-slot props do not
-;; classify durable `:data` for snapshot egress. Frame-declared `:sensitive` /
-;; `:large {:app-db …}` paths are the sole app-db data-classification mechanism.
+;; classify durable `:data` for snapshot egress. EP-0025: durable `:data`
+;; classification rides the projection-relative subsystem declaration (lowered
+;; per actor under `:source :effect`); the commit-plane `:sensitive` / `:large`
+;; effects are the general app-db data-classification mechanism.
 (def ^:dynamic *in-registration-home?*
   "True while `make-machine-handler` is invoked from a registration site that
   ALSO stamps the `:rf/machine?` / `:rf/machine` meta (the single home, or the

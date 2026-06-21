@@ -200,24 +200,24 @@ replacement.
   pinned by `wire-vocab/`. Gated on `$SHADOW_CLJS_NREPL_PORT` (same
   posture as the overflow variant).
 - `test/live-re-frame2-pair-redaction.cjs` — re-frame2-pair-mcp **live**-runtime variant
-  (rf2-q4o83) that exercises egress redaction of a FRAME-OWNED
-  `:sensitive {:app-db …}` slot through the pull-mode epoch tools
-  (`trace-window` + `watch-epochs`). Declares the sensitive slot app-side
-  through the PUBLIC EP-0015 frame-owned route (`reg-frame` with a
-  `{:sensitive {:app-db [[…]]}}` classification — rf2-2h7153; NOT a
-  hand-seeded elision registry and NOT schema-attached / importer-driven
-  classification, both of which EP-0015 removed), dispatches a recognisable
+  (rf2-q4o83) that exercises egress redaction of a classified
+  `:sensitive` app-db slot through the pull-mode epoch tools
+  (`trace-window` + `watch-epochs`). Classifies the sensitive slot app-side
+  through the PUBLIC EP-0025 route (an event returns the commit-plane
+  `:sensitive [[…]]` effect alongside `:db` — rf2-2h7153; NOT a hand-seeded
+  elision registry and NOT schema-attached / importer-driven classification,
+  all of which EP-0015/EP-0025 removed), dispatches a recognisable
   sentinel into it, then asserts the sentinel is ABSENT in the egress
   payload with the `--allow-sensitive-reads` gate OFF (default) — the whole
   sensitive epoch is DROPPED (`:dropped-sensitive` >= 1) — and SHIPS with
-  the gate ON + `:include-sensitive true`. A third arm declares the path
-  through the same frame-owned route AFTER the epoch is recorded, so the
+  the gate ON + `:include-sensitive true`. A third arm classifies the path
+  through the commit-plane effect AFTER the epoch is recorded, so the
   inner `projected-record` value-redaction is the sole protection (sentinel
   ABSENT + `:rf/redacted` PRESENT + `:dropped-sensitive 0`). Pins BOTH gate
-  directions so the gate can't silently invert, and proves the frame-owned
-  route reaches the epoch rollup AND the projected-record egress. This is
-  the regression net for rf2-6wvh5 (the leak the gate let ship green) and
-  rf2-2h7153 (the frame-owned route bypass). Gated on
+  directions so the gate can't silently invert, and proves the commit-plane
+  classification effect reaches the epoch rollup AND the projected-record
+  egress. This is the regression net for rf2-6wvh5 (the leak the gate let
+  ship green) and rf2-2h7153 (the classification route bypass). Gated on
   `$SHADOW_CLJS_NREPL_PORT` (same posture as the other live variants). Has
   a standalone `npm run test:re-frame2-pair-live-redaction` script
   (rf2-ybiz0) for local runnability + parity with the overflow / subscribe

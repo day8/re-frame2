@@ -79,11 +79,12 @@
   test driver; the queue belongs to the application."
   ;; EP-0025: there is no imperative classification API to re-export. Durable
   ;; app-db classification is a frame-creation concern — a variant declares
-  ;; `:sensitive` / `:large` on its body and the runtime threads them onto its
-  ;; `reg-frame` config (`re-frame.story.frames`); discovered paths use the
-  ;; commit-plane `:sensitive` / `:large` effects. Story requires neither the
-  ;; classification ns nor `re-frame.core` directly (the docstring above names
-  ;; `rf/dispatch-sync` etc. illustratively).
+  ;; `:sensitive` / `:large` on its body and the runtime applies them as
+  ;; commit-plane classification effects into the variant frame's elision
+  ;; registry at allocation, BEFORE its lifecycle / init events
+  ;; (`re-frame.story.frames/apply-variant-classification!`). Story requires
+  ;; neither the classification ns nor `re-frame.core` directly (the docstring
+  ;; above names `rf/dispatch-sync` etc. illustratively).
   (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
             ;; Phase-2 cohesive internal nss — own the implementation
@@ -684,23 +685,27 @@
 ;; helpers only). A Story re-export would open an imperative post-creation
 ;; mark-mutation escape hatch that bypasses the frame owner.
 ;;
-;; The EP-0015-compliant Story surface is FRAME-CREATION classification: a
+;; The EP-0025-compliant Story surface is FRAME-CREATION classification: a
 ;; variant declares its sensitive / large app-db paths at registration via
-;; the `:sensitive` / `:large` slots on the variant body — the SAME owner
-;; model `reg-frame` uses — and the runtime threads them onto the variant's
-;; `reg-frame` config (`re-frame.story.frames/variant-frame-config`), so the
-;; framework installs them atomically as part of frame creation:
+;; the `:sensitive` / `:large` slots on the variant body (a flat vector of
+;; `:rf/path`s per axis) — and the Story runtime applies them through the
+;; commit-plane `:sensitive` / `:large` classification effects at frame
+;; creation (an init classify step, `:source :effect`), so the redaction is
+;; live from creation onward. (EP-0025 removed the durable `:sensitive` /
+;; `:large {:app-db …}` *frame annotation* — a frame is not app-db's
+;; definition site — so the runtime no longer threads the declaration onto
+;; the `reg-frame` config; it rides the commit-plane effect instead.)
 ;;
 ;;     (story/reg-variant :story.auth/login-form
 ;;       {:component login-form
 ;;        :args      {:user/email "ada@example.com"
 ;;                    :user/password "•••••"}
-;;        :sensitive {:app-db [[:user :password] [:auth :token]]}
-;;        :large     {:app-db [[:docs :csv-upload]]}})
+;;        :sensitive [[:user :password] [:auth :token]]
+;;        :large     [[:docs :csv-upload]]})
 ;;
 ;; This drives every local-redacted Story surface (assertion redaction, the
 ;; trace buffer, the recorder, DOM capture) with NO public post-creation
-;; mark mutation. Per spec/015 §Frame-owned durable classification.
+;; mark mutation. Per spec/015 §Data classification.
 
 ;; ---- reg-global-decorator (Storybook preview.ts parity) -----------------
 ;;

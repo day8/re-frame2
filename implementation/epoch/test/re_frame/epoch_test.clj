@@ -66,9 +66,8 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
-            [re-frame.elision]
+            [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as epoch.listeners]
@@ -4599,14 +4598,14 @@
             off-box defaults; bookkeeping slots and structured projections
             pass through unchanged"
     (rf/reg-frame :test/main {})
-    ;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED.
-    ;; Declare the `[:auth :password]` sensitive path through the
-    ;; frame-classification install seam — it populates
-    ;; [:rf.runtime/elision :sensitive-declarations] directly, pinning the
-    ;; smoke against the elision walker contract.
-    (frame-class/install! :test/main
-      (frame-class/validate+extract :test/main
-        {:sensitive {:app-db [[:auth :password]]}}))
+    ;; EP-0025: durable app-db classification rides the commit-plane
+    ;; classification effects. Declare the `[:auth :password]` sensitive path
+    ;; through `elision/apply-classification-effects` (`:source :effect`) — it
+    ;; populates [:rf.runtime/elision :sensitive-declarations] directly (the
+    ;; same registry write a `reg-event` returning `:sensitive` performs),
+    ;; pinning the smoke against the elision walker contract.
+    (frame/swap-runtime-db! :test/main
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]]
                        {:db (assoc-in db [:auth :password] pw)}))

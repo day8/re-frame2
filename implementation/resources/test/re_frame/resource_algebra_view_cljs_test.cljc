@@ -31,6 +31,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.elision :as elision]
    [re-frame.frame :as frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the :resource registrar kind.
@@ -379,9 +380,11 @@
             EVEN when the owner did not declare :sensitive? (derived-sensitivity
             inheritance, Spec 015 §Derived sensitivity)"
     ;; FRAME classification: the resolver's :db input path is sensitive.
-    (rf/reg-frame :sens/frame
-                  {:doc "frame with a sensitive tenant-id"
-                   :sensitive {:app-db [[:session :tenant-id]]}})
+    ;; EP-0025: classified via the commit-plane effect path (:source :effect) —
+    ;; no longer a frame annotation.
+    (rf/reg-frame :sens/frame {:doc "frame with a sensitive tenant-id"})
+    (frame/swap-runtime-db! :sens/frame
+      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
     ;; resolver reading the frame-sensitive path (default :inherit propagates)
     (rf/reg-resource-scope :session/tenant
                            {:inputs  {:tenant-id [:db [:session :tenant-id]]}

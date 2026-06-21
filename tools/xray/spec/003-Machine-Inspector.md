@@ -988,19 +988,25 @@ shape carries no value-redaction concern.
 > Xray's value-free type-caption shape is a redaction no-op, so this
 > does not change the Machine Inspector surface.
 
-### Redacted `:data` — the panel reads the EGRESSED snapshot (frame-owned, EP-0025)
+### Redacted `:data` — the panel reads the EGRESSED snapshot (commit-plane / projection-relative, EP-0025)
 
-> **EP-0025 (rf2-398kql) — frame-owned, not schema-attached.** Durable
-> machine `:data` egress classification is now declared **on the frame**:
-> `reg-frame` `:sensitive` / `:large {:app-db [[:rf.runtime/machines
-> :snapshots <id> :data …]]}` (the sole app-db / runtime-db mechanism). The
-> EP-0005 `:data-schema`→marks redaction bridge is **reversed** — a
-> `:sensitive?` / `:large?` `:data-schema` slot prop no longer classifies
-> durable `:data` for egress (it still drives validation-failure-trace
-> redaction, a separate axis). The `:data` egress treatment below is
-> unchanged in shape; only the classification SOURCE moved to the frame.
+> **EP-0025 — classified via the commit-plane effects / projection-relative
+> machine declaration, not schema-attached and not a frame annotation.**
+> Durable machine `:data` egress classification lives in the per-frame
+> elision registry under `:source :effect`: a machine definition declares its
+> sensitive / large `:data` slots PROJECTION-RELATIVE
+> (`re-frame.machines.classification`, lowered per actor at spawn /
+> first-boot to the absolute `[:rf.runtime/machines :snapshots <id> :data …]`
+> path), and the general commit-plane `:sensitive` / `:large` effects (a
+> `reg-event` returns them alongside `:db`) are the app-db / runtime-db
+> mechanism. The durable `:sensitive` / `:large {:app-db …}` *frame
+> annotation* is removed. The EP-0005 `:data-schema`→marks redaction bridge
+> is **reversed** — a `:sensitive?` / `:large?` `:data-schema` slot prop no
+> longer classifies durable `:data` for egress (it still drives
+> validation-failure-trace redaction, a separate axis). The `:data` egress
+> treatment below is unchanged in shape; only the classification SOURCE moved.
 
-A FRAME-declared sensitive / large machine-snapshot `:data` path is honoured
+A classified sensitive / large machine-snapshot `:data` path is honoured
 in **snapshot egress**: the `:before` / `:after` / `:snapshot` `:data` slots
 on every `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace are
 redacted to `:rf/redacted` / the `:rf.size/large-elided` marker by

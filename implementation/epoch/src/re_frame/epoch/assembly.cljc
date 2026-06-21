@@ -219,10 +219,10 @@
   (boolean (some privacy/sensitive? events)))
 
 (defn- sensitive-paths-for
-  "Return the frame-declared sensitive paths for `frame-id`. Empty when
-  the frame declares no `:sensitive {:app-db …}` classification (EP-0015
-  §3/§8 — the `[:rf.runtime/elision :sensitive-declarations]` registry is
-  frame-owned, not schema-populated)."
+  "Return the classified sensitive paths for `frame-id`. Empty when
+  the frame classifies no `:sensitive` app-db path (EP-0025 — the
+  `[:rf.runtime/elision :sensitive-declarations]` registry is written by the
+  commit-plane classification effects, not schema-populated)."
   [frame-id]
   (try (keys (elision/sensitive-declarations frame-id))
        (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -337,9 +337,9 @@
   the cost is one keys-of-empty call and an empty-reduce.
 
   Returns `0` when:
-    - No paths are declared sensitive (the frame declares no
-      `:sensitive {:app-db …}` classification), OR
-    - No declared-sensitive path's value differs across the cascade.
+    - No paths are classified sensitive (the frame classifies no
+      `:sensitive` app-db path), OR
+    - No classified-sensitive path's value differs across the cascade.
 
   Halted records: `db-before` and/or `db-after` may be `nil` on the
   `:halted-destroy` path (per rf2-v0jwt). `(get-in nil P)` is `nil`;

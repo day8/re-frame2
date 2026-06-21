@@ -693,11 +693,11 @@
 ;; to be walked into the frame's `[:rf.runtime/elision …]` registry at
 ;; registration time (and re-walked per-dispatch by the router) via the
 ;; `:elision/populate-from-schemas!` hook — a SECOND route to classify a
-;; durable app-db path that the frame already owns. EP-0015 §8 abolishes that
-;; route: schemas describe shape, validation, and explainability, NOT durable
-;; app-db egress policy. Durable app-db classification is frame-owned —
-;; installed once at `reg-frame` time by `re-frame.frame-classification`
-;; (`reg-frame` `:sensitive` / `:large {:app-db …}`).
+;; durable app-db path. EP-0015 §8 abolishes that route: schemas describe
+;; shape, validation, and explainability, NOT durable app-db egress policy.
+;; Durable app-db classification rides the EP-0025 commit-plane classification
+;; effects — a `reg-event` returns `:sensitive` / `:large` alongside `:db`
+;; (`re-frame.elision/apply-classification-effects`, `:source :effect`).
 ;;
 ;; With population gone, so is the registration-time population call, its
 ;; relevance pre-check (`populate-relevant?` / `schema-contributes-elision?`),

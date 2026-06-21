@@ -21,7 +21,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.frame-classification :as frame-class]
+            [re-frame.elision :as elision]
+            [re-frame.frame :as frame]
             [re-frame.test-support :as test-support]
             [re-frame.epoch]) ;; load so :epoch/cascade-cause hook is bound
   (:require-macros [re-frame.core :refer [reg-view]]
@@ -182,14 +183,15 @@
    frame-declared `:sensitive` app-db path inside a render arg reaches the
    trace surface as :rf/redacted, never raw."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
-      ;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is frame-owned.
-      ;; Seed the [:auth :password] sensitive declaration on this frame's
-      ;; elision registry (index-free :rf/path) — the same registry the marks
-      ;; projection consults to elide the render arg at emit. The fixture
+      ;; EP-0025: durable app-db classification rides the commit-plane
+      ;; classification effects. Seed the [:auth :password] sensitive
+      ;; declaration on this frame's elision registry (index-free :rf/path)
+      ;; via `elision/apply-classification-effects` — the same registry the
+      ;; egress projection consults to elide the render arg at emit, and the
+      ;; same write a `reg-event` returning `:sensitive` performs. The fixture
       ;; reg-frames the ambient :rf/default the render lands in.
-      (frame-class/install! :rf/default
-        (frame-class/validate+extract :rf/default
-          {:sensitive {:app-db [[:auth :password]]}}))
+      (frame/swap-runtime-db! :rf/default
+        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
       (rf/reg-view ^{:rf/id :rf2-rpgq8/sensitive} sensitive-view [_props]
         [:span "ok"])
       ((rf/view :rf2-rpgq8/sensitive) {:auth {:username "ada" :password "hunter2"}})

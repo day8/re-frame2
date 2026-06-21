@@ -27,9 +27,10 @@
   works). It writes the absolute runtime-db snapshot path into the SAME per-frame
   `[:rf.runtime/elision]` registry the `:rf.egress/ssr-hydration` egress walk
   reads (tagged `:source :effect`, unioned at egress-lookup), so the SSR
-  projection redacts/elides it exactly as a `:source :frame` declaration would.
-  This replaces the retired imperative `marks/add-marks` API (deleted by the
-  EP-0025 B1b purge); the classification is read ONLY at egress, so it redacts
+  projection redacts/elides it exactly as any classified declaration would.
+  This replaces BOTH the retired durable `:sensitive`/`:large {:app-db …}`
+  frame annotation and the imperative `marks/add-marks` API (deleted by the
+  EP-0025 purge); the classification is read ONLY at egress, so it redacts
   whatever value later occupies the path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]

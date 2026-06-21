@@ -1505,27 +1505,28 @@
         ;; config are installed (first-registration branch below).
         _              (reject-retired-construction-keys! config 'rf/reg-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/reg-frame)
-        ;; EP-0015 §3: validate the frame-owned classification
-        ;; keys (`:sensitive` / `:large` / `:observability`) EARLY — pure,
-        ;; container-independent, fail-loud. A malformed path / unknown
-        ;; classification key / non-string carrier name throws here, BEFORE
-        ;; the registrar write and BEFORE any container exists, so a bad
-        ;; declaration leaves no half-registered frame and never reaches
-        ;; `:initial-events`. The extracted result (app-db sensitive/large paths,
-        ;; sensitive-wins-resolved) is installed into the durable elision
-        ;; registry once the container exists (below, atomically before
-        ;; `:initial-events`). Reached via late-bind: `re-frame.frame-classification`
-        ;; requires `elision` which requires this ns, so a static require
+        ;; EP-0015 §3 / §9: validate the frame-owned policy keys
+        ;; (`:sensitive {:http …}` HTTP carriers + `:observability` sink policy)
+        ;; EARLY — pure, container-independent, fail-loud. An unknown
+        ;; classification key / non-string carrier name / malformed sink entry
+        ;; throws here, BEFORE the registrar write and BEFORE any container
+        ;; exists, so a bad declaration leaves no half-registered frame and
+        ;; never reaches `:initial-events`. Reached via late-bind:
+        ;; `re-frame.frame-classification` requires this ns, so a static require
         ;; would cycle; `re-frame.core` requires it at boot so the hook is
-        ;; always published before any runtime `reg-frame`. Returns nil when
-        ;; the config carries no classification key (the common case).
-        classification (when-let [validate (late-bind/get-fn
-                                            :frame-classification/validate+extract)]
-                         (validate id config))
-        install-classification!
-        (fn []
-          (when-let [install! (late-bind/get-fn :frame-classification/install!)]
-            (install! id classification)))]
+        ;; always published before any runtime `reg-frame`. No-op when the
+        ;; config carries no policy key (the common case).
+        ;;
+        ;; EP-0025: durable app-db classification is NO LONGER a frame
+        ;; annotation — the `:sensitive` / `:large {:app-db …}` durable
+        ;; declaration moved to the commit-plane classification effects
+        ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`,
+        ;; `re-frame.elision`). So `reg-frame` only VALIDATES the surviving
+        ;; HTTP-carrier + observability policy; it installs NOTHING into the
+        ;; elision registry. (The retired `:app-db` key now fails loud.)
+        _              (when-let [validate (late-bind/get-fn
+                                            :frame-classification/validate!)]
+                         (validate id config))]
     (registrar/register! :frame id config)
     ;; Frame-level trace-emission gate: a frame registered
     ;; with `:rf.trace/frame-no-emit? true` is a tool / inspector frame
@@ -1554,14 +1555,14 @@
         (nil? existing)
         (let [f (new-frame-record id config)]
           (swap! frames assoc id f)
-          ;; EP-0015 §3: install the frame-owned app-db
-          ;; classification into the durable elision registry NOW — the
-          ;; container exists, and this MUST land before `:initial-events` run
-          ;; (a `:rf/path` declared sensitive must be redacted in any trace
-          ;; the init cascade emits). Already validated above, so this only
-          ;; mutates the runtime-db elision slot; no-op when the config
-          ;; carries no classification key.
-          (install-classification!)
+          ;; EP-0025: there is no durable app-db classification install here
+          ;; anymore — the frame `:sensitive` / `:large {:app-db …}` annotation
+          ;; was removed in favour of the commit-plane classification effects
+          ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`).
+          ;; A `:rf.frame/init` `:initial-events` step that classifies a path
+          ;; runs (below) at frame creation, so any trace the init cascade emits
+          ;; is still redacted. The frame's policy keys were already validated
+          ;; above; nothing is written into the elision registry from here.
           ;; EP-0027 §Construction — FORBID handler-time frame construction.
           ;; Frames are created by the VIEW (frame-provider) or at TOP LEVEL
           ;; (tests, boot, SSR per request); constructing a frame INSIDE an event
@@ -1651,15 +1652,14 @@
               stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)]
           (swap! frames update id
                  assoc :config stored-config :generation (get config :rf.frame/generation))
-          ;; EP-0015 §3: re-registration REPLACES frame-owned
-          ;; classification — the declaration IS the frame's policy (no
-          ;; additive merge). `install!` drops the prior `:source :frame`
-          ;; elision entries and overlays the new ones; schema- and
-          ;; marks-sourced declarations survive. A re-registration that
-          ;; DROPS its classification clears the prior frame-sourced entries
-          ;; (absent-key clears, per Spec 002 §Re-registration). Runtime
-          ;; state (app-db, sub-cache, queue) is preserved.
-          (install-classification!)
+          ;; EP-0025: re-registration installs no durable app-db classification
+          ;; — the frame `:sensitive` / `:large {:app-db …}` annotation was
+          ;; removed (classification now rides the commit-plane effects, whose
+          ;; `:source :effect` elision entries are owned by event handlers and
+          ;; survive re-registration untouched). The new `:config` (with its
+          ;; HTTP-carrier + observability policy) was already validated above and
+          ;; lands in `:config`; runtime state (app-db, sub-cache, queue, the
+          ;; effect-/flow-sourced elision registry) is preserved.
           (trace/emit! :rf.frame :rf.frame/re-registered
                        {:frame id :config stored-config})
           id)))))

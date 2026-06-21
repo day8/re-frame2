@@ -18,13 +18,12 @@
   These extractors NO LONGER populate the frame's app-db egress registry
   under `[:rf.runtime/elision :declarations]` /
   `[:rf.runtime/elision :sensitive-declarations]`. App-db egress
-  classification is **frame-owned** — declared on `reg-frame` via
-  `:sensitive {:app-db …}` / `:large {:app-db …}`, the single durable
-  authoring surface (Spec 015 §Frame-owned durable classification). The
-  former public `add-marks` / `set-marks` app-db path-mark API is REMOVED
-  from the façade (Spec 015 §3 / Privacy.md §Removed surfaces); the
-  underlying mark fns survive ONLY as internal / test / generated-code
-  plumbing, not as a public authoring route. Schemas describe **shape**,
+  classification is declared by the **EP-0025 commit-plane classification
+  effects** — a `reg-event` returns `:sensitive` / `:large` alongside `:db`,
+  written `:source :effect` (Spec 015 §Data classification). The former
+  durable `:sensitive` / `:large {:app-db …}` *frame annotation* and the
+  public `add-marks` / `set-marks` app-db path-mark API are both REMOVED
+  (Spec 015 §3 / Privacy.md §Removed surfaces). Schemas describe **shape**,
   not durable app-db egress policy, and the old
   `re-frame.elision/populate-{,sensitive-}from-schemas!` bridge + its
   `:elision/populate-from-schemas!` late-bind seam are REMOVED (see
@@ -49,9 +48,10 @@
   EP-0025 (rf2-398kql) — the machine `:data-schema`→marks redaction bridge
   (EP-0005) is GONE. A machine's `:sensitive?` / `:large?` `:data`-slot props
   no longer classify the machine's durable `:data` for trace / SSR egress;
-  durable machine `:data` classification is FRAME-OWNED like every other
-  app-db path (`reg-frame` `:sensitive` / `:large {:app-db …}`, EP-0015, the
-  sole app-db mechanism). The `:data-schema` still VALIDATES, and its props
+  durable machine `:data` classification rides the commit-plane classification
+  effects like every other app-db path (a `reg-event` returns `:sensitive` /
+  `:large` alongside `:db`, EP-0025, the sole durable app-db mechanism). The
+  `:data-schema` still VALIDATES, and its props
   still drive the machine-data validation-FAILURE-trace redactor via the
   `:where :machine-data` validation path — only the schema→MARKS classification
   bridge is reversed.
@@ -116,8 +116,9 @@
   > the validation redaction now consults ONLY the per-slot schema
   > declaration. Registering an opaque value and adding handler-meta
   > `:sensitive?` does NOT redact; the supported route is registering the
-  > vector form (or frame-owned data classification — `reg-frame`
-  > `:sensitive {:app-db …}` — for durable app-db egress, EP-0015).
+  > vector form (or, for durable app-db egress, the EP-0025 commit-plane
+  > `:sensitive` / `:large` classification effects — a `reg-event` returns
+  > them alongside `:db`).
 
   Example — vector form vs registry ref:
 

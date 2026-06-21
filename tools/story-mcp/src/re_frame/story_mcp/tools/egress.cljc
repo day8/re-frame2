@@ -28,10 +28,10 @@
   `preview-variant` / `run-variant` (which return the variant frame's
   `:app-db` slice) and `read-failures` (which returns the variant
   frame's `:rf.story/assertions` accumulator). The walker reads the
-  frame-owned `[:rf.runtime/elision]` registries (EP-0015 §8 — durable
-  classification declared at `reg-frame` time via
-  `re-frame.frame-classification`) from the named frame's runtime-db
-  partition; the `:frame variant-id` opts slot is load-bearing.
+  per-frame `[:rf.runtime/elision]` registries (EP-0025 — durable
+  classification declared via the commit-plane `:sensitive` / `:large`
+  effects a `reg-event` returns, `:source :effect`) from the named frame's
+  runtime-db partition; the `:frame variant-id` opts slot is load-bearing.
 
   ## Non-live runtime/captured value scrub (`scrub-frame-value`, rf2-12f2q)
 
@@ -147,13 +147,14 @@
   posture resolves to (EP-0015 §10, rf2-qus09h). Returns the elided value,
   or the input unchanged when `include?` is true.
 
-  The egress walker reads `variant-id`'s frame-owned elision registry
+  The egress walker reads `variant-id`'s per-frame elision registry
   (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations`),
-  installed by `re-frame.frame-classification` at `reg-frame` time
-  (EP-0015 §8). No per-read refresh is needed — the declarations are
-  durable frame state, live from frame creation onward; the former
-  schema→registry population hook (`:elision/populate-from-schemas!`) was
-  removed with the §8 schema-attached app-db egress route.
+  written by the EP-0025 commit-plane `:sensitive` / `:large` classification
+  effects (`:source :effect`, a `reg-event` returns them alongside `:db`). No
+  per-read refresh is needed — the declarations are durable frame state, live
+  from classification onward; the former schema→registry population hook
+  (`:elision/populate-from-schemas!`) was removed with the §8 schema-attached
+  app-db egress route.
 
   The walk runs under the `:rf.egress/off-box-tool` profile floor
   (`posture->elision-opts`): sensitive redacts to `:rf/redacted`, large

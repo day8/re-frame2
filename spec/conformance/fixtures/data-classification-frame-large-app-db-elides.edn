@@ -1,11 +1,12 @@
 ;; Conformance fixture: data-classification/frame-large-app-db-elides
 ;;
 ;; Per Spec 015 §Tests (the `frame-large-app-db-elides.edn` row) and §10
-;; (the `:rf.size/*` elision axis) — a frame declaring
-;; `:large {:app-db [[:docs :csv-upload]]}` projects a `:rf.size/large-elided`
-;; marker at the marked path (carrying `:path` / `:bytes` / `:type` / `:reason`
-;; / `:handle` — never the bulk value, never a path/size leak that would defeat
-;; the elision). An unmarked sibling rides verbatim.
+;; (the `:rf.size/*` elision axis) — a frame that classifies
+;; `[:docs :csv-upload]` large (EP-0025 commit-plane `:large` classification
+;; effect) projects a `:rf.size/large-elided` marker at the marked path
+;; (carrying `:path` / `:bytes` / `:type` / `:reason` / `:handle` — never the
+;; bulk value, never a path/size leak that would defeat the elision). An
+;; unmarked sibling rides verbatim.
 ;;
 ;; Like the sibling sensitive fixture, the OBSERVABLE seam is the t1
 ;; `:rf.event/db-pending` trace event: the full pending app-db is walked by
@@ -29,7 +30,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
                          :data-classification/marks}
- :fixture/doc          "A frame with :large {:app-db [[:docs :csv-upload]]}, after an event writes a value to that path, projects a :rf.size/large-elided marker at the marked path in the t1 :rf.event/db-pending trace event; the marker carries :path / :bytes / :type / :reason / :handle (never the bulk value). An unmarked sibling rides egress verbatim."
+ :fixture/doc          "A frame that classifies [:docs :csv-upload] large (EP-0025 commit-plane :large effect), after an event writes a value to that path, projects a :rf.size/large-elided marker at the marked path in the t1 :rf.event/db-pending trace event; the marker carries :path / :bytes / :type / :reason / :handle (never the bulk value). An unmarked sibling rides egress verbatim."
 
  :fixture/registry
  {:event {:dc/upload {:doc "Writes a (declared-large) value + an unmarked sibling into app-db."}}}

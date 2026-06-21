@@ -1941,9 +1941,10 @@
                      (:event envelope))
      ;; `:schema-sensitive?` (a RETAINED key name, like the
      ;; `schema-redaction-paths` fn it derives from — see
-     ;; `re-frame.privacy`) strictly tracks the FRAME-DECLARED sensitive
-     ;; path overlap (EP-0015 §3/§8 — the `:sensitive {:app-db …}` frame
-     ;; classification registry, no longer schema-attached slot props). It
+     ;; `re-frame.privacy`) strictly tracks the CLASSIFIED sensitive
+     ;; path overlap (EP-0025 — the per-frame sensitive-declarations
+     ;; registry written by the commit-plane classification effects, no
+     ;; longer schema-attached slot props nor a frame annotation). It
      ;; drives the scope-meta `:sensitive?` stamp on every emitted trace
      ;; event. User `redact-interceptor` does NOT stamp `:sensitive?`;
      ;; sensitivity is path-marked via the frame's app-db classification

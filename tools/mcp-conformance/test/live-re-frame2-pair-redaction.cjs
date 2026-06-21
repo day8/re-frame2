@@ -1,26 +1,28 @@
 // Live-re-frame2-pair MCP-client conformance variant exercising egress
-// protection of a FRAME-OWNED `:sensitive {:app-db …}` slot through the
+// protection of a classified `:sensitive` app-db slot through the
 // pull-mode epoch tools (`trace-window` + `watch-epochs`).
 //
-// ## EP-0015 — durable app-db policy is FRAME-OWNED
+// ## EP-0025 — durable app-db classification rides the commit-plane effects
 //
-// Durable app-db egress policy is declared on the FRAME, through the
-// public `reg-frame` route: `(reg-frame :id {:sensitive {:app-db
-// [[:auth :token]]}})` (spec/015-Data-Classification.md §Frame-owned
-// durable classification; docs/EP/EP-0015-frame-owned-egress-policy.md).
-// `reg-frame` validates the classification and installs it into the
-// frame's durable elision registry tagged `:source :frame`; the epoch
-// assembler's `sensitive-rollup` and the off-box `projected-record` both
-// read THAT registry. Schemas describe shape, not durable app-db egress
-// policy: there is no schema-attached `:sensitive?` app-db classification
-// (EP-0015 §8).
+// Durable app-db egress classification is declared by the EP-0025
+// commit-plane classification effects: an event handler returns
+// `:sensitive [[:auth :token]]` (or `:large` / `:clear-*`) alongside `:db`
+// (spec/015-Data-Classification.md; docs/EP/EP-0025-data-classification.md).
+// The router folds the declaration into the same atomic commit as the `:db`
+// write, installing it into the frame's durable elision registry tagged
+// `:source :effect`; the epoch assembler's `sensitive-rollup` and the
+// off-box `projected-record` both read THAT registry. The durable
+// `:sensitive {:app-db …}` *frame annotation* is removed (a frame is not
+// app-db's definition site). Schemas describe shape, not durable app-db
+// egress policy: there is no schema-attached `:sensitive?` app-db
+// classification (EP-0015 §8).
 //
-// The gate-OFF / gate-ON arms below therefore declare the sensitive slot
-// through the FRAME-OWNED `reg-frame` route — the same route an app
+// The gate-OFF / gate-ON arms below therefore classify the sensitive slot
+// through the commit-plane `:sensitive` effect — the same route an app
 // author uses — NOT by hand-seeding the elision registry. Driving the
-// public route proves the whole frame-owned path end-to-end: a regression
-// where `reg-frame` `:sensitive {:app-db …}` policy stopped reaching the
-// epoch rollup / projected-record / pair-MCP wire egress goes RED here.
+// public route proves the whole classification path end-to-end: a regression
+// where the `:sensitive` effect stopped reaching the epoch rollup /
+// projected-record / pair-MCP wire egress goes RED here.
 //
 // ## What this test guards
 //
@@ -62,12 +64,11 @@
 //   1. Boot the pair-mcp server WITHOUT `--allow-sensitive-reads`
 //      (the published default — the drop MUST hold).
 //   2. Via `eval-cljs` against the live runtime:
-//        a. declare `[:rf-conformance/secret]` sensitive through the
-//           PUBLIC EP-0015 frame-owned route — `reg-frame` the operating
-//           frame with `{:sensitive {:app-db [[:rf-conformance/secret]]}}`
-//           (a SURGICAL re-registration that preserves the live app-db /
-//           epoch ring; `reg-frame` installs the `:source :frame`
-//           declaration the rollup + projected-record read);
+//        a. classify `[:rf-conformance/secret]` sensitive through the
+//           PUBLIC EP-0025 route — the write event returns the commit-plane
+//           `:sensitive [[:rf-conformance/secret]]` effect alongside `:db`,
+//           installing the `:source :effect` declaration the rollup +
+//           projected-record read, in the same atomic commit as the write;
 //        b. dispatch an event that writes a recognisable SENTINEL string
 //           into that slot, landing it in the next epoch's `:db-after`
 //           (and flagging the epoch's `:rf.epoch/sensitive?` rollup true).
@@ -141,29 +142,26 @@ const SECRET_KEY = ':rf-conformance/secret';
 const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 
 // CLJS form (evaluated app-side via eval-cljs) that:
-//   1. declares `[SECRET_KEY]` sensitive through the PUBLIC EP-0015
-//      frame-owned route — `re-frame.frame/reg-frame` re-registers the
-//      operating frame with `{:sensitive {:app-db [[SECRET_KEY]]}}`. This
-//      is the SAME route an app author uses (spec/015-Data-Classification.md
-//      §Frame-owned durable classification); `reg-frame` validates the
-//      classification and installs the `:source :frame` declaration into
-//      the frame's durable elision registry that `sensitive-rollup` and
-//      `projected-record` read. No hand-seeded `swap-elision-slot!`, no
-//      schema artefact, no removed `populate-sensitive-from-schemas!`
-//      importer;
-//   2. registers + dispatch-syncs an event writing the SENTINEL into that
-//      slot, landing it in the next epoch's `:db-after`.
+//   1. classifies `[SECRET_KEY]` sensitive through the PUBLIC EP-0025
+//      route — the write event returns the commit-plane
+//      `:sensitive [[SECRET_KEY]]` effect alongside `:db`. This is the SAME
+//      route an app author uses (spec/015-Data-Classification.md;
+//      docs/EP/EP-0025-data-classification.md); the router installs the
+//      `:source :effect` declaration into the frame's durable elision
+//      registry that `sensitive-rollup` and `projected-record` read, in the
+//      same atomic commit as the write. No hand-seeded `swap-elision-slot!`,
+//      no schema artefact, no removed `populate-sensitive-from-schemas!`
+//      importer, no removed frame annotation;
+//   2. dispatch-syncs that event, writing the SENTINEL into the slot and
+//      classifying it in the SAME commit, landing in the next epoch's
+//      `:db-after`.
 // The secret is closed over in the handler so it never appears in the
-// trigger-event vector — the frame-declared path is the only sensitive
+// trigger-event vector — the classified path is the only sensitive
 // leaf, mirroring epoch_mcp_egress_conformance_test.clj's drive pattern.
 //
-// `re-frame.frame/reg-frame` is the fn-form of the `reg-frame` macro
-// (re-frame.core aliases it for HoF / programmatic use). Re-registering an
-// already-registered frame is a SURGICAL UPDATE per Spec 002 §reg-frame:
-// existing runtime state (app-db, sub-cache, queue) is preserved, only the
-// metadata/config is replaced — so the frame's live app-db and the epoch
-// ring survive the re-registration. We declare BEFORE the dispatch so the
-// epoch the dispatch records has the rollup stamped true at assembly.
+// Classifying in the SAME event that writes the value means the rollup is
+// stamped true at the assembly of the very epoch the dispatch records (a
+// path classified at commit redacts from its first egress).
 //
 // Registration uses the fn-form `re-frame.events/reg-event` rather than
 // the `re-frame.core/reg-event` MACRO: a runtime cljs-eval form cannot
@@ -215,18 +213,19 @@ const ENABLE_CONFIGURE_FORM = `
 // dispatch the sentinel write.
 const SEED_FORM = `
 (let [fid (re-frame2-pair.runtime/current-frame)]
-  ;; Declare the sensitive slot through the PUBLIC EP-0015 frame-owned
-  ;; route — re-register the SAME frame the epoch tools read (the runtime
-  ;; operating frame the dispatch below targets) with a
-  ;; \`:sensitive {:app-db …}\` classification. \`reg-frame\` installs the
-  ;; \`:source :frame\` declaration that projected-record (which reads the
-  ;; record's :frame elision registry) and sensitive-rollup both consult,
-  ;; so the leaf matches at egress AND the dispatched epoch's rollup stamps
-  ;; true. Surgical re-registration preserves the live app-db / epoch ring.
-  (re-frame.frame/reg-frame fid {:sensitive {:app-db [[${SECRET_KEY}]]}})
+  ;; Declare the sensitive slot through the PUBLIC EP-0025 route — the
+  ;; commit-plane \`:sensitive\` classification effect, returned by the
+  ;; write-secret event alongside \`:db\`. The router folds it into the same
+  ;; atomic commit as the \`:db\` write, installing the \`:source :effect\`
+  ;; declaration that projected-record (which reads the record's :frame
+  ;; elision registry) and sensitive-rollup both consult, so the leaf matches
+  ;; at egress AND the dispatched epoch's rollup stamps true. (The durable
+  ;; \`:sensitive {:app-db …}\` frame annotation is removed.)
   (re-frame.events/reg-event
     :rf-conformance/write-secret
-    (fn [{:keys [db]} _] {:db (assoc db ${SECRET_KEY} "${SENTINEL}")}))
+    (fn [{:keys [db]} _]
+      {:db (assoc db ${SECRET_KEY} "${SENTINEL}")
+       :sensitive [[${SECRET_KEY}]]}))
   (re-frame.core/dispatch-sync* [:rf-conformance/write-secret] {:frame fid})
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
@@ -279,12 +278,13 @@ const VERIFY_WRITE_FORM =
 // + sentinel ABSENT + the `:rf/redacted` marker PRESENT in the surviving
 // record's `:db-after`.
 //
-// This arm ALSO drives the PUBLIC frame-owned route:
-// `reg-frame fid {}` (no `:sensitive` block) clears the prior frame-owned
-// `:source :frame` declarations, and `reg-frame fid {:sensitive {:app-db
-// …}}` installs the post-hoc declaration. So the inner-layer arm proves
-// the frame-owned route reaches `projected-record` egress for the
-// record-then-declare ordering too — not just the whole-drop arms.
+// This arm ALSO drives the PUBLIC EP-0025 classification route:
+// the `:clear-sensitive` commit-plane effect drops the prior
+// `:source :effect` declaration, then a post-hoc
+// `apply-classification-effects` re-classifies the inner slot. So the
+// inner-layer arm proves the classification route reaches
+// `projected-record` egress for the record-then-classify ordering too —
+// not just the whole-drop arms.
 // (`re-frame.epoch.state/reset-histories!` is internal projection /
 // ring-state plumbing, used here only to isolate the ring; it is NOT a
 // durable app-db classification surface and makes no policy claim.)
@@ -326,11 +326,13 @@ const INNER_WRITE_FORM = `
   ;; (reset-histories! is internal ring-state plumbing, not a policy
   ;; surface — see the arm header.)
   (re-frame.epoch.state/reset-histories!)
-  ;; Clear the frame-owned sensitive declaration through the PUBLIC route:
-  ;; re-register the frame with no \`:sensitive\` block so \`install!\`
-  ;; drops the prior \`:source :frame\` entries. The assembler then sees an
+  ;; Clear the prior sensitive declaration through the PUBLIC EP-0025 route:
+  ;; the write-inner-secret event returns the \`:clear-sensitive\` commit-plane
+  ;; effect for the prior secret slot (the set/unset symmetry of the axis),
+  ;; dropping its \`:source :effect\` declaration. The assembler then sees an
   ;; EMPTY sensitive-paths set when our epoch is built (rollup ⇒ false).
-  (re-frame.frame/reg-frame fid {})
+  ;; (Re-registration no longer clears classification — the frame annotation
+  ;; is removed; \`:clear-sensitive\` is the supported un-classify path.)
   (re-frame.events/reg-event
     :rf-conformance/write-inner-secret
     (fn [{:keys [db]} _]
@@ -338,7 +340,8 @@ const INNER_WRITE_FORM = `
       ;; stray lingering declaration can't find a non-nil leaf.
       {:db (-> db
                (dissoc ${SECRET_KEY})
-               (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))}))
+               (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))
+       :clear-sensitive [[${SECRET_KEY}]]}))
   (re-frame.core/dispatch-sync* [:rf-conformance/write-inner-secret] {:frame fid})
   {:frame fid
    :rollup-at-assembly
@@ -349,13 +352,21 @@ const INNER_WRITE_FORM = `
    :epoch-count (count (re-frame.core/epoch-history fid))
    :db-secret (get (re-frame2-pair.runtime/snapshot fid) ${INNER_SECRET_KEY})})`;
 
-// Step B: NOW declare the path sensitive — AFTER the epoch was recorded —
-// through the PUBLIC frame-owned route. `projected-record` reads this
-// CURRENT registry at egress, so the already-recorded epoch's `:db-after`
-// must be value-redacted even though its stamped rollup is false.
+// Step B: NOW classify the path sensitive — AFTER the epoch was recorded.
+// This arm deliberately classifies WITHOUT recording a new epoch (so the
+// already-recorded epoch stays HEAD and its stamped rollup, computed once at
+// assembly, can be re-read), to prove `projected-record` reads the CURRENT
+// elision registry at egress. We therefore apply the EP-0025 commit-plane
+// `:sensitive` classification effect DIRECTLY onto the frame's runtime-db
+// (`apply-classification-effects`, `:source :effect`) — the same registry
+// write the effect performs at commit, minus the dispatch/epoch. (An ordinary
+// app author would return the `:sensitive` effect from an event; here the
+// internal seed avoids perturbing the epoch ring the assertion re-reads.)
 const INNER_DECLARE_FORM = `
 (let [fid (re-frame2-pair.runtime/current-frame)]
-  (re-frame.frame/reg-frame fid {:sensitive {:app-db [[${INNER_SECRET_KEY}]]}})
+  (re-frame.frame/swap-runtime-db! fid
+    (fn [rt] (re-frame.elision/apply-classification-effects
+               rt {:sensitive [[${INNER_SECRET_KEY}]]})))
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
    ;; Re-read the STAMPED rollup on the SAME recorded epoch — it MUST

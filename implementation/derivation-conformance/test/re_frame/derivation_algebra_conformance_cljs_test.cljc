@@ -1424,7 +1424,12 @@
   ;; fields raw under no policy. The value-path walk fails closed to
   ;; :rf/redacted; the identity projection is frame-INDEPENDENT (it is a
   ;; one-way hash, never policy-bearing) so it still opaques the scoped key.
-  (rf/reg-frame egress-frame {:sensitive {:app-db [[:cart :items]]}})
+  (rf/reg-frame egress-frame {})
+  ;; EP-0025: classify [:cart :items] sensitive via the commit-plane effect
+  ;; path (:source :effect) — durable app-db classification is no longer a
+  ;; frame annotation.
+  (frame/swap-runtime-db! egress-frame
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:cart :items]]})))
   ;; a value-bearing live sub node at a frame-sensitive path, alongside the
   ;; sensitive resource identity.
   (let [contributors

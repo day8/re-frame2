@@ -187,12 +187,15 @@
   through the snapshot-egress chokepoint. Wraps the snapshot as a
   synthetic `:rf.machine/snapshot-updated` trace event — stamped with the
   TARGET `frame-id` — and runs `classification/project-trace-event`, which calls
-  `project-machine-tags` to redact `:snapshot.data` against the FRAME's
-  declared snapshot-path classification (EP-0025, rf2-398kql — frame-owned;
-  `reg-frame` `:sensitive` / `:large {:app-db [[:rf.runtime/machines
-  :snapshots <id> :data …]]}`). A frame that declares no matching `:data`
-  path leaves the snapshot unchanged. Returns the redacted snapshot (or the
-  input verbatim when it is not a map, or when redaction is unavailable)."
+  `project-machine-tags` to redact `:snapshot.data` against the frame's
+  classified snapshot-path declarations in the per-frame elision registry.
+  EP-0025: machine `:data` classification rides the projection-relative
+  machine declaration (lowered per actor under `:source :effect`) / the
+  commit-plane classification effects — the frame `:sensitive` / `:large
+  {:app-db …}` annotation is removed. A frame that classifies no matching
+  `:data` path leaves the snapshot unchanged. Returns the redacted snapshot
+  (or the input verbatim when it is not a map, or when redaction is
+  unavailable)."
   [frame-id machine-id snapshot]
   (if-not (map? snapshot)
     snapshot

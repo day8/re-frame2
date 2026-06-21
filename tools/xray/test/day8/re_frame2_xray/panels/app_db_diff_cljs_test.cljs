@@ -46,8 +46,8 @@
   to a DOM. Keeps the suite fast + host-portable on node-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -403,20 +403,19 @@
 ;; (rf2-a96xq).
 
 (defn- seed-sensitive-schema! []
-  ;; Mirror runtime_cljs_test/seed-sensitive-schema! — EP-0015 §8
-  ;; (rf2-d2r3um): durable app-db classification is frame-owned. The
-  ;; frame-classification install! seam writes a `:source :frame` declaration
-  ;; (index-free :rf/path) onto :rf/default's per-frame sensitive-declarations
-  ;; so the wire walker substitutes :rf/redacted on off-box egress. Callers
-  ;; reg-frame :rf/default before invoking.
-  (frame-class/install! :rf/default
-    (frame-class/validate+extract :rf/default
-      {:sensitive {:app-db [[:auth :password]]}})))
+  ;; Mirror runtime_cljs_test/seed-sensitive-schema! — EP-0025: durable app-db
+  ;; classification rides the commit-plane classification effects.
+  ;; `elision/apply-classification-effects` writes a `:source :effect`
+  ;; declaration (index-free :rf/path) onto :rf/default's per-frame
+  ;; sensitive-declarations so the wire walker substitutes :rf/redacted on
+  ;; off-box egress (the same write a reg-event returning `:sensitive` makes).
+  ;; Callers reg-frame :rf/default before invoking.
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
 
 (defn- seed-large-schema! []
-  (frame-class/install! :rf/default
-    (frame-class/validate+extract :rf/default
-      {:large {:app-db [[:blob :payload]]}})))
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
 
 (defn- capture-copy! []
   (let [captured (atom [])]

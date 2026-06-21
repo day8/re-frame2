@@ -822,9 +822,10 @@ panel-side trace collector + `snapshot-from-rings` honour via
 `config/suppress-sensitive?` (rf2-to36uj).
 
 `egress-value` also takes an optional `:path` — the **absolute** app-db
-path the value sits at. The framework's frame-owned app-db sensitive / large
-declarations (the `:sensitive {:app-db …}` / `:large {:app-db …}` path maps
-declared on `reg-frame`, Spec 015 §Frame-owned durable classification) are
+path the value sits at. The framework's app-db sensitive / large
+declarations (classified via the EP-0025 commit-plane `:sensitive` / `:large`
+effects — a `reg-event` returns them alongside `:db`, written `:source :effect`;
+Spec 015 §Data classification) are
 keyed by absolute path, so a slice egress'd in isolation
 (a `:path`-scoped `get-app-db` read, or one changed-path slice from
 `get-app-db-diff`) MUST tell the walker where the slice lives or the

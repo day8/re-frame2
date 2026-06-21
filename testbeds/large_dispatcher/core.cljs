@@ -101,7 +101,14 @@
       ;; clicked. Allows a Playwright spec to confirm the handler
       ;; body actually ran (the elision is wire-boundary; the
       ;; handler always sees the unredacted value).
-      :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}}))
+      :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}
+     ;; EP-0025: durable app-db `:large` egress classification rides the
+     ;; commit-plane classification effect — return `:large` alongside `:db`
+     ;; (the frame annotation is removed). The three declared-large slots
+     ;; elide to the `:rf.size/large-elided` marker regardless of value size.
+     :large [[:declared-large-value]
+             [:fx-declared-value]
+             [:schema-bag :schema-large-value]]}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button A — unschema'd warning-only path
@@ -140,7 +147,7 @@
              (update-in [:click-count :fx] inc))}))
 
 ;; ----------------------------------------------------------------------------
-;; Button D — frame-classification-driven (boot-time frame `:large` decl)
+;; Button D — classification-effect-driven (boot-time `:large` effect decl)
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event ::write-schema-large
@@ -255,15 +262,12 @@
   ;; absence — register `:rf/default` as the app frame, scope the boot
   ;; dispatch, and wrap the render in a frame-provider.
   ;;
-  ;; EP-0015 §8: durable app-db `:large` egress classification is FRAME-owned.
-  ;; The three declared-large slots ride the frame's `:large {:app-db …}`
-  ;; classification (installed atomically at `reg-frame`), so they elide to
-  ;; the `:rf.size/large-elided` marker regardless of value size — no
-  ;; schema→elision population step.
-  (rf/reg-frame :rf/default
-    {:large {:app-db [[:declared-large-value]
-                      [:fx-declared-value]
-                      [:schema-bag :schema-large-value]]}})
+  ;; EP-0025: durable app-db `:large` egress classification rides the
+  ;; commit-plane classification effect — the `::initialise` event returns
+  ;; `:large` alongside `:db` (dispatched below), so the three declared-large
+  ;; slots elide to the `:rf.size/large-elided` marker regardless of value
+  ;; size. No frame annotation, no schema→elision population step.
+  (rf/reg-frame :rf/default {})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [root]]))

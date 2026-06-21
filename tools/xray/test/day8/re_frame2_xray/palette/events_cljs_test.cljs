@@ -18,8 +18,8 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
@@ -499,16 +499,15 @@
 (def ^:private host-frame :rf/host)
 
 (defn- seed-sensitive-host! [db-fn]
-  ;; Declare [:auth :password] sensitive + seed the secret INTO the host
-  ;; frame (not Xray's). EP-0015 §8 (rf2-d2r3um): durable app-db
-  ;; classification is frame-owned — the frame-classification install! seam
-  ;; writes a `:source :frame` declaration (index-free :rf/path) on the host
-  ;; frame's elision registry, the SAME registry the off-box egress walker
-  ;; consults.
+  ;; Classify [:auth :password] sensitive + seed the secret INTO the host
+  ;; frame (not Xray's). EP-0025: durable app-db classification rides the
+  ;; commit-plane classification effects — `elision/apply-classification-
+  ;; effects` writes a `:source :effect` declaration (index-free :rf/path) on
+  ;; the host frame's elision registry, the SAME registry the off-box egress
+  ;; walker consults (the same write a reg-event returning `:sensitive` makes).
   (frame/reg-frame host-frame {})
-  (frame-class/install! host-frame
-    (frame-class/validate+extract host-frame
-      {:sensitive {:app-db [[:auth :password]]}}))
+  (frame/swap-runtime-db! host-frame
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   (rf/with-frame host-frame
     (rf/reg-event :test/seed-host (fn [{:keys [db]} _] {:db (db-fn db)}))
     (rf/dispatch-sync [:test/seed-host])))
@@ -564,12 +563,11 @@
   (let [sinks (capture-snapshot-sinks!)]
     (try
       (frame/reg-frame host-frame {})
-      ;; EP-0015 §8 (rf2-d2r3um): frame-owned :large declaration (index-free
-      ;; :rf/path) on the host frame's elision registry — the size sibling of
-      ;; the sensitive seed above.
-      (frame-class/install! host-frame
-        (frame-class/validate+extract host-frame
-          {:large {:app-db [[:blob :payload]]}}))
+      ;; EP-0025: commit-plane :large classification (index-free :rf/path) on
+      ;; the host frame's elision registry — the size sibling of the sensitive
+      ;; seed above (`:source :effect`).
+      (frame/swap-runtime-db! host-frame
+        (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
       (rf/with-frame host-frame
         (rf/reg-event :test/seed-blob
           (fn [{:keys [db]} _] {:db (assoc db :blob {:payload {:big "value"}})}))

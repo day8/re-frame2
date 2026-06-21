@@ -227,23 +227,21 @@
     :design-bead "rf2-vw7f5"
     :description "No-op retained for test-isolation directory symmetry — the author classification lives in the registrar (snapshot/restored by the runtime fixture); there is no side-table to clear."}
 
-   ;; ---- re-frame.frame-classification (EP-0015 §3 + §9 frame-owned classification) ----
-   ;; `re-frame.frame/reg-frame` consults these to validate + install
-   ;; frame-owned durable classification (:sensitive / :large / :observability).
-   ;; Reached via late-bind because frame-classification requires elision which
-   ;; requires frame, so a static require would cycle.
-   {:key         :frame-classification/validate+extract
+   ;; ---- re-frame.frame-classification (EP-0015 §3 HTTP carriers + §9 observability) ----
+   ;; `re-frame.frame/reg-frame` consults these to validate the frame-owned
+   ;; HTTP-carrier + observability policy (:sensitive {:http …} / :observability).
+   ;; Reached via late-bind because frame-classification requires frame, so a
+   ;; static require would cycle.
+   ;;
+   ;; EP-0025: the durable app-db classification install hooks (validate+extract /
+   ;; install! / install-from-config!) were REMOVED — the frame :sensitive /
+   ;; :large {:app-db …} annotation no longer exists; durable app-db
+   ;; classification rides the commit-plane effects (re-frame.elision), and
+   ;; reg-frame now only VALIDATES the surviving policy.
+   {:key         :frame-classification/validate!
     :producer-ns 're-frame.frame-classification
     :design-bead "rf2-ueg1tn"
-    :description "Validate a reg-frame config's frame-owned classification keys (:sensitive / :large / :observability) and extract the sensitive-wins-resolved app-db paths. Fails loud (:rf.error/bad-frame-classification) on a malformed path / unknown classification key / non-string carrier. Pure — called EARLY by reg-frame (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §3)."}
-   {:key         :frame-classification/install!
-    :producer-ns 're-frame.frame-classification
-    :design-bead "rf2-ueg1tn"
-    :description "Install a frame's validated app-db sensitive/large :rf/path classification into its durable elision registry under :source :frame (alongside schema- and marks-sourced declarations), REPLACING any prior :source :frame entries. Called by reg-frame once the container exists, atomically before :initial-events (EP-0015 §3)."}
-   {:key         :frame-classification/install-from-config!
-    :producer-ns 're-frame.frame-classification
-    :design-bead "rf2-ueg1tn"
-    :description "Combined validate+install seam (validate+extract then install!) for the re-registration path, where the container already exists."}
+    :description "Validate a reg-frame config's frame-owned policy keys (:sensitive {:http …} HTTP carriers + :observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown classification key / non-string carrier / malformed sink entry; the retired :app-db key (and :large frame key) now fail loud here (EP-0025). Pure, installs nothing — called EARLY by reg-frame (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §3)."}
    {:key         :frame-classification/http-carriers
     :producer-ns 're-frame.frame-classification
     :design-bead "rf2-ppkh3v"

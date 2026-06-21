@@ -56,6 +56,12 @@
             ;; calls under the hood. Story's `test_support` already reaches
             ;; `re-frame.frame` directly; this is the same boundary.
             [re-frame.frame            :as frame]
+            ;; EP-0025: a variant's durable app-db `:sensitive` / `:large`
+            ;; classification is applied as commit-plane classification
+            ;; effects (the frame annotation is removed). Story reaches the
+            ;; pure registry-write seam directly (same artefact as
+            ;; `re-frame.frame` above; bundle-isolated from production).
+            [re-frame.elision          :as elision]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.error      :as story-error]
@@ -517,27 +523,22 @@
   Per spec/002 §reg-frame the framework recognises:
     :preset :story
     :fx-overrides {...}
-    :sensitive / :large  (EP-0015 frame-owned classification)
     plus arbitrary user-stamped keys.
 
   Per `002-Runtime.md` §Per-variant frame allocation we stamp `:rf/story?` and `:rf/variant` so tools
   can recognise variant frames from their `frame-meta`.
 
-  A variant's EP-0015 frame-owned `:sensitive` / `:large`
-  declarations (the frame-owner classification model) are threaded
-  straight onto the
-  `reg-frame` config so the framework's `re-frame.frame-classification`
-  validates + installs them atomically as part of frame creation, BEFORE
-  `:initial-events`. Story does not fork the classification validation; a
-  malformed declaration FAILS LOUDLY at `reg-frame` time."
-  [variant-id fx-overrides {:keys [sensitive large image-ids]}]
+  EP-0025: a variant's durable app-db `:sensitive` / `:large` classification
+  is NO LONGER threaded onto the `reg-frame` config — the frame annotation is
+  removed. It is applied as commit-plane classification effects into the
+  frame's elision registry right after `make-frame`, before the lifecycle /
+  init events run (see `apply-variant-classification!`)."
+  [variant-id fx-overrides {:keys [image-ids]}]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")
            :preset     :story
            :rf/story?  true
            :rf/variant variant-id}
     (seq fx-overrides) (assoc :fx-overrides fx-overrides)
-    (some? sensitive)  (assoc :sensitive sensitive)
-    (some? large)      (assoc :large large)
     ;; EP-0023 §Stories — report the IMAGE ids this behaviour-variant frame
     ;; resolves behaviour against, on frame-meta, so Test mode / MCP / Xray can
     ;; surface which behaviour set ran. The actual image
@@ -551,6 +552,35 @@
   anonymous image (valid for local stories per EP-0023 §Public API)."
   [image]
   (:rf.image/id image))
+
+(defn- ->classification-effects
+  "Convert a variant body's `:sensitive` / `:large` classification declaration
+  (the durable app-db form `{:app-db [[path]…]}`) into the flat EP-0025
+  commit-plane effect form `{:sensitive [[path]…] :large [[path]…]}`. The
+  variant's `:sensitive` block may ALSO carry `:http` carriers — those stay on
+  the frame config (HTTP carriers are not app-db classification), so only the
+  `:app-db` paths are lowered here. Returns nil when no app-db paths are
+  declared."
+  [{:keys [sensitive large]}]
+  (let [sens (:app-db sensitive)
+        lrg  (:app-db large)]
+    (cond-> {}
+      (seq sens) (assoc :sensitive (vec sens))
+      (seq lrg)  (assoc :large (vec lrg)))))
+
+(defn- apply-variant-classification!
+  "Apply a variant's durable app-db `:sensitive` / `:large` classification as
+  EP-0025 commit-plane classification effects into `variant-id`'s elision
+  registry (`:source :effect`), the SAME registry write a `reg-event` returning
+  those effects performs. Runs right after `make-frame` and BEFORE the
+  lifecycle / init events, so a classified path is already redacted in any
+  trace the variant's setup emits. No-op when the variant declares no app-db
+  classification."
+  [variant-id v-body]
+  (let [effects (->classification-effects v-body)]
+    (when (seq effects)
+      (frame/swap-runtime-db! variant-id
+        (fn [rt] (elision/apply-classification-effects rt effects))))))
 
 (defn allocate!
   "Create the variant's frame, register fx-override stubs, run
@@ -623,6 +653,13 @@
       (rf/make-frame (cond-> {:id variant-id}
                        (seq images) (assoc :images (vec images))
                        :always      (merge config-map)))
+      ;; EP-0025: apply the variant's durable app-db `:sensitive` / `:large`
+      ;; classification as commit-plane classification effects into the frame's
+      ;; elision registry NOW — after the container exists, BEFORE the
+      ;; lifecycle / init / frame-setup events run, so a classified path is
+      ;; already redacted in any trace the variant's setup emits. (The frame
+      ;; annotation that previously rode `reg-frame` is removed.)
+      (apply-variant-classification! variant-id v-body)
       ;; Drive the lifecycle by variant shape. Events-only
       ;; variants jump straight to :ready (no skeleton ever shows);
       ;; everything else takes the classical four-phase route through

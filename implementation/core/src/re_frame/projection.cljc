@@ -70,8 +70,8 @@
   BEFORE the frame-policy size/sensitive walk — the same arg-map-rooted
   redaction the dev trace path applies. Without this a declared-sensitive event
   arg would ride raw to an off-box `:observability :errors` sink whenever the
-  frame carried no matching `:sensitive {:app-db …}` declaration (the wrong
-  owner under EP-0015). Sentinels the registration pass writes survive the
+  frame carried no matching classified `:sensitive` app-db declaration (the
+  wrong owner). Sentinels the registration pass writes survive the
   subsequent frame-policy walk (a redacted leaf is inert)."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]

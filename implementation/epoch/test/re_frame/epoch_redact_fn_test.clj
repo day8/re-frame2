@@ -43,9 +43,9 @@
   shapes silently dropped) — unchanged by the storage→projection move."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
             [re-frame.frame :as frame]
-            [re-frame.frame-classification :as frame-class]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.test-support :as test-support]
@@ -77,15 +77,15 @@
 (defn- last-record [frame-id]
   (last (rf/epoch-history frame-id)))
 
-;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is FRAME-OWNED —
-;; declare the `[:auth :password]` sensitive path through the
-;; frame-classification install seam. The frame container is reg-frame'd
-;; by each deftest before this runs.
+;; EP-0025: durable app-db classification rides the commit-plane
+;; classification effects — declare the `[:auth :password]` sensitive path
+;; through `elision/apply-classification-effects` (`:source :effect`), the
+;; same registry write a `reg-event` returning `:sensitive` performs. The
+;; frame container is reg-frame'd by each deftest before this runs.
 (defn- install-sensitive-schema!
   [frame-id]
-  (frame-class/install! frame-id
-    (frame-class/validate+extract frame-id
-      {:sensitive {:app-db [[:auth :password]]}}))
+  (frame/swap-runtime-db! frame-id
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   nil)
 
 (defn- record-warnings! []

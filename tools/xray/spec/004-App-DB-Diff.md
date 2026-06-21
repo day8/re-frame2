@@ -510,7 +510,7 @@ labels; the underlying paths now live under the runtime-db partition's
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Hydrated at `reg-frame` time from the **frame-owned** `:sensitive {:app-db …}` / `:large {:app-db …}` path-map declarations (installed by `re-frame.frame-classification` under `:source :frame`, Spec 015 §Frame-owned durable classification); consulted by `rf/elide-wire-value` at every wire-boundary emit. Durable app-db classification is frame-owned, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `:data-schema` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
+| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Written by the EP-0025 commit-plane `:sensitive` / `:large` classification effects (a `reg-event` returns them alongside `:db`, installed by `re-frame.elision/apply-classification-effects` under `:source :effect`, Spec 015 §Data classification); also fed by `reg-flow` outputs (`:source :flow`) and subsystem projection-relative declarations (routing / machines). Consulted by `rf/elide-wire-value` at every wire-boundary emit. Durable app-db classification rides the commit-plane effects, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `:data-schema` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
 
 Conventions is the canonical home; this table is the panel-facing
 projection. The `runtime-areas` lookup in `app_db_diff_helpers.cljc`
@@ -593,11 +593,11 @@ projection happens only at egress / render) — parallel to
 the `:rf.epoch/sensitive?` rollup. A path `P` counts in the framework's
 figure when:
 
-1. `P` is frame-declared sensitive (`[:rf.runtime/elision :sensitive-declarations]`
+1. `P` is classified sensitive (`[:rf.runtime/elision :sensitive-declarations]`
    in the runtime-db partition, EP-0001 rf2-vzld77,
-   hydrated from the frame's `:sensitive {:app-db …}` path-map declarations
-   under `:source :frame` per
-   [Spec 015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md)).
+   written by the EP-0025 commit-plane `:sensitive` classification effect — a
+   `reg-event` returns `:sensitive` alongside `:db` — under `:source :effect` per
+   [Spec 015 §Data classification](../../../spec/015-Data-Classification.md)).
 2. `(not= (get-in db-before P) (get-in db-after P))` — value-equality
    on the raw (unprojected) in-process dbs.
 
@@ -606,8 +606,8 @@ this cascade. Xray reads it directly from the record; no walk, no
 heuristic.
 
 **Heuristic fallback (rf2-bz1cl).** Records that lack the egress slot
-(legacy snapshots, hand-rolled test fixtures, hosts whose frames declared
-no `:sensitive {:app-db …}` classification, so no sensitive-declarations
+(legacy snapshots, hand-rolled test fixtures, hosts that classified
+no `:sensitive` app-db path, so no sensitive-declarations
 registry exists) fall back to a Xray-side heuristic — paths `P` where:
 
 1. `(= :rf/redacted (get-in db-before P))`, AND

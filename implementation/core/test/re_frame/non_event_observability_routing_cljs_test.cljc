@@ -54,8 +54,10 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.error-emit :as error-emit]
             [re-frame.event-emit :as event-emit]
+            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.observability :as observability]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -140,8 +142,12 @@
       (rf/reg-frame :obs/sensitive
         {:observability
          {:errors [{:sink :test.sinks/sentry
-                    :rf.egress/profile :rf.egress/off-box-observability}]}
-         :sensitive {:app-db [[:hook-failures :exception-data :token]]}})
+                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      ;; EP-0025: classify the path via the commit-plane effect path (the
+      ;; durable frame annotation is removed) so the projector redacts it.
+      (frame/swap-runtime-db! :obs/sensitive
+        (fn [rt] (elision/apply-classification-effects rt
+                   {:sensitive [[:hook-failures :exception-data :token]]})))
       (error-emit/dispatch-frame-teardown-report!
         :obs/sensitive
         [{:hook           :flows/teardown-on-frame-destroy!

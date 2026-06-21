@@ -26,10 +26,13 @@
   the wire. The projection uses SHARED frame-independent primitives — NEVER a
   family-private elider.
 
-  Machine `:data` egress classification is FRAME-OWNED, like every other
-  app-db / runtime-db path — declared on `reg-frame` `:sensitive` /
-  `:large {:app-db …}`, the sole app-db classification mechanism. The
-  `:data-schema` VALIDATES `:data`; it does not classify it for egress.
+  Machine `:data` egress classification lives in the per-frame elision
+  registry like every other app-db / runtime-db path. EP-0025: a machine
+  definition declares its sensitive / large `:data` slots PROJECTION-RELATIVE
+  (`re-frame.machines.classification`), lowered per actor instance into the
+  registry under `:source :effect`; the commit-plane `:sensitive` / `:large`
+  effects are the general app-db mechanism. The `:data-schema` VALIDATES
+  `:data`; it does not classify it for egress.
 
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
   projection is precise, not a blanket scrub. The sibling registry slots
@@ -56,13 +59,15 @@
   snapshot classification governs the projection (nil ⇒ no frame walk ⇒ `:data`
   rides verbatim).
 
-  Machine `:data` egress classification is FRAME-OWNED. A frame classifies
-  a durable machine `:data` slot by declaring the absolute runtime-db path
-  `[:rf.runtime/machines :snapshots <actor-id> :data …]` via `reg-frame`
-  `:sensitive` / `:large {:app-db …}` (the sole app-db mechanism).
-  `re-frame.classification/frame-snapshot-classification` re-roots those
-  declarations snapshot-relative (`[:data …]`); here we strip the leading
-  `:data` segment to index into the snapshot's bare `:data` map and redact via
+  Machine `:data` egress classification lives in the per-frame elision
+  registry. EP-0025: a machine definition declares its sensitive / large
+  `:data` slots PROJECTION-RELATIVE (`re-frame.machines.classification`),
+  lowered per actor instance into the registry as the absolute runtime-db
+  path `[:rf.runtime/machines :snapshots <actor-id> :data …]` under
+  `:source :effect`. `re-frame.classification/frame-snapshot-classification`
+  re-roots those declarations snapshot-relative (`[:data …]`); here we strip
+  the leading `:data` segment to index into the snapshot's bare `:data` map
+  and redact via
   the SHARED frame-independent `re-frame.classification/redact-with-paths`
   walker — `:sensitive` slots to
   `:rf/redacted`, `:large` to the `:rf.size/large-elided` marker (sensitive
