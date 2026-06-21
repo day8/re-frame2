@@ -46,7 +46,7 @@
        (rf2-cq1ak — the fixture key is plural; app-db schemas are NOT
        a registrar kind).
     4. Registers the default frame with the fixture's
-       `:fixture/frame-config` (e.g. `:on-create [:init]`).
+       `:fixture/frame-config` (e.g. `:initial-events [[:init]]`).
     5. Drives `:fixture/dispatches` through `rf/dispatch-sync`.
     6. Asserts each of:
        - `:final-app-db` (submap match — partial expectations on
