@@ -17,7 +17,7 @@
 
     - `ring_e2e_validator_test.clj` exercises ONE drain-time category —
       a CRLF-bearing cookie / header value that throws an
-      `:rf.error/fx-handler-exception` during the `:on-create` drain —
+      `:rf.error/fx-handler-exception` during the `:initial-events` drain —
       and asserts the projected status is 500. But 500 is the default
       projector's GENERIC FALLBACK (`fallback-public-error`): it is the
       status the response would carry if projection ran AND the status
@@ -44,7 +44,7 @@
   ITS handler. This namespace closes that loop:
 
     1. `draintime-no-such-route-projects-404-on-the-wire` — an
-       `:on-create` that dispatches `:rf.route/handle-url-change` to an
+       `:initial-events` that dispatches `:rf.route/handle-url-change` to an
        unmatched URL emits a drain-time `:rf.error/no-such-handler`
        (`:kind :route`), buffered by the always-on
        `error-emit-projection-listener`, projected to 404 by
@@ -55,7 +55,7 @@
        fallback.
 
     2. `draintime-navigate-reject-projects-400-on-the-wire` — an
-       `:on-create` that fires a `:rf.route/navigate` whose `:params`
+       `:initial-events` that fires a `:rf.route/navigate` whose `:params`
        schema rejects emits a drain-time `:rf.error/schema-validation-
        failure` (`:where :event`), projected to 400. Mirrors the ssr-
        artefact two-frame regression's mechanism, driven through the
@@ -149,7 +149,7 @@
 ;; Test 1 — drain-time :rf.error/no-such-handler → projected 404 on the wire
 ;; ===========================================================================
 ;;
-;; This is the discriminating-status proof. `:on-create` dispatches
+;; This is the discriminating-status proof. `:initial-events` dispatches
 ;; `:rf.route/handle-url-change` to an unmatched URL. `url-change-fx`
 ;; (routing/url_change.cljc) threads the drain's `:frame` cofx and emits
 ;; `:rf.error/no-such-handler` (`:kind :route`) tagged with that frame —
@@ -164,7 +164,7 @@
 
 (deftest draintime-no-such-route-projects-404-on-the-wire
   (testing "rf2-fn41e: a drain-time :rf.error/no-such-handler (unmatched
-            route in :on-create) is projected to 404 by get-response and
+            route in :initial-events) is projected to 404 by get-response and
             rides the wire status through the ring handler — the routing
             drain-time path rf2-7d30s touched, asserted at the ssr-ring
             boundary (ssr_end_to_end_test proves it at the ssr layer; this
@@ -180,14 +180,14 @@
         ;; The :rf.route/handle-url-change handler threads the frame cofx
         ;; into url-change-fx, which emits :rf.error/no-such-handler with
         ;; :frame stamped (rf2-7d30s). The :dispatch fx keeps this inside
-        ;; the SAME on-create drain so the error buffers against this
+        ;; the SAME initial-events drain so the error buffers against this
         ;; per-request frame.
         {:fx [[:dispatch [:rf.route/handle-url-change "/no-such-page"]]]}))
     (rf/reg-view* :pages/not-found
       (fn [] [:div.not-found "Not found page renders"]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/route-to-missing]
+                    {:initial-events [[:init/route-to-missing]]
                      :root-view [:pages/not-found]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
@@ -234,7 +234,7 @@
 
 (deftest draintime-navigate-reject-projects-400-on-the-wire
   (testing "rf2-fn41e: a drain-time :rf.error/schema-validation-failure
-            (navigate-reject in :on-create) is projected to 400 and rides
+            (navigate-reject in :initial-events) is projected to 400 and rides
             the wire status through the ring handler — mirrors the ssr-
             artefact navigate-reject regression at the ssr-ring boundary."
     (let [restore (with-stub-validator)]
@@ -263,7 +263,7 @@
           (fn [] [:div.article "Article page renders"]))
 
         (let [handler (ssr-ring/ssr-handler
-                        {:on-create [:init/navigate-bad-param]
+                        {:initial-events [[:init/navigate-bad-param]]
                          :root-view [:pages/article]
                          :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                      :dev-error-detail? false}
@@ -315,7 +315,7 @@
             valid route stay 200. No cross-frame bleed (the two-frame
             attribution regression, at the ssr-ring boundary)."
     (rf/reg-route :route/home {} "/")
-    ;; The :on-create reads the request URI via the :rf.server/request
+    ;; The :initial-events reads the request URI via the :rf.server/request
     ;; cofx and routes a URL-change to it. A `/missing/*` URI matches no
     ;; route → drain-time 404; a `/` URI matches :route/home → 200.
     (rf/reg-event :init/route-from-uri
@@ -327,7 +327,7 @@
       (fn [] [:main "concurrent root"]))
 
     (let [handler (ssr-ring/ssr-handler
-                    {:on-create [:init/route-from-uri]
+                    {:initial-events [[:init/route-from-uri]]
                      :root-view [:pages/concurrent-root]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}

@@ -86,7 +86,7 @@ row with a dedicated drill-into surface:
 │ └────────────────────────────────┴────────────────────────────────┘     │
 │                                                                          │
 │ Likely cause: server-side session cofx not injected (request cookie     │
-│ was present but `:auth/server-init` event was not in `:on-create`)      │
+│ was present but `:auth/server-init` event was not in `:initial-events`) │
 │ ↗ Open server-side init: src/server/init.cljs:42                        │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -555,7 +555,7 @@ sanitises the internal trace. In dev mode, `:dev-error-detail? true`
 includes `:details`. Xray surfaces the projector's work:
 
 ```
-┌─ Server error projection  ·  cascade #1 :on-create ────────────────────┐
+┌─ Server error projection  ·  cascade #1 :initial-events ───────────────┐
 │ Internal trace:                                                          │
 │   :rf.error/handler-exception                                            │
 │   :handler-id [:dispatch :user/load-profile]                             │

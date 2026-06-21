@@ -469,7 +469,7 @@ Side-by-side:
 └────────────────────────────────┴────────────────────────────────┘
 
 Likely cause: server-side session cofx not injected (request cookie
-was present but `:auth/server-init` event was not in `:on-create`)
+was present but `:auth/server-init` event was not in `:initial-events`)
 ↗ Open server-side init: src/server/init.cljs:42
 ```
 

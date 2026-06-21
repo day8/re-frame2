@@ -4,7 +4,7 @@
 
   Exercises the full request lifecycle through `stream-handler`:
     1. Ring request comes in
-    2. setup-request-frame! seeds the frame + on-create
+    2. setup-request-frame! seeds the frame + initial-events
     3. streaming writer flushes shell → continuations → final payload → close
     4. response body is a PipedInputStream; we drain it into a string
     5. asserts on chunk shapes + final-payload."
@@ -67,7 +67,7 @@
 (deftest stream-handler-emits-shell-then-resolved-then-payload
   (testing "chunk order: shell prefix → shell-html → resolved templates → final __rf_payload → close"
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -117,7 +117,7 @@
             `:test/root` shell has NO inner `<div>`, so the only `</div>` in
             the wire is the app-root close."
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -175,7 +175,7 @@
     (rf/reg-view ^{:rf/id :test/static-only} static-only []
       [:main [:h1 "Static"]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/static-only]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -199,7 +199,7 @@
        [:rf/suspense-boundary {:id :b :fallback [:p "B loading"]} [:p "B done"]]
        [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C done"]]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/multi-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -230,7 +230,7 @@
         [:test/throwing-section]]
        [:footer "End"]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/fragile-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -266,7 +266,7 @@
         [:test/outer-section]]
        [:footer "End"]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/nested-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -329,7 +329,7 @@
     (rf/reg-view ^{:rf/id :test/static-root} static-root []
       [:main [:h1 "Just static"]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/static-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -379,7 +379,7 @@
         [:test/reading-section]]
        [:footer "End"]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/delta-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -431,7 +431,7 @@
     (rf/reg-view ^{:rf/id :test/should-not-stream} should-not-stream []
       [:div "should not render under redirect"])
     (let [handler       (ssr-ring/stream-handler
-                          {:on-create [:rf.test.stream/redirect]
+                          {:initial-events [[:rf.test.stream/redirect]]
                            :root-view [:test/should-not-stream]
                            :payload :rf.ssr.payload/whole-app-db})
           baseline-fids (disj (frame/frame-ids) :rf/default)
@@ -470,7 +470,7 @@
     (rf/reg-view ^{:rf/id :test/redirect-ct-root} redirect-ct-root []
       [:div "noop"])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.stream/redirect-ct]
+                     {:initial-events [[:rf.test.stream/redirect-ct]]
                       :root-view [:test/redirect-ct-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/secret" :request-method :get})
@@ -484,7 +484,7 @@
       ;; the agreement: whatever Content-Type rides is the accumulator's,
       ;; identical to the non-streaming redirect of the same response.
       (let [ns-handler (ssr-ring/ssr-handler
-                         {:on-create [:rf.test.stream/redirect-ct]
+                         {:initial-events [[:rf.test.stream/redirect-ct]]
                           :root-view [:test/redirect-ct-root]
                           :payload :rf.ssr.payload/whole-app-db})
             ns-resp    (ns-handler {:uri "/secret" :request-method :get})
@@ -536,7 +536,7 @@
                           (throw (ex-info ":rf.test/root-view-throw"
                                           {:reason "shell-render fail-closed probe"})))
           handler       (ssr-ring/stream-handler
-                          {:on-create [:rf.test.server/init-min]
+                          {:initial-events [[:rf.test.server/init-min]]
                            :root-view throwing-root
                            :payload :rf.ssr.payload/whole-app-db})
           response      (handler {:uri "/" :request-method :get})]
@@ -569,7 +569,7 @@
        [:test/shell-throwing-section]
        [:footer "End"]])
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init-min]
+                     {:initial-events [[:rf.test.server/init-min]]
                       :root-view [:test/shell-throwing-root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})]
@@ -599,7 +599,7 @@
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.server/init-min]
+                    {:initial-events [[:rf.test.server/init-min]]
                      :root-view [:test/uses-throwing-sub]
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
@@ -637,7 +637,7 @@
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init-min]
+                     {:initial-events [[:rf.test.server/init-min]]
                       :root-view [:test/uses-clean-sub]
                       :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}
@@ -659,7 +659,7 @@
 ;;               bodiless redirect, NOT a streamed body, and spawn NO writer.
 ;; ===========================================================================
 ;;
-;; The early redirect branch (stream-handler, on the :on-create-drain
+;; The early redirect branch (stream-handler, on the :initial-events-drain
 ;; `get-response`) is already covered by stream-handler-redirect-destroys-
 ;; frame above. This test covers the SECOND `get-response` — the post-shell
 ;; re-read at the materialise site (rf2-r06pc). Pre-fix, that branch
@@ -674,7 +674,7 @@
 ;;
 ;; A `:redirect` cannot surface at the post-shell read under v1's
 ;; architecture (it is set only by the `:rf.server/redirect` fx during the
-;; `:on-create` drain — caught by the EARLY branch — and the error projector
+;; `:initial-events` drain — caught by the EARLY branch — and the error projector
 ;; stamps `:status` only, never `:redirect`). So this is a LATENT fail-open:
 ;; we simulate the latent condition by stubbing `ssr/get-response` to return
 ;; a non-redirect on the FIRST call (so the early branch passes through to
@@ -712,7 +712,7 @@
                           redirect-resp
                           (real-get-response fid))))]
         (let [handler       (ssr-ring/stream-handler
-                              {:on-create [:rf.test.server/init-min]
+                              {:initial-events [[:rf.test.server/init-min]]
                                :root-view [:test/plain-root]
                                :payload :rf.ssr.payload/whole-app-db})
               baseline-fids (disj (frame/frame-ids) :rf/default)
@@ -859,7 +859,7 @@
                                (:operation ev))
                         (swap! traces conj ev))))
           handler (ssr-ring/stream-handler
-                    {:on-create [:rf.test.stream/seed-throwing-head-route]
+                    {:initial-events [[:rf.test.stream/seed-throwing-head-route]]
                      :root-view [:test/stream-head-body]
                      :payload   :rf.ssr.payload/whole-app-db})
           response (try
@@ -902,7 +902,7 @@
 ;;
 ;; `stream-handler` materialises the response head from the accumulator and
 ;; then replaces the body with a chunk-producing PipedInputStream. If app /
-;; server init set a `Content-Length` header during the `:on-create` drain
+;; server init set a `Content-Length` header during the `:initial-events` drain
 ;; (a fixed byte count for a body that no longer exists), that stale length
 ;; must NOT survive onto the streamed response — a Ring server may honour it
 ;; instead of chunking, truncating the HTML / blocking the client on the
@@ -919,7 +919,7 @@
         (keys (:headers response))))
 
 (deftest stream-handler-strips-stale-content-length-header
-  (testing "rf2-h3dg0: an :on-create-set Content-Length is stripped
+  (testing "rf2-h3dg0: an :initial-events-set Content-Length is stripped
             (case-insensitively) from the streamed response so the Ring
             server owns chunked-transfer framing; the body still streams in
             full with NO Content-Length header surviving"
@@ -935,7 +935,7 @@
          :fx [[:rf.server/set-header {:name "Content-Length" :value "7"}]
               [:rf.server/append-header {:name "content-length" :value "13"}]]}))
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init-with-content-length]
+                     {:initial-events [[:rf.test.server/init-with-content-length]]
                       :root-view [:test/root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -971,7 +971,7 @@
         {:db {:articles [] :comments []}
          :fx [[:rf.server/set-header {:name "Content-Length" :value "999"}]]}))
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init-cl-and-ct]
+                     {:initial-events [[:rf.test.server/init-cl-and-ct]]
                       :root-view [:test/root]
                       :payload :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1001,7 +1001,7 @@
                          (str "<custom>" body-html payload-edn "</custom>"))
           ex (is (thrown? clojure.lang.ExceptionInfo
                    (ssr-ring/stream-handler
-                     {:on-create  [:rf.test.server/init]
+                     {:initial-events  [[:rf.test.server/init]]
                       :root-view  [:test/root]
                       :payload    :rf.ssr.payload/whole-app-db
                       :html-shell custom-shell})))
@@ -1024,7 +1024,7 @@
     (doseq [bad ["<html>…</html>" {:shape :map} [:vector]]]
       (let [ex (is (thrown? clojure.lang.ExceptionInfo
                      (ssr-ring/stream-handler
-                       {:on-create  [:rf.test.server/init]
+                       {:initial-events  [[:rf.test.server/init]]
                         :root-view  [:test/root]
                         :payload    :rf.ssr.payload/whole-app-db
                         :html-shell bad}))
@@ -1039,7 +1039,7 @@
             non-nil override, never the no-override common path"
     ;; Absent — the default streaming construction path.
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create [:rf.test.server/init]
+                     {:initial-events [[:rf.test.server/init]]
                       :root-view [:test/root]
                       :payload   :rf.ssr.payload/whole-app-db})
           response (handler {:uri "/" :request-method :get})
@@ -1051,7 +1051,7 @@
           "the default split envelope streams the rendered shell"))
     ;; Explicit nil — "no override requested" passes the gate.
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create  [:rf.test.server/init]
+                     {:initial-events  [[:rf.test.server/init]]
                       :root-view  [:test/root]
                       :payload    :rf.ssr.payload/whole-app-db
                       :html-shell nil})
@@ -1103,7 +1103,7 @@
             hash channel for the streaming path too."
     (let [mk      (fn [head]
                     (ssr-ring/stream-handler
-                      {:on-create [:rf.test.server/init]
+                      {:initial-events [[:rf.test.server/init]]
                        :root-view [:test/root]
                        :head      head
                        :payload   :rf.ssr.payload/whole-app-db}))
@@ -1127,7 +1127,7 @@
             div carries data-rf-render-hash, and it EQUALS the final payload's
             :rf/render-hash (the same canonical full-document hash)."
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create  [:rf.test.server/init]
+                     {:initial-events  [[:rf.test.server/init]]
                       :root-view  [:test/root]
                       :emit-hash? true
                       :payload    :rf.ssr.payload/whole-app-db})
@@ -1150,7 +1150,7 @@
             the streamed shell. Toggling the opt now has an observable effect
             on the wire (it was a no-op for the HTML path before)."
     (let [handler  (ssr-ring/stream-handler
-                     {:on-create  [:rf.test.server/init]
+                     {:initial-events  [[:rf.test.server/init]]
                       :root-view  [:test/root]
                       :emit-hash? false
                       :payload    :rf.ssr.payload/whole-app-db})
@@ -1205,7 +1205,7 @@
     (rf/reg-event :rf.test/bump-counter
       {:platforms #{:server}}
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-    ;; on-create seeds :counter 0 alongside the fixture's articles/comments.
+    ;; initial-events seeds :counter 0 alongside the fixture's articles/comments.
     (rf/reg-event :rf.test.server/init-counter
       {:platforms #{:server}}
       (fn [_ _] {:db {:counter 0}}))
@@ -1239,7 +1239,7 @@
                      ;; folds in a KNOWN head fragment we can replay on the
                      ;; client side below (the default route head would be
                      ;; unknown to the client model).
-                     {:on-create [:rf.test.server/init-counter]
+                     {:initial-events [[:rf.test.server/init-counter]]
                       :root-view (fn [] ((rf/view :test/counter-root)))
                       :head      head-html
                       :payload   :rf.ssr.payload/whole-app-db})

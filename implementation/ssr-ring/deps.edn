@@ -11,7 +11,7 @@
 ;; request:
 ;;
 ;;   1. Creates a per-request frame via re-frame.core/make-frame with
-;;      :platform :server and an :on-create event the caller supplies.
+;;      :platform :server and the :initial-events vector the caller supplies.
 ;;   2. Awaits the dispatch-queue drain (synchronous on the JVM —
 ;;      `make-frame` returns post-drain per Spec 002 §dispatch).
 ;;   3. Reads the resolved response accumulator via

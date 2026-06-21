@@ -65,7 +65,7 @@
 
     1. `setup-request-frame!` — populate the per-frame request slot
        via `ssr/set-request!` BEFORE registering the frame so the
-       synchronous `:on-create` drain can resolve `:rf.server/request`
+       synchronous `:initial-events` drain can resolve `:rf.server/request`
        (Spec 011 §Request storage substrate).
     2. `ssr/get-response` — read the resolved response accumulator
        (flushes any pending error projection per Spec 011 §Server
@@ -204,15 +204,21 @@
 
   Required opts:
 
-    :on-create   — the event dispatched at frame creation, in EITHER form:
-                     • an event VECTOR (e.g. `[:rf/server-init]`), OR
-                     • a `(fn [request] event-vector)` deriving the event
-                       from the Ring request (rf2-kzns7l). The fn is called
-                       once per request, before the drain; its result must
-                       be an event vector. Use it to fold a request-derived
-                       fact into the boot event's PAYLOAD — the replay-safe
-                       recordable boundary, e.g.
-                       `(fn [req] [:auth/server-init {:user (extract-user req)}])`
+    :initial-events — the EP-0027 construction setup: an ordered VECTOR of
+                   events dispatched synchronously, in order, into the
+                   per-request frame at creation. The adapter lowers it
+                   verbatim into the top-level `make-frame`'s `:initial-events`
+                   (EP-0027 §SSR — \"a server computes its `:initial-events`
+                   vector per request\"). Accepted in EITHER form:
+                     • a VECTOR of event-vectors (e.g. `[[:rf/server-init]]`),
+                       OR
+                     • a `(fn [request] -> initial-events-vector)` deriving the
+                       setup vector from the Ring request (rf2-kzns7l). The fn
+                       is called once per request, before the drain; its result
+                       must be an `:initial-events` vector. Use it to fold a
+                       request-derived fact into a boot event's PAYLOAD — the
+                       replay-safe recordable boundary, e.g.
+                       `(fn [req] [[:auth/server-init {:user (extract-user req)}]])`
                        (Spec 011 §Request storage substrate, durable
                        request-derived-fact pattern).
                    For NON-durable request reads inside a handler, declare
@@ -276,7 +282,7 @@
   |                                   | render walk — something | per-request frame setup throw,   |
   |                                   | the error PROJECTOR     | a render-time CLJ exception,     |
   |                                   | catches.                | a header/cookie materialise      |
-  |                                   |                         | throw, a thrown `:on-create`.    |
+  |                                   |                         | throw, a thrown initial-event.   |
   | WHAT does it produce?             | The PROJECTED ERROR     | A raw Ring response map          |
   |                                   | PAGE body (hiccup) — a  | `{:status … :headers … :body …}` |
   |                                   | view keyword or         | returned verbatim to the server. |
@@ -369,7 +375,7 @@
   Per-request lifecycle (see ns docstring for full detail):
 
     (ssr/set-request! frame-id request)            ;; before drain
-      → reg-frame                   (drains :on-create synchronously;
+      → reg-frame                   (drains :initial-events synchronously;
                                      the `:rf.server/request` cofx
                                      reads from the populated slot)
         → read get-response          (flushes error projections)
@@ -387,15 +393,15 @@
 
     (rf/init! (requiring-resolve 'ssr-ring-app/ssr-adapter))
     (def handler
-      (ssr-ring/ssr-handler {:on-create  [:rf/server-init]
-                             :root-view  [:app/root]
+      (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
+                             :root-view      [:app/root]
                              ;; REQUIRED, fail-closed (rf2-gtgf9). A vector
                              ;; is an allowlist of top-level app-db keys to
                              ;; ship; `:rf.ssr.payload/whole-app-db` opts into
                              ;; the whole db. Omit it and construction throws
                              ;; `:rf.error/ssr-missing-payload-policy`.
-                             :payload    [:articles :session-user]
-                             :html-shell ssr-ring-app/shell}))
+                             :payload        [:articles :session-user]
+                             :html-shell     ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
   [raw-opts]
   (lifecycle/validate-construction-opts! raw-opts)
@@ -462,10 +468,10 @@
     (def app
       (-> default-handler
           ((ssr-ring/ssr-middleware
-             {:on-create [:rf/server-init]
-              :root-view [:app/root]
-              :payload   [:articles :session-user]
-              :match?    (fn [req] (= :get (:request-method req)))}))
+             {:initial-events [[:rf/server-init]]
+              :root-view      [:app/root]
+              :payload        [:articles :session-user]
+              :match?         (fn [req] (= :get (:request-method req)))}))
           wrap-static-assets))"
   [{:keys [match?] :as opts}]
   (let [match? (or match? (fn default-match? [req]

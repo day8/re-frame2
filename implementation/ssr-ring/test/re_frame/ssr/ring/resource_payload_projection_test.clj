@@ -145,7 +145,7 @@
         ;; Seed a loaded feed entry whose derived session scope embeds the
         ;; sensitive viewer identity ("jake"), with article data.
         (seed-feed-runtime-db! fid "jake" 1 {:articles [:a :b]})
-        (let [opts     {:on-create  nil
+        (let [opts     {:initial-events nil
                         :root-view  [:p026f5/root]
                         :emit-hash? true
                         :html-shell shell/default-html-shell
@@ -223,7 +223,7 @@
           (frame/swap-runtime-db!
             fid assoc state/resources-key {:entries     {(state/key-id sk) entry}
                                            :tag-index   {} :owner-index {}})
-          (let [opts    {:on-create  nil
+          (let [opts    {:initial-events nil
                          :root-view  [:p026f5/root2]
                          :emit-hash? true
                          :html-shell shell/default-html-shell

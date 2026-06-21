@@ -27,7 +27,7 @@
   `re-frame.ssr.ring.pipeline` but with the four-step chunk wiring
   inserted between `build-payload` and the response materialisation:
 
-    setup-request-frame!         → seed per-request frame, drain on-create
+    setup-request-frame!         → seed per-request frame, drain initial-events
     streaming/render-shell        → walk root-view, collect continuations
     flush shell-chunk             → first byte
     for each continuation:
@@ -210,7 +210,7 @@
   re-read."
   [frame-id {:keys [root-view] :as opts}]
   ;; rf2-er7qx2 — SSR blocking-resource drain (streaming counterpart of the
-  ;; non-streaming `build-full-response*` drain). AFTER the `:on-create` drain
+  ;; non-streaming `build-full-response*` drain). AFTER the `:initial-events` drain
   ;; resolved the route + enqueued the route's blocking resource ensures and
   ;; BEFORE the shell render walk, drain the current nav-token's blocking
   ;; resources until they settle or the render deadline fires; a never-settling
@@ -588,7 +588,7 @@
   framing (Spec 011 §Streaming SSR — the wire shape pins chunked
   transfer). A stale fixed `Content-Length` — set/appended by app or
   server init code (`:rf.server/set-header` / `:rf.server/append-header`
-  during the `:on-create` drain) before streaming was chosen — would
+  during the `:initial-events` drain) before streaming was chosen — would
   otherwise survive onto the streamed response, and a Ring server may
   honour that length instead of chunking: truncated HTML, clients
   waiting on the wrong byte count, or lost progressive chunks.
@@ -609,7 +609,7 @@
 (defn- redirect-response!
   "Short-circuit a streaming request to a bodiless Location response and
   destroy the per-request frame inline. Shared (rf2-tqjc7h) by BOTH redirect
-  branches in `stream-handler`: the early `:on-create`-drain redirect and the
+  branches in `stream-handler`: the early `:initial-events`-drain redirect and the
   post-shell `resp2` re-read redirect.
 
   A redirect short-circuits the stream — no chunked body, so the writer thread
@@ -680,7 +680,7 @@
   rf2-h3dg0 — STRIP any `Content-Length` header (case-insensitively) from the
   materialised head before wiring the chunk-writer body. App / server init can
   `:rf.server/set-header` (or `append-header`) a `Content-Length` during the
-  `:on-create` drain — a fixed length that is meaningless (and actively harmful)
+  `:initial-events` drain — a fixed length that is meaningless (and actively harmful)
   once the body becomes a chunk-producing PipedInputStream of unknown final
   size. Left in place, a Ring server may honour that length instead of chunked
   transfer framing → truncated HTML / clients blocked on the wrong byte count /
@@ -720,15 +720,15 @@
   "Return a synchronous Ring handler that streams SSR responses via
   `Transfer-Encoding: chunked`. Per Spec 011 §Streaming SSR.
 
-  Opts mirror `re-frame.ssr.ring/ssr-handler` — same `:on-create` /
+  Opts mirror `re-frame.ssr.ring/ssr-handler` — same `:initial-events` /
   `:root-view` / `:payload` / `:on-error` /
   `:error-view` / `:emit-hash?` / `:version` / `:schema-digest` /
   `:content-type` plus the four trusted shell-hook opts (`:head` /
   `:body-end` / `:script-src` / `:app-element-id`, honoured by
-  `default-streaming-prefix` / `default-streaming-suffix`). `:on-create`
-  accepts BOTH forms `ssr-handler` does — an event vector OR a
-  `(fn [request] event-vector)` deriving the boot event from the Ring
-  request (rf2-kzns7l; both flow through the shared
+  `default-streaming-prefix` / `default-streaming-suffix`). `:initial-events`
+  accepts BOTH forms `ssr-handler` does — an `:initial-events` vector OR a
+  `(fn [request] -> initial-events-vector)` deriving the setup vector from
+  the Ring request (rf2-kzns7l; both flow through the shared
   `pipeline/setup-request-frame!`). One exception (rf2-oq4m5):
 
     `:html-shell` is NOT supported by the streaming path and is REJECTED
@@ -752,7 +752,7 @@
 
   The returned handler:
     - sets up the per-request frame (request slot, frame registration,
-      synchronous :on-create drain),
+      synchronous :initial-events drain),
     - reads the response accumulator; if :redirect is set, short-
       circuits to a non-streamed Location response (Spec 011 §Redirect
       precedence) AND destroys the per-request frame inline (the writer
@@ -809,7 +809,7 @@
   ;; Construction-time validation — the SAME fail-closed-at-boot triple
   ;; `ssr-handler` runs, shared via `lifecycle/validate-construction-opts!`
   ;; so both handlers refuse to construct at the same boundary. For
-  ;; streaming specifically, a missing :on-create would otherwise fail
+  ;; streaming specifically, a missing :initial-events would otherwise fail
   ;; per-request (500) and a missing :root-view would silently truncate
   ;; the chunked response from the writer thread; the trusted-shell opts
   ;; cross the same trust boundary as the non-streaming
@@ -868,7 +868,7 @@
                     ;;
                     ;; rf2-5knxf.1 — a `:redirect` here is defense-in-depth:
                     ;; in v1 it cannot surface at the post-shell re-read
-                    ;; (only the `:on-create`-drain `:rf.server/redirect`
+                    ;; (only the `:initial-events`-drain `:rf.server/redirect`
                     ;; sets it, caught by the early branch above; the error
                     ;; projector stamps `:status` only, never `:redirect`).
                     ;; The branch aligns the streaming path with the
