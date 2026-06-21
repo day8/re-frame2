@@ -128,8 +128,8 @@ Key shape decisions visible in the example:
   `:require` of `re-frame.ssr` is JVM-side only; `:require` of
   the substrate adapter (`reagent-slim-adapter`) is CLJS-side
   only. `reg-view` macros work identically across both.
-- **Per-request frame discipline.** `make-frame` per request,
-  `:on-create [:rf/server-init]`, drain to fixed point, render via
+- **Per-request frame discipline.** `reg-frame` per request,
+  `:initial-events [[:rf/server-init]]`, drain to fixed point, render via
   `(rf/view :app/root)` + `render-to-string`, destroy in `finally`.
   Demonstrated by `core.cljc`'s `:clj`-branch `handle-request`.
 - **`:fx-overrides` swap for HTTP.** `:rf.http/managed` is

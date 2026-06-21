@@ -75,7 +75,7 @@
   child works too: `($ frame-provider {:id :session} ($ app))`.
 
   `frame-provider` OWNS a frame lifetime, so it takes the same `:id` /
-  `:images` / `:initial-db` (plus record-config) opts as `rf/make-frame`,
+  `:images` (plus record-config, incl. `:initial-events`) opts as `rf/make-frame`,
   runs that one constructor on mount, and tears the frame down on unmount.
   `:id` is REQUIRED and must be a KEYWORD: a missing / nil / non-keyword
   `:id` is a CONFIGURATION ERROR — the owned-frame core emits + throws

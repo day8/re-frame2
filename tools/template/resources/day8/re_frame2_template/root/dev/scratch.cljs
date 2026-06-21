@@ -46,11 +46,11 @@
   ;; expr (here `make-frame`), binds the new frame to the symbol, runs the
   ;; body under that frame's scope, then destroys the frame on exit (success
   ;; or exception) — the live `:rf/default` frame is untouched. `rf/make-frame`
-  ;; returns the live frame OBJECT (EP-0023); `:initial-db` seeds the fresh
-  ;; frame's app-db before the body runs.
+  ;; returns the live frame OBJECT (EP-0023); `:initial-events` seeds the fresh
+  ;; frame's app-db before the body runs (EP-0027 — seeding is itself an event).
   ;; (Use `with-frame <keyword>` to PIN an EXISTING frame, as above; use
   ;; `with-new-frame [sym expr]` to CREATE one — see Spec 002 §with-frame.)
-  (rf/with-new-frame [f (rf/make-frame {:initial-db {:counter/value 0}})]
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:rf/set-db {:counter/value 0}]]})]
     (rf/dispatch-sync [:counter/increment])
     @(rf/subscribe [:counter/value]))
   )

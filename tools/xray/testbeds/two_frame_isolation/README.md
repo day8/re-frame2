@@ -186,6 +186,6 @@ load.
   §The cache is held inside the frame container — the normative
   statement of per-frame isolation. This testbed is the canonical demo.
 - [`spec/002-Frames.md`](../../../../spec/002-Frames.md) — frame
-  lifecycle, `reg-frame`, `:on-create`, frame-provider context.
+  lifecycle, `reg-frame`, `:initial-events`, frame-provider context.
 - The shared deck: `tools/xray/testbeds/standard_epochs/` (the same
   `root` ladder, mounted once on its own dev surface at port 8031).

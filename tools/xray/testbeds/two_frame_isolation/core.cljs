@@ -224,11 +224,11 @@
   (rf/init! reagent-adapter/adapter)
   ;; Register the two frames. There is no routing in the standard-epochs
   ;; deck, so neither frame owns the URL — both are plain isolated
-  ;; contexts. Each `:on-create` seeds its app-db via the standard-epochs
+  ;; contexts. Each frame's `:initial-events` seed runs the standard-epochs
   ;; reset event, synchronously, against that frame's empty db. The
   ;; `:standard-epochs/reset` handler is registered once globally and
   ;; resolves against whichever frame the dispatch envelope targets, so
   ;; per-frame state evolution is automatic.
-  (rf/reg-frame frame-above {:on-create [:standard-epochs/reset]})
-  (rf/reg-frame frame-below {:on-create [:standard-epochs/reset]})
+  (rf/reg-frame frame-above {:initial-events [[:standard-epochs/reset]]})
+  (rf/reg-frame frame-below {:initial-events [[:standard-epochs/reset]]})
   (rdc/render react-root [root]))

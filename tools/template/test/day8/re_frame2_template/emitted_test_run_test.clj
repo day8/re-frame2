@@ -51,7 +51,7 @@
    The four substrate variants above materialise the GENERATOR template.
    The setup skill (`skills/re-frame2-setup/`) teaches a SECOND,
    genuinely different greenfield scaffold — a single-file Reagent
-   counter wired with `:app/main` + `:on-create` + a bare
+   counter wired with `:app/main` + `:initial-events` + a bare
    `frame-provider`, where the template compiles `:rf/default` +
    `with-frame` + `dispatch-sync` across split events/subs/views/schema
    files. Because the skill boot ceremony diverges from the template's,
@@ -537,7 +537,7 @@
 ;; SKILL's hand-written greenfield scaffold compiles against the in-repo
 ;; source tree. The skill teaches a genuinely different boot ceremony from
 ;; the generator template (single-file `your-app.core` with `:app/main` +
-;; `:on-create` + a bare `frame-provider` + `reg-view`, vs. the template's
+;; `:initial-events` + a bare `frame-provider` + `reg-view`, vs. the template's
 ;; split files with `:rf/default` + `with-frame` + `dispatch-sync` + a
 ;; schema), so no equivalence assertion against the template can prove the
 ;; skill path compiles — only a real compile can. This is a semantic-drift
@@ -718,7 +718,7 @@
                        "(skills/re-frame2-setup/references/first-counter.md + "
                        "shadow-cljs.md) no longer compiles against the in-repo "
                        "re-frame2 source — its boot ceremony (`:app/main` + "
-                       "`:on-create` + bare `frame-provider` + `reg-view`) "
+                       "`:initial-events` + bare `frame-provider` + `reg-view`) "
                        "diverges from the generator template, so the template "
                        "variants above can't catch this (rf2-ae98go). Output:\n"
                        out))

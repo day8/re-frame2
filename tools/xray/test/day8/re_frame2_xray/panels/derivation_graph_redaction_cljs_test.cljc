@@ -88,7 +88,7 @@
      ;; arm asserts that egress against an unreachable frame redacts because
      ;; NO frame is resolvable. A bound ambient `:rf/default` would let the
      ;; frameless walk resolve to it (empty-policy identity) and ship raw —
-     ;; masking the fail-closed contract. Our frames carry no `:on-create`
+     ;; masking the fail-closed contract. Our frames carry no `:initial-events`
      ;; work, so a clear ambient scope is safe.
      :ambient-frame nil
      :init-fn init-fn}))

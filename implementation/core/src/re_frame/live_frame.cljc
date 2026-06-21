@@ -13,9 +13,9 @@
   ## What this ns OWNS
 
     * `make-frame` — the ONE public constructor (EP-0024 §One constructor).
-      Resolves `:images` into a sealed generation, threads it + `:initial-db`
-      through `frame/reg-frame` (installed BEFORE `:on-create` fires), and returns
-      the frame VALUE. A duplicate `:id` is IDEMPOTENT REPLACEMENT (config +
+      Resolves `:images` into a sealed generation, threads it + `:initial-events`
+      through `frame/reg-frame` (the seed steps run AT construction, in order,
+      draining before the call returns), and returns the frame VALUE. A duplicate `:id` is IDEMPOTENT REPLACEMENT (config +
       generation refresh, durable state preserved — EP-0024 §Duplicate id policy);
       it does NOT fail loud. Record-config keys are honoured in the same call
       (option-(a), reversing the rf2-32siq3.45 option-(b) record-only-key redirect).
@@ -345,8 +345,8 @@
 (defn- validate-opts!
   "Validate the `make-frame` `opts` ARGUMENT is a MAP at the public boundary
   (EP-0024 §One constructor — `opts` is the map carrying `:images` / `:id` /
-  `:initial-db` / `:capabilities` / `:adapter` + record-config keys; Spec
-  API.md §`make-frame`). A non-map `opts` — `nil`, a keyword, a vector, a string
+  `:capabilities` / `:adapter` + record-config keys (incl. `:initial-events`);
+  Spec API.md §`make-frame`). A non-map `opts` — `nil`, a keyword, a vector, a string
   — throws `:rf.error/make-frame-bad-opts`, fail-loud, BEFORE any destructuring
   or record-config construction, so a caller typo / plumbing failure cannot
   silently create a garbage anonymous frame (nil currently registered a runnable
@@ -365,8 +365,8 @@
       'rf/make-frame
       (str "rf/make-frame: opts must be a MAP — got "
            (pr-str opts) ". Pass an opts map carrying the frame's :images / "
-           ":id / :initial-db / :capabilities / :adapter and record-config "
-           "keys, e.g. (rf/make-frame {:images [my-image]}); an all-defaults "
+           ":id / :capabilities / :adapter and record-config "
+           "keys (incl. :initial-events), e.g. (rf/make-frame {:images [my-image]}); an all-defaults "
            "frame is (rf/make-frame {}), never (rf/make-frame nil).")
       {:recovery :pass-an-opts-map
        :extra    {:received (error/diag-value-summary opts)}}))
@@ -411,9 +411,9 @@
 ;; The unified `make-frame` accepts BOTH opt families in one call (EP-0024
 ;; adopts the deferred option-(a), reversing the rf2-32siq3.45 option-(b)
 ;; fail-loud redirect). The image-selection opts the constructor consumes
-;; directly (`:images` → generation; `:id` / `:initial-db` / `:capabilities` /
-;; `:adapter` → the frame value + seeding); EVERY OTHER opt is record-config
-;; passed verbatim to `frame/reg-frame` (`:on-create` / `:fx-overrides` /
+;; directly (`:images` → generation; `:id` / `:capabilities` /
+;; `:adapter` → the frame value); EVERY OTHER opt is record-config
+;; passed verbatim to `frame/reg-frame` (`:initial-events` / `:fx-overrides` /
 ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification keys /
 ;; …). So `(rf/make-frame {:id … :images [...] :fx-overrides {...}})` works in
 ;; one call — no record-only-key fail-loud redirect.
@@ -506,10 +506,6 @@
                    ABSENT, the frame is LOCAL-ONLY: the caller keeps the returned
                    value and passes it (or its id) to dispatch/subscribe/test
                    helpers.
-    :initial-db    the frame's initial app-db value (optional). SEEDED into the
-                   frame's app-db partition so an immediate
-                   `(rf/subscribe frame [...])` / `(rf/app-db-value frame)` reads
-                   it; absent ⇒ app-db `{}`. Frame STATE is a frame concern.
     :capabilities  the host capability map the image's `:rf.image/requires` is
                    checked against (optional). Checked UNCONDITIONALLY at the
                    frame boundary — a required capability the map does not provide
@@ -519,8 +515,11 @@
                    Carried on the frame value, not the frame-state.
 
   EVERY OTHER key is RECORD-CONFIG passed verbatim to `re-frame.frame/reg-frame`
-  — `:on-create`, `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`,
-  `:tags`, the EP-0015 classification keys, etc. So
+  — `:initial-events` (a vector of event vectors dispatch-sync'd into the new
+  frame at construction, in order, draining before the call returns — seed a
+  literal app-db with `[[:rf/set-db {…}]]`; EP-0027), `:fx-overrides`,
+  `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, the EP-0015 classification
+  keys, etc. So
   `(rf/make-frame {:id :todo/left :images [todo-image] :fx-overrides {...}})`
   configures the frame in ONE call. EP-0024 adopts this single-constructor shape
   (the previously-deferred option-(a)) and REVERSES the rf2-32siq3.45 option-(b)

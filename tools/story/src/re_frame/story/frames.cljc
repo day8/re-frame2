@@ -27,7 +27,7 @@
   - `:fx-overrides` carries the `:fx-override`-decorator stack's
     `{fx-id → stub-event-id}` map. The runtime registers each stub
     event before `reg-frame`-ing so the override is live before
-    `:on-create` runs.
+    `:initial-events` run.
 
   ## Lifecycle
 
@@ -528,7 +528,7 @@
   straight onto the
   `reg-frame` config so the framework's `re-frame.frame-classification`
   validates + installs them atomically as part of frame creation, BEFORE
-  `:on-create`. Story does not fork the classification validation; a
+  `:initial-events`. Story does not fork the classification validation; a
   malformed declaration FAILS LOUDLY at `reg-frame` time."
   [variant-id fx-overrides {:keys [sensitive large image-ids]}]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")

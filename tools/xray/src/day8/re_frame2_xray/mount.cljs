@@ -399,7 +399,7 @@
 
   Per rf2-in6l2 the registration was attempted at preload time but
   reverted (rf2-e9s81): the preload runs before the host's `rf/init!`
-  has installed a substrate adapter, and the `:on-create` listener
+  has installed a substrate adapter, and the `:initial-events` seed
   dispatch needs a running adapter to be reactive. The first
   Ctrl+Shift+C keypress fires from the user well after `rf/init!`, so
   `open!` is the canonical lazy-registration point.

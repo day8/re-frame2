@@ -161,7 +161,7 @@
 (rf/reg-event :standard-epochs/reset
   {:doc "Seed event — re-seed app-db and unmount both child views. Used by
          `run` (dispatch-sync on load) and by two_frame_isolation's per-frame
-         :on-create. There is no on-page reset button; a reload re-seeds.
+         :initial-events. There is no on-page reset button; a reload re-seeds.
          The runner cursor `:step` re-seeds to nil here."}
   (fn handler-reset [_ _ev]
     {:db initial-db}))
@@ -807,7 +807,7 @@
 ;; Extracting the header keeps the shared `root` a pure ladder, so the
 ;; two-frame cards stay clean (no per-frame title duplication) while the
 ;; standalone deck still shows the Epochs header. There is no deck-reset
-;; button: reloading re-seeds via `run` (the frames re-seed via :on-create),
+;; button: reloading re-seeds via `run` (the frames re-seed via :initial-events),
 ;; so the manual reset is unnecessary.
 
 (reg-view standalone []

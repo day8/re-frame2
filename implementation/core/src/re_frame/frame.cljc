@@ -1208,7 +1208,7 @@
     ;; an ordinary configured frame (no `:images` selection) — the
     ;; absence-is-default signal that resolution falls through to the registrar
     ;; atom path. Threaded in via the reserved `:rf.frame/generation` config key
-    ;; so it is live BEFORE `:on-create` runs; `reload-images!` / reprojection
+    ;; so it is live BEFORE `:initial-events` run; `reload-images!` / reprojection
     ;; swap it in place via `set-generation!`, preserving every other
     ;; (state-bearing) slot by identity.
     :generation  (get config :rf.frame/generation)
@@ -2243,7 +2243,7 @@
         ;; clean schema slate. Without this hook, orphan app-db schemas
         ;; from a prior `reg-frame` cycle persist and re-fire under the
         ;; rollback contract — manifesting as spurious rollbacks against
-        ;; paths the new frame's :on-create never wrote. No-op when
+        ;; paths the new frame's :initial-events never wrote. No-op when
         ;; re-frame.schemas is absent (the artefact is optional).
         (safe-call-hook! :schemas/on-frame-destroyed! id)
         ;; Drop every flow registered against the destroyed

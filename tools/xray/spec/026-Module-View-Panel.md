@@ -184,7 +184,7 @@ the `:rf/xray` frame.
 The seating preserves the `:rf.trace/frame-no-emit?` gate that keeps
 Xray's own reactivity out of the trace ring it inspects: `make-frame` is the
 EP-0023 OBJECT constructor and honours only the frame-creation opts (`:images` /
-`:id` / `:initial-db` / …), rejecting the record-config flag, so the gate is set
+`:id` / `:initial-events` / …), rejecting the record-config flag, so the gate is set
 directly through `re-frame.trace/set-frame-no-emit!` (the same canonical seam
 `reg-frame` routed it through) — asserted on every seat / re-seat. The seating is
 idempotent: `make-frame {:id …}` on a duplicate live `:id` is idempotent

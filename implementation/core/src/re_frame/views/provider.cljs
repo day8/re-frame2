@@ -116,9 +116,9 @@
   This is NOT a scope-only component — scoping descendants to a frame that
   ALREADY EXISTS is `rf/frame-provider-existing` (scope-into-React) or
   `rf/with-frame` (lexical / non-React ambient scope). `frame-provider`
-  OWNS a frame lifetime, so it takes the same `:id` / `:images` /
-  `:initial-db` (plus record-config) opts as `rf/make-frame`, runs that one
-  constructor on mount, and tears the frame down on unmount.
+  OWNS a frame lifetime, so it takes the same `:id` / `:images`
+  (plus record-config, incl. `:initial-events`) opts as `rf/make-frame`, runs
+  that one constructor on mount, and tears the frame down on unmount.
 
   `:id` is REQUIRED and must be a KEYWORD — it is the lifecycle token
   descendants route to and `destroy-frame!` tears down. A missing / nil /

@@ -159,7 +159,7 @@ Required normalized plan shape:
  :story/id   optional-keyword
  :source-chain [...]
  :world {:frame {:preset optional-keyword
-                 :on-create [event-vector ...]
+                 :initial-events [[event-vector] ...]
                  :fx-overrides {fx-id override-ref-or-data}
                  :interceptor-overrides {interceptor-id override-ref}}
          :args {...}
