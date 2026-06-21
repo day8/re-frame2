@@ -132,12 +132,12 @@ Durable app-db classification, frame-local HTTP carrier names, and frame observa
                       :rf.egress/profile :rf.egress/off-box-observability
                       :opts {:service "checkout-spa" :env "prod"}}]}
 
-   :on-create [:app/init]})
+   :initial-events [[:app/init]]})
 ```
 
 Semantics:
 
-- Frame classification is installed **atomically as part of frame creation**, before `:on-create` runs.
+- Frame classification is installed **atomically as part of frame creation**, before the `:initial-events` setup runs.
 - Re-registering a frame **replaces** frame-owned classification using ordinary frame-metadata replacement semantics (no additive merge — the declaration *is* the frame's policy).
 - `:sensitive :app-db` and `:large :app-db` entries are `:rf/path` values ([EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md)).
 - `:sensitive :http :headers` and `:sensitive :http :query-params` are **frame-local extensions** to the immutable built-in framework defaults; built-in HTTP carrier names remain immutable framework defaults that no frame can remove. `:query-params` additionally accepts a `{:include [..] :except [..]}` policy map (rf2-4wqxq8) whose `:except` set **subtracts** built-in defaults for that frame's own (dev-only, debug-gated) trace — effective policy `(defaults − except) ∪ include`, `:include` winning a tie; `:headers` has no `:except` form (a default-off header would be a real leak). See [014-HTTPRequests §Frame-local carriers](014-HTTPRequests.md#frame-local-carriers-ep-0015-3).

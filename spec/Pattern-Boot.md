@@ -48,7 +48,7 @@ For trivial boots (one or two steps, no error states, no progress UI), a state m
 
 (`:http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md).)
 
-Each step is a Pattern-AsyncEffect interaction. The frame's `:on-create` fires `:app/init` (per [002 §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), the chain runs to completion, the UI renders.
+Each step is a Pattern-AsyncEffect interaction. The frame's `:initial-events` fire `:app/init` (per [002 §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), the chain runs to completion, the UI renders.
 
 Use this form when the boot graph is **3 steps or fewer**, has **no error states**, and the UI does **not** show per-phase progress.
 
@@ -196,7 +196,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
       :fatal-error    {:meta {:terminal? true}}}}))
 ```
 
-The frame's `:on-create` dispatches `[:app/boot [:rf.machine/start]]` (or the equivalent per the host); the machine self-initialises (per [005 §Restore semantics]) and runs. `:rf.machine/start` is the **only** reserved creation marker the runtime recognises (xstate parity with `createActor(m).start()`, per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)) — there is no `:rf/start`.
+The frame's `:initial-events` dispatch `[:app/boot [:rf.machine/start]]` (or the equivalent per the host); the machine self-initialises (per [005 §Restore semantics]) and runs. `:rf.machine/start` is the **only** reserved creation marker the runtime recognises (xstate parity with `createActor(m).start()`, per [005 §Synthetic creation marker](005-StateMachines.md#synthetic-creation-marker--rfmachinestart)) — there is no `:rf/start`.
 
 ### Worked example — the singleton boot machine
 
@@ -222,9 +222,9 @@ The boot machine is a **top-level singleton**: there is exactly one of it per ap
 
 This is **not** `spawn` and **not** `:system-id`. Those two surfaces (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) and [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)) exist for **dynamic / child actors** — instances created at runtime (one per row, one per request, one per worker), addressed by a runtime-allocated gensym id or a role-name bound in the per-frame `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db). A boot machine is none of those: there is one, it is known at registration time, and its name is the address. Reach for `:spawn` / `:system-id` only when boot itself spawns child actors (e.g. a per-phase `:http/get`, as the `:configuring` state above does).
 
-#### 2. The eager kick from `:on-create` — using the correct marker
+#### 2. The eager kick from `:initial-events` — using the correct marker
 
-A singleton is created **lazily** by default — the initial-entry cascade folds into its first real event (per [005 §When creation happens](005-StateMachines.md#when-creation-happens--eager-start-vs-lazy-first-event)). Boot wants the opposite: the machine must come alive **now**, at app start, so its `:configuring` entry fires and the boot sequence begins. That is the **eager kick** — dispatch the reserved `:rf.machine/start` marker from the frame's `:on-create`:
+A singleton is created **lazily** by default — the initial-entry cascade folds into its first real event (per [005 §When creation happens](005-StateMachines.md#when-creation-happens--eager-start-vs-lazy-first-event)). Boot wants the opposite: the machine must come alive **now**, at app start, so its `:configuring` entry fires and the boot sequence begins. That is the **eager kick** — dispatch the reserved `:rf.machine/start` marker from the frame's `:initial-events`:
 
 ```clojure
 (rf/reg-event :app/initialise
@@ -234,7 +234,7 @@ A singleton is created **lazily** by default — the initial-entry cascade folds
      :fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 
 (rf/reg-frame :app/main
-  {:on-create [:app/initialise]
+  {:initial-events [[:app/initialise]]
    ;; … views, fx-overrides, etc …
    })
 ```
@@ -429,7 +429,7 @@ The two boots compose cleanly because the boot state machine's snapshot is a run
 
 In dev, hot-reload re-evaluates `reg-event` forms; surgical `reg-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
-This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `reset-frame!` (which does fire `:on-create` again) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
+This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `reset-frame!` (which re-dispatches the recorded `:initial-events`) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
 
 ### Re-boot semantics
 
@@ -466,7 +466,7 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 
 ## Cross-references
 
-- [002-Frames §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) — `:on-create` is the canonical entry point for boot.
+- [002-Frames §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) — `:initial-events` is the canonical entry point for boot.
 - [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:spawn` / `:after` mechanics.
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.

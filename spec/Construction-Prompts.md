@@ -234,11 +234,11 @@ Each entry below is one CP:
     (when-let [on-success (:on-success args)]
       (rf/dispatch (conj on-success {:status 200 :body "test"})))))
 
-;; in a test — :fx-overrides and :on-create are record-config keys, so they ride
+;; in a test — :fx-overrides and :initial-events are record-config keys, so they ride
 ;; the advanced record-config `re-frame.frame/make-frame`, not the EP-0023 object
 ;; constructor `rf/make-frame` (which takes :images and fails loud on a record-only key)
-(rf/with-new-frame [f (re-frame.frame/make-frame {:fx-overrides {:http :http.canned-200}
-                                                  :on-create    [:feature/load]})]
+(rf/with-new-frame [f (re-frame.frame/make-frame {:fx-overrides   {:http :http.canned-200}
+                                                  :initial-events [[:feature/load]]})]
   ...)
 ```
 
@@ -299,7 +299,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ```clojure
 (rf/reg-view component-name [label]
   ;; Outer body: runs once on mount. Use for setup that should fire once per
-  ;; component lifecycle (e.g., dispatching an :on-create-style init event,
+  ;; component lifecycle (e.g., dispatching an init event,
   ;; registering a frame, opening a websocket).
   (dispatch [:feature/component-mounted])
   (fn render-feature-component-name [label]
@@ -634,7 +634,7 @@ A feature ships these artefacts as a coherent bundle:
 | Artefact | Required | Convention |
 |---|---|---|
 | **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] {:schema FeatureSchema})` |
-| **`:on-create`-style init event** | yes | `:feature/initialise` — sets the slice to its initial value |
+| **`:initial-events` init event** | yes | `:feature/initialise` — sets the slice to its initial value |
 | **State events** (the feature's instruction set) | yes | `:feature/verb-noun`, `:feature.subarea/verb-noun` |
 | **Subscriptions** | yes | `:feature/property` reading from `[:feature ...]` |
 | **Views** | usually | `:feature/root-view` plus child views |
@@ -965,8 +965,8 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
     (rf/with-new-frame [f (rf/make-frame
                        {:id     frame-id
                         :images [app-image]})]
-      ;; rebound to f. EP-0023 object constructor takes :images; run the
-      ;; per-request setup via a dispatch (not the record-only :on-create key).
+      ;; rebound to f. The constructor takes :images; run the per-request
+      ;; setup via a dispatch (or declaratively via :initial-events).
       (rf/dispatch-sync [:rf/server-init request] {:frame f})
       (let [final-db (rf/app-db-value f)
             hiccup   ((rf/view :app/root))                ;; the registered root view
@@ -1010,7 +1010,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 ```clojure
 (defonce client-frame
-  (rf/reg-frame :app/main {:on-create [:client/bootstrap]}))
+  (rf/reg-frame :app/main {:initial-events [[:client/bootstrap]]}))
 
 (defn read-server-payload []
   (-> (.getElementById js/document "__rf_payload")

@@ -50,8 +50,8 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 3. Machine spawn at boot before substrate adapter ready
 
 - **Specs:** [005-StateMachines §Spawning](005-StateMachines.md#spawning--dynamic-actors), [006-ReactiveSubstrate §Adapter selection](006-ReactiveSubstrate.md#adapter-selection-at-boot).
-- **Scenario:** A `(rf/reg-frame :app {:on-create [:boot]})` fires `:boot` which spawns a machine — but boot order means the substrate adapter has not been installed yet.
-- **Behaviour:** `:on-create` events are queued on the frame's router but the drain does not start until the adapter is installed. Once `(rf/install-adapter! ...)` completes, the queue drains. Spawned machines therefore always run against an installed adapter.
+- **Scenario:** A `(rf/reg-frame :app {:initial-events [[:boot]]})` fires `:boot` which spawns a machine — but boot order means the substrate adapter has not been installed yet.
+- **Behaviour:** `:initial-events` are queued on the frame's router but the drain does not start until the adapter is installed. Once `(rf/install-adapter! ...)` completes, the queue drains. Spawned machines therefore always run against an installed adapter.
 - **Reason:** A machine action that calls `(rf/subscribe-once ...)` must reach a working sub-cache, which requires the adapter. Deferring drain until adapter-ready is the simplest invariant.
 - **Status:** `Provisional` — fixture pending: `boot-order-adapter-ready.edn`.
 

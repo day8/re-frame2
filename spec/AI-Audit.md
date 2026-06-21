@@ -79,7 +79,7 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
 | P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `registrations`, `frame-meta`, `frame-ids`, `app-db-value`, `snapshot-of`, `sub-topology` all in. |
-| P5 Schemas | ◐ | `:schema` in registration metadata is documented for handlers/subs/fx but the *frame's `:on-create` event* and *override map shape* aren't schema-described. |
+| P5 Schemas | ◐ | `:schema` in registration metadata is documented for handlers/subs/fx but the *frame's `:initial-events`* and *override map shape* aren't schema-described. |
 | P6 Deterministic execution | ✓ | Run-to-completion drain, depth limit, no-cross-frame-drain — all locked. |
 | P7 Machine-readable errors | ◐ | "Errors are maps with documented keys" stated as an aspiration but the actual error shapes aren't enumerated. Needs a §Error contract subsection. |
 | P8 Low hidden context | ◐ | **The biggest gap.** React-context-driven `dispatch`/`subscribe` injection is hidden context by definition. The pattern contract is explicit-frame addressing with React context positioned as a CLJS optimisation, but 002's body still leans on the React-context machinery as primary. A full rewrite of the View Ergonomics section would close this. |

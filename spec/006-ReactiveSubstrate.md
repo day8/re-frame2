@@ -1295,7 +1295,7 @@ Per [011](011-SSR.md), the server-side render path doesn't use the adapter's rea
 
 1. Server creates a frame (per [002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
 2. The frame's `app-db` is a plain atom (the **core's plain-atom adapter**, not the Reagent adapter).
-3. `:on-create` events run; the drain settles.
+3. `:initial-events` run; the drain settles.
 4. The view fn is called as a *plain function* against the now-stable `app-db` value.
 5. The hiccup output is rendered to a string by `render-to-string`.
 

@@ -149,7 +149,7 @@ For test groups that share setup, register a named test frame once and reset bet
 ```clojure
 (use-fixtures :each
   (fn [test-fn]
-    (rf/reg-frame :test-fixture {:on-create [:auth/init-idle]})   ;; create once
+    (rf/reg-frame :test-fixture {:initial-events [[:auth/init-idle]]})   ;; create once
     (try
       (test-fn)
       (finally
@@ -160,7 +160,7 @@ For test groups that share setup, register a named test frame once and reset bet
   (is (= :validating (get-in (rf/app-db-value :test-fixture) [:auth :state]))))
 ```
 
-`reset-frame!` (per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)) clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
+`reset-frame!` (per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)) resets the frame and re-dispatches the recorded `:initial-events`. State is fresh between tests; the registration cost is paid once.
 
 ### Pattern 4 — pure machine simulation (no frame)
 
@@ -200,7 +200,7 @@ The macro:
 5. Runs `body`.
 6. In a `finally`, destroys the frame regardless of whether `body` returned normally or threw — no leaked frames across tests.
 
-`opts-map` keys (all optional): `:install`, `:root-view`, `:root-view-args`, `:frame-config` (the record-config map seated onto the fixture frame — `:on-create`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors` and the rest of the frame-shape contract per [Spec 002 §`reg-frame`](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar); these are record-config keys, so the fixture seats them via `reg-frame` / the advanced `re-frame.frame/make-frame`, not the EP-0023 object constructor `rf/make-frame`).
+`opts-map` keys (all optional): `:install`, `:root-view`, `:root-view-args`, `:frame-config` (the record-config map seated onto the fixture frame — `:initial-events`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors` and the rest of the frame-shape contract per [Spec 002 §`reg-frame`](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar); these are record-config keys, so the fixture seats them via `reg-frame` / the advanced `re-frame.frame/make-frame`, not the EP-0023 object constructor `rf/make-frame`).
 
 The companion helpers:
 
@@ -335,7 +335,7 @@ A test frame declares its intent — and gets the deterministic defaults — wit
 (rf/reg-frame :test/auth-flow {:preset :test})
 ;; or anonymous — :preset is a record-config key, so it rides the advanced
 ;; record-config `re-frame.frame/make-frame`, not the EP-0023 object constructor:
-(rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test :on-create [:auth/init-idle]})]
+(rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test :initial-events [[:auth/init-idle]]})]
   ...)
 ```
 
@@ -352,8 +352,8 @@ This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/mi
 
 ```clojure
 (rf/reg-frame :test/auth-flow
-  {:on-create   [:auth/init-idle]
-   :fx-overrides {:my-app/http (fn [_m _args] {:status 200 :body {:user/id 42}})}})
+  {:initial-events [[:auth/init-idle]]
+   :fx-overrides   {:my-app/http (fn [_m _args] {:status 200 :body {:user/id 42}})}})
 
 ;; every event handled in :test/auth-flow uses the stub :my-app/http
 ```
@@ -374,7 +374,7 @@ Under EP-0022, `:interceptor-overrides` is **reference-based**: keys are interce
 ```clojure
 ;; Bare-keyword reference — remove the registered :my-app/logger interceptor.
 (rf/reg-frame :test/silent
-  {:on-create             [:test/init]
+  {:initial-events        [[:test/init]]
    :interceptor-overrides {:my-app/logger nil}})       ;; nil removes the interceptor
 
 ;; Parameterized [id arg] reference — match the exact factory-built interceptor.
@@ -711,7 +711,7 @@ The testing surface is framework-agnostic — `make-frame` and friends work from
 
 (use-fixtures :each
   (fn [t]
-    (rf/reg-frame :test-fixture {:on-create [:test/init]})
+    (rf/reg-frame :test-fixture {:initial-events [[:test/init]]})
     (try (t) (finally (rf/destroy-frame! :test-fixture)))))
 
 (deftest example-test
@@ -743,8 +743,8 @@ The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. r
 
 A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)). The testing surface guarantees these shapes for 007:
 
-- `(make-frame {:images [...] :id … :initial-db {…} :capabilities {…} :adapter …})` — the EP-0023 object-constructor opts shape (record-config keys like `:on-create` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors` fail loud here; they ride `reg-frame` / the advanced `re-frame.frame/make-frame`).
-- `(reg-frame :id {:on-create [:event-id] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact record-config opts shape.
+- `(make-frame {:images [...] :id … :initial-events [[:rf/set-db {…}]] :capabilities {…} :adapter …})` — the EP-0024 one-constructor opts shape; image-selection and record-config keys (`:initial-events` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors`) ride the same call. Seed app-db via a leading `[:rf/set-db {…}]` setup step.
+- `(reg-frame :id {:initial-events [[:event-id]] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact record-config opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(app-db-value f)` — current `app-db` value (a plain map) for the named frame.
 - `(snapshot-of path {:frame f})` — exact opts arg.

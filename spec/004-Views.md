@@ -364,8 +364,8 @@ For setup-on-mount work that *would* go in a Form-2 outer fn, use a separate eve
   [:button {:on-click #(dispatch [:counter/inc])}
    (str label ": " @(subscribe [:count]))])
 
-;; setup happens in :on-create on the frame, or via a dedicated init event:
-(rf/reg-frame :counter-frame {:on-create [:counter/initialise]})
+;; setup happens via the frame's :initial-events, or a dedicated init event:
+(rf/reg-frame :counter-frame {:initial-events [[:counter/initialise]]})
 ```
 
 The setup event is named, registered, queryable — visible. The Form-2 outer-fn pattern hides setup behind a lambda that fires once per mount with no call-site indication.
@@ -385,7 +385,7 @@ A view body that yields a fn (Form-2) closes over the outer scope, so the inject
 
 The `dispatch` and `subscribe` in both the outer body and the inner fn refer to the same lexical bindings — Clojure lexical closure does the right thing.
 
-**Use Form-2 only when the setup work genuinely depends on per-mount props.** For stable setup, use Form-1 + a frame-level `:on-create` event.
+**Use Form-2 only when the setup work genuinely depends on per-mount props.** For stable setup, use Form-1 + the frame's `:initial-events`.
 
 ### Form-3 (class — out of scope for the macro)
 
@@ -454,7 +454,7 @@ Views are pure functions of state to a render-tree. The following are normative 
 
 ### Views MUST NOT dispatch from their render bodies
 
-A view's render body computes hiccup; it does not advance state. Dispatching during render couples reads to writes and (in Reagent's reactive case) loops the render — the dispatch invalidates a sub the view just deref'd, the view re-renders, dispatches again. Setup work that needs to fire once per mount belongs in a frame-level `:on-create` event ([§Form-1](#form-1-canonical--simple-render-fn)) or, for per-mount setup that genuinely depends on props, in a Form-2 outer fn ([§Form-2](#form-2-closure--supported-prefer-form-1--explicit-setup-event)) — both of which name the dispatch site so the trace stream and tooling see it.
+A view's render body computes hiccup; it does not advance state. Dispatching during render couples reads to writes and (in Reagent's reactive case) loops the render — the dispatch invalidates a sub the view just deref'd, the view re-renders, dispatches again. Setup work that needs to fire once per mount belongs in the frame's `:initial-events` ([§Form-1](#form-1-canonical--simple-render-fn)) or, for per-mount setup that genuinely depends on props, in a Form-2 outer fn ([§Form-2](#form-2-closure--supported-prefer-form-1--explicit-setup-event)) — both of which name the dispatch site so the trace stream and tooling see it.
 
 ### Views MUST NOT attach native DOM event listeners from render bodies
 

@@ -411,7 +411,7 @@ Stubbing HTTP (and similar effects) for stories uses **hooks for per-variant int
 
 The framework hooks (at the foundation level — see [002-Frames.md](002-Frames.md)):
 
-- `:on-create` events run at frame creation.
+- `:initial-events` run at frame creation (the framework's declarative setup surface — see [002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
 - **Per-frame fx override** — a variant can declare fx replacements active for its frame's lifetime. Available via `reg-frame :fx-overrides` (see [002 §Per-frame and per-call overrides](002-Frames.md)).
 - **Per-frame interceptor injection** — a variant can register interceptors that run only for its frame.
 
@@ -513,7 +513,7 @@ The test is "would this need re-defining for another port to interoperate?" — 
 
 ## Relationship with frames
 
-A variant *is* a frame, registered under its variant keyword. But variant `:setup` is NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), while variant `:setup` is an explicitly multi-step precondition sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
+A variant *is* a frame, registered under its variant keyword. But variant `:setup` is NOT desugared to `reg-frame :initial-events` — Story keeps its own richer, tagged setup grammar (loaders, `:rf.story/*` phases) and neither couples to nor reuses `:initial-events` (per [EP-0027 §Out of scope](../docs/EP/EP-0027-frame-initial-events.md)), while variant `:setup` is an explicitly multi-phase precondition sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
 
 ```clojure
 ;; conceptual setup logic for story/reg-variant
@@ -531,7 +531,7 @@ A variant *is* a frame, registered under its variant keyword. But variant `:setu
 ;; phase 3 (render) and phase 4 (script) happen later, driven by the host.
 ```
 
-So the variant's *frame* is a normal frame (no `:on-create`); the variant *library* handles the multi-event setup. This keeps `reg-frame :on-create` semantically simple (one event) while letting stories express their richer setup pattern.
+So the variant's *frame* is a normal frame (no `:initial-events`); the variant *library* handles the multi-phase setup. This keeps the framework's `:initial-events` surface a thin declarative front door while letting stories express their richer, tagged setup pattern.
 
 Workspaces are *not* frames (or not necessarily — they may be ordinary frames containing nested `frame-provider-existing` scopes, one per included variant). Each variant's frame is **allocated by the variant machinery** (the `reg-frame` + setup phases above); a workspace cell then *scopes* that already-created variant frame into its React subtree with `frame-provider-existing` (the EP-0024 scope-only member of the name family — the Story tool's namespace-preserving `frame-provider-ns-safe` is its twin), isolating each cell from its siblings. This falls out of 002's design without extra machinery.
 
