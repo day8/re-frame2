@@ -18,7 +18,7 @@ re-export rule is:
   all sit on the facade. Story does **not** publish `add-marks` /
   `set-marks` — durable app-db classification is frame-owned, declared via
   the `:sensitive` / `:large` slots on a variant body (rf2-bsk1d9; see
-  [Conventions §Privacy — frame-owned classification](Conventions.md#privacy--frame-owned-sensitive--large-classification)).
+  [Conventions §Privacy — classification](Conventions.md#privacy--sensitive--large-classification)).
 - **Tooling-consumer leaf surfaces re-export (rf2-jy92cr).** Five pure
   data → data leaf operations the downstream MCP tool (`story-mcp`)
   needs sit on the facade so it no longer reaches into Story internals:
