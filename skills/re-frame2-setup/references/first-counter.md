@@ -89,8 +89,8 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
   ;; transient empty frame). This is the reset-boundary shape the generator
   ;; ships: on a hot reload the second reg-frame is a surgical update that
   ;; PRESERVES app-db, and this explicit dispatch-sync re-seeds the demo
-  ;; state each time. Seeding via :on-create instead would only run on the
-  ;; first registration, so a save during the demo would not reseed.
+  ;; state each time. Seeding via :initial-events instead would only run on
+  ;; the first registration, so a save during the demo would not reseed.
   (rf/with-frame :rf/default
     (register-schema!)                          ;; frame-local schema attach
     (rf/dispatch-sync [:counter/initialise]))
@@ -149,7 +149,7 @@ The result is regular Reagent hiccup. Reagent renders, the React 19 root commits
 
 1. `(rf/init! reagent-adapter/adapter)` — install the Reagent substrate adapter (no frame is created here).
 2. `(rf/reg-frame :rf/default {})` — register the app frame. On a hot reload this re-registration is a **surgical update** that preserves the existing app-db (and sub-cache and queue); only the frame's metadata/config is replaced.
-3. `(rf/with-frame :rf/default (register-schema!) (rf/dispatch-sync [:counter/initialise]))` — under a live frame scope: first attach the frame-local schema (`reg-app-schema` needs an established frame — see §Schema), then seed the app-db synchronously, so the initial render sees `{:counter/value 0}` rather than a transient empty frame. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo state on **every** hot reload. (Seeding via `:on-create` instead would only run on the first registration — the surgical update in step 2 does not rerun it — so a save during the demo would leave the counter wherever you'd clicked it.)
+3. `(rf/with-frame :rf/default (register-schema!) (rf/dispatch-sync [:counter/initialise]))` — under a live frame scope: first attach the frame-local schema (`reg-app-schema` needs an established frame — see §Schema), then seed the app-db synchronously, so the initial render sees `{:counter/value 0}` rather than a transient empty frame. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo state on **every** hot reload. (Seeding via `:initial-events` instead would only run on the first registration — the surgical update in step 2 does not rerun them — so a save during the demo would leave the counter wherever you'd clicked it.)
 4. `(rdc/render react-root [rf/frame-provider-existing {:frame :rf/default} [counter-app]])` — mount, wrapped in `frame-provider-existing` (scope-only — the frame already exists from step 2) so the tree's `dispatch` / `subscribe` resolve to `:rf/default`.
 
 ## Verifying it works

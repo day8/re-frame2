@@ -74,7 +74,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 ;;
-;; The :on-create event fans out to the per-feature initialisers.
+;; The :app/initialise boot event fans out to the per-feature initialisers.
 ;; `:work/initialise` resets the parent flow machine to :idle;
 ;; `:ui/initialise` seeds the Show/Hide toggle to true.
 

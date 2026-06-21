@@ -236,8 +236,8 @@
 ;;   1. Accept request.
 ;;   2. set-request! populates the per-frame slot for the :rf.server/request
 ;;      cofx (Spec 011 §Request storage substrate).
-;;   3. make-frame; :on-create dispatches :rf/server-init (which reads
-;;      the request via the cofx).
+;;   3. reg-frame; the :initial-events step dispatches :rf/server-init
+;;      (which reads the request via the cofx).
 ;;   4. Drain settles (HTTP fetches resolve via :rf.http/managed; the JVM
 ;;      transport uses java.net.http.HttpClient under the hood).
 ;;   5. Render to string via the pure hiccup → HTML emitter.
@@ -260,10 +260,10 @@
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (ssr/set-request! fid request)
            ;; Register the app schema AGAINST THIS per-request server frame
-           ;; BEFORE `:on-create` fires `:rf/server-init` — the
+           ;; BEFORE the `:initial-events` `:rf/server-init` step runs — the
            ;; per-request frame is where the server-side `:articles` commit
            ;; actually validates, so the schema must bind here, not only on the
-           ;; client frame. `reg-frame` runs the `:on-create` cascade
+           ;; client frame. `reg-frame` runs the `:initial-events` cascade
            ;; synchronously before returning, so the schema must be in place
            ;; first; we register it under the gensym `fid` and only then create
            ;; the frame.

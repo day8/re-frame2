@@ -47,7 +47,7 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
   (let [frame (rf/make-frame
                 {:images     [(rf/image {:include-ns ["shop.cart.**"
                                                       "shop.test-doubles.**"]})]
-                 :initial-db {:cart/items []}})]
+                 :initial-events [[:rf/set-db {:cart/items []}]]})]
     (rf/dispatch-sync [:cart/add "SKU-1"] {:frame frame})
     (is (= ["SKU-1"] @(rf/subscribe frame [:cart/items])))))
 ```
@@ -196,7 +196,7 @@ This is the dominant shape for an app-developer e2e view test — it compresses 
     (h/expect-text :n "1")))          ;; uses the stashed root view
 ```
 
-`with-app-fixture` opts (all optional): `:install` (zero-arg fn run inside the bound frame — register events/subs/views here; pair with a `make-reset-runtime-fixture` `:each` fixture to roll the registrations back), `:root-view` (hiccup-returning view fn stashed for `expect-text`/`wait-until`), `:root-view-args` (args vector applied to `:root-view`, default `[]` — use when the view takes a props map), `:frame-config` (map merged into `make-frame`/`reg-frame` — `:on-create`, `:fx-overrides`, `:interceptors`, …). Two call shapes: `(with-app-fixture opts body+)` gets an anonymous gensym'd frame id; `(with-app-fixture opts frame-id body+)` names it.
+`with-app-fixture` opts (all optional): `:install` (zero-arg fn run inside the bound frame — register events/subs/views here; pair with a `make-reset-runtime-fixture` `:each` fixture to roll the registrations back), `:root-view` (hiccup-returning view fn stashed for `expect-text`/`wait-until`), `:root-view-args` (args vector applied to `:root-view`, default `[]` — use when the view takes a props map), `:frame-config` (map merged into `make-frame`/`reg-frame` — `:initial-events`, `:fx-overrides`, `:interceptors`, …). Two call shapes: `(with-app-fixture opts body+)` gets an anonymous gensym'd frame id; `(with-app-fixture opts frame-id body+)` names it.
 
 `expect-text` asserts the `:data-testid` node's text equals `expected`, reporting via `clojure.test/is`:
 
@@ -223,7 +223,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 ```clojure
 (deftest counter-view-shows-and-fires
-  (rf/with-new-frame [f (rf/make-frame {:on-create [:counter/init]})]
+  (rf/with-new-frame [f (rf/make-frame {:initial-events [[:counter/init]]})]
     (let [tree (counter-view {:n 0})
           btn  (h/find-by-testid tree "counter-inc")]
       (h/invoke-handler btn :on-click nil)              ;; fire the handler as the DOM would

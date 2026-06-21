@@ -70,7 +70,7 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
 ;; snapshot — registration creates the *handler*, not the snapshot, and
 ;; `[:rf/machine :article]` returns nil until the machine first runs (Spec 005
 ;; §When creation happens). Dispatch the synthetic eager-start kick from your
-;; app/frame init (e.g. the frame's `:on-create` event) so the `:loading`
+;; app/frame init (e.g. the frame's `:initial-events`) so the `:loading`
 ;; snapshot exists on first paint:
 ;;
 ;;   (rf/dispatch [:article [:rf.machine/start]])  ;; eager creation kick → snapshot now :loading

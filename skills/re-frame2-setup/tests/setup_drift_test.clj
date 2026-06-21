@@ -837,10 +837,10 @@
 ;;
 ;; The generator template seeds via an explicit `(rf/dispatch-sync
 ;; [...initialise])` under `(rf/with-frame :rf/default ...)`, NOT via a
-;; `reg-frame ... {:on-create [...]}` seed. This matters for hot reload:
+;; `reg-frame ... {:initial-events [...]}` seed. This matters for hot reload:
 ;; `reg-frame` re-registration is a surgical update that preserves app-db and
-;; does NOT rerun `:on-create`, so an `:on-create`-only seed would not re-seed
-;; on save. The manual copyable snippets (first-counter.md + entry-namespace.md)
+;; does NOT rerun `:initial-events`, so an `:initial-events`-only seed would not
+;; re-seed on save. The manual copyable snippets (first-counter.md + entry-namespace.md)
 ;; must match the generator's reset-boundary shape so the manual route lands on
 ;; the same boot/seed behaviour the same skill teaches.
 ;; ---------------------------------------------------------------------------
@@ -855,11 +855,11 @@
                "[:counter/initialise]))`. If the generator boot contract "
                "changed, update this lock AND the manual snippets together "
                "(rf2-xqds87)."))
-      (is (not (re-find #"reg-frame[^)]*:on-create" tmpl))
-          (str "the generator Reagent template now seeds via `:on-create` — "
+      (is (not (re-find #"reg-frame[^)]*:initial-events" tmpl))
+          (str "the generator Reagent template now seeds via `:initial-events` — "
                "re-check the manual-snippet alignment in this lock "
                "(rf2-xqds87)."))))
-  (testing "first-counter.md + entry-namespace.md seed via dispatch-sync under with-frame, not :on-create"
+  (testing "first-counter.md + entry-namespace.md seed via dispatch-sync under with-frame, not :initial-events"
     (doseq [[label body] [["first-counter.md" @first-counter-md]
                           ["entry-namespace.md" @entry-namespace-md]]]
       ;; `with-frame` opens the seed scope; the seed dispatch-sync follows on a
@@ -872,11 +872,11 @@
                "`(rf/with-frame ... (rf/dispatch-sync [...initialise]))`. The "
                "manual boot must match the generator's reset-boundary seed so "
                "hot reload re-seeds demo state (reg-frame re-registration "
-               "preserves app-db and does not rerun :on-create) (rf2-xqds87)."))
-      (is (not (re-find #"reg-frame[^)\n]*:on-create\s+\[:(counter|your-app)/initialise\]"
+               "preserves app-db and does not rerun :initial-events) (rf2-xqds87)."))
+      (is (not (re-find #"reg-frame[^)\n]*:initial-events\s+\[\[:(counter|your-app)/initialise\]\]"
                         body))
           (str label " still seeds the manual counter via a `reg-frame ... "
-               "{:on-create [...initialise]}` boundary. That only runs on the "
+               "{:initial-events [[...initialise]]}` boundary. That only runs on the "
                "first registration; a hot-reload surgical update does not "
                "rerun it, so the demo would not re-seed. Use the "
                "dispatch-sync reset boundary instead (rf2-xqds87).")))))

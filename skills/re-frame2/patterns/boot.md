@@ -16,7 +16,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
 | Feature | Role |
 |---|---|
-| `reg-frame` `:on-create` | Atomic entry point — fires `[:app/boot [:rf.machine/start]]` exactly once per frame creation; survives hot-reload. |
+| `reg-frame` `:initial-events` | Atomic entry point — fires `[:app/boot [:rf.machine/start]]` exactly once per frame creation; survives hot-reload. |
 | `:spawn` per phase | Each phase spawns its async work (`:rf.http/managed` or a domain child like `:auth/restore-session`) and transitions on `:succeeded` / `:failed`. |
 | Consolidated `:entry` action | Per Spec 005, `:entry` is one fn or one registered id — never a vector. To update `:data` AND dispatch, write one action returning `{:data ..., :fx ...}`. |
 | `:after` (numeric delay) | Retry-with-backoff between failed phase and re-attempt. |
@@ -93,7 +93,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
       :fatal-error    {:meta {:terminal? true}}}}))
 ```
 
-The frame's `:on-create` dispatches `[:app/boot [:rf.machine/start]]` — the reserved creation marker that births the machine directly into its `:initial` state (`:configuring`) and runs that state's entry-cascade. The marker is a pure init-kick (it is never fed into an `:on` map as a trigger), so the machine self-initialises and starts working at birth — there is no idle parking spot waiting on the marker.
+The frame's `:initial-events` dispatch `[:app/boot [:rf.machine/start]]` — the reserved creation marker that births the machine directly into its `:initial` state (`:configuring`) and runs that state's entry-cascade. The marker is a pure init-kick (it is never fed into an `:on` map as a trigger), so the machine self-initialises and starts working at birth — there is no idle parking spot waiting on the marker.
 
 ## Simple form — chained events
 
@@ -149,7 +149,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 ## Pointers
 
-SKILL-REDIRECT.md → *Pattern — Boot* (auth-machine retry-ownership, SSR handoff), *EP — Frames (002)* (`:on-create`), *EP — State machines (005)* (substrate), *EP — SSR (011)*, *EP — HTTP requests (014)*. `:final?` / `:on-done` / `:output-key` → `../references/state-machines/spawn.md` §Final states. Retry-ownership boundary → `patterns/managed-http.md`.
+SKILL-REDIRECT.md → *Pattern — Boot* (auth-machine retry-ownership, SSR handoff), *EP — Frames (002)* (`:initial-events`), *EP — State machines (005)* (substrate), *EP — SSR (011)*, *EP — HTTP requests (014)*. `:final?` / `:on-done` / `:output-key` → `../references/state-machines/spawn.md` §Final states. Retry-ownership boundary → `patterns/managed-http.md`.
 
 ---
 

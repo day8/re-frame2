@@ -3,7 +3,7 @@
 
    Wires the app together:
    - Pulls in every feature namespace (each registers its own events/subs/fx).
-   - Defines :app/initialise (the :on-create event).
+   - Defines :app/initialise (the boot event, dispatched under with-frame).
    - Defines the root-view that switches on :rf.route/id.
    - Mounts the React root and installs the URL listener.
 

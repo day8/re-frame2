@@ -147,14 +147,14 @@ If the author declines, document the warning in the report.
 
 **Identify**: top-level `(reset! re-frame.db/app-db ...)` or `(swap! re-frame.db/app-db ...)` calls in namespace bodies (run at load time, not inside a function).
 
-**Risk**: M-1 forbids the private-namespace require. But the seeding can't just be deleted — `app-db` no longer starts as a top-level mutable atom in v2; it lives inside the default frame's record and is initialised by the frame's `:on-create` cascade.
+**Risk**: M-1 forbids the private-namespace require. But the seeding can't just be deleted — `app-db` no longer starts as a top-level mutable atom in v2; it lives inside the default frame's record and is initialised by the frame's `:initial-events`.
 
 **Decision shape**:
 
-1. **Author the `:on-create` event**. `(rf/reg-frame :rf/default {:on-create [:app/seed initial-state]})` plus the `[:app/seed initial]` event handler that writes the seed into `app-db`. (`:on-create` accepts a **single** event vector, not a vector of event vectors — per [`spec/002-Frames.md` §reg-frame metadata grammar](../../../spec/002-Frames.md). To fire multiple seed events, the single `:on-create` handler dispatches them via its `:fx` slot.)
-2. **Move the seed to test fixtures only** if the seed is test-specific. Seed the test frame the same way — via `:on-create` — never a top-level `app-db` poke: `(rf/with-new-frame [f (rf/make-frame {:on-create [:test/seed initial]})] ...)`.
+1. **Seed via `:initial-events`**. To seed a literal app-db, use the standard `[:rf/set-db {…}]` event: `(rf/reg-frame :rf/default {:initial-events [[:rf/set-db initial-state]]})`. To run a boot event instead, point `:initial-events` at it: `(rf/reg-frame :rf/default {:initial-events [[:app/seed initial-state]]})` plus the `[:app/seed initial]` event handler that writes the seed into `app-db`. (`:initial-events` is a **vector of event vectors** — list multiple steps directly, in order, e.g. `[[:rf/set-db initial] [:app/boot]]`; no `:fx`-fan-out workaround is needed.)
+2. **Move the seed to test fixtures only** if the seed is test-specific. Seed the test frame the same way — via `:initial-events` — never a top-level `app-db` poke: `(rf/with-new-frame [f (rf/make-frame {:initial-events [[:test/seed initial]]})] ...)`.
 
-Present the seed value and the proposed rewrite; confirm with the author; apply both the M-1 require-removal and the M-15 `:on-create` rewrite together.
+Present the seed value and the proposed rewrite; confirm with the author; apply both the M-1 require-removal and the M-15 `:initial-events` rewrite together.
 
 ---
 

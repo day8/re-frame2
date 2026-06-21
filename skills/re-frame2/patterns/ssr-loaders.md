@@ -2,7 +2,7 @@
 
 The standard fan-out-then-render shape for server-side rendering that needs N parallel HTTP fetches before HTML emission. **Convention, not Spec** — built on `:spawn-all` (spawn-and-join) and `:rf.http/managed`, primitives the spec already locks.
 
-> **Mental-model anchor:** this is the **Next.js `Promise.all([getArticle, getComments, getRelated])` / Remix parallel-loader** shape. The naive alternative — three loader events in series from `:on-create` — serialises the wall-clock cost of every fetch (the drain is single-threaded; back-to-back blocking JVM transport calls add up). The fan-out moves each fetch into its own spawned actor; total cost falls to `max(fetch-i) + overhead`, not `sum(fetch-i)`.
+> **Mental-model anchor:** this is the **Next.js `Promise.all([getArticle, getComments, getRelated])` / Remix parallel-loader** shape. The naive alternative — three loader events in series from `:initial-events` — serialises the wall-clock cost of every fetch (the drain is single-threaded; back-to-back blocking JVM transport calls add up). The fan-out moves each fetch into its own spawned actor; total cost falls to `max(fetch-i) + overhead`, not `sum(fetch-i)`.
 
 ## When to load
 
@@ -10,9 +10,9 @@ The prompt mentions: SSR that loads several independent pieces of data before re
 
 ## The five-step shape
 
-A boot-like state machine spawned at `:on-create` (server) / `:on-match` (client). Its first state fans out N HTTP children via `:spawn-all`; the join-all-complete transition advances to a terminal `:ready`; the drain settles; `render-to-string` runs against the post-drain `app-db`.
+A boot-like state machine spawned from `:initial-events` (server) / `:on-match` (client). Its first state fans out N HTTP children via `:spawn-all`; the join-all-complete transition advances to a terminal `:ready`; the drain settles; `render-to-string` runs against the post-drain `app-db`.
 
-1. **`:rf/server-init` (or `:on-create`) reads the URL** and spawns the loader machine with the request-derived params.
+1. **`:rf/server-init` (the frame's `:initial-events` step) reads the URL** and spawns the loader machine with the request-derived params.
 2. **The loader's `:loading` state declares `:spawn-all`** — N children, each a thin machine wrapping `:rf.http/managed` for one fetch.
 3. **Each child dispatches back** `[<parent> [:loaded :child-id <result>]]` (or `[:failed …]`) on terminal.
 4. **The runtime joins** — when every child is `:done`, it fires `:on-all-complete`; the parent transitions to `:ready` and writes results into `app-db`.
@@ -117,11 +117,11 @@ Children read auth-token/locale from the parent's snapshot at spawn — nothing 
 
 ## Server vs client
 
-The same machine works on both platforms; only the deadline policy and the rendering moment differ. Server: spawned at `:on-create`, drain settles before `render-to-string`, deadline mandatory, no partial render. Client: spawned at the route's `:on-match`, drain settles before the next React tick, deadline optional, *can* render a skeleton mid-fetch (give the parent an `:on :loaded` handler that writes results incrementally). One machine; the platform decides whether to render mid-fetch or only after the join.
+The same machine works on both platforms; only the deadline policy and the rendering moment differ. Server: spawned from `:initial-events`, drain settles before `render-to-string`, deadline mandatory, no partial render. Client: spawned at the route's `:on-match`, drain settles before the next React tick, deadline optional, *can* render a skeleton mid-fetch (give the parent an `:on :loaded` handler that writes results incrementally). One machine; the platform decides whether to render mid-fetch or only after the join.
 
 ## Anti-patterns
 
-- **Three loaders in series from `:on-create`.** Serialises the wall-clock cost — each `:rf.http/managed` blocks the drain thread on the server JVM transport. Use `:spawn-all`.
+- **Three loaders in series from `:initial-events`.** Serialises the wall-clock cost — each `:rf.http/managed` blocks the drain thread on the server JVM transport. Use `:spawn-all`.
 - **Hand-rolling the join** with a counter in `app-db` (`(when (= 3 @counter) …)`). Reinvents `:spawn-all`'s join-state without the destroy cascade, deadline composition, or trace events.
 - **Reading `:rf.server/request` from child machines.** The cofx is server-only; a child that reads it becomes server-only too, breaking the "same machine for client navigation" property. Thread request-derived values from the parent's `:data`.
 - **Omitting the deadline.** A loader with no `:after` can hang until the host's outer timeout fires, where the error path is host-specific and unobservable to the trace stream.

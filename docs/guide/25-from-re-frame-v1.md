@@ -56,7 +56,7 @@ These are the broad shapes of breakage. The skill identifies and resolves them; 
 **You must establish a root frame.** This is the change most likely to bite a v1 codebase, and [chapter 18](concepts/frames.md) is the full story. A frame is the isolated runtime context an operation runs under — it carries which app-db instance you're talking to. v1 gave you an ambient global `app-db` that every bare `dispatch` (the call that sends an event) and `subscribe` resolved against. v2 does **not**. Frame identity is carried, not found: an operation reads its frame from the scope it runs under, and the runtime never synthesises one from absence. So a v1 app that calls `(rf/dispatch [:boot])` at top level with no frame established now fails loudly with `:rf.error/no-frame-context`. The fix is one line of ceremony at your root: register a frame and scope your tree to it with `frame-provider-existing`. A migration may choose `:rf/default` as that frame's explicit id, since it reads familiarly. You still register and provide it — the framework will not infer it for you:
 
 ```clojure
-(rf/reg-frame :app/main {:on-create [:boot]})        ;; or :rf/default if you prefer the familiar name
+(rf/reg-frame :app/main {:initial-events [[:boot]]})        ;; or :rf/default if you prefer the familiar name
 
 (rdc/render root
   [rf/frame-provider-existing {:frame :app/main}

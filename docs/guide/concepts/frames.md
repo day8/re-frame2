@@ -44,9 +44,9 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
   (rf/init! reagent-adapter/adapter)   ;; installs the adapter — creates no frame
   ;; Frames come after init! — the adapter must be installed before any
   ;; frame exists. A new frame's app-db is always {} — state arrives the
-  ;; only way state ever arrives: via an event. :on-create runs
+  ;; only way state ever arrives: via an event. :initial-events run
   ;; synchronously; by the time reg-frame returns, the cascade has settled.
-  (rf/reg-frame :app {:on-create [:app/initialise]})
+  (rf/reg-frame :app {:initial-events [[:app/initialise]]})
   (rdc/render react-root
     [rf/frame-provider-existing {:frame :app}
      [main-view]]))
@@ -58,7 +58,7 @@ Notice that `init!` created no frame. Nothing is implicit about which frame your
 
 !!! note "Three lanes meet at startup — keep them apart"
 
-    The two lines above are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:on-create` event, which seeds app-db or kicks a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, `current-adapter`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
+    The two lines above are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, `current-adapter`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
 
 ## When you want more than one
 
@@ -96,8 +96,8 @@ Here's the split pane, end to end:
 ;; under the app's root provider (:app, registered in the boot snippet
 ;; above), like every other view. Providers nest: each pane's provider
 ;; overrides the root scope for its own subtree.
-(rf/reg-frame :pane/left  {:on-create [::init]})
-(rf/reg-frame :pane/right {:on-create [::init]})
+(rf/reg-frame :pane/left  {:initial-events [[::init]]})
+(rf/reg-frame :pane/right {:initial-events [[::init]]})
 
 (rdc/render react-root
   [rf/frame-provider-existing {:frame :app}

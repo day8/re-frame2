@@ -49,12 +49,12 @@ Durable `app-db` classification, frame-local HTTP carrier names, and observabili
    {:app-db [[:documents :csv-upload]
              [:reports :raw-export]]}
 
-   :on-create [:app/init]})
+   :initial-events [[:app/init]]})
 ```
 
 The path on the frame is the whole of it — no companion interceptor, no per-tool plumbing. Worth knowing:
 
-- Classification is installed **atomically as part of frame creation**, before `:on-create` runs. The frame is never live without its policy.
+- Classification is installed **atomically as part of frame creation**, before `:initial-events` run. The frame is never live without its policy.
 - Re-registering a frame **replaces** its classification wholesale — no additive-merge surprise.
 - `:app-db` entries are ordinary `:rf/path` values (the same path vocabulary you use everywhere), not a fourth notation.
 - **Sensitive wins over large.** A path that's both redacts as sensitive and emits *no* size marker (the marker's `:path` / `:bytes` would themselves leak structure).
@@ -118,7 +118,7 @@ Sink policy is the other thing you declare. Production observability — the alw
                       :rf.egress/profile :rf.egress/off-box-observability
                       :opts {:service "checkout-spa" :env "prod"}}]}
    :sensitive {:app-db [[:auth :token]]}
-   :on-create [:app/init]})
+   :initial-events [[:app/init]]})
 
 (rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]

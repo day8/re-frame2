@@ -408,8 +408,9 @@
   {:doc "Top-level app boot. Fires the :app/boot machine's
          `:rf.machine/start` creation marker to kick the boot sequence
          off — the machine is born directly into `:configuring` and runs
-         its `:spawn` entry-cascade. The frame's :on-create points at
-         this event (see core.cljs)."}
+         its `:spawn` entry-cascade. The app dispatches this event under
+         `with-frame` at boot (see core.cljs); a frame could equally point
+         its `:initial-events` at it."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 
