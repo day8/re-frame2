@@ -57,7 +57,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.marks :as marks]
+            [re-frame.classification :as classification]
             [re-frame.projection :as projection]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
@@ -1278,9 +1278,9 @@
   `:rf.event/run-start`, `:rf.event/db-pending`, `:rf.event/db-changed`,
   `:rf.event/run-end`, …) under `:rf.event/v`, and on the `:rf.error/*`
   handler-exception traces under the bare `:event` slot
-  (`HandlerExceptionTags`, Spec-Schemas §`:rf/error-event`). The marks
-  chokepoint (`re-frame.marks/project-event-tags`) redacts these against
-  the event's REGISTRATION marks at emit time, but UNMARKED args (a bare
+  (`HandlerExceptionTags`, Spec-Schemas §`:rf/error-event`). The classification
+  chokepoint (`re-frame.classification/project-trace-event`) redacts these against
+  the event's REGISTRATION classification at emit time, but UNMARKED args (a bare
   positional secret like `[:login \"topsecret\"]`, or a map arg with no
   declaration) are passed through raw, and the on-box ring stores the raw
   event for `restore-epoch!` fidelity — so off-box egress must fail closed
@@ -1466,7 +1466,7 @@
   on the row as `:large?` (threaded by `capture/sub-run-row`) with the
   RAW value still attached (the on-box ring keeps the exact value). For
   the off-box `:include-large? false` default we substitute the canonical
-  `:rf.size/large-elided` marker (`re-frame.marks/large-marker`, the
+  `:rf.size/large-elided` marker (`re-frame.classification/large-marker`, the
   same `:reason :marks` provenance the propagation table sets) for both
   value slots, then strip the now-spent `:large?` flag so the projected
   row's shape matches the on-box base shape's metadata. Idempotent: a
@@ -1502,10 +1502,10 @@
     (-> row
         (cond-> (contains? row :value)
           (update :value (fn [v]
-                            (if (elision/marker? v) v (marks/large-marker v [:value]))))
+                            (if (elision/marker? v) v (classification/large-marker v [:value]))))
           (contains? row :prev-value)
           (update :prev-value (fn [v]
-                                (if (elision/marker? v) v (marks/large-marker v [:prev-value])))))
+                                (if (elision/marker? v) v (classification/large-marker v [:prev-value])))))
         (dissoc :large?))))
 
 (defn- elide-sub-runs-slot

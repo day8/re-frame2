@@ -44,7 +44,7 @@
   does not SSR carries none of this path; an SSR app without machines sees the
   hook unbound and ships the (already machine-less) runtime-db unchanged.
   Pure / host-agnostic CLJC — SSR runs on the JVM."
-  (:require [re-frame.marks :as marks]))
+  (:require [re-frame.classification :as classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -60,10 +60,11 @@
   a durable machine `:data` slot by declaring the absolute runtime-db path
   `[:rf.runtime/machines :snapshots <actor-id> :data …]` via `reg-frame`
   `:sensitive` / `:large {:app-db …}` (the sole app-db mechanism).
-  `re-frame.marks/frame-snapshot-marks` re-roots those declarations
-  snapshot-relative (`[:data …]`); here we strip the leading `:data` segment to
-  index into the snapshot's bare `:data` map and redact via the SHARED frame-
-  independent `re-frame.marks/redact-with-paths` walker — `:sensitive` slots to
+  `re-frame.classification/frame-snapshot-classification` re-roots those
+  declarations snapshot-relative (`[:data …]`); here we strip the leading
+  `:data` segment to index into the snapshot's bare `:data` map and redact via
+  the SHARED frame-independent `re-frame.classification/redact-with-paths`
+  walker — `:sensitive` slots to
   `:rf/redacted`, `:large` to the `:rf.size/large-elided` marker (sensitive
   wins). Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
   schema marks; frame-owned classification is the sole mechanism.
@@ -76,7 +77,7 @@
   [actor-id snapshot frame-id]
   (if-not (and (map? snapshot) (contains? snapshot :data) frame-id)
     snapshot
-    (let [{:keys [sensitive large]} (marks/frame-snapshot-marks frame-id actor-id)
+    (let [{:keys [sensitive large]} (classification/frame-snapshot-classification frame-id actor-id)
           ;; frame-snapshot-marks returns snapshot-rooted paths ([:data …]);
           ;; the SSR projector walks the bare :data MAP, so strip the leading
           ;; :data segment to index into it directly.
@@ -86,7 +87,7 @@
           s-paths (strip sensitive)
           l-paths (strip large)]
       (if (or (seq s-paths) (seq l-paths))
-        (update snapshot :data marks/redact-with-paths s-paths l-paths)
+        (update snapshot :data classification/redact-with-paths s-paths l-paths)
         snapshot))))
 
 (defn project-ssr-runtime-db

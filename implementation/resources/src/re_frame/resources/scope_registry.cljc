@@ -100,7 +100,6 @@
   `:rf.resource/clear-scope` concretely. Per Spec 016 §`clear-scope` resolves
   the concrete scope from the coeffect db (EP-0016 issue 7)."
   (:require [re-frame.error :as error]
-            [re-frame.marks :as marks]
             [re-frame.path :as path]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
@@ -227,32 +226,44 @@
                         " Per Conventions §Segment domain.")
                    {:scope-id scope-id :input input-name :descriptor descriptor})))))))
 
+;; EP-0025 NOTE (FLAGGED to mayor): the resource named-scope-resolver
+;; derived-sensitivity inheritance (EP-0016, rf2-fi6tda) is itself a sensitivity
+;; PROPAGATION surface — a resolver's derived scope inherits its `:db` inputs'
+;; classification. EP-0025 removes sub + flow propagation but this resource-scope
+;; arm was NOT in the rf2-j3jlgu purge scope, so it is RETAINED unchanged here.
+;; Its `:rf.egress/output-sensitivity` enum no longer depends on the deleted
+;; `re-frame.marks` ns — the closed value set is defined locally. If the mayor
+;; rules resource-scope propagation should also go (consistent with EP-0025
+;; §"all sensitivity propagation"), it is a contained follow-up (this fn +
+;; resolver-derived-sensitive? / scope-derived-sensitive? / whole-entry-
+;; disposition-for + their ssr/trace-egress consumers).
+(def ^:private resolver-output-sensitivity-values
+  "The closed value set of a scope resolver's `:rf.egress/output-sensitivity`
+  derived-output declassification claim (EP-0016 resource-scope inheritance)."
+  #{:rf.egress/inherit :rf.egress/sensitive :rf.egress/public})
+
 (defn- coerce-resolver-output-sensitivity
   "Validate a resolver's `:rf.egress/output-sensitivity` derived-output
-  declassification claim against the closed enum (the SAME claim subs/flows
-  honour — `re-frame.marks/output-sensitivity-values`, EP-0015 issue 9). Returns
-  the validated value, or `:rf.egress/inherit` (the default) when the key is
-  absent. FAIL-CLOSED: an unknown value THROWS
-  `:rf.error/invalid-resource-scope-spec` (the enum is closed — a typo is a loud
-  registration error, never a silent permissive fall-through). Per Spec 015
-  §Derived sensitivity / §Declassifying a derived output."
+  declassification claim against the closed enum (EP-0016 resource-scope
+  inheritance). Returns the validated value, or `:rf.egress/inherit` (the
+  default) when the key is absent. FAIL-CLOSED: an unknown value THROWS
+  `:rf.error/invalid-resource-scope-spec`."
   [scope-id v]
   (cond
-    (nil? v)                                       :rf.egress/inherit
-    (contains? marks/output-sensitivity-values v)  v
+    (nil? v)                                              :rf.egress/inherit
+    (contains? resolver-output-sensitivity-values v)      v
     :else
     (throw (registration-error
              :rf.error/invalid-resource-scope-spec
              'rf/reg-resource-scope
              (str "resource-scope " scope-id " declares an invalid "
                   ":rf.egress/output-sensitivity " (pr-str v) " — it must be one "
-                  "of " (pr-str marks/output-sensitivity-values) ": "
+                  "of " (pr-str resolver-output-sensitivity-values) ": "
                   ":rf.egress/inherit (default — inherit from sensitive :db "
                   "inputs), :rf.egress/sensitive (force-mark the derived scope "
-                  "sensitive), :rf.egress/public (declassify). Per Spec 015 "
-                  "§Derived sensitivity.")
+                  "sensitive), :rf.egress/public (declassify).")
              {:scope-id scope-id :rf.egress/output-sensitivity v
-              :valid    marks/output-sensitivity-values}))))
+              :valid    resolver-output-sensitivity-values}))))
 
 (defn- canonical-spec
   "Normalize a resolver registration argument into the canonical STORED
