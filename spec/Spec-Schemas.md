@@ -100,7 +100,7 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); the `:rf/dispatch-origin` axis was collapsed into `:source`. Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:on-create`), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site), `:other` (escape hatch)
+   [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); the `:rf/dispatch-origin` axis was collapsed into `:source`. Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:initial-events` setup steps), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site), `:other` (escape hatch)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
    [:rf.cofx               {:optional true} #'Cofx]])                      ;; EP-0017 recordable coeffects — runtime-guaranteed to carry `:rf/time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.cofx` below + [002 §Recordable coeffects])
 ```
@@ -3269,7 +3269,7 @@ The matched route slice rides under `:rf/runtime-db` at `[:rf.runtime/routing :c
 
 The split between v1 and post-v1 keeps the v1 contract auditable: a v1 conformance harness validates against `HydrationPayload` exactly; the post-v1 extension is a separate schema users opt into when they upgrade. The `:rf/version` integer increments when the post-v1 schema becomes the v2 contract.
 
-**Merge policy:** the standard `:rf/hydrate` handler installs a coherent **frame-state** — it **replaces** the frame's app-db partition with `(:rf/app-db payload)` and the runtime-db partition with `(:rf/runtime-db payload)` (the serializable projection) in one atomic transition (`:replace-frame-state`). Server is authoritative for the initial client state. See [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event) for the transient-client-state pattern (seed before hydrate via `:on-create`; the replace clobbers it; if the user wants seeded transient client state to survive, the handler is opt-in customisable via re-registration of `:rf/hydrate`).
+**Merge policy:** the standard `:rf/hydrate` handler installs a coherent **frame-state** — it **replaces** the frame's app-db partition with `(:rf/app-db payload)` and the runtime-db partition with `(:rf/runtime-db payload)` (the serializable projection) in one atomic transition (`:replace-frame-state`). Server is authoritative for the initial client state. See [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event) for the transient-client-state pattern (seed before hydrate via `:initial-events`; the replace clobbers it; if the user wants seeded transient client state to survive, the handler is opt-in customisable via re-registration of `:rf/hydrate`).
 
 **Why integer `:rf/version` (not string):** integer comparison is cheaper for tools and hosts to do compatibility checks against; pattern-protocol versions are monotonic increments (1, 2, ...) rather than semver-style strings.
 
@@ -3562,7 +3562,17 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:id           :keyword]
     [:created-at   :any]                                                   ;; timestamp
     [:preset       {:optional true} [:enum :default :test :story :ssr-server]] ;; per 002 §Frame presets
-    [:on-create    {:optional true} [:vector :any]]                        ;; the init event vector
+    ;; The recorded setup-event script (EP-0027): an ordered vector of steps, each
+    ;; a bare event vector OR a `{:event … :opts …}` map (`:opts` is ordinary
+    ;; dispatch-sync opts, with `:frame` forbidden). A bare event vector is NOT a
+    ;; valid top-level value — it must be a vector of steps. Seed app-db via a
+    ;; leading `[:rf/set-db {…}]` step. (This is the sole frame-setup surface;
+    ;; the prior single-event create-hook and the data seed-key are both retired.)
+    ;; Per [EP-0027](../docs/EP/EP-0027-frame-initial-events.md).
+    [:initial-events {:optional true}
+     [:vector [:or
+               [:vector :any]                                              ;; bare event-vector step
+               [:map [:event [:vector :any]] [:opts {:optional true} :map]]]]] ;; map step with dispatch opts
     [:on-destroy   {:optional true} [:vector :any]]
     [:fx-overrides {:optional true} [:map-of :keyword :any]]
     [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
@@ -3572,7 +3582,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
     ;; Frame-owned durable data classification (EP-0015 §3 + §9; the model
     ;; is normative in [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)).
-    ;; Installed atomically before `:on-create`; sensitive wins over large;
+    ;; Installed atomically before the `:initial-events` setup runs; sensitive wins over large;
     ;; malformed paths / unknown keys / non-string carriers fail loudly at
     ;; registration (`:rf.error/bad-frame-classification`).
     [:sensitive    {:optional true} FrameSensitiveClassification]

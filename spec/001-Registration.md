@@ -50,7 +50,7 @@ For `reg-event`, the metadata-map carries a reserved **`:interceptors`** key —
 
 Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. The contract is uniform across the family per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Per-kind surfaces (Specs 002 / 004 / 005 / 010 / 011 / 012 / 013) inherit this without restating it.
 
-Per-kind extensions (e.g., `:on-create` on `reg-frame`, `:path` on `reg-route`) are documented in their respective Specs. Notably `reg-frame`'s metadata-map *does* recognise `:interceptors` (frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)).
+Per-kind extensions (e.g., `:initial-events` on `reg-frame`, `:path` on `reg-route`) are documented in their respective Specs. Notably `reg-frame`'s metadata-map *does* recognise `:interceptors` (frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)).
 
 ### Allowed forms of the middle slot
 
@@ -337,8 +337,8 @@ Devtools subscribe to this event and refresh their view (handler list, source-co
 ### Edge cases
 
 - **Re-registering a sub mid-cascade.** If a re-registration arrives while a drain cycle is in flight (host-async event delivered between dequeues), the cache invalidation fires, but already-computed values for the in-flight event remain bound to that event's effect map. The next dequeue sees the new sub.
-- **Re-registering a frame's `:on-create`.** Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update), the new `:on-create` is recorded but does not re-fire. Use `reset-frame!` if you want the new init to run.
-- **Re-registering a destroyed frame's keyword.** Treated as a fresh `reg-frame`; new frame container is created; `:on-create` fires.
+- **Re-registering a frame's `:initial-events`.** Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update), the new `:initial-events` are recorded but do not re-fire. Use `reset-frame!` if you want the new setup to run.
+- **Re-registering a destroyed frame's keyword.** Treated as a fresh `reg-frame`; new frame container is created; `:initial-events` fire.
 - **Hot-reload in production builds.** Production builds typically have no save-triggered reload. The path is still legal (REPL re-evaluation, plugin systems) but rare.
 
 ## Per-kind index (non-normative)

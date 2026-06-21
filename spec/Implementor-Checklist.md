@@ -260,7 +260,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** Component lifecycle hooks; mount-time setup events; unmount-time cleanup.
 - **Options by host.** Per **F3**; component libraries supply their own lifecycle.
 - **Reference-impl picks.** CLJS uses Reagent's component lifecycle methods.
-- **Trade-offs.** Lifecycle should fire `:on-create` (mount-time) and `:on-destroy` (unmount-time) events on the surrounding frame, integrating with the run-to-completion drain.
+- **Trade-offs.** Lifecycle should fire `:initial-events` (mount-time) and `:on-destroy` (unmount-time) events on the surrounding frame, integrating with the run-to-completion drain.
 
 ### Tracing & instrumentation (always required)
 

@@ -126,7 +126,7 @@ The frame owns durable app-db classification, frame-local HTTP carrier names, ob
 - `(rf/reg-frame :app {:observability {:handled-events […] :errors […]}})` — production sink policy ([§Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy))
 - `(rf/reg-frame :app {:ssr {:hydrate {:include-app-db […]}}})` — allowlist-first SSR/hydration boundary
 
-Frame classification installs atomically at frame creation (before `:on-create`); re-registering replaces it wholesale. This **replaces** the removed `add-marks` / `set-marks` app-db path-mark API and the process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (their underlying fns survive as internal/test helpers only — see [§Removed surfaces](#removed-surfaces)). Per [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification).
+Frame classification installs atomically at frame creation (before the `:initial-events` setup runs); re-registering replaces it wholesale. This **replaces** the removed `add-marks` / `set-marks` app-db path-mark API and the process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (their underlying fns survive as internal/test helpers only — see [§Removed surfaces](#removed-surfaces)). Per [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification).
 
 ### Per-slot schema props (owner-local schema'd data)
 

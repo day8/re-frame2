@@ -1231,7 +1231,7 @@ Guards are interceptors, not a special routing mechanism. They are registered on
 The server-side flow:
 
 1. HTTP request arrives.
-2. `make-frame` per request. `:on-create` fires `[:rf/server-init request]`, which dispatches `[:rf.route/handle-url-change (:uri request)]`.
+2. `make-frame` per request. `:initial-events` fire `[:rf/server-init request]`, which dispatches `[:rf.route/handle-url-change (:uri request)]`.
 3. Route slice is set from the URL; the same handler runs on server and client. Path params, query params, defaults, and `:query-retain` keys are populated.
 4. The matched route's `:on-match` events dispatch — the same vector that runs client-side. Server-side data loaders complete before the drain settles.
 5. Drain settles; root view renders against the populated state.

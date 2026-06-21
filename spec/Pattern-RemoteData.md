@@ -133,7 +133,7 @@ Worked example — articles list. (The `:http` fx in the example is the **illust
 ;; Schema
 (rf/reg-app-schema [:articles] {:schema RequestSlice})
 
-;; :on-create init for the feature
+;; :initial-events init for the feature
 (rf/reg-event :articles/initialise
   (fn [{:keys [db]} _]
     {:db (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})}))
@@ -249,7 +249,7 @@ A `:feature.resource/retry` event reads `:attempt` from the slice and decides wh
 Per [011-SSR.md](011-SSR.md):
 
 - The `:http` fx is `:platforms #{:server :client}` — fires identically on both. The server-side implementation reads via the JVM HTTP client; the client-side via `fetch`.
-- Server-side: `:on-create` dispatches `:articles/load` (or equivalent); the drain settles before render-to-string runs; the rendered HTML reflects the loaded data.
+- Server-side: the frame's `:initial-events` dispatch `:articles/load` (or equivalent); the drain settles before render-to-string runs; the rendered HTML reflects the loaded data.
 - Client-side hydration: `:rf/hydrate` seeds the slice with `:status :loaded` and the server-loaded data. The client doesn't re-fetch on first render; subsequent navigations trigger fresh `:load` events as normal.
 
 ## What this pattern doesn't say

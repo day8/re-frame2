@@ -233,7 +233,7 @@ Three lifecycles touch every component. Each is short. Putting them in one place
 3. User code runs `reg-*` calls — handlers, subs, fx, cofx, interceptors, views, machines, routes, frames. Each emits a `:rf.registry/handler-registered` trace event. Frames declared with `reg-frame` create their **frame container** (per-frame `app-db`, router, sub-cache, lifecycle).
 4. The **substrate adapter** initialises. CLJS reference: load Reagent, install the React-context shim used by `frame-provider` ([002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part)).
 5. No frame is created by boot. The application registers its app frame explicitly with `reg-frame` (step 3) and establishes it at the root with a `frame-provider` / `with-frame`; the runtime never synthesises `:rf/default` (EP-0002).
-6. Each frame's `:on-create` dispatches (per [Pattern-Boot](Pattern-Boot.md)). The drain loop runs them; views mount under their frame-provider; first render lands.
+6. Each frame's `:initial-events` dispatch (per [Pattern-Boot](Pattern-Boot.md)). The drain loop runs them; views mount under their frame-provider; first render lands.
 
 ### Per-event drain
 
