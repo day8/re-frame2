@@ -110,7 +110,7 @@
 
 (defn- value-type
   "Coarse type tag for the `:rf.size/large-elided` marker payload.
-  Mirrors `re-frame.marks/value-type` (inlined — this ns carries no
+  Mirrors `re-frame.elision/value-type` (inlined — this ns carries no
   dependency on the core runtime graph)."
   [v]
   (cond
@@ -123,7 +123,7 @@
 (defn- large-marker
   "Build the canonical content-FREE `:rf.size/large-elided` marker for a
   large context VALUE `v` at single-key path `[k]`. Mirrors the SHAPE of
-  `re-frame.marks/large-marker` (a single-key map `{:rf.size/large-elided
+  `re-frame.classification/large-marker` (a single-key map `{:rf.size/large-elided
   {…}}`) so the projected map is recognised by every consumer of the
   framework's large-elision vocabulary (e.g. xray's `large-sentinel?`,
   mcp-base's `count-elided-markers`) — inlined because machines-viz is

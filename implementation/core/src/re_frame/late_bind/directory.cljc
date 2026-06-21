@@ -56,12 +56,12 @@
        throws a clear `:rf.error/<artefact>-artefact-missing` via
        `require-fn!`). Also covers the always-on observability surface
        (`:event-emit/*`, `:error-emit/*`) — production-survivor seams
-       that fire on every dispatch. NOTE the `marks` rows are NOT an
-       absent-optional-artefact case: `re-frame.marks`
+       that fire on every dispatch. NOTE the `classification` rows are NOT
+       an absent-optional-artefact case: `re-frame.classification`
        ships IN core and is side-effect-required at boot (core.cljc),
        so the hooks are bound in every canonical build — the
        indirection is the production-DCE/elision seam (the dev-only
-       marks projection surface constant-folds out of `:advanced` +
+       classification projection surface constant-folds out of `:advanced` +
        `goog.DEBUG=false` bundles), not decoupling from an artefact
        that could be missing. See the per-key notes on those rows.
 
@@ -165,16 +165,16 @@
    ;; `:error-emit/*`) — production-survivor seams that fire on every
    ;; dispatch and ship in their own namespaces.
    ;;
-   ;; EXCEPTION — the `:marks/*` rows are NOT an absent-optional-artefact
-   ;; case. `re-frame.marks` ships IN core and is side-
+   ;; EXCEPTION — the `:classification/*` rows are NOT an absent-optional-
+   ;; artefact case. `re-frame.classification` ships IN core and is side-
    ;; effect-required at boot (core.cljc), so the hooks are bound in
-   ;; every canonical build — `marks` is NEVER absent. For the DEV-GATED
-   ;; projection hooks the late-bind hop is the production-DCE/elision
-   ;; SEAM, not decoupling: their emit-time surface rides
+   ;; every canonical build — it is NEVER absent. For the DEV-GATED
+   ;; projection hook the late-bind hop is the production-DCE/elision
+   ;; SEAM, not decoupling: its emit-time surface rides
    ;; `interop/debug-enabled?` and is gated at the trace/emit! call sites,
    ;; so the hop keeps the lookup off the always-on registration path. The
-   ;; always-on `:marks/redact-event-by-registration` prod redactor is
-   ;; reached through the SAME indirection. `re-frame.marks/validate-marks!`
+   ;; always-on `:classification/redact-event-by-registration` prod redactor is
+   ;; reached through the SAME indirection. `re-frame.classification/validate-classification!`
    ;; is always-on, same-artefact, and already bundled, so the seam rationale
    ;; does not apply to it: reg-event / reg-fx / reg-cofx / reg-sub call it by
    ;; DIRECT REQUIRE. See the per-key notes below.

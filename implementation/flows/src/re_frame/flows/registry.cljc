@@ -1117,7 +1117,7 @@
      ;; Spec 015 §7. Flows — the output data-classification marks are
      ;; installed FRAME-AWARE into the app-db elision registry via
      ;; `write-flow-output-marks!` inside the serialized region above. They
-     ;; are deliberately NOT also stashed in the global `re-frame.marks`
+     ;; are deliberately NOT also stashed in a global side-table
      ;; per-(kind, id) table: that table is keyed by
      ;; flow-id ALONE, but Spec 013 lets the SAME flow-id carry DIFFERENT
      ;; definitions (hence different marks) per frame, so a frame-blind
@@ -1293,7 +1293,7 @@
                  ;; Spec 015 §7: drop this flow's output data-classification
                  ;; declarations from the frame's app-db elision registry so a
                  ;; deregistered flow leaves no orphaned redaction behind.
-                 ;; Schema- / add-marks-sourced entries survive.
+                 ;; Frame- / effect- / flow-sourced entries survive.
                  (clear-flow-output-marks! frame-id id)
                  ;; Drop the flow from `frame-id`'s per-frame slot; when that was
                  ;; the LAST flow on the frame, prune the now-empty `frame-id` key

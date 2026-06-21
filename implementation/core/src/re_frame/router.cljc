@@ -1206,7 +1206,7 @@
             ;; A whole-value `:rf.db/runtime` effect REPLACES the
             ;; runtime-db partition (decision #5), but the elision declaration
             ;; registry at `[:rf.runtime/elision]` is a CROSS-CUTTING durable
-            ;; subsystem child written OUT-OF-BAND by `reg-flow` / `add-marks` /
+            ;; subsystem child written OUT-OF-BAND by `reg-flow` / the EP-0025 classification effects /
             ;; frame-classification — not by the event returning the effect. An
             ;; effect that seeds an unrelated subsystem (e.g.
             ;; `:rf.runtime/routing`) and omits `:rf.runtime/elision` would
@@ -1337,7 +1337,7 @@
             ;; path takes care to preserve — and a flow-derived sensitive path
             ;; would egress RAW until the next successful drain re-propagated.
             ;; The elision registry is CROSS-CUTTING durable subsystem state
-            ;; written OUT-OF-BAND (`reg-flow` / `add-marks` / frame-
+            ;; written OUT-OF-BAND (`reg-flow` / the EP-0025 classification effects / frame-
             ;; classification), NOT part of the transactional handler effect the
             ;; schema rejected — so it must NOT be unwound with the rejected db.
             ;; Carry the LIVE registry (the freshest flow-propagated marks, as

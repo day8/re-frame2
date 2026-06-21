@@ -212,7 +212,7 @@
   `:rf.fx/skipped-on-platform` branch echoes `:url`), so the URL would
   otherwise reach the trace bus / Xray / MCP / epoch egress raw. The
   `:sensitive` path-mark declares `[:url]` so the marks chokepoint
-  (`re-frame.marks/project-trace-event` via `re-frame.trace/build-event`)
+  (`re-frame.classification/project-trace-event` via `re-frame.trace/build-event`)
   redacts it to `:rf/redacted` on the EGRESS copy — the handler still
   receives the real URL in-process (the projection touches only the trace
   tags, never the handler input), so scroll capture keeps working."

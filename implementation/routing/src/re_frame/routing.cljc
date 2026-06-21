@@ -253,7 +253,7 @@
 ;; bare `:event` slot on any error trace) is an egress surface the
 ;; per-registration marks chokepoint walks: declare those two carrier slots
 ;; `:sensitive` (paths rooted at the arg-map — the pending-nav map) so
-;; `re-frame.marks/project-event-tags` redacts them to `:rf/redacted` on the
+;; `re-frame.classification/project-trace-event` redacts them to `:rf/redacted` on the
 ;; trace egress copy. The handler / pending-nav sub still see the raw map
 ;; in-process (marks touch only the trace tags), so continue/cancel resume
 ;; behaviour is unaffected; the durable runtime-db slot's off-box epoch egress

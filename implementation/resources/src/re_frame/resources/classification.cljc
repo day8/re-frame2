@@ -139,7 +139,7 @@
 (defn- frame-sensitive-paths
   "The frame's declared sensitive app-db paths for `frame-id` — the keys of the
   frame-owned `:sensitive` elision declarations (union of `:source :frame` and
-  any `:source :marks` / `:source :flow` entries; `re-frame.elision/`
+  any `:source :effect` / `:source :flow` entries; `re-frame.elision/`
   `sensitive-declarations`). A nil `frame-id` (a frameless / pure projection —
   no resolvable frame scope) yields `[]`: there is no frame classification to
   inherit from, and the primary owner `:sensitive?` boundary still governs."

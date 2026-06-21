@@ -500,7 +500,7 @@
   before delivery, the marks-projection hook walks `:tags` to
   substitute `:rf/redacted` and `:rf.size/large-elided` markers at
   paths declared sensitive / large by the in-scope handler's
-  registration meta or `add-marks` / `set-marks`. Gated by the same
+  registration meta or the EP-0025 commit-plane `:sensitive` / `:large` effects. Gated by the same
   `interop/debug-enabled?` so production CLJS bundles DCE the entire
   marks machinery.
 

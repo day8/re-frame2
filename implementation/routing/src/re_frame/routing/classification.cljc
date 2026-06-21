@@ -213,7 +213,7 @@
 ;; A route is a SINGLETON current-route, so lowering REPLACES the whole
 ;; `:source :route` declaration set: route activation drops the leaving route's
 ;; route-sourced entries and installs the entering route's. Other sources
-;; (`:source :frame` / `:source :marks` / `:source :effect`) survive untouched
+;; (`:source :frame` / `:source :effect` / `:source :flow`) survive untouched
 ;; and union at egress-lookup time (`re-frame.elision/elide-against-frame`
 ;; reads both `:sensitive-declarations` / `:declarations` sub-maps verbatim).
 ;; This mirrors how `re-frame.frame-classification/install!` replaces only its
