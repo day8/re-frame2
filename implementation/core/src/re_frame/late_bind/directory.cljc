@@ -260,7 +260,7 @@
    {:key         :frame-classification/install!
     :producer-ns 're-frame.frame-classification
     :design-bead "rf2-ueg1tn"
-    :description "Install a frame's validated app-db sensitive/large :rf/path classification into its durable elision registry under :source :frame (alongside schema- and marks-sourced declarations), REPLACING any prior :source :frame entries. Called by reg-frame once the container exists, atomically before :on-create (EP-0015 §3)."}
+    :description "Install a frame's validated app-db sensitive/large :rf/path classification into its durable elision registry under :source :frame (alongside schema- and marks-sourced declarations), REPLACING any prior :source :frame entries. Called by reg-frame once the container exists, atomically before :initial-events (EP-0015 §3)."}
    {:key         :frame-classification/install-from-config!
     :producer-ns 're-frame.frame-classification
     :design-bead "rf2-ueg1tn"
