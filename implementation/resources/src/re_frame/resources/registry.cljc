@@ -330,6 +330,22 @@
   ;; malformed `:infinite` shape loudly at the authoring boundary (R1–R8 are
   ;; the binding rulings).
   (validate-infinite-spec! resource-id spec)
+  ;; EP-0025 §subsystems (rf2-h3d8tf): a malformed projection-relative
+  ;; `:sensitive` / `:large` data-classification declaration (a non-vector
+  ;; axis, a non-path entry) is rejected fail-loud at the registration
+  ;; boundary — the same posture as the machine declaration. The declaration
+  ;; is value-independent + standing (it redacts whatever later occupies the
+  ;; projection-relative slot on every instance), so a shape fault is caught
+  ;; at definition, not silently dropped.
+  (when-let [{:keys [axis reason]} (classification/classification-declaration-defect spec)]
+    (throw (registration-error
+             :rf.error/invalid-resource-spec
+             'rf/reg-resource
+             (str "resource " resource-id " declares a malformed " axis
+                  " data-classification: " reason ". Per EP-0025 a resource "
+                  "declares :sensitive / :large as a vector of projection-relative "
+                  "`:rf/path` vectors (e.g. {:sensitive [[:data :ssn]]}).")
+             {:resource-id resource-id :axis axis :value (get spec axis)})))
   nil)
 
 ;; ---- reg-resource / clear-resource ---------------------------------------

@@ -25,6 +25,7 @@
             [re-frame.error :as error]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
+            [re-frame.machines.classification :as classification]
             [re-frame.machines.cofx-attach :as cofx-attach]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
@@ -843,6 +844,21 @@
               (handle-step-failure! ctx [transition/start-marker]
                                     "Machine initial-entry action threw."
                                     boot-result)
+              (do
+                ;; EP-0025 §subsystems (rf2-h3d8tf): LOWER a SINGLETON's
+                ;; projection-relative `:sensitive` / `:large` `:data`
+                ;; declarations into the per-frame elision registry at its
+                ;; birth (first-boot). A singleton's actor-id IS its
+                ;; machine-id, installed lazily on first dispatch rather than
+                ;; via `spawn-fx` (which lowers spawned actors). Gated on the
+                ;; singleton-birth case — `:needs-bootstrap?` AND NOT
+                ;; `:existing-snap?` (a spawned actor carries a pre-seeded
+                ;; snapshot ⇒ `:existing-snap? true`, already lowered at spawn).
+                ;; Value-independent + idempotent, dropped at destroy /
+                ;; finalize. A spec declaring no classification is a no-op.
+                (when (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))
+                  (classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
+                                                  (:machine ctx)))
               (result/with-ok [post-boot-snap boot-fx] boot-result
                 ;; PURE init-kick: when the routed inner event IS the
                 ;; reserved `:rf.machine/start` marker, `maybe-boot` has
@@ -919,20 +935,22 @@
                       ;; same-call bootstrap's entry cascade prepends the
                       ;; event-driven cascade on the `:rf.machine/transition`
                       ;; trace.
-                      (commit-or-finalize ctx step-result boot-result)))))))))))))
+                      (commit-or-finalize ctx step-result boot-result))))))))))))))
 
-;; ---- :data-schema is validation-only --------------------------------------
+;; ---- :data-schema is validation-only; classification is machine-owned ------
 ;;
 ;; A machine's `:data-schema` is a Malli EDN form that VALIDATES the machine's
 ;; `:data` slot. It is a validation contract only — its per-slot
 ;; `:sensitive?` / `:large?` props do NOT classify the machine's durable
 ;; `:data` for trace / SSR egress.
 ;;
-;; App-db data-classification has a single mechanism: frame-declared
-;; `:sensitive` / `:large {:app-db …}` paths (`reg-frame`). A machine that
-;; needs a durable `:data` slot redacted at egress declares it on the frame
-;; (the snapshot lives in the frame's runtime-db partition); the `:data-schema`
-;; is for validation only.
+;; EP-0025 §subsystems (rf2-h3d8tf): durable `:data` egress classification is
+;; MACHINE-OWNED and PROJECTION-RELATIVE — a machine declares its sensitive /
+;; large `:data` slots via top-level `:sensitive` / `:large` keys on the spec
+;; (rooted at one actor snapshot's `:data`), validated for shape at registration
+;; (`re-frame.machines.classification/validate-machine-classification!`, above)
+;; and LOWERED per actor instance into the per-frame elision registry at spawn /
+;; first-boot (dropped at destroy). The `:data-schema` is for validation only.
 
 ;; ---- the single registration home -----------------------------------------
 
@@ -956,10 +974,12 @@
   `:rf/machine?` / `:rf/machine` keys are stamped here and MUST NOT appear in
   `opts`.
 
-  The home runs exactly one `:data-schema` side-effect: the validation-stamp.
-  The `:data-schema` is validation-only — its per-slot props do not classify
-  durable `:data` for egress (frame-declared `:sensitive` / `:large {:app-db …}`
-  paths are the sole app-db mechanism)."
+  The home runs the `:data-schema` validation-stamp plus the EP-0025
+  projection-relative-classification shape check (rf2-h3d8tf). The
+  `:data-schema` is validation-only — its per-slot props do not classify
+  durable `:data` for egress; the machine's top-level `:sensitive` / `:large`
+  projection-relative declarations are the classification surface (lowered per
+  actor instance at spawn / first-boot)."
   [machine-id machine opts]
   ;; The MIDDLE `opts` slot must be a map BEFORE
   ;; any `contains?`/`assoc` runs against it. The 2-arity passes `nil` (the
@@ -993,6 +1013,13 @@
       {:recovery :drop-reserved-keys
        :extra    {:machine-id machine-id
                   :opts       opts}}))
+   ;; EP-0025 §subsystems (rf2-h3d8tf): fail LOUD at the registration
+   ;; boundary on a malformed projection-relative `:sensitive` / `:large`
+   ;; `:data`-classification declaration (a non-vector axis, a non-path
+   ;; entry). The declaration travels with the machine def and is lowered
+   ;; per actor instance at spawn / first-boot — so a shape fault must be
+   ;; caught at definition, like every other registration-shape fault.
+   (classification/validate-machine-classification! machine-id machine)
    ;; Install a per-machine region-machine cache before
    ;; the machine value is threaded through the handler closure and
    ;; published to the registrar. Re-registration replaces the machine

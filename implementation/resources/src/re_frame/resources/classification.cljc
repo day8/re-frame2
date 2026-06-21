@@ -237,18 +237,148 @@
         owner))))
 
 ;; ---------------------------------------------------------------------------
-;; Per-slot owner classification — the canonical fine-grained surface.
+;; EP-0025 §subsystems projection-relative declarations (rf2-h3d8tf).
 ;;
-;; EP-0015 issue 11 (ruled): per-slot `:sensitive?` / `:large?` props on the
-;; owner's `:data-schema` / `:params-schema` are the canonical fine-grained
-;; surface (the EP-0005 mechanism). They are extracted through the SHARED
-;; schema walker hooks (`:schemas/extract-sensitive-paths-from-schema` /
+;; A resource / mutation DEFINITION declares its sensitive / large slots
+;; PROJECTION-RELATIVE to the instance projection (the matrix root: entry's
+;; `:params` / `:data`), via top-level `:sensitive` / `:large` vectors on the
+;; `reg-resource` / `reg-mutation` spec — the EP-0025 example surface:
+;;
+;;   (rf/reg-resource :user-profile
+;;     {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
+;;
+;; This is "classify at the fact's definition site" — the resource IS defined
+;; at `reg-resource`, so it declares its own (statically-known) sensitive
+;; fields there. The declaration is value-INDEPENDENT and standing: it redacts
+;; whatever later occupies the slot on EVERY instance (the per-instance
+;; application the EP names — every minted scoped key / landed data value
+;; redacts under the one owner declaration, with no per-instance author code
+;; and no storage paths in app code). It supersedes EP-0015 issue 11's
+;; "schema-props are the only fine-grained surface, no resource path-map
+;; vocabulary" stance: the projection-relative path vocabulary IS the canonical
+;; surface (the same axis vocabulary the machine / app-db / transient cases
+;; use — one name per fact), and the schema-prop route is unioned with it
+;; (kept as the schema-natural co-declaration until the EP-0025 purge).
+;;
+;; Lowering = re-rooting + axis-split. The declaration paths are rooted at the
+;; instance projection (`[:data …]` → the data value; `[:params …]` → the
+;; scoped-key params; `[:scope …]` / a `[:scope]`-rooted path → the scope
+;; component). `project-data` consumes the `:data`-rooted paths (stripped of
+;; the `:data` head); `project-params` consumes the `:params`-rooted paths
+;; (stripped of the `:params` head). A bare-rooted path (no `:data` / `:params`
+;; head) defaults to the DATA projection — the common `{:sensitive [[:ssn]]}`
+;; shorthand for a data field.
+;; ---------------------------------------------------------------------------
+
+(def ^:private declaration-axis-keys
+  "The two EP-0025 projection-relative declaration axes a `reg-resource` /
+  `reg-mutation` spec may carry — `:sensitive` (redact at egress) / `:large`
+  (size marker at egress)."
+  #{:sensitive :large})
+
+(defn- decl-defect
+  "Human reason for the FIRST malformed entry in a resource / mutation
+  classification axis payload `payload` (axis `k`), or nil when well-shaped. A
+  payload is a vector of valid concrete `:rf/path` vectors (the same shape the
+  machine declaration + the four commit-plane effects validate). Pure /
+  value-independent."
+  [k payload]
+  (cond
+    (not (vector? payload))
+    (str "the `" k "` classification declaration must be a vector of "
+         "projection-relative paths (e.g. [[:data :ssn]] / [[:params :account-id]]); "
+         "got a " (pr-str (type payload)))
+    :else
+    (some (fn [p]
+            (cond
+              (not (sequential? p))
+              (str "each path in the `" k "` classification declaration must be a "
+                   "path vector; got " (pr-str p))
+              :else
+              (try (path/normalize-concrete p) nil
+                   (catch #?(:clj Throwable :cljs :default) e
+                     (str "an invalid path in the `" k "` classification "
+                          "declaration: " (or (ex-message e) (str e)))))))
+          payload)))
+
+(defn classification-declaration-defect
+  "PURE fail-loud-INPUT validator for a resource / mutation `spec`'s
+  EP-0025 projection-relative `:sensitive` / `:large` declarations. Returns
+  `{:axis k :reason <string>}` for the FIRST defect, or nil when every present
+  declaration is well-shaped (or none is declared). The caller
+  (`reg-resource` / `reg-mutation`) throws `:rf.error/invalid-resource-spec`
+  at the registration boundary on a defect — the same fail-loud posture as the
+  machine declaration."
+  [spec]
+  (some (fn [k]
+          (when (contains? spec k)
+            (when-let [reason (decl-defect k (get spec k))]
+              {:axis k :reason reason})))
+        declaration-axis-keys))
+
+(defn- split-projection-paths
+  "Split a `spec`'s projection-relative declarations for one axis (`k`) into
+  `{:data [paths] :params [paths]}`, each path re-rooted under its projection
+  (the `:data` / `:params` head stripped). A bare-rooted path (no recognised
+  head) defaults to the DATA projection (the `[[:ssn]]` shorthand). A
+  `:scope`-rooted path rides the PARAMS projection (the scoped key carries
+  scope + params together — Spec 016 clause 4: \"params, scopes, and data carry
+  the same classification\"). Pure."
+  [spec k]
+  (reduce
+    (fn [acc p]
+      (let [p (vec (path/normalize-concrete p))]
+        (case (first p)
+          :data   (update acc :data conj (subvec p 1))
+          :params (update acc :params conj (subvec p 1))
+          :scope  (update acc :params conj p)
+          ;; bare-rooted ⇒ a data field shorthand
+          (update acc :data conj p))))
+    {:data [] :params []}
+    (get spec k)))
+
+(defn spec-declaration-marks
+  "The EP-0025 projection-relative `:sensitive` / `:large` declarations a
+  resource / mutation `spec` carries, lowered + axis-split into the SAME
+  `{:sensitive {path decl} :large {path decl}}` shape the schema-prop marks
+  use — keyed `:data` (the data projection) and `:params` (the scoped-key
+  params projection). Returns `{:data {…} :params {…}}` (a `:sensitive` /
+  `:large` map under each), so the existing `project-data` / `project-params`
+  readers union it with the schema-prop marks. Empty when the spec declares
+  neither axis. Pure / value-independent. Assumes the spec passed
+  `classification-declaration-defect`."
+  [spec]
+  (let [s (split-projection-paths spec :sensitive)
+        l (split-projection-paths spec :large)
+        ->decl (fn [paths] (into {} (map (fn [p] [p {:source :owner-declaration}])) paths))]
+    {:data   {:sensitive (->decl (:data s))   :large (->decl (:data l))}
+     :params {:sensitive (->decl (:params s)) :large (->decl (:params l))}}))
+
+;; ---------------------------------------------------------------------------
+;; Per-slot owner classification — the schema-natural co-declaration surface.
+;;
+;; EP-0015 issue 11: per-slot `:sensitive?` / `:large?` props on the owner's
+;; `:data-schema` / `:params-schema` (the EP-0005 mechanism). They are
+;; extracted through the SHARED schema walker hooks
+;; (`:schemas/extract-sensitive-paths-from-schema` /
 ;; `:schemas/extract-large-paths-from-schema`) — the same walker
 ;; `re-frame.elision` consumes for app-schema slots — never a resource-local
 ;; re-implementation. An inline schema form contributes its marks; a keyword
 ;; registry ref is an opaque leaf (the walker's documented limitation, shared
-;; with every other schema-mark consumer).
+;; with every other schema-mark consumer). EP-0025 §subsystems UNIONS the
+;; explicit projection-relative declarations (`spec-declaration-marks`) on top
+;; of these — the projection-relative path vocabulary is the canonical surface,
+;; the schema-prop the schema-natural co-declaration.
 ;; ---------------------------------------------------------------------------
+
+(defn- union-marks
+  "Union two `{:sensitive {path decl} :large {path decl}}` mark maps (the
+  schema-prop marks and the EP-0025 projection-relative declaration marks).
+  Per axis the path-keyed maps merge (a path classified by both routes keeps
+  one entry; sensitive-wins-over-large is resolved later by the walker). Pure."
+  [a b]
+  {:sensitive (merge (:sensitive a) (:sensitive b))
+   :large     (merge (:large a)     (:large b))})
 
 (defn- extract-paths
   "Extract the `{path decl}` map of `:sensitive?` (or `:large?`) per-slot
@@ -273,13 +403,17 @@
    :large     (extract-paths :schemas/extract-large-paths-from-schema     schema [])})
 
 (defn data-schema-marks
-  "The per-slot `:sensitive?` / `:large?` classification a resource /
-  mutation `spec`'s `:data-schema` declares for its DATA value, as
-  `{:sensitive {path decl} :large {path decl}}` rooted at the data root
-  (`[]`). The fine-grained owner surface (EP-0015 issue 11). Empty maps when
-  no `:data-schema` or no marks. Pure (modulo the memoised shared walker)."
+  "The fine-grained owner classification for a resource / mutation `spec`'s
+  DATA value, as `{:sensitive {path decl} :large {path decl}}` rooted at the
+  data root (`[]`) — the UNION of (a) the EP-0025 projection-relative
+  `:sensitive` / `:large` declarations' `:data`-rooted paths (the canonical
+  surface — `spec-declaration-marks`) and (b) the per-slot `:data-schema`
+  `:sensitive?` / `:large?` props (the schema-natural co-declaration, EP-0015
+  issue 11). Empty maps when the spec declares neither route. Pure (modulo the
+  memoised shared walker)."
   [spec]
-  (schema-marks (:data-schema spec)))
+  (union-marks (schema-marks (:data-schema spec))
+               (:data (spec-declaration-marks spec))))
 
 (defn infinite-spec?
   "True iff `spec` declares an infinite feed (`:infinite true` — EP-0021 R1).
@@ -304,18 +438,19 @@
   (schema-marks (:page-data-schema spec)))
 
 (defn params-schema-marks
-  "The per-slot `:sensitive?` / `:large?` classification a resource /
-  mutation `spec`'s `:params-schema` declares for its PARAMS value, as
-  `{:sensitive {path decl} :large {path decl}}` rooted at the params root
-  (`[]`). The CO-EQUAL fine-grained owner surface to `data-schema-marks`
-  (EP-0015 issue 11, ruled: `:params-schema` is a canonical fine-grained
-  surface alongside `:data-schema`) — extracted through the SAME shared
-  walker, so a `[:account-id {:sensitive? true} :string]` params slot is
-  classified identically to a data slot. Spec 016 §Runtime-subsystem
-  graduation clause 4: \"params, scopes, and data carry the same
-  classification.\" Empty maps when no `:params-schema` or no marks. Pure."
+  "The fine-grained owner classification for a resource / mutation `spec`'s
+  PARAMS value, as `{:sensitive {path decl} :large {path decl}}` rooted at the
+  params root (`[]`) — the UNION of (a) the EP-0025 projection-relative
+  `:sensitive` / `:large` declarations' `:params`-rooted (and `:scope`-rooted)
+  paths (the canonical surface — `spec-declaration-marks`) and (b) the per-slot
+  `:params-schema` `:sensitive?` / `:large?` props (the schema-natural
+  co-declaration, EP-0015 issue 11). The CO-EQUAL params counterpart to
+  `data-schema-marks`. Spec 016 §Runtime-subsystem graduation clause 4:
+  \"params, scopes, and data carry the same classification.\" Empty maps when
+  neither route declares. Pure."
   [spec]
-  (schema-marks (:params-schema spec)))
+  (union-marks (schema-marks (:params-schema spec))
+               (:params (spec-declaration-marks spec))))
 
 (defn data-schema-classifies?
   "True iff `spec`'s `:data-schema` marks ANY slot `:sensitive?` or

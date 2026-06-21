@@ -184,42 +184,44 @@ Durable runtime-subsystem state introduced by resources and mutations follows it
 
 ### Machine-owned durable classification (frame-owned; EP-0025 reversal of the EP-0005 redaction bridge)
 
-> **Ruled 2026-06-20 (EP-0025, rf2-398kql): frame-declared paths are the SOLE app-db / runtime-db data-classification mechanism.** This REVERSES the EP-0005 schema→marks redaction bridge for machine `:data` and the earlier 2026-06-11 "no supersession of EP-0005" ruling (EP-0015 issue 12). A machine's `:data-schema` `:sensitive?` / `:large?` per-slot props NO LONGER classify the machine's durable `:data` for trace / SSR egress. The `:data-schema` still **validates** `:data` (EP-0005's rename + validation stand); only the classification bridge is removed.
+> **Ruled 2026-06-21 (EP-0025 §subsystems, rf2-h3d8tf): a machine declares its durable `:data` classification PROJECTION-RELATIVE, lowered per actor instance at spawn / first-boot.** This REVERSES the rf2-398kql "frame-declared paths are the sole machine `:data` mechanism" disposition (authorised by Mike's EP-0025 B0 ruling) and keeps the EP-0005 schema→marks bridge REMOVED: a machine's `:data-schema` `:sensitive?` / `:large?` per-slot props do NOT classify durable `:data` for trace / SSR egress. The `:data-schema` still **validates** `:data` (EP-0005's rename + validation stand); the classification travels with the machine **definition** as projection-relative `:sensitive` / `:large` paths.
 
-Machine `:data` is durable process state owned by the machine definition (analogous to XState's `context`; guards and actions read it, and the instance's lifetime makes it a long-lived sensitive surface). The machine snapshot — `{:state :data :tags …}` — lives in the frame's **runtime-db** partition at `[:rf.runtime/machines :snapshots <actor-id>]` ([005-StateMachines §Where snapshots live](005-StateMachines.md)). Like every other durable path in a frame's state, a sensitive or large `:data` slot is classified **by the frame** via `reg-frame` `:sensitive` / `:large {:app-db …}` (EP-0015 §Frame-owned durable classification, the sole app-db mechanism):
+Machine `:data` is durable process state owned by the machine definition (analogous to XState's `context`; guards and actions read it, and the instance's lifetime makes it a long-lived sensitive surface). The machine snapshot — `{:state :data :tags …}` — lives in the frame's **runtime-db** partition at `[:rf.runtime/machines :snapshots <actor-id>]` ([005-StateMachines §Where snapshots live](005-StateMachines.md)). A subsystem owns its runtime storage, so the author never names an absolute runtime path; the machine declares its sensitive / large `:data` slots **projection-relative to one actor snapshot's `:data`** (the subsystem-matrix projection root), and the runtime **lowers** the declaration per actor instance into the per-frame elision registry at spawn / first-boot — dropping it on destroy:
 
 ```clojure
-(rf/reg-frame :checkout
-  {:sensitive {:app-db [[:rf.runtime/machines :snapshots :checkout/payment :data :payment :token]]}
-   :large     {:app-db [[:rf.runtime/machines :snapshots :checkout/payment :data :payment :receipt-pdf]]}})
-
-;; The machine's :data-schema still VALIDATES :data; it no longer classifies it.
+;; The machine declares its own sensitive / large :data slots,
+;; projection-relative to one actor snapshot's :data. The :data-schema still
+;; VALIDATES :data; it no longer classifies it.
 (rf/reg-machine :checkout/payment
-  {:data-schema
+  {:sensitive [[:data :payment :token]]
+   :large     [[:data :payment :receipt-pdf]]
+   :data-schema
    [:map
     [:payment [:map
                [:token       :string]
                [:receipt-pdf :bytes]]]]
    :initial :collecting
    :states  {:collecting {:on {:submit :charging}}
-             :charging    {:spawn {:src :checkout/charge :on-done :done}}
+             :charging    {:spawn {:machine-id :checkout/charge :on-done :done}}
              :done        {}}})
 ```
 
 Semantics:
 
-- Machine `:data` egress classification is **frame-owned**, resolved through the frame's elision registry like any other durable path — the projection / trace-egress / SSR-hydration boundaries consult the frame's declarations, not a schema-derived per-machine marks table.
+- Machine `:data` egress classification is **machine-owned, projection-relative, applied per instance**: the runtime re-roots each declared `[:data …]` path to the instance's absolute snapshot path `[:rf.runtime/machines :snapshots <actor-id> :data …]` and writes it `{:source :machine}` into the per-frame elision registry **at spawn / first-boot**, dropping it on destroy (by any cause). A `:spawn`-generated `<type>#n` is classified with zero per-instance author code — the declaration travels with the machine def like XState's `context` shape. The projection / trace-egress / SSR-hydration boundaries read that lowered registry declaration through the same elision registry every durable source writes to.
+- The classification is **value-independent** — it redacts whatever later occupies the snapshot `:data` slot, a harmless no-op over an absent value.
 - Machine **transition payloads** remain *transient* payloads and are classified by the transition / registration metadata that introduces them, not by the machine's durable `:data` policy.
 - Sensitive wins over large, using the same rule as frame-owned app-db policy.
-- The machine `:data-schema`'s per-slot `:sensitive?` props **still** drive validation-FAILURE-trace redaction (the `:where :machine-data` validation path, [010-Schemas §`:sensitive?`](010-Schemas.md)) — that is a property of the validator's own egress product, a DIFFERENT axis from durable `:data` classification. Only the durable-`:data`-classification bridge (snapshot / SSR egress) is reversed.
+- A malformed `:sensitive` / `:large` declaration (a non-vector axis, a non-path entry) is rejected **fail-loud at registration** with `:rf.error/invalid-machine-classification`.
+- The machine `:data-schema`'s per-slot `:sensitive?` props **still** drive validation-FAILURE-trace redaction (the `:where :machine-data` validation path, [010-Schemas §`:sensitive?`](010-Schemas.md)) — that is a property of the validator's own egress product, a DIFFERENT axis from durable `:data` classification.
 
-**Why frame-owned (EP-0025 grounds).** One mechanism, one place: secrets in durable frame state are recorded as `:rf/path` vectors on the frame. The machine snapshot is durable runtime-db state inside a frame, so it classifies the same way every other durable path does — there is no second schema-attached route. This removes the EP-0005 schema→marks bridge (registration-time extraction, the per-machine / per-instance schema-marks side-table, the spawn/destroy marks lifecycle) in favour of the single frame-owned registry. The `:sensitive` (frame path map) vs `:sensitive?` (per-slot schema prop) distinction recorded above still applies to the surviving schema-prop owners (resource `:data-schema` / `:params-schema`, HTTP-body `:decode`) and to validation-failure-trace redaction.
+**Why machine-owned, projection-relative (EP-0025 grounds).** A subsystem owns its runtime storage, so absolute runtime paths in author code are the storage-position problem EP-0025 names: the author had to know the framework's `[:rf.runtime/machines :snapshots <id> :data …]` shape AND name each spawned instance id by hand, fail-open under refactor and on every generated `<type>#n`. Declaring projection-relative and applying per-instance at creation reaches every generated instance with no per-egress resolver and no storage paths in app code. Because the lowered declaration lands in the SAME per-frame elision registry the four commit-plane effects and the frame-owned annotation write to, a frame MAY *additionally* classify a machine snapshot's absolute `:data` path (the read unions every source) — but the machine declaration is the canonical surface. The `:sensitive` (path collection) vs `:sensitive?` (per-slot schema prop) distinction recorded above still applies to the surviving schema-prop owners (resource `:data-schema` / `:params-schema`, HTTP-body `:decode`) and to validation-failure-trace redaction.
 
 ### Resource and mutation durable classification
 
 A resource definition creates durable runtime-db state (entries under `:rf.runtime/resources`, scoped keys, params, data, errors, refresh errors, and associated work-ledger summaries); a mutation definition creates durable mutation-instance and work-ledger state and may patch or populate resource entries. Those shapes are owned by the resource or mutation definition — they are durable runtime-subsystem state, not transient registration payloads.
 
-Per EP-0015 issue 11, the canonical fine-grained surface is **per-slot `:sensitive?` / `:large?` props on the existing `:data-schema` / `:params-schema`** (the same EP-0005 mechanism the machine surface uses) — **no new resource path-map vocabulary** (that would be the fourth spelling EP-0007 exists to prevent). The coarse whole-entry `:sensitive?` / `:large?` claims remain as the degenerate **root-prop** case (the whole resource is the classification unit). Scope values stay covered by the shared elision walker; error envelopes are covered by HTTP-layer failure-shape classification (see [§HTTP response bodies](#http-response-bodies)).
+Per **EP-0025 §subsystems** (rf2-h3d8tf, superseding EP-0015 issue 11's schema-prop-only stance), the canonical fine-grained surface is **projection-relative `:sensitive` / `:large` declarations** on the `reg-resource` / `reg-mutation` spec — a vector of `:rf/path` vectors rooted at the instance projection (the matrix root: entry's `:params` / `:data`), e.g. `{:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]}`. The declaration is value-independent + standing (it redacts whatever later occupies the slot on every instance — the per-instance-at-creation application the matrix names, no storage paths in app code), and a malformed declaration is rejected fail-loud at registration. The **schema-natural co-declaration** — per-slot `:sensitive?` / `:large?` props on the existing `:data-schema` / `:params-schema` (the EP-0005 mechanism the machine surface used) — is unioned with the projection-relative paths. The coarse whole-entry `:sensitive?` / `:large?` claims remain as the degenerate **root-prop** case (the whole resource is the classification unit). Scope values stay covered by the shared elision walker; error envelopes are covered by HTTP-layer failure-shape classification (see [§HTTP response bodies](#http-response-bodies)).
 
 This Spec must preserve [Spec 016](016-Resources.md)'s load-bearing rules, which projection applies at every boundary:
 
@@ -578,7 +580,7 @@ Per-artefact unit tests cover implementation-specific propagation mechanism; the
 - [EP-0025 (Frame-Declared Paths As The Sole Data Classification)](../docs/EP/EP-0025-data-classification.md) — kills schema-attached `:sensitive?` / `:large?` field classification for app-db / runtime-db (incl. machine `:data`); frame-declared paths are the one mechanism.
 - [001-Registration §Registration grammar](001-Registration.md#registration-grammar) — the metadata-map shape registration-owned `:sensitive` / `:large` extend.
 - [002-Frames §Routing — the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope) — the event arg-map shape event marks index into; the no-default-frame rule projection inherits.
-- [005-StateMachines §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) — frame-owned machine `:data` classification (EP-0025); `reg-machine` carries no `:sensitive` / `:large` key.
+- [005-StateMachines §Privacy — redacting machine `:data` at trace egress](005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress) — machine-owned, projection-relative machine `:data` classification (EP-0025 §subsystems, rf2-h3d8tf); `reg-machine` declares `:sensitive` / `:large` projection-relative `:data` paths, lowered per actor instance at spawn / first-boot.
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — the sub-cache dependency graph derived-sensitivity propagation traverses.
 - [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model), [§Production elision](009-Instrumentation.md#production-elision) — the emit site and the dev-stream gate.
 - [010-Schemas](010-Schemas.md) — schemas describe shape and validation; per-slot props are the *one* route only for schema-owned *transient* data (resource / HTTP-body), not a second route for frame-owned app-db / runtime-db paths (incl. machine `:data`, EP-0025).

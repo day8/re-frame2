@@ -167,6 +167,20 @@
                {:mutation-id mutation-id
                 :on-conflict oc
                 :valid       mstate/on-conflict-policies}))))
+  ;; EP-0025 §subsystems (rf2-h3d8tf): reject a malformed projection-relative
+  ;; `:sensitive` / `:large` data-classification declaration fail-loud at the
+  ;; registration boundary — the same shape contract + posture as the resource
+  ;; + machine declarations (a mutation's work-row `:params` carry the same
+  ;; privacy class as a resource's, Spec 016 clause 4).
+  (when-let [{:keys [axis reason]} (classification/classification-declaration-defect spec)]
+    (throw (registration-error
+             :rf.error/invalid-mutation-spec
+             'rf/reg-mutation
+             (str "mutation " mutation-id " declares a malformed " axis
+                  " data-classification: " reason ". Per EP-0025 a mutation "
+                  "declares :sensitive / :large as a vector of projection-relative "
+                  "`:rf/path` vectors (e.g. {:sensitive [[:params :token]]}).")
+             {:mutation-id mutation-id :axis axis :value (get spec axis)})))
   nil)
 
 ;; ---- reg-mutation / clear-mutation ---------------------------------------
