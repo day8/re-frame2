@@ -908,127 +908,15 @@
       (is (= 2 @b-calls)
           ":B re-fired — its last-inputs was never advanced (it threw)"))))
 
+
 ;; ---------------------------------------------------------------------------
-;; 7c-bis. Failed-flow rolls back the output-declaration refresh — two-
-;; partition atomicity.
-;;
-;; `run-flows-on-db` refreshes each flow's `:source :flow` output elision
-;; declarations BEFORE the flow walk, writing the frame's runtime-db elision
-;; registry IMMEDIATELY via `swap-elision-slot!`. A flow throw is a
-;; PRE-INSTALL throw: the event aborts wholesale, app-db rolls back, the
-;; dirty-check rolls back, AND the refresh's runtime-db write rolls back too —
-;; otherwise the elision declarations would be left ahead of the committed
-;; (rolled-back) frame state. Spec 013:284,288 requires a pre-install flow
-;; throw to leave BOTH partitions unchanged. This deftest pins that the
-;; runtime-db elision declarations are EXACTLY unchanged after a throw, in
-;; lock-step with app-db.
-;;
-;; Construction: register `:downstream` FIRST (reads `[:secret]`, NO explicit
-;; classification key) so its reg-flow-time write is suppressed — at that
-;; point no sensitive declaration overlaps its inputs. THEN register
-;; `:upstream`, which force-marks its output `[:secret]` sensitive
-;; (`:rf.egress/output-sensitivity :rf.egress/sensitive`). reg-flow only
-;; (re)derives the flow being registered, so `:downstream`'s propagated
-;; sensitive declaration on `[:derived]` materialises ONLY via the topo-
-;; ordered drain-time refresh. `:downstream` then throws, so that drain's
-;; refresh (which newly added `[:derived]`) must roll back.
+;; EP-0025: flow input->output sensitivity PROPAGATION is removed (the
+;; drain-time `refresh-flow-output-declarations!` + its rolled-back refresh, and
+;; the `:rf.egress/output-sensitivity` claim). A flow's EXPLICIT output
+;; classification (`:sensitive` / `:large` / `:large?`) installs at reg-flow
+;; time and is covered above; there is no drain-time propagation to roll back.
+;; The deleted tests asserted the removed propagation surface.
 ;; ---------------------------------------------------------------------------
-
-(deftest failed-flow-rolls-back-output-declaration-refresh
-  (testing "on a flow throw, the pre-walk output-declaration refresh is rolled back: runtime-db elision AND app-db are both exactly unchanged"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
-    ;; :downstream reads [:secret] with NO explicit mark, registered BEFORE
-    ;; [:secret] is sensitive → no reg-flow-time write; its propagated
-    ;; sensitive [:derived] declaration appears only at DRAIN time. It throws,
-    ;; aborting the event.
-    (rf/reg-flow {:id     :downstream
-                  :inputs [[:secret]]
-                  :derive (fn [_] (throw (ex-info "boom" {:why :test})))
-                  :output-path   [:derived]})
-    ;; :upstream force-marks [:secret] sensitive (explicit → reg-flow-time
-    ;; write of [:secret] only; does NOT re-derive :downstream).
-    (rf/reg-flow {:id     :upstream
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:secret]
-                  :rf.egress/output-sensitivity :rf.egress/sensitive})
-
-    ;; Capture BOTH partitions' relevant state immediately before the
-    ;; throwing event: app-db AND the frame's elision declaration sub-maps.
-    (let [db-before        (rf/app-db-value :rf/default)
-          sens-before      (elision/sensitive-declarations :rf/default)
-          large-before     (elision/declarations :rf/default)]
-      ;; Sanity: the propagated [:derived] declaration is NOT present yet —
-      ;; it would only be added by the drain-time refresh of the throwing
-      ;; event. (:upstream's [:secret] IS present from its reg-flow-time write.)
-      (is (not (contains? sens-before [:derived]))
-          "[:derived] not yet a sensitive declaration before the event (propagation is drain-time)")
-      (is (contains? sens-before [:secret])
-          "[:secret] is already a sensitive declaration from :upstream's reg-flow-time write (sanity)")
-
-      ;; Dispatch the event whose drain throws in :downstream.
-      (rf/dispatch-sync [:seed])
-
-      ;; Atomicity — app-db unchanged (the existing contract; control here).
-      (is (= db-before (rf/app-db-value :rf/default))
-          "app-db EXACTLY unchanged after the flow throw (no install)")
-      (is (not (contains? (rf/app-db-value :rf/default) :secret))
-          ":secret absent — :upstream's flow write did not land")
-      (is (not (contains? (rf/app-db-value :rf/default) :derived))
-          ":derived absent — :downstream never wrote (it threw)")
-
-      ;; The fix — runtime-db elision declarations EXACTLY unchanged: the
-      ;; pre-walk refresh that propagated the sensitive mark onto [:derived]
-      ;; was rolled back along with the aborted event.
-      (is (= sens-before (elision/sensitive-declarations :rf/default))
-          "sensitive declarations EXACTLY unchanged after the flow throw — refresh rolled back")
-      (is (= large-before (elision/declarations :rf/default))
-          "large declarations EXACTLY unchanged after the flow throw")
-      (is (not (contains? (elision/sensitive-declarations :rf/default) [:derived]))
-          "[:derived] is NOT a stray surviving sensitive declaration — the refresh's runtime-db write rolled back (rf2-gdzv6o)"))))
-
-(deftest successful-flow-refresh-still-marks-output
-  (testing "negative control: a SUCCESSFUL drain still installs the propagated output declaration (refresh not over-rolled)"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
-    ;; :downstream reads [:secret], registered BEFORE [:secret] is sensitive →
-    ;; its propagated [:derived] mark materialises only at drain time. It
-    ;; SUCCEEDS this time.
-    (rf/reg-flow {:id     :downstream
-                  :inputs [[:secret]]
-                  :derive (fn [secret] (str "derived-from-" secret))
-                  :output-path   [:derived]})
-    (rf/reg-flow {:id     :upstream
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:secret]
-                  :rf.egress/output-sensitivity :rf.egress/sensitive})
-    (is (not (contains? (elision/sensitive-declarations :rf/default) [:derived]))
-        "[:derived] not yet declared before the event (sanity)")
-    (rf/dispatch-sync [:seed])
-    ;; The successful drain commits — the propagated declaration must survive.
-    (is (contains? (elision/sensitive-declarations :rf/default) [:derived])
-        "[:derived] IS a sensitive declaration after a SUCCESSFUL drain — the propagated mark installed (refresh commits with the event)")
-    (is (= 10 (:secret (rf/app-db-value :rf/default)))
-        ":secret flow output landed (sanity)")
-    (is (= "derived-from-10" (:derived (rf/app-db-value :rf/default)))
-        ":derived flow output landed (sanity)")))
-
-(deftest mark-only-refresh-after-reg-flow-still-works
-  (testing "rf2-gdzv6o acceptance (c): a mark-only refresh on a SUCCESSFUL drain after reg-flow still installs the declaration"
-    ;; This exercises the refresh's mark-mutation purpose directly: a flow
-    ;; with an explicit sensitive output mark whose declaration is (re)derived
-    ;; on the drain. With no throw, the refresh's write commits normally.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
-    (rf/reg-flow {:id     :marked
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:token]
-                  :rf.egress/output-sensitivity :rf.egress/sensitive})
-    (rf/dispatch-sync [:seed])
-    (is (contains? (elision/sensitive-declarations :rf/default) [:token])
-        "[:token] sensitive declaration present after a clean drain — mark-only refresh path intact")
-    (is (= 6 (:token (rf/app-db-value :rf/default)))
-        ":token flow output landed (sanity)")))
 
 (deftest failed-flow-app-db-unchanged-across-multiple-failing-drains
   (testing "across multiple failing drains, NOTHING lands — app-db stays unchanged (no partial commit)"
