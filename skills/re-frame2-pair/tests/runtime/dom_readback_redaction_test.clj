@@ -189,10 +189,15 @@
 (deftest runtime-defines-the-derived-redaction-helper
   (let [f (defn-form 'maybe-redact-derived)]
     (is (some? f) "runtime must define maybe-redact-derived")
-    (is (mentions? f 'rf/redact-derived-slots)
-        "maybe-redact-derived must delegate to re-frame.core/redact-derived-slots")
-    (is (mentions? f 'rf/app-db-value)
-        "maybe-redact-derived must read the frame's app-db as the secret source")))
+    ;; EP-0025 B4 (rf2-ojp8pi): the SINGLE public boundary a derived tree
+    ;; projects through is re-frame.core/project-egress — the
+    ;; :rf.observe/derived-tree record kind. project-egress reads the frame's
+    ;; live app-db itself (the derived-tree record's default :source-db), so
+    ;; the helper no longer hand-reads app-db-value.
+    (is (mentions? f 'rf/project-egress)
+        "maybe-redact-derived must delegate to re-frame.core/project-egress")
+    (is (mentions? f :rf.observe/derived-tree)
+        "maybe-redact-derived must project a :rf.observe/derived-tree record")))
 
 (deftest dom-read-routes-content-through-redaction
   (let [f (defn-form 'dom-read)]
