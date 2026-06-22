@@ -1,0 +1,69 @@
+;; Conformance fixture: data-classification/route-change-drops-leaving-classification
+;;
+;; Per Spec 015 §Tests (the route-* row) + Spec 012 §Route data classification
+;; and EP-0025 §Subsystem matrix (reg-route row) — the SINGLETON-DROP invariant
+;; that has NO machine analogue and therefore no other conformance coverage
+;; (rf2-v9l8eg). A route is effectively a SINGLETON current-route: only one
+;; route is active in a frame at a time, so route activation REPLACES the whole
+;; :source :route declaration set. A route change to a route that declares NO
+;; classification clears the leaving route's route-sourced entries entirely —
+;; the leaving route's classification drops on every route change.
+;;
+;; OBSERVABLE SEAM — project-egress (EP-0015 §10/§11). After navigating to the
+;; :sensitive route AND THEN to a route declaring none, the leaving route's
+;; classification is gone from :rf/default's elision registry. Projecting the
+;; (now-current, plain) route-slice value against that frame shows the token
+;; field RIDES RAW — there is no classification to redact it. This is the
+;; positive, observable proof of the drop: were the leaving route's entry to
+;; leak forward (the no-leak failure mode), the token would still redact.
+;;
+;; Pairs with data-classification-route-query-declared-redacts.edn, which pins
+;; the redact-while-active leg; together they cover both acceptance criteria of
+;; rf2-v9l8eg (redact at egress + singleton drop / no-leak).
+;;
+;; Capability :data-classification/marks (claimed by BOTH the JVM and CLJS
+;; conformance corpus runners) + :routing/match-url + :core/event-handler.
+
+{:fixture/id           :data-classification/route-change-drops-leaving-classification
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler
+                         :data-classification/marks}
+ :fixture/doc          "The route SINGLETON-DROP: navigating from a :sensitive route to a route declaring NO classification clears the leaving route's :source :route entries. project-egress of the now-current (plain) route-slice value against the navigated frame shows the token field RIDES RAW — the leaving route's classification was dropped (no leak forward). Pairs with route-query-declared-redacts.edn (the redact-while-active leg)."
+
+ ;; route/oauth declares :sensitive; route/plain declares none. Both are
+ ;; registered from the route registry by the conformance runner.
+ :fixture/registry
+ {:route {:route/oauth {:sensitive [[:query :token]]
+                        :query     [:map [:token :string]]
+                        :path      "/oauth"}
+          :route/plain {:path "/plain"}}}
+
+ :fixture/frame-config {}
+
+ ;; Navigate to the :sensitive route (installs its classification), then to a
+ ;; route declaring none (drops it — the singleton replacement).
+ :fixture/dispatches
+ [[:rf.route/transitioned "/oauth?token=secret123"]
+  [:rf.route/transitioned "/plain"]]
+
+ ;; project-egress runs AFTER both dispatches, so the leaving route's
+ ;; classification has already dropped. Projecting a slice value carrying a
+ ;; token field shows it RIDES RAW — nothing redacts it (the drop is proven).
+ :fixture/calls
+ [{:call              :project-egress
+   :frame             :rf/default
+   :rf.egress/profile :rf.egress/off-box-observability
+   :value             {:rf.runtime/routing
+                       {:current {:route-id :route/plain
+                                  :query    {:token "secret123" :other "ok"}}}}
+   :expect            {:rf.runtime/routing
+                       {:current {:route-id :route/plain
+                                  :query    {:token "secret123" :other "ok"}}}}}]
+
+ :fixture/expect
+ ;; The current slice is the plain route; the runtime-db carries no
+ ;; route-sourced classification (the registry cleared to {} on the leave).
+ ;; Submap-matched.
+ {:final-runtime-db
+  {:rf.runtime/routing {:current {:route-id :route/plain}}
+   :rf.runtime/elision {}}}}
