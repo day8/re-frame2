@@ -64,6 +64,15 @@ on:
       # the tools/** entry above.)
       - 'skills/**'
       - 'docs/guide/**'
+      # Human-doc API-reference projection surfaces (rf2-vzupmg): the three
+      # API-reference trees the doc-api-check scans are manifest projections
+      # too; a PR touching them must run the api-manifest job's doc-api-check
+      # so a removed/renamed public surface goes RED. (spec/Privacy.md rides
+      # the spec/ entries the classifier already lights; the push filter
+      # names it explicitly for the same reason API.md is named above.)
+      - 'spec/Privacy.md'
+      - 'docs/api/**'
+      - 'docs/story/api/**'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # above). The lint surface is re-applied job-side via the `detect` job.
   pull_request:
@@ -137,6 +146,12 @@ jobs:
               # job's skills-check / doc-guide-check. A pure-skills or
               # pure-doc-guide PR must still run the drift-check.
               skills/*|docs/guide/*)
+                lint_surface=true ;;
+              # The three human-doc API-reference trees are manifest
+              # projections too (rf2-vzupmg): a removed/renamed public surface
+              # named there is caught by the api-manifest job's doc-api-check.
+              # A pure-doc PR touching them must still run the drift-check.
+              spec/Privacy.md|docs/api/*|docs/story/api/*)
                 lint_surface=true ;;
             esac
           done <<< "$files"
@@ -359,6 +374,17 @@ jobs:
       - name: Assert docs/guide/ projection matches the manifest
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-guide-check
+
+      # Human-doc API-reference projection drift-check (rf2-vzupmg). Extends
+      # the call-position discipline to the three human-facing API-reference
+      # trees the keystone + the checks above left uncovered:
+      # spec/Privacy.md + docs/api/** + docs/story/api/**. Goes RED on a
+      # call-position `(rf/<var>` / `(story/<var>` reference to a renamed /
+      # removed / never-manifested public surface (the EP-graduation
+      # doc-drift class that previously passed every CI check).
+      - name: Assert spec/Privacy + docs/api + docs/story/api projection matches the manifest
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M -m re-frame.api-manifest.doc-api-check
 
       # Pure-reconciler regression contracts (rf2-4v79f). The `:test` alias
       # carries the unit tests that lock the reconcilers the check-mains
