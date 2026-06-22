@@ -13,7 +13,10 @@
     * RETIREMENT — a supplied `:on-create` / `:initial-db` fails loud
       (`:rf.error/on-create-retired` / `:rf.error/initial-db-retired`);
     * RESET — `reset-frame!` re-dispatches the recorded `:initial-events`
-      (durable frame config, best-effort, no snapshot);
+      (durable frame config, best-effort, no snapshot); repeated reset is
+      idempotent (rf2-060di5); an IMAGE-loaded frame keeps its resolved image
+      generation across reset, so an INLINE-only registration still resolves on
+      replay (rf2-qnk02m — the silent registrar-degrade guard);
     * RE-REGISTRATION — an idempotent re-`reg-frame` RE-RECORDS but does NOT
       REPLAY the setup (durable app-db preserved);
     * TEARDOWN — a setup step that THROWS at runtime tears down the partial frame
@@ -35,6 +38,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
             [re-frame.frame        :as frame]
+            [re-frame.image        :as image]
             [re-frame.live-frame   :as lf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -284,6 +288,100 @@
     (frame/reset-frame! :reset/main)
     (is (= 1 (:n (rf/app-db-value :reset/main)))
         "reset-frame! replayed the recorded :initial-events, back to n=1")))
+
+(deftest reset-frame-repeated-reset-is-idempotent
+  (testing "rf2-060di5: reset-frame! is idempotent across repeated resets — reset
+            twice in a row equals one reset, and a reset → mutate → reset returns
+            to the recorded seed. reset is itself a destroy + re-register that
+            re-records its own :initial-events, so a regression that cleared or
+            double-applied the recorded setup during reset would pass the single-
+            reset test but fail HERE."
+    (reg-test-events!)
+    (rf/reg-frame :reset/idem
+      {:initial-events [[:test/set-db {:n 0}]
+                        [:test/inc]]})
+    (is (= 1 (:n (rf/app-db-value :reset/idem))) "construction settled to n=1")
+    ;; Mutate away, then reset TWICE in a row.
+    (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
+    (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
+    (is (= 3 (:n (rf/app-db-value :reset/idem))) "runtime moved it to n=3")
+    (frame/reset-frame! :reset/idem)
+    (let [after-one (:n (rf/app-db-value :reset/idem))]
+      (is (= 1 after-one) "first reset replayed the recorded setup ⇒ n=1")
+      ;; A SECOND reset with no intervening mutation must land on the SAME value —
+      ;; reset re-records its own :initial-events on each re-register, so a
+      ;; double-apply / clear regression would diverge here.
+      (frame/reset-frame! :reset/idem)
+      (is (= after-one (:n (rf/app-db-value :reset/idem)))
+          "a second reset (no intervening mutation) equals the first — idempotent"))
+    ;; reset → mutate → reset returns to the recorded seed.
+    (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
+    (is (= 2 (:n (rf/app-db-value :reset/idem))) "mutated back up to n=2")
+    (frame/reset-frame! :reset/idem)
+    (is (= 1 (:n (rf/app-db-value :reset/idem)))
+        "reset → mutate → reset returns to the recorded seed (n=1) every time")))
+
+(deftest reset-frame-image-loaded-keeps-generation-inline-resolves
+  (testing "rf2-qnk02m (the test that CATCHES the bug): an IMAGE-loaded frame
+            whose image carries INLINE-only registrations — present ONLY in the
+            resolved generation, NEVER the global registrar — must keep its
+            resolved generation across reset-frame!, so the :initial-events replay
+            resolves the INLINE handlers. Before the fix, reset recreated the
+            frame from a :config with :generation stripped + :images consumed, so
+            the frame silently degraded to registrar resolution: the inline-only
+            :counter/seed handler no longer resolved, dispatch-sync TRACED-and-
+            recovered (no throw), and the replay left the frame in a wrong/empty
+            state with NO loud signal."
+    ;; A GLOBAL :counter/seed the cascade would (wrongly) run if it resolved
+    ;; through the global registrar after a generation-losing reset. It writes a
+    ;; DISTINCT marker so a degrade is unambiguous, NOT merely an empty db.
+    (rf/reg-event :counter/seed
+      (fn [_ [_ _new]] {:db {:written-by :global}}))
+    (let [img (image/image
+                {:id :reset/inline-counter
+                 :registrations
+                 ;; INLINE-only handlers — they exist ONLY in the generation, so
+                 ;; resolving them at all PROVES the generation is in force.
+                 {:reg-event [[:counter/seed {:doc "Inline seed (image-only)."}
+                               (fn [_ [_ n]] {:db {:written-by :inline :n n}})]
+                              [:counter/inc {:doc "Inline inc (image-only)."}
+                               (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})]]}})]
+      ;; Construct the image-loaded frame. Its :initial-events seed + inc both
+      ;; resolve through the INLINE image generation (no explicit pool — inline
+      ;; descriptors are selected because the image was supplied).
+      (lf/make-frame {:id :reset/inline
+                      :images [img]
+                      :initial-events [[:counter/seed 0]
+                                       [:counter/inc]]}
+                     [])
+      ;; Sanity: construction ran the INLINE handlers (the generation is live).
+      (is (some? (frame/frame-generation :reset/inline))
+          "the frame is image-loaded — its record carries a resolved generation")
+      (let [db0 (rf/app-db-value :reset/inline)]
+        (is (= :inline (:written-by db0)) "construction ran the INLINE seed, not the global")
+        (is (= 1 (:n db0)) "the inline seed (n=0) + inline inc ⇒ n=1"))
+      ;; Mutate away from the constructed state via the INLINE inc.
+      (rf/dispatch-sync [:counter/inc] {:frame :reset/inline})
+      (rf/dispatch-sync [:counter/inc] {:frame :reset/inline})
+      (is (= 3 (:n (rf/app-db-value :reset/inline))) "runtime moved it to n=3")
+      ;; THE RESET — the recreated frame MUST keep the image generation.
+      (frame/reset-frame! :reset/inline)
+      ;; (1) the generation survived — the recreated record still carries it.
+      (is (some? (frame/frame-generation :reset/inline))
+          "(1) reset preserved the resolved image generation — the recreated frame
+           is still image-loaded, NOT degraded to a registrar-resolved frame")
+      ;; (2) the :initial-events replay resolved the INLINE handlers, not the
+      ;;     global — the load-bearing assertion that would FAIL on the bug (the
+      ;;     degraded frame would write :global, or leave db empty if the global
+      ;;     traced-and-recovered, never :inline).
+      (let [db (rf/app-db-value :reset/inline)]
+        (is (= :inline (:written-by db))
+            "(2) the replay ran the INLINE :counter/seed — the generation's
+             registration namespace, NOT the global registrar (the bug wrote
+             :global / left the frame in a wrong state with no loud signal)")
+        (is (= 1 (:n db))
+            "the inline seed (n=0) + inline inc replayed correctly ⇒ n=1 — the
+             frame returned to its constructed state through its OWN image")))))
 
 ;; ===========================================================================
 ;; 6. Re-registration — re-records but does NOT replay (durable state preserved)
