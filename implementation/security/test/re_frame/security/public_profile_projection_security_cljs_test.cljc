@@ -58,7 +58,6 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.classification :as classification]
             ;; The low-level plumbing helper, exercised ONLY in the labelled
             ;; narrow plumbing test below — NOT as a stand-in for the public
             ;; EP-0015 boundary.
@@ -69,11 +68,7 @@
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     ;; EP-0025: classification is derived from the registrar + the per-frame
-     ;; elision registry (reset by frame teardown), so this is a no-op kept for
-     ;; directory symmetry.
-     :init-fn (fn [] (classification/clear-classification!))}))
+    {:adapter plain-atom/adapter}))
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-PUBLIC-PROFILE-DO-NOT-SHIP")
 

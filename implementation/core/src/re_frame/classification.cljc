@@ -197,18 +197,6 @@
   [kind id]
   (normalise-classification (registrar/handler-meta kind id)))
 
-(defn clear-classification!
-  "No-op retained for test-isolation directory symmetry — production code never
-  calls this. Returns nil.
-
-  EP-0025: the author-sourced classification lives in the registrar (rf2-ehexnw),
-  which the test-isolation runtime fixture already snapshot/restores; the
-  per-frame app-db classification lives in the frame's runtime-db elision
-  registry, reset by the same fixture's frame teardown. There is no separate
-  side-table left to clear here."
-  []
-  nil)
-
 ;; ---- emit-time projection ------------------------------------------------
 
 (defn large-marker
@@ -413,7 +401,17 @@
 (defn- frame-has-declarations?
   "True when `frame-id` carries any elision declaration (sensitive or large).
   Cheap registry read used to gate the full-db walk so the no-classification
-  common case stays reference-preserving."
+  common case stays reference-preserving.
+
+  rf2-wcvv6h: on a CLASSIFIED frame this gate re-reads the registry that the
+  downstream `elide-wire-value` walk reads again (a few extra `get-in` reads
+  per db-bearing trace event). The gate read is INTENTIONALLY kept separate
+  rather than threading pre-resolved tables into the walk: `elide-wire-value`
+  is the public egress surface whose fail-closed contract keys off `frame-id`
+  live-frame resolution (not the registry tables), so folding the tables down
+  would spread that contract across call sites for no production gain — the
+  whole projection path is dev/JVM-only (DCE-elided in production CLJS). The
+  explicit gate stays readable as-is; clarity wins over a dev-only read count."
   [frame-id]
   (boolean (or (seq (elision/sensitive-declarations frame-id))
                (seq (elision/declarations frame-id)))))
@@ -758,55 +756,60 @@
     (let [operation (:operation event)
           tags      (:tags event)
           frame-id  (:frame tags)
-          tags'     (cond-> tags
-                      (and (map? tags) (contains? tags :rf.event/v))
-                      (project-event-tags :rf.event/v)
+          ;; `tags` is shape-invariant through the threading — every per-kind
+          ;; projector returns a map, so the type never becomes non-map. Hoist
+          ;; the one `(map? tags)` guard here so each branch below reads as just
+          ;; its real per-kind predicate (the slot `contains?` / `operation =`
+          ;; test). A non-map `tags` no-ops the chain.
+          tags'     (if-not (map? tags)
+                      tags
+                      (cond-> tags
+                        (contains? tags :rf.event/v)
+                        (project-event-tags :rf.event/v)
 
-                      (and (map? tags) (contains? tags :event))
-                      (project-event-tags :event)
+                        (contains? tags :event)
+                        (project-event-tags :event)
 
-                      (and (map? tags) (= :rf.fx/handled operation))
-                      (project-fx-tags)
+                        (= :rf.fx/handled operation)
+                        (project-fx-tags)
 
-                      (and (map? tags) (contains? tags :rf.event/coeffects))
-                      (project-cofx-map-slot :rf.event/coeffects)
+                        (contains? tags :rf.event/coeffects)
+                        (project-cofx-map-slot :rf.event/coeffects)
 
-                      (and (map? tags) (contains? tags :rf.event/cofx))
-                      (project-cofx-map-slot :rf.event/cofx)
+                        (contains? tags :rf.event/cofx)
+                        (project-cofx-map-slot :rf.event/cofx)
 
-                      (and (map? tags) (contains? tags :rf.event/db))
-                      (project-db-tags frame-id)
+                        (contains? tags :rf.event/db)
+                        (project-db-tags frame-id)
 
-                      (and (map? tags) (contains? tags :rf.view/render-args))
-                      (project-view-rendered-tags frame-id)
+                        (contains? tags :rf.view/render-args)
+                        (project-view-rendered-tags frame-id)
 
-                      (and (map? tags) (or (= :rf.cofx/run operation)
-                                           (= :rf.cofx/generated operation)))
-                      (project-cofx-run-tags)
+                        (or (= :rf.cofx/run operation)
+                            (= :rf.cofx/generated operation))
+                        (project-cofx-run-tags)
 
-                      (and (map? tags) (= :rf.sub/run operation))
-                      (project-sub-tags frame-id)
+                        (= :rf.sub/run operation)
+                        (project-sub-tags frame-id)
 
-                      (and (map? tags) (machine-op? operation))
-                      (project-machine-tags frame-id)
+                        (machine-op? operation)
+                        (project-machine-tags frame-id)
 
-                      (and (map? tags)
-                           (contains? tags :rf.interceptor/override-summary))
-                      (project-override-summary-tags)
+                        (contains? tags :rf.interceptor/override-summary)
+                        (project-override-summary-tags)
 
-                      (and (map? tags) (= :rf.flow/failed operation))
-                      (project-flow-failed-tags)
+                        (= :rf.flow/failed operation)
+                        (project-flow-failed-tags)
 
-                      (and (map? tags)
-                           (not= :rf.flow/failed operation)
-                           (contains? tags :exception-data))
-                      (project-machine-error-tags frame-id)
+                        (and (not= :rf.flow/failed operation)
+                             (contains? tags :exception-data))
+                        (project-machine-error-tags frame-id)
 
-                      (and (map? tags) (contains? tags :offending-value))
-                      (project-machine-wrote-db-tags)
+                        (contains? tags :offending-value)
+                        (project-machine-wrote-db-tags)
 
-                      (and (map? tags) (resource-failure-op? operation))
-                      (project-resource-error-tags))]
+                        (resource-failure-op? operation)
+                        (project-resource-error-tags)))]
       (assoc event :tags tags'))))
 
 ;; ---- late-bind hook registration ----------------------------------------
@@ -819,4 +822,3 @@
 (late-bind/set-fn! :classification/project-trace-event project-trace-event)
 (late-bind/set-fn! :classification/redact-event-by-registration redact-event-by-registration)
 (late-bind/set-fn! :classification/registration-classification registration-classification)
-(late-bind/set-fn! :classification/clear-classification! clear-classification!)

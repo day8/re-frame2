@@ -201,7 +201,7 @@
    ;; `interop/debug-enabled?` and is gated at the trace/emit! call sites, so the
    ;; late-bind hop keeps the lookup off the always-on registration path:
    ;;   :classification/registration-classification,
-   ;;   :classification/project-trace-event, :classification/clear-classification!.
+   ;;   :classification/project-trace-event.
    ;; ALWAYS-ON production survivor still reached through the indirection:
    ;;   :classification/redact-event-by-registration (the production egress redactor).
    ;; `re-frame.classification/validate-classification!` is reached by DIRECT
@@ -222,10 +222,6 @@
     :producer-ns 're-frame.classification
     :design-bead "rf2-qe6v1u"
     :description "ALWAYS-ON (NOT a DCE seam, rf2-eq7m0x — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot."}
-   {:key         :classification/clear-classification!
-    :producer-ns 're-frame.classification
-    :design-bead "rf2-vw7f5"
-    :description "No-op retained for test-isolation directory symmetry — the author classification lives in the registrar (snapshot/restored by the runtime fixture); there is no side-table to clear."}
 
    ;; ---- re-frame.frame-classification (EP-0015 §3 HTTP carriers + §9 observability) ----
    ;; `re-frame.frame/reg-frame` consults these to validate the frame-owned
