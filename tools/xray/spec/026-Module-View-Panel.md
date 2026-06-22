@@ -244,13 +244,15 @@ Xray therefore models its registration set as a **separate image**, NOT as
 shared registration state:
 
 - `image_view_reads/xray-image` constructs Xray's OWN EP-0023 `rf/image` — an
-  inert value selecting Xray's own source namespaces (`:include-ns
+  inert value selecting Xray's own source namespaces (`:select-ns {:include
   ["day8.re-frame2-xray.**"]`, under which every `:rf.xray/*` registration is
   authored and stamped `:rf.provenance/ns`, which survives production elision),
-  NARROWED by `:exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
-  "day8.re-frame2-xray.test-helpers.**"]` so Xray's own test + test-support
+  NARROWED by `:exclude ["day8.re-frame2-xray.**.*-cljs-test"
+  "day8.re-frame2-xray.test-helpers.**"]}` so Xray's own test + test-support
   namespaces are subtracted (rf2-rjml45 — they co-register the production ids in
   a dev/test build; the exclude keeps the production image collision-free).
+  (EP-0026, rf2-dlvmpc: the sibling `:include-ns` / `:exclude-ns` keys were
+  consolidated into the single `:select-ns {:include … :exclude …}` map.)
   It is Xray's instruction set as data.
 - Xray's `:rf.xray/*` registrations do NOT leak INTO a target frame's image:
   a target frame's image selects the TARGET's own namespaces, not Xray's.
@@ -336,8 +338,8 @@ does not flip `:images?` (there is no image content to show).
   SEATING (`xray-image` · `xray-image-id` · `xray-source-glob` ·
   `xray-exclude-globs` · `resolver-keyset` · `application-resolver-keyset` ·
   `xray-image-isolated-from?` · `xray-frame-seated?` · `seat-xray-frame!`).
-  `xray-image` declares `:include-ns [xray-source-glob]` NARROWED by
-  `:exclude-ns xray-exclude-globs` (`["day8.re-frame2-xray.**.*-cljs-test"
+  `xray-image` declares `:select-ns {:include [xray-source-glob] :exclude
+  xray-exclude-globs}` (`:exclude` = `["day8.re-frame2-xray.**.*-cljs-test"
   "day8.re-frame2-xray.test-helpers.**"]`) so Xray's own test + test-support
   namespaces are subtracted from the production image (rf2-rjml45 — they
   co-register the production ids in a dev/test build).

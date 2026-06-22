@@ -376,7 +376,7 @@
   registrar. Two blockers gated this flip and both are resolved: the
   test-namespace assembly collision (the `day8.re-frame2-xray.**` glob sweeping
   in Xray's own `*-cljs-test` namespaces → `:rf.error/image-duplicate-id`) is
-  fixed by the EP-0023 `:exclude-ns` selector on `xray-image`; and the
+  fixed by the `:select-ns :exclude` globs on `xray-image`; and the
   host-registry read regression under image-loaded seating — a `:rf.xray/*`
   sub's bare `(rf/registrations …)` / `(rf/handler-meta …)` resolving through
   Xray's OWN image generation instead of the inspected host's process-global

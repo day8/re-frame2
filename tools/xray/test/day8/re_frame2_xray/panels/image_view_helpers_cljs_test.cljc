@@ -45,13 +45,12 @@
   {:kind :interceptor :id :rf.interceptor/path :standard true})
 
 ;; A sealed image generation — the inert value `image-assembly/assemble`
-;; returns (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/requires` /
-;; `:rf.gen/kinds`).
+;; returns (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/kinds`). EP-0026
+;; (rf2-dlvmpc) retired `:rf.gen/requires` with the image-capability feature.
 (def ^:private counter-generation
   {:rf.gen/resolver {[:event :counter/inc]   inc-desc
                      [:sub   :counter/value] value-desc}
    :rf.gen/images   [{:rf.image/id :docs.counter/v2 :rf.image/include-ns ["docs.counter.v2"]}]
-   :rf.gen/requires #{:rf.capability/http}
    :rf.gen/kinds    #{:event :sub}})
 
 ;; A SECOND generation where the SAME id (:counter/inc) resolves to a
@@ -59,15 +58,14 @@
 (def ^:private other-generation
   {:rf.gen/resolver {[:event :counter/inc] inline-desc}
    :rf.gen/images   [{:rf.image/id :test/small}]
-   :rf.gen/requires #{}
    :rf.gen/kinds    #{:event}})
 
-;; A live frame OBJECT — the inert map `make-frame` returns.
+;; A live frame OBJECT — the inert map `make-frame` returns. EP-0026
+;; (rf2-dlvmpc) retired the `:rf.frame/capabilities` slot.
 (def ^:private counter-frame
   {:rf.frame/object       true
    :rf.frame/generation   counter-generation
-   :rf.frame/id           :counter/main
-   :rf.frame/capabilities {:rf.capability/http :some-http}})
+   :rf.frame/id           :counter/main})
 
 (def ^:private other-frame
   {:rf.frame/object     true
@@ -102,11 +100,12 @@
 
 (deftest project-generation-shape
   (testing "a sealed generation projects to the image-row: composed image ids,
-            union requires, sorted kinds, descriptor count, and one descriptor
+            sorted kinds, descriptor count, and one descriptor
             row per [kind id] (sorted, each with provenance)"
     (let [img (h/project-generation counter-generation)]
       (is (= [:docs.counter/v2] (:images img)))
-      (is (= #{:rf.capability/http} (:requires img)))
+      (is (not (contains? img :requires))
+          "EP-0026: no :requires — image capabilities are removed")
       (is (= [:event :sub] (:kinds img)) "kinds sorted by str")
       (is (= 2 (:descriptor-count img)))
       (is (= [{:kind :event :id :counter/inc
@@ -120,7 +119,7 @@
   (testing "a nil generation projects to the empty image-row (no descriptors)"
     (let [img (h/project-generation nil)]
       (is (= [] (:images img)))
-      (is (= #{} (:requires img)))
+      (is (not (contains? img :requires)) "EP-0026: no :requires field")
       (is (= [] (:kinds img)))
       (is (= 0 (:descriptor-count img)))
       (is (= [] (:descriptors img))))))
@@ -128,13 +127,14 @@
 ;; ---- project-frame-row: frame as an execution context -------------------
 
 (deftest project-frame-row-shape
-  (testing "a live frame projects to the frame-row: id, not-anonymous, capability
-            keys, and the resolved IMAGE it runs (its generation's descriptors)"
+  (testing "a live frame projects to the frame-row: id, not-anonymous, and the
+            resolved IMAGE it runs (its generation's descriptors)"
     (let [row (h/project-frame-row :counter/main counter-frame)]
       (is (= :counter/main (:frame-id row)))
       (is (false? (:anonymous? row)))
       (is (false? (:has-adapter? row)))
-      (is (= #{:rf.capability/http} (:capabilities row)))
+      (is (not (contains? row :capabilities))
+          "EP-0026: no :capabilities — image capabilities are removed")
       (is (= 2 (:descriptor-count (:image row)))
           "the frame POINTS AT its generation — projected as the image"))))
 

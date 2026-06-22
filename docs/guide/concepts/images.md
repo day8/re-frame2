@@ -55,7 +55,7 @@ When you do need to be explicit, `rf/image` builds an image value. It's pure dat
 
 ```clojure
 (def counter-image
-  (rf/image {:include-ns ["docs.quickstart.counter.basic"]}))
+  (rf/image {:select-ns {:include ["docs.quickstart.counter.basic"]}}))
 
 (rf/make-frame {:id :counter/main
                 :images [counter-image]})
@@ -63,25 +63,25 @@ When you do need to be explicit, `rf/image` builds an image value. It's pure dat
 
 Two ways to put registrations into an image:
 
-**Select by source namespace with `:include-ns`.** The selector is a *query over the source store*, choosing registrations by the namespace they were authored in (their recorded provenance) — not by the keyword namespace of their id. A registration with id `:counter/inc` authored in `docs.quickstart.counter.basic` is selected because of *where it was written*, not because the keyword starts with `counter`.
+**Select by source namespace with `:select-ns`.** The selector is a *query over the source store*, choosing registrations by the namespace they were authored in (their recorded provenance) — not by the keyword namespace of their id. A registration with id `:counter/inc` authored in `docs.quickstart.counter.basic` is selected because of *where it was written*, not because the keyword starts with `counter`. `:select-ns` is one map with an `:include` vector (required) and an optional `:exclude` vector.
 
 ```clojure
 (def page-image
-  (rf/image {:include-ns ["docs.*.counter.*"
-                          "docs.shared.widgets.*"]}))
+  (rf/image {:select-ns {:include ["docs.*.counter.*"
+                                   "docs.shared.widgets.*"]}}))
 ```
 
-The glob grammar is small and case-sensitive: a literal segment matches itself, `*` matches exactly one dot-free segment, and `**` matches zero or more segments. A segment may also carry an intra-segment `*` (each matching zero or more characters *within* that one segment, never crossing a `.`), so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`. So `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` or `docs.shared.widgets.forms.input`; `docs.shared.**` matches all three. The selector does **not** load code — namespaces must already be required through normal `ns` dependencies; the glob only chooses from what the runtime already knows. And an `:include-ns` pattern that matches *nothing* is an assembly error, not an empty image: that turns a typo, a forgotten `require`, or a dead-code-eliminated namespace into a loud failure at assembly time instead of a silently incomplete frame.
+The glob grammar is small and case-sensitive: a literal segment matches itself, `*` matches exactly one dot-free segment, and `**` matches zero or more segments. A segment may also carry an intra-segment `*` (each matching zero or more characters *within* that one segment, never crossing a `.`), so `*-cljs-test` matches the leaf of `app.feature.mount-cljs-test`. So `docs.shared.widgets.*` matches `docs.shared.widgets.button` but not `docs.shared.widgets` or `docs.shared.widgets.forms.input`; `docs.shared.**` matches all three. The selector does **not** load code — namespaces must already be required through normal `ns` dependencies; the glob only chooses from what the runtime already knows. And an `:include` pattern that matches *nothing* is an assembly error, not an empty image: that turns a typo, a forgotten `require`, or a dead-code-eliminated namespace into a loud failure at assembly time instead of a silently incomplete frame.
 
-**Narrow a broad glob with `:exclude-ns`.** A recursive `**` glob sometimes sweeps in sibling namespaces a frame must not load — classically a feature's own `*-test` namespaces, which in a dev/test build co-register the same ids the production sources do (an image selecting both fails assembly with a duplicate-id collision). `:exclude-ns` subtracts from the `:include-ns` selection by provenance namespace, same grammar:
+**Narrow a broad glob with `:select-ns :exclude`.** A recursive `**` glob sometimes sweeps in sibling namespaces a frame must not load — classically a feature's own `*-test` namespaces, which in a dev/test build co-register the same ids the production sources do (an image selecting both fails assembly with a duplicate-id collision). The `:exclude` leg subtracts from the `:include` selection by provenance namespace, same grammar. Exclusion is global to the image: a namespace matched by any `:exclude` pattern is never selected, regardless of which `:include` caught it.
 
 ```clojure
-(rf/image {:include-ns ["day8.re-frame2-xray.**"]
-           :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
-                        "day8.re-frame2-xray.test-helpers.**"]})
+(rf/image {:select-ns {:include ["day8.re-frame2-xray.**"]
+                       :exclude ["day8.re-frame2-xray.**.*-cljs-test"
+                                 "day8.re-frame2-xray.test-helpers.**"]}})
 ```
 
-Unlike `:include-ns`, an `:exclude-ns` pattern that matches nothing is a no-op (a defensive guard, not a fail-loud error) — so a production build that never loads the excluded namespaces is unaffected, while the dev/test build gets the collision-free narrowing. `:exclude-ns` applies only to the glob-selected registrations, never to inline `:registrations`.
+Unlike `:include`, an `:exclude` pattern that matches nothing is a no-op (a defensive guard, not a fail-loud error) — so a production build that never loads the excluded namespaces is unaffected, while the dev/test build gets the collision-free narrowing. `:exclude` applies only to the glob-selected registrations, never to inline `:registrations`.
 
 **Or supply registrations inline with `:registrations`.** Useful for generated code, tests, or library packaging where authoring a whole namespace is overkill. The sections mirror the `reg-*` names, and entries are call-shaped tuples:
 
@@ -100,7 +100,7 @@ Unlike `:include-ns`, an `:exclude-ns` pattern that matches nothing is a no-op (
 
 Most human-authored code should stay with ordinary `reg-*` forms and select by provenance. Inline descriptors are an option, not the main road — and they're descriptions of registrations, never `reg-*` calls smuggled into a map.
 
-Whatever the inputs, an image is always resolved into one **sealed image generation** before the frame runs — framework standard registrations added, collisions and references validated, capabilities checked, the result frozen. The frame resolves every lookup against that one sealed generation. Assembly is where a bad image fails: a duplicate id, a zero-match glob, a stale replacement, a missing capability — all caught *before any event touches state*, which is the payoff of making the registration set a value the framework can inspect up front.
+Whatever the inputs, an image is always resolved into one **sealed image generation** before the frame runs — framework standard registrations added, collisions and references validated, the result frozen. The frame resolves every lookup against that one sealed generation. Assembly is where a bad image fails: a within-image duplicate id, a zero-match include glob, a duplicate image id in one composition, an app registration colliding with a protected framework standard — all caught *before any event touches state*, which is the payoff of making the registration set a value the framework can inspect up front.
 
 ## The id story: reuse registration ids, never frame ids
 
@@ -114,8 +114,8 @@ This is the rule that makes same-on-one-page examples work, so it's worth statin
 Two images may both contain a `:counter/inc` event. Two live frames may not both register as `:counter/main`. So a docs page can reuse one teaching vocabulary across every example, while each mounted example still gets a distinct frame id.
 
 ```clojure
-(def counter-basic  (rf/image {:include-ns ["docs.quickstart.counter.basic"]}))
-(def counter-parity (rf/image {:include-ns ["docs.quickstart.counter.parity"]}))
+(def counter-basic  (rf/image {:select-ns {:include ["docs.quickstart.counter.basic"]}}))
+(def counter-parity (rf/image {:select-ns {:include ["docs.quickstart.counter.parity"]}}))
 
 ;; Same ids inside each image (:counter/inc, :counter/value), different meaning.
 ;; Distinct frame ids, because frame ids are globally unique.
@@ -129,7 +129,7 @@ The reader sees one small vocabulary evolve across lessons instead of `:counter-
 
 The recurring shapes, all the same move — *different behaviour ⇒ different image; same behaviour, different history ⇒ same image, different frames*:
 
-- **Two surfaces on one page.** A todo surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:include-ns` selectors; each frame resolves only its own.
+- **Two surfaces on one page.** A todo surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:select-ns` selectors; each frame resolves only its own.
 - **An inspection tool beside its target.** Xray is itself a running surface with its own events, subs, and app-db paths. Run it in its own image and frame, and let it inspect the target frame as data — the tool never has to coordinate ids with the thing it inspects.
 - **Progressive docs examples.** Four versions of a counter, each a lesson, each its own image, all reusing `:counter/inc` / `:counter/value` / `:counter/view`.
 - **A library slice you compose in.** Eventually a library ships an image value; you build a frame from your image plus theirs. `:images` is the assembly input; the frame still runs one sealed generation:
@@ -139,7 +139,7 @@ The recurring shapes, all the same move — *different behaviour ⇒ different i
                 :images [widgets-image routing-image product-image]})
 ```
 
-  Composition is deterministic and collision-checked: if two input images provide the same `(kind, id)` with different implementations, assembly fails unless the composing image declares an explicit winner. Order never silently decides.
+  Composition is deterministic and ordered: image order decides — the later image in `:images` wins. If two input images provide the same `(kind, id)`, the later one shadows the earlier, the assembly records it in the **shadow report** (`rf/frame-shadows`), and you apply whatever policy you want (assert none, assert a known set, log). A *within*-image collision is still an error: an image must resolve cleanly to one descriptor per `(kind, id)`, so to override you compose a later image, never two definitions in one.
 
 ## Tests and stories: behaviour is an image change, state is a frame change
 
@@ -147,8 +147,8 @@ Tests and stories want controlled behaviour *and* controlled state. The image gi
 
 ```clojure
 (def checkout-test-image
-  (rf/image {:include-ns ["checkout.core.**"
-                          "checkout.test-doubles.**"]}))
+  (rf/image {:select-ns {:include ["checkout.core.**"
+                                   "checkout.test-doubles.**"]}}))
 
 (let [frame (rf/make-frame {:images [checkout-test-image]
                             :initial-events [[:rf/set-db {:cart/items []}]]})]
@@ -160,38 +160,28 @@ The frame is the target, but it rides in the **`{:frame …}` opts map** — the
 
 State setup stays a frame concern — `:initial-events` (e.g. a leading `[:rf/set-db {…}]`), a restored frame-state value, or setup events. Behaviour setup is an image concern — select or override registrations before the frame runs. (Targeting the frame *value* directly, as above, is the test/harness path; mounted product code targets a frame *id* via the same `{:frame …}` opt. Both are in [Frames](frames.md).)
 
-### Overriding a registration is explicit
+### Overriding a registration is a later image
 
-If an image replaces an existing `(kind, id)`, assembly makes you say so — a bare collision is still an error, because silent last-writer-wins is exactly the failure mode the source store exists to prevent. The override names the surviving descriptor:
-
-```clojure
-(rf/image
-  {:include-ns ["checkout.core.**"
-                "checkout.story.**"]
-   :replace {[:fx :checkout.http/post] {:ns "checkout.story.http"}}})
-```
-
-Application-owned registrations replace through `:replace`. Framework-standard registrations are louder: they're non-replaceable by default, and an invariant-coupled standard stays non-replaceable outright — an image cannot replace *how the frame executes*, only *what it executes*. Replacing one needs `:replace-standard` against a standard that has opted in. The boundary is simple:
-
-> If it's application-owned and has a registered `(kind, id)`, an image may replace it — explicitly. If it's framework-standard, the standard must opt into replacement. If it's how the frame executes registered entries — queue ordering, the interceptor algorithm, app-db commit semantics — it's the processing contract, and no image touches it.
-
-## Capabilities: an image can require, a frame supplies
-
-An image can declare the host capabilities its registrations need — DOM rendering, an HTTP transport, a schema validator. The frame supplies the matching capability map. If a required capability is missing, frame creation fails *before* the image becomes runnable — the same fail-loud check, moved to the image/frame boundary:
+To override an existing `(kind, id)`, define the winning registration in a *later* image and compose. Image order decides — the later image wins — and the assembly records what it shadowed in the **shadow report** so the override is visible in data, not hidden in load order:
 
 ```clojure
-(def articles-image
-  (rf/image {:include-ns ["articles.core.**" "articles.browser.**"]
-             :rf.image/requires #{:rf.capability/http
-                                  :rf.capability/schemas}}))
+(def app-image
+  (rf/image {:id :app/main
+             :select-ns {:include ["checkout.core.**"]}}))
 
-(rf/make-frame {:id :articles/main
-                :images [articles-image]
-                :capabilities {:rf.capability/http    browser-http
-                               :rf.capability/schemas malli-schemas}})
+(def test-doubles
+  (rf/image {:id :test/doubles
+             :registrations
+             {:reg-fx [[:checkout.http/post recording-post]]}}))  ;; stub the effect
+
+(let [frame (rf/make-frame {:images [app-image test-doubles]})]   ;; test-doubles wins (later)
+  (rf/frame-shadows frame))
+;; => [{:registration [:fx :checkout.http/post] :image :app/main :shadowed-by :test/doubles}]
 ```
 
-That keeps "this image needs HTTP" a declared fact you can read off the value, rather than a runtime surprise three events into a cascade.
+An override is always a *separate* image, never a second key in the same one: within one image two definitions of one `(kind, id)` are an error. A cross-image shadow resolves (later wins) and is reported; you read the report and apply whatever policy you want. The one cross-image collision that still fails assembly is an app registration colliding with a framework **standard**:
+
+> If it's application-owned, define the winner in a later image and read the shadow report. If it's how the frame executes registered entries — queue ordering, the interceptor algorithm, app-db commit semantics — it's a protected framework standard, and no app image may shadow it.
 
 ## Hot reload swaps the image, keeps the memory
 

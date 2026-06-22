@@ -417,19 +417,19 @@ Each entry is an **image VALUE** built by the framework constructor
 `re-frame.core/image` — an inert, PURE selected-registration-set value (see
 [spec/API.md §App values and composition](../../../spec/API.md) and
 EP-0023 §Image). An image selects registrations by provenance namespace
-(`:include-ns ["app.checkout.v2" "app.shared.**"]`), supplies inline
-`:registrations`, declares `:replace` winners for collisions, and carries an
-optional `:id`:
+(`:select-ns {:include ["app.checkout.v2" "app.shared.**"]}`), supplies inline
+`:registrations`, and carries an optional `:id`; collisions resolve by IMAGE
+ORDER — the later image in `:images` wins (EP-0026 §Layered Resolution):
 
 ```clojure
 (reg-variant :story.checkout/legacy-flow
   {:doc    "Checkout under the v1 pricing rules."
-   :images [(rf/image {:id :checkout/v1 :include-ns ["app.checkout.v1"]})]
+   :images [(rf/image {:id :checkout/v1 :select-ns {:include ["app.checkout.v1"]}})]
    :setup  [[:checkout/init]]})
 
 (reg-variant :story.checkout/new-flow
   {:doc    "SAME story, SAME events — but the v2 pricing image."
-   :images [(rf/image {:id :checkout/v2 :include-ns ["app.checkout.v2"]})]
+   :images [(rf/image {:id :checkout/v2 :select-ns {:include ["app.checkout.v2"]}})]
    :setup  [[:checkout/init]]})
 ```
 
@@ -449,8 +449,8 @@ exactly as before (absence-is-default) — the slot is opt-in and changes
 nothing for ordinary state variants.
 
 **Validation is the framework's.** Story does not fork image validation: a
-non-image entry, a zero-match `:include-ns` glob (a typo / forgotten require
-/ stale ns), or a malformed `:replace` map FAILS LOUDLY at frame creation
+non-image entry, a zero-match `:select-ns :include` glob (a typo / forgotten
+require / stale ns), or a within-image collision FAILS LOUDLY at frame creation
 (`:rf.error/invalid-image` / `:rf.error/image-zero-match` /
 `:rf.error/image-missing-reference`). The variant body schema admits
 `:images` as a loose vector; the rigorous shape is owned by `rf/image` and

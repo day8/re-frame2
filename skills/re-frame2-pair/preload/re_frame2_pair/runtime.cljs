@@ -912,21 +912,6 @@
     {}
     (rf/registrations {:frame frame-id :kind kind})))
 
-(defn frame-capability-requires
-  "The capability set frame `frame-id`'s running image DECLARES it requires —
-   the union `:rf.gen/requires` off the frame's sealed generation
-   (`rf/frame-generation`). The PUBLIC window into a frame's capability needs:
-   it lets an agent distinguish a MISSING-CAPABILITY failure (the image
-   requires `:rf.capability/x` that the host frame did not provide) from a
-   MISSING-REGISTRATION one (the `(kind, id)` is simply absent from the
-   resolver). NOTE: the frame-OWNED capability MAP / adapter binding the
-   requires are checked against are not exposed by the public read surface
-   (they are frame-object interior); this reports the IMAGE-declared
-   requirement, the side an agent can act on. Returns the (sorted) require
-   vector. FAILS LOUD up the eval boundary on an unresolvable frame."
-  [frame-id]
-  (-> (rf/frame-generation frame-id) :rf.gen/requires sort vec))
-
 (defn describe-image
   "Describe the IMAGE GENERATION a frame is running. Answers \"what
    behaviour does THIS frame run, and where did each piece come from?\" in
@@ -939,16 +924,13 @@
    (multi-frame session with no selection) rather than silently reading
    `:rf/default`.
 
-   Slices (all derived from the sealed generation's four `:rf.gen/*` keys):
+   Slices (all derived from the sealed generation's `:rf.gen/*` keys):
 
      :images        the image ids composed into the generation (the
                     normalized `:rf.gen/images`, reduced to `:rf.image/id`
                     where present so the listing stays compact).
      :kinds         the registrar kinds the generation carries
                     (`:rf.gen/kinds`), sorted.
-     :requires      the union capability set the images declare
-                    (`:rf.gen/requires`), sorted — the missing-capability vs
-                    missing-registration discriminator.
      :counts        `{kind N …}` — selected-registration counts per kind off
                     the resolver, so an agent sees the SELECTED universe size
                     without enumerating every id.
@@ -967,7 +949,7 @@
    `rf/frame-generation` read FAILS LOUD (`:rf.error/frame-no-generation`) for
    it (the intended no-generation contract). That is not an error for THIS read:
    an imageless frame simply runs no composed image, so `describe-image` reports
-   it gracefully — `{:ok? true … :images [] :kinds [] :requires [] :counts {}
+   it gracefully — `{:ok? true … :images [] :kinds [] :counts {}
    :no-generation? true}` — rather than letting the fail-loud escape up the eval
    boundary. The discriminator is the error's `:live-frame-ids`: a frame-id that
    IS a live frame but carries no generation is the graceful imageless case; an
@@ -1000,7 +982,6 @@
             :frame          frame-id
             :images         []
             :kinds          []
-            :requires       []
             :counts         {}
             :no-generation? true}
            (let [resolver (:rf.gen/resolver gen)
@@ -1013,8 +994,9 @@
                       :frame    frame-id
                       ;; Each composed image reduces to its `:rf.image/id` when
                       ;; it carries one (the named case); an ANONYMOUS image (no
-                      ;; `:id`) has none, so surface its `:include-ns` globs —
-                      ;; what the image selected — rather than the whole map.
+                      ;; `:id`) has none, so surface its `:select-ns` include
+                      ;; globs — what the image selected — rather than the whole
+                      ;; map.
                       :images   (mapv (fn [img]
                                         (or (:rf.image/id img)
                                             (when (map? img)
@@ -1022,7 +1004,6 @@
                                             img))
                                       (:rf.gen/images gen))
                       :kinds    kinds
-                      :requires (vec (sort (:rf.gen/requires gen)))
                       :counts   counts}
                include-ns?
                (assoc :registrations

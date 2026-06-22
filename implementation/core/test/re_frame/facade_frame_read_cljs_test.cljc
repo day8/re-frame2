@@ -12,8 +12,8 @@
       — resolving the (kind, id) set through the target frame's OWN sealed image
       generation (NOT the realm/default registrar);
     * a dedicated raw read `rf/frame-generation` returning the sealed generation
-      map with the four documented stable public keys (:rf.gen/resolver,
-      :rf.gen/images, :rf.gen/requires, :rf.gen/kinds).
+      map with the documented stable public keys (:rf.gen/resolver,
+      :rf.gen/images, :rf.gen/kinds).
 
   Pins the bead's enumerated coverage:
 
@@ -108,8 +108,8 @@
    (reg-desc "green.core" :sub   :counter/value ::green-value)
    (reg-desc "green.core" :event :counter/reset ::green-reset)]) ;; green-only id
 
-(def ^:private blue-img  (image/image {:id :blue/img  :include-ns ["blue.core"]}))
-(def ^:private green-img (image/image {:id :green/img :include-ns ["green.core"]}))
+(def ^:private blue-img  (image/image {:id :blue/img  :select-ns {:include ["blue.core"]}}))
+(def ^:private green-img (image/image {:id :green/img :select-ns {:include ["green.core"]}}))
 
 ;; ===========================================================================
 ;; 1. :frame arity resolves through the TARGET frame's OWN image generation —
@@ -196,14 +196,16 @@
 
 (deftest frame-generation-returns-the-sealed-generation-key-shape
   (testing "frame-generation returns the sealed image generation map with the
-            four documented stable public keys (EP-0023 §Specification Summary)"
+            documented stable public keys (EP-0023 §Specification Summary;
+            EP-0026 retired :rf.gen/requires with the image-capability feature)"
     (let [_blue (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
           gen   (rf/frame-generation :blue/main)]
-      (testing "the four :rf.gen/* keys are present"
+      (testing "the :rf.gen/* keys are present"
         (is (contains? gen :rf.gen/resolver))
         (is (contains? gen :rf.gen/images))
-        (is (contains? gen :rf.gen/requires))
         (is (contains? gen :rf.gen/kinds)))
+      (testing "the retired :rf.gen/requires key is absent (EP-0026)"
+        (is (not (contains? gen :rf.gen/requires))))
       (testing "the resolver is the id-disjoint [kind id] -> descriptor map"
         (is (= ::blue-inc (:handler-fn (get (:rf.gen/resolver gen) [:event :counter/inc])))))
       (testing ":rf.gen/kinds names the kinds the frame's image carries"

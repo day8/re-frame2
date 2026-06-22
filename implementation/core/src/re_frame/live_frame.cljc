@@ -219,10 +219,11 @@
   With the registries collapsed, an image-loaded frame is a `frames` record
   carrying a `:generation`; this projects each into the inert map shape the
   tooling's pure projectors expect — `{:rf.frame/object true :rf.frame/id <id>
-  :rf.frame/generation <gen> :rf.frame/capabilities <caps> :rf.frame/adapter
-  <adapter>}` — reading the generation + capabilities from the record by id.
-  Replaces the dissolved second registry's `@live-frames` snapshot. INTERNAL —
-  a tooling read seam; pure read of the one registry."
+  :rf.frame/generation <gen> :rf.frame/adapter <adapter>}` — reading the
+  generation + adapter from the record by id. Replaces the dissolved second
+  registry's `@live-frames` snapshot. INTERNAL — a tooling read seam; pure read
+  of the one registry. (EP-0026, rf2-dlvmpc: the `:rf.frame/capabilities`
+  projection is gone with the image-capability feature.)"
   []
   (into {}
         (map (fn [id]
@@ -230,8 +231,6 @@
                             :rf.frame/id          id
                             :rf.frame/runnable-id id
                             :rf.frame/generation  (frame/frame-generation id)}
-                     (some? (frame/frame-capabilities id))
-                     (assoc :rf.frame/capabilities (frame/frame-capabilities id))
                      (some? (frame/frame-adapter id))
                      (assoc :rf.frame/adapter (frame/frame-adapter id)))]))
         (live-frame-ids)))
@@ -345,7 +344,7 @@
 (defn- validate-opts!
   "Validate the `make-frame` `opts` ARGUMENT is a MAP at the public boundary
   (EP-0024 §One constructor — `opts` is the map carrying `:images` / `:id` /
-  `:capabilities` / `:adapter` + record-config keys (incl. `:initial-events`);
+  `:adapter` + record-config keys (incl. `:initial-events`);
   Spec API.md §`make-frame`). A non-map `opts` — `nil`, a keyword, a vector, a string
   — throws `:rf.error/make-frame-bad-opts`, fail-loud, BEFORE any destructuring
   or record-config construction, so a caller typo / plumbing failure cannot
@@ -365,7 +364,7 @@
       'rf/make-frame
       (str "rf/make-frame: opts must be a MAP — got "
            (pr-str opts) ". Pass an opts map carrying the frame's :images / "
-           ":id / :capabilities / :adapter and record-config "
+           ":id / :adapter and record-config "
            "keys (incl. :initial-events), e.g. (rf/make-frame {:images [my-image]}); an all-defaults "
            "frame is (rf/make-frame {}), never (rf/make-frame nil).")
       {:recovery :pass-an-opts-map
@@ -425,8 +424,8 @@
 ;; The unified `make-frame` accepts BOTH opt families in one call (EP-0024
 ;; adopts the deferred option-(a), reversing the rf2-32siq3.45 option-(b)
 ;; fail-loud redirect). The image-selection opts the constructor consumes
-;; directly (`:images` → generation; `:id` / `:capabilities` /
-;; `:adapter` → the frame value); EVERY OTHER opt is record-config
+;; directly (`:images` → generation; `:id` / `:adapter` → the frame
+;; value); EVERY OTHER opt is record-config
 ;; passed verbatim to `frame/reg-frame` (`:initial-events` / `:fx-overrides` /
 ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification keys /
 ;; …). So `(rf/make-frame {:id … :images [...] :fx-overrides {...}})` works in
@@ -440,30 +439,37 @@
   EP-0027 retired `:initial-db`: it is NO LONGER an image-selection key. A
   supplied `:initial-db` now flows through to `reg-frame` as record-config and is
   rejected fail-loud there (`:rf.error/initial-db-retired`) — seeding app-db is
-  itself an event (`{:initial-events [[:rf/set-db {…}]]}`)."
-  #{:images :id :capabilities :adapter})
+  itself an event (`{:initial-events [[:rf/set-db {…}]]}`).
+
+  EP-0026 (rf2-dlvmpc) retired `:capabilities`: image-declared host capabilities
+  are removed end-to-end, so `make-frame :capabilities` is no longer a recognized
+  key. A supplied `:capabilities` now flows through to `reg-frame` as
+  record-config (an ordinary config key)."
+  #{:images :id :adapter})
 
 ;; ===========================================================================
 ;; Generation resolution (shared by make-frame and reload-images!)
 ;; ===========================================================================
 ;;
 ;; `make-frame` (.8/.6) and `reload-images!` (.10) BOTH turn an `:images` vector
-;; + a frame `:capabilities` map into ONE sealed, capability-checked generation.
-;; Factor that out so reload resolves a new generation with byte-identical
+;; into ONE sealed generation. Factor that out so reload resolves a new
+;; generation with byte-identical
 ;; semantics to creation: same `:images`-is-a-vector validation, same
 ;; `image-assembly/assemble` path (live source store OR an explicit descriptor
-;; pool), same unconditional frame-boundary capability check.
+;; pool). (EP-0026, rf2-dlvmpc: no frame-boundary capability check — image
+;; capabilities are removed.)
 
 (defn- resolve-generation!
   "Validate `images` (must be a NON-EMPTY vector — EP-0026 §Default Image,
   `:images []` is an error) and assemble it into ONE sealed generation (against
   the live source store when `descriptors` is nil, else against the explicit
-  pool — matching `assemble`'s two arities), then run the FRAME-BOUNDARY
-  capability check against `capabilities` (unconditional: an absent map provides
-  nothing, EP-0013 fail-loud parity). Returns the sealed generation. The shared
-  resolution `make-frame` and `reload-images!` both use, so a reload resolves with
-  byte-identical semantics to creation. Fail-loud on a non-vector / EMPTY
-  `:images`, an assembly error, or a missing capability.
+  pool — matching `assemble`'s two arities). Returns the sealed generation. The
+  shared resolution `make-frame` and `reload-images!` both use, so a reload
+  resolves with byte-identical semantics to creation. Fail-loud on a
+  non-vector / EMPTY `:images` or an assembly error.
+
+  EP-0026 (rf2-dlvmpc) removed image-declared host capabilities end-to-end —
+  there is no frame-boundary capability check.
 
   Note: this is only called when `images` is PRESENT (make-frame) or supplied to
   reload / reprojection — the OMIT-`:images` default-image boundary wiring is
@@ -472,19 +478,11 @@
   vector) on its `:rf.gen/images`, so reprojection still resolves cleanly. A
   cross-namespace same-`[kind id]` collision in the resolved generation FAILS
   LOUD (`:rf.error/image-duplicate-id`)."
-  [images capabilities descriptors]
-  (let [images     (validate-images! images)
-        generation (if (nil? descriptors)
-                     (asm/assemble images)
-                     (asm/assemble images descriptors))]
-    ;; Capability check at the FRAME boundary (EP-0023 §Public API): a required
-    ;; capability absent from the frame's `:capabilities` fails BEFORE the
-    ;; generation is runnable. UNCONDITIONAL so a frame that supplies NO
-    ;; `:capabilities` map still fails any non-empty `:rf.image/requires` — an
-    ;; absent map provides nothing, exactly as `{}` does (EP-0013 fail-loud
-    ;; install-time parity). A no-op when the union `:rf.gen/requires` is empty.
-    (asm/check-capabilities! (:rf.gen/requires generation) capabilities)
-    generation))
+  [images descriptors]
+  (let [images (validate-images! images)]
+    (if (nil? descriptors)
+      (asm/assemble images)
+      (asm/assemble images descriptors))))
 
 ;; ===========================================================================
 ;; make-frame — the ONE public constructor (EP-0024 §One constructor)
@@ -525,13 +523,12 @@
                    ABSENT, the frame is LOCAL-ONLY: the caller keeps the returned
                    value and passes it (or its id) to dispatch/subscribe/test
                    helpers.
-    :capabilities  the host capability map the image's `:rf.image/requires` is
-                   checked against (optional). Checked UNCONDITIONALLY at the
-                   frame boundary — a required capability the map does not provide
-                   fails loud (`:rf.error/image-missing-capability`). A no-op when
-                   the image requires nothing.
     :adapter       the active-substrate adapter binding/configuration (optional).
                    Carried on the frame value, not the frame-state.
+
+  EP-0026 (rf2-dlvmpc) retired the `:capabilities` image-selection key:
+  image-declared host capabilities are removed end-to-end. A `:capabilities` key
+  is no longer special-cased — it flows through as ordinary record-config.
 
   EVERY OTHER key is RECORD-CONFIG passed verbatim to `re-frame.frame/reg-frame`
   — `:initial-events` (a vector of event vectors dispatch-sync'd into the new
@@ -575,15 +572,14 @@
    ;; argument cannot silently register a garbage default frame or fail by an
    ;; obscure host ClassCastException.
    (validate-opts! opts)
-   (let [{:keys [images id capabilities adapter]} opts
+   (let [{:keys [images id adapter]} opts
          ;; The frame id the record is keyed by: the public `:id` when supplied
          ;; (so `(rf/dispatch [...] {:frame :counter/main})` finds the same
          ;; record), else a process-unique anonymous id so a no-id (direct) value
          ;; is still runnable while bypassing the PUBLIC frame-id space.
          runnable-id (if (some? id) id (frame/anon-frame-id))
-         ;; Resolve the generation FIRST so a bad `:images` / missing capability
-         ;; fails loud BEFORE any record is created — a conflict leaves no
-         ;; half-created frame.
+         ;; Resolve the generation FIRST so a bad `:images` fails loud BEFORE any
+         ;; record is created — a conflict leaves no half-created frame.
          ;;
          ;; EP-0026 §Default Image (ruled 2026-06-22) ALSO says OMITTING `:images`
          ;; (`make-frame {}`) should resolve the DEFAULT image generation. That
@@ -598,7 +594,7 @@
          ;; is an error (`validate-images!`) — and resolves the SELECTED generation.
          ;; The OMIT→default boundary is tracked as follow-up bead rf2-59orj0.
          generation  (when (some? images)
-                       (resolve-generation! images capabilities descriptors))
+                       (resolve-generation! images descriptors))
          ;; Everything outside the image-selection/value keys is record-config
          ;; passed verbatim to `reg-frame` — `:initial-events` / `:fx-overrides` /
          ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification.
@@ -618,16 +614,14 @@
          ;;                            `:initial-events` setup runs, so a setup
          ;;                            cascade resolves through the frame's OWN
          ;;                            image generation, not the global registrar.
-         ;;   :rf.frame/capabilities — the host capability map (NOT an app config
-         ;;                            field) so `reload-images!` / reprojection
-         ;;                            re-check it by id; KEPT in the stored config.
          ;;   :rf.frame/adapter      — the active-substrate adapter binding, KEPT
          ;;                            in the stored config so tooling (Xray's
          ;;                            image/frame view) can read it by id.
+         ;; (EP-0026, rf2-dlvmpc: the `:rf.frame/capabilities` plumbing is gone —
+         ;; image-declared host capabilities are removed end-to-end.)
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
-                         true                 (assoc :rf.frame/generation generation)
-                         (some? capabilities) (assoc :rf.frame/capabilities capabilities)
-                         (some? adapter)      (assoc :rf.frame/adapter adapter))]
+                         true            (assoc :rf.frame/generation generation)
+                         (some? adapter) (assoc :rf.frame/adapter adapter))]
      ;; Create (or idempotently update) the ONE `frames`-registry record under
      ;; the id. `reg-frame` is idempotent on an existing id (surgical update
      ;; preserving runtime state — EP-0024 §Duplicate id policy), installs the
@@ -638,10 +632,9 @@
      (frame/reg-frame runnable-id record-config)
      ;; Return the frame VALUE — the lifecycle token (generation not embedded;
      ;; read from the record by id).
-     (frame/make-frame-value {:id           id
-                              :runnable-id  runnable-id
-                              :capabilities capabilities
-                              :adapter      adapter}))))
+     (frame/make-frame-value {:id          id
+                              :runnable-id runnable-id
+                              :adapter     adapter}))))
 
 ;; ===========================================================================
 ;; Image hot reload (EP-0023 §Hot Reload, rf2-32siq3.10)
@@ -772,8 +765,7 @@
   ([target {:keys [images]} descriptors]
    (let [id             (resolve-reload-id target)
          old-generation (frame/frame-generation id)
-         capabilities   (frame/frame-capabilities id)
-         new-generation (resolve-generation! images capabilities descriptors)]
+         new-generation (resolve-generation! images descriptors)]
      (swap-frame-generation! id new-generation)
      {:rf.frame/frame (frame/make-frame-value {:id id :runnable-id id})
       :rf.reload/diff (generation-diff old-generation new-generation)})))
@@ -811,8 +803,7 @@
   [frame-id]
   (when-let [old-generation (frame/frame-generation frame-id)]
     (let [images         (vec (:rf.gen/images old-generation))
-          capabilities   (frame/frame-capabilities frame-id)
-          new-generation (resolve-generation! images capabilities nil)]
+          new-generation (resolve-generation! images nil)]
       (when-not (= old-generation new-generation)
         (swap-frame-generation! frame-id new-generation)
         (generation-diff old-generation new-generation)))))

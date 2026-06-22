@@ -90,14 +90,19 @@
     (is (= :rf.error/invalid-image
            (err-id #(image/image {:id :x :select-ns {:include ["a.b"] :exclude ['c.d]}}))))))
 
-(deftest select-ns-not-combinable-with-legacy-keys
-  (testing ":select-ns cannot be combined with :include-ns / :exclude-ns"
+(deftest retired-include-exclude-ns-keys-fail-loud
+  (testing "the EP-0023 sibling :include-ns / :exclude-ns keys are RETIRED
+            (EP-0026, rf2-dlvmpc): they fail loud at rf/image, never silently
+            accepted — :select-ns is the single selection surface"
+    (is (= :rf.error/invalid-image
+           (err-id #(image/image {:id :x :include-ns ["a.b"]}))))
+    (is (= :rf.error/invalid-image
+           (err-id #(image/image {:id :x :exclude-ns ["a.b"]}))))
+    ;; supplying :select-ns alongside a retired key still fails (the retired key
+    ;; is rejected outright).
     (is (= :rf.error/invalid-image
            (err-id #(image/image {:id :x :select-ns {:include ["a.**"]}
-                                  :include-ns ["a.b"]}))))
-    (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :select-ns {:include ["a.**"]}
-                                  :exclude-ns ["a.b"]}))))))
+                                  :include-ns ["a.b"]}))))))
 
 (deftest select-ns-global-exclusion-and-strict-include
   (let [pool [(reg-desc "app.todo.list"     :event :todo/add ::add)

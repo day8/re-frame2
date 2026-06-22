@@ -64,8 +64,8 @@
             ;; registration SOURCE STORE so `:rf.provenance/ns` is in the
             ;; :advanced reachability graph (it must SURVIVE DCE — a production
             ;; descriptor field, not a dev-only sentinel). It does NOT root the
-            ;; image-loading path (make-frame / assemble / check-capabilities!),
-            ;; so those image-assembly fns DCE when unused.
+            ;; image-loading path (make-frame / assemble / the within-image
+            ;; collision check), so those image-assembly fns DCE when unused.
             [re-frame.source-store :as source-store]
             [re-frame.source-coords :as source-coords]))
 
@@ -597,14 +597,15 @@
 ;; the read-back returned nil), making the methodology assertion belt-and-braces.
 ;;
 ;; Conversely, the EP-0023 image-ASSEMBLY fns (make-frame / assemble /
-;; check-capabilities!) carry NO debug gate and ride the runtime/SSR
+;; resolve-within-image) carry NO debug gate and ride the runtime/SSR
 ;; image-loading path; image_assembly.cljc's own docstring states "an app that
 ;; never assembles an image never reaches these fns (Closure DCE removes them)."
 ;; The probe deliberately does NOT root that path, so the distinctive
-;; assembly-only string `check-capabilities!` mints
-;; ("rf/make-frame: the image requires capabilities the frame does not supply")
-;; must be ABSENT from the production bundle — asserted under
-;; PROD_ABSENT_WHEN_UNUSED_SENTINELS in check-elision.cjs.
+;; assembly-only string `resolve-within-image` mints ("…is selected from N
+;; distinct source namespaces…") must be ABSENT from the production bundle —
+;; asserted under PROD_ABSENT_WHEN_UNUSED_SENTINELS in check-elision.cjs.
+;; (EP-0026, rf2-dlvmpc retired the former check-capabilities! sentinel with the
+;; image-capability feature.)
 
 (defn ^:export touch-image-frame-provenance! []
   ;; Model the production descriptor shape: the macro path's `:ns` slot is

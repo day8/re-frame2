@@ -7,13 +7,13 @@
   > to the same descriptor set. The reference implementation MUST cache
   > resolved generations.
 
-  The EP minimum cache key:
+  The EP minimum cache key (EP-0026 §Layered Resolution — the ORDERED image
+  vector is part of the key):
 
-      normalized :images vector
+      normalized :images vector (in ORDER)
       + registration source-store generation
       + framework-standard registration generation
       + inline descriptor fingerprints
-      + declared replacement maps
 
   This suite pins the cache CONTRACT:
 
@@ -25,10 +25,12 @@
     * INVALIDATION — a changed SELECTED descriptor (source-store generation),
       a changed STANDARD descriptor (standard generation), and a changed INLINE
       descriptor each force a re-seal (a fresh, distinct object);
-    * rf2-3sjdmi — two compositions differing ONLY in `:replace` /
-      `:replace-standard` (a SHARED resolver shape, distinct replacement
-      decisions) must NOT cache-collide; the key is built from the image
-      INPUTS, never from `:rf.gen/resolver` alone.
+    * EP-0026 (rf2-6ls85a) — two compositions differing ONLY in IMAGE ORDER
+      resolve a shared `[kind id]` to DIFFERENT descriptors (later wins), so they
+      must NOT cache-collide; the key is built from the ORDERED image INPUTS,
+      never from `:rf.gen/resolver` alone. (The EP-0023 declared-`:replace`
+      winner model that the original rf2-3sjdmi test exercised is RETIRED under
+      EP-0026 rf2-dlvmpc.)
 
   Pure data + process state (the source store, the standard registry, the
   generation cache). A fixture clears all three per case. `.cljc` ending
@@ -74,7 +76,7 @@
             return the SAME sealed generation object — not merely equal, but
             identical? — so a request-scoped frame does not re-seal"
     (record! "shop.cart" :event :cart/add ::add)
-    (let [img  (image/image {:id :shop/main :include-ns ["shop.cart"]})
+    (let [img  (image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
           gen1 (asm/assemble [img])
           gen2 (asm/assemble [img])]
       (is (= gen1 gen2) "the two generations are equal")
@@ -89,7 +91,7 @@
             glob selection + validation + sealing run exactly once"
     (record! "app.core" :event :app/boot ::boot)
     (record! "app.core" :sub   :app/state ::state)
-    (let [img  (image/image {:id :app/main :include-ns ["app.core"]})
+    (let [img  (image/image {:id :app/main :select-ns {:include ["app.core"]}})
           gens (vec (repeatedly 25 #(asm/assemble [img])))
           gen0 (first gens)]
       (is (apply = gens) "all 25 are equal")
@@ -101,8 +103,8 @@
   (testing "two SEPARATELY-constructed image values with equal specs hit the
             same cache slot — the key is by VALUE, not by image object identity"
     (record! "shop.cart" :event :cart/add ::add)
-    (let [gen1 (asm/assemble [(image/image {:id :shop/main :include-ns ["shop.cart"]})])
-          gen2 (asm/assemble [(image/image {:id :shop/main :include-ns ["shop.cart"]})])]
+    (let [gen1 (asm/assemble [(image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})])
+          gen2 (asm/assemble [(image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})])]
       (is (identical? gen1 gen2)
           "equal-by-value image specs resolve to the one cached generation")
       (is (= 1 (asm/cache-size))))))
@@ -116,7 +118,7 @@
             the source-store generation, so a re-assembly of the same image is a
             cache MISS — a fresh, distinct sealed object reflecting the change"
     (record! "shop.cart" :event :cart/add ::add)
-    (let [img  (image/image {:id :shop/main :include-ns ["shop.cart"]})
+    (let [img  (image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
           gen1 (asm/assemble [img])]
       (is (not (contains? (:rf.gen/resolver gen1) [:sub :cart/items])))
       ;; A new registration in a selected namespace changes the descriptor pool.
@@ -135,7 +137,7 @@
             changed' rule covers removal too"
     (record! "shop.cart" :event :cart/add ::add)
     (record! "shop.cart" :sub   :cart/items ::items)
-    (let [img  (image/image {:id :shop/main :include-ns ["shop.cart"]})
+    (let [img  (image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
           gen1 (asm/assemble [img])]
       (is (contains? (:rf.gen/resolver gen1) [:sub :cart/items]))
       (ss/forget-descriptor! :sub :cart/items "shop.cart")
@@ -153,7 +155,7 @@
             so a re-assembly of the same image over the same store is a MISS —
             the standard set is part of the resolved generation"
     (record! "shop.cart" :event :cart/add ::add)
-    (let [img  (image/image {:id :shop/main :include-ns ["shop.cart"]})
+    (let [img  (image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
           gen1 (asm/assemble [img])]
       (is (not (contains? (:rf.gen/resolver gen1) [:fx :rf.nav/push-url])))
       (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
@@ -173,10 +175,10 @@
             (inline fingerprints are part of the key, carried by the image value)"
     (record! "checkout.core" :event :checkout/start ::start)
     (let [img-a (image/image {:id :checkout/main
-                              :include-ns ["checkout.core"]
+                              :select-ns {:include ["checkout.core"]}
                               :registrations {:reg-fx [[:checkout.http/post {} ::impl-a]]}})
           img-b (image/image {:id :checkout/main
-                              :include-ns ["checkout.core"]
+                              :select-ns {:include ["checkout.core"]}
                               :registrations {:reg-fx [[:checkout.http/post {} ::impl-b]]}})
           gen-a (asm/assemble [img-a])
           gen-b (asm/assemble [img-b])]
@@ -242,7 +244,7 @@
             re-assembling recomputes cleanly rather than re-throwing a stale miss"
     (record! "todo.boot"    :event :boot/init ::todo)
     (record! "counter.boot" :event :boot/init ::counter)
-    (let [img (image/image {:id :both :include-ns ["todo.boot" "counter.boot"]})]
+    (let [img (image/image {:id :both :select-ns {:include ["todo.boot" "counter.boot"]}})]
       (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
                    (asm/assemble [img])))
       (is (= 0 (asm/cache-size))
@@ -266,7 +268,7 @@
             so the second store (also generation 1) hit the first store's slot."
     (let [store-a (atom {})
           store-b (atom {})
-          img     (image/image {:id :shared/main :include-ns ["shared.core"]})
+          img     (image/image {:id :shared/main :select-ns {:include ["shared.core"]}})
           ;; Store A: register ::a-handler under the same (kind, id) the image
           ;; selects; assemble against store A (its generation becomes 1).
           gen-a   (binding [ss/*source-store* store-a]
@@ -301,7 +303,7 @@
             composition twice STILL returns the one cached object — folding the
             store identity into the key did not break the HIT path (rf2-1x2zuc)"
     (let [store (atom {})
-          img   (image/image {:id :realm/main :include-ns ["realm.core"]})]
+          img   (image/image {:id :realm/main :select-ns {:include ["realm.core"]}})]
       (binding [ss/*source-store* store]
         (record! "realm.core" :event :realm/boot ::impl)
         (let [gen1 (asm/assemble [img])
@@ -320,7 +322,7 @@
             value — the same images over an equal pool hit; a different pool
             misses (the live store generation does not describe a supplied pool)"
     (let [pool [{:rf.provenance/ns "a.core" :kind :event :id :a/e :handler-fn ::a}]
-          img  (image/image {:id :a :include-ns ["a.core"]})
+          img  (image/image {:id :a :select-ns {:include ["a.core"]}})
           gen1 (asm/assemble [img] pool)
           gen2 (asm/assemble [img] pool)]
       (is (identical? gen1 gen2)

@@ -44,9 +44,9 @@
       against any descriptor collection carrying `:rf.provenance/ns`; the live
       wiring is slice .4 (assembly).
     * image ASSEMBLY into a sealed `[kind id]` generation, collision
-      validation, framework-standard registrations, replacement winners
-      (`:replace` / `:replace-standard`), capability checks, and resolved-
-      generation caching.
+      validation, framework-standard registrations, image-order layering (the
+      later image wins, EP-0026 §Layered Resolution), and resolved-generation
+      caching.
     * `make-frame` / `reload-images!` frame loading.
 
   ## The selector contract (input shape from the source store)
@@ -413,43 +413,86 @@
 ;;
 ;;   :rf.image/id        the image id, when supplied (`:id` in the spec map).
 ;;                       Anonymous images (no `:id`) are valid for local
-;;                       tests/examples that do not participate in replacement;
+;;                       tests/examples that do not participate in composition;
 ;;                       the slot is absent there. Owner-qualified per the
 ;;                       EP-0007 one-name-per-fact convention (a FACT about the
-;;                       image), parallel to `:rf.app/id` / `:rf.module/id`.
-;;   :rf.image/include-ns the vector of `:include-ns` glob patterns (always a
-;;                       vector; `[]` when none supplied). The selector runs
-;;                       each pattern against descriptor `:rf.provenance/ns`.
+;;                       image).
+;;   :rf.image/include-ns the vector of `:select-ns :include` glob patterns
+;;                       (always a vector; `[]` when no `:select-ns`). The
+;;                       selector runs each pattern against descriptor
+;;                       `:rf.provenance/ns`.
+;;   :rf.image/exclude-ns the vector of `:select-ns :exclude` subtractive glob
+;;                       patterns (`[]` when none).
 ;;   :rf.image/inline    the vector of inline descriptors lowered from
 ;;                       `:registrations` (`[]` when none supplied). These are
 ;;                       selected unconditionally (their image was supplied),
-;;                       never by `:include-ns`.
-;;   :rf.image/requires  the set of `:rf.capability/*` requirements the image
-;;                       declares (defaults to `#{}`). Carried through for the
-;;                       later capability-check slice; this slice neither reads
-;;                       nor enforces it. Owner-qualified FACT key.
+;;                       never by `:select-ns`.
 ;;
 ;; The image value is INERT data. Two `image` calls with equal spec maps return
-;; equal values.
+;; equal values. EP-0026 (rf2-dlvmpc) removed the `:rf.image/requires`
+;; capability-requirement slot end-to-end (no image-declared host capabilities).
 
 (def ^:private image-reserved-keys
-  "Recognized top-level image spec keys. Any other key is a malformed image —
-  failed loudly rather than silently ignored.
+  "Recognized top-level image spec keys (EP-0026 §Image Keys). The ordinary
+  public image value accepts EXACTLY three top-level source keys — `:id`,
+  `:select-ns`, and `:registrations`. Any other key is a malformed image — failed
+  loudly rather than silently ignored.
 
-  `:replace` / `:replace-standard` are the EP-0023 §Image Patching And Overrides
-  declared-winner maps (`{[kind id] winner-source-coordinate}`). They are BARE
-  structural slots (per Conventions §`:rf.image/*`) carried
-  through UNINTERPRETED here — the image value is inert data; the assembly slice
-  reads them to resolve collisions. The constructor validates the
-  STRUCTURAL shape of each entry (`validate-replacement-map!`): the map and each
-  key/value, so a malformed key or winner coordinate fails loud at `rf/image`
-  with an actionable diagnostic rather than reaching assembly's collision checks
-  as a generic `nth not supported` destructuring error or a misleading
-  no-collision report. The SEMANTIC winner-coordinate validation
-  AGAINST the actual selected collisions (does this key really collide? does the
-  coordinate name exactly one selected descriptor?) stays the assembly slice's
-  fail-loud job."
-  #{:id :select-ns :include-ns :exclude-ns :registrations :rf.image/requires :replace :replace-standard})
+  The EP-0023 keys `:include-ns`, `:exclude-ns`, `:replace`, `:replace-standard`,
+  and `:rf.image/requires` are RETIRED (EP-0026, rf2-dlvmpc) and are NOT members:
+  a spec carrying one fails loud with an actionable migration diagnostic
+  (`retired-image-key-message`) pointing at the EP-0026 replacement —
+  `:select-ns` + image-order layering for `:include-ns`/`:exclude-ns`/`:replace`,
+  protected standards for `:replace-standard`, and ordinary registration
+  selection for `:rf.image/requires`. They MUST NOT be accepted as aliases and
+  MUST NOT be ignored."
+  #{:id :select-ns :registrations})
+
+(def ^:private retired-image-keys
+  "The EP-0023 image source keys EP-0026 (rf2-dlvmpc) RETIRES with fail-loud
+  rejection, each mapped to its actionable migration hint. A `rf/image` spec
+  carrying any of these throws `:rf.error/invalid-image` so a stale example
+  cannot keep working by accident (EP-0026 §Backwards Compatibility — \"Retired
+  keys MUST fail loudly\"). This is the SCOPED retirement set: it names exactly
+  the retired image source keys and nothing else — the legitimate
+  `:rf.capability/*` host-service vocabulary, the conformance capability ids, and
+  the tool capability flags are UNTOUCHED."
+  {:include-ns       (str ":include-ns is RETIRED — use :select-ns {:include "
+                          "[globs]}.")
+   :exclude-ns       (str ":exclude-ns is RETIRED — use :select-ns {:include … "
+                          ":exclude [globs]} (exclusion is global to the image "
+                          "selection).")
+   :replace          (str ":replace is RETIRED — composition resolves by IMAGE "
+                          "ORDER (the later image in :images wins). Define the "
+                          "override in a LATER image and read rf/frame-shadows to "
+                          "assert on what it shadowed; there is no acknowledgement "
+                          "key.")
+   :replace-standard (str ":replace-standard is RETIRED — framework standards are "
+                          "protected and not an ordinary app extension point. An "
+                          "app image cannot shadow a standard.")
+   :rf.image/requires (str ":rf.image/requires is RETIRED — image-declared host "
+                           "capabilities are removed end-to-end (no :rf.image/"
+                           "requires, no make-frame :capabilities, no :rf.gen/"
+                           "requires). Model a host dependency through ordinary "
+                           "registration selection, frame configuration, or "
+                           "adapter setup.")})
+
+(defn- check-retired-keys!
+  "FAIL LOUD when a `rf/image` `spec` carries a RETIRED EP-0023 image key
+  (EP-0026 §Image Keys / §Backwards Compatibility, rf2-dlvmpc). The diagnostic
+  names the retired key and its EP-0026 replacement, so a stale example cannot
+  keep working by accident. Pure (modulo the throw)."
+  [spec]
+  (doseq [[k hint] retired-image-keys]
+    (when (contains? spec k)
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: image key " k " is RETIRED (EP-0026). " hint
+             " The public image value accepts only :id, :select-ns, and "
+             ":registrations.")
+        {:recovery :migrate-to-the-ep-0026-image-model
+         :extra    {:image (:id spec) :retired-key k}}))))
 
 ;; ---- :select-ns — the EP-0026 single-map selection surface -----------------
 ;;
@@ -522,173 +565,81 @@
     (check-glob-strings! :select-ns/exclude exclude)
     [include exclude]))
 
-(def ^:private valid-kinds
-  "The closed registry-kind set a `:replace` / `:replace-standard` key may name
-  (the full Spec 001 registry taxonomy). DECOUPLED from `reg-section->kind`: a
-  replacement key may name ANY registry kind, NOT only the four EP-0026 narrowed
-  inline kinds — so this set spans the whole taxonomy, mirroring
-  `re-frame.registrar/kinds` without coupling this pure ns to the registrar
-  (which would pull `interop` and friends onto this otherwise
-  `re-frame.error`-only slice). (`:replace` / `:replace-standard` are retired by
-  rf2-dlvmpc; this stays the full set until then so the inline-grammar narrowing
-  does not leak into replacement-key validation.)"
-  #{:event :sub :fx :cofx :interceptor :view :frame :route :head
-    :error-projector :flow :resource :mutation :resource-scope})
-
-(defn- valid-winner-coordinate?
-  "True when `coord` is a structurally well-formed replacement winner SOURCE
-  coordinate (EP-0023 §Image Fragments — the descriptor source-coordinate shape
-  produced by `image-assembly/descriptor-coordinate`). One of:
-
-    {:ns \"source.ns\"}                      a registered descriptor (string ns)
-    {:image <id> :inline [section id]}      an inline descriptor
-    {:standard true}                        a framework-standard descriptor
-
-  Structural only — whether the coordinate actually names a selected descriptor
-  is the assembly slice's semantic job. Pure."
-  [coord]
-  (boolean
-    (and (map? coord)
-         (or (and (string? (:ns coord)) (= #{:ns} (set (keys coord))))
-             (and (some? (:image coord))
-                  (let [inl (:inline coord)]
-                    (and (vector? inl) (= 2 (count inl))))
-                  (= #{:image :inline} (set (keys coord))))
-             (and (true? (:standard coord)) (= #{:standard} (set (keys coord))))))))
-
-(defn- validate-replacement-map!
-  "Fail-loud STRUCTURAL validation of a `:replace` / `:replace-standard` map at
-  the image boundary. `map-key` is `:replace` or
-  `:replace-standard` (named in diagnostics); `m` the declared-winner map;
-  `image-id` the containing image's id (when known). Pure.
-
-  Each entry MUST be an exact two-element `[kind id]` vector key — the `kind` a
-  member of the closed registry-kind set — mapping to a supported winner source
-  coordinate (`{:ns …}`, `{:image … :inline [section id]}`, or
-  `{:standard true}`). A malformed key (non-vector, wrong arity, or an
-  unsupported kind) or a malformed winner coordinate throws
-  `:rf.error/invalid-image` with an actionable diagnostic BEFORE assembly's
-  `check-replacement-keys-collide!` destructures the key — so a keyword key
-  surfaces as a clear diagnostic rather than `nth not supported`, and a typo'd
-  coordinate is caught here rather than masquerading downstream as a stale
-  winner. The SEMANTIC checks (real collision? winner names exactly one
-  selected descriptor?) remain the assembly slice's job."
-  [image-id map-key m]
-  (doseq [[k winner] m]
-    (when-not (and (vector? k) (= 2 (count k)))
-      (error/throw-error!
-        :rf.error/invalid-image
-        'rf/image
-        (str "rf/image: " map-key " key must be an exact two-element [kind id] "
-             "vector — got " (pr-str k)
-             " (" (if (vector? k) (str "arity " (count k)) "not a vector") ").")
-        {:recovery :use-a-kind-id-pair-key
-         :extra    {:image image-id :replace-map map-key :bad-key k}}))
-    (let [kind (nth k 0)]
-      (when-not (contains? valid-kinds kind)
-        (error/throw-error!
-          :rf.error/invalid-image
-          'rf/image
-          (str "rf/image: " map-key " key " (pr-str k) " names an unsupported "
-               "registration kind " (pr-str kind) " — use one of "
-               (pr-str (vec (sort valid-kinds))) ".")
-          {:recovery :use-a-supported-registration-kind
-           :extra    {:image image-id :replace-map map-key :bad-key k :bad-kind kind}})))
-    (when-not (valid-winner-coordinate? winner)
-      (error/throw-error!
-        :rf.error/invalid-image
-        'rf/image
-        (str "rf/image: " map-key " winner for key " (pr-str k)
-             " must be a source coordinate map — {:ns \"source.ns\"}, "
-             "{:image image-id :inline [section id]}, or {:standard true} — got "
-             (pr-str winner) ".")
-        {:recovery :use-a-supported-winner-source-coordinate
-         :extra    {:image image-id :replace-map map-key :bad-key k :bad-winner winner}}))))
-
 (defn image
   "Construct an IMAGE value — a selected registration-set value, as INERT data
   (EP-0023 §Image, §Public API). PUBLIC (`rf/image`).
 
-  `spec` carries:
+  `spec` carries EXACTLY three public source keys (EP-0026 §Image Keys):
 
-    :id            the image id (optional). Stamped as `:rf.image/id`. An image
-                   that participates in replacement (named as a `:replace` /
-                   `:replace-standard` winner) MUST have an `:id`; anonymous
-                   images are valid for local tests/examples. BARE structural
-                   input key; normalized to the owner-qualified `:rf.image/id`.
-    :select-ns     the EP-0026 single-map selection surface —
-                   `{:include [globs] :exclude [globs]}`. `:include` is REQUIRED
-                   (a non-empty vector of namespace-glob strings, EP-0023
-                   grammar) and selects registered descriptors by their
-                   `:rf.provenance/ns`; `:exclude` is optional (defaults to `[]`)
-                   and SUBTRACTS — the selected set is
-                   `union(:include) minus union(:exclude)` with exclusion GLOBAL
-                   to the image (a namespace matched by any `:exclude` is never
-                   selected, no re-admission corner case). STRICT include
-                   diagnostics: a zero-match `:include` pattern FAILS LOUD. An
-                   `:exclude` pattern matching nothing is a no-op (a defensive
-                   guard). Exclusion narrows the glob-selected set ONLY, never
-                   the image's own inline `:registrations`. `:select-ns` SELECTS,
-                   it does not LOAD — it filters registrations the runtime
-                   already knows about by provenance, so it never forces a
-                   require and never defeats dead-code elimination. Cannot be
-                   combined with the retired `:include-ns` / `:exclude-ns`
-                   (rf2-dlvmpc). Normalizes to `:rf.image/include-ns` /
-                   `:rf.image/exclude-ns`.
-    :include-ns    (RETIRED by rf2-dlvmpc; superseded by `:select-ns :include`)
-                   a vector of namespace-glob strings (EP-0023 grammar). Each
-                   pattern selects registered descriptors by their
-                   `:rf.provenance/ns`. Optional (defaults to `[]`).
-    :exclude-ns    (RETIRED by rf2-dlvmpc; superseded by `:select-ns :exclude`)
-                   a vector of namespace-glob strings (same EP-0023 grammar)
-                   that SUBTRACT from the `:include-ns` selection. Optional
-                   (defaults to `[]`).
+    :id            the image id (optional). Stamped as `:rf.image/id`. SHOULD be
+                   stable enough for diagnostics + tooling; the shadow report
+                   identifies images by id, and image ids MUST be unique within a
+                   single `:images` composition. Anonymous images are valid for
+                   local tests/examples that do not participate in composition.
+                   BARE structural input key; normalized to the owner-qualified
+                   `:rf.image/id`.
+    :select-ns     the single-map selection surface — `{:include [globs]
+                   :exclude [globs]}`. `:include` is REQUIRED (a non-empty vector
+                   of namespace-glob strings, EP-0023 grammar) and selects
+                   registered descriptors by their `:rf.provenance/ns`;
+                   `:exclude` is optional (defaults to `[]`) and SUBTRACTS — the
+                   selected set is `union(:include) minus union(:exclude)` with
+                   exclusion GLOBAL to the image (a namespace matched by any
+                   `:exclude` is never selected, no re-admission corner case).
+                   STRICT include diagnostics: a zero-match `:include` pattern
+                   FAILS LOUD. An `:exclude` pattern matching nothing is a no-op
+                   (a defensive guard). Exclusion narrows the glob-selected set
+                   ONLY, never the image's own inline `:registrations`.
+                   `:select-ns` SELECTS, it does not LOAD — it filters
+                   registrations the runtime already knows about by provenance,
+                   so it never forces a require and never defeats dead-code
+                   elimination. Normalizes to `:rf.image/include-ns` /
+                   `:rf.image/exclude-ns`. Optional — an image with no
+                   `:select-ns` selects no namespace-authored registrations (it
+                   may still define inline `:registrations`).
     :registrations inline registrar-keyed sections (`{:reg-event [[id meta
                    body] …] :reg-sub [[id meta body] …] …}`). Lowered to inline
                    descriptors. Optional.
-    :rf.image/requires the set of `:rf.capability/*` requirements (defaults to
-                   `#{}`). Carried through for a later slice; not enforced here.
-    :replace       a declared-winner map `{[kind id] winner-source-coordinate}`
-                   for application-owned collisions (EP-0023 §Image Patching And
-                   Overrides). Optional. BARE structural slot, carried through
-                   uninterpreted; the assembly slice resolves it.
-    :replace-standard the declared-winner map for framework STANDARD collisions
-                   (louder — a standard must be marked replaceable). Optional.
-                   Carried through uninterpreted.
+
+  The EP-0023 keys `:include-ns`, `:exclude-ns`, `:replace`, `:replace-standard`,
+  and `:rf.image/requires` are RETIRED (EP-0026, rf2-dlvmpc): a spec carrying one
+  fails loud (`check-retired-keys!`) with a migration diagnostic. Composition now
+  resolves by IMAGE ORDER (the later image in `:images` wins) and reports
+  shadows via `rf/frame-shadows`; standards are protected; host-capability
+  declarations are removed end-to-end.
 
   Returns a normalized image value:
 
     {:rf.image/id         <id>          ;; present only when :id supplied
      :rf.image/include-ns [<glob> …]
      :rf.image/exclude-ns [<glob> …]    ;; the subtractive globs ([] when none)
-     :rf.image/inline     [<inline-descriptor> …]
-     :rf.image/requires   #{<:rf.capability/* …>}
-     :replace             {[kind id] winner …}   ;; present only when supplied
-     :replace-standard    {[kind id] winner …}}  ;; present only when supplied
+     :rf.image/inline     [<inline-descriptor> …]}
 
   PURE — no realm, no registrar, no side effect (an `image` call is data, not
-  registration). Throws `:rf.error/invalid-image` when `:include-ns` is not a
-  vector of strings, when an inline entry is not a `[id metadata]` /
-  `[id metadata body]` tuple, when the spec carries an unknown top-level key,
-  or when a `:replace` / `:replace-standard` entry is structurally malformed
-  (a non-`[kind id]` key, an unsupported kind, or an unsupported winner source
-  coordinate)."
+  registration). Throws `:rf.error/invalid-image` when the spec carries a RETIRED
+  key, when `:select-ns` is malformed, when an inline entry is not a `[id body]`
+  / `[id metadata body]` tuple, or when the spec carries an unknown top-level
+  key."
   [spec]
   (when-not (map? spec)
     (error/throw-error!
       :rf.error/invalid-image
       'rf/image
-      "rf/image expects a spec map — e.g. {:id :counter/v2 :include-ns [\"docs.counter.v2\"]}."
+      "rf/image expects a spec map — e.g. {:id :counter/v2 :select-ns {:include [\"docs.counter.v2\"]}}."
       {:recovery :pass-a-spec-map
        :extra    {:spec spec}}))
+  ;; FAIL LOUD on a RETIRED EP-0023 key BEFORE the unknown-key check, so a stale
+  ;; example gets the actionable migration diagnostic, not a generic
+  ;; "unknown image key" (EP-0026 §Backwards Compatibility, rf2-dlvmpc).
+  (check-retired-keys! spec)
   (doseq [k (keys spec)]
     (when-not (contains? image-reserved-keys k)
       (error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: unknown image key " k
-             " — use :id, :select-ns, :registrations, :rf.image/requires, "
-             ":replace, or :replace-standard.")
+             " — the public image value accepts only :id, :select-ns, and "
+             ":registrations.")
         {:recovery :remove-or-correct-the-key
          :extra    {:image (:id spec) :unknown-key k}})))
   (let [id         (:id spec)
@@ -704,51 +655,21 @@
                      "or \"docs.shared.**\".")
                 {:recovery :use-namespace-glob-strings
                  :extra    {:image id :bad-pattern p}}))))
-        ;; EP-0026: `:select-ns {:include … :exclude …}` is the single-map
-        ;; selection surface. When present it is authoritative — and it must
-        ;; NOT be mixed with the legacy sibling `:include-ns` / `:exclude-ns`
-        ;; (an ambiguous double-spelling fails loud; the legacy keys are retired
-        ;; by rf2-dlvmpc). Both lower to the same normalized internal slots.
-        select-ns  (:select-ns spec)
+        ;; EP-0026 §Namespace Selection: `:select-ns {:include … :exclude …}` is
+        ;; the SINGLE selection surface (the EP-0023 sibling `:include-ns` /
+        ;; `:exclude-ns` keys are retired). An image with no `:select-ns` selects
+        ;; no namespace-authored registrations (it may still define inline
+        ;; `:registrations`). `:select-ns` lowers to the normalized internal
+        ;; slots the pure selector runs.
         [include-ns exclude-ns]
         (if (contains? spec :select-ns)
-          (do
-            (when (or (contains? spec :include-ns) (contains? spec :exclude-ns))
-              (error/throw-error!
-                :rf.error/invalid-image
-                'rf/image
-                (str "rf/image: :select-ns cannot be combined with :include-ns / "
-                     ":exclude-ns — :select-ns {:include … :exclude …} is the "
-                     "single selection surface. Use :select-ns alone.")
-                {:recovery :use-select-ns-alone
-                 :extra    {:image id}}))
-            (normalize-select-ns id select-ns check-glob-strings!))
-          (let [include-ns (vec (get spec :include-ns []))
-                exclude-ns (vec (get spec :exclude-ns []))]
-            (check-glob-strings! :include-ns include-ns)
-            (check-glob-strings! :exclude-ns exclude-ns)
-            [include-ns exclude-ns]))]
-    (doseq [k [:replace :replace-standard]]
-      (when-let [m (get spec k)]
-        (when-not (map? m)
-          (error/throw-error!
-            :rf.error/invalid-image
-            'rf/image
-            (str "rf/image: " k " must be a map from a [kind id] pair to a "
-                 "winner source coordinate — got " (pr-str m) ".")
-            {:recovery :use-a-replacement-winner-map
-             :extra    {:image id :bad-key k :received m}}))
-        ;; Structural validation of each entry: the [kind id]
-        ;; key and the winner source coordinate, fail-loud before assembly.
-        (validate-replacement-map! id k m)))
+          (normalize-select-ns id (:select-ns spec) check-glob-strings!)
+          [[] []])]
     (cond-> {:rf.image/include-ns include-ns
              :rf.image/exclude-ns exclude-ns
              :rf.image/inline     (registrations->inline-descriptors
-                                    id (get spec :registrations {}))
-             :rf.image/requires   (set (get spec :rf.image/requires #{}))}
-      (some? id)               (assoc :rf.image/id id)
-      (:replace spec)          (assoc :replace (:replace spec))
-      (:replace-standard spec) (assoc :replace-standard (:replace-standard spec)))))
+                                    id (get spec :registrations {}))}
+      (some? id) (assoc :rf.image/id id))))
 
 ;; ---- the selector (EP-0023 §Namespace-Selected Images) --------------------
 ;;

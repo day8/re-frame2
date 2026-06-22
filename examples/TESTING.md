@@ -324,7 +324,7 @@ The exception is bounded by four conditions, all of which must hold:
    split*; it is not a risk the convention needs to guard against here.
 3. **If either fixture is ever added to a shared wrapper / showcase /
    `test:browser` bundle, the ids MUST be disambiguated first** — either
-   give each frame its own explicit image (disjoint `:include-ns`
+   give each frame its own explicit image (disjoint `:select-ns`
    selectors supplied via `:images`, so each frame resolves only its own
    fixture's registrations) or prefix one (or both) stems before
    co-loading. The moment a `*-cljs-test` wrapper (or any combined demo)
@@ -408,7 +408,7 @@ must hold:
 3. **If any of these examples is ever folded into a shared wrapper /
    showcase / `test:browser` bundle alongside a sibling substrate, the ids
    MUST be disambiguated first** — either give each frame its own explicit
-   image (disjoint `:include-ns` selectors supplied to `rf/make-frame` /
+   image (disjoint `:select-ns` selectors supplied to `rf/make-frame` /
    `reg-frame` via `:images`, so each frame resolves only its own
    substrate's registrations) or prefix the ids before co-loading them
    into one default image. The default image — the implicit projection

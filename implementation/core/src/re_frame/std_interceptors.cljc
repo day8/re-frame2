@@ -357,19 +357,21 @@
       generation. Without this, an image-loaded frame whose event references
       `[:rf.interceptor/path …]` under a bound `*generation*` could not resolve
       it (generation-routed `lookup` reads ONLY the generation's resolver — no
-      fallback to the registrar atom), and the `:replace-standard` /
-      invariant-coupled-standard machinery would be dead code (no standard would
-      ever sit in a generation to protect). The standard descriptor carries the
-      SAME `:rf/interceptor-descriptor` slot the regular registrar stores, so a
+      fallback to the registrar atom), and the framework-standard protection
+      machinery would be dead code (no standard would ever sit in a generation to
+      protect). The standard descriptor carries the SAME
+      `:rf/interceptor-descriptor` slot the regular registrar stores, so a
       generation-routed resolution returns a byte-shape-identical value.
 
   The standard is marked NON-replaceable and INVARIANT-COUPLED via
   `:rf.standard/requires-conformance #{:rf.interceptor.path/commit-identical-no-op}`
-  (the rule-4 frame-commit `identical?` no-op, rf2-ekq28v): an image MUST NOT
-  silently shadow it, and `:replace-standard` against it FAILS LOUD
-  (`:rf.error/image-standard-replacement-forbidden`) until a conformance profile
-  proves a replacement preserves the invariant (EP-0023 §Image Patching And
-  Overrides; `image-assembly/standard-replaceable?`)."
+  (the rule-4 frame-commit `identical?` no-op, rf2-ekq28v): a public app image
+  MUST NOT shadow it — a collision FAILS LOUD
+  (`:rf.error/image-standard-replacement-forbidden`). EP-0026 §Framework Standard
+  Registrations: standards are protected, and there is NO public
+  `:replace-standard` opt-in; the standard owner's internal define/revise path
+  reads `image-assembly/standard-replaceable?` and a conformance profile would
+  lift the invariant-coupled lock."
   []
   (icpt-reg/reg-interceptor*
     :rf.interceptor/path

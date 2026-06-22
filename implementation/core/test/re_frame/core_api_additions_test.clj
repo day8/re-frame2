@@ -558,13 +558,13 @@
     ;; And it actually constructs the normalized, INERT image value through the
     ;; facade — a `rf/image` call is data, not registration.
     (let [img (rf/image {:id :docs.counter/v2
-                         :include-ns ["docs.quickstart.counter.v2"]})]
+                         :select-ns {:include ["docs.quickstart.counter.v2"]}})]
       (is (= :docs.counter/v2 (:rf.image/id img))
           "the :id is normalized to the owner-qualified :rf.image/id slot")
       (is (= ["docs.quickstart.counter.v2"] (:rf.image/include-ns img))
-          ":include-ns is carried as the glob-pattern vector")
+          ":select-ns :include is carried as the glob-pattern vector")
       (is (= [] (:rf.image/inline img))
           "no :registrations → empty inline-descriptor vector")
       (is (= img (rf/image {:id :docs.counter/v2
-                            :include-ns ["docs.quickstart.counter.v2"]}))
+                            :select-ns {:include ["docs.quickstart.counter.v2"]}}))
           "PURE: equal spec maps return equal image values"))))

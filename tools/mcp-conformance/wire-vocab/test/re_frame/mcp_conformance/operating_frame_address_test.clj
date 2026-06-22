@@ -30,15 +30,19 @@
   q8whbb's own commit + the handler-meta / 003-Tool-Catalogue spec text
   explicitly DEFER the FORWARD direction — re-keying handler resolution
   through the operating frame's resolved IMAGE GENERATION, an
-  image-inspection (`describe-image`) tool, frame capabilities / adapter
-  reporting, and the `:rf.provenance/ns` / `:include-ns` / `:rf.image/requires`
+  image-inspection (`describe-image`) tool, frame adapter
+  reporting, and the `:rf.provenance/ns` / `:select-ns`
   wire vocabulary — to the follow-on gated on the EP-0023 object-make-frame
-  public addressing + frame-image-generation read API. NONE of those
+  public addressing + frame-image-generation read API. (EP-0026, rf2-dlvmpc,
+  retired image-declared host capabilities — the `:include-ns` / `:exclude-ns`
+  / `:rf.image/requires` vocabulary — so the deferred forward surface no longer
+  carries them.) NONE of those
   markers/tools exist on the landed surface, so this gate scopes STRICTLY to
   the public frame-addressing envelope q8whbb shipped (rf2-f0isjs bead
   finding 2). The same-id/different-image isolation case (bead finding 1,
   the MCP-wire counterpart of engine bead rf2-slvzn3) and the
-  image-descriptor / capability-failure cases (findings 3-4) wait on that
+  image-descriptor case (findings 3-4 — the capability-failure leg is moot
+  after EP-0026 retired image capabilities) wait on that
   forward-direction API — see rf2-srobm0.
 
   ## Posture (mirrors `cascade_bundle_test.clj` / `result_envelope_test.clj`)

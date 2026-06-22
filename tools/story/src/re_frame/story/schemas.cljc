@@ -942,18 +942,21 @@
     ;; behaviour against, so two variants reuse the SAME global event/sub id
     ;; with DIFFERENT meanings by mounting under different images. Each entry
     ;; is an `rf/image` VALUE (built by `re-frame.core/image` —
-    ;; `{:include-ns […] :registrations {…} :replace {…} :id …}`); the runtime
+    ;; `{:id … :select-ns {:include […] :exclude […]} :registrations {…}}`,
+    ;; EP-0026 §Image Keys); the runtime
     ;; threads `:images` into `rf/make-frame` at frame allocation
     ;; (`frames/allocate!`), and the framework resolves them into ONE sealed
     ;; image generation the variant frame resolves registration lookups
-    ;; through (EP-0023 §Frame-derived live registration resolution).
+    ;; through (EP-0023 §Frame-derived live registration resolution). Composition
+    ;; resolves by image order — the later image in `:images` wins (EP-0026
+    ;; §Layered Resolution).
     ;;
     ;; Loose `:vector` here on purpose, mirroring the `:sensitive` / `:large`
     ;; precedent above: the framework's `re-frame.core/image` constructor +
     ;; `re-frame.image-assembly/assemble` own the rigorous shape validation
-    ;; (a non-image entry, a zero-match `:include-ns` glob, a malformed
-    ;; `:replace` map all FAIL LOUDLY at frame-creation time). Story does not
-    ;; fork that validation — one source of truth. A state variant uses the
+    ;; (a non-image entry, a zero-match `:select-ns :include` glob, a
+    ;; within-image collision all FAIL LOUDLY at frame-creation time). Story does
+    ;; not fork that validation — one source of truth. A state variant uses the
     ;; SAME image with different `:setup` / `:db-seed`; only a BEHAVIOUR
     ;; variant declares different `:images`.
     [:images                {:optional true} [:vector :any]]]

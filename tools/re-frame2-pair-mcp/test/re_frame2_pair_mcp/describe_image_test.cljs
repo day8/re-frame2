@@ -52,7 +52,6 @@
    :frame    :main
    :images   [:app/img]
    :kinds    [:event :sub]
-   :requires []
    :counts   {:event 12 :sub 8}})
 
 (def ^:private sample-with-ns
@@ -140,7 +139,6 @@
                    (is (= :main (:frame edn)))
                    (is (= [:app/img] (:images edn)))
                    (is (= [:event :sub] (:kinds edn)))
-                   (is (= [] (:requires edn)) "the missing-capability discriminator rides through")
                    (is (= {:event 12 :sub 8} (:counts edn))
                        "per-kind selected-registration counts ride through"))
                  (done))))))
@@ -166,7 +164,6 @@
    :frame          :main
    :images         []
    :kinds          []
-   :requires       []
    :counts         {}
    :no-generation? true})
 
@@ -184,7 +181,6 @@
                        "the no-generation? flag tells the agent the frame runs no composed image")
                    (is (= [] (:images edn)) "no images on an imageless frame")
                    (is (= [] (:kinds edn)))
-                   (is (= [] (:requires edn)))
                    (is (= {} (:counts edn))))
                  (done))))))
 

@@ -38,8 +38,9 @@
      full Xray-runs-in-its-own-frame runtime.
 
      This ns constructs Xray's own registration set as an EP-0023 `rf/image`
-     — selected by the `:include-ns` glob over Xray's OWN source namespaces
-     (`day8.re-frame2-xray.**`), under which every `:rf.xray/*` registration
+     — selected by the `:select-ns :include` glob over Xray's OWN source
+     namespaces (`day8.re-frame2-xray.**`), under which every `:rf.xray/*`
+     registration
      is authored (and stamped `:rf.provenance/ns` in the source store, which
      survives production elision). The result is an inert image VALUE: Xray's
      instruction set, separate from any target frame's image. The target
@@ -75,7 +76,7 @@
   the registries collapsed an image-loaded frame is a single `frames` record
   carrying a resolved generation; the seam projects each into the inert frame
   view (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` /
-  `:rf.frame/capabilities` / …) the pure projectors here consume. Fail-soft: a
+  `:rf.frame/adapter` / …) the pure projectors here consume. Fail-soft: a
   core too old to expose the seam (or any throw) degrades to `{}`, so an
   image/frame browse always has a value. Pure-read."
   []
@@ -115,8 +116,8 @@
   :rf.xray/image)
 
 (def xray-source-glob
-  "The `:include-ns` glob selecting Xray's OWN registrations by their source
-  namespace (EP-0023 §Namespace-Selected Images). Every `:rf.xray/*`
+  "The `:select-ns :include` glob selecting Xray's OWN registrations by their
+  source namespace (EP-0026 §Namespace Selection). Every `:rf.xray/*`
   registration is authored under `day8.re-frame2-xray.*` and stamped
   `:rf.provenance/ns` in the source store (which survives production elision),
   so this glob selects Xray's instruction set and ONLY Xray's — a target
@@ -124,19 +125,18 @@
   "day8.re-frame2-xray.**")
 
 (def xray-exclude-globs
-  "The `:exclude-ns` globs that SUBTRACT Xray's OWN test + test-support
-  namespaces from the `xray-source-glob` selection (EP-0023 §Namespace-Selected
-  Images, §Xray Beside The Target).
+  "The `:select-ns :exclude` globs that SUBTRACT Xray's OWN test + test-support
+  namespaces from the `xray-source-glob` selection (EP-0026 §Namespace
+  Selection, EP-0023 §Xray Beside The Target).
 
-  The headline-isolation `day8.re-frame2-xray.**` `:include-ns` glob sweeps in
-  EVERY Xray-authored registration — including, in any dev/test build that loads
-  them, Xray's OWN `*-cljs-test` namespaces. Those tests co-register the same
-  `:rf.xray/*` / `:rf.*` ids the production sources do (e.g.
+  The headline-isolation `day8.re-frame2-xray.**` `:select-ns :include` glob
+  sweeps in EVERY Xray-authored registration — including, in any dev/test build
+  that loads them, Xray's OWN `*-cljs-test` namespaces. Those tests co-register
+  the same `:rf.xray/*` / `:rf.*` ids the production sources do (e.g.
   `day8.re-frame2-xray.open-in-editor-cljs-test` registers `[:fx :rf.editor/open]`
-  alongside the production `day8.re-frame2-xray.open-in-editor`). With no declared
-  `:replace` winner, image assembly is fail-loud on the `(kind, id)` collision
-  (`:rf.error/image-duplicate-id`) — which blocked flipping the production
-  singleton onto image-loaded seating.
+  alongside the production `day8.re-frame2-xray.open-in-editor`). Within one image
+  a `(kind, id)` collision is fail-loud (`:rf.error/image-duplicate-id`) — which
+  blocked flipping the production singleton onto image-loaded seating.
 
   Two excludes cover the two shapes of Xray's non-production namespaces:
 
@@ -151,18 +151,19 @@
       subtree that registers APP fixture ids, not Xray's production set.
 
   Production builds never load these namespaces, so the excludes are no-ops
-  there (`:exclude-ns` is NOT zero-match fail-loud — a defensive guard); in
-  dev/test they keep the production image registration-disjoint from Xray's own
-  test registrations so the singleton seats without an assembly collision."
+  there (a `:select-ns :exclude` is NOT zero-match fail-loud — a defensive
+  guard); in dev/test they keep the production image registration-disjoint from
+  Xray's own test registrations so the singleton seats without an assembly
+  collision."
   ["day8.re-frame2-xray.**.*-cljs-test"
    "day8.re-frame2-xray.test-helpers.**"])
 
 (defn xray-image
   "Construct XRAY'S OWN EP-0023 image VALUE — the inspector's registration set
-  as inert data, selected by the `:include-ns` glob over Xray's own source
-  namespaces (EP-0023 §Xray Beside The Target / §Namespace-Selected Images).
-  PURE: `rf/image` is data, not registration (no realm, no registrar, no side
-  effect).
+  as inert data, selected by the `:select-ns :include` glob over Xray's own
+  source namespaces (EP-0023 §Xray Beside The Target / EP-0026 §Namespace
+  Selection). PURE: `rf/image` is data, not registration (no realm, no
+  registrar, no side effect).
 
   This is the registration-set value the dogfooding seats: Xray builds its OWN
   registration-set value (a SEPARATE image, not shared registration state),
@@ -173,20 +174,21 @@
   never mixes with a target frame's image, and the target frame is inspected as
   DATA through the live-read fns.
 
-  The `:include-ns` glob is NARROWED by `:exclude-ns` (`xray-exclude-globs`) so
-  Xray's OWN `*-cljs-test` + `test-helpers.**` namespaces are subtracted — in a
-  dev/test build that loads them, those co-register the same `:rf.xray/*` ids the
-  production sources do, and without the exclude the `(kind, id)` collision is a
-  fail-loud `:rf.error/image-duplicate-id` at assembly (the blocker that gated
-  the production-singleton flip). Production builds never load those namespaces,
-  so the exclude is a no-op there.
+  The `:select-ns :include` glob is NARROWED by `:select-ns :exclude`
+  (`xray-exclude-globs`) so Xray's OWN `*-cljs-test` + `test-helpers.**`
+  namespaces are subtracted — in a dev/test build that loads them, those
+  co-register the same `:rf.xray/*` ids the production sources do, and without
+  the exclude the `(kind, id)` collision is a fail-loud
+  `:rf.error/image-duplicate-id` at assembly (the blocker that gated the
+  production-singleton flip). Production builds never load those namespaces, so
+  the exclude is a no-op there.
 
   Returns the normalized inert image value (`:rf.image/id` /
   `:rf.image/include-ns` / `:rf.image/exclude-ns` / …)."
   []
-  (image/image {:id         xray-image-id
-                :include-ns [xray-source-glob]
-                :exclude-ns xray-exclude-globs}))
+  (image/image {:id        xray-image-id
+                :select-ns {:include [xray-source-glob]
+                            :exclude xray-exclude-globs}}))
 
 (defn resolver-keyset
   "The set of `[kind id]` resolver keys a sealed image `generation` carries
@@ -233,7 +235,7 @@
   than comparing the
   `:rf.image/include-ns` selector strings (the prior proxy): different globs can
   select OVERLAPPING namespaces, and inline `:registrations` carry no
-  `:include-ns` selector at all, yet either can introduce a shared `[kind id]` —
+  `:select-ns` selector at all, yet either can introduce a shared `[kind id]` —
   the keyset comparison catches both, the string comparison neither.
 
   Two arities:
@@ -252,8 +254,9 @@
       check FAILS, correctly), proving the predicate is a real disjointness
       test and not a constant true.
 
-  Fail-soft: assembly is fail-loud (a zero-match `:include-ns`, a collision),
-  and a core too old to expose the EP-0023 assembly surfaces would throw. A
+  Fail-soft: assembly is fail-loud (a zero-match `:select-ns :include`, a
+  collision), and a core too old to expose the EP-0023 assembly surfaces would
+  throw. A
   throw means isolation could NOT be assembled and PROVEN, so the predicate is
   CONSERVATIVE and returns `false` (not-proven-isolated) rather than a
   false-positive `true`. `target-image` is a normalized image value

@@ -118,7 +118,7 @@
 (deftest empty-store-default-projects-an-empty-generation
   (testing "the default image over an EMPTY source store is a VALID empty
             projection (resolving only framework standards) — no zero-match
-            fail-loud, unlike an :include-ns glob"
+            fail-loud, unlike a :select-ns :include glob"
     (let [gen (asm/assemble-default [])]
       (is (map? gen))
       (is (= {} (:rf.gen/resolver gen)))

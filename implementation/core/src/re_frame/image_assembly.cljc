@@ -20,8 +20,10 @@
 
       {:rf.gen/resolver  {[kind id] descriptor, …}   ;; the sealed [kind id] map
        :rf.gen/images    [<normalized image value> …]
-       :rf.gen/requires  #{:rf.capability/* …}        ;; union of image requires
        :rf.gen/kinds     #{kind …}}                   ;; kinds present, for tools
+
+  (EP-0026, rf2-dlvmpc, retired `:rf.gen/requires` with the image-capability
+  feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j.)
 
   `:rf.gen/resolver` is the heart: a map from a `[kind id]` pair to exactly ONE
   descriptor. After selection + declared replacements the map is id-disjoint by
@@ -89,43 +91,29 @@
       a public app descriptor colliding with a framework STANDARD (a standard is
         protected — not part of app layer order, no public opt-in)
         -> :rf.error/image-standard-replacement-forbidden
-      an image-required capability the frame does not supply
-        -> :rf.error/image-missing-capability
 
-  ## The .5 / .6 seams (documented boundary)
+  ## The framework-standard protection seam (documented boundary)
 
   This slice builds the validation STRUCTURE and fails loud on every condition
-  the EP names for assembly. The .5 replacement policy lives here; one seam
-  (.6) is left for a sibling slice to deepen:
+  the EP names for assembly. EP-0026 §Layered Resolution retired the EP-0023
+  declared-`:replace`/`:replace-standard` winner model (its key rejection is
+  rf2-dlvmpc); composition resolves by IMAGE ORDER (`layer-image-resolvers`).
+  Framework standards stay PROTECTED:
 
-    * SLICE .5 (replacement policy) — owns the EXACT `:replace` /
-      `:replace-standard` winner policy: a replacement declares the survivor of
-      a REAL collision and is never a silent order override. The three fail-loud
-      legs (EP-0023 §Image Validation / §Image Patching And Overrides):
-        - a declared winner must identify EXACTLY ONE selected descriptor
-          ([[resolve-replacement-winner]] → `:rf.error/image-replacement-winner-unresolved`);
-        - a declared key must name a REAL collision — a `:replace` /
-          `:replace-standard` for a `(kind, id)` with zero or exactly one
-          selected descriptor is an error
-          ([[check-replacement-keys-collide!]] → `:rf.error/image-replacement-no-collision`);
-        - a framework STANDARD is non-replaceable by default; `:replace-standard`
-          is the opt-in, and an invariant-coupled standard (a non-empty
-          `:rf.standard/requires-conformance`, e.g. `:rf.interceptor/path`) stays
-          non-replaceable regardless of the flag until a conformance profile
-          proves the invariant is preserved ([[standard-replaceable?]] +
-          `resolve-collision` → `:rf.error/image-standard-replacement-forbidden`).
-      The seam fns [[resolve-replacement-winner]] / [[standard-replaceable?]]
-      are the plug points for richer winner-source matching and the
-      conformance-profile proof that would lift the invariant-coupled lock; the
-      undeclared-collision fail-loud detection STRUCTURE sits alongside them.
+    * a public app image MUST NOT shadow a framework standard
+      (`check-standard-collision!` → `:rf.error/image-standard-replacement-forbidden`).
+      EP-0026 §Framework Standard Registrations: a standard encodes an execution
+      invariant, so shadowing it is a correctness violation, not an app policy
+      choice. There is NO public `:replace-standard` opt-in.
+    * [[standard-replaceable?]] remains the predicate the standard OWNER's
+      internal define/revise path reads — the plug point for a conformance-profile
+      proof that would lift an invariant-coupled lock. A public app-facing
+      standard-replacement hook, if ever wanted, is a separate standards-track
+      decision; EP-0026 does not add one.
 
-    * SLICE .6 (capability checks) — owns the DEEP capability-map checking
-      against the frame's host `:capabilities`. This slice already collects the
-      union image-`:rf.image/requires` set onto the generation and exposes
-      [[check-capabilities!]] (the fail-loud point keyed
-      `:rf.error/image-missing-capability`). `assemble` does NOT call it (no
-      frame capability map exists at pure-assembly time — that arrives at
-      frame loading, slice .7); slice .6 wires the call at the frame boundary.
+  EP-0026 (rf2-dlvmpc) also removed image-declared host capabilities end-to-end:
+  there is no `:rf.image/requires`, no `make-frame :capabilities`, and no
+  `:rf.gen/requires` / capability-check seam.
 
   ## Production elision
 
@@ -321,18 +309,17 @@
   `:rf.image/default? true` (rather than carrying `:include-ns` globs) so it
   rides the same `assemble*` pipeline + resolved-generation cache as an explicit
   image; `select-for-images` recognizes the marker and selects every descriptor
-  in the pool. It declares no inline descriptors, no `:include-ns`, no
-  `:rf.image/requires`, and no `:replace` / `:replace-standard` — the default
-  path assumes globally-unique ids and fails loud (`:rf.error/image-duplicate-id`)
-  on any cross-namespace `(kind, id)` collision rather than declaring a winner.
-  A constant value: the default selection is fully described by the marker, so
-  the cache key's image-vector leg is constant and the store-generation +
-  standard-generation legs are the only invalidation signals (EP-0023 §Image —
-  the default generation is cached keyed on the source-store generation)."
+  in the pool. It declares no inline descriptors and no `:select-ns` — the
+  default path assumes globally-unique ids and fails loud
+  (`:rf.error/image-duplicate-id`) on any cross-namespace `(kind, id)` collision
+  rather than picking a winner. A constant value: the default selection is fully
+  described by the marker, so the cache key's image-vector leg is constant and
+  the store-generation + standard-generation legs are the only invalidation
+  signals (EP-0023 §Image — the default generation is cached keyed on the
+  source-store generation)."
   {:rf.image/default?   true
    :rf.image/include-ns []
-   :rf.image/inline     []
-   :rf.image/requires   #{}})
+   :rf.image/inline     []})
 
 (defn default-image?
   "True when `image` is the DEFAULT image value — the implicit whole-store
@@ -445,8 +432,8 @@
                       :coordinate (descriptor-coordinate d)}}))))
   descriptors)
 
-;; ---- standard-replacement policy (EP-0023 §Image Patching: \":replace-standard\"
-;;      — the .5 seam for invariant-coupled conformance) ------------------------
+;; ---- framework-standard protection (EP-0026 §Framework Standard Registrations
+;;      — the internal seam for invariant-coupled conformance) -----------------
 ;;
 ;; EP-0026 §Framework Standard Registrations: a PUBLIC app image MUST NOT shadow
 ;; a framework standard (the no-shadowing rule is enforced by
@@ -774,50 +761,9 @@
                     :missing-reference missing-reference}})))
   resolver)
 
-;; ---- capability check (EP-0023 §Public API — the .6 seam) ------------------
-
-(defn check-capabilities!
-  "Throw `:rf.error/image-missing-capability` for any `:rf.image/requires`
-  capability absent from the frame's `capabilities` map (EP-0023 §Public API:
-  \"If any :rf.image/requires capability is absent from the frame's :capabilities,
-  frame creation fails before the image generation becomes runnable\"). The
-  diagnostic distinguishes a missing CAPABILITY from a missing REGISTRATION.
-  Returns `requires`.
-
-  `capabilities` may be nil — a frame that supplies NO `:capabilities` map
-  provides nothing, so ANY non-empty `requires` fails loud (a nil map is read as
-  `{}`, parallel to EP-0013's `app_value/check-capabilities!` reading an absent
-  realm capability map as `#{}`). A no-op only when `requires` is empty.
-
-  This is the fail-loud point the FRAME boundary calls (`live-frame/make-frame`
-  supplies the frame's `:capabilities`). `assemble` does NOT call it — pure
-  assembly has no frame capability map; the union `:rf.image/requires` set rides
-  the generation (`:rf.gen/requires`) for this frame-boundary step."
-  [requires capabilities]
-  (let [missing (remove #(contains? capabilities %) requires)]
-    (when (seq missing)
-      (error/throw-error!
-        :rf.error/image-missing-capability
-        'rf/make-frame
-        (str "rf/make-frame: the image requires capabilities the frame does not "
-             "supply: " (pr-str (vec (sort missing))) ". The frame's :capabilities "
-             "map provides " (pr-str (vec (sort (keys capabilities))))
-             ". This is a missing CAPABILITY (a host service the frame must "
-             "supply), not a missing registration — supply the capability in "
-             ":capabilities, or drop it from the image's :rf.image/requires.")
-        {:recovery :supply-the-capability-or-drop-the-requirement
-         :extra    {:missing-capabilities (vec (sort missing))
-                    :supplied-capabilities (vec (sort (keys capabilities)))}})))
-  requires)
-
 ;; ===========================================================================
 ;; The sealed generation + the public assembly entry point
 ;; ===========================================================================
-
-(defn- image-requires
-  "Union the `:rf.image/requires` capability sets across all `images`."
-  [images]
-  (into #{} (mapcat #(:rf.image/requires % #{})) images))
 
 (defn check-unique-image-ids!
   "FAIL LOUD when two images share an `:id` within one `:images` composition
@@ -926,7 +872,6 @@
     ;; (9) Seal.
     {:rf.gen/resolver resolver
      :rf.gen/images   images
-     :rf.gen/requires (image-requires images)
      :rf.gen/kinds    (into #{} (map first) (keys resolver))}))
 
 ;; ===========================================================================
@@ -945,28 +890,28 @@
 ;;
 ;; The EP's minimum key is:
 ;;
-;;     normalized :images vector
+;;     normalized :images vector (in ORDER — image order decides composition)
 ;;     + registration source-store generation
 ;;     + framework-standard registration generation
 ;;     + inline descriptor fingerprints
-;;     + declared replacement maps
 ;;
 ;; The NORMALIZED IMAGE VALUES carry, by value, every one of the
 ;; image-side legs already:
 ;;
-;;   * `:rf.image/include-ns` — the glob selection input;
+;;   * `:rf.image/include-ns` / `:rf.image/exclude-ns` — the glob selection
+;;                              input;
 ;;   * `:rf.image/inline`     — the inline descriptor fingerprints (the inline
 ;;                              descriptors themselves, lowered + stamped, are
 ;;                              part of the image value — equal images ⇒ equal
-;;                              inline fingerprints);
-;;   * `:replace` / `:replace-standard` — the declared replacement maps.
+;;                              inline fingerprints).
 ;;
-;; So the image vector IS the "normalized :images + inline fingerprints +
-;; replacement maps" portion of the key. This is the correctness
-;; point: the key is built from the image INPUTS, NOT from `:rf.gen/resolver`
-;; alone — two compositions differing ONLY in `:replace` carry different image
-;; values, so they occupy different cache slots and can never cache-collide on
-;; a shared resolver shape.
+;; So the ORDERED image vector IS the "normalized :images + inline fingerprints"
+;; portion of the key. This is the correctness point: the key is built from the
+;; image INPUTS, NOT from `:rf.gen/resolver` alone — two compositions differing
+;; ONLY in their `:select-ns` selection or their IMAGE ORDER carry different
+;; image vectors, so they occupy different cache slots and can never
+;; cache-collide on a shared resolver shape (EP-0026 §Layered Resolution — image
+;; order is the only precedence).
 ;;
 ;; The store-side legs are the live store IDENTITY + its monotonic generation,
 ;; plus the framework-standard generation:
@@ -996,8 +941,8 @@
 ;; descriptor-set fingerprint so unrelated store changes need not invalidate)
 ;; only in that two distinct stores at the same generation integer never alias
 ;; — the live-store leg carries the store identity alongside the per-store
-;; generation. It is never COARSER: any change to a selected, standard, inline,
-;; OR replacement input changes a key leg and forces a re-seal.
+;; generation. It is never COARSER: any change to a selected, standard, or inline
+;; input — or to the image ORDER — changes a key leg and forces a re-seal.
 
 (defonce ^{:doc "cache-key → sealed generation. The resolved-generation cache
   (EP-0023 §Image). A plain map atom: an SSR request assembling an unchanged
@@ -1032,10 +977,11 @@
     * explicit-pool arity — the explicit descriptor pool VALUE itself (distinct
       pools are distinct values, so distinct keys without a separate identity).
 
-  The image vector carries the inline fingerprints + replacement maps by value;
-  `pool-leg` + the standard generation are the store-side legs. A vector so it
-  hashes + compares as a value (the live-store `pool-leg`'s embedded store atom
-  is an opaque, reference-identity key leg — never dereferenced)."
+  The ORDERED image vector carries the selection + inline fingerprints by value
+  (image order is part of the key — EP-0026 §Layered Resolution); `pool-leg` +
+  the standard generation are the store-side legs. A vector so it hashes +
+  compares as a value (the live-store `pool-leg`'s embedded store atom is an
+  opaque, reference-identity key leg — never dereferenced)."
   [images pool-leg]
   [images pool-leg (standard-generation)])
 
@@ -1073,33 +1019,32 @@
 
     1. select registered descriptors per image (by `:rf.provenance/ns` against
        the source store) + each image's inline descriptors;
-    2. add the framework standard registrations;
-    3. validate unsupported kinds;
-    4. validate every declared `:replace` / `:replace-standard` key names a REAL
-       collision (a declaration for a non-colliding key FAILS LOUD — replacement
-       resolves an intentional collision, it is never a silent order override);
-    5. project into the sealed `[kind id]` resolver, resolving every collision
-       via declared `:replace` / `:replace-standard` winners — a genuine
-       collision with no declared winner FAILS LOUD (order never decides);
+    2. resolve EACH image to its id-disjoint `{[kind id] descriptor}` map (a
+       within-image collision FAILS LOUD — there is no within-image winner rule);
+    3. add the framework standard registrations + validate unsupported kinds;
+    4. LAYER the per-image resolvers in IMAGE ORDER — the later image WINS
+       (EP-0026 §Layered Resolution); a cross-image shadow is reported, never
+       failed;
+    5. protect framework standards: an app descriptor colliding with a standard
+       FAILS LOUD (no public `:replace-standard` opt-in);
     6. validate application interceptor references against the sealed resolver;
     7. seal into an immutable generation value.
 
-  Capability checking (step against the frame's `:capabilities`) is NOT done
-  here — pure assembly has no frame; it is the slice-.6 / slice-.7 frame-boundary
-  step. The union image-requires set is carried on the generation for that step.
+  EP-0026 (rf2-dlvmpc) retired the declared-`:replace`/`:replace-standard` winner
+  model (composition is image order now) and image-declared host capabilities —
+  there is no capability check and no `:rf.gen/requires` on the generation.
 
   ## Resolved-generation caching (EP-0023 §Image — MUST cache)
 
   Sealed generations are immutable and may be physically shared across frames
   when the same inputs resolve to the same descriptor set. `assemble` caches by
-  the EP minimum key — normalized image vector (which carries inline
-  fingerprints + the declared `:replace` / `:replace-standard` maps by value) +
-  the registration source-store generation + the framework-standard generation
+  the EP minimum key — the ORDERED normalized image vector (which carries the
+  selection + inline fingerprints by value, and whose ORDER decides composition)
+  + the registration source-store generation + the framework-standard generation
   — so a repeated assembly of an UNCHANGED composition returns the SAME sealed
   object without re-running selection + validation + sealing. This is the SSR
-  fast path. ANY change to a selected, standard, inline, or replacement input
-  bumps a key leg and forces a re-seal; two compositions differing only in
-  `:replace` never cache-collide.
+  fast path. ANY change to a selected, standard, or inline input — or to the
+  image ORDER — bumps a key leg and forces a re-seal.
 
   Two arities:
     (assemble images)            — select against the live source store; the
@@ -1125,7 +1070,6 @@
 
     {:rf.gen/resolver {[kind id] descriptor …}
      :rf.gen/images   [<image value> …]
-     :rf.gen/requires #{:rf.capability/* …}
      :rf.gen/kinds    #{kind …}}"
   ([images]
    (let [images (vec images)]
@@ -1199,10 +1143,10 @@
                                    the pool leg is the descriptor pool value
                                    itself (the deterministic test form).
 
-  The default image carries no `:include-ns` (so no zero-match fail-loud — an
+  The default image carries no `:select-ns` (so no zero-match fail-loud — an
   empty store is a valid empty default projection resolving only the framework
-  standards) and no inline / replacement declarations. Returns the sealed
-  generation (the same shape `assemble` returns)."
+  standards) and no inline declarations. Returns the sealed generation (the same
+  shape `assemble` returns)."
   ([]
    ;; Live-store default: pair the active store identity with its generation so
    ;; the default generation of two distinct stores at the same generation never
