@@ -134,7 +134,19 @@
 
 (defn redact-event
   "Redact the given payload paths in a conventional event vector.
-  Non-map payload shapes pass through unchanged."
+
+  Only the map payload form `[id {…} …]` is path-redactable: path-based
+  redaction is map-key oriented, and only `(second event)` is scrubbed.
+
+  SECURITY-RELEVANT — POSITIONAL ARGS EGRESS RAW. A secret carried in a
+  POSITIONAL event arg — e.g. `[:auth/login \"user\" \"secret-token\"]` —
+  is NOT redactable here and passes through unchanged into every trace and
+  error sink (`:event/*`, `:event/db-changed`, `:rf.error/handler-exception`).
+  A positional index has no declarable `:sensitive` path, so the fail-open
+  EP-0025 model (unclassified ⇒ ships raw) cannot reach it. This is a KNOWN
+  STRUCTURAL LIMITATION, not a bug. PREFER THE MAP PAYLOAD FORM for events
+  carrying sensitive args — `[:auth/login {:user \"user\" :token \"…\"}]` —
+  then classify the `:token` path so it redacts at egress."
   [event paths]
   (if (and (vector? event)
            (>= (count event) 2)

@@ -271,7 +271,17 @@
 (defn- redact-event-vec
   "Redact a `[event-id arg-map]` vector. Classification paths index into the
   arg-map (the second element). Per Spec 015 §Event handlers — paths are rooted
-  at the arg-map; whole-arg substitution uses `[[]]`."
+  at the arg-map; whole-arg substitution uses `[[]]`.
+
+  SECURITY-RELEVANT — POSITIONAL ARGS EGRESS RAW. Only `(second event)` (the
+  arg-map) is path-redactable; the remaining positional args are spread through
+  unchanged. A secret carried in a POSITIONAL event arg — e.g.
+  `[:auth/login \"user\" \"secret-token\"]` — has no declarable `:sensitive`
+  path (a positional index is not path-addressable), so it passes through RAW
+  into every trace and error sink. This is a KNOWN STRUCTURAL LIMITATION of the
+  fail-open EP-0025 model (unclassified ⇒ ships raw), not a bug. PREFER THE MAP
+  PAYLOAD FORM for sensitive args — `[:auth/login {:token \"…\"}]` — then
+  classify the path so it redacts at egress."
   [event sensitive-paths large-paths]
   (cond
     (or (nil? event) (not (vector? event))) event
