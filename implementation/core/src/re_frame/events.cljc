@@ -1089,11 +1089,13 @@
 ;;     ONLY (it cannot touch runtime-db) and rides the NORMAL post-commit app-db
 ;;     schema validation / rollback like any `:db` effect — no special-cased
 ;;     direct write.
-;;   - It validates EXACTLY ONE MAP ARGUMENT: a missing, `nil`, or non-map
-;;     argument fails with `:rf.error/set-db-bad-value`, raised through
-;;     `error/throw-error!` so it THROWS (EP-0027 §Failure — a bad `[:rf/set-db
-;;     x]` argument is a setup-step throw). Set app-db empty with `[:rf/set-db
-;;     {}]`.
+;;   - It validates EXACTLY ONE MAP ARGUMENT: a missing, `nil`, non-map, or
+;;     extra-trailing argument fails with `:rf.error/set-db-bad-value`, raised
+;;     through `error/throw-error!` so it THROWS (EP-0027 §Failure — a bad
+;;     `[:rf/set-db x]` argument is a setup-step throw). `:rf/set-db` takes a
+;;     single map and has no second-argument meaning, so `[:rf/set-db {} :junk]`
+;;     is a mis-call (rf2-izy3b2), not a silently-ignored extra. Set app-db
+;;     empty with `[:rf/set-db {}]`.
 ;;   - It REPLACES all of app-db (it is NOT a merge); for partial updates, write
 ;;     an ordinary event.
 ;;
@@ -1123,21 +1125,38 @@
   vector (`[:rf/set-db new-db]`) and returns `{:db new-db}`, replacing the whole
   app-db partition.
 
-  Validates exactly one MAP argument: a missing / `nil` / non-map `new-db`
-  raises `:rf.error/set-db-bad-value` through `error/throw-error!` (so it THROWS
-  — a setup-step failure per EP-0027 §Failure). A valid map (including `{}`)
+  Validates EXACTLY one MAP argument: a missing / `nil` / non-map `new-db`, OR
+  any extra trailing args (`[:rf/set-db {} :junk]`), raises
+  `:rf.error/set-db-bad-value` through `error/throw-error!` (so it THROWS — a
+  setup-step failure per EP-0027 §Failure). A valid map (including `{}`)
   returns `{:db new-db}` and rides the normal post-commit app-db schema
   validation / rollback. It REPLACES app-db (not a merge)."
   [_coeffects event]
-  (let [new-db (second event)]
-    (when-not (valid-set-db-arg? new-db)
+  (let [new-db (second event)
+        ;; EP-0027 §`:rf/set-db`: EXACTLY ONE argument. The event vector is
+        ;; `[:rf/set-db new-db]` (count 2); any trailing args (count > 2) are a
+        ;; mis-call — `:rf/set-db` REPLACES the whole app-db with its single map
+        ;; argument and has no second-argument meaning, so extra args were
+        ;; previously SILENTLY IGNORED (a fail-open gap on the framework's own
+        ;; reserved seed event, against the EP's clarity-over-leniency posture).
+        ;; rf2-izy3b2: reject them LOUD with the same discriminator. (count 1 —
+        ;; the no-argument case — falls through to `valid-set-db-arg?` below,
+        ;; which rejects the `nil` it reads as the missing arg.)
+        extra-args? (> (count event) 2)]
+    (when (or extra-args? (not (valid-set-db-arg? new-db)))
       (error/throw-error!
         :rf.error/set-db-bad-value
         'rf/set-db
         (str "`[:rf/set-db x]` requires EXACTLY ONE MAP argument — the new "
-             "app-db. Got " (if (nil? new-db) "no argument (or nil)"
-                                (str "`" (pr-str new-db) "` (a "
-                                     (pr-str (type new-db)) ")"))
+             "app-db. Got "
+             (cond
+               extra-args? (str (dec (count event)) " arguments ("
+                                (pr-str (vec (rest event)))
+                                ") — `:rf/set-db` takes a single map and has no "
+                                "second-argument meaning")
+               (nil? new-db) "no argument (or nil)"
+               :else         (str "`" (pr-str new-db) "` (a "
+                                  (pr-str (type new-db)) ")"))
              ". `:rf/set-db` REPLACES the whole app-db partition; pass a map "
              "(use `[:rf/set-db {}]` to empty app-db).")
         {:recovery :no-recovery
@@ -1154,8 +1173,9 @@
   {:doc "Framework-standard app-db seeding event (EP-0027). `[:rf/set-db
         {…}]` REPLACES the whole app-db partition with the supplied map and
         rides normal post-commit schema validation / rollback. Validates
-        exactly one map argument (missing / nil / non-map → throws
-        :rf.error/set-db-bad-value). Use `[:rf/set-db {}]` to empty app-db."})
+        exactly one map argument (missing / nil / non-map / extra trailing args
+        → throws :rf.error/set-db-bad-value). Use `[:rf/set-db {}]` to empty
+        app-db."})
 
 (defn register-set-db-standard!
   "Register the framework-standard `:rf/set-db` event (EP-0027 §`:rf/set-db`)
