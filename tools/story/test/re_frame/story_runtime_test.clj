@@ -1661,3 +1661,106 @@
     (is (fn? @#'story/lifecycle-state))
     (is (fn? @#'story/variant-frames))
     (is (fn? @#'story/variant-frame?))))
+
+;; ===========================================================================
+;; VARIANT-BODY CLASSIFICATION (rf2-7c6ecy)
+;; ===========================================================================
+;;
+;; EP-0025: a variant declares its sensitive / large app-db paths on its body
+;; via the carrier-keyed NESTED form `:sensitive {:app-db [[:auth :token]]}`
+;; (the SAME owner shape `reg-frame` uses; spec/Conventions.md §Privacy). The
+;; runtime lowers the `:app-db` paths into the variant frame's elision
+;; registry as EP-0025 commit-plane classification effects right after
+;; `make-frame`, BEFORE the lifecycle / init events
+;; (`frames/apply-variant-classification!`, `:source :effect`).
+;;
+;; Two coupled defects this section guards against (the two were a three-way
+;; doc/schema/lowering shape mismatch + a missing fail-loud validation):
+;;
+;;   1. POSITIVE — a documented (NESTED) variant classification actually
+;;      classifies: the declared path REDACTS to `:rf/redacted` at wire
+;;      egress. (Before the doc reconciliation an author following the
+;;      docstring's FLAT example wrote `:sensitive [[:auth :token]]`, which
+;;      the schema REJECTED and the lowering silently DROPPED.)
+;;   2. NEGATIVE — a MALFORMED variant classification (a NESTED-but-bad
+;;      `:app-db` payload that the loose schema admits) is routed through the
+;;      SAME fail-loud commit-plane validator the router uses
+;;      (`elision/classification-effect-defect`), so it FAILS LOUD pre-commit
+;;      with `:rf.error/classification-effect-shape` rather than crashing
+;;      inside `apply-classification-effects` / `allocate!`. The run records a
+;;      failed `:rf.error/exception` assertion carrying that error id.
+
+(deftest variant-classification-nested-form-redacts-at-egress
+  (testing "rf2-7c6ecy POSITIVE — a documented NESTED variant `:sensitive`
+            declaration (`{:app-db [[:auth :token]]}`) lowers into the variant
+            frame's elision registry and REDACTS the path at wire egress"
+    (rf/reg-event :auth/login-7c6ecy
+      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-7c6ecy")}))
+    (story/reg-variant :story.classif/sensitive
+      {:events    [[:auth/login-7c6ecy]]
+       :sensitive {:app-db [[:auth :token]]}})
+    (let [r (async/deref-blocking (story/run-variant :story.classif/sensitive) 5000)]
+      (is (= :ready (:lifecycle r))
+          "the variant runs to :ready — classification did not abort the run")
+      (is (= "BEARER-secret-7c6ecy" (get-in (rf/app-db-value :story.classif/sensitive)
+                                            [:auth :token]))
+          "the raw value is in app-db (classification is path-based, not value mutation)")
+      ;; Wire egress over the frame's app-db substitutes the classified path.
+      (let [walked (rf/elide-wire-value (rf/app-db-value :story.classif/sensitive)
+                                        {:frame :story.classif/sensitive})]
+        (is (= :rf/redacted (get-in walked [:auth :token]))
+            "the documented NESTED :sensitive declaration redacts the path at egress")))
+    (story/destroy-variant! :story.classif/sensitive)))
+
+(deftest variant-classification-large-nested-form-elides-at-egress
+  (testing "rf2-7c6ecy POSITIVE — a documented NESTED variant `:large`
+            declaration (`{:app-db [[:docs :blob]]}`) elides the path to the
+            `:rf.size/large-elided` marker at wire egress"
+    (rf/reg-event :docs/upload-7c6ecy
+      (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] (apply str (repeat 2048 "x")))}))
+    (story/reg-variant :story.classif/large
+      {:events [[:docs/upload-7c6ecy]]
+       :large  {:app-db [[:docs :blob]]}})
+    (let [r (async/deref-blocking (story/run-variant :story.classif/large) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (let [walked  (rf/elide-wire-value (rf/app-db-value :story.classif/large)
+                                         {:frame :story.classif/large})
+            elided  (get-in walked [:docs :blob])]
+        (is (and (map? elided) (contains? elided :rf.size/large-elided))
+            "the documented NESTED :large declaration elides the path to the
+             `:rf.size/large-elided` marker at egress")))
+    (story/destroy-variant! :story.classif/large)))
+
+(deftest variant-classification-malformed-fails-loud-pre-commit
+  (testing "rf2-7c6ecy NEGATIVE — a MALFORMED variant classification (a
+            NESTED-but-bad `:app-db` payload the loose schema admits) FAILS
+            LOUD pre-commit through `elision/classification-effect-defect`,
+            recorded as a failed `:rf.error/classification-effect-shape`
+            assertion rather than crashing `allocate!`"
+    (rf/reg-event :noop-7c6ecy (fn [{:keys [db]} _] {:db db}))
+    ;; `:app-db` is a vector (passes the schema) whose entry is NOT a valid
+    ;; concrete :rf/path — a non-sequential scalar. The framework's pure
+    ;; commit-plane validator rejects it; the variant path now routes through
+    ;; that SAME validator pre-commit.
+    (story/reg-variant :story.classif/bad
+      {:events    [[:noop-7c6ecy]]
+       :sensitive {:app-db [42]}})
+    (let [r (async/deref-blocking (story/run-variant :story.classif/bad) 5000)
+          assertion (->> (:assertions r)
+                         (filter #(= :rf.error/exception (:assertion %)))
+                         last)]
+      (is (= :error (:lifecycle r))
+          "the malformed classification aborts the run pre-commit")
+      (is (some? assertion)
+          "a structured failure assertion is recorded (no uncaught crash)")
+      (is (= :rf.error/classification-effect-shape
+             (-> assertion :error :data :rf.error/id))
+          "the failure routes through the SAME fail-loud id the router's
+           commit-plane boundary uses")
+      ;; Fail-loud is PRE-commit: the bad path must NOT have been written into
+      ;; the elision registry (no partial commit).
+      (let [reg (frame/frame-runtime-db-value :story.classif/bad)]
+        (is (not (contains? (get-in reg [:rf.runtime/elision :sensitive-declarations])
+                            [42]))
+            "the malformed path did not land in the elision registry (no partial commit)")))
+    (story/destroy-variant! :story.classif/bad)))

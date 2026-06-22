@@ -62,6 +62,13 @@
             ;; pure registry-write seam directly (same artefact as
             ;; `re-frame.frame` above; bundle-isolated from production).
             [re-frame.elision          :as elision]
+            ;; EP-0025 fail-loud: a variant's lowered classification effects are
+            ;; validated through the SAME pure validator the router's
+            ;; commit-plane boundary uses (`elision/classification-effect-defect`)
+            ;; and a defect is raised via the canonical thrown-error builder, so
+            ;; a malformed declaration FAILS LOUD pre-commit rather than crashing
+            ;; inside `apply-classification-effects` / `allocate!`.
+            [re-frame.error            :as rf-error]
             [re-frame.story.config     :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.error      :as story-error]
@@ -575,10 +582,33 @@
   those effects performs. Runs right after `make-frame` and BEFORE the
   lifecycle / init events, so a classified path is already redacted in any
   trace the variant's setup emits. No-op when the variant declares no app-db
-  classification."
+  classification.
+
+  EP-0025 fail-loud: the lowered effects are validated through the SAME pure
+  validator the router's FINAL-effects commit-plane boundary uses
+  (`elision/classification-effect-defect`) BEFORE `apply-classification-effects`
+  touches the registry. A malformed declaration (a non-vector `:app-db`, or a
+  path that is not a valid concrete `:rf/path`) raises
+  `:rf.error/classification-effect-shape` pre-commit — no partial registry
+  write — rather than crashing later inside `apply-classification-effects` /
+  `allocate!`. This mirrors the router's pre-commit abort
+  (`router/emit-classification-effect-shape!`) so the variant-declaration and
+  effect-return paths reject malformed classification identically."
   [variant-id v-body]
   (let [effects (->classification-effects v-body)]
     (when (seq effects)
+      (when-let [defect (elision/classification-effect-defect effects)]
+        (rf-error/throw-error!
+          :rf.error/classification-effect-shape
+          'rf.story/apply-variant-classification!
+          (str "re-frame2-story: variant " variant-id
+               " declares a malformed `:sensitive` / `:large` classification — "
+               (:reason defect)
+               ". Each axis is a carrier-keyed map whose `:app-db` value is a "
+               "vector of concrete `:rf/path`s "
+               "(e.g. `:sensitive {:app-db [[:auth :token]]}`).")
+          {:recovery :fix-the-variant-classification-shape
+           :extra    (assoc defect :variant-id variant-id)}))
       (frame/swap-runtime-db! variant-id
         (fn [rt] (elision/apply-classification-effects rt effects))))))
 

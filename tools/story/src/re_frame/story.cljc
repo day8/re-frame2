@@ -687,21 +687,27 @@
 ;;
 ;; The EP-0025-compliant Story surface is FRAME-CREATION classification: a
 ;; variant declares its sensitive / large app-db paths at registration via
-;; the `:sensitive` / `:large` slots on the variant body (a flat vector of
-;; `:rf/path`s per axis) — and the Story runtime applies them through the
-;; commit-plane `:sensitive` / `:large` classification effects at frame
-;; creation (an init classify step, `:source :effect`), so the redaction is
-;; live from creation onward. (EP-0025 removed the durable `:sensitive` /
-;; `:large {:app-db …}` *frame annotation* — a frame is not app-db's
-;; definition site — so the runtime no longer threads the declaration onto
-;; the `reg-frame` config; it rides the commit-plane effect instead.)
+;; the `:sensitive` / `:large` slots on the variant body. Each slot is a MAP
+;; keyed by carrier — the app-db paths live under `:app-db` (a vector of
+;; `:rf/path`s), matching the framework's `reg-frame` `:sensitive` /
+;; `:large` carrier-keyed form (spec/Conventions.md §Privacy; the framework's
+;; `re-frame.core/reg-frame` uses the same `{:app-db [[:auth :token]] :http …}`
+;; owner shape). The Story runtime lowers the `:app-db` paths into the variant
+;; frame's elision registry through the commit-plane `:sensitive` / `:large`
+;; classification effects at frame creation (an init classify step,
+;; `:source :effect`), so the redaction is live from creation onward.
+;; (EP-0025 removed the durable `:sensitive` / `:large {:app-db …}` *frame
+;; annotation* — a frame is not app-db's definition site — so the runtime no
+;; longer threads the declaration onto the `reg-frame` config; it rides the
+;; commit-plane effect instead. A `:sensitive` block MAY also carry `:http`
+;; carriers, which are not app-db classification and stay on the frame config.)
 ;;
 ;;     (story/reg-variant :story.auth/login-form
 ;;       {:component login-form
 ;;        :args      {:user/email "ada@example.com"
 ;;                    :user/password "•••••"}
-;;        :sensitive [[:user :password] [:auth :token]]
-;;        :large     [[:docs :csv-upload]]})
+;;        :sensitive {:app-db [[:user :password] [:auth :token]]}
+;;        :large     {:app-db [[:docs :csv-upload]]}})
 ;;
 ;; This drives every local-redacted Story surface (assertion redaction, the
 ;; trace buffer, the recorder, DOM capture) with NO public post-creation

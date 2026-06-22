@@ -902,23 +902,40 @@
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]
     [:background            {:optional true} BackgroundSlot]
-    ;; EP-0015 frame-owned durable classification. A variant
-    ;; declares which of ITS app-db paths are sensitive / large at frame
-    ;; creation, the SAME owner model the framework's `reg-frame` uses
-    ;; (`{:app-db [[:auth :token]] :http {...}}`). The runtime threads these
-    ;; straight onto the variant's `reg-frame` config (`frames/variant-
-    ;; frame-config`), so the framework's `re-frame.frame-classification`
-    ;; validates + installs them atomically as part of frame creation —
-    ;; BEFORE `:initial-events`. Classification is owned at frame creation, not
-    ;; mutated post-creation (spec/015 §Frame-owned durable classification).
+    ;; EP-0025 frame-owned durable classification. A variant declares which
+    ;; of ITS app-db paths are sensitive / large at frame creation, the SAME
+    ;; carrier-keyed owner model the framework's `reg-frame` uses
+    ;; (`{:app-db [[:auth :token]] :http {...}}`). EP-0025 removed the durable
+    ;; frame annotation: the runtime no longer threads these onto the
+    ;; variant's `reg-frame` config — instead it lowers the `:app-db` paths
+    ;; into the variant frame's elision registry as commit-plane
+    ;; classification effects right after frame creation, BEFORE the lifecycle
+    ;; / init events (`frames/apply-variant-classification!` →
+    ;; `re-frame.elision/apply-classification-effects`, `:source :effect`).
+    ;; Classification is owned at frame creation, not mutated post-creation
+    ;; (spec/015 §Frame-owned durable classification; spec/Conventions.md
+    ;; §Privacy).
     ;;
-    ;; Loose `:map` here on purpose: the framework's frame-classification
-    ;; layer owns the rigorous shape validation (malformed paths, unknown
-    ;; keys, non-string HTTP carriers all FAIL LOUDLY at `reg-frame` time —
-    ;; spec/015 §Frame-owned durable classification, fail-fast). Story does
-    ;; not fork that validation — one source of truth.
-    [:sensitive             {:optional true} [:map-of :keyword :any]]
-    [:large                 {:optional true} [:map-of :keyword :any]]
+    ;; The slot is a CARRIER-KEYED MAP — app-db paths under `:app-db`, with an
+    ;; optional `:http` carrier block (the `:sensitive` axis only) that stays
+    ;; on the frame config (HTTP carriers are not app-db classification). The
+    ;; `:app-db` value is a vector-of-paths; we keep it `[:vector :any]` here
+    ;; on purpose — the rigorous per-path `:rf/path` shape validation is owned
+    ;; ONCE by the framework's commit-plane validator
+    ;; (`re-frame.elision/classification-effect-defect`), which
+    ;; `apply-variant-classification!` routes through so a malformed path
+    ;; FAILS LOUD pre-commit with `:rf.error/classification-effect-shape`.
+    ;; Story does not fork that path validation — one source of truth. The
+    ;; carrier-keyed MAP shape here (vs a bare vector) catches the most common
+    ;; authoring slip — a flat `[[:auth :token]]` vector instead of
+    ;; `{:app-db [[:auth :token]]}` — at reg-variant with a clear schema error
+    ;; rather than silently dropping the declaration at lowering.
+    [:sensitive             {:optional true}
+     [:map {:closed false}
+      [:app-db {:optional true} [:vector :any]]]]
+    [:large                 {:optional true}
+     [:map {:closed false}
+      [:app-db {:optional true} [:vector :any]]]]
     ;; EP-0023 §Stories — "behavior variant -> image". A variant declares the
     ;; IMAGE(s) (the `rf/image` registration-set values) its frame resolves
     ;; behaviour against, so two variants reuse the SAME global event/sub id
