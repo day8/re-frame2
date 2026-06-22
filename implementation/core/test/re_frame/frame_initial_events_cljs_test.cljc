@@ -43,6 +43,7 @@
             [re-frame.core         :as rf]
             [re-frame.frame        :as frame]
             [re-frame.image        :as image]
+            [re-frame.late-bind    :as late-bind]
             [re-frame.live-frame   :as lf]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -496,6 +497,45 @@
         "the frame is LEFT ALIVE — a traced-and-recovered step is not a teardown")
     (is (= 1 (:n (rf/app-db-value :recover/main)))
         "the seed + the trailing :test/inc ran; the recovered :test/boom left no db change")))
+
+(deftest runner-unavailable-fails-loud-not-silent-drop
+  (testing "rf2-jsokxu: when there ARE :initial-events steps to run but the setup
+            runner is unavailable (re-frame.router not loaded — the
+            :router/dispatch-sync! late-bind hook is unregistered), construction
+            fails loud :rf.error/initial-events-runner-unavailable and tears down
+            the partial frame — it does NOT silently drop the setup and create an
+            empty frame (no-silent-swallow)."
+    (reg-test-events!)
+    ;; Simulate the standalone re-frame.frame require (no router) by removing the
+    ;; runner hook for the duration of the construction, restoring it after.
+    (let [orig (late-bind/get-fn :router/dispatch-sync!)]
+      (try
+        (late-bind/set-fn! :router/dispatch-sync! nil)
+        (late-bind/invalidate-cache! :router/dispatch-sync!)
+        (let [data (err-data
+                     #(rf/reg-frame :unavailable/main
+                        {:initial-events [[:test/set-db {:n 0}]
+                                          [:test/inc]]}))]
+          (is (= :rf.error/initial-events-runner-unavailable (:rf.error/id data))
+              "an unbound runner with steps to run fails loud, not a silent drop")
+          (is (= 2 (:step-count data)) "the error reports the dropped step count")
+          (is (nil? (frame/frame :unavailable/main))
+              "the partial frame was torn down — no empty, never-setup frame left live"))
+        (finally
+          (late-bind/set-fn! :router/dispatch-sync! orig)
+          (late-bind/invalidate-cache! :router/dispatch-sync!))))
+    ;; And the no-steps case is unaffected — an empty :initial-events never
+    ;; touches the runner, so an unavailable hook there is a genuine no-op.
+    (let [orig (late-bind/get-fn :router/dispatch-sync!)]
+      (try
+        (late-bind/set-fn! :router/dispatch-sync! nil)
+        (late-bind/invalidate-cache! :router/dispatch-sync!)
+        (rf/reg-frame :unavailable/empty {:initial-events []})
+        (is (some? (frame/frame :unavailable/empty))
+            "no steps ⇒ the runner is never consulted; an unbound hook is a no-op")
+        (finally
+          (late-bind/set-fn! :router/dispatch-sync! orig)
+          (late-bind/invalidate-cache! :router/dispatch-sync!))))))
 
 ;; ===========================================================================
 ;; 8. The handler-time construction guard

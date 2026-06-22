@@ -236,6 +236,7 @@ All ids live in the `:rf.error/*` family and are raised through `error/throw-err
 | `:rf.error/initial-events-bad-event` | a map step's `:event` is missing / empty / non-vector |
 | `:rf.error/initial-events-bad-opts` | `:opts` is not a map, or contains `:frame` |
 | `:rf.error/initial-events-step-failed` | a setup step threw (carries `:step-index`, `:event`) |
+| `:rf.error/initial-events-runner-unavailable` | non-empty `:initial-events` but `re-frame.router` not loaded (the runner hook is unregistered) |
 | `:rf.error/frame-construction-in-handler` | construction attempted while a cascade is in flight |
 | `:rf.error/frame-reset-in-handler` | `reset-frame!` called while a cascade is in flight (rejected before any teardown) |
 | `:rf.error/set-db-bad-value` | `[:rf/set-db x]` with missing / `nil` / non-map `x`, or extra trailing args |
