@@ -3,24 +3,26 @@
   Overrides — the ASSEMBLY slice (rf2-32siq3.4): resolve image values into a
   SEALED, VALIDATED `[kind id]` generation and fail loud before a frame runs.
 
-  Pins the bead's enumerated coverage:
+  Sections 1-2 + 6-11 pin EP-0023 assembly coverage (projection, dedupe,
+  unsupported kind, references, capabilities, structured diagnostics). Sections
+  3, 3b, 5, 9 are UPDATED to EP-0026 §Layered Resolution (rf2-6ls85a): the
+  EP-0023 declared-`:replace`/`:replace-standard` winner model is replaced by
+  deterministic IMAGE-ORDER layering.
 
-    * successful projection — selected (by `:include-ns`) + inline + framework
-      standard → an immutable `[kind id]` resolver;
-    * duplicate-id collision with no declared winner FAILS LOUD (order never
+  Pins the enumerated coverage:
+
+    * successful projection — selected + inline + framework standard → an
+      immutable `[kind id]` resolver;
+    * within-image duplicate-id collision FAILS LOUD (selection order never
       decides the survivor);
     * dedupe — the same registration selected twice is NOT a collision;
-    * declared `:replace` winner resolves an application-owned collision;
-    * stale / ambiguous replacement winner FAILS LOUD;
-    * `:replace` / `:replace-standard` declared for a key with NO actual
-      collision (zero or exactly one selected descriptor) FAILS LOUD — a
-      replacement resolves an intentional collision, never a silent order
-      override (rf2-32siq3.5 winner policy);
+    * the LATER image wins a cross-image `[kind id]` (EP-0026 image order); a
+      cross-image shadow does NOT fail assembly; a chain resolves to the last;
+    * a within-image `[kind id]` resolving two ways FAILS LOUD (two selected =
+      ambiguous; inline-vs-selected or two inline = within-image collision);
     * unsupported descriptor kind FAILS LOUD;
-    * a framework STANDARD collision without `:replace-standard` FAILS LOUD;
-    * `:replace-standard` on a NON-replaceable standard FAILS LOUD (incl. an
-      invariant-coupled standard);
-    * `:replace-standard` on a replaceable standard succeeds;
+    * a public app image colliding with a framework STANDARD FAILS LOUD (a
+      standard is protected — not part of app layer order, no public opt-in);
     * missing application interceptor reference FAILS LOUD;
     * capability checking (rf2-32siq3.6): missing capability FAILS LOUD; an
       empty/absent `:rf.image/requires` is a no-op; an absent (nil) or empty
@@ -169,175 +171,80 @@
       (is (= ::add (:handler-fn (asm/resolve-descriptor gen :event :cart/add)))))))
 
 (deftest inline-vs-selected-same-id-collides
-  (testing "an inline :counter/inc and a namespace-selected :counter/inc are the
-            same collision class — fail loud without a declared winner"
+  (testing "an inline :counter/inc and a namespace-selected :counter/inc in ONE
+            image is a within-image collision — fail loud
+            (:rf.error/image-within-image-collision); to override, use a later image"
     (let [pool [(reg-desc "counter.core" :event :counter/inc ::selected)]
           img  (image/image
                  {:id :i
-                  :include-ns ["counter.core"]
+                  :select-ns {:include ["counter.core"]}
                   :registrations {:reg-event [[:counter/inc {} ::inline]]}})]
-      (is (= :rf.error/image-duplicate-id
+      (is (= :rf.error/image-within-image-collision
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
 ;; ===========================================================================
-;; 3. Declared :replace winner (the .5 seam — detection + simple winner rule)
+;; 3. Image-order resolution (EP-0026 §Layered Resolution) — the LATER image
+;;    WINS for a cross-image [kind id]; the shadow does NOT fail assembly.
 ;; ===========================================================================
 
-(deftest replace-winner-resolves-application-collision
-  (testing "a declared :replace winner naming one selected descriptor's
-            coordinate resolves the collision to that descriptor"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
-                (reg-desc "checkout.story.http" :fx :checkout.http/post ::fake)]
-          img  (image/image
-                 {:id :checkout/story
-                  :include-ns ["checkout.core" "checkout.story.http"]
-                  :replace {[:fx :checkout.http/post] {:ns "checkout.story.http"}}})
-          gen  (asm/assemble [img] pool)]
-      (is (= ::fake (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))
-          "the declared winner (the story double) is the survivor, not load order"))))
-
-(deftest replace-winner-to-inline-coordinate
-  (testing "a :replace winner can name an INLINE descriptor coordinate
-            ({:image :inline}) as the survivor of a collision with a selected one"
+(deftest later-image-wins-cross-image-override
+  (testing "a [kind id] in two composed images resolves to the LATER image's
+            descriptor (the test-doubles override image composed after the app image)"
     (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          img  (image/image
-                 {:id :checkout/story
-                  :include-ns ["checkout.core"]
-                  :registrations {:reg-fx [[:checkout.http/post {} ::inline-fake]]}
-                  :replace {[:fx :checkout.http/post]
-                            {:image :checkout/story :inline [:reg-fx :checkout.http/post]}}})
-          gen  (asm/assemble [img] pool)]
-      (is (= ::inline-fake
-             (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+          app-image    (image/image
+                         {:id :app/main :select-ns {:include ["checkout.core"]}})
+          test-doubles (image/image
+                         {:id :test/doubles
+                          :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
+          gen  (asm/assemble [app-image test-doubles] pool)]
+      (is (= ::stub (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))
+          "the later image (test-doubles) wins — image order, not the registrar"))))
 
-(deftest stale-replace-winner-fails-loud
-  (testing "a :replace winner naming a coordinate that no selected descriptor
-            has (a stale ns, a typo) → :rf.error/image-replacement-winner-unresolved"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
-                (reg-desc "checkout.story.http" :fx :checkout.http/post ::fake)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["checkout.core" "checkout.story.http"]
-                  :replace {[:fx :checkout.http/post] {:ns "checkout.story.STALE"}}})]
-      (is (= :rf.error/image-replacement-winner-unresolved
-             (assembly-error-id #(asm/assemble [img] pool)))))))
-
-(deftest ambiguous-replace-winner-fails-loud
-  (testing "a :replace winner that matches MORE THAN ONE selected descriptor
-            (two genuine collisions sharing the SAME source coordinate) →
-            :rf.error/image-replacement-winner-unresolved with recovery
-            :make-the-winner-coordinate-unambiguous — the winner must name
-            exactly one survivor, not a set of indistinguishable descriptors"
-    ;; Two distinct registrations authored in the SAME provenance ns with the
-    ;; same (kind, id) but DIFFERENT impls: a genuine collision (not a dedupe),
-    ;; and BOTH carry the coordinate {:ns "checkout.story.http"}. A :ns winner
-    ;; naming that coordinate matches both, so it does NOT name one survivor.
-    (let [pool [(reg-desc "checkout.story.http" :fx :checkout.http/post ::fake-a)
-                (reg-desc "checkout.story.http" :fx :checkout.http/post ::fake-b)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["checkout.story.http"]
-                  :replace {[:fx :checkout.http/post] {:ns "checkout.story.http"}}})
-          d    (assembly-error-data #(asm/assemble [img] pool))]
-      (is (= :rf.error/image-replacement-winner-unresolved (:rf.error/id d)))
-      (testing "the recovery key is the AMBIGUOUS leg, distinct from the
-                zero-match leg's :fix-the-replacement-winner-source"
-        (is (= :make-the-winner-coordinate-unambiguous (:recovery d)))
-        (is (= 2 (:match-count d)))))))
-
-(deftest anonymous-image-inline-winner-fails-loud
-  (testing "an ANONYMOUS image (no :id) whose INLINE descriptor is named as a
-            replacement winner must FAIL LOUD — an inline winner coordinate
-            (:image <id> :inline …) requires the containing image to carry an
-            :id, so an anonymous image's inline descriptor (coordinate
-            {:image nil …}) can never be the named survivor (EP-0023:
-            an inline winner requires the containing image to have an :id)"
-    ;; A registered descriptor collides with the anonymous image's inline
-    ;; descriptor for the same (kind, id). The :replace names the inline
-    ;; coordinate with a concrete image id, but the anonymous image stamps its
-    ;; inline descriptor with :image nil → the winner matches no descriptor.
+(deftest reversing-image-order-reverses-the-winner
+  (testing "image order is the ONLY precedence: composing the app image LAST makes
+            its selected registration the winner instead"
     (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          img  (image/image
-                 {;; NO :id — anonymous image
-                  :include-ns ["checkout.core"]
-                  :registrations {:reg-fx [[:checkout.http/post {} ::inline-fake]]}
-                  :replace {[:fx :checkout.http/post]
-                            {:image :checkout/story :inline [:reg-fx :checkout.http/post]}}})]
-      (is (= :rf.error/image-replacement-winner-unresolved
-             (assembly-error-id #(asm/assemble [img] pool)))
-          "naming an inline coordinate as a winner on an :id-less image fails loud"))))
+          app-image    (image/image
+                         {:id :app/main :select-ns {:include ["checkout.core"]}})
+          test-doubles (image/image
+                         {:id :test/doubles
+                          :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
+          gen  (asm/assemble [test-doubles app-image] pool)]
+      (is (= ::real (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+
+(deftest cross-image-shadow-does-not-fail-assembly
+  (testing "a later image overriding an earlier one RESOLVES (later wins) and does
+            NOT fail assembly — a cross-image shadow is reported, not failed"
+    (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
+                 (reg-desc "b.core" :fx :checkout.http/post ::b)]
+          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})
+          gen   (asm/assemble [img-a img-b] pool)]
+      (is (= ::b (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 ;; ===========================================================================
-;; 3b. Replacement declares a REAL collision only (rf2-32siq3.5 winner policy):
-;;     a :replace / :replace-standard for a key with no actual collision is an
-;;     error — replacement resolves an intentional collision, it is NEVER a
-;;     silent order override. The complement of the winner-unresolved check.
+;; 3b. Within-image disjointness — an image must resolve cleanly to ONE
+;;     descriptor per [kind id] (EP-0026 §Layered Resolution). To override, the
+;;     winner goes in a LATER image; an override within ONE image is an error.
 ;; ===========================================================================
 
-(deftest replace-on-noncolliding-single-selection-fails-loud
-  (testing "a :replace declared for a (kind, id) with exactly ONE selected
-            descriptor (no collision) → :rf.error/image-replacement-no-collision
-            — naming a winner where there is nothing to replace is an order
-            override, not a collision resolution"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["checkout.core"]
-                  :replace {[:fx :checkout.http/post] {:ns "checkout.core"}}})]
-      (is (= :rf.error/image-replacement-no-collision
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+(deftest within-image-two-inline-is-malformed
+  (testing "two inline entries for the same [kind id] in ONE image →
+            :rf.error/image-within-image-collision (define each [kind id] once inline)"
+    (let [img (image/image
+                {:id :i
+                 :registrations {:reg-fx [[:checkout.http/post {} ::a]
+                                          [:checkout.http/post {} ::b]]}})]
+      (is (= :rf.error/image-within-image-collision
+             (assembly-error-id #(asm/assemble [img] [])))))))
 
-(deftest replace-on-absent-key-fails-loud
-  (testing "a :replace declared for a (kind, id) that NO selected descriptor has
-            (a typo / a stale id) → :rf.error/image-replacement-no-collision —
-            there is no collision (zero descriptors) to resolve"
+(deftest noncolliding-image-seals-cleanly
+  (testing "the baseline: a single selected registration with no within-image
+            collision seals cleanly to that descriptor"
     (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["checkout.core"]
-                  :replace {[:fx :checkout.http/TYPO] {:ns "checkout.core"}}})]
-      (is (= :rf.error/image-replacement-no-collision
-             (assembly-error-id #(asm/assemble [img] pool)))))))
-
-(deftest replace-standard-on-noncolliding-key-fails-loud
-  (testing "a :replace-standard declared for a key with no actual collision is
-            ALSO a no-collision error (the non-collision check runs BEFORE the
-            standard-policy guard — there is no real collision to police)"
-    ;; A replaceable standard exists, but the app does NOT select a colliding
-    ;; descriptor — so the standard alone occupies the (kind, id): no collision.
-    (asm/register-standard! :fx :rf.nav/push-url
-                            {:handler-fn ::std :rf.standard/replaceable? true})
-    (let [pool [(reg-desc "product.core" :event :app/boot ::boot)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["product.core"]
-                  :replace-standard {[:fx :rf.nav/push-url] {:ns "product.core"}}})]
-      (is (= :rf.error/image-replacement-no-collision
-             (assembly-error-id #(asm/assemble [img] pool)))))))
-
-(deftest noncolliding-image-without-replacement-seals-cleanly
-  (testing "the baseline: the SAME single selection with NO :replace declaration
-            seals cleanly — the no-collision error fires ONLY on a spurious
-            replacement declaration, never on an ordinary single registration"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
-          img  (image/image {:id :i :include-ns ["checkout.core"]})
+          img  (image/image {:id :i :select-ns {:include ["checkout.core"]}})
           gen  (asm/assemble [img] pool)]
       (is (= ::only (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
-
-(deftest check-replacement-keys-collide-is-callable-directly
-  (testing "the .5 seam fn rejects a non-colliding key and accepts a real
-            collision when called against a post-dedupe distinct-by-id view"
-    (let [real-collision {[:fx :x] [(reg-desc "a" :fx :x ::a)
-                                    (reg-desc "b" :fx :x ::b)]}
-          single         {[:fx :x] [(reg-desc "a" :fx :x ::a)]}]
-      (testing "a real collision passes the key check (returns nil, no throw)"
-        (is (nil? (asm/check-replacement-keys-collide!
-                    :i real-collision {[:fx :x] {:ns "a"}} {}))))
-      (testing "a single (uncollided) selection fails loud"
-        (is (= :rf.error/image-replacement-no-collision
-               (assembly-error-id
-                 #(asm/check-replacement-keys-collide!
-                    :i single {[:fx :x] {:ns "a"}} {}))))))))
 
 ;; ===========================================================================
 ;; 4. Unsupported descriptor kind
@@ -366,50 +273,37 @@
       (is (= :rf.error/image-standard-replacement-forbidden
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
-(deftest replace-standard-on-nonreplaceable-fails-loud
-  (testing "a :replace-standard declaration against a standard that is NOT
-            marked :rf.standard/replaceable? (the default) → forbidden"
-    (asm/register-standard! :fx :rf.nav/push-url
-                            {:handler-fn ::std :rf.standard/replaceable? false})
-    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["product.story"]
-                  :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story"}}})]
+(deftest inline-app-shadowing-a-standard-fails-loud
+  (testing "an INLINE app entry with the same [kind id] as a framework standard
+            also fails loud — a public app image must not shadow a standard
+            (EP-0026 §Framework Standard Registrations)"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (let [img (image/image {:id :i
+                            :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(asm/assemble [img] [])))))))
 
-(deftest replace-standard-on-invariant-coupled-fails-loud
-  (testing "an invariant-coupled standard (:rf.standard/requires-conformance
-            non-empty) is NOT image-replaceable even with :replace-standard +
-            :rf.standard/replaceable? true — the EP keeps :rf.interceptor/path
-            non-replaceable until a conformance profile exists"
-    (asm/register-standard! :interceptor :rf.interceptor/path
-                            {:handler-fn ::path
-                             :rf.standard/replaceable? true
-                             :rf.standard/requires-conformance #{:identical-no-op}})
-    (let [pool [(reg-desc "naive.override" :interceptor :rf.interceptor/path ::naive)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["naive.override"]
-                  :replace-standard {[:interceptor :rf.interceptor/path]
-                                     {:ns "naive.override"}}})]
+(deftest later-image-cannot-shadow-a-standard
+  (testing "even a LATER image cannot shadow a framework standard — standards are
+            not part of app layer order; the app/standard collision fails loud
+            regardless of image position"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (let [pool  [(reg-desc "app.core" :event :app/boot ::boot)]
+          base  (image/image {:id :base :select-ns {:include ["app.core"]}})
+          ovr   (image/image {:id :ovr
+                              :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(asm/assemble [base ovr] pool)))))))
 
-(deftest replace-standard-on-replaceable-succeeds
-  (testing "a :replace-standard against a standard explicitly marked replaceable
-            (no conformance requirement) resolves to the app descriptor"
-    (asm/register-standard! :fx :rf.nav/push-url
-                            {:handler-fn ::std :rf.standard/replaceable? true})
-    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (image/image
-                 {:id :i
-                  :include-ns ["product.story"]
-                  :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story"}}})
+(deftest standard-without-app-collision-is-unioned
+  (testing "a framework standard with NO colliding app id is simply unioned into
+            the generation"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (let [pool [(reg-desc "product.story" :event :product/open ::open)]
+          img  (image/image {:id :i :select-ns {:include ["product.story"]}})
           gen  (asm/assemble [img] pool)]
-      (is (= ::app-override
-             (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))))))
+      (is (= ::std (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url))))
+      (is (contains? (:rf.gen/resolver gen) [:event :product/open])))))
 
 ;; ===========================================================================
 ;; 6. Missing reference (application interceptor)
@@ -543,88 +437,49 @@
            (asm/descriptor-coordinate {:kind :fx :id :x :standard true})))))
 
 ;; ===========================================================================
-;; 9. Cross-image replacement conflicts (rf2-32siq3.19) — two composed images
-;;    declaring DIFFERENT winners for the same [kind id] FAILS LOUD; identical
-;;    declarations across images are idempotent (order must not decide).
+;; 9. Cross-image layering (EP-0026 §Layered Resolution) — the LATER image
+;;    WINS; a chain reports the LAST image as the winner. There is NO cross-image
+;;    conflict (a cross-image shadow resolves and is reported, never failed).
 ;; ===========================================================================
 
-(deftest cross-image-conflicting-replace-fails-loud
-  (testing "two composed images declaring the SAME [kind id] :replace winner
-            with DIFFERENT coordinates → :rf.error/image-replacement-conflict —
-            the later image must NOT silently last-merge-win the winner"
-    (let [pool   [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
-                  (reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
+(deftest two-images-later-wins
+  (testing "two composed images defining the SAME [kind id] resolve to the LATER
+            image — image order is the only precedence (no conflict)"
+    (let [pool   [(reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
                   (reg-desc "checkout.story.b" :fx :checkout.http/post ::b)]
-          img-a  (image/image
-                   {:id :img/a
-                    :include-ns ["checkout.core" "checkout.story.a"]
-                    :replace {[:fx :checkout.http/post] {:ns "checkout.story.a"}}})
-          img-b  (image/image
-                   {:id :img/b
-                    :include-ns ["checkout.story.b"]
-                    :replace {[:fx :checkout.http/post] {:ns "checkout.story.b"}}})]
-      (is (= :rf.error/image-replacement-conflict
-             (assembly-error-id #(asm/assemble [img-a img-b] pool)))))))
+          img-a  (image/image {:id :img/a :select-ns {:include ["checkout.story.a"]}})
+          img-b  (image/image {:id :img/b :select-ns {:include ["checkout.story.b"]}})]
+      (is (= ::b (:handler-fn (asm/resolve-descriptor
+                                (asm/assemble [img-a img-b] pool)
+                                :fx :checkout.http/post)))
+          "img-b wins (last)")
+      (is (= ::a (:handler-fn (asm/resolve-descriptor
+                                (asm/assemble [img-b img-a] pool)
+                                :fx :checkout.http/post)))
+          "reversing order reverses the winner"))))
 
-(deftest cross-image-identical-replace-is-idempotent
-  (testing "two composed images declaring the SAME [kind id] :replace winner
-            with the SAME coordinate AGREE — no conflict; the collision resolves
-            to the agreed winner"
-    (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
-                 (reg-desc "checkout.story" :fx :checkout.http/post ::fake)]
-          img-a (image/image
-                  {:id :img/a
-                   :include-ns ["checkout.core" "checkout.story"]
-                   :replace {[:fx :checkout.http/post] {:ns "checkout.story"}}})
-          img-b (image/image
-                  {:id :img/b
-                   :include-ns ["checkout.story"]
-                   :replace {[:fx :checkout.http/post] {:ns "checkout.story"}}})
-          gen   (asm/assemble [img-a img-b] pool)]
-      (is (= ::fake (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))
-          "the agreed winner survives; identical cross-image declarations are fine"))))
+(deftest multi-image-chain-last-image-wins
+  (testing "a chain [base override-a override-b] resolves the shared [kind id] to
+            the LAST image's descriptor"
+    (let [base  (image/image {:id :base
+                              :registrations {:reg-fx [[:checkout.http/post {} ::base]]}})
+          ov-a  (image/image {:id :ov/a
+                              :registrations {:reg-fx [[:checkout.http/post {} ::a]]}})
+          ov-b  (image/image {:id :ov/b
+                              :registrations {:reg-fx [[:checkout.http/post {} ::b]]}})
+          gen   (asm/assemble [base ov-a ov-b] [])]
+      (is (= ::b (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
 
-(deftest cross-image-conflicting-replace-standard-fails-loud
-  (testing "the conflict check also covers :replace-standard — two images naming
-            DIFFERENT standard winners for the same key fail loud"
-    (asm/register-standard! :fx :rf.nav/push-url
-                            {:handler-fn ::std :rf.standard/replaceable? true})
-    (let [pool  [(reg-desc "product.story.a" :fx :rf.nav/push-url ::a)
-                 (reg-desc "product.story.b" :fx :rf.nav/push-url ::b)]
-          img-a (image/image
-                  {:id :img/a
-                   :include-ns ["product.story.a"]
-                   :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story.a"}}})
-          img-b (image/image
-                  {:id :img/b
-                   :include-ns ["product.story.b"]
-                   :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story.b"}}})]
-      (is (= :rf.error/image-replacement-conflict
-             (assembly-error-id #(asm/assemble [img-a img-b] pool)))))))
-
-(deftest replacement-conflict-ex-data-names-both-winners
-  (testing "the conflict diagnostic carries image/which/[kind id]/winners/recovery
-            (rf2-32siq3.26 structured diagnostics)"
-    (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)
-                 (reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
-                 (reg-desc "checkout.story.b" :fx :checkout.http/post ::b)]
-          img-a (image/image
-                  {:id :img/a
-                   :include-ns ["checkout.core" "checkout.story.a"]
-                   :replace {[:fx :checkout.http/post] {:ns "checkout.story.a"}}})
-          img-b (image/image
-                  {:id :img/b
-                   :include-ns ["checkout.story.b"]
-                   :replace {[:fx :checkout.http/post] {:ns "checkout.story.b"}}})
+(deftest duplicate-image-id-across-composition-fails-loud
+  (testing "two images sharing an :id within one :images composition →
+            :rf.error/image-duplicate-image-id (the shadow report names images by id)"
+    (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
+                 (reg-desc "b.core" :fx :checkout.http/post ::b)]
+          img-a (image/image {:id :dup :select-ns {:include ["a.core"]}})
+          img-b (image/image {:id :dup :select-ns {:include ["b.core"]}})
           d     (assembly-error-data #(asm/assemble [img-a img-b] pool))]
-      (is (= :rf.error/image-replacement-conflict (:rf.error/id d)))
-      (is (= :replace (:which d)))
-      (is (= :fx (:kind d)))
-      (is (= :checkout.http/post (:id d)))
-      (is (= #{{:ns "checkout.story.a"} {:ns "checkout.story.b"}}
-             (set (:winners d)))
-          "both disagreeing winner coordinates are named")
-      (is (= :reconcile-the-conflicting-replacement-winners (:recovery d))))))
+      (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
+      (is (= [:dup] (:duplicate-image-ids d))))))
 
 ;; ===========================================================================
 ;; 10. Resource → resource-scope resolver reference validation (rf2-32siq3.25)
@@ -738,27 +593,30 @@
       (is (= {:ns "weird.ns"} (:coordinate d)))
       (is (= :correct-the-descriptor-kind (:recovery d))))))
 
-(deftest standard-forbidden-ex-data-names-colliding-coordinates
-  (testing "the standard-replacement-forbidden diagnostic now names every
-            colliding source coordinate alongside the standard coordinate
-            (rf2-32siq3.26)"
+(deftest standard-forbidden-ex-data-names-the-app-coordinate
+  (testing "the standard-replacement-forbidden diagnostic (EP-0026 §Framework
+            Standard Registrations) names the standard coordinate, the app source
+            coordinate, [kind id], and a rename/deselect recovery"
     (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
     (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (image/image {:id :p/img :include-ns ["product.story"]})
+          img  (image/image {:id :p/img :select-ns {:include ["product.story"]}})
           d    (assembly-error-data #(asm/assemble [img] pool))]
       (is (= :rf.error/image-standard-replacement-forbidden (:rf.error/id d)))
-      (is (= :p/img (:image d)))
+      (is (= :fx (:kind d)))
+      (is (= :rf.nav/push-url (:id d)))
       (is (= {:standard true} (:standard-coordinate d)))
-      (is (contains? (set (:colliding-coordinates d)) {:ns "product.story"})
+      (is (= {:ns "product.story"} (:app-coordinate d))
           "the app source colliding with the standard is named")
-      (is (= :declare-replace-standard-or-rename (:recovery d))))))
+      (is (= :rename-the-app-id-or-deselect-it (:recovery d))))))
 
-(deftest duplicate-id-ex-data-names-colliding-coordinates
-  (testing "the duplicate-id diagnostic carries image/[kind id]/colliding source
-            coordinates/recovery (rf2-32siq3.26 — already structured; pinned)"
+(deftest within-image-duplicate-id-ex-data-names-colliding-coordinates
+  (testing "the within-image duplicate-id diagnostic carries image/[kind id]/
+            colliding source coordinates and the narrow-or-rename recovery
+            (EP-0026 §Layered Resolution)"
     (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
                 (reg-desc "counter.boot" :event :boot/init ::b)]
-          img  (image/image {:id :both/img :include-ns ["todo.boot" "counter.boot"]})
+          img  (image/image {:id :both/img
+                             :select-ns {:include ["todo.boot" "counter.boot"]}})
           d    (assembly-error-data #(asm/assemble [img] pool))]
       (is (= :rf.error/image-duplicate-id (:rf.error/id d)))
       (is (= :both/img (:image d)))
@@ -766,4 +624,4 @@
       (is (= :boot/init (:id d)))
       (is (= #{{:ns "todo.boot"} {:ns "counter.boot"}}
              (set (:colliding-coordinates d))))
-      (is (= :declare-replace-winner-or-disambiguate (:recovery d))))))
+      (is (= :narrow-the-selection-or-rename-the-id (:recovery d))))))

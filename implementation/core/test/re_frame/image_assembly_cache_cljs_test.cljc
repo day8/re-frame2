@@ -188,88 +188,49 @@
       (is (= 2 (asm/cache-size))))))
 
 ;; ===========================================================================
-;; 5. rf2-3sjdmi — two compositions differing ONLY in :replace / :replace-standard
-;;    must NOT cache-collide even when the resolver shape is shared. The key is
-;;    built from the image INPUTS (which carry the replacement maps), NOT from
-;;    :rf.gen/resolver alone.
+;; 5. EP-0026 — two compositions differing ONLY in IMAGE ORDER must NOT
+;;    cache-collide even when the per-image selections are the same. The later
+;;    image wins, so order is part of the resolved generation; the key is built
+;;    from the image VECTOR (which carries order), so distinct orders are distinct
+;;    keys (rf2-6ls85a; the formal select-ns + image-order key leg is rf2-ke7w5j).
 ;; ===========================================================================
 
-(deftest replace-decision-invalidates-even-with-shared-resolver-shape
-  (testing "two images selecting the SAME colliding namespaces but declaring
-            DIFFERENT :replace winners resolve to DIFFERENT descriptors — they
-            must be cached SEPARATELY. A key built from :rf.gen/resolver alone
-            (or the resolver before replacement) would collide; the input-keyed
-            cache does not (rf2-3sjdmi)."
+(deftest image-order-invalidates-even-with-same-selections
+  (testing "two compositions of the SAME two images in DIFFERENT order resolve a
+            shared [kind id] to DIFFERENT descriptors (later wins) — they must be
+            cached SEPARATELY. The image VECTOR carries order, so distinct orders
+            are distinct cache keys."
     (record! "checkout.core"       :fx :checkout.http/post ::real)
     (record! "checkout.story.http" :fx :checkout.http/post ::fake)
-    (let [;; Same selection (the two colliding namespaces) for BOTH images;
-          ;; only the declared :replace winner differs.
-          img-real (image/image
-                     {:id :checkout/use-real
-                      :include-ns ["checkout.core" "checkout.story.http"]
-                      :replace {[:fx :checkout.http/post] {:ns "checkout.core"}}})
-          img-fake (image/image
-                     {:id :checkout/use-fake
-                      :include-ns ["checkout.core" "checkout.story.http"]
-                      :replace {[:fx :checkout.http/post] {:ns "checkout.story.http"}}})
-          gen-real (asm/assemble [img-real])
-          gen-fake (asm/assemble [img-fake])]
-      (is (not (identical? gen-real gen-fake))
-          "distinct :replace decisions → distinct cached generations (no collision)")
-      (is (= ::real (:handler-fn (asm/resolve-descriptor gen-real :fx :checkout.http/post)))
-          "the :replace {:ns checkout.core} image resolves to the REAL impl")
-      (is (= ::fake (:handler-fn (asm/resolve-descriptor gen-fake :fx :checkout.http/post)))
-          "the :replace {:ns checkout.story.http} image resolves to the FAKE impl")
+    (let [img-real (image/image {:id :checkout/real
+                                 :select-ns {:include ["checkout.core"]}})
+          img-fake (image/image {:id :checkout/fake
+                                 :select-ns {:include ["checkout.story.http"]}})
+          gen-ab   (asm/assemble [img-real img-fake])   ;; fake last → fake wins
+          gen-ba   (asm/assemble [img-fake img-real])]  ;; real last → real wins
+      (is (not (identical? gen-ab gen-ba))
+          "distinct image orders → distinct cached generations (no collision)")
+      (is (= ::fake (:handler-fn (asm/resolve-descriptor gen-ab :fx :checkout.http/post)))
+          "[real fake] → the later image (fake) wins")
+      (is (= ::real (:handler-fn (asm/resolve-descriptor gen-ba :fx :checkout.http/post)))
+          "[fake real] → the later image (real) wins")
       (is (= 2 (asm/cache-size))
-          "two distinct compositions occupy two cache slots"))))
+          "two distinct orderings occupy two cache slots"))))
 
-(deftest same-replace-decision-still-hits
-  (testing "the complement: two images with the SAME selection AND the SAME
-            :replace winner DO hit the one cache slot — replacement parity does
-            not over-invalidate"
+(deftest same-composition-still-hits
+  (testing "the complement: the SAME images in the SAME order hit the ONE cache
+            slot — image-order keying does not over-invalidate"
     (record! "checkout.core"       :fx :checkout.http/post ::real)
     (record! "checkout.story.http" :fx :checkout.http/post ::fake)
-    (let [spec     {:id :checkout/story
-                    :include-ns ["checkout.core" "checkout.story.http"]
-                    :replace {[:fx :checkout.http/post] {:ns "checkout.story.http"}}}
-          gen1 (asm/assemble [(image/image spec)])
-          gen2 (asm/assemble [(image/image spec)])]
+    (let [img-real (image/image {:id :checkout/real
+                                 :select-ns {:include ["checkout.core"]}})
+          img-fake (image/image {:id :checkout/fake
+                                 :select-ns {:include ["checkout.story.http"]}})
+          gen1 (asm/assemble [img-real img-fake])
+          gen2 (asm/assemble [img-real img-fake])]
       (is (identical? gen1 gen2)
-          "identical composition incl. the replacement map → one cached object")
+          "identical composition (same images, same order) → one cached object")
       (is (= 1 (asm/cache-size))))))
-
-(deftest replace-standard-decision-invalidates-even-with-shared-resolver-shape
-  (testing "the :replace-standard analogue: a replaceable standard collides with
-            a selected descriptor; the :replace-standard winner is the
-            replacement DECISION and is part of the key — two images differing
-            only there do not cache-collide"
-    (asm/register-standard! :fx :rf.nav/push-url
-                            {:handler-fn ::std :rf.standard/replaceable? true})
-    (record! "product.story" :fx :rf.nav/push-url ::app-override)
-    (let [;; img-default: NO :replace-standard → a standard collision with no
-          ;; declared winner FAILS LOUD, so it is not a cacheable shape. Instead
-          ;; compare two DISTINCT replaceable standards isn't possible with one
-          ;; key; the rf2-3sjdmi point for :replace-standard is that the winner
-          ;; map is in the key. We prove it by: one image with the winner (seals)
-          ;; vs. the SAME selection without it (throws) — different inputs.
-          img-replaced (image/image
-                         {:id :product/story
-                          :include-ns ["product.story"]
-                          :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story"}}})
-          gen-replaced (asm/assemble [img-replaced])]
-      (is (= ::app-override
-             (:handler-fn (asm/resolve-descriptor gen-replaced :fx :rf.nav/push-url)))
-          "the :replace-standard winner is honoured")
-      ;; The SAME selection WITHOUT the :replace-standard winner is a distinct
-      ;; (and fail-loud) composition — a stale cache keyed on the resolver shape
-      ;; would wrongly hand back the replaced generation; the input-keyed cache
-      ;; treats it as a different key and re-runs assembly (which throws).
-      (let [img-noreplace (image/image {:id :product/story
-                                        :include-ns ["product.story"]})]
-        (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-                     (asm/assemble [img-noreplace]))
-            "without the :replace-standard winner the standard collision FAILS
-             LOUD — the cache did NOT short-circuit to the replaced generation")))))
 
 ;; ===========================================================================
 ;; 6. Fail-loud inputs are NOT cached

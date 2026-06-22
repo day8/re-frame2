@@ -400,7 +400,78 @@
   AGAINST the actual selected collisions (does this key really collide? does the
   coordinate name exactly one selected descriptor?) stays the assembly slice's
   fail-loud job."
-  #{:id :include-ns :exclude-ns :registrations :rf.image/requires :replace :replace-standard})
+  #{:id :select-ns :include-ns :exclude-ns :registrations :rf.image/requires :replace :replace-standard})
+
+;; ---- :select-ns — the EP-0026 single-map selection surface -----------------
+;;
+;; EP-0026 §Namespace Selection replaces the EP-0023 sibling `:include-ns` /
+;; `:exclude-ns` keys with ONE `:select-ns {:include … :exclude …}` map. The two
+;; legs reuse the EXACT EP-0023 glob grammar and lower to the same normalized
+;; internal slots (`:rf.image/include-ns` / `:rf.image/exclude-ns`) the pure
+;; selector already runs — `:select-ns` is the authoring surface; the internal
+;; form is unchanged. The selected set is `union(:include) minus union(:exclude)`
+;; with exclusion GLOBAL to the image selection (a namespace matched by any
+;; `:exclude` is never selected, no re-admission), and STRICT include diagnostics:
+;; `:include` is REQUIRED and a zero-match include pattern fails image assembly
+;; (`select-by-include-ns`). `:select-ns` SELECTS, it does not LOAD — it filters
+;; registrations the runtime already knows about by `:rf.provenance/ns`, so it
+;; never forces a require and never defeats dead-code elimination.
+
+(defn- normalize-select-ns
+  "Validate + lower a `:select-ns` map into the `[include-ns exclude-ns]` vectors
+  the pure selector consumes (EP-0026 §Namespace Selection). FAIL-LOUD STRICT
+  diagnostics at `rf/image`:
+
+    * `:select-ns` MUST be a map;
+    * `:include` is REQUIRED, MUST be a NON-EMPTY vector of glob strings;
+    * `:exclude` is optional, defaults to `[]`, MUST be a vector of glob strings
+      when supplied;
+    * no key other than `:include` / `:exclude` is permitted.
+
+  The glob-string element check is shared with the legacy `:include-ns` path (the
+  caller threads its `check-glob-strings!`). Returns `[include exclude]`. Pure
+  (modulo the throw)."
+  [image-id select-ns check-glob-strings!]
+  (when-not (map? select-ns)
+    (error/throw-error!
+      :rf.error/invalid-image
+      'rf/image
+      (str "rf/image: :select-ns must be a map of {:include [globs] :exclude "
+           "[globs]} — got " (pr-str select-ns) ".")
+      {:recovery :use-a-select-ns-map
+       :extra    {:image image-id :received select-ns}}))
+  (doseq [k (keys select-ns)]
+    (when-not (contains? #{:include :exclude} k)
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: :select-ns key " (pr-str k) " is unknown — :select-ns "
+             "carries only :include and :exclude.")
+        {:recovery :remove-or-correct-the-select-ns-key
+         :extra    {:image image-id :unknown-key k}})))
+  (let [include (get select-ns :include)
+        exclude (get select-ns :exclude [])]
+    (when-not (and (vector? include) (seq include))
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: :select-ns :include is REQUIRED and must be a NON-EMPTY "
+             "vector of namespace-glob strings — got " (pr-str include)
+             ". An image that selects no namespaces should omit :select-ns "
+             "(and may still define inline :registrations).")
+        {:recovery :supply-a-non-empty-include-vector
+         :extra    {:image image-id :include include}}))
+    (when-not (vector? exclude)
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: :select-ns :exclude must be a vector of namespace-glob "
+             "strings — got " (pr-str exclude) ".")
+        {:recovery :use-a-glob-string-vector
+         :extra    {:image image-id :exclude exclude}}))
+    (check-glob-strings! :select-ns/include include)
+    (check-glob-strings! :select-ns/exclude exclude)
+    [include exclude]))
 
 (def ^:private valid-kinds
   "The closed registry-kind set a `:replace` / `:replace-standard` key may name,
@@ -491,25 +562,33 @@
                    `:replace-standard` winner) MUST have an `:id`; anonymous
                    images are valid for local tests/examples. BARE structural
                    input key; normalized to the owner-qualified `:rf.image/id`.
-    :include-ns    a vector of namespace-glob strings (EP-0023 grammar). Each
+    :select-ns     the EP-0026 single-map selection surface —
+                   `{:include [globs] :exclude [globs]}`. `:include` is REQUIRED
+                   (a non-empty vector of namespace-glob strings, EP-0023
+                   grammar) and selects registered descriptors by their
+                   `:rf.provenance/ns`; `:exclude` is optional (defaults to `[]`)
+                   and SUBTRACTS — the selected set is
+                   `union(:include) minus union(:exclude)` with exclusion GLOBAL
+                   to the image (a namespace matched by any `:exclude` is never
+                   selected, no re-admission corner case). STRICT include
+                   diagnostics: a zero-match `:include` pattern FAILS LOUD. An
+                   `:exclude` pattern matching nothing is a no-op (a defensive
+                   guard). Exclusion narrows the glob-selected set ONLY, never
+                   the image's own inline `:registrations`. `:select-ns` SELECTS,
+                   it does not LOAD — it filters registrations the runtime
+                   already knows about by provenance, so it never forces a
+                   require and never defeats dead-code elimination. Cannot be
+                   combined with the retired `:include-ns` / `:exclude-ns`
+                   (rf2-dlvmpc). Normalizes to `:rf.image/include-ns` /
+                   `:rf.image/exclude-ns`.
+    :include-ns    (RETIRED by rf2-dlvmpc; superseded by `:select-ns :include`)
+                   a vector of namespace-glob strings (EP-0023 grammar). Each
                    pattern selects registered descriptors by their
                    `:rf.provenance/ns`. Optional (defaults to `[]`).
-    :exclude-ns    a vector of namespace-glob strings (same EP-0023 grammar)
-                   that SUBTRACT from the `:include-ns` selection — a registered
-                   descriptor selected by `:include-ns` is dropped if its
-                   `:rf.provenance/ns` ALSO matches any `:exclude-ns` pattern.
-                   The narrowing knob for a recursive `**` glob that sweeps in
-                   sibling namespaces a frame must not load (e.g. a tool's own
-                   `*-test` namespaces co-registering its ids in a test build —
-                   the EP-0023 §Xray Beside The Target singleton-seating case).
-                   Optional (defaults to `[]`). Unlike `:include-ns`, an
-                   exclude pattern that matches ZERO loaded descriptors is NOT
-                   fail-loud — exclusion is a defensive guard, so a pattern
-                   guarding against a namespace that simply is not loaded in
-                   this build is a no-op, not an error. Applies ONLY to
-                   glob-selected registered descriptors, never to the image's
-                   own inline `:registrations` (those are selected because the
-                   image value was supplied, not by provenance namespace).
+    :exclude-ns    (RETIRED by rf2-dlvmpc; superseded by `:select-ns :exclude`)
+                   a vector of namespace-glob strings (same EP-0023 grammar)
+                   that SUBTRACT from the `:include-ns` selection. Optional
+                   (defaults to `[]`).
     :registrations inline registrar-keyed sections (`{:reg-event [[id meta
                    body] …] :reg-sub [[id meta body] …] …}`). Lowered to inline
                    descriptors. Optional.
@@ -554,13 +633,11 @@
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: unknown image key " k
-             " — use :id, :include-ns, :exclude-ns, :registrations, "
-             ":rf.image/requires, :replace, or :replace-standard.")
+             " — use :id, :select-ns, :registrations, :rf.image/requires, "
+             ":replace, or :replace-standard.")
         {:recovery :remove-or-correct-the-key
          :extra    {:image (:id spec) :unknown-key k}})))
   (let [id         (:id spec)
-        include-ns (vec (get spec :include-ns []))
-        exclude-ns (vec (get spec :exclude-ns []))
         check-glob-strings!
         (fn [slot patterns]
           (doseq [p patterns]
@@ -572,9 +649,31 @@
                      (pr-str p) ". Use \"docs.counter.v2\", \"docs.shared.widgets.*\", "
                      "or \"docs.shared.**\".")
                 {:recovery :use-namespace-glob-strings
-                 :extra    {:image id :bad-pattern p}}))))]
-    (check-glob-strings! :include-ns include-ns)
-    (check-glob-strings! :exclude-ns exclude-ns)
+                 :extra    {:image id :bad-pattern p}}))))
+        ;; EP-0026: `:select-ns {:include … :exclude …}` is the single-map
+        ;; selection surface. When present it is authoritative — and it must
+        ;; NOT be mixed with the legacy sibling `:include-ns` / `:exclude-ns`
+        ;; (an ambiguous double-spelling fails loud; the legacy keys are retired
+        ;; by rf2-dlvmpc). Both lower to the same normalized internal slots.
+        select-ns  (:select-ns spec)
+        [include-ns exclude-ns]
+        (if (contains? spec :select-ns)
+          (do
+            (when (or (contains? spec :include-ns) (contains? spec :exclude-ns))
+              (error/throw-error!
+                :rf.error/invalid-image
+                'rf/image
+                (str "rf/image: :select-ns cannot be combined with :include-ns / "
+                     ":exclude-ns — :select-ns {:include … :exclude …} is the "
+                     "single selection surface. Use :select-ns alone.")
+                {:recovery :use-select-ns-alone
+                 :extra    {:image id}}))
+            (normalize-select-ns id select-ns check-glob-strings!))
+          (let [include-ns (vec (get spec :include-ns []))
+                exclude-ns (vec (get spec :exclude-ns []))]
+            (check-glob-strings! :include-ns include-ns)
+            (check-glob-strings! :exclude-ns exclude-ns)
+            [include-ns exclude-ns]))]
     (doseq [k [:replace :replace-standard]]
       (when-let [m (get spec k)]
         (when-not (map? m)

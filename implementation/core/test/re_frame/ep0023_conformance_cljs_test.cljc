@@ -342,112 +342,79 @@
         (is (= #{:rf.capability/http} (:rf.gen/requires (asm/assemble [img] pool))))))))
 
 ;; ===========================================================================
-;; SECTION 3 — Replacement policy
-;; (EP-0023 §Image Patching And Overrides / §Image Composition)
+;; SECTION 3 — Layered resolution (EP-0026 §Layered Resolution / §Framework
+;; Standard Registrations — supersedes the EP-0023 :replace policy)
 ;; ===========================================================================
 ;;
-;; A declared :replace / :replace-standard winner resolves a REAL collision and
-;; names EXACTLY ONE survivor; order never decides. A standard is non-replaceable
-;; without opt-in; composed images disagreeing on a winner fail loud.
+;; EP-0026 replaces the EP-0023 declared-:replace/:replace-standard winner model
+;; with deterministic IMAGE-ORDER layering: the later image in :images wins; a
+;; within-image [kind id] collision is an error (an override is always a later
+;; image); a framework standard is protected (a public app image must not shadow
+;; one).
 
-(deftest s3-declared-replace-winner-resolves-an-app-collision
-  (testing "EP-0023 §Image Patching: a declared :replace winner names the exact
-            survivor of a REAL application-owned collision — order does not decide"
-    (let [img  (rf/image {:id :checkout/story
-                          :include-ns ["checkout.core" "checkout.story"]
-                          :replace {[:fx :checkout.http/post]
-                                    {:ns "checkout.story"}}})
-          pool [(reg-desc "checkout.core"  :fx :checkout.http/post ::real)
-                (reg-desc "checkout.story" :fx :checkout.http/post ::story)]
-          gen  (asm/assemble [img] pool)]
-      (is (= ::story (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))
-          "the declared winner (the story ns) survives the collision")
-      (testing "the SAME pool with the OTHER winner declared survives instead —
-                proving the WINNER, not load order, decides"
-        (let [img2 (rf/image {:id :checkout/prod
-                              :include-ns ["checkout.core" "checkout.story"]
-                              :replace {[:fx :checkout.http/post]
-                                        {:ns "checkout.core"}}})
-              gen2 (asm/assemble [img2] pool)]
-          (is (= ::real (:handler-fn (asm/resolve-descriptor gen2 :fx :checkout.http/post)))))))))
+(deftest s3-later-image-wins-cross-image-override
+  (testing "EP-0026 §Layered Resolution: a [kind id] in two composed images
+            resolves to the LATER image — image order, not the registrar, decides"
+    (let [pool      [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
+          app-image (rf/image {:id :app/main :select-ns {:include ["checkout.core"]}})
+          doubles   (rf/image {:id :test/doubles
+                               :registrations {:reg-fx [[:checkout.http/post {} ::story]]}})]
+      (is (= ::story (:impl (asm/resolve-descriptor
+                              (asm/assemble [app-image doubles] pool)
+                              :fx :checkout.http/post)))
+          "the later image (doubles) wins")
+      (is (= ::real (:handler-fn (asm/resolve-descriptor
+                                   (asm/assemble [doubles app-image] pool)
+                                   :fx :checkout.http/post)))
+          "reversing the order makes the app image (now last) win"))))
 
-(deftest s3-replace-for-non-colliding-key-fails-loud
-  (testing "EP-0023 §Image Patching: a :replace declared for a key with NO actual
-            collision is :rf.error/image-replacement-no-collision (a stale/typo
-            declaration, NOT a silent order override)"
-    (let [img  (rf/image {:id :app/main
-                          :include-ns ["app.core"]
-                          :replace {[:fx :app/lonely] {:ns "app.core"}}})
-          pool [(reg-desc "app.core" :fx :app/lonely ::only)]]
-      (is (= :rf.error/image-replacement-no-collision
-             (err-id #(asm/assemble [img] pool)))))))
+(deftest s3-within-image-collision-fails-loud
+  (testing "EP-0026 §Layered Resolution: an image must resolve cleanly to ONE
+            descriptor per [kind id]; two SELECTED registrations within one image
+            are ambiguous, and an inline entry colliding with a selected one is a
+            within-image collision (an override must be a later image)"
+    (let [two-selected (rf/image {:id :app/dup
+                                  :select-ns {:include ["app.a" "app.b"]}})
+          pool         [(reg-desc "app.a" :fx :app/post ::a)
+                        (reg-desc "app.b" :fx :app/post ::b)]]
+      (is (= :rf.error/image-duplicate-id
+             (err-id #(asm/assemble [two-selected] pool)))))
+    (let [inline-vs-sel (rf/image {:id :app/clash
+                                   :select-ns {:include ["app.core"]}
+                                   :registrations {:reg-fx [[:checkout.http/post {} ::inline]]}})
+          pool          [(reg-desc "app.core" :fx :checkout.http/post ::sel)]]
+      (is (= :rf.error/image-within-image-collision
+             (err-id #(asm/assemble [inline-vs-sel] pool)))))))
 
-(deftest s3-replace-winner-naming-no-selected-descriptor-fails-loud
-  (testing "EP-0023 §Image Patching: a :replace winner that identifies NO
-            selected descriptor (a stale winner source) is
-            :rf.error/image-replacement-winner-unresolved"
-    (let [img  (rf/image {:id :app/main
-                          :include-ns ["app.a" "app.b"]
-                          :replace {[:fx :app/post] {:ns "app.nowhere"}}})
-          pool [(reg-desc "app.a" :fx :app/post ::a)
-                (reg-desc "app.b" :fx :app/post ::b)]]
-      (is (= :rf.error/image-replacement-winner-unresolved
-             (err-id #(asm/assemble [img] pool)))))))
+(deftest s3-standard-shadowing-forbidden
+  (testing "EP-0026 §Framework Standard Registrations: a public app image must
+            NOT shadow a framework standard — the app/standard collision fails
+            loud (a standard encodes an execution invariant, not an app extension
+            point), and there is no public :replace-standard opt-in"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::story-nav)]
+          img  (rf/image {:id :story/x :select-ns {:include ["product.story"]}})]
+      (is (= :rf.error/image-standard-replacement-forbidden
+             (err-id #(asm/assemble [img] pool)))))
+    (testing "a standard with no colliding app id is simply unioned in"
+      (asm/clear-standards!)
+      (asm/clear-generation-cache!)
+      (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+      (let [pool [(reg-desc "app.core" :event :app/boot ::boot)]
+            img  (rf/image {:id :app/main :select-ns {:include ["app.core"]}})
+            gen  (asm/assemble [img] pool)]
+        (is (= ::std-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url))))))))
 
-(deftest s3-standard-replacement-forbidden-without-opt-in
-  (testing "EP-0023 §Image Patching: shadowing a framework STANDARD without
-            :replace-standard is :rf.error/image-standard-replacement-forbidden;
-            a NON-replaceable standard stays forbidden even WITH :replace-standard"
-    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::story-nav)]]
-      (testing "no :replace-standard declared → forbidden (a standard must not be
-                shadowed accidentally)"
-        (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-        (let [img (rf/image {:id :story/x :include-ns ["product.story"]})]
-          (is (= :rf.error/image-standard-replacement-forbidden
-                 (err-id #(asm/assemble [img] pool))))))
-      (testing "the standard is non-replaceable by default → :replace-standard
-                still forbidden"
-        (asm/clear-standards!)
-        (asm/clear-generation-cache!)
-        (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav}) ;; replaceable? defaults false
-        (let [img (rf/image {:id :story/x :include-ns ["product.story"]
-                             :replace-standard {[:fx :rf.nav/push-url]
-                                                {:ns "product.story"}}})]
-          (is (= :rf.error/image-standard-replacement-forbidden
-                 (err-id #(asm/assemble [img] pool))))))
-      (testing "a REPLACEABLE standard + :replace-standard → the app replacement wins"
-        (asm/clear-standards!)
-        (asm/clear-generation-cache!)
-        (asm/register-standard! :fx :rf.nav/push-url
-                                {:handler-fn ::std-nav :rf.standard/replaceable? true})
-        (let [img (rf/image {:id :story/x :include-ns ["product.story"]
-                             :replace-standard {[:fx :rf.nav/push-url]
-                                                {:ns "product.story"}}})
-              gen (asm/assemble [img] pool)]
-          (is (= ::story-nav
-                 (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))))))))
-
-(deftest s3-cross-image-replacement-conflict-fails-loud
-  (testing "EP-0023 §Image Composition: two composed images declaring DIFFERENT
-            :replace winners for the same [kind id] is
-            :rf.error/image-replacement-conflict — composition order must not
-            silently decide the survivor"
-    (let [pool [(reg-desc "checkout.core"  :fx :checkout.http/post ::real)
-                (reg-desc "checkout.story" :fx :checkout.http/post ::story)]
-          img-a (rf/image {:id :compose/a
-                           :include-ns ["checkout.core" "checkout.story"]
-                           :replace {[:fx :checkout.http/post] {:ns "checkout.core"}}})
-          img-b (rf/image {:id :compose/b
-                           :include-ns ["checkout.core" "checkout.story"]
-                           :replace {[:fx :checkout.http/post] {:ns "checkout.story"}}})]
-      (is (= :rf.error/image-replacement-conflict
-             (err-id #(asm/assemble [img-a img-b] pool))))
-      (testing "two images naming the SAME winner agree — idempotent, no conflict"
-        (let [img-c (rf/image {:id :compose/c
-                               :include-ns ["checkout.core" "checkout.story"]
-                               :replace {[:fx :checkout.http/post] {:ns "checkout.story"}}})
-              gen   (asm/assemble [img-b img-c] pool)]
-          (is (= ::story (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))))
+(deftest s3-duplicate-image-id-fails-loud
+  (testing "EP-0026 §Image Keys: two images sharing an :id within one composition
+            fail loud (:rf.error/image-duplicate-image-id) — the shadow report
+            identifies images by id, so a shared id is ambiguous"
+    (let [pool  [(reg-desc "checkout.core"  :fx :checkout.http/post ::real)
+                 (reg-desc "checkout.story" :fx :checkout.http/post ::story)]
+          img-a (rf/image {:id :compose/dup :select-ns {:include ["checkout.core"]}})
+          img-b (rf/image {:id :compose/dup :select-ns {:include ["checkout.story"]}})]
+      (is (= :rf.error/image-duplicate-image-id
+             (err-id #(asm/assemble [img-a img-b] pool)))))))
 
 ;; ===========================================================================
 ;; SECTION 4 — Default-image projection
@@ -967,22 +934,19 @@
           (is (= :rf.error/image-standard-replacement-forbidden
                  (err-id #(asm/assemble [img] pool)))))))))
 
-(deftest s9-replace-standard-of-a-replaceable-standard-takes-effect
-  (testing "EP-0023 §Image Patching And Overrides: a replaceable standard +
-            :replace-standard naming the app survivor actually TAKES EFFECT — the
-            replacement winner resolves through the generation, proving the
-            :replace-standard machinery is live (rf2-32siq3.41)"
-    ;; The fixture cleared the registry; register a REPLACEABLE standard directly
-    ;; (no conformance lock) to prove a declared :replace-standard winner wins.
+(deftest s9-public-app-image-cannot-shadow-a-standard
+  (testing "EP-0026 §Framework Standard Registrations: there is NO public
+            app-facing standard-replacement opt-in — a public app image colliding
+            with a framework standard FAILS LOUD regardless of the standard's
+            internal replaceable? flag (the no-shadowing rule binds public app
+            images; the framework keeps its own internal define/revise path)"
     (asm/register-standard! :fx :rf.nav/push-url
                             {:handler-fn ::std-nav :rf.standard/replaceable? true})
     (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-nav)]
-          img  (rf/image {:id :i
-                          :include-ns ["product.story"]
-                          :replace-standard {[:fx :rf.nav/push-url] {:ns "product.story"}}})
-          gen  (asm/assemble [img] pool)]
-      (is (= ::app-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))
-          "the declared :replace-standard winner replaces the standard in the generation"))))
+          img  (rf/image {:id :i :select-ns {:include ["product.story"]}})]
+      (is (= :rf.error/image-standard-replacement-forbidden
+             (err-id #(asm/assemble [img] pool)))
+          "even a replaceable standard is not shadowable by a public app image"))))
 
 ;; ===========================================================================
 ;; SECTION 10 — Inline (image-loaded) events deliver :rf.cofx/requires
