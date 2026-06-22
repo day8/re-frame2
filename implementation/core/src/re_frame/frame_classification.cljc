@@ -170,10 +170,10 @@
     (str "retired frame key :sensitive (EP-0025). A frame no longer carries a "
          ":sensitive block: durable app-db classification moved to the "
          "commit-plane `:sensitive` / `:large` effects a handler returns "
-         "alongside its `:db` write, and the `:sensitive {:http …}` HTTP "
-         "carrier names moved onto the `:rf.http/managed` `reg-fx` "
-         "registration `:carriers` block — e.g. "
-         "(rf/reg-fx :rf.http/managed {:carriers {:headers [\"X-My-Auth\"]}} h).")
+         "alongside its `:db` write, and HTTP carrier names moved onto the "
+         "managed-HTTP `reg-fx` registration metadata (its `:carriers "
+         "{:headers […] :query-params …}` block) — see Spec 014 §HTTP "
+         "carriers.")
     :large
     (str "retired frame key :large — durable app-db classification is no "
          "longer a frame annotation (EP-0025). Declare it from an event "
