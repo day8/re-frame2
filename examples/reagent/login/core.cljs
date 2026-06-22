@@ -162,11 +162,11 @@
 ;; [:rf.runtime/machines :snapshots :auth.login/flow] (runtime-db, NOT
 ;; app-db — per [005 §Where snapshots live]). Per Spec 010 §Machine data
 ;; schema + Spec 005 §Schema validation, a machine declares a top-level
-;; `:data-schema` that validates the snapshot's `:data` SLOT only — not
+;; `[:schemas :data]` that validates the snapshot's `:data` SLOT only — not
 ;; the whole `{:state … :data …}` snapshot, and not an app-db path. So
 ;; this schema describes the `:data` map (`:attempts` + `:error`) the
 ;; machine seeds and the actions evolve; it is attached via the machine's
-;; `:data-schema` slot on the `reg-machine` spec below and
+;; `[:schemas :data]` slot on the `reg-machine` spec below and
 ;; validates at the `:where :machine-data` boundary.
 (def AuthLoginData
   [:map
@@ -176,7 +176,7 @@
 ;; EP-0001: machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` (attached below) is the snapshot-validation
+;; machine's own `[:schemas :data]` (attached below) is the snapshot-validation
 ;; surface, so no app-schema reg applies to the login snapshot.
 
 ;; ============================================================================
@@ -265,14 +265,14 @@
   ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry :id;
   ;; the machine's id is the surrounding registration id.
   {:initial :idle
-   ;; Spec 010 §Machine data schema — `:data-schema` validates the
+   ;; Spec 005 §Schema validation — `[:schemas :data]` validates the
    ;; snapshot's `:data` slot (not the whole snapshot) at the
    ;; `:where :machine-data` boundary. The macrostep walker resolves it
    ;; via `(machine-meta :auth.login/flow)`; the `reg-machine` event-`:schema`
    ;; arity below stamps the machine metadata that makes it live. Malformed
    ;; `:data` (e.g. a non-string `:error`) fails the run with
    ;; `:rf.error/schema-validation-failure :where :machine-data`.
-   :data-schema AuthLoginData
+   :schemas {:data AuthLoginData}
    :data    {:attempts 0 :error nil}
 
      :guards
@@ -392,10 +392,10 @@
 ;; machine spec. `reg-machine` is the blessed registration home — it stamps
 ;; the `:rf/machine?` / `:rf/machine` metadata that `(machine-meta
 ;; :auth.login/flow)` reads, so the `:where :machine-data` walker resolves the
-;; `:data-schema` and it VALIDATES. (EP-0025: durable machine `:data`
+;; `[:schemas :data]` and it VALIDATES. (EP-0025: durable machine `:data`
 ;; snapshot-egress classification is a projection-relative `:sensitive` /
 ;; `:large` declaration on the machine spec — this machine's `:data` holds no
-;; secret, so it declares none. The `:data-schema` prop drives only
+;; secret, so it declares none. The `[:schemas :data]` prop drives only
 ;; validation-failure-trace redaction, not snapshot egress.)
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."

@@ -3,7 +3,7 @@
   (the EP-0025 commit-plane classification effects / projection-relative
   machine declaration write through it).
 
-  Machine `:data` validation ships separately: a `:data-schema` Malli form
+  Machine `:data` validation ships separately: a `[:schemas :data]` Malli form
   validates the machine's `:data` slot, and the validation-failure trace
   routes its value slots through the schema-aware redactor. What this file
   pins is *snapshot* egress: a machine `:data` slot is redacted in the
@@ -18,7 +18,7 @@
   or the projection-relative machine declaration lowered per actor; the trace
   egress chokepoint re-roots that snapshot-relative
   (`classification/frame-snapshot-classification`) and redacts the matching
-  slot. A `:sensitive?` / `:large?` Malli prop on a `:data-schema` slot is
+  slot. A `:sensitive?` / `:large?` Malli prop on a `[:schemas :data]` slot is
   VALIDATION ONLY and does not classify durable `:data` for egress.
 
   The contract under test:
@@ -30,7 +30,7 @@
    2. **Precision.** An undeclared sibling slot rides egress verbatim; a
       machine whose frame declares nothing rides every `:data` slot raw.
 
-   3. **Schema props do NOT classify.** A `:data-schema` `:sensitive?` slot
+   3. **Schema props do NOT classify.** A `[:schemas :data]` `:sensitive?` slot
       does NOT, by itself, redact durable `:data` at snapshot egress — only
       a declared path (frame OR machine) does.
 
@@ -54,7 +54,7 @@
             [re-frame.classification :as classification]
             [re-frame.elision :as elision]
             [re-frame.machines.test-support :as mtest]
-            ;; The schemas artefact + Malli adapter — `:data-schema` VALIDATION
+            ;; The schemas artefact + Malli adapter — `[:schemas :data]` VALIDATION
             ;; runs; the props do not classify durable :data.
             [re-frame.schemas]
             [re-frame.schemas.malli]
@@ -68,8 +68,8 @@
 (def ^:private auth-id :rf.machine-redaction/auth)
 
 (def ^:private auth-schema
-  "A `:data-schema` is VALIDATION ONLY: per-slot props do not classify durable
-  `:data` for snapshot egress; the classified registry paths (EP-0025
+  "A `[:schemas :data]` schema is VALIDATION ONLY: per-slot props do not classify
+  durable `:data` for snapshot egress; the classified registry paths (EP-0025
   commit-plane effects / projection-relative machine declaration) are the
   egress mechanism. It carries `:sensitive?` / `:large?` props to PROVE they
   do not classify durable `:data` at snapshot egress (test (3))."
@@ -79,15 +79,15 @@
    [:blob    {:large? true}     [:maybe :string]]])
 
 (defn- reg-auth-machine!
-  "Register the auth machine carrying `auth-schema` as its `:data-schema`."
+  "Register the auth machine carrying `auth-schema` at `[:schemas :data]`."
   ([] (reg-auth-machine! auth-id))
   ([machine-id]
    (machines/reg-machine* machine-id
-     {:initial     :anon
-      :data        {:retries 0 :token nil :blob nil}
-      :data-schema auth-schema
-      :states      {:anon  {:on {:login :authed}}
-                    :authed {}}})))
+     {:initial :anon
+      :data    {:retries 0 :token nil :blob nil}
+      :schemas {:data auth-schema}
+      :states  {:anon  {:on {:login :authed}}
+                :authed {}}})))
 
 (defn- declare-frame-marks!
   "Classify the machine snapshot's `:data` token slot SENSITIVE and the blob
@@ -342,11 +342,11 @@
           "redacted via the PREFERRED :actor-id (declared), not the :machine-id sibling")
       (is (not (.contains (pr-str out) "secret-jwt"))))))
 
-;; ---- (3) a :data-schema :sensitive? prop does NOT classify durable :data --
+;; ---- (3) a [:schemas :data] :sensitive? prop does NOT classify durable :data
 ;;          at snapshot egress.
 
 (deftest schema-sensitive-prop-does-not-classify-durable-data
-  (testing "EP-0025 reversal — a :data-schema :sensitive? / :large? slot prop
+  (testing "EP-0025 reversal — a [:schemas :data] :sensitive? / :large? slot prop
             does NOT, by itself, redact durable :data at snapshot egress; with
             NO frame declaration the marked slot rides RAW (the schema→marks
             bridge is removed; frame-declared paths are the sole mechanism)"
@@ -356,9 +356,9 @@
     (let [out  (classification/project-trace-event (machine-transition-event auth-id))
           tags (:tags out)]
       (is (= "secret-jwt-after" (get-in tags [:after :data :token]))
-          "a :sensitive? :data-schema slot does NOT redact without a frame declaration")
+          "a :sensitive? [:schemas :data] slot does NOT redact without a frame declaration")
       (is (= "huge-after" (get-in tags [:after :data :blob]))
-          "a :large? :data-schema slot does NOT elide without a frame declaration"))))
+          "a :large? [:schemas :data] slot does NOT elide without a frame declaration"))))
 
 ;; ---- (4) EP-0025 §subsystems (rf2-h3d8tf) — the rf2-398kql REVERSAL: -------
 ;;          a top-level projection-relative `:sensitive` / `:large` key on

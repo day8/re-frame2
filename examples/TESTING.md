@@ -374,12 +374,12 @@ which now defers here as the canonical statement):
 > `:counter/value`), the `:auth.login/flow` machine event, the
 > `:auth.login.demo/managed-stub` fx, the `:auth.login/state` /
 > `:auth.login/error` subs, and the `:auth.login/flow` machine's
-> `:data-schema` (a top-level key on the machine spec validating the
+> `[:schemas :data]` (a top-level key on the machine spec validating the
 > machine's **`:data` slot only** — `{:attempts ... :error ...}` — at the
 > `:where :machine-data` boundary, NOT the whole `{:state ... :data ...}`
 > snapshot and not `reg-app-schema`; the snapshot lives in runtime-db at
 > `[:rf.runtime/machines :snapshots :auth.login/flow]`, which is runtime-db
-> state, not app-db — EP-0001). The live `:data-schema` ships in all three
+> state, not app-db — EP-0001). The live `[:schemas :data]` ships in all three
 > siblings in byte-for-byte parity. It
 > proves **substrate parity**: byte-for-byte identical events, subs,
 > schemas, machine, and managed-HTTP stub driving three different reactive

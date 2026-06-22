@@ -3027,7 +3027,7 @@
 ;;   3. :rf.error/epoch-artefact-missing when the late-bind hook is nil.
 ;;   4. Runtime-db schema validation fires (against the framework-owned
 ;;      runtime-db validator — the machine-data boundary), rejecting an
-;;      injection whose snapshot :data violates its machine's :data-schema.
+;;      injection whose snapshot :data violates its machine's [:schemas :data] schema.
 
 (deftest replace-runtime-db!-replaces-runtime-only-preserving-app-db
   (testing "replace-runtime-db! replaces ONLY the runtime-db partition
@@ -3152,17 +3152,17 @@
 
 (deftest replace-runtime-db!-failure-schema-mismatch
   (testing "replace-runtime-db! with a runtime-db whose machine snapshot :data
-            violates its registered :data-schema returns false; emits
+            violates its registered [:schemas :data] schema returns false; emits
             :rf.epoch/replace-schema-mismatch; runtime-db unchanged"
     (rf/reg-frame :test/main {})
-    ;; Register a machine carrying a :data-schema; the framework-owned
+    ;; Register a machine carrying a [:schemas :data] schema; the framework-owned
     ;; runtime-db validator (the machine-data boundary) validates each
     ;; snapshot's :data against it.
     (rf/reg-machine :rf.szbzei/door
-      {:initial     :idle
-       :data        {:n 1}
-       :data-schema [:map [:n [:int {:min 0}]]]
-       :states      {:idle {}}})
+      {:initial :idle
+       :data    {:n 1}
+       :schemas {:data [:map [:n [:int {:min 0}]]]}
+       :states  {:idle {}}})
 
     (let [pre      (rf/runtime-db-value :test/main)
           recorded (record-trace!)
@@ -3259,10 +3259,10 @@
             either partition's schema failure rejects the whole atomic install"
     (rf/reg-frame :test/main {})
     (rf/reg-machine :rf.szbzei/gate
-      {:initial     :idle
-       :data        {:n 1}
-       :data-schema [:map [:n [:int {:min 0}]]]
-       :states      {:idle {}}})
+      {:initial :idle
+       :data    {:n 1}
+       :schemas {:data [:map [:n [:int {:min 0}]]]}
+       :states  {:idle {}}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:ok true}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 

@@ -103,13 +103,13 @@
      [:* :any]]]
    [:? :any]])
 
-;; The machine's `:data-schema` validates the machine's `:data` slot ONLY —
+;; The machine's `[:schemas :data]` validates the machine's `:data` slot ONLY —
 ;; the user-domain extended state `{:attempts ... :error ...}` — NOT the whole
 ;; `{:state ... :data ...}` snapshot. Per Spec 005 §Schema validation and Spec
-;; 010 §Machine data schema, `:data-schema` sits as a top-level key on the
+;; 010 §Machine data schema, `[:schemas :data]` sits as a top-level key on the
 ;; machine spec beside `:data`, and the framework validates it at every
 ;; macrostep-commit boundary + at bootstrap (`:where :machine-data`). The same
-;; `:data-schema` shape as examples/reagent/login + examples/uix/login_uix —
+;; `[:schemas :data]` shape as examples/reagent/login + examples/uix/login_uix —
 ;; the artefact layer is in semantic + id parity across the three substrates
 ;; (see the divider above).
 (def AuthLoginData
@@ -119,7 +119,7 @@
 
 ;; Machine snapshots are runtime-db state, not app-db — a `reg-app-schema` on a
 ;; machine-snapshot path validates nothing (app schemas validate the app-db
-;; partition only). The machine's own `:data-schema` (attached below) is the
+;; partition only). The machine's own `[:schemas :data]` (attached below) is the
 ;; snapshot-validation surface, so no app-schema reg applies to the login
 ;; snapshot.
 
@@ -174,7 +174,7 @@
 ;; STATE MACHINE
 ;; ============================================================================
 
-;; The login flow's machine spec. `:data-schema` is a TOP-LEVEL key on the
+;; The login flow's machine spec. `[:schemas :data]` is a TOP-LEVEL key on the
 ;; spec map (Spec 005 §Schema validation) — it validates the `:data` slot
 ;; (`{:attempts ... :error ...}`), NOT the whole snapshot. Factored into a
 ;; named `def` (then passed to `reg-machine` below) so the machine spec sits
@@ -182,15 +182,15 @@
 ;; same registry ids, same machine spec, same schemas + HTTP stub.
 (def auth-login-machine
   {:initial :idle
-   ;; Spec 010 §Machine data schema — `:data-schema` validates the snapshot's
+   ;; Spec 005 §Schema validation — `[:schemas :data]` validates the snapshot's
    ;; `:data` slot (not the whole snapshot) at the `:where :machine-data`
    ;; boundary. This `:data` (`{:attempts :error}`) holds no secret, so the
    ;; machine declares no `:sensitive` / `:large`. (EP-0025: durable machine
    ;; `:data` snapshot redaction is a projection-relative `:sensitive` / `:large`
-   ;; declaration on the `reg-machine` spec — NOT a `:data-schema` prop, which
+   ;; declaration on the `reg-machine` spec — NOT a `[:schemas :data]` prop, which
    ;; now drives only validation-failure-trace redaction.) Parity with
    ;; reagent/login + uix.
-   :data-schema AuthLoginData
+   :schemas {:data AuthLoginData}
    :data    {:attempts 0 :error nil}
 
    :guards
@@ -293,7 +293,7 @@
 ;; arity carries the event `:schema` (the `:where :event` boundary on the
 ;; dispatched outer vector) alongside the machine spec. `reg-machine` is the
 ;; single registration home — it stamps the `:rf/machine?` / `:rf/machine`
-;; metadata and (for a machine carrying a `:data-schema`) bridges its redaction
+;; metadata and (for a machine carrying a `[:schemas :data]`) bridges its redaction
 ;; marks. The machine spec is the named `auth-login-machine` def above — the
 ;; same def-then-register shape the Reagent and UIx login siblings use.
 (rf/reg-machine :auth.login/flow

@@ -13,7 +13,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; derive-classification — reads :sensitive? / :large? slot props off a
-;; machine's :data-schema (EP-0005 plain-data walk).
+;; machine's [:schemas :data] schema (EP-0005 / EP-0029 A3 plain-data walk).
 
 (deftest derive-classification-reads-slot-props
   (testing "sensitive? / large? slot props become the classification sets"

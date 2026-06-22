@@ -248,7 +248,7 @@
    :rf.http/decode-schemas [schema/UserResponse]}
   {:initial :idle
    :data    {:error nil}
-   :data-schema schema/AuthFlowData
+   :schemas {:data schema/AuthFlowData}
    :guards
    {:has-token? (fn [{[_ token] :event}] (not (str/blank? token)))}
    :actions

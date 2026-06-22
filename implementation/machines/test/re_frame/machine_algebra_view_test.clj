@@ -213,16 +213,16 @@
       (is (some? (:ns source)) ":ns captured at the call site"))))
 
 (deftest data-schema-and-doc-pass-through
-  (testing ":data-schema surfaces as :schema and :doc passes through"
+  (testing "[:schemas :data] surfaces as :schema and :doc passes through"
     (rf/reg-machine :doced/main
-      {:initial     :a
-       :doc         "a documented machine"
-       :data        {:n 0}
-       :data-schema [:map [:n :int]]
-       :states      {:a {:on {:go :b}} :b {}}})
+      {:initial :a
+       :doc     "a documented machine"
+       :data    {:n 0}
+       :schemas {:data [:map [:n :int]]}
+       :states  {:a {:on {:go :b}} :b {}}})
     (let [node (get (mtooling/machine-algebra-view) :doced/main)]
       (is (= [:map [:n :int]] (:schema node))
-          "the machine's :data-schema surfaces as the node :schema fact")
+          "the machine's [:schemas :data] schema surfaces as the node :schema fact")
       (is (= "a documented machine" (:doc node))))))
 
 (deftest no-schema-or-doc-when-absent

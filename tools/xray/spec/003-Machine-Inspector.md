@@ -945,26 +945,28 @@ one to inspect and **which one** it inspects:
   — the `:rf.machine/transition` trace contract this rule reads
   from.
 
-## `:data-schema` — declared Context shape + frame-declared redacted `:data` (rf2-kq8nac · EP-0005 · EP-0025)
+## `[:schemas :data]` — declared Context shape + frame-declared redacted `:data` (rf2-kq8nac · EP-0005 · EP-0025 · EP-0029 A3)
 
-EP-0005 adds an optional `:data-schema` to `reg-machine` — a Malli
-validator for the machine's `:data` context (the re-frame2-native analog
-of XState typed context; being retired for `[:schemas :data]` per EP-0029
-rf2-f9nvu9). It carries two consequences the Machine
-Inspector surfaces, both consumer-side of the framework work
+A machine spec MAY declare an optional `[:schemas :data]` schema on
+`reg-machine` — a validator for the machine's `:data` context (the
+re-frame2-native analog of XState typed context). EP-0005 introduced this
+as the `:data-schema` key; EP-0029 A3 retired that key by a clean break
+(rf2-f9nvu9), moving the data-context schema under the machine-level
+`:schemas` map at `[:schemas :data]`. It carries two consequences the
+Machine Inspector surfaces, both consumer-side of the framework work
 ([the declared Context shape](../../machines-viz/spec/001-Topology-Parity.md)
 is rf2-3q4k5b; the `:data` redaction is now **frame-owned** per
 [EP-0025](../../../docs/EP/EP-0025-data-classification.md),
-rf2-398kql — which reversed the EP-0005 `:data-schema`→marks redaction
-bridge). The `:data-schema` continues to VALIDATE `:data` and drive the
-declared Context shape; durable `:data` egress classification moved to the
-frame.
+rf2-398kql — which reversed the EP-0005 schema→marks redaction
+bridge). The `[:schemas :data]` schema continues to VALIDATE `:data` and
+drive the declared Context shape; durable `:data` egress classification
+moved to the frame.
 
 ### Declared Context shape in the focused-event chart
 
 The focused-event chart's root **Context band** shows the machine's
 `:data` keys + their type captions (`{:retries "number", :token
-"string?"}`). When the machine declares a `:data-schema`, the shape is
+"string?"}`). When the machine declares a `[:schemas :data]` schema, the shape is
 read **AUTHORITATIVELY** off the schema's `[:map [k schema] …]` entries
 and the chart drops the `inferred from :data` badge (rf2-5tz9p),
 rendering `declared` instead. Absent a schema, the shape falls back to
@@ -984,7 +986,7 @@ shape carries no value-redaction concern.
 > into the chart's SVG/PNG/clipboard export. The chart therefore applies
 > a **local-redacted projection to the Context band by default**, keyed
 > on host-declared `:context-band-sensitive` / `:context-band-large`
-> sets (derived from the machine's `:data-schema` slot props) with an
+> sets (derived from the machine's `[:schemas :data]` slot props) with an
 > explicit `:context-band-raw?` trusted-local opt-in — see
 > [machines-viz API §Context-band egress contract](../../machines-viz/spec/API.md#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015).
 > Xray's value-free type-caption shape is a redaction no-op, so this
@@ -1002,8 +1004,8 @@ shape carries no value-redaction concern.
 > path), and the general commit-plane `:sensitive` / `:large` effects (a
 > `reg-event` returns them alongside `:db`) are the app-db / runtime-db
 > mechanism. The durable `:sensitive` / `:large {:app-db …}` *frame
-> annotation* is removed. The EP-0005 `:data-schema`→marks redaction bridge
-> is **reversed** — a `:sensitive?` / `:large?` `:data-schema` slot prop no
+> annotation* is removed. The EP-0005 schema→marks redaction bridge
+> is **reversed** — a `:sensitive?` / `:large?` `[:schemas :data]` slot prop no
 > longer classifies durable `:data` for egress (it still drives
 > validation-failure-trace redaction, a separate axis). The `:data` egress
 > treatment below is unchanged in shape; only the classification SOURCE moved.

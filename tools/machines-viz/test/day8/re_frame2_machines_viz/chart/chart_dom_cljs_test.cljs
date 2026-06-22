@@ -620,7 +620,7 @@
 
 (deftest chart-context-band-shows-declared-badge-when-authoritative
   (testing "rf2-3q4k5b (EP-0005) — a host feeding a DECLARED context shape
-            (off a machine's `:data-schema`) passes `:context-band-inferred?
+            (off a machine's `[:schemas :data]` schema) passes `:context-band-inferred?
             false`; the chart then drops the `inferred from :data` badge and
             shows a positive `declared` badge marking the shape AUTHORITATIVE."
     (if-not (browser?)

@@ -100,9 +100,9 @@
    :data    initial-data
    ;; Snapshot :data validation. The snapshot lives in runtime-db
    ;; ([:rf.runtime/machines :snapshots :settings/form]), so its :data shape is
-   ;; validated here via :data-schema — not via an app-schema (EP-0001,
+   ;; validated here via [:schemas :data] — not via an app-schema (EP-0001,
    ;; Mike ruling #11: app schemas validate the app-db partition only).
-   :data-schema schema/SettingsFormData
+   :schemas {:data schema/SettingsFormData}
 
    :actions
    {:seed-from-user

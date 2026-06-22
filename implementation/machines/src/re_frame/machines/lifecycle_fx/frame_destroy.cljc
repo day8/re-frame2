@@ -151,8 +151,8 @@
   best-effort, idempotent helper the spawn-destroy + final-state
   teardowns use, so the abort contract has one home.
 
-  A machine's `:data-schema` is validation-only; it does not produce a
-  per-instance marks table. There are therefore no schema marks for any
+  A machine's `[:schemas :data]` schema is validation-only; it does not produce
+  a per-instance marks table. There are therefore no schema marks for any
   teardown path — singleton or spawned — to clear or preserve."
   [frame-id actor-id]
   (exit-cascade/run-child-exit! frame-id actor-id)

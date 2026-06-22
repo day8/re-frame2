@@ -1,9 +1,11 @@
 (ns re-frame.machines.data-validation
   "Machine `:data` schema validation at the `:where :machine-data` boundary.
 
-  Per Spec 005 §Schema validation: a machine spec may declare a
-  top-level `:data-schema` key whose value validates the machine's `:data`
-  slot. This namespace owns the boundary-validation call site.
+  Per Spec 005 §Schema validation: a machine spec may declare its
+  data-context schema at `[:schemas :data]` (the machine-level `:schemas`
+  map, EP-0029 A3 — the clean-break successor to the retired EP-0005
+  `:data-schema` key). Its value validates the machine's `:data` slot. This
+  namespace owns the boundary-validation call site.
 
   Per Spec 010 §Per-step recovery row 7: validation failures emit
   `:rf.error/schema-validation-failure` with `:where :machine-data`
@@ -14,10 +16,20 @@
   The post-commit validator (`validate-machine-data!`) walks the
   freshly-committed `[:rf.runtime/machines :snapshots]` map, looks up each machine's spec
   via `re-frame.machines/machine-meta`, and validates `(:data
-  snapshot)` against `(:data-schema spec)` through the schemas artefact's
-  registered validator-fn. Snapshots whose machine declares no
-  `:data-schema`, or for which `machine-meta` returns nil (spawned actor
+  snapshot)` against `(get-in spec [:schemas :data])` through the schemas
+  artefact's registered validator-fn. Snapshots whose machine declares no
+  `[:schemas :data]`, or for which `machine-meta` returns nil (spawned actor
   whose host spec is gone), pass silently.
+
+  Schema-library-agnostic (EP-0029 Non-goal + rf2-49zxkc). The `[:schemas
+  :data]` value is an OPAQUE schema — this namespace never `:require`s Malli
+  (or any schema library) and never interprets the value itself. Validation
+  goes ENTIRELY through the late-bound `:schemas/validate-with-registered-fn`
+  hook: an app that registers a Malli (or any other) adapter validates; an
+  app that registers none pays zero cost (the hot path short-circuits at
+  `(late-bind/get-fn-cached ...)` returning nil). The declaration grammar and
+  the optional validator adapter are therefore fully decoupled — machine core
+  requires neither Malli nor JS Standard Schema.
 
   The spawn-time validator (`validate-spawn-data!`) is the sibling
   call site for `spawn-fx`'s pre-install check — a spawned actor's
@@ -139,8 +151,8 @@
     true))
 
 (defn- resolve-data-schema
-  "Resolve the `:data-schema` for `machine-id` whose live snapshot is
-  `snapshot` (the would-be-merged / freshly-committed value). A SINGLETON
+  "Resolve the `[:schemas :data]` schema for `machine-id` whose live snapshot
+  is `snapshot` (the would-be-merged / freshly-committed value). A SINGLETON
   resolves through the registered event handler (`:machines/machine-meta`);
   a SPAWNED actor has NO per-instance handler — its TYPE rides the snapshot's
   `:rf/machine-type` reserved slot, so it resolves through
@@ -156,17 +168,17 @@
   [machine-id snapshot]
   (or (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
                 (meta-fn machine-id))
-              :data-schema)
+              (get-in [:schemas :data]))
       (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
                 (spec-fn snapshot))
-              :data-schema)))
+              (get-in [:schemas :data]))))
 
 (defn validate-machine-data!
   "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
   `runtime-db` and validate its `:data` against the resolved machine's
-  `:data-schema`. Returns true iff every snapshot conformed (or carried no
-  schema / no validator); false on first failure with the per-snapshot trace
-  already emitted.
+  `[:schemas :data]` schema. Returns true iff every snapshot conformed (or
+  carried no schema / no validator); false on first failure with the
+  per-snapshot trace already emitted.
 
   Schema resolution goes through `resolve-data-schema`, which resolves a
   SINGLETON via `machine-meta` AND falls back to the snapshot's
@@ -196,9 +208,9 @@
     ;; short-circuit) so each failing machine surfaces its
     ;; own trace (consumers see the full set), AND-conjoining the per-
     ;; snapshot conform decision so the router decides rollback
-    ;; deterministically. A snapshot whose machine declares no `:data-schema`
-    ;; (or whose spec resolves to nil for both a singleton AND a spawned
-    ;; actor) conforms vacuously.
+    ;; deterministically. A snapshot whose machine declares no `[:schemas
+    ;; :data]` (or whose spec resolves to nil for both a singleton AND a
+    ;; spawned actor) conforms vacuously.
     (reduce-kv
       (fn [ok? machine-id snapshot]
         (and (if-let [schema (resolve-data-schema machine-id snapshot)]
@@ -212,9 +224,9 @@
 (defn validate-spawn-data!
   "Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install
   path. Validates a freshly-built initial snapshot's `:data` against the
-  spawned actor's machine `:data-schema` BEFORE the snapshot lands in runtime-db.
-  Returns true on conform / no schema / no validator; false on failure
-  (caller skips the install).
+  spawned actor's machine `[:schemas :data]` schema BEFORE the snapshot lands
+  in runtime-db. Returns true on conform / no schema / no validator; false on
+  failure (caller skips the install).
 
   Per the bead's recovery posture: a spawn failure does not commit, so
   there is nothing to roll back — `:phase :spawn` emits with
@@ -226,7 +238,7 @@
   under `:advanced` + `goog.DEBUG=false`."
   [spawned-id spec snapshot]
   (if interop/debug-enabled?
-    (if-let [schema (:data-schema spec)]
+    (if-let [schema (get-in spec [:schemas :data])]
       (validate-snapshot-data! spawned-id snapshot schema :spawn)
       true)
     true))
@@ -234,13 +246,13 @@
 (defn validate-update-snapshot-data!
   "Sibling validator for the `:rf.machine/update-snapshot` escape-hatch fx.
   Validates the WOULD-BE-MERGED `snapshot`'s `:data` against the actor's
-  resolved `:data-schema` BEFORE the fx writes the patch into runtime-db.
-  Returns true on conform / no schema / no validator (the fx proceeds with
-  the write); false on failure (the fx SKIPS the write so the invalid
-  `:data` never installs).
+  resolved `[:schemas :data]` schema BEFORE the fx writes the patch into
+  runtime-db. Returns true on conform / no schema / no validator (the fx
+  proceeds with the write); false on failure (the fx SKIPS the write so the
+  invalid `:data` never installs).
 
   Spec 005 §Snapshot-level escape hatch: user error/status state lives
-  under `:data` *where `:data-schema` validation covers it* — so an
+  under `:data` *where `[:schemas :data]` validation covers it* — so an
   escape-hatch `:data` patch is NOT exempt from the `:where :machine-data`
   boundary; this validator gates the escape-hatch merge.
 

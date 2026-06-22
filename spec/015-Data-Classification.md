@@ -121,12 +121,13 @@ A runtime subsystem owns its runtime storage, so the author never names an absol
 
 ```clojure
 ;; a machine declares its own sensitive / large :data slots, projection-relative
-;; to one actor snapshot's :data. The :data-schema still VALIDATES :data; it no
-;; longer classifies it (EP-0025 reverses the EP-0005 schema→classification bridge).
+;; to one actor snapshot's :data. The [:schemas :data] schema still VALIDATES
+;; :data; it no longer classifies it (EP-0025 reverses the EP-0005
+;; schema→classification bridge).
 (rf/reg-machine :checkout/payment
   {:sensitive [[:data :payment :token]]
    :large     [[:data :payment :receipt-pdf]]
-   :data-schema [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]
+   :schemas   {:data [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]}
    :initial :collecting
    :states  {:collecting {:on {:submit :charging}}
              :charging   {}

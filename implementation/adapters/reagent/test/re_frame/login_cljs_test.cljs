@@ -1,8 +1,8 @@
 (ns re-frame.login-cljs-test
   "Regression: the login example's `:auth.login/flow` machine attaches a
-   top-level `:data-schema` (`login.core/AuthLoginData`) that validates the
+   `[:schemas :data]` schema (`login.core/AuthLoginData`) that validates the
    snapshot's `:data` slot at the `:where :machine-data` boundary
-   (rf2-t5ky67 issue 2 / Spec 010 §Machine data schema).
+   (rf2-t5ky67 issue 2 / Spec 005 §Schema validation).
 
    The fixture fns live HERE (the adapter test tree), not under
    examples/reagent/login/ — the example source stays test-free per the
@@ -83,11 +83,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest data-schema-attached
-  (testing "the login machine carries AuthLoginData on its :data-schema slot"
+  (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
     (let [meta (machines/machine-meta :auth.login/flow)]
       (is (some? meta) "machine-meta resolves the registered login machine")
-      (is (= login.core/AuthLoginData (:data-schema meta))
-          "the :data-schema round-trips as login.core/AuthLoginData")))
+      (is (= login.core/AuthLoginData (get-in meta [:schemas :data]))
+          "the [:schemas :data] schema round-trips as login.core/AuthLoginData")))
   (testing "AuthLoginData validates the :data slot only (rejects a non-string :error)"
     (is (true?  (schemas/validate-with-registered-fn login.core/AuthLoginData {:attempts 0 :error nil})))
     (is (true?  (schemas/validate-with-registered-fn login.core/AuthLoginData {:attempts 1 :error "Login failed."})))

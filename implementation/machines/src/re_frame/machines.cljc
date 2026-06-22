@@ -95,16 +95,16 @@
 
 (def reg-machine*           registration/reg-machine*)
 (def make-machine-handler registration/make-machine-handler)
-;; Boundary-validation surface for the `:data-schema` key on `reg-machine`
+;; Boundary-validation surface for the `[:schemas :data]` schema on `reg-machine`
 ;; (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). The
 ;; post-commit walker validates every snapshot's `:data` against its
-;; registered machine's `:data-schema`; the spawn-time sibling validates a
-;; spawned actor's initial `:data` before install.
+;; registered machine's `[:schemas :data]` schema; the spawn-time sibling
+;; validates a spawned actor's initial `:data` before install.
 (def validate-machine-data! data-validation/validate-machine-data!)
 (def validate-spawn-data!   data-validation/validate-spawn-data!)
 ;; The `:rf.machine/update-snapshot` escape-hatch sibling validates the
 ;; would-be-merged snapshot's `:data` BEFORE the fx writes it, so the
-;; `:data-schema` boundary covers the escape hatch too.
+;; `[:schemas :data]` boundary covers the escape hatch too.
 (def validate-update-snapshot-data! data-validation/validate-update-snapshot-data!)
 ;; The pure registration-time validator (Spec 005 §registration validators).
 ;; Re-exported so the conformance corpus's `:reg-machine` Mode-B call op can
@@ -142,7 +142,7 @@
 
 (defn machine-meta
   "Return the registered machine's spec map (`:initial`, `:data`,
-  `:data-schema`, `:guards`, `:actions`, `:states`, `:doc`, source
+  `:schemas`, `:guards`, `:actions`, `:states`, `:doc`, source
   coords) for `machine-id`, or nil if no machine is registered under
   that id. Per Spec 005 §Querying machines."
   [machine-id]

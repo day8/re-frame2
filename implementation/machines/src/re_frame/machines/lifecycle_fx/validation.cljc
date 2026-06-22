@@ -12,6 +12,9 @@
       placement, closed key-set, one-per-compound,
       `:default-target` resolution.
     - `validate-parallel!` — `:type :parallel` shape.
+    - `validate-schemas!` — machine-level `:schemas` map (EP-0029 A3):
+      closed sub-key set (`:data` / `:events` / `:output` / `:tags` /
+      `:meta`); `:input` and unknown keys fail loud.
     - `validate-spawn!` — single `:spawn` `:machine-id` xor
       `:definition`.
     - `validate-spawn-all!` — `:spawn-all` shape.
@@ -1086,6 +1089,59 @@
       (when-let [oe (get-in node [:spawn :on-error])]
         (check! :spawn/on-error oe)))))
 
+;; ---- machine-level :schemas map (EP-0029 A3) -------------------------------
+;;
+;; The machine-level `:schemas` map is the single home for a machine's
+;; optional schema declarations (EP-0029 A3, the clean-break successor to the
+;; retired EP-0005 `:data-schema` key). The accepted sub-key vocabulary is
+;; closed: `:data` is the live, wired category this wave ships (it validates
+;; the machine's `:data` slot at the `:where :machine-data` boundary — see
+;; `re-frame.machines.data-validation`). The remaining A3 categories
+;; (`:events` / `:output` / `:tags` / `:meta`) are accepted as DECLARATION-ONLY
+;; surfaces — their values stay abstract and carry no wired behaviour yet (the
+;; `[:schemas :output]` → completion-payload binding is a separate EP-0029 wave,
+;; rf2-kgr3kk). `[:schemas :input]` is NOT accepted: state input (B1, "For
+;; Later Consideration") is not adopted, so declaring it must fail loud rather
+;; than no-op. Any other sub-key is unknown and fails loud — the closed set
+;; keeps the machine contract discoverable and rejects typos / not-yet-adopted
+;; categories at registration.
+(def ^:private accepted-schemas-keys
+  "The closed sub-key set the machine-level `:schemas` map may carry (EP-0029
+  A3). `:data` is wired this wave; `:events` / `:output` / `:tags` / `:meta`
+  are accepted declaration-only. `:input` is intentionally EXCLUDED (state
+  input is not adopted)."
+  #{:data :events :output :tags :meta})
+
+(defn validate-schemas!
+  "Validate the machine-level `:schemas` map (EP-0029 A3). When present it
+  MUST be a map whose keys are all members of `accepted-schemas-keys`. An
+  unknown sub-key — including `:input` (state input is not adopted) — fails
+  loud with `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` value
+  fails loud with `:rf.error/machine-bad-schemas`. A machine with no
+  `:schemas` key is unaffected. The sub-key VALUES are opaque schema values —
+  this validator never interprets them (machine core requires no schema
+  library, EP-0029 Non-goal / rf2-49zxkc)."
+  [machine]
+  (when (contains? machine :schemas)
+    (let [schemas (:schemas machine)]
+      (when-not (map? schemas)
+        (throw (validation-error
+                 :rf.error/machine-bad-schemas
+                 (str "machine :schemas must be a map of schema categories "
+                      "(e.g. {:data <schema>}), got " (pr-str (type schemas)))
+                 {:schemas schemas})))
+      (doseq [k (keys schemas)]
+        (when-not (contains? accepted-schemas-keys k)
+          (throw (validation-error
+                   :rf.error/machine-bad-schemas-key
+                   (str "machine :schemas carries unknown sub-key " k
+                        ". Accepted categories are "
+                        (pr-str accepted-schemas-keys)
+                        (when (= :input k)
+                          " (:input — state input — is not adopted; EP-0029 B1)")
+                        ".")
+                   {:schemas-key k :accepted accepted-schemas-keys})))))))
+
 (defn validate-machine!
   "Run every registration-time check the machine grammar requires.
   Composed at the top of `make-machine-handler` so the registered handler
@@ -1101,6 +1157,13 @@
   Per Spec 005 §Parallel regions: `:type :parallel`
   shape — `:regions` non-empty, mutually exclusive with `:initial` /
   `:states`, no nested parallel.
+
+  Per Spec 005 §Schema validation / EP-0029 A3: the machine-level `:schemas`
+  map (when present) must be a map whose sub-keys are within the closed set
+  `#{:data :events :output :tags :meta}`. An unknown sub-key — including
+  `:input` (state input is not adopted) — throws
+  `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` throws
+  `:rf.error/machine-bad-schemas`.
 
   Per Spec 005 §Spawn-and-join via `:spawn-all`: every
   `:spawn-all`-bearing state node — shape, no duplicate `:id`s, required
@@ -1144,6 +1207,9 @@
   [machine]
   (validate-history! machine)
   (validate-parallel! machine)
+  ;; The machine-level `:schemas` map (EP-0029 A3) — closed sub-key set; an
+  ;; unknown sub-key (incl. `:input`) or a non-map `:schemas` fails loud.
+  (validate-schemas! machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-spawn! s n)
     (validate-spawn-all! s n)

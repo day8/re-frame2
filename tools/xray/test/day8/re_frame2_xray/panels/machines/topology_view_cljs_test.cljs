@@ -86,14 +86,14 @@
             the static Context shape is read AUTHORITATIVELY off the schema
             (not the `:data` sample) and `static-context-inferred?` is FALSE,
             so the chart drops the `inferred from :data` badge."
-    (let [def {:initial     :anon
+    (let [def {:initial :anon
                ;; A deliberately misleading partial :data sample — the
                ;; declared schema must win.
-               :data        {:retries nil}
-               :data-schema [:map
-                             [:retries :int]
-                             [:token {:optional true} [:maybe :string]]]
-               :states      {:anon {}}}]
+               :data    {:retries nil}
+               :schemas {:data [:map
+                                [:retries :int]
+                                [:token {:optional true} [:maybe :string]]]}
+               :states  {:anon {}}}]
       (is (= {:retries "number" :token "string?"}
              (tv/static-context-shape def))
           "shape comes from the SCHEMA's :map entries, authoritative over the
@@ -120,9 +120,9 @@
             declared-over-inferred provenance to `machine-canvas/Chart`'s
             `:context-band-inferred?` prop: false for a declared schema, true
             for an inferred sample."
-    (let [declared-def {:initial     :anon
-                        :data-schema [:map [:retries :int]]
-                        :states      {:anon {}}}
+    (let [declared-def {:initial :anon
+                        :schemas {:data [:map [:retries :int]]}
+                        :states  {:anon {}}}
           inferred-def {:initial :idle
                         :data    {:hits 0}
                         :states  {:idle {}}}

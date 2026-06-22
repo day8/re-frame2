@@ -20,7 +20,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **actions** (`actions` / named actions) | `:action` / `:entry` / `:exit` + the top-level `:actions` map | Convergence on the *name*. **Divergence:** no action-vector `[a1 a2 a3]` per slot — one fn or one named registered compound. `:entry`/`:exit` are a single fn or single keyword, never vectors. |
 | **`assign({...})`** | action returns `{:data new-data}` (and/or `{:fx [...]}`) | **Divergence (name/shape):** no `[:assign {...}]` form. Symmetric with `reg-event`'s `{:db :fx}` return. The invariant matches xstate's `assign` though: callbacks may only update `:data` — they cannot nudge the machine into an undeclared state. |
 | **`context`** (extended state) | `:data` (the machine's private map, distinct from `app-db`) | **Divergence (name):** re-frame2 calls the slot `:data`, tracking FSM / `gen_statem` "state data" vocabulary and avoiding re-frame's already-overloaded "context" (interceptor pipeline + React context). |
-| **typed `context`** (v5 `setup({ types: { context } })` → v6 `schemas`) | `:data-schema` (top-level Malli validator for `:data`; being retired by EP-0029 — the machine-level `:schemas` / `[:schemas :data]` migration, EP-0029 A3) | Convergence on the role — both declare the context's shape and make it tool-renderable. **Divergence (enforcement):** XState's typed context is compile-time-only and erased at runtime; re-frame2's `:data-schema` is an *actually-running* Malli validation in dev (and an opt-in at production boundaries), at zero production cost. See §Declaring a `:data-schema`. |
+| **typed `context`** (v6 `schemas`) | `[:schemas :data]` (the machine-level `:schemas` map's data-context schema; EP-0029 A3) | Convergence on the role — both declare the context's shape and make it tool-renderable. **Divergence (enforcement):** XState's typed context is compile-time-only and erased at runtime; re-frame2's `[:schemas :data]` is an *actually-running* validation in dev (via the optional registered validator, e.g. Malli; and an opt-in at production boundaries), at zero production cost. **Divergence (name):** re-frame2 calls the slot `:data` (not `context`), so the schema lives at `[:schemas :data]`. See §Declaring a `[:schemas :data]` schema. |
 | **`invoke`** (state-bound child actor) | `:spawn` (and `:spawn-all` for fan-out-and-join) | **Divergence (name):** the most semantically-loaded slot is renamed on purpose, to break the "almost-correct xstate code" trap and align with the imperative `:rf.machine/spawn` fx. No `:onSnapshot`/`autoForward`/multiple-`:invoke`-per-state. See `spawn.md`. |
 | **`invoke onError`** (child→parent failure **transition**) | `:spawn`'s `:on-error` transition + `:error? true` final leaf | Convergence — re-frame2 ships `invoke onError` first-class as a control-flow **transition** (not observability-only). The child designates an error terminal with `:final? true :error? true`; the parent's `:spawn` declares `:on-error` (an `:on`-shaped transition spec). See `spawn.md` §`:on-error`. |
 | **`onDone`** (child→parent completion) | `:final?` leaf + parent `:spawn`'s `:on-done` + `:output-key` | Convergence — re-frame2 ships first-class final-state-with-parent-notification. See `spawn.md`. |
@@ -45,7 +45,7 @@ The deliberate-divergence rows are catalogued in Spec 005 §Lessons from xstate 
 (rf/reg-machine machine-id opts machine-map)
 ```
 
-`opts` is the optional registration-metadata map — the canonical Spec 001 MIDDLE slot. It carries the event-vector `:schema` (a Malli validator for the OUTER event vector dispatched at `[machine-id [...]]`, checked at the `:where :event` boundary), not the machine's own `:data` shape (that is the spec map's `:data-schema`). The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and MUST NOT appear in `opts`.
+`opts` is the optional registration-metadata map — the canonical Spec 001 MIDDLE slot. It carries the event-vector `:schema` (a Malli validator for the OUTER event vector dispatched at `[machine-id [...]]`, checked at the `:where :event` boundary), not the machine's own `:data` shape (that is the spec map's `[:schemas :data]`). The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and MUST NOT appear in `opts`.
 
 `reg-machine` is a macro (in `re-frame.core`) that stamps source coords at the call site and registers the machine as a `:event` handler whose registration metadata carries `:rf/machine? true`. The underlying registration fn `reg-machine*` lives in `re-frame.machines.lifecycle-fx.registration` (it is **not** re-exported under `re-frame.core` — `facade?=false`, front-porch shrink; reach for it as `re-frame.machines/reg-machine*`, which takes the same `(machine-id opts machine-map)` middle-slot shape). The machine **is** an event handler — dispatch `[machine-id [:event-name & args]]` to drive it.
 
@@ -95,7 +95,7 @@ The basic (non-parallel, non-hierarchical) form:
 (rf/dispatch [:my/feature [:start]])
 ```
 
-The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:data-schema` (optional Malli validator for `:data` — see §Declaring a `:data-schema`), `:guards` and `:actions` (named lookup tables), `:states` (the transition table). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
+The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see §Declaring a `[:schemas :data]` schema), `:guards` and `:actions` (named lookup tables), `:states` (the transition table). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
 
 ## State-node shape
 
@@ -150,11 +150,9 @@ Every callback receives **one context map** — `(fn [{:keys [data event state m
 
 There is **no positional `(data event)` arity and no opt-in 3-arity escape hatch** — the runtime always delivers the full context map and the destructure pattern decides what's bound. `:state` and `:meta` are available for introspection with no flag (Spec 005 §Snapshot introspection — `:state` / `:meta`). The uniform single-map shape is deliberate: it eliminates the paste-from-`:guard`-into-`:on-spawn` trap (an `id` silently bound to the event vector, or vice-versa) that slot-specific positional signatures would create.
 
-## Declaring a `:data-schema`
+## Declaring a `[:schemas :data]` schema
 
-> **Being retired by EP-0029 — the machine-level `:schemas` / `[:schemas :data]` migration (EP-0029 A3).** The XState v6 direction replaces v5's `types: {} as …` with a broader `schemas` section. EP-0029 A3 adopts a machine-level `:schemas` map and retires this `:data-schema` key by a clean pre-alpha break — the machine data-context schema moves to **`[:schemas :data]`** (no `:data-schema` shorthand). That retirement is a **separate** EP-0029 wave and has **not** landed yet; until it does, `:data-schema` is the live key, as documented below. Author with `:data-schema` today; expect `[:schemas :data]` when the EP-0029 A3 migration ships.
-
-A machine's `:data` slot is its *context* in xstate terms — the value it carries across transitions. A machine spec MAY declare an optional top-level **`:data-schema`** key: a Malli validator for that `:data`. The key is unqualified, like `:data` / `:guards` / `:actions`:
+A machine's `:data` slot is its *context* in xstate terms — the value it carries across transitions. A machine spec MAY declare an optional machine-level **`:schemas`** map (EP-0029 A3, the v6-direction successor to v5's `types: {} as …`); its **`[:schemas :data]`** entry is the validator for that `:data`. The map is unqualified, like `:data` / `:guards` / `:actions`:
 
 ```clojure
 (def AuthData
@@ -163,23 +161,27 @@ A machine's `:data` slot is its *context* in xstate terms — the value it carri
    [:token   {:sensitive? true} [:maybe :string]]])
 
 (rf/reg-machine :session/auth
-  {:initial     :anon
-   :data        {:retries 0 :token nil}
-   :data-schema AuthData
-   :states      {:anon           {:on {:login :authenticating}}
-                 :authenticating {...}
-                 :authed         {...}}})
+  {:initial :anon
+   :data    {:retries 0 :token nil}
+   :schemas {:data AuthData}
+   :states  {:anon           {:on {:login :authenticating}}
+             :authenticating {...}
+             :authed         {...}}})
 ```
 
-It is spelled `:data-schema`, not the bare `:schema` every other `reg-*` kind uses, because the machine spec is the *only* registration surface where the validated value has a visible sibling key — `:data` and `:data-schema` sit side by side, so the key says exactly what it validates at the point of greatest ambiguity. The schema governs the user-domain `:data` only: the snapshot's `:state` is validated structurally at registration (an unknown transition target fails with `:rf.error/machine-unresolved-target`), and the reserved `:rf/*` snapshot slots are framework-owned.
+The data-context schema lives at `[:schemas :data]` (not XState v6's `schemas.context`) because re-frame2 calls the slot `:data`, not `context` — the schema names exactly what it validates. The schema governs the user-domain `:data` only: the snapshot's `:state` is validated structurally at registration (an unknown transition target fails with `:rf.error/machine-unresolved-target`), and the reserved `:rf/*` snapshot slots are framework-owned.
+
+`:schemas` is a **closed** sub-key map. `:data` is the live, wired category; `:events`, `:output`, `:tags`, and `:meta` are accepted declaration-only categories (abstract values, no wired behaviour yet). An unknown sub-key — including `:input` — fails loud at registration with `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`.
+
+**Validation is optional and schema-library-agnostic.** The `[:schemas :data]` value is opaque: machine core requires neither Malli nor any other schema library. Validation runs through an optional registered validator adapter (Malli is the framework default); a project with no adapter still uses the `:schemas` grammar at zero validation cost.
 
 **What it buys you — two things (and a third surface declares snapshot redaction):**
 
 1. **Validation.** In dev builds (`re-frame.interop/debug-enabled?` is `true`) the runtime validates `:data` against the schema at every macrostep-commit boundary, at bootstrap, and at spawn time. A violation emits `:rf.error/schema-validation-failure` with `:where :machine-data` and rolls back the whole cascade (the same lifecycle position and rollback the `:where :app-db` check uses). Under `:advanced` + `goog.DEBUG=false` the validation site DCEs to a no-op — dev-only by default; for production validation at a system boundary (e.g. an SSR-hydrate that restores a machine snapshot from the wire) reach for the `:rf.schema/at-boundary` interceptor on that specific event.
 
-2. **Declared context shape.** With a `:data-schema` present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState's typed context (which Stately's inspector renders as a `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial initial map can mislead. Declaring the schema turns that one-sample guess into a reliable, reader-trustable contract.
+2. **Declared context shape.** With a `[:schemas :data]` schema present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState's typed context (which Stately's inspector renders as a `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial initial map can mislead. Declaring the schema turns that one-sample guess into a reliable, reader-trustable contract.
 
-> **The `:data-schema` `:sensitive?` prop does NOT redact snapshot egress.** A `:sensitive?` / `:large?` Malli prop on a `:data` slot drives **only** the schema's own *validation-failure-trace* redaction — when a `:rf.error/schema-validation-failure` record ships, the marked slot is redacted in *that record*. It does **not** redact `:data` in the `:before` / `:after` / `:snapshot` slots of a normal transition trace. Durable machine `:data` snapshot redaction is declared on the machine definition (below).
+> **The `[:schemas :data]` `:sensitive?` prop does NOT redact snapshot egress.** A `:sensitive?` / `:large?` Malli prop on a `:data` slot drives **only** the schema's own *validation-failure-trace* redaction — when a `:rf.error/schema-validation-failure` record ships, the marked slot is redacted in *that record*. It does **not** redact `:data` in the `:before` / `:after` / `:snapshot` slots of a normal transition trace. Durable machine `:data` snapshot redaction is declared on the machine definition (below).
 
 ### Redacting `:data` at snapshot egress — the machine declaration
 
@@ -187,21 +189,21 @@ Durable machine `:data` classification travels with the **machine definition**, 
 
 ```clojure
 (rf/reg-machine :session/auth
-  {:sensitive   [[:data :token]]        ;; redacts :token in every actor's snapshot egress
-   :large       [[:data :avatar]]
-   :initial     :anon
-   :data        {:retries 0 :token nil}
-   :data-schema AuthData                ;; still VALIDATES :data (and drives validation-FAILURE-trace redaction)
-   :states      {...}})
+  {:sensitive [[:data :token]]        ;; redacts :token in every actor's snapshot egress
+   :large     [[:data :avatar]]
+   :initial   :anon
+   :data      {:retries 0 :token nil}
+   :schemas   {:data AuthData}        ;; still VALIDATES :data (and drives validation-FAILURE-trace redaction)
+   :states    {...}})
 ```
 
 The runtime **lowers** each declared path per spawned actor instance at spawn / first-boot — re-rooting `[:data :token]` to the instance's absolute snapshot path in the per-frame elision registry — and **drops** it on destroy (by any cause). So a `:spawn`-generated `<type>#n` is classified with **zero per-instance author code**, exactly as XState carries `context` shape on the machine definition and applies it per actor. The marked slot renders as `:rf/redacted` (sensitive) or the `:rf.size/large-elided` marker (large) in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` egress (the `:before` / `:after` / `:snapshot` slots) before the event crosses the trace bus / epoch-capture / AI-MCP boundary. A malformed declaration is rejected fail-loud at registration with `:rf.error/invalid-machine-classification`.
 
 `reg-machine` (and `reg-machine*`) accept `(machine-id machine-map)` or the metadata-bearing `(machine-id opts machine-map)` arity (the `opts` registration-metadata map is the canonical Spec 001 MIDDLE slot, carrying the event-vector `:schema`). The `:sensitive` / `:large` declaration is a **top-level key on the machine spec map** — projection-relative, value-independent, per-instance. The framework-wide handler-metadata `:sensitive?` annotation that once stamped a whole cascade has been removed (classification is path-based, owner-declared). Classification is **fail-open**: a `:data` slot you do not declare ships raw; there is no propagation, so a secret a guard copies into another slot ships raw until you declare *that* slot. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) for the full model.
 
-A machine with **no** `:data-schema` is unchanged: its `:data` is free-form and unvalidated, and a viz infers (and badges as inferred) its context shape.
+A machine with **no** `[:schemas :data]` schema is unchanged: its `:data` is free-form and unvalidated, and a viz infers (and badges as inferred) its context shape.
 
-See Spec 005 §Schema validation and §`:data-schema` is the re-frame2 analog of XState typed context for the full contract.
+See Spec 005 §Schema validation and §`[:schemas :data]` is the re-frame2 analog of XState typed context for the full contract.
 
 ## Subscribing to a machine
 

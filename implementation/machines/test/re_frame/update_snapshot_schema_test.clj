@@ -1,10 +1,10 @@
 (ns re-frame.update-snapshot-schema-test
   "The `:rf.machine/update-snapshot` escape hatch must NOT bypass the
   `:where :machine-data` boundary. Spec 005 §Snapshot-level escape hatch:
-  user error/status state lives under `:data` *where `:data-schema`
+  user error/status state lives under `:data` *where `[:schemas :data]`
   validation covers it*. The fx validates the would-be-merged snapshot's
-  `:data` against the actor's `:data-schema` BEFORE writing, and a violating
-  patch is rejected — the invalid `:data` never installs.
+  `:data` against the actor's `[:schemas :data]` schema BEFORE writing, and a
+  violating patch is rejected — the invalid `:data` never installs.
 
   Contract under test:
 
@@ -14,7 +14,7 @@
       :phase :update-snapshot :rollback? false` trace fires.
    2. **Valid patch installs.** A conforming `:data` patch merges as
       before; no trace.
-   3. **No-schema machine.** A machine without `:data-schema` patches
+   3. **No-schema machine.** A machine without `[:schemas :data]` patches
       freely; no trace (the boundary is opt-in via the schema).
    4. **Spawned actor.** An escape-hatch `:data` patch on a SPAWNED actor
       (schema resolved off the snapshot's `:rf/machine-type`, not via a
@@ -63,13 +63,13 @@
 
 (deftest update-snapshot-bad-data-patch-rejected
   (testing "an :rf.machine/update-snapshot :data patch that violates the
-            :data-schema is rejected — the invalid :data never installs and
+            [:schemas :data] schema is rejected — the invalid :data never installs and
             a :phase :update-snapshot trace fires"
     (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial     :idle
-                      :data        {:n 1}
-                      :data-schema DataSchema
-                      :actions     {:break
+          spec       {:initial :idle
+                      :data    {:n 1}
+                      :schemas {:data DataSchema}
+                      :actions {:break
                                     (fn [_]
                                       ;; escape-hatch patch writes :n 0 — violates pos-int?
                                       {:fx [[:rf.machine/update-snapshot
@@ -106,15 +106,15 @@
 (deftest update-snapshot-good-data-patch-installs
   (testing "a conforming :data patch merges onto the snapshot with no trace"
     (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial     :idle
-                      :data        {:n 1}
-                      :data-schema DataSchema
-                      :actions     {:bump
-                                    (fn [_]
-                                      {:fx [[:rf.machine/update-snapshot
-                                             {:rf/machine-id :rf.upd-schema/good
-                                              :rf/patch      {:data {:n 42}}}]]})}
-                      :states      {:idle {:on {:go {:target :idle :action :bump}}}}}]
+          spec       {:initial :idle
+                      :data    {:n 1}
+                      :schemas {:data DataSchema}
+                      :actions {:bump
+                                (fn [_]
+                                  {:fx [[:rf.machine/update-snapshot
+                                         {:rf/machine-id :rf.upd-schema/good
+                                          :rf/patch      {:data {:n 42}}}]]})}
+                      :states  {:idle {:on {:go {:target :idle :action :bump}}}}}]
       (rf/reg-machine :rf.upd-schema/good spec)
       (rf/dispatch-sync [:rf.upd-schema/good [:noop]])
       (let [traces (collect-traces!
@@ -126,7 +126,7 @@
 ;; ---- (3) a no-schema machine patches freely -------------------------------
 
 (deftest update-snapshot-no-schema-no-validation
-  (testing "a machine without :data-schema patches :data with no trace"
+  (testing "a machine without [:schemas :data] patches :data with no trace"
     (let [spec {:initial :idle
                 :data    {:n "anything"}
                 :actions {:set
@@ -147,15 +147,15 @@
 
 (deftest update-snapshot-spawned-actor-bad-data-rejected
   (testing "an escape-hatch :data patch on a SPAWNED actor (no per-instance
-            handler) resolves its :data-schema off the snapshot's
+            handler) resolves its [:schemas :data] schema off the snapshot's
             :rf/machine-type and rejects a violating patch"
     (let [ChildSchema [:map [:n pos-int?]]
           ;; The child patches its OWN snapshot via the escape hatch on entry
           ;; to :running — writing an invalid :n 0.
-          child-spec  {:initial     :booting
-                       :data        {:n 1}                ;; valid at spawn
-                       :data-schema ChildSchema
-                       :actions     {:self-break
+          child-spec  {:initial :booting
+                       :data    {:n 1}                ;; valid at spawn
+                       :schemas {:data ChildSchema}
+                       :actions {:self-break
                                      (fn [_]
                                        {:fx [[:rf.machine/update-snapshot
                                               {:rf/machine-id :rf.upd-schema/child
@@ -201,10 +201,10 @@
     (let [DataSchema [:map [:n pos-int?]]
           ;; A live driver machine emits a patch addressed at a DIFFERENT,
           ;; never-bootstrapped machine id that carries a schema.
-          target-spec {:initial     :idle
-                       :data        {:n 1}
-                       :data-schema DataSchema
-                       :states      {:idle {}}}
+          target-spec {:initial :idle
+                       :data    {:n 1}
+                       :schemas {:data DataSchema}
+                       :states  {:idle {}}}
           driver-spec {:initial :idle
                        :data    {}
                        :actions {:patch-ghost
@@ -235,16 +235,16 @@
             validation rewrite must not regress the :db hard-disallow);
             a valid :data alongside it still installs"
     (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial     :idle
-                      :data        {:n 1}
-                      :data-schema DataSchema
-                      :actions     {:patch
-                                    (fn [_]
-                                      {:fx [[:rf.machine/update-snapshot
-                                             {:rf/machine-id :rf.upd-schema/db-key
-                                              :rf/patch      {:data {:n 7}
-                                                              :db   {:nope true}}}]]})}
-                      :states      {:idle {:on {:go {:target :idle :action :patch}}}}}]
+          spec       {:initial :idle
+                      :data    {:n 1}
+                      :schemas {:data DataSchema}
+                      :actions {:patch
+                                (fn [_]
+                                  {:fx [[:rf.machine/update-snapshot
+                                         {:rf/machine-id :rf.upd-schema/db-key
+                                          :rf/patch      {:data {:n 7}
+                                                          :db   {:nope true}}}]]})}
+                      :states  {:idle {:on {:go {:target :idle :action :patch}}}}}]
       (rf/reg-machine :rf.upd-schema/db-key spec)
       (rf/dispatch-sync [:rf.upd-schema/db-key [:noop]])
       (let [db-errs (collect-all-traces! :rf.error/machine-action-wrote-db

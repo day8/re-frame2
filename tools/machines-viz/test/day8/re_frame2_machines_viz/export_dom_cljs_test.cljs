@@ -429,7 +429,7 @@
           {:machine-id :test/flow :definition idle-loading-done
            :current-state :loading
            ;; A host feeding LIVE values (inferred? false) declares which
-           ;; slots are sensitive (derived from the machine's :data-schema).
+           ;; slots are sensitive (derived from the machine's [:schemas :data] schema).
            :context-band {:card secret :count 7}
            :context-band-inferred? false
            :context-band-sensitive #{:card}}

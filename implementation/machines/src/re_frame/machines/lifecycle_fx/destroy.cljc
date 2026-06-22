@@ -98,7 +98,7 @@
        any teardown work — fires `:exit`-emitted fx via do-fx and writes
        any `:data` updates back to the (about-to-be-dissoc'd) snapshot;
     2. abort in-flight `:rf.http/managed` requests;
-    3. a machine's `:data-schema` is validation-only and produces no
+    3. a machine's `[:schemas :data]` schema is validation-only and produces no
        per-instance marks table, so there is no marks-table residue to drop;
     4. cancel armed `:after` timers, one
        `:rf.machine.timer/cancelled :reason :on-destroy` trace per timer;

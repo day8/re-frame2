@@ -231,9 +231,9 @@
 ;; MACHINE :data SCHEMA BOUNDARY  (rf2-t5ky67 issue 2)
 ;; ============================================================================
 ;;
-;; The singleton `:app/boot` machine attaches a top-level `:data-schema`
+;; The singleton `:app/boot` machine attaches a `[:schemas :data]` schema
 ;; (`boot.schema/BootData`) that validates the snapshot's `:data` slot at the
-;; `:where :machine-data` boundary (Spec 010 §Machine data schema). These
+;; `:where :machine-data` boundary (Spec 005 §Schema validation). These
 ;; tests prove the schema is attached, rejects malformed `:data`, fires the
 ;; boundary trace + rolls back on a real violating macrostep, and that the
 ;; app-db slice schemas (`reg-app-schema [:config]` etc.) keep validating the
@@ -252,11 +252,11 @@
              @traces)))
 
 (deftest boot-data-schema-attached
-  (testing "the :app/boot machine carries BootData on its :data-schema slot"
+  (testing "the :app/boot machine carries BootData on its [:schemas :data] slot"
     (let [meta (machines/machine-meta :app/boot)]
       (is (some? meta) "machine-meta resolves the registered :app/boot machine")
-      (is (= boot-schema/BootData (:data-schema meta))
-          "the :data-schema round-trips as boot.schema/BootData")))
+      (is (= boot-schema/BootData (get-in meta [:schemas :data]))
+          "the [:schemas :data] schema round-trips as boot.schema/BootData")))
   (testing "BootData validates the :data slot only (rejects a malformed :config)"
     (is (true?  (schemas/validate-with-registered-fn
                   boot-schema/BootData
