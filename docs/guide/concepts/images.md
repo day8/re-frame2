@@ -152,11 +152,13 @@ Tests and stories want controlled behaviour *and* controlled state. The image gi
 
 (let [frame (rf/make-frame {:images [checkout-test-image]
                             :initial-events [[:rf/set-db {:cart/items []}]]})]
-  (rf/dispatch-sync frame [:cart/add "SKU-1"])
-  @(rf/subscribe frame [:cart/items]))
+  (rf/dispatch-sync [:cart/add "SKU-1"] {:frame frame})
+  @(rf/subscribe [:cart/items] {:frame frame}))
 ```
 
-State setup stays a frame concern — `:initial-events` (e.g. a leading `[:rf/set-db {…}]`), a restored frame-state value, or setup events. Behaviour setup is an image concern — select or override registrations before the frame runs. (Targeting the frame *object* directly, as above, is the test/harness path; mounted product code targets a frame *id*. Both are in [Frames](frames.md).)
+The frame is the target, but it rides in the **`{:frame …}` opts map** — the uniform last-argument envelope `dispatch-sync` / `subscribe` accept (per [EP-0024](../../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent); the older positional `(dispatch-sync frame event)` form is retired). The opt accepts a frame **value** (as here, the token `make-frame` returns) or a frame **id** keyword interchangeably.
+
+State setup stays a frame concern — `:initial-events` (e.g. a leading `[:rf/set-db {…}]`), a restored frame-state value, or setup events. Behaviour setup is an image concern — select or override registrations before the frame runs. (Targeting the frame *value* directly, as above, is the test/harness path; mounted product code targets a frame *id* via the same `{:frame …}` opt. Both are in [Frames](frames.md).)
 
 ### Overriding a registration is explicit
 

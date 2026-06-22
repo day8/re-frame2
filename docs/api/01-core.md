@@ -363,7 +363,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
   ```clojure
   (reset-frame! frame-id)
   ```
-- **Description**: Reset the frame's `app-db` to its initial value without destroying the frame itself.
+- **Description**: Atomic `destroy-frame!` + `reg-frame` with the **same config** — a full frame replace (opt-in). It tears the frame down through the normative `destroy-frame!` boundary (running `:on-destroy`, releasing per-feature resources) and re-registers it fresh, so machine snapshots, the route slice, flows, and `app-db` are all rebuilt from the registered config. Use sparingly. To wipe just the `app-db` partition while keeping live runtime-db (machines / routes / SSR survive), reach for `reset-app-db!` ([11 — Instrumentation](11-instrumentation.md)) instead. There is **no** `:initial-db` config key to restore from — per EP-0027, seeding `app-db` is itself an ordinary, traceable event, `[:rf/set-db {…}]` (see [Standard events](#standard-events) below).
 
 #### `clear-sub-cache!`
 
@@ -485,6 +485,31 @@ The runtime tolerates several shapes; the linter nudges new code toward one:
 - `[<id> {<k> <v>}]` — multi-arg events as a single map payload (the canonical form for two-or-more args)
 
 Variadic `[<id> a b c]` is tolerated for v1-migration and caller convenience, but the map form is the one to reach for in new code — it survives field-additions without breaking callers and reads at the call site. Full rationale: [Conventions §Canonical event-vector shape](../../spec/Conventions.md#canonical-event-vector-shape-best-practice).
+
+### Standard events
+
+The framework ships a small, fixed set of standard `:rf/*` events you can dispatch like any other. They are framework-owned: the `:rf/*` single-root namespace is reserved ([Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)), so re-registering one with `reg-event` is a loud reserved-id collision (`:rf.error/reserved-event-id`) rather than a silent shadow.
+
+#### `:rf/set-db`
+
+- **Kind**: standard event
+- **Shape**:
+  ```clojure
+  [:rf/set-db new-db-map]
+  ```
+- **Description**: The framework-standard `app-db` seeding event (EP-0027). `[:rf/set-db {…}]` **replaces** the whole `app-db` partition with the supplied map (it is a replace, not a merge) and rides the **normal** post-commit path — schema validation, rollback, trace emission, epoch recording — so seeding `app-db` is an ordinary, traceable event rather than a privileged direct write. It returns `{:db new-db}` from a pure handler, so it touches **only** the `app-db` partition and never runtime-db.
+- **Validation**: takes **exactly one map argument**. A missing / `nil` / non-map argument, or any extra trailing arg (`[:rf/set-db {} :junk]`), throws `:rf.error/set-db-bad-value`. Empty `app-db` is `[:rf/set-db {}]`.
+- **In the wild**: the canonical boot-seed shape — `:initial-events [[:rf/set-db {:count 0}]]` on `frame-provider` / `make-frame`. (There is no `:initial-db` data key — see [15 — Removed](15-removed.md).)
+
+```clojure
+;; seed app-db at frame creation
+[rf/frame-provider {:images         [counter-image]
+                    :initial-events [[:rf/set-db {:count 0}]]}
+ [counter-view]]
+
+;; or dispatch it directly to reset app-db to a known shape
+(rf/dispatch [:rf/set-db {:count 0 :user nil}])
+```
 
 ### The `dispatch-*` family: two sub-shapes
 

@@ -52,7 +52,12 @@ The form is exactly [Build a form](build-a-form.md) — same slice shape, same s
                (assoc-in [:auth :login :status]    :submitted)
                (assoc-in [:auth :login :submitted] ;; keep the form recipe's dirty-check snapshot
                          (get-in db [:auth :login :draft]))
-               (assoc-in [:auth :user]  user)
+               ;; The token has ONE durable home — the classified [:auth :token]
+               ;; path. Store the user with :token stripped, so the JWT is not
+               ;; also sitting (unclassified) at [:auth :user :token]; that copy
+               ;; would ship raw to every off-box record. The request decorator
+               ;; reads the token from [:auth :token], never from the user map.
+               (assoc-in [:auth :user]  (dissoc user :token))
                (assoc-in [:auth :token] (:token user)))
        :fx [[:auth.session/persist {:token (:token user)}]
             [:dispatch [:auth/post-login-redirect]]]})))

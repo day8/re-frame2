@@ -128,7 +128,11 @@ When the call succeeds, the reply arrives as the event's last argument, shaped `
     {:db (-> db
              (assoc-in [:auth :login :status]    :submitted)
              (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
-             (assoc-in [:auth :user]             (:user value)))}))
+             ;; Store the user for the view. If the reply carries a JWT, strip it
+             ;; here — the credential gets its own classified home in
+             ;; [add auth](add-auth.md); don't leave an unclassified copy at
+             ;; [:auth :user :token].
+             (assoc-in [:auth :user]             (dissoc (:user value) :token)))}))
 ```
 
 ### The validation-vs-transport split
