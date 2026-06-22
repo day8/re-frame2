@@ -249,6 +249,127 @@
         "an effect-sourced path with no other claimant is removed by its clear")))
 
 ;; ---------------------------------------------------------------------------
+;; 2c. CLEAR over an ABSENT / wrong-axis path is a harmless NO-OP (rf2-26p9yg)
+;;     The fail-open clear contract relies on a clear being a harmless dissoc.
+;;     A regression that throws on an absent-key clear, or that prunes the
+;;     wrong axis slot, would be a fail-open privacy hazard — pin it.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-sensitive-over-never-classified-path-is-a-silent-no-op
+  (testing ":clear-sensitive over a path that was NEVER classified is a silent
+            no-op — no throw, no error trace, the registry is unchanged.
+            rf2-26p9yg."
+    ;; nothing is classified yet
+    (is (not (contains? (sensitive-decls) [:never :classified]))
+        "precondition: the path is absent from the sensitive registry")
+    (rf/reg-event :clear-absent-sensitive
+      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:never :classified]]}))
+    (let [recorded (record-traces! :clear-absent-sensitive-probe)]
+      (rf/dispatch-sync [:clear-absent-sensitive])
+      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
+          "no classification-effect error — clearing an absent path does not throw")
+      (rf/unregister-listener! :trace :clear-absent-sensitive-probe))
+    (is (not (contains? (sensitive-decls) [:never :classified]))
+        "the registry is unchanged — the clear of an absent path is a no-op")))
+
+(deftest clear-large-over-never-classified-path-is-a-silent-no-op
+  (testing ":clear-large over a path that was NEVER classified is a silent
+            no-op — no throw, no error trace, the large registry is unchanged.
+            rf2-26p9yg."
+    (is (not (contains? (large-decls) [:never :large]))
+        "precondition: the path is absent from the large registry")
+    (rf/reg-event :clear-absent-large
+      (fn [{:keys [db]} _] {:db db :clear-large [[:never :large]]}))
+    (let [recorded (record-traces! :clear-absent-large-probe)]
+      (rf/dispatch-sync [:clear-absent-large])
+      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
+          "no classification-effect error — clearing an absent large path does not throw")
+      (rf/unregister-listener! :trace :clear-absent-large-probe))
+    (is (not (contains? (large-decls) [:never :large]))
+        "the large registry is unchanged — the clear of an absent path is a no-op")))
+
+(deftest clear-sensitive-on-a-large-only-path-leaves-the-large-axis-intact
+  (testing ":clear-sensitive over a path classified on the OTHER axis only
+            (:large) is a no-op on the sensitive axis AND leaves the large
+            classification intact — the wrong-axis clear must not prune the
+            large slot. rf2-26p9yg."
+    (rf/reg-event :classify-large-only
+      (fn [{:keys [db]} _] {:db db :large [[:docs :blob]]}))
+    (rf/dispatch-sync [:classify-large-only])
+    (is (contains? (large-decls) [:docs :blob]))
+    (is (not (contains? (sensitive-decls) [:docs :blob]))
+        "precondition: the path is large-only, never sensitive")
+    ;; clear on the WRONG axis for this path
+    (rf/reg-event :wrong-axis-clear
+      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:docs :blob]]}))
+    (let [recorded (record-traces! :wrong-axis-clear-probe)]
+      (rf/dispatch-sync [:wrong-axis-clear])
+      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
+          "no error — the wrong-axis clear does not throw")
+      (rf/unregister-listener! :trace :wrong-axis-clear-probe))
+    (is (contains? (large-decls) [:docs :blob])
+        "the large classification is INTACT — :clear-sensitive did not prune the large axis")
+    (is (not (contains? (sensitive-decls) [:docs :blob]))
+        "the sensitive axis is still empty for this path — the clear was a no-op there")))
+
+;; ---------------------------------------------------------------------------
+;; 2d. SAME-EVENT SET + CLEAR of one path — CLEAR WINS (rf2-9zylo0)
+;;     elision/apply-classification-effects reduces SET axes before CLEAR
+;;     axes within one effect map, so a same-event set+clear of one path on
+;;     one axis resolves to UNclassified. A reorder regression (clear-then-set)
+;;     would invert this and ship the path RAW or leave it redacted — pin both
+;;     the registry outcome AND the egress (the path ships raw / unclassified).
+;; ---------------------------------------------------------------------------
+
+(deftest same-event-set-and-clear-of-one-sensitive-path-clear-wins
+  (testing "one event returning BOTH :sensitive [[:p]] and :clear-sensitive
+            [[:p]] resolves to the path being UNCLASSIFIED — the SET is applied
+            before its CLEAR (set axes reduced first), so the CLEAR is the
+            later write and wins. Pins the effect ordering so a reorder
+            regression that left the path classified-then-shipped-raw OR
+            raw-then-redacted is caught. rf2-9zylo0."
+    (rf/reg-event :set-and-clear-same
+      (fn [{:keys [db]} _]
+        {:db              (assoc-in db [:user :token] "Bearer set-then-cleared")
+         :sensitive       [[:user :token]]
+         :clear-sensitive [[:user :token]]}))
+    (let [recorded (record-traces! :set-and-clear-probe)]
+      (rf/dispatch-sync [:set-and-clear-same])
+      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
+          "the same-event set+clear is well-shaped — no error")
+      (rf/unregister-listener! :trace :set-and-clear-probe))
+    (is (not (contains? (sensitive-decls) [:user :token]))
+        "CLEAR WINS — the path is NOT in the sensitive registry after commit")
+    ;; the :db value DID commit (the classification effects are not the :db)
+    (is (= "Bearer set-then-cleared"
+           (get-in (frame/frame-app-db-value :rf/default) [:user :token]))
+        "the :db write committed — only the classification was set-then-cleared")
+    ;; and because the path ends UNclassified, the value ships RAW at egress
+    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))]
+      (is (= "Bearer set-then-cleared" (get-in wire [:user :token]))
+          "the path ships RAW at egress — clear won, so nothing redacts it"))))
+
+(deftest same-event-set-and-clear-of-one-large-path-clear-wins
+  (testing "the same set-before-clear ordering holds on the :large axis: an
+            event returning both :large [[:p]] and :clear-large [[:p]] ends
+            with the path UNclassified, so an oversized value there ships RAW
+            (no large marker) at egress. rf2-9zylo0."
+    (rf/reg-event :set-and-clear-large
+      (fn [{:keys [db]} _]
+        {:db          (assoc-in db [:docs :csv] (apply str (repeat 500 "Y")))
+         :large       [[:docs :csv]]
+         :clear-large [[:docs :csv]]}))
+    (rf/dispatch-sync [:set-and-clear-large])
+    (is (not (contains? (large-decls) [:docs :csv]))
+        "CLEAR WINS on the large axis — the path is NOT in the large registry")
+    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))
+          slot (get-in wire [:docs :csv])]
+      (is (not (elision/marker? slot))
+          "no large marker — the cleared path ships RAW at egress")
+      (is (= (apply str (repeat 500 "Y")) slot)
+          "the raw oversized value is shipped unchanged (clear won)"))))
+
+;; ---------------------------------------------------------------------------
 ;; 3. axes independent — sensitive vs large clears do not cross
 ;; ---------------------------------------------------------------------------
 
@@ -329,6 +450,100 @@
       (rf/unregister-listener! :trace :bad-entry-probe))
     (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
         "no :db commit happened on the malformed-entry abort")))
+
+;; ---------------------------------------------------------------------------
+;; 4b. fail-loud negatives across ALL FOUR axes (rf2-mz582u)
+;;     The original negatives only exercised :sensitive. elision.cljc
+;;     classification-effect-defect validates all four keys (:sensitive
+;;     :large :clear-sensitive :clear-large) and reports a distinct
+;;     :offending-key. A regression that skipped validation on the clear keys
+;;     (or :large) would ship a malformed clear SILENTLY. Feed each of the
+;;     other three a malformed payload — a NON-VECTOR value and a NON-VECTOR
+;;     path entry — and assert each raises the SAME error id with its own
+;;     :offending-key, with NO :db commit. Each test feeds ONLY the one
+;;     malformed key so :offending-key is unambiguous (defect detection
+;;     iterates the key set, returning the first defect).
+;; ---------------------------------------------------------------------------
+
+(defn- assert-axis-fails-loud
+  "Drive an event whose ONLY classification key is `effect-key` with the
+  malformed `payload`, and assert it fails loud: exactly one
+  :rf.error/classification-effect-shape with `:offending-key` == `effect-key`,
+  and the :db commit is aborted (the seeded :n stays 1, not 2)."
+  [effect-key payload probe-id ev-id]
+  (rf/reg-event :seed-axis (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+  (rf/dispatch-sync [:seed-axis])
+  (rf/reg-event ev-id
+    (fn [{:keys [db]} _]
+      {:db (assoc db :n 2) effect-key payload}))
+  (let [recorded (record-traces! probe-id)]
+    (rf/dispatch-sync [ev-id])
+    (let [errs (error-events recorded :rf.error/classification-effect-shape)]
+      (is (= 1 (count errs))
+          (str "exactly one classification-effect-shape error for " effect-key))
+      (is (= effect-key (:offending-key (:tags (first errs))))
+          (str "the diagnostic names " effect-key " as the offending key")))
+    (rf/unregister-listener! :trace probe-id))
+  (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
+      (str "no :db commit happened on the malformed " effect-key " abort")))
+
+(deftest malformed-large-payload-fails-loud
+  (testing "a non-vector :large payload fails :rf.error/classification-effect-shape
+            with :offending-key :large and no :db commit. rf2-mz582u."
+    (assert-axis-fails-loud :large :not-a-vector
+                            :bad-large-probe :bad-large)))
+
+(deftest malformed-large-path-entry-fails-loud
+  (testing "a non-vector path entry inside an otherwise-vector :large payload
+            fails loud with :offending-key :large. rf2-mz582u."
+    (assert-axis-fails-loud :large [:not-a-path-vector]
+                            :bad-large-entry-probe :bad-large-entry)))
+
+(deftest malformed-clear-sensitive-payload-fails-loud
+  (testing "a non-vector :clear-sensitive payload fails
+            :rf.error/classification-effect-shape with :offending-key
+            :clear-sensitive and no :db commit — the clear keys are validated
+            too, so a malformed clear is never shipped silently. rf2-mz582u."
+    (assert-axis-fails-loud :clear-sensitive :not-a-vector
+                            :bad-clear-sensitive-probe :bad-clear-sensitive)))
+
+(deftest malformed-clear-large-payload-fails-loud
+  (testing "a non-vector :clear-large payload fails
+            :rf.error/classification-effect-shape with :offending-key
+            :clear-large and no :db commit. rf2-mz582u."
+    (assert-axis-fails-loud :clear-large :not-a-vector
+                            :bad-clear-large-probe :bad-clear-large)))
+
+(deftest malformed-clear-large-path-entry-fails-loud
+  (testing "a non-vector path entry inside an otherwise-vector :clear-large
+            payload fails loud with :offending-key :clear-large. rf2-mz582u."
+    (assert-axis-fails-loud :clear-large [:not-a-path-vector]
+                            :bad-clear-large-entry-probe :bad-clear-large-entry)))
+
+(deftest non-segment-path-element-is-reported-as-a-defect
+  (testing "a path entry whose SEGMENT is not a valid :rf/path segment (a
+            non-EDN-identity element — e.g. a function) makes
+            re-frame.path/normalize-concrete throw :rf.error/bad-path, which
+            classification-effect-defect catches and re-reports as the SAME
+            classification-effect-shape defect (one error id for the whole
+            fail-closed :rf/path boundary). No :db commit. rf2-mz582u."
+    (rf/reg-event :seed-seg (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (rf/dispatch-sync [:seed-seg])
+    ;; a function is not a legal path segment — a sequential path whose
+    ;; element is a non-EDN-identity value drives normalize-concrete to throw.
+    (rf/reg-event :bad-segment
+      (fn [{:keys [db]} _]
+        {:db (assoc db :n 2) :sensitive [[(fn [] :nope)]]}))
+    (let [recorded (record-traces! :bad-segment-probe)]
+      (rf/dispatch-sync [:bad-segment])
+      (let [errs (error-events recorded :rf.error/classification-effect-shape)]
+        (is (= 1 (count errs))
+            "a non-segment path element fails loud as ONE classification-effect-shape error")
+        (is (= :sensitive (:offending-key (:tags (first errs))))
+            "the offending key is named"))
+      (rf/unregister-listener! :trace :bad-segment-probe))
+    (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
+        "no :db commit happened on the non-segment-path abort")))
 
 ;; ---------------------------------------------------------------------------
 ;; classification-only effect (no :db) still commits the registry write

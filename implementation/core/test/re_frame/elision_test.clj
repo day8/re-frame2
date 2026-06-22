@@ -344,6 +344,35 @@
     (fn [rt] (elision/apply-classification-effects rt {:clear-large [[:user :pdf]]})))
   (is (not (contains? (elision/declarations) [:user :pdf]))))
 
+(deftest clear-over-never-classified-path-is-a-pure-no-op
+  ;; rf2-26p9yg — the fail-open clear contract relies on a clear being a
+  ;; harmless dissoc. apply-classification-effects over an ABSENT path must be
+  ;; a pure no-op: no throw, the registry value unchanged (and an empty axis
+  ;; slot stays pruned, not left as `{}`). Drive the pure fn directly.
+  (let [rt0 (frame/frame-runtime-db-value :rf/default)
+        ;; clear a path that was never classified, on BOTH axes
+        rt1 (elision/apply-classification-effects
+              rt0 {:clear-sensitive [[:never :here]]
+                   :clear-large     [[:also :never]]})]
+    (is (= (get rt0 :rf.runtime/elision)
+           (get rt1 :rf.runtime/elision))
+        "clearing absent paths leaves the elision registry byte-identical")
+    (is (not (contains? (elision/declarations) [:also :never])))
+    (is (not (contains? (elision/sensitive-declarations) [:never :here])))))
+
+(deftest clear-sensitive-leaves-a-large-only-path-intact
+  ;; rf2-26p9yg — a :clear-sensitive on a path classified on the OTHER axis
+  ;; only (:large) must NOT prune the large slot (wrong-axis clear is a no-op
+  ;; on its own axis AND leaves the sibling axis untouched).
+  (install-class! [] [[:doc :blob]])
+  (is (contains? (elision/declarations) [:doc :blob]))
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {:clear-sensitive [[:doc :blob]]})))
+  (is (contains? (elision/declarations) [:doc :blob])
+      "the large classification survives a wrong-axis (:clear-sensitive) clear")
+  (is (not (contains? (elision/sensitive-declarations) [:doc :blob]))
+      "the sensitive axis was never populated for this path"))
+
 (deftest registries-are-frame-isolated
   (frame/reg-frame :elision-test/other {})
   (install-class! :rf/default [] [[:blob]])
