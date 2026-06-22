@@ -294,12 +294,13 @@
       ;; :failure ...}`) appended as their last arg by the runtime.
       (fn [{[_ creds] :event}]
         {:fx [[:rf.http/managed
-               ;; EP-0015 / Spec 014 §Privacy: `:sensitive? true` on the request
-               ;; redacts the request body (carrying the `:password`) and all
-               ;; params from every `:rf.http/*` trace event — the password's
-               ;; real off-box egress path. This is the observable EP-0015
-               ;; redaction for the login flow (the credentials event-arg
-               ;; `:sensitive?` slot classifies the shape; this scrubs the wire).
+               ;; Spec 014 §Privacy (per-request `:sensitive?`): `:sensitive? true`
+               ;; on the request redacts the request body (carrying the
+               ;; `:password`) and all params from every `:rf.http/*` trace event
+               ;; — the password's real off-box egress path. This is the coarse
+               ;; per-request privacy flag (a wire scrub for THIS request), a
+               ;; distinct surface from EP-0025 path classification; both keep the
+               ;; password off the observability wire for the login flow.
                {:request    {:method :post
                              :url    "/api/login"
                              :body   creds
@@ -391,8 +392,11 @@
 ;; machine spec. `reg-machine` is the blessed registration home — it stamps
 ;; the `:rf/machine?` / `:rf/machine` metadata that `(machine-meta
 ;; :auth.login/flow)` reads, so the `:where :machine-data` walker resolves the
-;; `:data-schema` and it VALIDATES. Durable machine `:data` egress
-;; classification is frame-owned, like every other app-db path.
+;; `:data-schema` and it VALIDATES. (EP-0025: durable machine `:data`
+;; snapshot-egress classification is a projection-relative `:sensitive` /
+;; `:large` declaration on the machine spec — this machine's `:data` holds no
+;; secret, so it declares none. The `:data-schema` prop drives only
+;; validation-failure-trace redaction, not snapshot egress.)
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}

@@ -172,9 +172,10 @@
     :issue-request
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
-             ;; EP-0015 / Spec 014 §Privacy: `:sensitive? true` redacts the
-             ;; request body (carrying the `:password`) from every `:rf.http/*`
-             ;; trace event — the observable EP-0015 redaction (see
+             ;; Spec 014 §Privacy (per-request `:sensitive?`): `:sensitive? true`
+             ;; redacts the request body (carrying the `:password`) from every
+             ;; `:rf.http/*` trace event — the coarse per-request wire scrub, a
+             ;; distinct surface from EP-0025 path classification (see
              ;; examples/reagent/login for the full rationale).
              {:request    {:method :post
                            :url    "/api/login"
@@ -268,9 +269,11 @@
 ;; `reg-machine` is the single registration home: it stamps the `:rf/machine?`
 ;; / `:rf/machine` metadata that `(machine-meta :auth.login/flow)` reads (so
 ;; the `:where :machine-data` walker resolves the `:data-schema` and it
-;; VALIDATES) AND bridges the schema's `:sensitive?` / `:large?` slots into
-;; snapshot-egress redaction — both in one place, regardless of registration
-;; path.
+;; VALIDATES). EP-0025: durable machine `:data` snapshot-egress classification
+;; is a projection-relative `:sensitive` / `:large` declaration on the machine
+;; spec — NOT a `:data-schema` prop (which now drives only
+;; validation-failure-trace redaction); this machine's `:data` holds no secret,
+;; so it declares none.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}

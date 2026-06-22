@@ -184,8 +184,12 @@
   {:initial :idle
    ;; Spec 010 §Machine data schema — `:data-schema` validates the snapshot's
    ;; `:data` slot (not the whole snapshot) at the `:where :machine-data`
-   ;; boundary; `reg-machine` (below) bridges its `:sensitive?` / `:large?`
-   ;; redaction marks into snapshot egress. Parity with reagent/login + uix.
+   ;; boundary. This `:data` (`{:attempts :error}`) holds no secret, so the
+   ;; machine declares no `:sensitive` / `:large`. (EP-0025: durable machine
+   ;; `:data` snapshot redaction is a projection-relative `:sensitive` / `:large`
+   ;; declaration on the `reg-machine` spec — NOT a `:data-schema` prop, which
+   ;; now drives only validation-failure-trace redaction.) Parity with
+   ;; reagent/login + uix.
    :data-schema AuthLoginData
    :data    {:attempts 0 :error nil}
 
@@ -200,9 +204,10 @@
     :issue-request
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
-             ;; EP-0015 / Spec 014 §Privacy: `:sensitive? true` redacts the
-             ;; request body (carrying the `:password`) from every `:rf.http/*`
-             ;; trace event — the observable EP-0015 redaction (see
+             ;; Spec 014 §Privacy (per-request `:sensitive?`): `:sensitive? true`
+             ;; redacts the request body (carrying the `:password`) from every
+             ;; `:rf.http/*` trace event — the coarse per-request wire scrub, a
+             ;; distinct surface from EP-0025 path classification (see
              ;; examples/reagent/login for the full rationale).
              {:request    {:method :post
                            :url    "/api/login"

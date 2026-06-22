@@ -66,10 +66,11 @@
  {:test
   {:extra-paths ["test"]
    ;; Artefacts whose namespaces the security tests `:require`. core
-   ;; carries `re-frame.test-support` + `re-frame.marks` +
-   ;; `re-frame.subs` + `re-frame.trace.tooling`; schemas brings
-   ;; metosin/malli transitively (so `re-frame.schemas.malli` resolves);
-   ;; machines/routing/flows/ssr supply their feature namespaces.
+   ;; carries `re-frame.test-support` + `re-frame.elision` /
+   ;; `re-frame.classification` (the EP-0025 marks-free projection engine) +
+   ;; `re-frame.privacy` + `re-frame.subs` + `re-frame.trace.tooling`;
+   ;; schemas brings metosin/malli transitively (so `re-frame.schemas.malli`
+   ;; resolves); machines/routing/flows/ssr supply their feature namespaces.
    :extra-deps  {day8/re-frame2          {:local/root "../core"}
                  day8/re-frame2-schemas  {:local/root "../schemas"}
                  day8/re-frame2-machines {:local/root "../machines"}

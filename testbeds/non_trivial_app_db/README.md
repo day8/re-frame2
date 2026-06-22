@@ -71,15 +71,15 @@ leaves is the smallest count that exercises:
 - **No primitives larger than ~50 chars per leaf.** Large values are
   the `large_dispatcher/` testbed's job. This surface keeps every
   leaf small so the renderer's elision contract doesn't kick in.
-- **No `:sensitive?` on any slice.** Privacy markers are the
-  `sensitive_dispatcher/` testbed's job; including one here would
-  conflate diff rendering with redaction rendering.
+- **No `:sensitive` classification on any path.** This surface keeps
+  diff rendering separate from redaction rendering; classifying a
+  path here would conflate the two.
 - **No state-machine snapshots in app-db.** Per [spec/005] the
-  machine snapshot lives in a separate registry (`[:rf/machines …]`);
+  machine snapshot lives in a separate registry (`[:rf.runtime/machines …]`);
   surface deliberately uses only the plain-app-db diffing path.
-- **No `:rf/elision` declarations.** The elision walker is exercised
-  by the `large_dispatcher/` testbed; this surface keeps the diff
-  renderer's job pure (every value rides the wire verbatim).
+- **No elision declarations.** The elision walker is exercised
+  by the `large_dispatcher/` testbed; this surface classifies no
+  path, so every value rides the wire verbatim (fail-open).
 
 ## Test scenarios from rf2-fe84r this surface enables
 

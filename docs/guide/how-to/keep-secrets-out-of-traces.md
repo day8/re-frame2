@@ -2,38 +2,61 @@
 
 Your login form just put `{:password "hunter2"}` into an event vector — and an event in re-frame2 is just the data that describes something that happened, so that password is now sitting in plain data. Here's why that matters: re-frame2 sends all its observability over one wire. Events, snapshots of `app-db` (your app's single state map), and HTTP records all travel the same path. That one wire feeds Xray, the epoch ledger, and any production shipper you wire up ([one wire, every tool](../concepts/observability.md)). So this page is the short list of declarations that keep the password, the token, and the 5MB upload off that wire.
 
-Coming from Sentry? The instinct is `beforeSend`: a scrub function in each consumer, run just before shipping. re-frame2 does the opposite. You classify data **once, at its owner**, and the framework applies it at every boundary it owns. There's no `beforeSend` to write, which means there's no Nth consumer left to forget one.
+Coming from Sentry? The instinct is `beforeSend`: a scrub function in each consumer, run just before shipping. re-frame2 does the opposite. You classify data **once, at the owner of its shape**, and the framework applies it at every boundary it owns. There's no `beforeSend` to write, which means there's no Nth consumer left to forget one.
 
-The model has three layers, and they build on each other. The first is classification. You name facts as data: this path is sensitive, this slot is large. You write the fact next to whatever owns the data's shape — a frame, a schema, or a registration. (A frame, here, is an isolated instance of your app's state and event machinery; a registration is the call where you tell re-frame2 about a handler, the function that runs your logic.) Classification does nothing on its own. Your handlers always see the real values.
+!!! note "This is hygiene, not a security boundary — and it is fail-open"
+
+    The framework only keeps secrets off its *own* observability wire; your app still owns auth, encryption, and transport. And the contract is **fail-open**: a path you never classify ships raw. That's the bargain — convenient leak-prevention, not a guarantee. Classify the *path* a secret lives at, and the framework redacts whatever occupies it; forget a path and it leaks. There's no taint-tracking and no propagation, so a secret you copy to a new path (a re-keyed value, a rendered field) ships raw until you classify *that* path too.
+
+The model has three layers, and they build on each other. The first is classification. You name facts as data: this *path* is sensitive, this slot is large. You write the fact next to whatever owns the data's shape — an event handler (for durable `app-db` paths), a registration (for transient payloads), or a subsystem definition (for machine / resource data). (A registration is the call where you tell re-frame2 about a handler, the function that runs your logic; a frame is an isolated instance of your app's state and event machinery.) Classification does nothing on its own. Your handlers always see the real values.
 
 The second layer is projection. The framework applies your facts at a trust boundary — that's its job, not yours and not the sink's. When a record is about to cross a boundary, the runtime projects it under the owning frame's classification and substitutes sentinels at the classified slots. How strict it gets depends on which boundary, named by an egress profile. The profile is a closed six-member enum (`:rf.egress/off-box-observability` for hosted monitoring, `:rf.egress/local-redacted` for on-box dev panels, and so on). The profile matrix is in [Spec 015](../../../spec/015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional). The wider posture-by-surface matrices are in [Spec 009](../../../spec/009-Instrumentation.md#production-debugging-what-remains).
 
 The third layer is sink policy, which routes the projected records. A sink is your Datadog forwarder or a Sentry client — it receives records that are already safe, and it never scrubs anything itself. **You declare; the framework projects; sinks consume already-safe records.**
 
-!!! note "This is leak prevention, not a security boundary"
+## 1. Classify durable app-db secrets from an event
 
-    Your app still owns auth, encryption, and transport. The framework only keeps secrets off its own observability wire. Where it can't be sure, it fails closed — it redacts rather than leak.
-
-## 1. Declare durable app-db secrets on the frame
-
-State that *lives* in `app-db` is owned by the frame. That covers tokens, partner keys, and big blobs:
+State that *lives* in `app-db` is yours, at an absolute path you own. You classify it by returning a **classification effect** from a handler — alongside `:db`, in the same event. There are four, one per axis-and-direction:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:sensitive {:app-db [[:auth :token] [:auth :refresh-token]]}
-   :large     {:app-db [[:documents :csv-upload]]}
-   :initial-events [[:app/init]]})
+:sensitive       [[path] …]   ; classify each path sensitive (redact at egress)
+:large           [[path] …]   ; classify each path large    (size marker at egress)
+:clear-sensitive [[path] …]   ; un-classify sensitive
+:clear-large     [[path] …]   ; un-classify large
 ```
 
-A path declared both sensitive and large redacts as sensitive, because even "there's a 5MB blob here" says too much about a secret. Malformed paths fail loudly at registration, not silently at leak time, so a typo can't quietly disable your protection. Two rules worth remembering. First, a `reg-app-schema` slot prop does **not** classify app-db; the frame is the one owner of durable app-db privacy. Second, re-registering a frame replaces its policy wholesale, so keep everything in one declaration — step 4 grows this same map.
+Where you return them tracks *when* the secret's path becomes known:
 
-## 2. Declare transient payloads on the registration
+```clojure
+;; known at authoring — classify in the frame's init event
+(rf/reg-event :auth/init
+  (fn [{:keys [db]} _]
+    {:db        (assoc db :auth {})
+     :sensitive [[:auth :token] [:auth :refresh-token]]
+     :large     [[:documents :csv-upload]]}))
 
-Values that flow *through* the cascade are owned by the registration that introduces their shape. That covers event args, subscription outputs (a subscription is a derived, read-only view onto app-db), and flow outputs:
+;; discovered at runtime — classify in the handler that writes it
+(rf/reg-event :doc/scanned
+  (fn [{:keys [db]} [_ doc-id raw]]
+    (cond-> {:db (assoc-in db [:docs doc-id] {:body raw})}
+      (contains-pii? raw) (assoc :sensitive [[:docs doc-id :body]]))))
+```
+
+Wire `:auth/init` to run at frame creation — `:initial-events [[:auth/init]]` on `reg-frame` is the preferred home, so the classification is in place before any off-box egress. The effects are applied **with the `:db` write** (a frame-state transform at the commit point, not a later `:fx`), so a path classified in an event is redacted from its *first* egress; a classification made earlier trivially covers it. Three things worth holding onto:
+
+- **Classification is value-independent.** Classify a path *before* any value exists there — the common, safe pattern. The classification redacts whatever later occupies the path; over an absent path it's a harmless no-op. You don't re-classify per write.
+- **Sensitive wins over large.** A path declared both redacts as sensitive, because even "there's a 5MB blob here" says too much about a secret. No size marker (whose `:path` / `:bytes` would leak structure) is emitted.
+- **Malformed effects fail loud, pre-commit.** A bad payload (a non-vector value, a non-path entry, an unknown axis) aborts the transition with `:rf.error/classification-effect-shape` before any `:db` commit — a typo can't silently disable your protection.
+
+There is **no frame `:sensitive {:app-db …}` annotation** and **no schema prop** that classifies a durable app-db path — a `reg-app-schema` slot describes shape and drives validation, not egress. The event is app-db's definition site; that is the one route.
+
+## 2. Classify transient payloads on the registration
+
+Values that flow *through* the cascade — event args, fx/cofx values, a subscription's output — are owned by the registration that introduces their shape. Declare the sensitive / large paths there, relative to the payload:
 
 ```clojure
 (rf/reg-event :auth/sign-in
-  {:sensitive [[:password]]}        ;; paths into the event arg-map
+  {:sensitive [[:password]]}        ;; path into the event arg-map
   (fn [{:keys [db]} [_ {:keys [email password]}]]
     {:db (assoc db :auth/pending? true)
      :fx [[:rf.http/managed
@@ -46,51 +69,67 @@ Values that flow *through* the cascade are owned by the registration that introd
                          [:token {:sensitive? true} :string]]
             :on-success [:auth/signed-in]
             :on-failure [:auth/sign-in-failed]}]]}))
+
+(rf/reg-sub :partner/api-token {:sensitive [[]]}    ;; empty path → the whole sub output
+  (fn [db _] (get-in db [:tenant :partner-api-key])))
 ```
 
-The handler body sees `password` verbatim, because handlers need real values to do their work. Only the *observable shadow* is projected: the dispatched-event trace and the HTTP record ship `:password` as `:rf/redacted`. The off-box production record goes further still (step 4). The `:auth/signed-in` handler then stores the response token at `[:auth :token]`, the path step 1 already declared frame-sensitive. (An empty path `[[]]` marks the whole payload — for example, the output of a sub that returns a token.)
+The handler body sees `password` verbatim, because handlers need real values to do their work. Only the *observable shadow* is projected: the dispatched-event trace and the HTTP record ship `:password` as `:rf/redacted`. Paths index into the registration's primary shape — the event arg-map, the fx-input map, the sub output; an empty path `[[]]` marks the whole shape, and a mark at a missing slot is a silent no-op (payload shapes evolve).
 
-## 3. Declare schema-owned slots with `:sensitive?` / `:large?`
+!!! tip "Prefer the map payload for sensitive args — positional args are not path-addressable"
 
-Sometimes data's natural home already *is* a schema: a machine's `:data-schema`, a resource's `:data-schema` or `:params-schema`, an HTTP request's `:decode` schema (above). (A machine is a state machine you register to model a workflow; a resource is a declared piece of fetched-and-cached external data.) There, a per-slot boolean prop is the one and only route:
+    A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`). A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has no stable named path to classify, so the registration mark can't name it cleanly. When an event carries a secret, pass a map payload and classify the key.
+
+The `:auth/signed-in` handler then stores the response token at `[:auth :token]` — the path step 1 classified. Note the boundary of fail-open: the **HTTP reply** is redacted by its `:decode` schema (a transient payload), and the **durable copy** in app-db is redacted by step 1's path classification. Those are two separate declarations for the same secret on two different surfaces; there is no propagation that carries one to the other. Classify each surface the secret crosses.
+
+## 3. Subsystem data: declare it on the subsystem, projection-relative
+
+Some data lives inside a runtime subsystem — a machine's `:data`, a resource's fetched data or params. You don't own its absolute storage path, so you declare `:sensitive` / `:large` **relative to the instance's shape** on the subsystem definition, and the framework lowers the declaration into the registry per instance (at spawn / fetch) and drops it on teardown:
 
 ```clojure
+;; a machine declares its own sensitive / large :data slots, projection-relative
+;; to one actor snapshot's :data. The :data-schema still VALIDATES :data; it no
+;; longer classifies it for snapshot egress — that is the declaration below.
 (rf/reg-machine :checkout/payment
-  {:data-schema
-   [:map
-    [:payment [:map
-               [:token       {:sensitive? true} :string]
-               [:receipt-pdf {:large? true}     :bytes]]]]
+  {:sensitive   [[:data :payment :token]]
+   :large       [[:data :payment :receipt-pdf]]
+   :data-schema [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]
    :initial :collecting
    :states  {:collecting {:on {:submit :charging}}
              :charging   {:spawn {:src :checkout/charge :on-done :done}}
              :done       {}}})
+
+;; a resource declares its own statically-known sensitive / large fields
+(rf/reg-resource :user-profile
+  {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
 ```
 
-That `:token` slot redacts in every machine trace: the before/after of a transition, snapshots, guard inputs. The receipt PDF elides the same way. Rename a slot and the classification moves with it, since it's attached to the schema and not to a path you maintain separately. Fail-closed bites here too: a response body with **no** `:decode` schema is treated as whole-sensitive off-box, so a forgotten schema redacts rather than leaks.
+That `[:data :payment :token]` slot redacts in every machine trace — the before/after of a transition, snapshots, guard inputs — for every spawned actor instance, with no per-instance author code. Rename the slot in the declaration and the classification moves with it.
 
-This trips people up, so it's worth pinning down the difference. `:sensitive` (on a frame or registration) names a *collection of paths*. `:sensitive?` (on a schema slot) is a *yes/no about one slot*. Three owners, no overlap:
+!!! warning "The schema prop is a *different* axis — validation-failure traces, not durable egress"
+
+    A `:sensitive?` / `:large?` prop on a `:data-schema` slot still does one thing: it redacts that slot in the schema's own **validation-failure trace** (the schema produces that record, so it owns its egress shape). It does **not** classify the durable `:data` for snapshot egress — that's the projection-relative `:sensitive` / `:large` declaration above. The same `:sensitive?` prop on an HTTP request's `:decode` schema is the right and only route for the *transient* response body (step 2). Schemas own *transient* and *validation-failure* products; durable state is the effect (step 1) or the subsystem declaration (here).
+
+This trips people up, so it's worth pinning the difference between `:sensitive` and `:sensitive?`. `:sensitive` (no `?`) names a *collection of paths* — a classification effect, a registration mark, a subsystem declaration. `:sensitive?` (with `?`) is a *yes/no Malli prop on one schema slot*, surviving only for validation-failure-trace redaction and for the schema-owned *transient* products (HTTP `:decode` body, resource params). Three durable owners, no overlap:
 
 | The data is… | Owner | Declare with |
 |---|---|---|
-| Durable frame-wide `app-db` state | the frame | `:sensitive` / `:large` path maps on `reg-frame` |
-| Owner-local schema'd data (machine `:data`, resource data/params, HTTP bodies) | the schema | per-slot `:sensitive?` / `:large?` props |
-| Transient payloads (event args, sub/flow outputs) | the registration | `:sensitive` / `:large` path vectors |
+| Durable `app-db` state | the **event** | `:sensitive` / `:large` classification effects (step 1) |
+| Subsystem instance data (machine `:data`, resource data/params) | the **subsystem definition** | projection-relative `:sensitive` / `:large` on `reg-machine` / `reg-resource` (step 3) |
+| Transient payloads (event args, fx/cofx, sub outputs, HTTP bodies) | the **registration** / its `:decode` schema | `:sensitive` / `:large` path vectors, or `:sensitive?` props on the `:decode` schema (step 2) |
 
-A sub or flow that *reads* a sensitive input inherits sensitivity by default. Declassifying a safe derivation — a hash, a count — is an explicit, auditable claim, covered in [Spec 015 §Derived sensitivity](../../../spec/015-Data-Classification.md#derived-sensitivity).
+**Classification does not propagate.** A sub or flow that *reads* a sensitive input does not auto-classify its output. If you derive a secret to a new path — through a sub, a flow, a rendered field — classify *that* path. A sensitive flow output is just a classified db path. There is no `:rf.egress/output-sensitivity` declassification claim (it's gone, silently ignored if present) and no value-match "same value redacted everywhere" engine.
 
 ## 4. Before you wire an off-box shipper
 
 Production observation records route by the frame's `:observability` policy. Name a sink id and the boundary's profile, then register the concrete function:
 
 ```clojure
-(rf/reg-frame :app/main                 ;; the step-1 map, grown
-  {:sensitive     {:app-db [[:auth :token] [:auth :refresh-token]]}
-   :large         {:app-db [[:documents :csv-upload]]}
-   :observability {:handled-events
+(rf/reg-frame :app/main
+  {:observability {:handled-events
                    [{:sink :my-app.sinks/datadog
                      :rf.egress/profile :rf.egress/off-box-observability}]}
-   :initial-events [[:app/init]]})
+   :initial-events [[:auth/init]]})         ;; classifies [:auth :token] (step 1)
 
 (rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]
@@ -100,7 +139,7 @@ Production observation records route by the frame's `:observability` policy. Nam
 
 Verify four things before the first record ships:
 
-- **Every secret has its owner's declaration** — walk the three-row table for each one. That declaration is the whole defence; there's no second backstop.
+- **Every secret's *path* has a declaration** — walk the three-row table for each one, on every surface the secret crosses (durable app-db, transient payload, subsystem). That declaration is the whole defence; the contract is fail-open, so an undeclared path leaks with no second backstop.
 - **The sink does no redaction.** If you find yourself writing a scrub inside the sink function, a declaration is missing upstream. Fix the owner, not the sink.
 - **The off-box default omits event args entirely.** A projected handled-event record carries the frame, event id, status, timing, and effect keys — but there's no `:event` slot at all. Confirm it at the REPL with the same primitive the runtime uses:
 
@@ -115,7 +154,7 @@ Verify four things before the first record ships:
     ;;     :event-id :auth/sign-in ...}   ;; no :event slot
     ```
 
-- **Know the fail-closed properties.** A frame with no `:observability` policy routes nothing. An unresolvable frame routes nothing — never a default frame. A throwing sink is isolated from its siblings, so one bad shipper can't take the others down.
+- **Know the fail-closed properties.** A frame with no `:observability` policy routes nothing. An unresolvable frame routes nothing — never a default frame. A throwing sink is isolated from its siblings, so one bad shipper can't take the others down. (Fail-*closed* here is the projector's posture on an unknown frame/profile; fail-*open* is the classification posture on an undeclared path — different surfaces, different defaults.)
 
 !!! warning "Exceptions are the one gap"
 
@@ -129,13 +168,13 @@ Dispatch `[:auth/sign-in {:email "a@b.c" :password "hunter2"}]` in a dev build a
 - `:rf/large {:bytes N :head "…"}` — large; drillable on-box, elided off-box.
 - `:rf/redacted {:bytes N}` — both; sensitive wins, so only the size may show.
 
-A value you expected scrubbed but that renders raw means the owner declaration is missing or mis-pathed. Fix it at the owner, and the fix lands on every surface at once.
+A value you expected scrubbed but that renders raw means the *path* declaration is missing or mis-pathed — or the secret was re-keyed to a path you didn't classify (the fail-open case). Classify the path it actually lives at, and the fix lands on every surface at once.
 
 ---
 
 You can now:
 
-- classify a secret or a blob at its one owner — frame, schema, or registration
+- classify a secret or a blob at the *path* its owner controls — an event effect, a registration mark, or a subsystem declaration
 - keep handler code working on real values while every observable surface ships sentinels
 - verify what an off-box sink will receive with `rf/project-egress` before wiring it
 - spot-check classifications live in Xray, and read the three sentinel shapes

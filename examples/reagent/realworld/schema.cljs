@@ -30,14 +30,16 @@
 (def User
   "The authenticated user's profile. Returned by /users/login,
    /users (register), and /user (current user)."
-  ;; EP-0015 (issue 5 / disposition 5): the JWT is owner-classified at the
-  ;; slot that introduces it, via the EP-0005 per-slot `:sensitive?` malli
-  ;; property. `UserResponse` is the `:decode` schema for the login / register
-  ;; / session-restore replies, so this classification redacts the token out
-  ;; of any off-box capture of the response body (the same fact the frame
-  ;; `:sensitive` config redacts once it lands at [:auth :token] / the Bearer
-  ;; header — declared here so it is also covered while still in flight as a
-  ;; decoded reply, before the auth machine stores it).
+  ;; EP-0025 / Spec 015: the JWT is classified at the transient slot that
+  ;; introduces it, via the per-slot `:sensitive?` malli property on the
+  ;; `:decode` schema (the transient-response-body route — the one schema-prop
+  ;; route that survives). `UserResponse` is the `:decode` schema for the login
+  ;; / register / session-restore replies, so this redacts the token out of any
+  ;; off-box capture of the response body. The durable copy at [:auth :token]
+  ;; is classified separately by the `:auth/classify-token` commit-plane
+  ;; `:sensitive` effect (core.cljs) — classification does not propagate, so
+  ;; each surface a secret crosses is declared on its own; the Bearer header is
+  ;; on the framework's built-in carrier denylist.
   [:map
    [:email    :string]
    [:token    {:sensitive? true} :string]
