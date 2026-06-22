@@ -203,14 +203,33 @@ and all three are now gated:
   `re-frame.core/projected-record` server-side under the OFF default,
   gated by the `:include-sensitive` two-key opt-in (the launch flag
   AND the per-call arg) — identical to `trace-window` / `watch-epochs`
-  / `snapshot :epochs`.
-- The DEFAULT cascade-summary `:event-vector` (the raw
-  `:trigger-event`) redacts to `:rf/redacted` for a sensitive epoch.
-  `dispatch` issues `configure-raw-state!` (`raw-state/signal-runtime!`)
-  between the preload probe and the dispatch eval — the same prelude
-  every state-emitting tool wears — so the runtime's `raw-state-config`
-  flips out of its permissive `{:allow-raw-state? true}` default and
-  the redaction fires. Before rf2-8fin7.3 `dispatch` was the lone
+  / `snapshot :epochs`. This projection runs on BOTH transports of the
+  epoch-bearing modes: the synchronous (non-await) path AND the
+  `await-render` path (where an explicit `trace` still resolves to
+  `dispatch-and-collect`'s raw `:epoch`) — the await-render epoch
+  projects the same way, so it never crosses the wire un-projected
+  (rf2-6klf02). The `:include-sensitive` arg parses through the safe
+  `args/parse-bool-arg` (the cross-MCP accept-shape parser), so a string
+  `"false"` over the JSON wire stays FALSE — it never fail-opens to a raw
+  read under `--allow-sensitive-reads` (rf2-66ippe).
+- The cascade-summary `:event-vector` (the raw `:trigger-event`) FAILS
+  CLOSED on its ARGS for EVERY epoch under the OFF default — the head
+  `<event-id>` keyword is retained while every positional / map arg
+  redacts to `:rf/redacted`, so `[:login "topsecret"]` egresses as
+  `[:login :rf/redacted]`. This is the same projection the framework's
+  `projected-record` applies to a record's `:trigger-event` slot
+  (rf2-nm611o, `epoch/tool_pair.cljc` §`elide-trigger-event-slot`): the
+  event args are registration-owned transient payloads the app-db
+  classification walker cannot prove safe, so a secret carried IN the
+  vector redacts whether or not the epoch is declared
+  `:rf.epoch/sensitive?`. Keying the redaction to the
+  `:rf.epoch/sensitive?` rollup ALONE leaked a non-declared
+  trigger-event's secret off-box (rf2-6klf02). `dispatch` issues
+  `configure-raw-state!` (`raw-state/signal-runtime!`) between the
+  preload probe and the dispatch eval — the same prelude every
+  state-emitting tool wears — so the runtime's `raw-state-config` flips
+  out of its permissive `{:allow-raw-state? true}` default and the
+  fail-close fires. Before rf2-8fin7.3 `dispatch` was the lone
   state-emitting tool that never signalled, so a FIRST-in-session
   sensitive dispatch shipped its raw event vector off-box even under
   the OFF gate. Posture parity with `dispatch-dry-run`.
@@ -704,11 +723,19 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    `:would-fire-effects[*].args`) return the `:rf/redacted` sentinel;
    sensitive trace events / epochs are stripped from streaming
    payloads. The `:cascade-summary` `:event-vector` slot — which copies
-   the epoch's raw `:trigger-event` — is likewise redacted to
-   `:rf/redacted` when the source epoch is `:rf.epoch/sensitive? true`
-   (rf2-6nks4). This redaction is applied SERVER-SIDE inside the runtime
-   projection (`restore-cascade-summary` / `cascade-summary`), keyed to
-   the epoch-level sensitivity rollup rather than per-value elision — the
+   the epoch's raw `:trigger-event` — FAILS CLOSED on its ARGS: the head
+   `<event-id>` keyword is retained while every arg redacts to
+   `:rf/redacted` (`[:login "topsecret"]` → `[:login :rf/redacted]`),
+   for EVERY epoch — sensitive or not (rf2-6nks4 + rf2-nm611o +
+   rf2-6klf02). The event args are registration-owned transient payloads
+   the app-db classification walker cannot prove safe, so a secret carried
+   IN the dispatch vector redacts regardless of the epoch's
+   `:rf.epoch/sensitive?` rollup — keying it to the rollup alone leaked a
+   non-declared trigger-event's secret (rf2-6klf02). This is the same
+   projection `projected-record` applies to a record's `:trigger-event`
+   slot (`epoch/tool_pair.cljc` §`elide-trigger-event-slot`). It is
+   applied SERVER-SIDE inside the runtime projection
+   (`restore-cascade-summary` / `cascade-summary`) because the
    trigger-event is not addressed by an app-db path the elision registry
    classifies. It therefore covers `restore-epoch`, `dispatch-dry-run`
    (whose `:cascade-summary` is otherwise NOT walked, being a counts-only

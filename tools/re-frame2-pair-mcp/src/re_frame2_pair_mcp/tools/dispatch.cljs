@@ -112,19 +112,30 @@
   the wire, gated on `raw-state-allowed?` + the `:include-sensitive`
   two-key opt-in — sensitive leaves land as
   `:rf/redacted`, large slots elide, the cascade stays structurally
-  useful.
+  useful. This projection runs on BOTH transports of the epoch-bearing
+  modes: the synchronous (non-await) path wraps the bare runtime call,
+  and the `:await-render` path wraps the runtime call INSIDE the
+  render-settle Promise (`render-settle-form`). Under `:await-render`
+  an explicit `:trace` still resolves to `dispatch-and-collect` (the raw
+  `:epoch`), so the await transport projects the SAME way the non-await
+  one does — an await-render epoch never crosses the wire unprojected
+  (rf2-6klf02).
 
   Path 3 is closed by issuing `raw-state/signal-runtime!` between the
   preload probe and the dispatch eval (the snapshot / get-path /
   dispatch-dry-run prelude shape). The runtime's cascade-summary
-  redacts the `:event-vector` only when `(not (:allow-raw-state?
-  @raw-state-config))`, and `raw-state-config` DEFAULTS to
-  `{:allow-raw-state? true}` — it flips to the server's gate state ONLY
-  when a tool signals. Signalling before the dispatch eval means even a
-  first-in-session sensitive dispatch runs with the runtime at the
-  server's gate state, so its raw event vector redacts to `:rf/redacted`
-  under the OFF gate. Posture parity with `dispatch-dry-run`
-  (signal-runtime! + projected egress, same gate)."
+  FAILS CLOSED on the `:event-vector` args only when `(not
+  (:allow-raw-state? @raw-state-config))`, and `raw-state-config`
+  DEFAULTS to `{:allow-raw-state? true}` — it flips to the server's gate
+  state ONLY when a tool signals. Signalling before the dispatch eval
+  means even a first-in-session dispatch runs with the runtime at the
+  server's gate state, so its event-vector ARGS redact under the OFF
+  gate — the head event-id is retained, every arg becomes `:rf/redacted`
+  (`[:login \"pw\"]` → `[:login :rf/redacted]`), for EVERY epoch whether
+  or not it is declared `:rf.epoch/sensitive?` (the args are
+  registration-owned transient payloads the classification walker cannot
+  prove safe — rf2-nm611o / rf2-6klf02). Posture parity with
+  `dispatch-dry-run` (signal-runtime! + projected egress, same gate)."
   (:require [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.args :as args]
@@ -275,20 +286,43 @@
   `event-vec` + `opts-form` are the dispatch payload. Emits a form whose
   synchronous return is a `js/Promise` resolving to the dispatch envelope
   merged with `{:settled? true}` once the substrate has flushed + the
-  next paint is scheduled."
-  [fn-sym event-vec opts-form]
-  (str
-    "(js/Promise."
-    "  (fn [resolve# _reject#]"
-    "    (let [result# " (ef/emit (ef/rt-call fn-sym event-vec opts-form))
-    "          done#   (fn [] (resolve# (if (map? result#)"
-    "                                     (assoc result# :settled? true)"
-    "                                     {:settled? true :result result#})))]"
-    "      (re-frame.interop/after-render"
-    "        (fn []"
-    "          (if (exists? js/requestAnimationFrame)"
-    "            (js/requestAnimationFrame (fn [_#] (done#)))"
-    "            (done#)))))))"))
+  next paint is scheduled.
+
+  `epoch-bearing?` is true when the resolved `mode` is `:trace`
+  (`dispatch-and-collect`) — under `:await-render` the runtime fn is
+  forced synchronous, and an explicit `:trace` still selects
+  `dispatch-and-collect`, which returns the RAW assembled `:epoch`
+  (`:db-before` / `:db-after` / `:trigger-event` / `:trace-events`). On
+  that path the result MUST route through the framework's off-box
+  projection (`re-frame.core/projected-record` via
+  `egress/project-dispatch-result-src`) APP-SIDE before it crosses the
+  wire — exactly as the NON-await `:trace` / `:settle` path does
+  (`dispatch-tool` below). Without it the await-render epoch shipped raw,
+  re-leaking the very sensitive / large app-db material the non-await
+  path elides (rf2-6klf02). The projection wraps `result#` (the runtime
+  return) BEFORE the `{:settled? true}` merge, so the settle confirmation
+  rides on the already-projected envelope. The sync / queued consequence
+  shapes carry no raw app-db, so `epoch-bearing?` is false and the bare
+  runtime call rides unwrapped (matching the non-await default). `incl?`
+  threads the resolved `:include-sensitive` opt-in INTO the projection
+  (app-db sensitive axis only) — never a projection bypass."
+  [fn-sym event-vec opts-form epoch-bearing? incl?]
+  (let [call-src (ef/emit (ef/rt-call fn-sym event-vec opts-form))
+        result-src (if epoch-bearing?
+                     (egress/project-dispatch-result-src call-src incl?)
+                     call-src)]
+    (str
+      "(js/Promise."
+      "  (fn [resolve# _reject#]"
+      "    (let [result# " result-src
+      "          done#   (fn [] (resolve# (if (map? result#)"
+      "                                     (assoc result# :settled? true)"
+      "                                     {:settled? true :result result#})))]"
+      "      (re-frame.interop/after-render"
+      "        (fn []"
+      "          (if (exists? js/requestAnimationFrame)"
+      "            (js/requestAnimationFrame (fn [_#] (done#)))"
+      "            (done#)))))))")))
 
 (defn dispatch-tool [conn args]
   (let [event-str    (wire/arg args :event)
@@ -394,8 +428,22 @@
         ;; only). The orthogonal fx-args / runtime-db / large axes and the
         ;; app `:redact-fn` stay fail-closed regardless of
         ;; `:include-sensitive` (Security.md §Off-box egress).
+        ;;
+        ;; Use the established `args/parse-bool-arg` (the cross-MCP
+        ;; accept-shape parser) rather than a raw `(boolean (wire/arg …))`
+        ;; coercion. Over the JSON-MCP wire the arg can arrive as the
+        ;; STRING `"false"`, which is truthy in CLJS — a bare `boolean`
+        ;; would coerce a caller's explicit `include-sensitive "false"`
+        ;; to TRUE under `--allow-sensitive-reads`, threading
+        ;; `{:include-sensitive? true}` into `projected-record` and
+        ;; lifting the app-db sensitive axis the operator just declined.
+        ;; `parse-bool-arg` reads `"false"`/`"no"`/`"0"` as false (and
+        ;; defaults absent/unrecognised to the table's `false`), so the
+        ;; sensitive opt-in is honoured only on a genuine truthy value —
+        ;; the same safe parse `dispatch-dry-run` already uses for this
+        ;; arg.
         incl?        (if (raw-state/raw-state-allowed?)
-                       (boolean (wire/arg args :include-sensitive))
+                       (args/parse-bool-arg args :include-sensitive)
                        false)
         [tag payload] (parse-event-edn event-str)]
     (cond
@@ -473,8 +521,17 @@
         (if await-render?
           ;; Render-settle path. The form's synchronous return is a
           ;; Promise; await it through the shared mailbox so
-          ;; `dispatch → observe` is one deterministic step.
-          (let [settle-form (render-settle-form fn-sym event-vec opts-form)
+          ;; `dispatch → observe` is one deterministic step. When the
+          ;; resolved mode is epoch-bearing (`:trace` under await-render
+          ;; selects `dispatch-and-collect`, which returns the RAW
+          ;; `:epoch`), the settle form projects the result through
+          ;; `projected-record` APP-SIDE before egress — the SAME off-box
+          ;; redaction the non-await `:trace` / `:settle` path applies
+          ;; (rf2-6klf02). The consequence shapes (`:sync` / `:queued`)
+          ;; carry no raw app-db, so they ride unwrapped.
+          (let [settle-form (render-settle-form fn-sym event-vec opts-form
+                                                (contains? #{:trace :settle} mode)
+                                                incl?)
                 mailbox-id  (await-promise/mailbox-key)
                 wrapped     (await-promise/wrap-form settle-form mailbox-id)]
             ;; The signalled prelude flips the boot-gate posture BEFORE
