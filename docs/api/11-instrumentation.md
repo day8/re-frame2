@@ -245,32 +245,13 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```clojure
   (elide-wire-value v opts) → v or an elision-marker substitution
   ```
-- **Description**: Walk `v` consulting `[:rf.runtime/elision :declarations]` and `[:rf.runtime/elision :sensitive-declarations]` of the named frame's **runtime-db**. Substitute `:rf/redacted` for sensitive slots and `:rf.size/large-elided` markers for large slots.
+- **Description**: Walk `v` consulting `[:rf.runtime/elision :sensitive-declarations]` and `[:rf.runtime/elision :declarations]` of the named frame's **runtime-db** — the per-frame registry written by the commit-plane classification effects (EP-0025). Redaction is strictly **path-based**: substitute `:rf/redacted` at each declared sensitive path and `:rf.size/large-elided` markers at each declared large path. There is **no value-match** arm — a secret re-keyed off its classified path is **not** chased by value (the removed "propagation / taint by another name"); it ships raw, the intended **fail-open** (to redact it, classify the destination path). When the frame carries no declarations the value passes through unchanged.
 
-### `redact-derived-slots`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (redact-derived-slots m slot-keys source-db frame-id wire-opts)
-  ```
-- **Description**: The single composed multi-slot egress helper — the value-based DUAL of `elide-wire-value`. Where the walker redacts a frame's declared `:sensitive` / `:large` app-db slots by *path*, a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body) re-surfaces those values at non-app-db positions the path walker can't reach, so they must be redacted by *value*. `slot-keys` `nil`/empty ⇒ `m` *is* the derived tree (scrubbed wholesale); a seq of keys ⇒ `m` is a map and each present key's value is scrubbed off one collection pass. Sensitive runs first (it wins), then large over the survivors. The granular value-match arms and the `[:rf.runtime/elision]` declaration readers (`re-frame.elision/declarations` / `sensitive-declarations`) it composes live in `re-frame.elision` — reach them through that home namespace.
-
-### `populate-elision-from-schemas!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (populate-elision-from-schemas!) → vector of paths populated
-  (populate-elision-from-schemas! frame-id) → vector of paths populated
-  ```
-- **Description**: Boot-time hydrator that walks the frame's registered app-schemas and writes `{:large? true :source :schema}` declarations for every path whose Malli schema carries `:large? true`. Idempotent.
-
-Composition rule: when both predicates match (sensitive AND large for the same path), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` from a sensitive slot.
+> **Removed surfaces (EP-0025).** `redact-derived-slots` (the value-based derived-tree dual) and `populate-elision-from-schemas!` / `populate-sensitive-from-schemas!` (the schema-prop boot hydrators) were **removed** from the facade and from `re-frame.elision`. Value-match is propagation by another name; schemas are not a second durable-classification route. Use the path-based surfaces instead: classify durable `app-db` paths with the commit-plane effects (a `reg-event` returning `:sensitive` / `:large` alongside `:db`), and project a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body) with **`project-egress`** under a `:rf.observe/derived-tree` record — it path-walks each tree slot through `elide-wire-value` against the frame's registry.
 
 `elide-wire-value` is the low-level *value* walker. The public, record-level boundary primitive is **`project-egress`**: real egress surfaces (handled-event records, error records, epoch records, MCP snapshots, HTTP diagnostics) emit *records*, and `project-egress` projects a whole record under the owning frame's classification and a named `:rf.egress/*` profile — delegating to `elide-wire-value` for each tree-shaped slot. Sinks and tools call `project-egress`; they rarely call the walker directly. See [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md) for the full projection model and the closed `:rf.egress/*` profile enum.
 
-See [08 — Schemas §Data classification](08-schemas.md#data-classification) for the declaration side — durable `app-db` classification is frame-owned (`reg-frame` `:sensitive` / `:large`), and per-slot `:sensitive?` / `:large?` schema props own machine `:data` / resource / HTTP-body classification.
+See [08 — Schemas §Data classification](08-schemas.md#data-classification) for the declaration side — durable `app-db` classification is event-owned (a `reg-event` returns the commit-plane `:sensitive` / `:large` effects alongside `:db`), and per-slot `:sensitive?` / `:large?` schema props own machine `:data` / resource / HTTP-body classification.
 
 ## Privacy predicate
 

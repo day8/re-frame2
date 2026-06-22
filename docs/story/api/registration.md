@@ -306,9 +306,9 @@ Worked example:
                 [story/layout-debug-pseudo-id #{:hover}]]})
 ```
 
-## Privacy — frame-owned classification
+## Privacy — variant-body classification
 
-Durable app-db classification is **frame-owned** (EP-0015): since a variant *is* a frame, a variant declares its sensitive / large app-db paths at frame creation via the `:sensitive` / `:large` slots on its body — the same owner model `reg-frame` uses:
+A variant declares its sensitive / large app-db paths via the `:sensitive` / `:large` slots on its body, keyed by `:app-db`:
 
 ```clojure
 (story/reg-variant :story.auth/login-form
@@ -319,9 +319,9 @@ Durable app-db classification is **frame-owned** (EP-0015): since a variant *is*
    :large     {:app-db [[:docs :csv-upload]]}})
 ```
 
-The runtime threads these onto the variant's `reg-frame` config, so the framework's classification layer validates and installs them atomically as part of frame creation — a malformed declaration fails loudly at registration. This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation. The `:sensitive` / `:large` value shape is the framework's: a map keyed by `:app-db` (a vector of `get-in`-shaped paths) and optionally `:http` (frame-local carrier-name extensions).
+These `:app-db` paths are **not** a frame annotation and are **not** threaded onto the variant's `reg-frame` config — EP-0025 removed the durable frame annotation (a `reg-frame` config carrying `:sensitive {:app-db …}` now fails loud). Instead, Story lowers the variant-body `:app-db` paths into the variant frame's elision registry as **commit-plane classification effects** (`apply-variant-classification!`, `:source :effect`) right after frame creation, before the variant's lifecycle / init events — the same registry write a `reg-event` returning `:sensitive` / `:large` performs. So a classified path is already redacted in any trace the variant's setup emits, and a malformed declaration fails loud as a classification-effect-shape error. This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation. The `:sensitive` value may also carry `:http` carriers — those stay on the frame config (HTTP carriers are not app-db classification); only the `:app-db` paths are lowered into the elision registry.
 
-> **No `add-marks` / `set-marks`.** Story does not publish a post-creation path-mark mutation surface. EP-0015 moved durable app-db classification onto the frame owner and superseded the public `add-marks` / `set-marks` model (the underlying fns are framework-internal / test helpers only). Declare classification at frame creation instead. Transient payloads (event args, fx/cofx values) are classified via `:sensitive` / `:large` registration metadata on `reg-event` / `reg-fx` / `reg-cofx`.
+> **No `add-marks` / `set-marks`.** Story does not publish a post-creation path-mark mutation surface. EP-0025 lowers durable app-db classification through commit-plane effects and superseded the public `add-marks` / `set-marks` model (the underlying fns are framework-internal / test helpers only). Declare classification on the variant body instead. Transient payloads (event args, fx/cofx values) are classified via `:sensitive` / `:large` registration metadata on `reg-event` / `reg-fx` / `reg-cofx`.
 
 ## See also
 
@@ -331,4 +331,4 @@ The runtime threads these onto the variant's `reg-frame` config, so the framewor
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
 - [Story tutorial — Workspaces, modes, and composition](../07-workspaces-modes-composition.md) — workspaces, modes, the args editor.
-- [Framework API — Schemas and data classification](../../api/08-schemas.md) — the framework's frame-owned `:sensitive` / `:large` classification model.
+- [Framework API — Schemas and data classification](../../api/08-schemas.md) — the framework's commit-plane `:sensitive` / `:large` classification model.
