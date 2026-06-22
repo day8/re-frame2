@@ -299,8 +299,17 @@
   commit transition (a partition-write alongside `:db`).
 
   Each SET key (`:sensitive` / `:large`) adds `{:source :effect}` declarations
-  for its paths to the axis slot (`:sensitive-declarations` / `:declarations`);
-  each CLEAR key (`:clear-sensitive` / `:clear-large`) removes ONLY the
+  for its paths to the axis slot (`:sensitive-declarations` / `:declarations`)
+  WITHOUT clobbering a foreign-source standing entry: the registry is
+  one-entry-per-path-per-axis, so a SET on a path another owner already claims
+  (`:source :flow` / `:machine` / `:route` / a subsystem declaration) leaves
+  that owner standing rather than overwriting it to `:source :effect`
+  (rf2-p4spo4). Were it to overwrite, the later source-scoped CLEAR would
+  dissoc the entry and silently un-redact a path the other owner still
+  classifies — a privacy fail-open. The egress read needs only presence, so a
+  doubly-claimed path stays redacted and the SET is a no-op on it; only a free
+  or already-effect-owned slot is (re)stamped `:source :effect`.
+  Each CLEAR key (`:clear-sensitive` / `:clear-large`) removes ONLY the
   effect's OWN contribution to its paths from the axis slot. A clear is
   SOURCE-SCOPED: it dissocs a path only when the standing entry is
   `:source :effect` (the effect's own declaration); a path also claimed by
@@ -340,7 +349,26 @@
                     paths   (map #(vec (path/normalize-concrete %)) (get effects k))
                     cur     (get reg slot)
                     updated (if set?
-                              (reduce (fn [m p] (assoc m p {:source :effect})) (or cur {}) paths)
+                              ;; NON-CLOBBERING set (rf2-p4spo4): the registry is
+                              ;; one-entry-per-path-per-axis, so an effect SET on a
+                              ;; path ALSO claimed by another owner (`:source :flow`
+                              ;; from a reg-flow output, `:source :machine`,
+                              ;; `:source :route`, or a subsystem declaration) must
+                              ;; NOT overwrite that owner's provenance. If it did,
+                              ;; the later SOURCE-SCOPED clear below would see
+                              ;; `:source :effect`, dissoc the entry, and silently
+                              ;; un-redact a path the other owner still classifies —
+                              ;; a privacy fail-open. The egress read needs only
+                              ;; PRESENCE, so leaving the foreign owner standing
+                              ;; keeps the path redacted while preserving the source
+                              ;; the clear must honour. Only a free or already-
+                              ;; effect-owned slot is (re)stamped `:source :effect`.
+                              (reduce (fn [m p]
+                                        (let [src (:source (get m p))]
+                                          (if (or (nil? src) (= :effect src))
+                                            (assoc m p {:source :effect})
+                                            m)))
+                                      (or cur {}) paths)
                               ;; SOURCE-SCOPED clear (rf2-34jrb6): remove a path
                               ;; only when ITS standing entry is the effect's own
                               ;; (`:source :effect`). A path also claimed by a
