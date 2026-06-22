@@ -19,13 +19,13 @@
 ;; Harness note: the conformance runner threads `:fixture/registry :event`
 ;; metadata through to `reg-event-*` (rf2-jwm4), so the `:sensitive` key lands
 ;; in the event's registrar metadata, where the registration projection derives
-;; it at emit time (no imperative side-table; the `add-marks` API is removed,
-;; EP-0025). Capability `:data-classification/marks`.
+;; it at emit time (no imperative side-table; the imperative `add-marks` API was
+;; removed by EP-0025). Capability `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/event-arg-sensitive-path-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A reg-event-* with a :sensitive [[:password]] registration-metadata key, dispatched with {:password \"secret\"}, projects [event-id {:password :rf/redacted}] in the :rf.event/db-changed trace event's :rf.event/v slot; an unmarked sibling (:user) rides verbatim. The handler body sees the unredacted payload — only the trace surface redacts. EP-0025: event args are a registration-owned transient payload."
 
  :fixture/registry

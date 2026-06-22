@@ -17,13 +17,14 @@
 ;; large` deftest, lifted to the host-agnostic corpus through the runtime's
 ;; emit-time projection chokepoint.
 ;;
-;; Harness note: `:fixture/app-marks` declares the path BOTH sensitive and
-;; large via two ordered `add-marks` ops. Capability `:data-classification/marks`.
+;; Harness note: `:fixture/classification-effects` declares the path BOTH
+;; sensitive and large via two ordered ops. Capability
+;; `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/sensitive-wins-over-large
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A path declared BOTH sensitive AND large projects as :rf/redacted in the t1 :rf.event/db-pending trace event — sensitive dominates the size axis, so NO :rf.size/large-elided marker (which would leak path / size / type / handle) is emitted. An unmarked sibling rides egress verbatim."
 
  :fixture/registry
@@ -33,11 +34,11 @@
  {:event {:dc/store [[:set [:secret] "xy"]
                      [:set [:public] "ok"]]}}
 
- ;; Declare [:secret] BOTH sensitive AND large — two ordered add-marks ops.
+ ;; Declare [:secret] BOTH sensitive AND large — two ordered ops.
  ;; Sensitive must win at egress regardless of declaration order.
- :fixture/app-marks
- [{:add-marks {[:secret] :large}}
-  {:add-marks {[:secret] :sensitive}}]
+ :fixture/classification-effects
+ [{:large     [[:secret]]}
+  {:sensitive [[:secret]]}]
 
  :fixture/frame-config
  {:initial-events [[:dc/store]]}

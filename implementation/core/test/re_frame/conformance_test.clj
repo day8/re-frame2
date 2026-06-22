@@ -17,10 +17,11 @@
             [clojure.edn :as edn]
             [re-frame.core :as rf]
             [re-frame.routing :as routing]
-            ;; EP-0025: the imperative add-marks/set-marks API is removed; the
-            ;; corpus `:add-marks` / `:set-marks` ops install frame app-db
-            ;; classification directly into the elision registry (the kept
-            ;; substrate the commit-plane `:sensitive` / `:large` effects write).
+            ;; EP-0025: durable app-db classification is the four commit-plane
+            ;; effects; the corpus `:fixture/classification-effects` ops install
+            ;; frame app-db classification directly into the elision registry
+            ;; (the same substrate the commit-plane `:sensitive` / `:large` /
+            ;; `:clear-sensitive` / `:clear-large` effects write).
             [re-frame.elision :as elision]
             ;; rf2-wxe9t — the always-on error-emit substrate (Spec 009
             ;; §What IS available in production §Error observability)
@@ -205,13 +206,12 @@
     :flow/frame-scoped
     ;; Spec 014 — :rf.http/managed (rf2-z1mw)
     :rf.http/managed
-    ;; Spec 015 §Data classification (rf2-s2s3xv) — the `data-classification/`
-    ;; fixture category exercises the path-marks redaction contract through
-    ;; the t2 pending-db trace egress (`add-marks` / `set-marks` declaring
-    ;; sensitive / large paths via `:fixture/app-marks`). Claimed so
-    ;; `data-classification-flow-output-inherits-from-input.edn` (Spec 015:568)
-    ;; runs through the core corpus.
-    :data-classification/marks
+    ;; Spec 015 §Data classification (rf2-s2s3xv) — the `data-classification-`
+    ;; fixture category exercises the commit-plane classification-effect
+    ;; redaction contract through the t2 pending-db trace egress (the
+    ;; `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`
+    ;; declarations installed via `:fixture/classification-effects`).
+    :data-classification/classification-effects
     ;; EP-0014 (rf2-k0meap.3) — the cross-family derivation/process graph
     ;; (lowering / classification / edge roles / parametric markers /
     ;; :machine-selector refinement) via the `:derivation-graph` call op.
@@ -722,55 +722,48 @@
                            (assoc :id flow-id)
                            (assoc :derive output-fn))))))))
 
-(defn- realise-app-marks!
-  "Apply a fixture's `:fixture/app-marks` data-classification declarations
-  against the established frame scope.
+(defn- realise-classification-effects!
+  "Apply a fixture's `:fixture/classification-effects` data-classification
+  declarations against the established frame scope.
 
-  EP-0025: the imperative `add-marks` / `set-marks` API is REMOVED. These
-  fixture ops are a TEST-ONLY shorthand for installing / removing frame app-db
-  classification — equivalent to the four kept commit-plane effects
+  EP-0025: durable app-db classification is the four commit-plane effects
   (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, `:source
-  :effect`). The harness installs / removes each `{path mark}` directly into the
-  frame's durable elision registry. `:add-marks` merges (additive); `:set-marks`
-  replaces ALL prior effect-sourced declarations on the frame first
-  (frame-sourced survive), so the `set-marks-replaces-not-merges` semantics hold;
-  `:clear-marks` removes exactly the named `{path mark}` entries on their named
-  axis ONLY (the OTHER axis at the same path survives — the commit-plane
-  `:clear-sensitive` / `:clear-large` per-axis independence).
+  :effect`), returned by a `reg-event` handler alongside `:db`. Because pure-EDN
+  fixtures cannot return effects from a handler body, these fixture ops are a
+  TEST-ONLY shorthand that writes the frame's durable elision registry EXACTLY
+  as the four commit-plane effects would. `:sensitive` / `:large` are additive;
+  `:clear-sensitive` / `:clear-large` remove exactly the named paths on their
+  named axis ONLY (the OTHER axis at the same path survives — commit-plane
+  per-axis independence).
 
-  `:fixture/app-marks` is an ORDERED vector of op-maps; each carries exactly one
-  of `{:add-marks {path mark}}` / `{:set-marks {path mark}}` / `{:clear-marks
-  {path mark}}`. `path` is a `get-in`-shaped vector; `mark` is `:sensitive` or
-  `:large`. Called AFTER `reg-frame` (the elision slot exists) and BEFORE
-  `realise-flows!`."
+  `:fixture/classification-effects` is an ORDERED vector of op-maps; each carries
+  exactly one of `{:sensitive [path …]}` / `{:large [path …]}` /
+  `{:clear-sensitive [path …]}` / `{:clear-large [path …]}`. Each `path` is a
+  `get-in`-shaped vector. Called AFTER `reg-frame` (the elision slot exists) and
+  BEFORE `realise-flows!`."
   [fixture scope-frame]
-  (letfn [(slot-for [mark]
-            (case mark :sensitive :sensitive-declarations :large :declarations))
-          (merge-marks [reg path->mark]
-            (reduce-kv (fn [r path mark]
-                         (assoc-in r [(slot-for mark) (vec path)] {:source :effect}))
-                       reg path->mark))
-          (clear-marks [reg path->mark]
-            (reduce-kv (fn [r path mark]
-                         (let [slot (slot-for mark)
-                               kept (dissoc (get r slot) (vec path))]
-                           (if (seq kept) (assoc r slot kept) (dissoc r slot))))
-                       reg path->mark))
-          (drop-effect-sourced [reg]
-            (reduce (fn [r slot]
-                      (let [kept (into {} (remove (fn [[_ d]] (= :effect (:source d)))
-                                                  (get r slot)))]
-                        (if (seq kept) (assoc r slot kept) (dissoc r slot))))
-                    reg [:sensitive-declarations :declarations]))]
-    (doseq [op (or (:fixture/app-marks fixture) [])]
+  (letfn [(slot-for [axis]
+            (case axis :sensitive :sensitive-declarations :large :declarations))
+          (add-paths [reg axis paths]
+            (reduce (fn [r path]
+                      (assoc-in r [(slot-for axis) (vec path)] {:source :effect}))
+                    reg paths))
+          (clear-paths [reg axis paths]
+            (let [slot (slot-for axis)]
+              (reduce (fn [r path]
+                        (let [kept (dissoc (get r slot) (vec path))]
+                          (if (seq kept) (assoc r slot kept) (dissoc r slot))))
+                      reg paths)))]
+    (doseq [op (or (:fixture/classification-effects fixture) [])]
       (cond
-        (contains? op :add-marks)
-        (elision/swap-elision-slot! scope-frame #(merge-marks (or % {}) (:add-marks op)))
-        (contains? op :set-marks)
-        (elision/swap-elision-slot! scope-frame
-          #(merge-marks (drop-effect-sourced (or % {})) (:set-marks op)))
-        (contains? op :clear-marks)
-        (elision/swap-elision-slot! scope-frame #(clear-marks (or % {}) (:clear-marks op)))))))
+        (contains? op :sensitive)
+        (elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :sensitive (:sensitive op)))
+        (contains? op :large)
+        (elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :large (:large op)))
+        (contains? op :clear-sensitive)
+        (elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :sensitive (:clear-sensitive op)))
+        (contains? op :clear-large)
+        (elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :large (:clear-large op)))))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -1401,7 +1394,7 @@
     ;; §Tests). The call carries the record/value under `:value`, the
     ;; resolved profile under `:rf.egress/profile`, and an optional `:frame`
     ;; (a frame the FIXTURE registered via `:fixture/frames` /
-    ;; `:fixture/app-marks` so its classification is in place). `:expect` is
+    ;; `:fixture/classification-effects` so its classification is in place). `:expect` is
     ;; the literal projected result. Used by the off-box-omits-event-args
     ;; (issue 4) and fail-closed-no-frame (no `:rf/default` synthesis)
     ;; fixtures. Pure — `project-egress` reads only the frame's installed
@@ -1619,10 +1612,10 @@
                          (rf/reg-frame :rf/default frame-config))
           ;; Data-classification path-marks (Spec 015 §App-db marks;
           ;; rf2-s2s3xv) run AFTER reg-frame (the frame's runtime-db elision
-          ;; slot exists) and BEFORE realise-flows! so a flow input that
-          ;; overlaps a marked path inherits the propagated output mark at
-          ;; reg-flow time. `add-marks` / `set-marks` are frame-scoped.
-          _            (realise-app-marks! fixture scope-frame)
+          ;; slot exists) and BEFORE realise-flows!. The classification-effect
+          ;; ops are frame-scoped (they write the frame's durable elision
+          ;; registry under `:source :effect`).
+          _            (realise-classification-effects! fixture scope-frame)
           ;; Flow registration runs AFTER reg-frame: per Spec 013 flows
           ;; are frame-scoped, and the rf2-wbtjn destroy-frame! teardown
           ;; hook would wipe any flows registered before the destroy.

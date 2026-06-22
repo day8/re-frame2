@@ -23,7 +23,7 @@
 
 {:fixture/id           :data-classification/project-egress-omits-event-args-off-box
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/marks}
+ :fixture/capabilities #{:data-classification/classification-effects}
  :fixture/doc          "project-egress of an :rf.observe/handled-event record under :rf.egress/off-box-observability carries the summary fields (:kind / :frame / :event-id / :status / :elapsed-ms / :effects / :correlation) and OMITS the :event args slot entirely — the off-box default fails closed on the raw event payload (EP-0015 issue 4)."
 
  :fixture/frames

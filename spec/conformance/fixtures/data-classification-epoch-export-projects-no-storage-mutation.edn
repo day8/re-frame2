@@ -23,14 +23,14 @@
 ;; (rf2-t55hxg.9), the per-artefact counterpart to this storage-invariant
 ;; corpus pin.
 ;;
-;; Harness note: `:fixture/app-marks` declares the sensitive path; the runner
-;; loads `re-frame.epoch`, so `:epoch-records` asserts the per-frame
-;; `:rf/epoch-record` ring. Capability `:data-classification/marks`.
+;; Harness note: `:fixture/classification-effects` declares the sensitive path;
+;; the runner loads `re-frame.epoch`, so `:epoch-records` asserts the per-frame
+;; `:rf/epoch-record` ring. Capability `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/epoch-export-projects-no-storage-mutation
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "With [:auth :token] declared frame-sensitive, the committed epoch record's :db-after carries the RAW token — storage-side redaction was removed (EP-0015 §15 / open-issue 6), so the ring is replay-faithful by construction. The SAME event's t1 pending-db trace egress redacts the token: egress redacts, durable storage stays raw."
 
  :fixture/registry
@@ -41,8 +41,8 @@
 
  ;; Declare [:auth :token] sensitive — the trace egress redacts it; the epoch
  ;; ring must NOT (storage-side redaction was removed).
- :fixture/app-marks
- [{:add-marks {[:auth :token] :sensitive}}]
+ :fixture/classification-effects
+ [{:sensitive [[:auth :token]]}]
 
  :fixture/frame-config {}
 

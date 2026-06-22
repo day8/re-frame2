@@ -21,13 +21,14 @@
 ;; the redact-while-active leg; together they cover both acceptance criteria of
 ;; rf2-v9l8eg (redact at egress + singleton drop / no-leak).
 ;;
-;; Capability :data-classification/marks (claimed by BOTH the JVM and CLJS
-;; conformance corpus runners) + :routing/match-url + :core/event-handler.
+;; Capability :data-classification/classification-effects (claimed by BOTH the
+;; JVM and CLJS conformance corpus runners) + :routing/match-url +
+;; :core/event-handler.
 
 {:fixture/id           :data-classification/route-change-drops-leaving-classification
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "The route SINGLETON-DROP: navigating from a :sensitive route to a route declaring NO classification clears the leaving route's :source :route entries. project-egress of the now-current (plain) route-slice value against the navigated frame shows the token field RIDES RAW — the leaving route's classification was dropped (no leak forward). Pairs with route-query-declared-redacts.edn (the redact-while-active leg)."
 
  ;; route/oauth declares :sensitive; route/plain declares none. Both are

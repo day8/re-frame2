@@ -11,7 +11,7 @@
 ;;
 ;; This fixture pins the axis-independence host-agnostically. The path
 ;; `[:secret]` is classified BOTH `:sensitive` AND `:large`; then the LARGE
-;; axis is cleared (`:clear-marks {[:secret] :large}` — the harness shorthand
+;; axis is cleared (`:clear-large [[:secret]]` — the harness shorthand
 ;; for the commit-plane `:clear-large` effect, `:source :effect`). The
 ;; surviving `:sensitive` classification still redacts `[:secret]` to
 ;; `:rf/redacted` at trace egress — proving the `:clear-large` did NOT remove
@@ -26,14 +26,14 @@
 ;; construction proves no large marker survived the set+clear (a marker map
 ;; would fail the literal `=`). The committed app-db carries the RAW value.
 ;;
-;; Harness note: `:fixture/app-marks` is an ORDERED vector — add sensitive, add
-;; large, clear large — installed into the elision registry under `:source
-;; :effect`. Capability `:data-classification/marks`.
+;; Harness note: `:fixture/classification-effects` is an ORDERED vector — add
+;; sensitive, add large, clear large — installed into the elision registry under
+;; `:source :effect`. Capability `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/clear-axis-independent
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A path classified BOTH :sensitive AND :large, then :clear-large'd, still redacts as :rf/redacted in the t1 :rf.event/db-pending trace event — clearing the large axis leaves the independent sensitive classification standing (EP-0025 §Two independent axes). An unmarked sibling rides egress verbatim."
 
  :fixture/registry
@@ -45,10 +45,10 @@
 
  ;; Ordered: classify [:secret] sensitive, classify it large, then CLEAR the
  ;; large axis. The sensitive classification must survive the large-clear.
- :fixture/app-marks
- [{:add-marks   {[:secret] :sensitive}}
-  {:add-marks   {[:secret] :large}}
-  {:clear-marks {[:secret] :large}}]
+ :fixture/classification-effects
+ [{:sensitive    [[:secret]]}
+  {:large        [[:secret]]}
+  {:clear-large  [[:secret]]}]
 
  :fixture/frame-config
  {:initial-events [[:dc/store]]}

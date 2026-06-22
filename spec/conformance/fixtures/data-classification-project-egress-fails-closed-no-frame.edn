@@ -5,7 +5,7 @@
 ;; known frame fails closed: it does NOT synthesise `:rf/default` and borrow
 ;; that frame's (possibly permissive) policy. A frameless egress cannot prove
 ;; any path safe, so the delegated wire walker redacts the WHOLE value to
-;; `:rf/redacted`. "Frameless means frameless" (re-frame.marks/project-db-tags
+;; `:rf/redacted`. "Frameless means frameless" (re-frame.classification/project-db-tags
 ;; rationale) — the value must not leak through an invented ambient scope.
 ;;
 ;; Mode-B pure-call (`:project-egress`) with NO `:frame` key: the runner runs
@@ -22,7 +22,7 @@
 
 {:fixture/id           :data-classification/project-egress-fails-closed-no-frame
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/marks}
+ :fixture/capabilities #{:data-classification/classification-effects}
  :fixture/doc          "project-egress of a tree value with NO known frame fails closed — it does not synthesise :rf/default; the delegated walker redacts the whole value to :rf/redacted (EP-0002 fail-closed / no-default-frame)."
 
  :fixture/calls

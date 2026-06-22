@@ -11,25 +11,23 @@
 ;; pending app-db value under `:rf.event/db`, and the trace-egress projection
 ;; (the classification trace projection → `elide-wire-value`) redacts the
 ;; frame-declared sensitive path BEFORE any listener observes it. t1 fires
-;; whether or not the flows artefact is loaded — the no-flow counterpart of
-;; the existing `data-classification-flow-output-inherits-from-input.edn`
-;; fixture (which asserts the t2 `:rf.event/db-pending-post-flow` slot).
+;; whether or not the flows artefact is loaded.
 ;;
 ;; The committed app-db carries the RAW value — redaction is a trace-egress
 ;; concern only (Spec 015 §Out of scope — mid-handler protection; handlers
 ;; see real values). The data-classification contract lives on the t1 slot.
 ;;
-;; Harness note: `:fixture/app-marks` declares the sensitive path against the
-;; established frame scope (`{:add-marks {[:auth :token] :sensitive}}`),
+;; Harness note: `:fixture/classification-effects` declares the sensitive path
+;; against the established frame scope (`{:sensitive [[:auth :token]]}`),
 ;; installing it into the elision registry under `:source :effect` —
 ;; equivalent to a reg-event returning `:sensitive [[:auth :token]]` alongside
 ;; `:db` (EP-0025 commit-plane classification effect). Capability
-;; `:data-classification/marks`.
+;; `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/frame-sensitive-app-db-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A frame that classifies [:auth :token] sensitive (EP-0025 commit-plane :sensitive effect), after an event writes a token to [:auth :token], projects :rf/redacted at that path in the t1 :rf.event/db-pending trace event's :rf.event/db slot; an unmarked sibling ([:auth :user]) rides egress verbatim. The committed app-db carries the raw value — redaction is a trace-egress concern."
 
  :fixture/registry
@@ -41,8 +39,8 @@
 
  ;; Declare [:auth :token] sensitive BEFORE the event writes it, so the t1
  ;; pending-db projection redacts that path at trace egress.
- :fixture/app-marks
- [{:add-marks {[:auth :token] :sensitive}}]
+ :fixture/classification-effects
+ [{:sensitive [[:auth :token]]}]
 
  :fixture/frame-config
  {:initial-events [[:dc/login]]}
