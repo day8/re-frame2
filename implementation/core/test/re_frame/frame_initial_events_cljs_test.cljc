@@ -157,11 +157,11 @@
     (is (= {} (rf/app-db-value :empty/b)) "[] :initial-events ⇒ app-db {}")))
 
 ;; ===========================================================================
-;; 2. Provenance — setup dispatches carry :source :rf.frame/init + :step-index
+;; 2. Provenance — setup dispatches carry :source :frame-init + :step-index
 ;; ===========================================================================
 
 (deftest initial-events-carry-construction-provenance
-  (testing "each setup dispatch carries :source :rf.frame/init (top-level on the
+  (testing "each setup dispatch carries :source :frame-init (top-level on the
             :rf.event/dispatched trace), distinguishing frame-init events from
             ordinary runtime events"
     (reg-test-events!)
@@ -174,9 +174,9 @@
         {:initial-events [[:test/set-db {:n 0}]
                           [:test/inc]]})
       (rf/unregister-listener! :trace ::prov)
-      (let [sources (->> @dispatched (map :source) (filter #{:rf.frame/init}))]
+      (let [sources (->> @dispatched (map :source) (filter #{:frame-init}))]
         (is (= 2 (count sources))
-            "both setup dispatches carried :source :rf.frame/init"))
+            "both setup dispatches carried :source :frame-init"))
       ;; A subsequent RUNTIME dispatch is NOT frame-init — proving the tag
       ;; discriminates construction from runtime.
       (reset! dispatched [])
@@ -186,8 +186,8 @@
             (swap! dispatched conj ev))))
       (rf/dispatch-sync [:test/inc] {:frame :prov/main :source :test})
       (rf/unregister-listener! :trace ::prov2)
-      (is (not= :rf.frame/init (:source (first @dispatched)))
-          "an ordinary runtime dispatch is NOT tagged :source :rf.frame/init"))))
+      (is (not= :frame-init (:source (first @dispatched)))
+          "an ordinary runtime dispatch is NOT tagged :source :frame-init"))))
 
 ;; ===========================================================================
 ;; 3. Strict-shape preflight — each bad shape fails the right id, no frame left

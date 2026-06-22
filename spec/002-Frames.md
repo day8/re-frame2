@@ -588,7 +588,7 @@ If the frame's initialisation needs to fire multiple events, list them as separa
 
 `:on-destroy` remains a **single** event dispatched before teardown.
 
-The framework stamps each setup dispatch with the frame's id automatically — the user doesn't write `dispatch` or specify `:frame`. If a setup handler needs the frame-id at runtime, it reads `(:frame m)` from its context. Each setup step carries construction provenance (`:source :rf.frame/init` plus its step index) so the trace and tools can tell frame-init events apart from ordinary runtime events.
+The framework stamps each setup dispatch with the frame's id automatically — the user doesn't write `dispatch` or specify `:frame`. If a setup handler needs the frame-id at runtime, it reads `(:frame m)` from its context. Each setup step carries construction provenance (`:source :frame-init` plus its step index) so the trace and tools can tell frame-init events apart from ordinary runtime events.
 
 [Spec 007 — Stories](007-Stories.md) keeps its own richer setup grammar (loaders, `:rf.story/*`) and neither desugars to nor couples to `:initial-events` (per [EP-0027 §Out of scope](../docs/EP/EP-0027-frame-initial-events.md)).
 

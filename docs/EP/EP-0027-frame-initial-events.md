@@ -177,7 +177,7 @@ hand-written loop already gives:
 
 Each setup step is dispatched with light **construction provenance**, so the trace and
 tools can tell frame-init events apart from ordinary runtime events — the visibility this EP
-is partly motivated by. A setup-step dispatch carries `:source :rf.frame/init` and its
+is partly motivated by. A setup-step dispatch carries `:source :frame-init` and its
 **step index**. Source-code coordinates come for free: the frame already auto-captures
 `:ns` / `:line` / `:file` at the `make-frame` / `reg-frame` call-site — which is where
 `:initial-events` is declared — so a setup event attributes back to its declaration via the
@@ -305,7 +305,7 @@ of it, so no doc ever describes a key the code still has.
 - **B2 — `:initial-events` normalizer + setup runner.** _[task · P2]_ Validate the strict
   top-level shape; a step is an event vector or `{:event … :opts …}` where `:opts` is ordinary
   `dispatch-sync` opts with `:frame` forbidden. At construction, dispatch each step through the
-  existing synchronous dispatch path, in order, tagging each with `:source :rf.frame/init` +
+  existing synchronous dispatch path, in order, tagging each with `:source :frame-init` +
   step index; on a throw, tear down the partial frame.
 - **B3 — Wire into the three construction surfaces.** _[task · P2]_ `reg-frame`, `make-frame`,
   and owned `frame-provider` accept `:initial-events`; the provider runs setup once per
