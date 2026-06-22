@@ -202,6 +202,14 @@ event today): no snapshot, no replay tape, no atomicity. (Because construction i
 events-only, the script *is* the constructed state; there is no separate baseline to
 restore.) The other app-db reset verbs are unchanged.
 
+`reset-frame!` is a **top-level / view lifecycle op**, not a handler one — like
+construction. Calling it **inside an event handler** (a cascade in flight) is rejected
+**up front** with `:rf.error/frame-reset-in-handler`, *before* any teardown. (Otherwise the
+destroy would succeed — there is no handler-scope guard on `destroy-frame!` — and the
+re-construction would then hit the construction-in-handler guard, leaving the frame
+destroyed-and-not-recreated and signalled by an error naming the wrong cause. The up-front
+rejection is atomic: the frame is left untouched.)
+
 ### Frame provider
 
 Owned `frame-provider` accepts `:initial-events` alongside `:id` / `:images` and runs it
@@ -229,6 +237,7 @@ All ids live in the `:rf.error/*` family and are raised through `error/throw-err
 | `:rf.error/initial-events-bad-opts` | `:opts` is not a map, or contains `:frame` |
 | `:rf.error/initial-events-step-failed` | a setup step threw (carries `:step-index`, `:event`) |
 | `:rf.error/frame-construction-in-handler` | construction attempted while a cascade is in flight |
+| `:rf.error/frame-reset-in-handler` | `reset-frame!` called while a cascade is in flight (rejected before any teardown) |
 | `:rf.error/set-db-bad-value` | `[:rf/set-db x]` with missing / `nil` / non-map `x`, or extra trailing args |
 
 ## Out of scope

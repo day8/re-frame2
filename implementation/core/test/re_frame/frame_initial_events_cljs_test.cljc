@@ -336,6 +336,42 @@
     (is (= 1 (:n (rf/app-db-value :reset/idem)))
         "reset → mutate → reset returns to the recorded seed (n=1) every time")))
 
+(deftest reset-frame-mid-cascade-fails-loud-without-teardown
+  (testing "rf2-y6uzx8: reset-frame! called INSIDE an event handler (mid-cascade)
+            fails loud :rf.error/frame-reset-in-handler BEFORE any teardown, so
+            the frame is left ALIVE and UNCHANGED — not destroyed-and-not-
+            recreated. Without the up-front guard the destroy would succeed and
+            the re-construction would then hit the construction-in-handler guard,
+            leaving the frame gone and signalled by an error naming the wrong
+            cause."
+    (reg-test-events!)
+    (let [caught (atom ::not-run)]
+      ;; A handler that tries to reset its own frame mid-cascade. Capture the
+      ;; error id inside the handler so we can assert it regardless of how
+      ;; dispatch-sync surfaces the throw.
+      (rf/reg-event :handler/resets-frame
+        (fn [{:keys [db]} _]
+          (reset! caught
+                  (err-id #(frame/reset-frame! :reset/in-handler)))
+          {:db db}))
+      (rf/reg-frame :reset/in-handler
+        {:initial-events [[:test/set-db {:n 0}]
+                          [:test/inc]]})
+      (is (= 1 (:n (rf/app-db-value :reset/in-handler)))
+          "construction settled to n=1")
+      ;; Move it off the constructed state so we can prove reset did NOT replay
+      ;; (it must be rejected before any teardown).
+      (rf/dispatch-sync [:test/inc] {:frame :reset/in-handler})
+      (is (= 2 (:n (rf/app-db-value :reset/in-handler))) "runtime moved it to n=2")
+      (rf/dispatch-sync [:handler/resets-frame] {:frame :reset/in-handler})
+      (is (= :rf.error/frame-reset-in-handler @caught)
+          "a reset-frame! inside a handler fails loud with the dedicated id —
+           NOT the construction-in-handler id that names the wrong cause")
+      (is (some? (frame/frame :reset/in-handler))
+          "the frame is LEFT ALIVE — the reset was rejected before destroy-frame!")
+      (is (= 2 (:n (rf/app-db-value :reset/in-handler)))
+          "app-db is UNTOUCHED (still n=2) — no partial teardown, no replay"))))
+
 (deftest reset-frame-image-loaded-keeps-generation-inline-resolves
   (testing "rf2-qnk02m (the test that CATCHES the bug): an IMAGE-loaded frame
             whose image carries INLINE-only registrations — present ONLY in the
