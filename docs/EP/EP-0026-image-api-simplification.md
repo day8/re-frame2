@@ -33,13 +33,15 @@ report. The public image value is just:
 :registrations
 ```
 
-Images select namespace-authored registrations with `:select-ns` and define local
-registrations with `:registrations`. **Composition** (at `make-frame`) resolves
-same-`[kind id]` collisions deterministically — later image wins; within an image,
-inline wins over selected — and returns a **shadow report** the programmer can
-inspect or assert on. A resolvable app shadow never fails assembly. Collisions
-with no deterministic winner, malformed images, and framework-standard collisions
-still fail loud. Image-level capabilities are removed end-to-end.
+An image does two things: it **selects** existing namespace-authored registrations
+with `:select-ns`, and it **defines** new registrations inline with
+`:registrations` — the image-level analogue of a namespace's `(:require …)` and
+`(def …)`. **Composition** (at `make-frame`) layers images by order — the later
+image wins — and returns a **shadow report** the programmer can inspect or assert
+on. Within a single image a `[kind id]` collision is an error, so every override is
+between images; a cross-image shadow never fails assembly, while malformed images
+and framework-standard collisions do. `rf/image` stays a plain function, and
+image-level capabilities are removed end-to-end.
 
 ## Motivation
 
@@ -61,6 +63,75 @@ composition is a deliberate, resolvable choice, and fails loudly where compositi
 is genuinely ambiguous, malformed, or unsafe — with the minimum ceremony that
 still buys those properties.
 
+## Use Cases
+
+Three uses cover the surface, and they map cleanly onto the two keys —
+`:select-ns` **selects** existing registrations, `:registrations` **defines** new
+ones.
+
+### 1. Typical — select your app's namespaces
+
+The everyday production path: an image selects the registrations already authored
+across your namespaces. No inline definitions.
+
+```clojure
+(rf/image
+  {:id :app/main
+   :select-ns {:include ["app.todo.**" "app.admin.**"]
+               :exclude ["app.todo.dev.**" "app.admin.fixtures.**"]}})
+```
+
+### 2. Teaching and explanation — define a whole example inline
+
+A self-contained image with no `:select-ns` — every registration defined inline,
+so a doc page, tutorial, or tiny test is one complete, copy-pasteable form.
+
+```clojure
+(rf/image
+  {:id :quickstart/counter
+   :registrations
+   {:reg-event [[:counter/inc
+                 (fn [{:keys [db]} _]
+                   {:db (update db :counter/value inc)})]]
+
+    :reg-sub   [[:counter/value
+                 (fn [db _]
+                   (:counter/value db))]]
+
+    :reg-fx    [[:metrics/send
+                 (fn [payload]
+                   (send-metric! payload))]]}})
+```
+
+### 3. Unit tests and Story — compose the app with an overrides image
+
+Use case 1 (the real app image) **composed with** a separate, small image that
+defines overrides — stub effects, coeffects, and the like. The override image is
+composed *after* the app image, so its registrations win, and `frame-shadows`
+reports exactly what it overrode.
+
+```clojure
+(def app-image
+  (rf/image {:id :app/main
+             :select-ns {:include ["app.checkout.**"]}}))
+
+(def test-doubles
+  (rf/image {:id :test/doubles
+             :registrations
+             {:reg-fx   [[:checkout.http/post recording-post]]          ;; stub the effect
+              :reg-cofx [[:checkout/clock   (fn [] fixed-instant)]]}}))  ;; stub the coeffect
+
+(let [frame (rf/make-frame {:images [app-image test-doubles]})]         ;; test-doubles wins (later)
+  (rf/frame-shadows frame))
+;; =>
+[{:registration [:fx :checkout.http/post] :image :app/main :shadowed-by :test/doubles}
+ {:registration [:cofx :checkout/clock]   :image :app/main :shadowed-by :test/doubles}]
+```
+
+An override is a *separate image*, never a second key: it is just a later image
+whose registration shadows an earlier one. Within one image, two definitions of
+the same `[kind id]` are an error, not an override (see Layered Resolution).
+
 ## Goals
 
 - Replace sibling `:include-ns` / `:exclude-ns` with a single `:select-ns` map.
@@ -72,13 +143,16 @@ still buys those properties.
 - Remove image/frame capability declarations end-to-end.
 - Expose the shadow report (`:rf.gen/shadows` + a frame accessor) for Xray, Pair,
   diagnostics, and test assertions.
-- Keep fail-loud for ambiguous collisions, malformed images, and
+- Keep fail-loud for within-image collisions, malformed images, and
   framework-standard collisions.
 
 ## Non-Goals
 
 - Do not reopen the EP-0023 decision that frames run resolved image generations.
 - Do not rename `rf/image`.
+- Do not make `rf/image` a macro; it stays a plain function returning an inert
+  image value. (Source-stamping authoring is discussed in EP-0028; `rf/image`
+  stays a function regardless.)
 - Do not remove ordinary namespace-authored `reg-*` forms.
 - Do not specify frame- or dispatch-scoped overlays; EP-0028 owns those.
 - Do not standardize an inline grammar for every registration kind in this EP.
@@ -115,6 +189,11 @@ The ordinary public image value accepts these top-level keys:
 `:id` is required for named images and SHOULD be stable enough for diagnostics
 and tooling. Anonymous test helpers MAY synthesize an id, but generated ids must
 still appear in provenance records.
+
+An image may carry both `:select-ns` and `:registrations`, but the two must be
+**disjoint**: a `[kind id]` may not be both selected and defined inline in the
+same image (see Layered Resolution). To override a selected registration, define
+the override in a *later* image and compose them.
 
 The following keys are retired from the public `rf/image` surface:
 
@@ -157,6 +236,12 @@ Exclusion is global to the image selection: a namespace matched by any `:exclude
 pattern is never selected, regardless of which `:include` pattern caught it. This
 keeps the option teachable as "select these, never those" with no re-admission
 corner cases.
+
+Selection does not load code. The namespaces must already be loaded through normal
+`ns` / build-tool mechanisms; `:select-ns` only filters registrations the runtime
+already knows about, by source-namespace provenance. (This is why the key is
+`:select-ns`, not `:require`: it selects, it does not load — and it must not defeat
+dead-code elimination.)
 
 The glob grammar remains the EP-0023 grammar:
 
@@ -208,69 +293,69 @@ Image composition is ordered data. A frame created with:
   {:images [base-image product-image story-image]})
 ```
 
-resolves descriptors with this total precedence key:
+resolves by one rule: **the later image in `:images` wins.** Image order is the
+only precedence — there is no within-image winner rule, because an image must
+resolve cleanly to one descriptor per `[kind id]`.
 
-```text
-1. image index in :images, later image wins
-2. tier within the winning image, inline :registrations win over :select-ns
-```
+Within a single image, any `[kind id]` that resolves two ways is an **error**:
 
-Image order is the primary composition axis. Every same-`[kind id]` collision that
-has a deterministic winner — across images (later wins) or within an image (inline
-over selected) — resolves and is recorded in the frame's **shadow report** (see
-below). Ordinary app shadowing does **not** fail assembly; the programmer reads the
-report and applies whatever policy they want.
+- two **selected** descriptors for the same `[kind id]` (different source
+  namespaces) — ambiguous; assembly fails. (The ordinary same-source hot-reload
+  replacement of one namespace's own descriptor is not a collision.)
+- two **inline** entries for the same `[kind id]` — malformed; caught at
+  `rf/image` construction.
+- an **inline** entry colliding with a **selected** one — error: to override, put
+  the registration in a later image.
 
-Three collisions still fail loud, because they are not a policy choice:
-
-- a **duplicate inline** entry for the same `[kind id]` within one image — a
-  malformed image, caught at `rf/image` construction;
-- two **selected** descriptors for the same `[kind id]` within one image with no
-  deterministic winner (different source namespaces, same tier) — ambiguous;
-  assembly fails. (The ordinary same-source hot-reload replacement of one
-  namespace's own descriptor is not a collision.)
-- an app descriptor colliding with a framework **standard** — see Framework
-  Standard Registrations.
+So an image may carry both `:select-ns` and `:registrations`, but they must be
+disjoint. Overriding is never a within-image act; it is always a later image
+**shadowing** an earlier one. A cross-image shadow resolves (later wins) and is
+recorded in the **shadow report** (below); it does **not** fail assembly, and the
+programmer reads the report and applies whatever policy they want. The one
+cross-image collision that still fails is an app descriptor colliding with a
+framework **standard** (see Framework Standard Registrations).
 
 Resolution MUST NOT mutate the global registrar, the image value, or the frame's
 recorded image composition.
 
 ### Shadow Report
 
-Composition computes a shadow report: every same-`[kind id]` collision it resolved,
-with the winner and the shadowed losers. It is exposed on the frame's generation
-as `:rf.gen/shadows` and via a convenience accessor:
+When a later image shadows an earlier image's registration, composition records
+it. Each entry says exactly one thing: the registration `[kind id]`, the image it
+was defined in, and the image that shadowed it. The report is exposed on the
+frame's generation as `:rf.gen/shadows` and via the `rf/frame-shadows` accessor:
 
 ```clojure
-(let [frame (rf/make-frame {:images [base-image story-image]})]
+(let [frame (rf/make-frame {:images [app-image test-doubles]})]
   (rf/frame-shadows frame))
 ;; =>
-[{:kind :event :id :counter/inc
-  :scope :cross-image
-  :winner   {:image-id :story/counter :image-index 1 :tier :registrations}
-  :shadowed [{:image-id :app/base :image-index 0 :tier :select-ns
-              :source-ns "app.counter.events"}]}]
+[{:registration [:fx :checkout.http/post]
+  :image        :app/main
+  :shadowed-by  :test/doubles}]
 ```
+
+That is the whole entry — three keys, nothing else: no winner descriptor, image
+index, tier, source namespace, or scope tag. If two earlier images are both
+shadowed by the same later one, that is two entries.
+
+Every shadow is **cross-image** — it names two distinct images — because within
+one image a `[kind id]` collision is an error rather than a resolved winner (see
+Layered Resolution). There is no within-image case and no scope tag.
 
 The programmer applies whatever policy they want — there is no upfront
 acknowledgement:
 
 ```clojure
-(is (empty? (rf/frame-shadows frame)))                        ;; assert no override happened
-(is (= #{[:event :counter/inc]}                               ;; assert exactly the expected ones
-       (set (map (juxt :kind :id) (rf/frame-shadows frame)))))
+(is (empty? (rf/frame-shadows frame)))                  ;; assert nothing was shadowed
+(is (= #{[:fx :checkout.http/post]}                     ;; assert exactly the intended overrides
+       (set (map :registration (rf/frame-shadows frame)))))
 ```
 
-Each entry is tagged `:scope :within-image` or `:scope :cross-image` so a policy
-can treat them differently — for example, accept within-image inline overrides
-while rejecting cross-image ones. A composition with deliberate overrides simply
-orders its images; if it wants to check, it reads the report. Production wiring
-that wants a hard guarantee asserts the report (e.g. that no cross-image shadow
-occurred) in its own boot/test code.
-
-This replaces public `:replace` and the upfront acknowledgement model without any
-coordinate maps: the programmer defines the winner where it belongs, order decides
-resolution, and the report preserves the precise loser/winner coordinates.
+This replaces public `:replace` and the upfront acknowledgement model: the
+programmer defines the winner in a later image, image order decides, and the
+report names which registration each later image shadowed. A tool that wants
+fuller detail (source namespace, etc.) reads the live registration's
+`:rf.provenance/*` in the resolver.
 
 ### Framework Standard Registrations
 
@@ -302,8 +387,9 @@ Per-descriptor layer facts (source namespace, owning image, tier) already live o
 each resolved descriptor's `:rf.provenance/*` metadata; a frame's full layer view
 is a recomputable projection of the resolver plus that metadata and is **not** a
 separate normative generation key (EP-0007 rule 4 — mirrors are projections, not
-co-equal sources). `:rf.gen/shadows` is mandated because the loser coordinates it
-preserves are otherwise discarded at resolution.
+co-equal sources). `:rf.gen/shadows` carries only the three facts above per shadow
+— the registration and the two image ids — because the "X was shadowed by Y" fact
+is otherwise discarded at resolution; anything richer stays on `:rf.provenance/*`.
 
 ### Inline Registration Grammar
 
@@ -380,16 +466,16 @@ Implementations MUST fail loudly for at least these cases:
 - invalid `:select-ns` (missing/empty `:include`, or non-vector `:include` /
   `:exclude`);
 - include pattern with no matches;
-- duplicate inline `[kind id]` in one image (at `rf/image` construction);
-- ambiguous within-image collision (two selected descriptors, same `[kind id]`,
-  no deterministic winner);
+- two definitions of the same `[kind id]` in one image — two selected
+  (ambiguous), two inline (malformed, at `rf/image` construction), or an inline
+  entry colliding with a selected one (an override must be a later image);
 - app shadowing a framework standard;
 - unsupported inline kind;
 - invalid inline tuple arity (including a metadata-only tuple);
 - `:images []`.
 
-Note what is *not* here: a resolvable cross-image or inline-over-selected shadow is
-reported, not failed. Diagnostics SHOULD include:
+Note what is *not* here: a cross-image shadow — a later image overriding an
+earlier one — is reported, not failed. Diagnostics SHOULD include:
 
 ```clojure
 {:rf.error/id ...
@@ -408,13 +494,20 @@ themselves are normative.
 ## Rationale
 
 The winning image should be visible in data, not hidden in registration load
-order. So composition resolves by explicit image order and then **reports** what it
-shadowed, rather than demanding an acknowledgement for every deliberate override.
-The report is data: assert none, assert a known set, log, or ignore. This keeps the
-common deliberate-override case ceremony-free while keeping every shadow
-inspectable — and it concentrates fail-loud exactly where composition is genuinely
-ambiguous (no winner), malformed, or unsafe (framework standards), which are
-correctness facts, not policy.
+order. So composition resolves by explicit image order and then **reports** what
+it shadowed, rather than demanding an acknowledgement for every deliberate
+override. The report is data: assert none, assert a known set, log, or ignore.
+This keeps the common deliberate-override case ceremony-free while keeping every
+shadow inspectable.
+
+Overriding is a *composition* act, not a within-image one. An image must resolve
+cleanly to one descriptor per `[kind id]`, so a within-image collision is an error;
+to override, you compose a later image whose registration wins. That single rule
+removes any within-image winner precedence and makes every shadow cross-image —
+which is why the report needs no scope tag and the entry is just registration +
+two image ids. Fail-loud concentrates exactly where composition is genuinely
+ambiguous, malformed, or unsafe (framework standards), which are correctness facts,
+not policy.
 
 Deleting capabilities end-to-end follows the same rule. A public key should name a
 recurring application fact. The current capability surface is not connected to a
@@ -428,9 +521,10 @@ compatibility shims.
 Migration is source-level:
 
 - replace `:include-ns` / `:exclude-ns` with one `:select-ns {:include … :exclude …}`;
-- replace `:replace`: order the images so the intended winner is later, and read
-  the returned shadow report if you want to assert on the overrides (there is no
-  acknowledgement key);
+- replace `:replace`: move the intended winner into a *later* image, compose, and
+  read the returned shadow report if you want to assert on the overrides (there is
+  no acknowledgement key, and an override defined in the same image as the thing it
+  overrides is now an error);
 - remove `:replace-standard`; ordinary app images cannot shadow standards;
 - remove `:rf.image/requires`, `make-frame :capabilities`, and consumers of
   `:rf.gen/requires`;
@@ -444,23 +538,24 @@ Retired keys MUST fail loudly so stale examples do not keep working by accident.
 
 1. Add `:select-ns` map parsing with global exclusion semantics and strict include
    diagnostics.
-2. Replace replacement-map resolution with image-index-first layer resolution
-   (within an image, inline wins over selected); build the shadow report and expose
-   it as `:rf.gen/shadows` plus an `rf/frame-shadows` accessor.
-3. Fail loud only for: ambiguous within-image selected collision, duplicate inline,
-   framework-standard collision, retired keys, `:images []`, bad inline kind. A
-   resolvable shadow is reported, never failed. No acknowledgement key, no
-   stale-ack check.
+2. Replace replacement-map resolution with image-order resolution (the later image
+   wins; within one image a `[kind id]` collision is an error). Build the shadow
+   report and expose it as `:rf.gen/shadows` plus an `rf/frame-shadows` accessor.
+3. Fail loud only for: any within-image `[kind id]` collision (two selected, two
+   inline, or inline-vs-selected), framework-standard collision, retired keys,
+   `:images []`, bad inline kind. A cross-image shadow is reported, never failed.
+   No acknowledgement key, no stale-ack check.
 4. Protect framework standards from app shadowing.
 5. Remove `:rf.gen/requires`; do not add a `:rf.gen/layers` key — expose layer
-   facts via descriptor provenance.
+   facts via descriptor provenance. `rf/image` stays a plain function.
 6. Delete `:rf.image/requires`, `make-frame :capabilities`, and capability checks
    from implementation, specs, tools, guides, and tests.
 7. Narrow inline grammar to event/sub/fx/cofx and reject unsupported inline kinds.
 8. Make `:images []` an error.
 9. Add conformance coverage for selection, default image behavior, the shadow
-   report contents and `:scope` tags, ambiguous-collision failure, standard-
-   collision failure, retired keys, `:images []`, and inline tuple errors.
+   report contents (registration + image + shadowed-by), within-image-collision
+   failure, standard-collision failure, retired keys, `:images []`, and inline
+   tuple errors.
 10. Add a static residue gate for live retired spellings outside historical prose,
     migration prose, and negative tests.
 
@@ -487,14 +582,16 @@ At minimum, the implementation sweep should cover:
 
 This EP should not graduate until:
 
-1. The shadow report is returned and complete: every resolved same-`[kind id]`
-   collision, correctly tagged `:within-image` / `:cross-image`, with winner and
-   losers.
-2. A resolvable app shadow (cross-image order, or inline-over-selected) does not
-   fail assembly.
-3. Ambiguous within-image selected collisions, duplicate inline entries, and
-   framework-standard collisions fail loud.
-4. Image order and within-image tier order are tested across the cross-tier cases.
+1. The shadow report is returned and complete: for every cross-image shadow, one
+   flat entry naming the registration `[kind id]`, the image it was defined in
+   (`:image`), and the image that shadowed it (`:shadowed-by`). No scope tag, no
+   winner/loser descriptors.
+2. A cross-image shadow (a later image overriding an earlier one) does not fail
+   assembly.
+3. Every within-image `[kind id]` collision (two selected, two inline, or
+   inline-vs-selected) and every framework-standard collision fails loud.
+4. Image order is tested across the override cases: the later image wins, and the
+   shadow report names the right defined-in / shadowed-by images.
 5. Capability deletion is complete across code, specs, docs, tools, and tests.
 6. Default image behavior — including `:images []` as an error — is specified and
    covered.
@@ -503,14 +600,16 @@ This EP should not graduate until:
 
 ## Open Questions
 
-The core model is settled: resolve by explicit image order, **report** shadows
-rather than acknowledging them, fail loud only on ambiguous/malformed/unsafe
-collisions, protect standards, delete capabilities, and keep the authoring surface
-small. The remaining questions are implementation detail:
+The core model is settled: an image **selects** (`:select-ns`) and **defines**
+(`:registrations`) disjoint registrations; composition resolves by image order
+(later wins); a within-image collision is an error; a cross-image shadow is
+**reported** as a flat `[{:registration … :image … :shadowed-by …}]` list, never
+acknowledged or failed; framework standards are protected; capabilities are
+deleted; `rf/image` stays a function. The remaining question is implementation
+detail:
 
 1. What exact error ids should the new diagnostics use?
-2. Should `:rf.gen/shadows` carry full loser descriptors or coordinate-plus-summary
-   only?
-3. Is `rf/frame-shadows` the right accessor name, or should consumers read
-   `:rf.gen/shadows` off the generation read directly?
+
+(Resolved during design: the shadow report is the flat three-field list above,
+with no richer descriptor; `rf/frame-shadows` is the accessor.)
 </content>
