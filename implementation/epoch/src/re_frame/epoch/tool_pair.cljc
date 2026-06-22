@@ -1332,10 +1332,11 @@
   resource family owns the row's egress projector (the SSR/tool-projection
   analogue), consulted here through the late-bound
   `:resources/project-scope-resolved-egress` hook the resources artefact
-  publishes: it FAILS CLOSED (redacts `:input-values` / `:scope`, stamps
-  `:sensitive? true`) for any db-reading resolver not explicitly declassified
-  (`:output-sensitivity :rf.egress/public`), preserving the structural
-  `:resource-id` / `:inputs` (declared NAMES) / `:kind` / `:resolved-nil?`.
+  publishes: it UNCONDITIONALLY FAILS CLOSED (redacts `:input-values` /
+  `:scope`, stamps `:sensitive? true`) for every db-reading resolver — there
+  is no declassify hatch (EP-0025 retired the `:rf.egress/output-sensitivity`
+  propagation model) — preserving the structural `:resource-id` / `:inputs`
+  (declared NAMES) / `:kind` / `:resolved-nil?`.
 
   The redaction is the off-box default; the trusted-local `:include-sensitive?`
   opt-in lifts it (the `local-raw` boundary — the same switch the app-db /
