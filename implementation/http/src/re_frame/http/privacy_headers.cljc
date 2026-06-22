@@ -12,22 +12,25 @@
   `default-header-denylist` covers the canonical surface. These built-in
   names are an **immutable framework default** — no frame can remove one.
 
-  ## App-specific carriers are frame policy (EP-0015 §3, rf2-ppkh3v)
+  ## App-specific carriers ride the :rf.http/managed registration (EP-0025)
 
   An app extends the denylist with its own sensitive header names (e.g.
-  `X-Honeycomb-Team`, `X-Stripe-Signature`) on the FRAME, not through a
-  process-global mutation:
+  `X-Honeycomb-Team`, `X-Stripe-Signature`) on the `:rf.http/managed`
+  `reg-fx` registration metadata — the `:carriers` block (the EP-0025
+  transient-payload case), not through a process-global mutation or a frame
+  annotation:
 
-      (rf/reg-frame :app/main
-        {:sensitive {:http {:headers [\"X-Honeycomb-Team\"]}}})
+      (rf/reg-fx :rf.http/managed
+        {:carriers {:headers [\"X-Honeycomb-Team\"]}}
+        http-managed/managed-handler)
 
-  The frame slice validates + retains the carrier names on the frame's
-  `:config`; `re-frame.frame-classification/http-carriers` (reached via the
-  `:frame-classification/http-carriers` late-bind hook) lowers them to a
-  lower-cased extension set, which `redact-headers` / `sensitive-header?`
-  UNION onto the immutable built-in defaults for the emitting frame. The
-  old process-global `declare-sensitive-header!` / `clear-sensitive-headers!`
-  surface is removed — frame policy owns app-specific carriers (EP-0015 §3).
+  `re-frame.http.privacy/managed-carriers` reads the registration metadata
+  and lowers the `:carriers` names to a lower-cased extension set, which
+  `redact-headers` / `sensitive-header?` UNION onto the immutable built-in
+  defaults. The earlier frame `:sensitive {:http {:headers […]}}` block and
+  the process-global `declare-sensitive-header!` / `clear-sensitive-headers!`
+  surface are both removed — the managed-HTTP registration owns app-specific
+  carriers now (EP-0025 §HTTP carriers).
 
   ## Production elision
 
@@ -54,9 +57,10 @@
 
   Drawn from the OWASP Authentication Cheatsheet plus common bearer-
   scheme headers used by SaaS APIs. An **immutable framework default** —
-  no frame can remove one. Apps extend with their own carrier names on
-  the FRAME via `:sensitive {:http {:headers [\"X-Honeycomb-Team\"]}}`
-  (EP-0015 §3); the frame extension set UNIONS onto these defaults."
+  no app can remove one. Apps extend with their own carrier names on the
+  `:rf.http/managed` `reg-fx` registration via `:carriers {:headers
+  [\"X-Honeycomb-Team\"]}` (EP-0025); the carrier extension set UNIONS onto
+  these defaults."
   #{"authorization"
     "proxy-authorization"
     "cookie"
@@ -74,11 +78,13 @@
   "Predicate: is `header-name` in the merged denylist (built-in defaults ∪
   the emitting frame's `frame-extras`)? Case-insensitive.
 
-  `frame-extras` is the frame-local carrier extension set — a set of
-  lower-cased header names resolved from the emitting frame's
-  `:sensitive {:http {:headers [..]}}` policy (EP-0015 §3), or `nil` when
-  the frame declares none. The built-in defaults always apply; the frame
-  set EXTENDS them.
+  `frame-extras` is the app-declared carrier extension set — a set of
+  lower-cased header names resolved from the `:rf.http/managed`
+  `reg-fx` registration's `:carriers {:headers [..]}` block (EP-0025), or
+  `nil` when no carrier is declared. The built-in defaults always apply; the
+  extension set EXTENDS them. (The `frame-extras` parameter name is retained
+  for the leaf API + conformance-fixture contract; the extension set no
+  longer comes from a frame.)
 
   Per rf2-ydp66 — the predicate short-circuits via `contains?` lookups on
   the source sets rather than building a fresh union per call. `redact-headers`
@@ -98,12 +104,13 @@
 (defn redact-headers
   "Walk `headers-map` (string→string or string→vector-of-strings); replace
   values whose key matches the merged header denylist (built-in defaults ∪
-  the emitting frame's `frame-extras`) with `:rf/redacted`. Returns a new
+  the app-declared `frame-extras`) with `:rf/redacted`. Returns a new
   map; nil/empty input returns the input unchanged. Case-insensitive on
   header names.
 
-  `frame-extras` is the emitting frame's frame-local header carrier
-  extension set (EP-0015 §3), or `nil` for defaults-only."
+  `frame-extras` is the app-declared header carrier extension set from the
+  `:rf.http/managed` `:carriers {:headers [..]}` block (EP-0025), or `nil`
+  for defaults-only. (Param name retained for the leaf API contract.)"
   ([headers-map] (redact-headers headers-map nil))
   ([headers-map frame-extras]
    (cond

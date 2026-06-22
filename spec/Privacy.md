@@ -57,7 +57,8 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
 | `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` | commit-plane effects (`reg-event` return) | The owner of durable app-db classification (EP-0025) — each a vector of `:rf/path` vectors, applied **with the `:db` write** at the commit point into the per-frame elision registry. A handler classifies a durable app-db path by returning these alongside `:db`. **Replaces** the removed `reg-frame` `:sensitive {:app-db …}` annotation and the `add-marks` / `set-marks` / `declare-sensitive-*!` surfaces. | [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects) |
 | subsystem `:sensitive` / `:large` | subsystem registration (`reg-machine`, `reg-resource`, `reg-mutation`, `reg-route`) | Projection-relative durable classification declared on a subsystem definition (e.g. a machine's `:data`-rooted `:rf/path` vectors), re-rooted to the instance's absolute runtime path and unioned into the same per-frame registry the commit-plane effects write. | [015 §Subsystem projection-relative classification](015-Data-Classification.md#subsystem-projection-relative-classification) |
-| frame `:sensitive {:http …}` / `:observability` | `reg-frame` meta | Frame-local HTTP carrier names (a union onto the immutable built-in defaults) and observability sink policy. The `:app-db` block is **gone** (durable app-db now rides the four commit-plane effects above); a `reg-frame` `:sensitive {:app-db …}` is rejected fail-loud. | [015 §HTTP carriers](015-Data-Classification.md#http-carriers), [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
+| `:rf.http/managed` `:carriers` | `reg-fx :rf.http/managed` meta | App-specific HTTP carrier names (a union onto the immutable built-in defaults) — the EP-0025 transient-payload case. `(rf/reg-fx :rf.http/managed {:carriers {:headers […] :query-params […]}} h)`. | [015 §HTTP carriers](015-Data-Classification.md#http-carriers) |
+| frame `:observability` | `reg-frame` meta | Observability sink policy. The frame `:sensitive` key is **gone** entirely — its `:app-db` durable block moved to the four commit-plane effects above, and its `:http` carrier block moved to `:rf.http/managed`; a `reg-frame` `:sensitive` is rejected fail-loud. | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
 | `project-egress` | record-level boundary primitive | `(rf/project-egress record opts)` → projected record. The public record-level projection primitive (knows app-db-/event-/exception-/HTTP-/summary-shaped slots); the **required step before any off-box sink**. Delegates per tree-shaped slot to `elide-wire-value`. New façade export (subject to the facade-export classification rule). | [015 §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive) |
 | `register-observability-sink!` / `unregister-observability-sink!` | façade fns | Register the concrete sink fn against the id a frame's `:observability` policy names; the sink consumes the already-projected record. New façade exports (subject to the facade-export classification rule). | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
@@ -78,11 +79,11 @@ HTTP carrier policy. The HTTP fx maps headers + query-strings + the decoded resp
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
 | Built-in header / query-param denylists | framework default (immutable) | Closed sets of always-sensitive header / query-param names redacted in every `:rf.http/*` trace event regardless of the request `:sensitive?` flag — the **name is the signal**. No frame can remove a built-in name. | [014 §1–2](014-HTTPRequests.md) |
-| Frame-local carriers | declarative (frame config) | `(rf/reg-frame :app {:sensitive {:http {:headers [..] :query-params [..]}}})` — app-specific carrier names that **union** onto the immutable built-in defaults for the emitting frame (EP-0015 §3). Replaces the removed process-global `declare-sensitive-*!` mutators. | [014 §Frame-local carriers](014-HTTPRequests.md#frame-local-carriers-ep-0015-3) |
+| Managed-HTTP carriers | declarative (`reg-fx :rf.http/managed` meta) | `(rf/reg-fx :rf.http/managed {:carriers {:headers [..] :query-params [..]}} h)` — app-specific carrier names that **union** onto the immutable built-in defaults (EP-0025 §HTTP carriers — the transient-payload case). Replaces the removed frame `:sensitive {:http …}` block and the process-global `declare-sensitive-*!` mutators. | [014 §HTTP carriers](014-HTTPRequests.md#http-carriers-ep-0025) |
 | Response-body classification | declarative (`:decode` schema) | Per-slot `:sensitive?` / `:large?` props on the request's `:decode` Malli schema classify the decoded body (the EP-0005 mechanism). Whole-body root prop redacts everything; an unschematized body fails closed off-box (EP-0015 issue 5). | [014 §Response-body classification](014-HTTPRequests.md#response-body-classification-ep-0015-5) |
 | `:sensitive?` (per-call) | request arg | `{:rf.http/managed {:sensitive? true}}` — opts a specific request in. When true, the request **body** is redacted to the sentinel and **all** query params are scrubbed (broader than the denylist). Sugar form: `{:request {:sensitive? true}}`. | [014 §Privacy](014-HTTPRequests.md) |
 
-Built-in denylists ship populated with the obvious cross-app names (`authorization`, `cookie`, `x-api-key`, `set-cookie`, ...; `api_key`, `access_token`, `auth`, `token`, ...). App-specific carrier names (`X-MyApp-Auth`, `shop_token`) are declared on the **frame** via `:sensitive {:http {...}}` (EP-0015 §3) — the process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators are removed.
+Built-in denylists ship populated with the obvious cross-app names (`authorization`, `cookie`, `x-api-key`, `set-cookie`, ...; `api_key`, `access_token`, `auth`, `token`, ...). App-specific carrier names (`X-MyApp-Auth`, `shop_token`) are declared on the **`:rf.http/managed` `reg-fx` registration** via the `:carriers` block (EP-0025 §HTTP carriers) — the earlier frame `:sensitive {:http …}` block and the process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators are removed.
 
 ### `re-frame.schemas` (declarative — no imperative surface)
 
@@ -120,7 +121,7 @@ The framework-published privacy filter every MCP forwarder composes. Apps don't 
 
 ## Inventory by declaration source
 
-Same surfaces, regrouped by **the owner that declares the classification** ([015 §The ownership split](015-Data-Classification.md#the-ownership-split)): handler commit-plane effects classify durable app-db state; machine / resource / mutation definitions classify owner-local schema'd data (projection-relative); registration metadata classifies transient payloads; frame config carries frame-local egress facts (HTTP carriers, observability sink policy, SSR allowlist).
+Same surfaces, regrouped by **the owner that declares the classification** ([015 §The ownership split](015-Data-Classification.md#the-ownership-split)): handler commit-plane effects classify durable app-db state; machine / resource / mutation definitions classify owner-local schema'd data (projection-relative); registration metadata classifies transient payloads (including the `:rf.http/managed` `:carriers` block — HTTP carrier names); frame config carries frame-local egress facts (observability sink policy, SSR allowlist).
 
 ### Handler commit-plane effects (durable app-db, EP-0025)
 
@@ -134,13 +135,12 @@ This **replaces** the removed `reg-frame` `:sensitive` / `:large {:app-db …}` 
 
 ### Frame config (frame-local egress facts)
 
-The frame carries frame-local HTTP carrier names, observability sink policy, and the SSR hydration allowlist (the `:app-db` block is **gone** — a `reg-frame` `:sensitive {:app-db …}` is rejected fail-loud):
+The frame carries observability sink policy and the SSR hydration allowlist (the `:sensitive` key is **gone** entirely — its `:app-db` durable block moved to the commit-plane effects and its `:http` carrier block moved to `:rf.http/managed`; a `reg-frame` `:sensitive` is rejected fail-loud):
 
-- `(rf/reg-frame :app {:sensitive {:http {:headers […] :query-params […]}}})` — frame-local HTTP carrier names, union onto the immutable built-in defaults
 - `(rf/reg-frame :app {:observability {:handled-events […] :errors […]}})` — production sink policy ([§Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy))
 - `(rf/reg-frame :app {:ssr {:hydrate {:include-app-db […]}}})` — allowlist-first SSR/hydration boundary
 
-Frame config installs atomically at frame creation (before the `:initial-events` setup runs); re-registering replaces it wholesale. The frame HTTP carriers **replace** the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (their underlying fns survive as internal/test helpers only — see [§Removed surfaces](#removed-surfaces)). Per [015 §HTTP carriers](015-Data-Classification.md#http-carriers).
+Frame config installs atomically at frame creation (before the `:initial-events` setup runs); re-registering replaces it wholesale. HTTP carrier names are NO LONGER frame config — they ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (see the next section), which **replaces** the earlier frame `:sensitive {:http …}` block and the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (their underlying fns survive as internal/test helpers only — see [§Removed surfaces](#removed-surfaces)).
 
 ### Per-slot schema props (owner-local schema'd data)
 
@@ -160,10 +160,10 @@ Frame config installs atomically at frame creation (before the `:initial-events`
 
 Machine **transition payloads** are transient payloads classified by the transition/registration metadata that introduces them — not by the machine's durable `:data` policy. Durable runtime-subsystem state (resource/mutation) is owned by its definition (per-slot schema props), not classified as a transient payload merely because it is declared by `reg-resource` / `reg-mutation`.
 
-### HTTP carriers (frame policy) — quick reference
+### HTTP carriers (`:rf.http/managed` registration) — quick reference
 
-- `(rf/reg-frame :app {:sensitive {:http {:headers ["X-MyApp-Auth"]}}})` — frame-local header carrier; unions onto the immutable built-in header denylist (EP-0015 §3)
-- `(rf/reg-frame :app {:sensitive {:http {:query-params ["my_token"]}}})` — frame-local query-param carrier; unions onto the built-in query-param denylist
+- `(rf/reg-fx :rf.http/managed {:carriers {:headers ["X-MyApp-Auth"]}} h)` — header carrier; unions onto the immutable built-in header denylist (EP-0025 §HTTP carriers)
+- `(rf/reg-fx :rf.http/managed {:carriers {:query-params ["my_token"]}} h)` — query-param carrier; unions onto the built-in query-param denylist
 - `{:rf.http/managed {:decode <malli-schema-with-:sensitive?-props>}}` — per-slot response-body classification (EP-0015 issue 5)
 - `{:rf.http/managed {:sensitive? true ...}}` — per-call opt-in (body redaction + ALL params scrubbed)
 
@@ -318,7 +318,7 @@ The rule is a normative review discipline, not a structural guarantee: app-owned
 1. **Off-box egress redaction** (EP-0015) — a recordable coeffect that *is* legitimately sensitive (e.g. a non-secret-but-private fact a fold needs) is classified and projected like any transient payload; it is never shipped raw off-box.
 2. **The secrets exclusion** (EP-0017, above) — a *secret* must not be a recordable coeffect at all, because redaction does not undo durability: the raw value still lives in the on-box ring, the local epoch, and any trusted-local raw read. The two rules are not substitutes — exclusion is the load-bearing rule for credentials; projection is the safety net for the merely-private.
 
-The analogous obligation already holds for [resource scopes / params](#inventory-by-declaration-source) (classified, projected — but not a place to put a secret) and for [HTTP response bodies](#http-carriers-frame-policy--quick-reference) (fail-closed when unschematized). Recordable coeffects extend that posture to the input-fold side.
+The analogous obligation already holds for [resource scopes / params](#inventory-by-declaration-source) (classified, projected — but not a place to put a secret) and for [HTTP response bodies](#http-carriers-rfhttpmanaged-registration--quick-reference) (fail-closed when unschematized). Recordable coeffects extend that posture to the input-fold side.
 
 ---
 
@@ -384,8 +384,9 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 ;;    into the per-frame elision registry. Classify a path before any value
 ;;    lands there (value-independent); an init event is the natural home.
 ;;    This replaces the removed frame `:sensitive {:app-db …}` annotation and
-;;    the add-marks / set-marks API. (App-specific HTTP carriers and the
-;;    observability sink policy still live on the frame map — see step 3.)
+;;    the add-marks / set-marks API. (App-specific HTTP carriers ride the
+;;    :rf.http/managed registration — see step 3; the observability sink
+;;    policy still lives on the frame map.)
 (rf/reg-event :app/init-classification
   (fn [{:keys [db]} _]
     {:db db
@@ -394,10 +395,12 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
                  [:auth :refresh-token]
                  [:user :ssn]]}))
 
-;; The frame map now carries only the frame-local concerns it still owns —
-;; HTTP carrier names and observability sink policy:
-(rf/reg-frame :app/main
-  {:sensitive {:http {:headers ["X-MyApp-Session"]}}})
+;; App-specific HTTP carrier names ride the :rf.http/managed registration's
+;; :carriers block (EP-0025 §HTTP carriers). The frame map carries only the
+;; concerns it still owns (e.g. observability sink policy).
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers ["X-MyApp-Session"]}}
+  re-frame.http.managed/managed-handler)
 
 ;; 2. Declare the event-arg-side mark on the login handler — the password
 ;;    arrives in the event arg-map before it lands in app-db.
@@ -417,10 +420,10 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
             :on-failure [:auth/log-in-failure]}]]}))
 
 ;; 3. The app-specific auth-token header carrier `X-MyApp-Session` was
-;;    declared on the same frame map in step 1 (`:sensitive {:http {...}}`).
+;;    declared on the :rf.http/managed registration's :carriers block above.
 ;;    The built-in defaults already cover `authorization` / `x-api-key` /
-;;    `cookie` / `set-cookie`; the frame carrier unions onto those immutable
-;;    defaults (EP-0015 §3).
+;;    `cookie` / `set-cookie`; the carrier unions onto those immutable
+;;    defaults (EP-0025 §HTTP carriers).
 
 ;; 4. The on-success event receives the JWT in the response payload. Mark
 ;;    its event arg so the trace surface sees :rf/redacted there too.
@@ -505,7 +508,8 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 | Surface | Removed by | Why |
 |---|---|---|
 | `add-marks` / `set-marks` (public app-db path-mark API) | EP-0015 §3 / EP-0025 | Durable app-db egress policy is declared by the **four commit-plane effects** (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, returned by a handler alongside `:db`), not a post-creation imperative mutation. The marks API and `marks.cljc` namespace are gone (EP-0025); the projection substrate migrated into the marks-free elision engine. |
-| `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!`) | EP-0015 §3 | App-specific HTTP carrier names belong on the **frame** (`:sensitive {:http {:headers […] :query-params […]}}`), union onto the immutable built-in defaults — not process-global mutation. |
+| `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!`) | EP-0025 §HTTP carriers | App-specific HTTP carrier names belong on the **`:rf.http/managed` `reg-fx` registration** (`:carriers {:headers […] :query-params […]}`), union onto the immutable built-in defaults — not process-global mutation and not a frame annotation. |
+| frame `:sensitive {:http …}` carrier block | EP-0025 §HTTP carriers | A `reg-frame` no longer carries a `:sensitive {:http …}` carrier block (the whole `:sensitive` frame key is retired). App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case). A `reg-frame` `:sensitive` is rejected fail-loud. |
 | `redact-interceptor` (public positional interceptor) | EP-0015 §7 | Made privacy depend on interceptor placement rather than payload ownership. Registration-owned `:sensitive` classifies event payload paths; centralized `project-egress` projects at egress. `re-frame.privacy/redact-interceptor` survives as internal router plumbing only (not façade-published). |
 | Schema-attached `:sensitive?` / `:large?` as the public **app-db** classification route | EP-0015 §8 / EP-0025 | Schemas describe shape; durable app-db egress policy rides the four commit-plane effects. Per-slot props remain the *one* route for owner-local schema'd data (machine / resource / HTTP-body), not a second route for durable app-db. The schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`) are removed (EP-0025). |
 | `inject-cofx` (public cofx-injection interceptor) | EP-0017 | Coeffect dependencies are declared with `:rf.cofx/requires` registration metadata; `reg-cofx` is value-returning + graded. `inject-cofx` is removed (calling it is the hard error `:rf.error/inject-cofx-removed`). Named here because cofx values are a classification surface. |
@@ -525,7 +529,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 - [009-Instrumentation §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the canonical trace-surface privacy posture: `:sensitive?` top-level stamp, consumer-side default-drop, the always-on error-emit substrate's posture.
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
 - [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — per-slot schema props for owner-local schema'd data and schema-validation error-trace redaction.
-- [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists, frame-local carriers, and the per-call `:sensitive?` request arg.
+- [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists, the `:rf.http/managed` `:carriers` block, and the per-call `:sensitive?` request arg.
 - [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the projection-side `:redact-fn` config key on `(rf/configure! {:epoch-history ...})`; the `projected-record` / `projected-history` off-box egress pair.
 - [Tool-Pair §Direct-read privacy posture](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) — the MCP wire-egress contract for direct-read tools.
 

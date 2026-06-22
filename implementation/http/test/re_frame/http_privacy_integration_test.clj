@@ -207,16 +207,16 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 5. Frame-local carrier denylist applies (EP-0015 §3) ------------------
+;; ---- 5. Managed-HTTP carrier denylist applies (EP-0025 §HTTP carriers) ------
 
-(deftest frame-carrier-redacts-custom-header
-  (testing "a frame-local :sensitive {:http {:headers [..]}} carrier (EP-0015 §3)
+(deftest managed-carrier-redacts-custom-header
+  (testing "a :rf.http/managed :carriers {:headers [..]} carrier (EP-0025)
             extends header redaction to app-defined names"
-    ;; rf2-ppkh3v — re-register the operating frame with the frame-local
-    ;; header carrier; the redactor unions it onto the immutable defaults
-    ;; for emits from this frame.
-    (rf/reg-frame :rf/default
-      {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
+    ;; EP-0025 — re-register :rf.http/managed with the app's :carriers block;
+    ;; the redactor unions it onto the immutable defaults at trace egress.
+    (rf/reg-fx :rf.http/managed
+      {:carriers {:headers ["X-Honeycomb-Team"]}}
+      http-managed/managed-handler)
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
@@ -328,15 +328,15 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 8. Frame-local query-param carrier applies on failure URL (EP-0015 §3) -----
+;; ---- 8. Managed-HTTP query-param carrier applies on failure URL (EP-0025) ----
 
-(deftest frame-carrier-query-param-redacts-failure-url
-  (testing "a frame-local :sensitive {:http {:query-params [..]}} carrier
-            (EP-0015 §3) extends URL redaction to app-defined params"
-    ;; rf2-ppkh3v — re-register the operating frame with the frame-local
-    ;; query-param carrier.
-    (rf/reg-frame :rf/default
-      {:sensitive {:http {:query-params ["shop_token"]}}})
+(deftest managed-carrier-query-param-redacts-failure-url
+  (testing "a :rf.http/managed :carriers {:query-params [..]} carrier
+            (EP-0025) extends URL redaction to app-defined params"
+    ;; EP-0025 — re-register :rf.http/managed with the app's query-param carrier.
+    (rf/reg-fx :rf.http/managed
+      {:carriers {:query-params ["shop_token"]}}
+      http-managed/managed-handler)
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 500 "text/plain" "boom")))

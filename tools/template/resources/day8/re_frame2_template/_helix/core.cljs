@@ -40,8 +40,8 @@
   ;;       {:db        (assoc db :auth {})
   ;;        :sensitive [[:auth :token]]
   ;;        :large     [[:documents :upload]]}))
-  ;; HTTP carrier names stay on the frame's `:sensitive {:http …}` config
-  ;; (`(rf/reg-frame :rf/default {:sensitive {:http {:headers ["Authorization"]}}})`).
+  ;; HTTP carrier names ride the `:rf.http/managed` reg-fx registration's
+  ;; `:carriers` block (`(rf/reg-fx :rf.http/managed {:carriers {:headers ["X-My-Auth"]}} h)`).
   ;; See README §Privacy / egress classification. HTTP response BODIES are
   ;; classified on the request's `:decode` schema instead — see events.cljs.
   (rf/reg-frame :rf/default {})

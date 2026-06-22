@@ -360,9 +360,10 @@
                           :actor-id   actor-id
                           :url        (:url handle)}
                          (true? (:sensitive? handle))
-                         ;; rf2-ppkh3v — the handle carries its originating
-                         ;; frame so the URL redaction here consults that
-                         ;; frame's frame-local HTTP carriers (EP-0015 §3).
+                         ;; The handle carries its originating frame for the
+                         ;; trace stamp; HTTP carrier redaction is process-global
+                         ;; now (the :rf.http/managed `:carriers` registration,
+                         ;; EP-0025), so it no longer depends on the frame.
                          {:frame (:frame handle)})))
         (try
           ((:abort-fn handle) :actor-destroyed)

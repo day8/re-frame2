@@ -40,6 +40,33 @@
     (`:abort-signal`, `:mode`, `:cache`, `:referrer`, `:integrity`) are
     no-ops on JVM with a one-line trace per occurrence.
 
+  ## HTTP carriers (EP-0025 §HTTP carriers)
+
+  App-specific sensitive HTTP carrier NAMES (secret-bearing header /
+  query-param names beyond the immutable built-in denylists) are declared on
+  THIS registration's metadata — the `:carriers` block — the EP-0025
+  transient-payload case (a managed-HTTP effect declares its own sensitive
+  carriers on its `reg-fx` registration). An app extends the denylists by
+  re-registering `:rf.http/managed` with a `:carriers` block:
+
+  ```clojure
+  (rf/reg-fx :rf.http/managed
+    {:carriers {:headers      [\"X-Honeycomb-Team\"]
+                :query-params [\"shop_token\"]}}
+    http-managed/managed-handler)
+  ```
+
+  `:headers` is a vector of names (vector-only — the header denylist is
+  immutable; a default-off header would be a real leak). `:query-params`
+  accepts a vector of names OR a `{:include [..] :except [..]}` policy map
+  whose `:except` subtracts a built-in default for THIS app's own dev trace
+  (effective policy `(defaults − except) ∪ include`; `:include` wins for a
+  name in both). The names lower-case and UNION onto the immutable built-in
+  carrier denylists at trace-emit time (`re-frame.http.privacy/managed-carriers`).
+  Carriers are process-global (one registration); a malformed `:carriers`
+  block fails loud. The earlier frame `:sensitive {:http …}` block is
+  REMOVED.
+
   ## Production elision
 
   Trace events (`:rf.http/retry-attempt`,
@@ -161,11 +188,27 @@
 ;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Header denylist lives
 ;; in `re-frame.http.privacy-headers`; the orchestrating composers
 ;; (request-sensitive?, prepare-emit-*) stay in `re-frame.http.privacy`.
-;; rf2-ppkh3v — the app-specific `declare-sensitive-header!` /
-;; `clear-sensitive-headers!` mutators are REMOVED: app carrier names are
-;; declared on the FRAME via `:sensitive {:http {:headers [..]}}` (EP-0015
-;; §3). The immutable built-in default denylist is re-exported for tests.
+;; EP-0025 §HTTP carriers — the app-specific `declare-sensitive-header!` /
+;; `clear-sensitive-headers!` mutators and the frame `:sensitive {:http …}`
+;; block are REMOVED: app carrier names are declared on the `:rf.http/managed`
+;; `reg-fx` registration metadata via the `:carriers {:headers [..]
+;; :query-params [..]}` block (the transient-payload case — see the
+;; ## HTTP carriers section in the ns docstring). The immutable built-in
+;; default denylist is re-exported for tests.
 (def default-header-denylist    privacy-headers/default-header-denylist)
+
+;; The `:rf.http/managed` fx handler body — re-exported so an app can
+;; RE-REGISTER `:rf.http/managed` to declare its `:carriers` block without
+;; knowing the internal handler fn (EP-0025 §HTTP carriers):
+;;
+;;   (rf/reg-fx :rf.http/managed
+;;     {:carriers {:headers ["X-My-Auth"] :query-params ["shop_token"]}}
+;;     http-managed/managed-handler)
+;;
+;; `re-frame.http.privacy/managed-carriers` reads the registration's
+;; `:carriers` block and unions the (lower-cased) names onto the immutable
+;; built-in carrier denylists at trace-emit time.
+(def managed-handler            handlers/managed-handler)
 
 ;; ---- registration ---------------------------------------------------------
 ;;

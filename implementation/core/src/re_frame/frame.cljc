@@ -1539,25 +1539,28 @@
         ;; config are installed (first-registration branch below).
         _              (reject-retired-construction-keys! config 'rf/reg-frame)
         setup-steps    (normalize-initial-events (:initial-events config) 'rf/reg-frame)
-        ;; EP-0015 §3 / §9: validate the frame-owned policy keys
-        ;; (`:sensitive {:http …}` HTTP carriers + `:observability` sink policy)
-        ;; EARLY — pure, container-independent, fail-loud. An unknown
-        ;; classification key / non-string carrier name / malformed sink entry
-        ;; throws here, BEFORE the registrar write and BEFORE any container
-        ;; exists, so a bad declaration leaves no half-registered frame and
-        ;; never reaches `:initial-events`. Reached via late-bind:
-        ;; `re-frame.frame-classification` requires this ns, so a static require
-        ;; would cycle; `re-frame.core` requires it at boot so the hook is
-        ;; always published before any runtime `reg-frame`. No-op when the
-        ;; config carries no policy key (the common case).
+        ;; EP-0015 §9: validate the surviving frame-owned policy key
+        ;; (`:observability` sink policy) EARLY — pure, container-independent,
+        ;; fail-loud. A retired `:sensitive` / `:large` frame key, an unknown
+        ;; observability key, or a malformed sink entry throws here, BEFORE the
+        ;; registrar write and BEFORE any container exists, so a bad
+        ;; declaration leaves no half-registered frame and never reaches
+        ;; `:initial-events`. Reached via late-bind: `re-frame.frame-classification`
+        ;; requires this ns, so a static require would cycle; `re-frame.core`
+        ;; requires it at boot so the hook is always published before any
+        ;; runtime `reg-frame`. No-op when the config carries no policy key
+        ;; (the common case).
         ;;
         ;; EP-0025: durable app-db classification is NO LONGER a frame
         ;; annotation — the `:sensitive` / `:large {:app-db …}` durable
         ;; declaration moved to the commit-plane classification effects
         ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`,
-        ;; `re-frame.elision`). So `reg-frame` only VALIDATES the surviving
-        ;; HTTP-carrier + observability policy; it installs NOTHING into the
-        ;; elision registry. (The retired `:app-db` key now fails loud.)
+        ;; `re-frame.elision`). HTTP carrier classification is NO LONGER a
+        ;; frame annotation either — the `:sensitive {:http …}` block moved
+        ;; onto the `:rf.http/managed` `reg-fx` registration (`:carriers`).
+        ;; So `reg-frame` only VALIDATES the surviving `:observability` policy;
+        ;; it installs NOTHING into the elision registry. (The retired
+        ;; `:sensitive` and `:large` frame keys now fail loud.)
         _              (when-let [validate (late-bind/get-fn
                                             :frame-classification/validate!)]
                          (validate id config))]

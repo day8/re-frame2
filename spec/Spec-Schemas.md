@@ -560,6 +560,35 @@ The metadata stored in the per-frame interceptor slot for a registration made vi
 
 At least one of `:before` / `:after` MUST be present — a no-op slot is rejected at registration with `:rf.error/http-bad-interceptor`. The base `RegistrationMetadata` keys (`:doc`, `:schema`, `:tags`, `:ns` / `:line` / `:column` / `:file`) flow through additively — supplied via the interceptor-map at the call site, except for source-coords which are auto-captured at the `rf/reg-http-interceptor` call site per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference). The slot is read by the runtime's `run-interceptor-chain!` (which pulls `:id` / `:before` for the request-side chain) and `run-after-chain!` (which pulls `:id` / `:after` for the REVERSE-order response-side chain); it is also the canonical surface tools introspect for "where is this interceptor declared?" lookups.
 
+#### `:rf/http-managed-meta`
+
+> **Layer:** Public
+> **Owner:** [014-HTTPRequests §Frame-local carriers](014-HTTPRequests.md#http-carriers-ep-0025)
+> **Status:** v1 (optional capability)
+
+The `reg-fx` registration metadata an app supplies when it RE-REGISTERS `:rf.http/managed` to declare its app-specific HTTP carrier NAMES — the EP-0025 transient-payload case ([015 §HTTP carriers](015-Data-Classification.md#http-carriers)). The `:carriers` block extends the immutable built-in header / query-param denylists; the names lower-case and **union** onto the defaults at trace-emit time (`re-frame.http.privacy/managed-carriers`). It composes additively with `:rf/registration-metadata` (and any `:sensitive` / `:large` registration-owned transient classification the fx also declares).
+
+```clojure
+(def HttpManagedCarriers
+  [:map
+   [:headers      {:optional true} [:vector :string]]                       ;; header carrier NAMES; vector-only (the header denylist is immutable)
+   [:query-params {:optional true}
+    [:or
+     [:vector :string]                                                      ;; include-only carrier NAMES (extend the defaults)
+     [:map                                                                  ;; {:include :except} policy map (rf2-4wqxq8)
+      [:include {:optional true} [:vector :string]]                         ;; extend the defaults
+      [:except  {:optional true} [:vector :string]]]]]])                    ;; subtract a default for THIS app's own dev trace
+
+(def HttpManagedMeta
+  [:merge
+   RegistrationMetadata
+   [:map
+    [:carriers {:optional true} HttpManagedCarriers]                        ;; app-specific HTTP carrier names (EP-0025 §HTTP carriers)
+    ]])
+```
+
+`:headers` is vector-only — the header denylist is immutable (a default-off header would be a real leak). `:query-params` additionally accepts a `{:include […] :except […]}` policy map whose `:except` set **subtracts** a built-in default for this app's own (dev-only, debug-gated) trace — effective policy `(defaults − except) ∪ include`; a name in both `:include` and `:except` stays sensitive (`:include` wins). A malformed `:carriers` block fails loud with `:rf.error/bad-classification` (the http artefact validates it at consumption — `re-frame.http.privacy/validate-carriers!`). Carriers are process-global (one `:rf.http/managed` registration). The earlier frame `:sensitive {:http …}` block is **removed** (EP-0025).
+
 The route-shape — `:rf/route-metadata` — is defined separately further below in this catalogue (it predates this per-kind grouping). It composes with `:rf/registration-metadata` the same way the kinds above do; per [§`:rf/route-metadata`](#rfroute-metadata).
 
 ### `:rf/source-coord-meta`
@@ -3584,32 +3613,19 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
-    ;; Frame-owned durable data classification (EP-0015 §3 + §9; the model
-    ;; is normative in [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)).
-    ;; EP-0025: `:sensitive` is now an HTTP-CARRIERS-ONLY frame block — the
-    ;; durable `:app-db` path classification moved to the four commit-plane
-    ;; effects (a `reg-frame` `:sensitive {:app-db …}` is REJECTED fail-loud),
-    ;; and `:large` is NO LONGER a frame key. Validated through the frame
-    ;; `validate!` seam; a malformed carrier / an `:app-db` key fails loudly at
-    ;; registration (`:rf.error/bad-frame-classification`).
-    [:sensitive    {:optional true} FrameSensitiveClassification]
+    ;; Frame-owned data classification (EP-0015 §9; the model is normative in
+    ;; [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)).
+    ;; EP-0025: the frame `:sensitive` / `:large` classification keys are BOTH
+    ;; RETIRED — durable `:app-db` classification moved to the four commit-plane
+    ;; effects, and the `:sensitive {:http …}` HTTP carrier block moved onto the
+    ;; `:rf.http/managed` `reg-fx` registration (`:carriers`). A `reg-frame`
+    ;; carrying either is REJECTED fail-loud (`:rf.error/bad-frame-classification`)
+    ;; through the frame `validate!` seam. `:observability` is the sole surviving
+    ;; frame-owned classification key.
     [:observability {:optional true} FrameObservability]
     ]])
 
 ;; --- the surviving frame-owned classification sub-shapes (EP-0025) ---
-
-;; `:sensitive` survives ONLY for its `:http` carrier block (EP-0025): the
-;; frame-local extension to the immutable built-in HTTP carrier denylist —
-;; strings (header / query-param names are strings on the wire). `:http` is
-;; closed to `:headers` / `:query-params`. There is NO `:app-db` key (durable
-;; app-db classification is the commit-plane `:sensitive` / `:large` effects),
-;; and there is no frame `:large` key.
-(def FrameSensitiveClassification
-  [:map
-   [:http   {:optional true}
-    [:map
-     [:headers      {:optional true} [:vector :string]]
-     [:query-params {:optional true} [:vector :string]]]]])
 
 ;; The closed six-member `:rf.egress/profile` enum (normative in
 ;; [015 §Projection profiles](015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)).
@@ -3642,7 +3658,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
    [:errors         {:optional true} [:vector FrameSinkEntry]]])
 ```
 
-`Path` is the `:rf/path` schema (a vector of segments; see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). EP-0025: `:sensitive` survives on the frame **only** as the HTTP-carrier extension block + the `:observability` sink policy; both appear on the *input* `reg-frame` metadata map and on the `frame-meta` readback verbatim. **Durable app-db classification is NOT a frame annotation** — it rides the four commit-plane `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` effects (a handler returns them with its `:db` write; lowered into `[:rf.runtime/elision …]` under `:source :effect`); a `reg-frame` `:sensitive {:app-db …}` is rejected fail-loud, and there is no frame `:large` key. Subsystem instance data is lowered projection-relative under its own `:source`; schema slot props are **not** a source (EP-0025).
+`Path` is the `:rf/path` schema (a vector of segments; see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). EP-0025: the only surviving frame-owned classification key is `:observability` (the sink policy); it appears on the *input* `reg-frame` metadata map and on the `frame-meta` readback verbatim. **Durable app-db classification is NOT a frame annotation** — it rides the four commit-plane `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` effects (a handler returns them with its `:db` write; lowered into `[:rf.runtime/elision …]` under `:source :effect`); a `reg-frame` `:sensitive {:app-db …}` is rejected fail-loud, and there is no frame `:large` key. **HTTP carrier classification is NOT a frame annotation either** — the `:carriers` block lives on the `:rf.http/managed` `reg-fx` registration (see [`:rf/http-managed-meta`](#rfhttp-managed-meta)); a `reg-frame` `:sensitive {:http …}` is rejected fail-loud. Subsystem instance data is lowered projection-relative under its own `:source`; schema slot props are **not** a source (EP-0025).
 
 ### `:rf/realm` (runtime realm, EP-0013)
 

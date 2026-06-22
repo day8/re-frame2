@@ -323,11 +323,12 @@
 
           ;; -- README EP-0015 privacy/egress classification --
           ;; The README must carry a concise privacy/egress section that
-          ;; distinguishes app-db schemas (shape) from frame-owned durable
-          ;; classification (:sensitive / :large on reg-frame), and shows
-          ;; where sensitive/large app-db paths + frame-local HTTP carrier
-          ;; names are declared. Scope the assertions to that section so an
-          ;; honest mention elsewhere can't satisfy them weakly.
+          ;; distinguishes app-db schemas (shape) from durable classification
+          ;; (:sensitive / :large commit-plane effects), and shows where
+          ;; sensitive/large app-db paths are declared. (App-specific HTTP
+          ;; carrier names ride the :rf.http/managed `:carriers` block, EP-0025.)
+          ;; Scope the assertions to that section so an honest mention elsewhere
+          ;; can't satisfy them weakly.
           (let [readme-text (slurp (io/file root "README.md"))
                 priv-start  (.indexOf readme-text "### Privacy / egress classification")
                 priv-end    (let [i (.indexOf readme-text "\n### " (inc priv-start))]

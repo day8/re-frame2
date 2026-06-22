@@ -223,25 +223,23 @@
     :design-bead "rf2-qe6v1u"
     :description "ALWAYS-ON (NOT a DCE seam, rf2-eq7m0x — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot."}
 
-   ;; ---- re-frame.frame-classification (EP-0015 §3 HTTP carriers + §9 observability) ----
-   ;; `re-frame.frame/reg-frame` consults these to validate the frame-owned
-   ;; HTTP-carrier + observability policy (:sensitive {:http …} / :observability).
-   ;; Reached via late-bind because frame-classification requires frame, so a
-   ;; static require would cycle.
+   ;; ---- re-frame.frame-classification (EP-0015 §9 observability) ----
+   ;; `re-frame.frame/reg-frame` consults this to validate the surviving
+   ;; frame-owned :observability sink policy. Reached via late-bind because
+   ;; frame-classification requires frame, so a static require would cycle.
    ;;
    ;; EP-0025: the durable app-db classification install hooks (validate+extract /
-   ;; install! / install-from-config!) were REMOVED — the frame :sensitive /
-   ;; :large {:app-db …} annotation no longer exists; durable app-db
-   ;; classification rides the commit-plane effects (re-frame.elision), and
-   ;; reg-frame now only VALIDATES the surviving policy.
+   ;; install! / install-from-config!) AND the :frame-classification/http-carriers
+   ;; resolver hook were REMOVED — the frame :sensitive / :large {:app-db …}
+   ;; annotation and the :sensitive {:http …} carrier block no longer exist.
+   ;; Durable app-db classification rides the commit-plane effects
+   ;; (re-frame.elision); HTTP carriers ride the :rf.http/managed reg-fx
+   ;; registration (:carriers block, resolved by re-frame.http.privacy); and
+   ;; reg-frame now only VALIDATES the surviving :observability policy.
    {:key         :frame-classification/validate!
     :producer-ns 're-frame.frame-classification
     :design-bead "rf2-ueg1tn"
-    :description "Validate a reg-frame config's frame-owned policy keys (:sensitive {:http …} HTTP carriers + :observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown classification key / non-string carrier / malformed sink entry; the retired :app-db key (and :large frame key) now fail loud here (EP-0025). Pure, installs nothing — called EARLY by reg-frame (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §3)."}
-   {:key         :frame-classification/http-carriers
-    :producer-ns 're-frame.frame-classification
-    :design-bead "rf2-ppkh3v"
-    :description "Resolve a frame's frame-local HTTP carrier extension sets ({:headers #{..} :query-params #{..}}, lower-cased) from its reg-frame :sensitive {:http {...}} config (EP-0015 §3). The HTTP privacy redactor unions these onto the immutable built-in carrier denylist at trace-emit time. Returns nil when the frame is unregistered or declares no :sensitive :http block. Reached via late-bind because the http artefact sits below core in load order (EP-0015 HTTP slice, bead-plan item 8)."}
+    :description "Validate a reg-frame config's surviving frame-owned policy key (:observability sink policy). Fails loud (:rf.error/bad-frame-classification) on an unknown observability key / malformed sink entry; the retired :sensitive (HTTP carriers moved to :rf.http/managed; app-db moved to commit-plane effects) and :large frame keys now fail loud here (EP-0025). Pure, installs nothing — called EARLY by reg-frame (before the container exists) so a bad declaration leaves no half-registered frame (EP-0015 §9). EP-0025: the :frame-classification/http-carriers resolver hook is GONE — HTTP carrier classification moved onto the :rf.http/managed reg-fx registration (:carriers block), resolved by the http artefact (re-frame.http.privacy/managed-carriers reads registrar/handler-meta directly)."}
 
    ;; ---- re-frame.flows -------------------------------------------------------
    ;; Both the public `rf/reg-flow` / `rf/clear-flow` surfaces AND the

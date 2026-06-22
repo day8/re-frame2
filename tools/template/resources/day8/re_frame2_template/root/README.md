@@ -472,7 +472,8 @@ The starter counter has nothing sensitive. As soon as you add auth/API
 data to app-db — say an `[:auth]` slice with a token, or a `[:documents]`
 slice that holds a large upload — classify it from the event that writes
 it: return the `:sensitive` / `:large` commit-plane effects alongside
-`:db` (EP-0025). Frame-local HTTP carrier names stay on the frame config.
+`:db` (EP-0025). App-specific HTTP carrier names ride the `:rf.http/managed`
+reg-fx registration's `:carriers` block.
 
 ```clojure
 ;; events.cljs — classify durable app-db paths from the event that writes
@@ -488,11 +489,14 @@ it: return the `:sensitive` / `:large` commit-plane effects alongside
      ;; :rf.size/large-elided (sensitive wins over large).
      :large     [[:documents :upload]]}))
 
-;; core.cljs — frame-local HTTP carrier names (headers / query params) that
-;; carry secret material on this app's requests stay on the frame config.
-(rf/reg-frame :rf/default
-  {:sensitive {:http {:headers      ["Authorization"]
-                      :query-params ["api_key"]}}})
+;; core.cljs — app-specific HTTP carrier names (headers / query params) that
+;; carry secret material on this app's requests ride the :rf.http/managed
+;; reg-fx registration's :carriers block (Authorization / api_key are already
+;; built-in defaults — declare your own app-specific names here).
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers      ["X-My-Auth"]
+              :query-params ["shop_token"]}}
+  re-frame.http.managed/managed-handler)
 ```
 
 Real values still flow through events → handlers → app-db → subs → views
