@@ -1,21 +1,23 @@
 (ns re-frame.resources-classification-cljs-test
-  "EP-0015 §6 resource / mutation OWNER-classification reconciliation
-  (rf2-5pld34, bead-plan item 5). Pins the contract that resource durable
-  state projects through the merged frame-owned classification +
-  `project-egress` (Spec 015 §Resource and mutation durable classification /
-  Spec 016 §SSR and hydration):
+  "EP-0015 §6 / EP-0025 resource / mutation OWNER-classification. Pins the
+  contract that resource durable state projects through the merged frame-owned
+  classification + `project-egress` REGISTRY-DRIVEN (Spec 015 §Resource and
+  mutation durable classification / Spec 016 §SSR and hydration):
 
     1. WHOLE-ENTRY coarse `:sensitive?` / `:large?` (the degenerate root-prop
        case, EP-0015 issue 11) → redact / omit; sensitive wins over large;
     2. the canonical fine-grained owner surface is the PROJECTION-RELATIVE
-       `:sensitive` / `:large` path declarations on the spec (EP-0025); the
-       per-slot `:data-schema` / `:params-schema` `:sensitive?` / `:large?`
+       `:sensitive` / `:large` path declarations on the spec (EP-0025), LOWERED
+       per instance into the per-frame elision registry (`reconcile-registry`,
+       `:source :resource`); the per-slot `:data-schema` / `:params-schema`
        props VALIDATE only — they do NOT drive durable classification
-       (rf2-fuqcob, mirroring the rf2-398kql machine schema-bridge reversal);
-    3. a `:serialize` entry's data projects through frame classification
-       (`project-egress`) — the frame-owned source of truth the prior
-       resource-local redaction now defers to; a frame-classified sub-path is
-       redacted even on a coarse-`:serialize` resource (defense in depth);
+       (rf2-fuqcob);
+    3. the SSR egress READS the registry (rf2-d3pku1, the routing / machines
+       standard model): `project-entry-data` / `project-entry-params` walk the
+       entry value through `project-egress` seeded at the lowered absolute path
+       — the redundant family-private `project-data` / `project-params`
+       re-derivation is REMOVED. A frame-classified sub-path is unioned with the
+       resource declaration (defense in depth);
     4. the load-bearing Spec 016 rules are preserved (only the durable
        `:entries` slice rides; metadata-only redacted/omitted hydration;
        scoped-key privacy).
@@ -30,10 +32,10 @@
    [re-frame.core :as rf]
    [re-frame.elision :as elision]
    [re-frame.frame :as frame]
-   [re-frame.late-bind :as late-bind]
    [re-frame.privacy :as privacy]
    ;; the unit under test + the SSR projection that consumes it.
    [re-frame.resources.classification :as classification]
+   [re-frame.resources.registry :as registry]
    [re-frame.resources.ssr :as ssr]
    [re-frame.resources.state :as state]
    ;; load-bearing side-effecting requires: the façade registers the
@@ -79,6 +81,24 @@
                                        entries)
                         :tag-index {} :owner-index {}}})
 
+;; rf2-d3pku1 — the SSR egress is now REGISTRY-DRIVEN. To exercise an end-to-end
+;; SSR projection, LOWER each entry's resource classification into the live
+;; frame's per-frame elision registry (`reconcile-registry` → the frame's
+;; runtime-db `[:rf.runtime/elision]`), exactly as a resource handler does at
+;; commit (`with-classification-lowering`) and as the routing SSR egress test
+;; installs route decls. Then project under that frame (`rf/with-frame`), which
+;; the SSR projector resolves as the current frame.
+(defn- ssr-project
+  "Project `runtime-db`'s resource `:entries` for SSR under `frame-id`, having
+  first lowered the resource classification into the frame's registry (the live
+  durable home of `[:rf.runtime/elision]`). Returns the projection map."
+  [frame-id runtime-db]
+  (let [lowered (classification/reconcile-registry runtime-db registry/resource-meta)]
+    (when-let [reg (get lowered :rf.runtime/elision)]
+      (elision/swap-elision-slot! frame-id (constantly reg)))
+    (rf/with-frame frame-id
+      (ssr/project-resources-runtime-db lowered))))
+
 ;; The projection map is byte-keyed; the projected SCOPED KEY (verbatim or
 ;; redacted) rides as the wire entry's `:resource/key`. Return it as the
 ;; first element so the privacy/distinctness assertions inspect it.
@@ -103,117 +123,9 @@
                        {:sensitive? true :large? true}))))))
 
 ;; ===========================================================================
-;; 2. data-schema-marks — the projection-relative DATA declarations (EP-0025).
-;;    fuqcob: `:data-schema` per-slot props VALIDATE only; they do NOT classify.
-;; ===========================================================================
-
-(deftest data-schema-marks-read-projection-relative-data-declarations
-  (testing "data-schema-marks reads the spec's :data-rooted projection-relative
-            :sensitive / :large declarations (the canonical surface), rooted at
-            the data root"
-    (let [spec {:sensitive [[:data :token]]
-                :large     [[:data :blob]]}
-          {:keys [sensitive large]} (classification/data-schema-marks spec)]
-      (is (contains? sensitive [:token]) "the :data :token sensitive declaration is read")
-      (is (contains? large [:blob]) "the :data :blob large declaration is read")
-      (is (true? (classification/data-schema-classifies? spec))
-          "data-schema-classifies? is true when any :data declaration is present"))))
-
-(deftest data-schema-props-do-not-classify-durably
-  (testing "fuqcob: per-slot :sensitive? / :large? props on :data-schema do NOT
-            drive durable classification — the schema VALIDATES only"
-    (let [spec {:data-schema [:map
-                              [:token {:sensitive? true} :string]
-                              [:blob  {:large? true} :string]
-                              [:title :string]]}
-          {:keys [sensitive large]} (classification/data-schema-marks spec)]
-      (is (= {} sensitive) "no sensitive marks from :data-schema props")
-      (is (= {} large) "no large marks from :data-schema props")
-      (is (false? (classification/data-schema-classifies? spec))
-          "data-schema-classifies? is false — a :data-schema does not classify"))))
-
-(deftest data-schema-marks-empty-without-declaration
-  (testing "no :data declaration → empty maps, classifies? false"
-    (is (= {} (:sensitive (classification/data-schema-marks {}))))
-    (is (= {} (:large (classification/data-schema-marks {}))))
-    (is (false? (classification/data-schema-classifies? {})))))
-
-;; ===========================================================================
-;; 2b. params-schema-marks — the CO-EQUAL projection-relative PARAMS surface.
-;;     fuqcob: `:params-schema` props VALIDATE only; they do NOT classify.
-;; ===========================================================================
-
-(deftest params-schema-marks-read-projection-relative-params-declarations
-  (testing "params-schema-marks reads the spec's :params-rooted (and
-            :scope-rooted) projection-relative :sensitive / :large declarations
-            — the co-equal params surface"
-    (let [spec {:sensitive [[:params :account-id]]
-                :large     [[:params :cursor]]}
-          {:keys [sensitive large]} (classification/params-schema-marks spec)]
-      (is (contains? sensitive [:account-id]) "the :params :account-id sensitive declaration is read")
-      (is (contains? large [:cursor]) "the :params :cursor large declaration is read")
-      (is (true? (classification/params-schema-classifies? spec))
-          "params-schema-classifies? is true when any :params declaration is present"))))
-
-(deftest params-schema-props-do-not-classify-durably
-  (testing "fuqcob: per-slot :sensitive? / :large? props on :params-schema do
-            NOT drive durable classification — the schema VALIDATES only"
-    (let [spec {:params-schema [:map
-                                 [:account-id {:sensitive? true} :string]
-                                 [:cursor     {:large? true} :string]
-                                 [:page :int]]}
-          {:keys [sensitive large]} (classification/params-schema-marks spec)]
-      (is (= {} sensitive) "no sensitive marks from :params-schema props")
-      (is (= {} large) "no large marks from :params-schema props")
-      (is (false? (classification/params-schema-classifies? spec))
-          "params-schema-classifies? is false — a :params-schema does not classify"))))
-
-(deftest params-schema-marks-empty-without-declaration
-  (testing "no :params declaration → empty maps, classifies? false"
-    (is (= {} (:sensitive (classification/params-schema-marks {}))))
-    (is (= {} (:large (classification/params-schema-marks {}))))
-    (is (false? (classification/params-schema-classifies? {})))))
-
-(deftest project-params-redacts-sensitive-and-elides-large
-  (testing "project-params applies the owner's :params-rooted projection-relative
-            declarations — sensitive slots redact to the :rf/redacted sentinel,
-            large slots elide to the :rf.size/large-elided marker, plain slots
-            ride verbatim — via the SHARED redact-with-paths walker, frame-
-            independently"
-    (let [spec {:sensitive [[:params :account-id]]
-                :large     [[:params :cursor]]}
-          out  (classification/project-params
-                 {:account-id "acct-secret-42" :cursor (apply str (repeat 200 "x")) :page 3}
-                 spec)]
-      (is (= privacy/redacted-sentinel (:account-id out))
-          "the declared :params :account-id slot is redacted")
-      (is (contains? (:cursor out) :rf.size/large-elided)
-          "the declared :params :cursor slot is elided to the size marker")
-      (is (= 3 (:page out)) "the plain params slot rides verbatim")
-      (is (not (str/includes? (pr-str out) "acct-secret-42"))
-          "the raw sensitive params value does not ride"))))
-
-(deftest project-params-sensitive-wins-over-large
-  (testing "a params slot declared BOTH sensitive and large redacts (sensitive
-            wins over large — the shared walker ordering, same as data + HTTP body)"
-    (let [spec {:sensitive [[:params :token]] :large [[:params :token]]}
-          out  (classification/project-params {:token (apply str (repeat 100 "z"))} spec)]
-      (is (= privacy/redacted-sentinel (:token out))
-          "sensitive wins — the slot is the redaction sentinel, not a large marker"))))
-
-(deftest project-params-no-marks-rides-verbatim
-  (testing "a spec with no :params declaration (or nil spec) rides params
-            UNCHANGED — the coarse whole-entry disposition is the separate
-            authority that redacts/omits the whole key"
-    (is (= {:slug "x"} (classification/project-params {:slug "x"}
-                                                      {:params-schema [:map [:slug :string]]})))
-    (is (= {:slug "x"} (classification/project-params {:slug "x"} nil)))))
-
-;; ===========================================================================
-;; 2c. EP-0025 §subsystems — projection-relative `:sensitive` / `:large`
-;;     declarations on the resource / mutation spec (rf2-h3d8tf). The canonical
-;;     surface (the matrix example), UNIONED with the schema-prop route, split
-;;     across the data / params projections, redacting at egress.
+;; 2. spec-declaration-marks — the projection-relative declaration axis-split
+;;    (the shape the per-instance lowering re-roots). fuqcob: schema props do
+;;    NOT contribute (no union — the schema validates, it does not classify).
 ;; ===========================================================================
 
 (deftest spec-declaration-marks-split-across-projections
@@ -231,44 +143,17 @@
       (is (contains? (:sensitive params) [:scope :tenant]) ":scope-rooted sensitive → params projection (whole path)")
       (is (contains? (:large params) [:cursor]) ":params-rooted large → params projection"))))
 
-(deftest data-schema-marks-projection-relative-only-no-schema-prop-union
-  (testing "fuqcob — data-schema-marks reads ONLY the projection-relative
-            :sensitive / :large :data declarations; a co-present :data-schema's
-            per-slot props do NOT contribute (no union — the schema validates,
-            it does not classify durably)"
+(deftest spec-declaration-marks-ignores-schema-props
+  (testing "fuqcob — spec-declaration-marks reads ONLY the projection-relative
+            :sensitive / :large declarations; a co-present :data-schema /
+            :params-schema's per-slot props do NOT contribute (the schema
+            validates, it does not classify durably)"
     (let [spec {:sensitive [[:data :ssn]]
-                :large     [[:data :avatar-bytes]]
-                :data-schema [:map [:token {:sensitive? true} :string] [:title :string]]}
-          {:keys [sensitive large]} (classification/data-schema-marks spec)]
-      (is (contains? sensitive [:ssn]) "projection-relative sensitive :data path is present")
-      (is (not (contains? sensitive [:token])) "schema-prop sensitive slot is NOT present (no union)")
-      (is (contains? large [:avatar-bytes]) "projection-relative large :data path is present")
-      (is (true? (classification/data-schema-classifies? spec))))))
-
-(deftest project-data-redacts-projection-relative-declaration
-  (testing "EP-0025 matrix example — (rf/reg-resource :user-profile
-            {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]}): the
-            declared :data :ssn slot redacts at egress, the :avatar-bytes slot
-            elides, a plain sibling rides verbatim — no :data-schema needed"
-    (let [spec {:sensitive [[:data :ssn]]
-                :large     [[:data :avatar-bytes]]}
-          out  (classification/project-data
-                 {:ssn "123-45-6789" :avatar-bytes (apply str (repeat 200 "x")) :name "Alice"}
-                 spec nil :rf.egress/off-box-tool)]
-      (is (= privacy/redacted-sentinel (:ssn out)) "declared :data :ssn redacts")
-      (is (contains? (:avatar-bytes out) :rf.size/large-elided) "declared :data :avatar-bytes elides")
-      (is (= "Alice" (:name out)) "an undeclared sibling rides verbatim")
-      (is (not (str/includes? (pr-str out) "123-45-6789")) "the raw SSN does not ride"))))
-
-(deftest project-params-redacts-projection-relative-declaration
-  (testing "EP-0025 — a :params-rooted projection-relative declaration redacts
-            the scoped-key params at egress (the co-equal params projection),
-            no :params-schema prop needed"
-    (let [spec {:sensitive [[:params :account-id]]}
-          out  (classification/project-params {:account-id "acct-secret-7" :page 2} spec)]
-      (is (= privacy/redacted-sentinel (:account-id out)) "declared :params :account-id redacts")
-      (is (= 2 (:page out)) "a plain params slot rides verbatim")
-      (is (not (str/includes? (pr-str out) "acct-secret-7"))))))
+                :data-schema   [:map [:token {:sensitive? true} :string] [:title :string]]
+                :params-schema [:map [:account-id {:sensitive? true} :string] [:slug :string]]}
+          {:keys [data]} (classification/spec-declaration-marks spec)]
+      (is (contains? (:sensitive data) [:ssn]) "projection-relative sensitive :data path is present")
+      (is (not (contains? (:sensitive data) [:token])) "schema-prop sensitive slot is NOT present (no union)"))))
 
 (deftest reg-resource-rejects-malformed-classification-declaration
   (testing "EP-0025 fail-loud-input — reg-resource rejects a malformed
@@ -284,117 +169,88 @@
         "a non-vector :sensitive axis is rejected at reg-resource")))
 
 ;; ===========================================================================
-;; 3. project-data — defer to the merged frame-owned project-egress
+;; 2b. registry-driven egress projectors — the routing / machines standard
+;;     model (rf2-d3pku1). `project-entry-data` / `project-entry-params` walk
+;;     the entry value through project-egress seeded at the lowered absolute
+;;     offset, reading the per-frame elision registry (NOT re-deriving from
+;;     the spec). Frameless rides verbatim.
 ;; ===========================================================================
 
-(deftest project-data-frameless-rides-unchanged-without-owner-marks
-  (testing "frameless projection with no owner marks rides the data UNCHANGED —
-            the coarse owner classification (not frame-presence) governs
-            serialize-vs-redact; a pure / test-harness projection outside a
-            frame is not over-redacted to the fail-closed sentinel"
-    (is (= {:title "X"}
-           (classification/project-data {:title "X"} {} nil :rf.egress/ssr-hydration)))))
+(deftest project-entry-data-frameless-rides-verbatim
+  (testing "rf2-d3pku1: a nil-frame projection rides the data VERBATIM — the
+            registry is frame-scoped, and the coarse disposition is the separate
+            frame-independent authority (matches machines / routing
+            fail-open-frameless)"
+    (is (= {:title "X" :token "tok"}
+           (classification/project-entry-data
+             {:title "X" :token "tok"} "k-1" nil :rf.egress/ssr-hydration)))))
 
-(deftest project-data-applies-owner-projection-relative-sensitive-decl
-  (testing "EP-0025: the resource-owned :data-rooted projection-relative
-            :sensitive declaration (layer (a)) redacts its slot REGARDLESS of
-            frame classification — the canonical fine-grained owner surface,
-            firing even frameless (resource cache data does not live at a frame
-            app-db path)"
-    (let [spec {:sensitive [[:data :token]]}
-          projected (classification/project-data
-                      {:token "tok-123" :title "public"} spec nil :rf.egress/ssr-hydration)]
-      (is (= privacy/redacted-sentinel (:token projected))
-          "the declared :data :token slot is redacted even with no frame")
-      (is (= "public" (:title projected)) "the undeclared sibling rides verbatim")
-      (is (not (str/includes? (pr-str projected) "tok-123"))
-          "the raw owner-declared value does not ride"))))
+(deftest project-entry-data-redacts-registry-lowered-sensitive-slot
+  (reg! :acct/profile {:sensitive [[:data :ssn]]})
+  (testing "rf2-d3pku1: after the resource declaration is lowered into the
+            frame's registry at the entry's absolute :data path,
+            project-entry-data walks the bare :data through project-egress seeded
+            at that offset and redacts the declared :ssn slot; a sibling rides"
+    (rf/reg-frame :reg/frame {})
+    (let [k       (state/scoped-resource-key :rf.scope/global :acct/profile {:slug "x"})
+          k-id    (state/key-id k)
+          rdb     (runtime-db-with {k (entry {:resource-id :acct/profile
+                                              :data {:ssn "123-45-6789" :name "Alice"}})})
+          lowered (classification/reconcile-registry rdb registry/resource-meta)]
+      (elision/swap-elision-slot! :reg/frame (constantly (get lowered :rf.runtime/elision)))
+      (let [data      (get-in lowered [state/resources-key :entries k-id :data])
+            projected (classification/project-entry-data
+                        data k-id :reg/frame :rf.egress/off-box-tool)]
+        (is (= :rf/redacted (:ssn projected))
+            "the registry-lowered :data :ssn slot is redacted")
+        (is (= "Alice" (:name projected)) "the undeclared sibling rides verbatim")
+        (is (not (str/includes? (pr-str projected) "123-45-6789"))
+            "the raw value does not ride")))))
 
-(deftest project-data-redacts-frame-classified-slot
-  (testing "EP-0015 §6 reconciliation: a :serialize entry's data projects
-            through the merged frame-owned project-egress (layer (b)) — a
-            frame-classified sensitive sub-path is REDACTED on projection
-            (frame-owned source of truth), while unclassified siblings ride
-            verbatim"
-    ;; EP-0025: classify a sensitive app-db path via the commit-plane effect
-    ;; path (:source :effect); the elision registry the project-egress walker
-    ;; reads is populated from it. (No longer a frame annotation.)
-    (rf/reg-frame :rcfg/main {})
-    (frame/swap-runtime-db! :rcfg/main
-      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:secret]]})))
-    (let [projected (classification/project-data
-                      {:secret "tok-123" :title "public"}
-                      {}
-                      :rcfg/main
-                      :rf.egress/ssr-hydration)]
-      (is (= privacy/redacted-sentinel (:secret projected))
-          "the frame-classified :secret slot is redacted on projection")
-      (is (= "public" (:title projected))
-          "the unclassified sibling rides verbatim")
-      (is (not (str/includes? (pr-str projected) "tok-123"))
-          "the raw sensitive value does not ride anywhere"))))
-
-(deftest project-data-composes-owner-and-frame-marks
-  (testing "EP-0015 §6: owner declarations (a) AND frame classification (b)
-            COMPOSE — both a resource-owned :data-rooted sensitive declaration
-            and a frame-classified app-db slot redact in one projection"
-    (rf/reg-frame :rcfg/both {})
-    (frame/swap-runtime-db! :rcfg/both
-      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:frame-secret]]})))
-    (let [spec {:sensitive [[:data :owner-secret]]}
-          projected (rf/with-frame :rcfg/both
-                      (classification/project-data
-                        {:owner-secret "o-1" :frame-secret "f-1" :title "ok"}
-                        spec :rcfg/both :rf.egress/ssr-hydration))]
-      (is (= privacy/redacted-sentinel (:owner-secret projected)) "owner declaration fired")
-      (is (= privacy/redacted-sentinel (:frame-secret projected)) "frame mark fired")
-      (is (= "ok" (:title projected)) "unclassified sibling rides verbatim"))))
-
-(deftest project-data-elides-owner-large-declaration-slot
-  (testing "rf2-260yhk / EP-0025: a resource-owned :data-rooted :large
-            declaration (layer (a)) ELIDES its slot to the :rf.size/large-elided
-            marker — NOT riding RAW — REGARDLESS of frame classification (the
-            canonical fine-grained owner surface, firing even frameless; resource
-            cache data does not live at a frame app-db path)"
-    (let [big  (apply str (repeat 500 "x"))
-          spec {:large [[:data :body]]}
-          projected (classification/project-data
-                      {:body big :title "public"} spec nil :rf.egress/ssr-hydration)]
-      (is (contains? (:body projected) :rf.size/large-elided)
-          "the declared :data :body slot is elided to the size marker, even frameless")
-      (is (= "public" (:title projected)) "the undeclared sibling rides verbatim")
-      (is (not (str/includes? (pr-str projected) big))
-          "the raw large value does NOT ride on the wire"))))
-
-(deftest project-data-sensitive-wins-over-large-owner-slot
-  (testing "rf2-260yhk: a :data slot declared BOTH sensitive and large redacts
-            (sensitive wins over large — the shared walker ordering, same as
-            project-params + HTTP body)"
-    (let [spec {:sensitive [[:data :token]] :large [[:data :token]]}
-          projected (classification/project-data
-                      {:token (apply str (repeat 200 "z"))} spec nil :rf.egress/ssr-hydration)]
-      (is (= privacy/redacted-sentinel (:token projected))
-          "sensitive wins — the slot is the redaction sentinel, not a large marker"))))
-
-(deftest ssr-serialize-entry-elides-owner-large-declaration-slot
+(deftest project-entry-data-elides-registry-lowered-large-slot
   (reg! :report/card {:large [[:data :blob]]})
-  (testing "rf2-260yhk / EP-0025 END-TO-END: a :serialize resource whose OWN
-            :data-rooted :large declaration marks a slot ELIDES that slot on SSR
-            projection — the canonical fine-grained owner surface fires WITHOUT
-            requiring a matching frame app-db mark (the bug: the large leaf rode RAW)"
-    (let [big (apply str (repeat 1000 "q"))
-          k   (state/scoped-resource-key :rf.scope/global :report/card {:slug "r"})
-          e   (entry {:resource-id :report/card :data {:blob big :name "ok"}})
-          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
-      (is (contains? (:blob (:data we)) :rf.size/large-elided)
-          "the owner-marked :blob slot is elided on the serialized entry")
-      (is (= "ok" (:name (:data we))) "the unmarked sibling rides verbatim")
-      (is (= :loaded (:status we)) "metadata (status) still rides")
-      (is (not (str/includes? (pr-str we) big))
-          "no raw large value rides on the serialized entry"))))
+  (testing "rf2-d3pku1 / rf2-260yhk: a registry-lowered :data :large declaration
+            ELIDES its slot to the :rf.size/large-elided marker at egress"
+    (rf/reg-frame :reg/large {})
+    (let [big     (apply str (repeat 500 "x"))
+          k       (state/scoped-resource-key :rf.scope/global :report/card {:slug "r"})
+          k-id    (state/key-id k)
+          rdb     (runtime-db-with {k (entry {:resource-id :report/card
+                                              :data {:blob big :title "public"}})})
+          lowered (classification/reconcile-registry rdb registry/resource-meta)]
+      (elision/swap-elision-slot! :reg/large (constantly (get lowered :rf.runtime/elision)))
+      (let [data      (get-in lowered [state/resources-key :entries k-id :data])
+            projected (classification/project-entry-data
+                        data k-id :reg/large :rf.egress/off-box-tool)]
+        (is (contains? (:blob projected) :rf.size/large-elided)
+            "the registry-lowered :data :blob slot is elided to the size marker")
+        (is (= "public" (:title projected)) "the undeclared sibling rides verbatim")
+        (is (not (str/includes? (pr-str projected) big))
+            "the raw large value does NOT ride")))))
+
+(deftest project-entry-params-redacts-registry-lowered-sensitive-slot
+  (reg! :report/by-account {:sensitive     [[:params :account-id]]
+                            :params-schema [:map [:account-id :string] [:slug :string]]})
+  (testing "rf2-d3pku1: project-entry-params walks the scoped-key params component
+            through project-egress seeded at the lowered :resource/key params
+            offset and redacts the declared :account-id slot"
+    (rf/reg-frame :reg/params {})
+    (let [k       (state/scoped-resource-key :rf.scope/global :report/by-account
+                                             {:account-id "acct-secret-42" :slug "q3"})
+          k-id    (state/key-id k)
+          rdb     (runtime-db-with {k (entry {:resource-id :report/by-account :data {:total 99}})})
+          lowered (classification/reconcile-registry rdb registry/resource-meta)]
+      (elision/swap-elision-slot! :reg/params (constantly (get lowered :rf.runtime/elision)))
+      (let [params    (nth k 2)
+            projected (classification/project-entry-params
+                        params k-id :reg/params :rf.egress/ssr-hydration)]
+        (is (= privacy/redacted-sentinel (:account-id projected))
+            "the registry-lowered :params :account-id slot is redacted")
+        (is (= "q3" (:slug projected)) "the unmarked params sibling rides verbatim")
+        (is (not (str/includes? (pr-str projected) "acct-secret-42")))))))
 
 ;; ===========================================================================
-;; 4. SSR projection — the reconciliation end-to-end
+;; 3. SSR projection — the reconciliation end-to-end (registry-driven)
 ;; ===========================================================================
 
 (deftest ssr-coarse-sensitive-redacts-whole-entry
@@ -422,93 +278,104 @@
   (testing "EP-0015 §6: a :serialize resource's data is PROJECTED through the
             frame-owned project-egress on SSR — a frame-classified sensitive
             sub-path is redacted even though the resource itself carries no
-            coarse claim (defense in depth via the frame-owned source of truth)"
-    ;; the SSR projection resolves the current frame; declare classification on
-    ;; it, then project under it. EP-0025: classified via the commit-plane
-    ;; effect path (:source :effect), no longer a frame annotation.
+            coarse claim (defense in depth via the frame-owned source of truth,
+            unioned with the resource registry at lookup)"
+    ;; the SSR projection resolves the current frame; classify a path on it via
+    ;; the commit-plane effect at the entry's absolute :data path (the frame may
+    ;; additionally classify a subsystem absolute path — Spec 015 L149).
     (rf/reg-frame :rcfg/ssr {})
-    (frame/swap-runtime-db! :rcfg/ssr
-      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:secret]]})))
-    (let [k   (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
-          e   (entry {:resource-id :article/by-slug
-                      :data {:secret "tok-xyz" :title "hello"}})
-          ;; drive the projection under the classified frame (the walker reads
-          ;; the in-effect carried frame scope).
-          proj (rf/with-frame :rcfg/ssr
-                 (ssr/project-resources-runtime-db (runtime-db-with {k e})))
-          [_ we] (only-wire-entry proj)]
-      (is (= privacy/redacted-sentinel (:secret (:data we)))
-          "the frame-classified :secret slot is redacted on the serialized entry")
-      (is (= "hello" (:title (:data we)))
-          "the unclassified sibling rides verbatim")
-      (is (not (str/includes? (pr-str we) "tok-xyz"))
-          "no raw sensitive value rides on the serialized entry"))))
+    (let [k    (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
+          k-id (state/key-id k)
+          e    (entry {:resource-id :article/by-slug
+                       :data {:secret "tok-xyz" :title "hello"}})]
+      (frame/swap-runtime-db! :rcfg/ssr
+        (fn [rt] (elision/apply-classification-effects
+                   rt {:sensitive [[:rf.runtime/resources :entries k-id :data :secret]]})))
+      (let [proj (rf/with-frame :rcfg/ssr
+                   (ssr/project-resources-runtime-db (runtime-db-with {k e})))
+            [_ we] (only-wire-entry proj)]
+        (is (= privacy/redacted-sentinel (:secret (:data we)))
+            "the frame-classified :secret slot is redacted on the serialized entry")
+        (is (= "hello" (:title (:data we)))
+            "the unclassified sibling rides verbatim")
+        (is (not (str/includes? (pr-str we) "tok-xyz"))
+            "no raw sensitive value rides on the serialized entry")))))
 
 (deftest ssr-serialize-entry-redacts-owner-data-declaration-slot
   (reg! :profile/card {:sensitive [[:data :pan]]})
-  (testing "EP-0025 END-TO-END: a :serialize resource whose OWN :data-rooted
-            :sensitive declaration marks a slot redacts that slot on SSR
-            projection — the canonical fine-grained owner surface fires
-            irrespective of any frame app-db classification"
+  (testing "EP-0025 / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
+            :data-rooted :sensitive declaration is LOWERED into the registry
+            redacts that slot on SSR projection — the registry-driven egress
+            read fires (the standard model)"
+    (rf/reg-frame :rcfg/owner-data {})
     (let [k   (state/scoped-resource-key :rf.scope/global :profile/card {:slug "x"})
           e   (entry {:resource-id :profile/card
                       :data {:pan "4111-1111-1111-1111" :name "Alice"}})
-          ;; no frame app-db classification declares :pan — the OWNER's
-          ;; data-schema mark is the only source, and it must fire.
-          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+          [_ we] (only-wire-entry (ssr-project :rcfg/owner-data (runtime-db-with {k e})))]
       (is (= :serialize (classification/whole-entry-disposition
                           (rf/resource-meta :profile/card)))
           "no coarse claim → :serialize (the per-slot mark is the fine-grained surface)")
       (is (= privacy/redacted-sentinel (get-in we [:data :pan]))
-          "the owner-marked :pan slot is redacted on the serialized entry")
+          "the owner-declared :pan slot is redacted on the serialized entry")
       (is (= "Alice" (get-in we [:data :name])) "the unmarked sibling rides verbatim")
       (is (not (str/includes? (pr-str we) "4111-1111-1111-1111"))
           "no raw owner-marked value rides on the wire"))))
+
+(deftest ssr-serialize-entry-elides-owner-large-declaration-slot
+  (reg! :report/blob {:large [[:data :blob]]})
+  (testing "rf2-260yhk / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
+            :data-rooted :large declaration is lowered ELIDES that slot on SSR
+            projection (the registry-driven owner surface fires)"
+    (rf/reg-frame :rcfg/owner-large {})
+    (let [big (apply str (repeat 1000 "q"))
+          k   (state/scoped-resource-key :rf.scope/global :report/blob {:slug "r"})
+          e   (entry {:resource-id :report/blob :data {:blob big :name "ok"}})
+          [_ we] (only-wire-entry (ssr-project :rcfg/owner-large (runtime-db-with {k e})))]
+      (is (contains? (:blob (:data we)) :rf.size/large-elided)
+          "the owner-declared :blob slot is elided on the serialized entry")
+      (is (= "ok" (:name (:data we))) "the unmarked sibling rides verbatim")
+      (is (= :loaded (:status we)) "metadata (status) still rides")
+      (is (not (str/includes? (pr-str we) big))
+          "no raw large value rides on the serialized entry"))))
 
 (deftest ssr-serialize-entry-redacts-owner-params-declaration-slot-in-key
   (reg! :report/by-account {:sensitive [[:params :account-id]]
                             :params-schema [:map
                                             [:account-id :string]
                                             [:slug :string]]})
-  (testing "EP-0025 END-TO-END: a :serialize resource whose OWN :params-rooted
-            :sensitive declaration marks a params slot must NOT ride that slot
-            RAW in the projected wire KEY — the params surface is co-equal with
-            the data surface (Spec 016 clause 4). The coarse claim leaves the key
-            serialized, so the per-slot params declaration is the only thing
-            standing between the secret and every SSR visitor's wire"
+  (testing "EP-0025 / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
+            :params-rooted :sensitive declaration is lowered must NOT ride that
+            slot RAW in the projected wire KEY — the params surface is co-equal
+            with the data surface (Spec 016 clause 4)"
+    (rf/reg-frame :rcfg/owner-params {})
     (let [k   (state/scoped-resource-key :rf.scope/global :report/by-account
                                          {:account-id "acct-secret-42" :slug "q3"})
           e   (entry {:resource-id :report/by-account :data {:total 99}})
-          [wk we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+          [wk we] (only-wire-entry (ssr-project :rcfg/owner-params (runtime-db-with {k e})))]
       (is (= :serialize (classification/whole-entry-disposition
                           (rf/resource-meta :report/by-account)))
           "no coarse claim → :serialize (the per-slot params mark is the surface)")
       (is (= :report/by-account (nth wk 1)) "resource-id preserved (position 1)")
       (is (= privacy/redacted-sentinel (get-in wk [2 :account-id]))
-          "the owner-marked :account-id params slot is redacted in the wire key")
+          "the owner-declared :account-id params slot is redacted in the wire key")
       (is (= "q3" (get-in wk [2 :slug])) "the unmarked params sibling rides verbatim")
       (is (= {:total 99} (:data we)) "the (unmarked) data rides verbatim — serialize")
       (is (not (str/includes? (pr-str wk) "acct-secret-42"))
           "no raw sensitive params value rides in the wire key"))))
 
 ;; ===========================================================================
-;; 4b. infinite-feed per-page egress (rf2-byl7bk.3.2 / EP-0025 fuqcob)
+;; 3b. infinite-feed per-page egress (rf2-byl7bk.3.2 / rf2-d3pku1)
 ;; ===========================================================================
 ;;
 ;; EP-0021 R5 / Spec 016 §Registration — :infinite: an infinite feed's
-;; `:data` is the framework-owned VECTOR OF PAGES, and its per-page
-;; egress/classification contract is the resource's :data-rooted projection-
-;; relative `:sensitive` / `:large` declarations, applied PER PAGE. EP-0025
-;; (fuqcob): the `:page-data-schema` VALIDATES each page but does NOT classify
-;; durably (mirroring `:data-schema`). SSR / tool / trace projection MUST apply
-;; the per-page declaration so a sensitive / large page field is classified
-;; before it crosses a boundary.
+;; `:data` is the framework-owned VECTOR OF PAGES. The lowered registry decl is
+;; `[… :data :field]`; `elide-wire-value`'s index-free fork matches it against
+;; the indexed runtime path `[… :data <page-idx> :field]` on EVERY page — no
+;; special per-page branch.
 
 (defn- infinite-entry-with-pages
   "Build a `:loaded` infinite-feed entry for `resource-id` carrying `pages` (a
-  vector of decoded page values) as its durable `:data` page vector. Mirrors
-  the `entry` helper but seeds the `:infinite?` marker + the page-params
-  alongside the page vector so the projection's infinite branch fires."
+  vector of decoded page values) as its durable `:data` page vector."
   [resource-id pages]
   (merge (state/empty-infinite-entry resource-id)
          {:status      :loaded
@@ -517,76 +384,25 @@
           :loaded-at   1000
           :stale-at    9.0e15}))
 
-(deftest project-data-applies-per-page-sensitive-declaration
-  (testing "rf2-byl7bk.3.2 / EP-0025: an :infinite resource's :data is a VECTOR
-            of pages; the per-page :data-rooted :sensitive declaration redacts
-            that field on EVERY page — the :data-schema is NOT used (fuqcob)"
-    (let [spec  {:infinite  true
-                 :sensitive [[:data :token]]}
-          pages [{:token "tok-0" :title "page-0"}
-                 {:token "tok-1" :title "page-1"}]
-          projected (classification/project-data
-                      pages spec nil :rf.egress/ssr-hydration)]
-      (is (vector? projected) "the page-vector SHAPE is preserved")
-      (is (= 2 (count projected)) "every page is preserved")
-      (is (= privacy/redacted-sentinel (:token (nth projected 0)))
-          "page-0's declared :token is redacted")
-      (is (= privacy/redacted-sentinel (:token (nth projected 1)))
-          "page-1's declared :token is redacted")
-      (is (= "page-0" (:title (nth projected 0))) "page-0's undeclared sibling rides")
-      (is (= "page-1" (:title (nth projected 1))) "page-1's undeclared sibling rides")
-      (is (not (str/includes? (pr-str projected) "tok-0"))
-          "no raw page-0 sensitive value rides")
-      (is (not (str/includes? (pr-str projected) "tok-1"))
-          "no raw page-1 sensitive value rides"))))
-
-(deftest project-data-applies-per-page-large-declaration
-  (testing "rf2-byl7bk.3.2 / EP-0025: a per-page :data-rooted :large declaration
-            ELIDES that field to the :rf.size/large-elided marker on every page"
-    (let [big   (apply str (repeat 500 "x"))
-          spec  {:infinite true
-                 :large    [[:data :body]]}
-          pages [{:body big :title "p0"} {:body big :title "p1"}]
-          projected (classification/project-data
-                      pages spec nil :rf.egress/ssr-hydration)]
-      (is (contains? (:body (nth projected 0)) :rf.size/large-elided)
-          "page-0's large field is elided to the size marker")
-      (is (contains? (:body (nth projected 1)) :rf.size/large-elided)
-          "page-1's large field is elided to the size marker")
-      (is (not (str/includes? (pr-str projected) big))
-          "no raw large page value rides"))))
-
-(deftest project-data-infinite-ignores-page-data-schema-props
-  (testing "rf2-byl7bk.3.2 / EP-0025 (fuqcob): an :infinite resource's
-            :page-data-schema VALIDATES each page but does NOT classify — with
-            no :data-rooted declaration the pages ride verbatim"
-    (let [spec  {:infinite true
-                 ;; a :page-data-schema with a :sensitive? prop must NOT classify.
-                 :page-data-schema [:map [:token {:sensitive? true} :string]]}
-          pages [{:token "tok-0"}]
-          projected (classification/project-data
-                      pages spec nil :rf.egress/ssr-hydration)]
-      (is (= pages projected)
-          "the page vector rides verbatim — :page-data-schema props do not classify"))))
-
 (deftest ssr-infinite-feed-redacts-sensitive-page-field-per-page
   (reg! :feed/timeline {:infinite        true
                         :next-page-param (fn [_last _all] nil)
                         :sensitive       [[:data :author-email]]})
-  (testing "rf2-byl7bk.3.2 / EP-0025 END-TO-END: an infinite feed whose
-            :data-rooted :sensitive declaration marks a page field redacts that
-            field on EVERY page during SSR projection — the page body must not
-            ship RAW across the SSR/hydration + tool/trace AI boundary"
+  (testing "rf2-byl7bk.3.2 / rf2-d3pku1 END-TO-END: an infinite feed whose
+            :data-rooted :sensitive declaration is lowered redacts that field on
+            EVERY page during SSR projection (the index-free decl matches every
+            indexed page path)"
+    (rf/reg-frame :rcfg/infinite {})
     (let [k    (state/scoped-resource-key :rf.scope/global :feed/timeline {:slug "t"})
           e    (infinite-entry-with-pages
                  :feed/timeline
                  [{:author-email "alice@example.com" :body "hello"}
                   {:author-email "bob@example.com" :body "world"}])
-          [_ we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))
+          [_ we] (only-wire-entry (ssr-project :rcfg/infinite (runtime-db-with {k e})))
           pages  (:data we)]
       (is (= :serialize (classification/whole-entry-disposition
                           (rf/resource-meta :feed/timeline)))
-          "no coarse claim → :serialize (the per-page schema is the surface)")
+          "no coarse claim → :serialize")
       (is (vector? pages) "the page-vector shape is preserved on the wire")
       (is (= 2 (count pages)) "every accumulated page rides")
       (is (= privacy/redacted-sentinel (get-in pages [0 :author-email]))
@@ -601,7 +417,7 @@
           "no raw page-1 sensitive value rides anywhere on the entry"))))
 
 ;; ===========================================================================
-;; 5. load-bearing Spec 016 rules preserved (the projection contract)
+;; 4. load-bearing Spec 016 rules preserved (the projection contract)
 ;; ===========================================================================
 
 (deftest ssr-projection-rides-only-entries-slice

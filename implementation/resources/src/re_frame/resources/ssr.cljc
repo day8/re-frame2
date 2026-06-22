@@ -226,31 +226,29 @@
   "Project a scoped resource KEY (`[scope resource-id params]`) to its wire
   shape per the resource's `disposition` (Spec 016 clause 4 / rf2-otms75):
 
-    - `:serialize` — the key rides with its scope verbatim, but its PARAMS
-      are projected through the resource OWNER's per-slot `:params-schema`
-      classification (`classification/project-params`) so a params slot the
-      owner marked `:sensitive?` / `:large?` does NOT ride raw even though the
-      coarse whole-entry claim leaves the key serialized (EP-0015 issue 11 —
-      the CO-EQUAL fine-grained counterpart to the data surface; Spec 016
-      clause 4 \"params, scopes, and data carry the same classification\").
-      A resource with no `:params-schema` marks rides its params verbatim
-      (the wire-safe default — same as its data);
+    - `:serialize` — the key rides VERBATIM (scope + params unchanged). A
+      per-slot `:params` / `:scope` projection-relative declaration on a
+      `:serialize` resource is the REGISTRY-DRIVEN concern of the SSR
+      `project-entry` path (`classification/project-entry-params`, rf2-d3pku1):
+      it has the entry's `key-id` + the live SSR frame, so it walks the params
+      component through `project-egress` seeded at the lowered registry path.
+      The trace / tool egress callers pass `:serialize` through verbatim (they
+      rely on the coarse disposition + the digest below, not per-slot params);
     - `:redact` / `:omit` — the scope and params are replaced by opaque
       content-addressed `{:rf/redacted <digest>}` tokens so the sensitive /
       large raw identity does NOT ride, while the resource-id (position 1) and
       key DISTINCTNESS are preserved (the digest differs per distinct value).
       The COARSE whole-entry claim already redacts the WHOLE params component
-      here, so the per-slot `:params-schema` surface is subsumed.
+      here, so the per-slot params surface is subsumed.
 
   The wire key keeps the `[scope resource-id params]` SHAPE so the client's
   index recompute + refetch plan parse it unchanged (resource-id at position
-  1). `spec` is the resource owner spec (`registry/resource-meta`), carrying
-  the `:params-schema` marks; nil / no marks → the params ride verbatim on
-  `:serialize`. PURE."
-  [scoped-key disposition spec]
+  1). `spec` is the resource owner spec (`registry/resource-meta`) — retained
+  for caller signature stability (the disposition already encodes the coarse
+  claim it carried). PURE."
+  [scoped-key disposition _spec]
   (if (= :serialize disposition)
-    (let [[scope resource-id params] scoped-key]
-      [scope resource-id (classification/project-params params spec)])
+    scoped-key
     (let [[scope resource-id params] scoped-key]
       [(redact-value scope) resource-id (redact-value params)])))
 
@@ -267,9 +265,11 @@
        inheritance arm, so the disposition no longer depends on `frame-id`;
     3. projected key ← `project-scoped-key scoped-key disposition spec`
        (`:redact` / `:omit` replace scope + params with opaque content-addressed
-       `{:rf/redacted <digest>}` tokens; `:serialize` projects the resource's
-       per-slot `:params` projection-relative declarations — the resource-id
-       always survives).
+       `{:rf/redacted <digest>}` tokens; `:serialize` rides VERBATIM — the
+       resource-id always survives. A `:serialize` key's per-slot `:params` /
+       `:scope` projection-relative declarations are the registry-driven concern
+       of the SSR `project-entry` caller, `classification/project-entry-params`,
+       which has the entry's `key-id` + the live frame — rf2-d3pku1).
 
   The single home for the pipeline the SSR durable-egress projection
   (`project-entry`), the TOOL-egress algebra view (`tooling/project-key-for-
@@ -329,13 +329,10 @@
   [frame-id clock-ms entry]
   (let [scoped-key  (:resource/key entry)
         resource-id (second scoped-key)
+        key-id      (state/key-id scoped-key)
         ;; The shared disposition+project-key pipeline (rf2-366u0g) resolves the
         ;; owner spec ONCE, computes the whole-entry disposition, and projects
         ;; the scoped key in one call:
-        ;;   - the spec carries BOTH the coarse root-prop disposition AND the
-        ;;     per-slot `:data`-rooted declaration marks (`project-data` layer
-        ;;     (a) — EP-0015 §6), needed below for the `:serialize` data
-        ;;     projection;
         ;;   - the disposition is the OWNER's coarse `:sensitive?` / `:large?`
         ;;     root-prop claim ALONE — EP-0025 (rf2-71dr8t) removed the
         ;;     named-scope-resolver derived-sensitivity inheritance arm (no
@@ -343,8 +340,10 @@
         ;;   - `projected-key` is the in-entry `:resource/key` copy projected the
         ;;     SAME way as the wire MAP key (rf2-9e0tyq) — a `:redact` / `:omit`
         ;;     resource redacts its scope + params to opaque content-addressed
-        ;;     tokens, so the raw identity never rides in EITHER carrier.
-        [projected-key disposition spec] (disposition+project-key scoped-key frame-id)
+        ;;     tokens, so the raw identity never rides in EITHER carrier; a
+        ;;     `:serialize` key rides verbatim and its per-slot params are
+        ;;     registry-projected below.
+        [projected-key disposition _spec] (disposition+project-key scoped-key frame-id)
         stale?      (entry-stale? entry clock-ms)
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
@@ -358,28 +357,32 @@
                      :stale-at       (:stale-at entry)
                      :invalidated-at (:invalidated-at entry)}
         wire-entry  (case disposition
-                      ;; ship the data, but PROJECT it through the merged
-                      ;; frame-owned `project-egress` (EP-0015 §10/§11) under
-                      ;; the SSR boundary profile — so a per-slot `:data-schema`
-                      ;; mark the frame classification carries is still redacted
-                      ;; even on a coarse-`:serialize` resource (defense in
-                      ;; depth). `classification/project-data` defers to
-                      ;; `project-egress`; frameless egress rides the data
-                      ;; UNCHANGED so the coarse owner classification (not
-                      ;; frame-presence) governs serialize-vs-redact for a pure /
-                      ;; test-harness projection outside a frame scope.
+                      ;; ship the data, but PROJECT it through the REGISTRY-DRIVEN
+                      ;; egress read (EP-0025, rf2-d3pku1): the resource's
+                      ;; per-slot `:data` declarations were lowered into the
+                      ;; per-frame elision registry at the entry's absolute
+                      ;; `:data` path (`reconcile-registry`), and
+                      ;; `classification/project-entry-data` walks the bare `:data`
+                      ;; through `project-egress` SEEDED at that absolute offset
+                      ;; (`[:rf.runtime/resources :entries <key-id> :data]`) so the
+                      ;; lowered `:source :resource` decls — UNIONED with any frame
+                      ;; app-db classification — redact / elide the declared slots.
+                      ;; The routing / machines standard model: the egress reads
+                      ;; the registry, never re-derives from the spec. A frameless
+                      ;; egress rides the data VERBATIM (the registry is
+                      ;; frame-scoped; the coarse disposition is the separate
+                      ;; frame-independent authority).
                       ;;
-                      ;; rf2-byl7bk.3.2 / EP-0021 R5: for an INFINITE feed the
-                      ;; `:data` is the framework-owned VECTOR OF PAGES, so
-                      ;; `project-data` branches on `spec`'s `:infinite` marker
-                      ;; and applies the per-page `:page-data-schema` contract
-                      ;; PER PAGE (a sensitive / large page field redacts /
-                      ;; elides on every page) rather than treating the page
-                      ;; vector as one `:data-schema`-governed value.
+                      ;; rf2-byl7bk.3.2 / EP-0021 R5: an INFINITE feed's `:data` is
+                      ;; the framework-owned VECTOR OF PAGES; the lowered decl is
+                      ;; `[… :data :field]` and the walker's index-free fork
+                      ;; matches it against the indexed runtime path `[… :data
+                      ;; <page-idx> :field]` on EVERY page — no special per-page
+                      ;; branch.
                       :serialize
                       (assoc entry :data
-                             (classification/project-data
-                               (:data entry) spec frame-id
+                             (classification/project-entry-data
+                               (:data entry) key-id frame-id
                                :rf.egress/ssr-hydration))
                       ;; sensitive: replace data with the redaction sentinel
                       ;; (the entry still announces it exists; metadata only).
@@ -403,8 +406,19 @@
         ;; key computed above (`disposition+project-key`), matching the wire MAP
         ;; key: a `:redact` / `:omit` resource redacts its scope + params to
         ;; opaque content-addressed tokens here too, so the raw identity never
-        ;; rides in EITHER carrier. The client's `recompute-indexes` keys index
-        ;; members on the byte `key-id` of this projected `:resource/key`.
+        ;; rides in EITHER carrier. A `:serialize` key's PARAMS component (index
+        ;; 2) is REGISTRY-PROJECTED (rf2-d3pku1): `classification/project-entry-
+        ;; params` walks it through `project-egress` seeded at the lowered params
+        ;; path so a per-slot `:params` / `:scope` declaration redacts in the wire
+        ;; key without the raw value riding. The client's `recompute-indexes`
+        ;; keys index members on the byte `key-id` of this projected
+        ;; `:resource/key`.
+        projected-key (if (= :serialize disposition)
+                        (let [[scope rid params] projected-key]
+                          [scope rid (classification/project-entry-params
+                                       params key-id frame-id
+                                       :rf.egress/ssr-hydration)])
+                        projected-key)
         wire-entry  (assoc wire-entry :resource/key projected-key)
         meta'       (assoc base
                            :disposition (case disposition
