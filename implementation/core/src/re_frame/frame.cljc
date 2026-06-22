@@ -202,6 +202,22 @@
 (defonce ^:private on-destroy-watch-counter
   (atom 0))
 
+;; Monotonic counter for the per-step UNIQUE transient setup-step-failure
+;; capture listener key (EP-0027 §Failure, strict construction). `run-setup-
+;; events!` installs a listener on the always-on error-emit registry for the
+;; duration of EACH `:initial-events` setup-step dispatch so an IN-BAND failure
+;; — a handler-body throw the interceptor chain catches and surfaces as
+;; `:rf.error/handler-exception` (the `[:rf/set-db x]` bad-arg case, post
+;; rf2-izy3b2), or any other `:rf.error/*` recorded against THIS frame (a
+;; coeffect / interceptor / flow throw the chain captures rather than re-
+;; raising) — is detected even though `dispatch-sync!` returns nil normally.
+;; The registry keys by id (assoc/dissoc); the key MUST be UNIQUE per step so a
+;; setup step that itself constructs / tears down another frame (whose own
+;; transient listener races) cannot clobber this step's listener under a shared
+;; key. `defonce` so a hot reload does not rewind the counter mid-flight.
+(defonce ^:private setup-step-watch-counter
+  (atom 0))
+
 ;; ---- frame resolution at call sites — the carried invariant ---------------
 ;;
 ;; Per Spec 002 §Frame target resolution — the carried invariant (EP-0002):
@@ -1393,6 +1409,73 @@
              :extra    {:step step}})))
       initial-events)))
 
+(def ^:private setup-step-failure-categories
+  "The IN-BAND `:rf.error/*` categories that constitute a SETUP-STEP FAILURE
+  under strict construction (EP-0027 §Failure, rf2-vw5h1r) — the PRE-COMMIT
+  failures the interceptor chain CAPTURES (records into `:rf/interceptor-error`)
+  and fans out on the always-on error-emit axis rather than re-raising, so
+  `dispatch-sync!` returns nil normally. Each means the setup event itself
+  FAILED before its `:db` write could land (app-db unchanged):
+
+    - `:rf.error/handler-exception`     — the event handler body threw (the
+                                          `[:rf/set-db x]` bad-arg case raises
+                                          `:rf.error/set-db-bad-value` from
+                                          inside the handler, surfacing here).
+    - `:rf.error/interceptor-exception` — a user interceptor `:before`/`:after`
+                                          threw.
+    - `:rf.error/coeffect-exception`    — a coeffect supplier threw at context
+                                          assembly.
+    - `:rf.error/flow-eval-exception`   — a flow `:derive` threw (pre-install).
+
+  POST-COMMIT failures are DELIBERATELY EXCLUDED: `:rf.error/fx-handler-
+  exception` (an `:fx` handler threw AFTER the db committed) means the setup
+  event SUCCEEDED — its `:db` write landed and is irreversible; only a best-
+  effort post-commit side-effect failed. Per the Mike-ruled FX atomicity
+  asymmetry (pre-commit transactional / post-commit best-effort, 2026-05-25),
+  tearing the frame down on a post-commit fx throw would contradict that — the
+  committed state stands and the fx throw is observed, not unwound. The SSR
+  server error projector catches such render-walk / cascade fx throws (Spec 011
+  §Server error projection); a THROWN setup step is the OUTER `:on-error`
+  transport path (Spec 011 §`:on-error` vs `:error-view`), distinct from the
+  projector path.
+
+  The escaping-throw failures (unregistered / missing-required cofx escaping
+  context assembly) are NOT in this set — they re-raise out of `dispatch-sync!`
+  and are caught by the runner's try/catch directly, not via this capture."
+  #{:rf.error/handler-exception
+    :rf.error/interceptor-exception
+    :rf.error/coeffect-exception
+    :rf.error/flow-eval-exception})
+
+(defn- raise-setup-step-failed!
+  "STRICT CONSTRUCTION teardown (EP-0027 §Failure, rf2-vw5h1r). A setup step
+  `idx` (`event`) failed — EITHER by an ESCAPING throw `cause` out of
+  `dispatch-sync!`, OR by an IN-BAND `:rf.error/*` the chain captured (its
+  always-on error record is `cause`'s stand-in via `captured`). Tear down the
+  partially-created frame `id` so no half-created frame is left live, then raise
+  `:rf.error/initial-events-step-failed` naming the failing step. `cause-ex` is
+  the host throwable when the failure escaped (carried as `:cause`); nil for an
+  in-band capture. `cause-msg` is the human cause text for the diagnostic
+  message. `where-sym` is the constructor symbol."
+  [id idx event cause-ex cause-msg where-sym]
+  (destroy-frame! id)
+  (error/throw-error!
+    :rf.error/initial-events-step-failed
+    where-sym
+    (str ":initial-events setup step " idx " failed — event "
+         (pr-str event) " failed during frame construction: " cause-msg
+         ". Construction-time :initial-events is STRICT (EP-0027 §Failure): any "
+         "setup-step failure — an escaping throw OR a handler / interceptor / "
+         "cofx / flow error the chain captures in-band — tears down the partial "
+         "frame (no half-created frame is left live) and aborts construction. "
+         "The runtime's traced-and-recover leniency does NOT apply during "
+         "construction.")
+    {:recovery :fix-the-setup-step
+     :extra    (cond-> {:step-index idx
+                        :event      event
+                        :frame      id}
+                 (some? cause-ex) (assoc :cause cause-ex))}))
+
 (defn- run-setup-events!
   "SETUP RUNNER (EP-0027 §Construction / §Provenance). Dispatch each normalized
   setup `step` SYNCHRONOUSLY into frame `id`, in order, draining each to a fixed
@@ -1406,15 +1489,43 @@
   synchronous setup has settled; asynchronous effects started by setup are NOT
   awaited (EP-0027 §Construction).
 
-  On a step that THROWS at runtime (a `[:rf/set-db x]` bad-arg, or any handler /
-  interceptor throw that `dispatch-sync` re-raises): the partially-created frame
-  is torn down (`destroy-frame!`) so no half-created frame is left live, then a
-  `:rf.error/initial-events-step-failed` naming the failing `:step-index` +
-  `:event` is thrown (EP-0027 §Failure — a setup step that throws at runtime). A
-  step whose failure `dispatch-sync` TRACES-and-recovers (a missing handler, an
-  interceptor error recorded as a trace rather than re-thrown) does NOT throw
-  here — the frame is left alive in whatever state resulted, exactly as after the
-  manual loop.
+  STRICT CONSTRUCTION (EP-0027 §Failure, Mike-ruled 2026-06-23 rf2-vw5h1r):
+  construction-time `:initial-events` is STRICT — the runtime's traced-and-
+  recover leniency is a RUNTIME concern and does NOT apply here. ANY setup-step
+  failure tears down the partially-created frame (`destroy-frame!`) so no half-
+  created frame is left live, then raises `:rf.error/initial-events-step-failed`
+  naming the failing `:step-index` + `:event`. A failure is EITHER of:
+
+    - an ESCAPING throw out of `dispatch-sync!` — a coeffect-resolution throw
+      (an unregistered / missing-required declared cofx escapes context
+      assembly), or any fault the synchronous drain re-raises. Caught by the
+      try/catch below.
+
+    - an IN-BAND failure the interceptor chain CAPTURES rather than re-raising,
+      so `dispatch-sync!` returns nil normally: a handler-body throw surfaced as
+      `:rf.error/handler-exception` (the `[:rf/set-db x]` bad-arg case — its
+      diagnostic is raised from INSIDE the `:rf/set-db` handler via
+      `error/throw-error!`, post rf2-izy3b2), a user-interceptor throw
+      (`:rf.error/interceptor-exception`), a coeffect-supplier throw
+      (`:rf.error/coeffect-exception`), or a flow throw
+      (`:rf.error/flow-eval-exception`). The chain records these into
+      `:rf/interceptor-error` and the router fans them out on the always-on
+      error-emit axis (`re-frame.router/emit-pipeline-exception!` →
+      `error-emit/dispatch-on-error!`) WITHOUT re-throwing — so the try/catch
+      never fires. We DETECT them by installing a TRANSIENT always-on error
+      listener around each step dispatch (under a unique per-step key) that
+      captures any `:rf.error/*` record whose `:frame` matches THIS frame. This
+      is the same production-survivable axis + capture pattern
+      `fire-on-destroy-event!` uses for the symmetric `:on-destroy`-throw case;
+      observing the dev-only trace listener instead would not survive
+      `:advanced` + `goog.DEBUG=false`. A clean step emits only `:rf.event/*`
+      (the event-emit axis), never `:rf.error/*`, so a successful step captures
+      nothing and the listener is a no-op.
+
+  This replaces the former leniency where a handler-body throw during
+  construction was traced-and-recovered and the frame left ALIVE — which
+  contradicted the EP-0027 §Failure throw→teardown promise for exactly the
+  `[:rf/set-db x]` case (rf2-vw5h1r).
 
   `base-opts` carries construction provenance shared by every step — the
   `:rf.trace/call-site` of the `make-frame`/`reg-frame` declaration (gated on
@@ -1441,34 +1552,79 @@
     ;; loaded. (The common path — re-frame.core requires re-frame.router, so the
     ;; hook is published before any runtime reg-frame — is unaffected.)
     (if-let [dispatch-sync! (late-bind/get-fn :router/dispatch-sync!)]
-      (loop [idx 0
-             remaining steps]
-        (when-let [{:keys [event opts]} (first remaining)]
-          (let [step-opts (assoc (merge base-opts opts)
-                                 :frame      id
-                                 :source     :frame-init
-                                 :step-index idx)]
-            (try
-              (dispatch-sync! event step-opts)
-              (catch #?(:clj Throwable :cljs :default) t
-                ;; A setup step threw at runtime: tear down the partial frame so
-                ;; no half-created frame is left live, then rethrow naming the
-                ;; step. The original throwable is carried as the cause.
-                (destroy-frame! id)
-                (error/throw-error!
-                  :rf.error/initial-events-step-failed
-                  where-sym
-                  (str ":initial-events setup step " idx " threw — event "
-                       (pr-str event) " failed during frame construction: "
-                       (error/ex-message-safe t) ". The partially-created frame "
-                       "was torn down (no half-created frame is left live).")
-                  {:recovery :fix-the-setup-step
-                   :extra    {:step-index idx
-                              :event      event
-                              :frame      id
-                              #?@(:clj  [:cause t]
-                                  :cljs [:cause t])}}))))
-          (recur (inc idx) (rest remaining))))
+      ;; The always-on error-emit registry — the production-survivable axis the
+      ;; router's IN-BAND error fan-out (handler / interceptor / cofx / flow
+      ;; exceptions) rides. Reached via late-bind so this fn carries no static
+      ;; dep on `error-emit` (the `error-emit` → `elision` → `frame` load
+      ;; cycle). `re-frame.router` (whose presence we just confirmed via the
+      ;; `:router/dispatch-sync!` hook) statically requires `error-emit`, so when
+      ;; the runner is available these hooks are too; the `when register` guard
+      ;; keeps the install defensive regardless. See `fire-on-destroy-event!` for
+      ;; the symmetric `:on-destroy`-throw capture.
+      (let [register  (late-bind/get-fn :error-emit/register-error-listener!)
+            remove-cb (late-bind/get-fn :error-emit/unregister-error-listener!)]
+        (loop [idx 0
+               remaining steps]
+          (when-let [{:keys [event opts]} (first remaining)]
+            (let [step-opts  (assoc (merge base-opts opts)
+                                    :frame      id
+                                    :source     :frame-init
+                                    :step-index idx)
+                  ;; A fresh per-step capture slot + a UNIQUE listener key. The
+                  ;; key must be unique per step (not a constant) so a setup step
+                  ;; that itself creates / tears down ANOTHER frame — whose own
+                  ;; transient error listener installs under a sibling key —
+                  ;; cannot clobber this step's listener under a shared key (the
+                  ;; same hazard `fire-on-destroy-event!` guards with its per-
+                  ;; destroy key).
+                  captured   (atom nil)
+                  listener-k [::setup-step-throw-watch
+                              id
+                              (swap! setup-step-watch-counter inc)]
+                  ;; Capture the FIRST PRE-COMMIT-failure `:rf.error/*` record
+                  ;; fired against THIS frame during the step dispatch (see
+                  ;; `setup-step-failure-categories`). Those categories carry
+                  ;; `:frame`, so a frame + category match is an unambiguous
+                  ;; setup-step failure under strict construction. A clean step
+                  ;; emits only `:rf.event/*` (the event-emit axis), never these,
+                  ;; so nothing is captured on success; a POST-COMMIT
+                  ;; `:rf.error/fx-handler-exception` is NOT captured — the event
+                  ;; committed and the fx throw is best-effort (FX atomicity
+                  ;; asymmetry).
+                  listener   (fn [record]
+                               (when (and (= id (:frame record))
+                                          (contains? setup-step-failure-categories
+                                                     (:error record))
+                                          (nil? @captured))
+                                 (reset! captured record)))]
+              (when (and register remove-cb)
+                (register listener-k listener))
+              (try
+                (try
+                  (dispatch-sync! event step-opts)
+                  (catch #?(:clj Throwable :cljs :default) t
+                    ;; ESCAPING throw out of dispatch-sync! (e.g. a cofx-
+                    ;; resolution throw escaping context assembly). Tear down +
+                    ;; raise, carrying the original throwable as `:cause`.
+                    (raise-setup-step-failed!
+                      id idx event t (error/ex-message-safe t) where-sym)))
+                (finally
+                  (when (and register remove-cb)
+                    (remove-cb listener-k))))
+              ;; IN-BAND failure: dispatch-sync! returned nil normally but the
+              ;; interceptor chain CAPTURED a throw and fanned it out on the
+              ;; always-on error-emit axis (the `[:rf/set-db x]` bad-arg / any
+              ;; handler-body throw → `:rf.error/handler-exception`, post
+              ;; rf2-izy3b2). Strict construction treats it as a setup-step
+              ;; failure — tear down + raise, naming the captured category in the
+              ;; cause text (no host throwable is carried; the chain swallowed it).
+              (when-let [record @captured]
+                (raise-setup-step-failed!
+                  id idx event nil
+                  (str "the interceptor chain captured " (:error record)
+                       (when-let [r (:reason record)] (str " (" r ")")))
+                  where-sym)))
+            (recur (inc idx) (rest remaining)))))
       ;; The runner hook is unavailable but there ARE steps to run: fail loud
       ;; rather than silently dropping the setup (rf2-jsokxu). Tear down the
       ;; partial frame (the caller already swapped the container into `frames`)

@@ -1,13 +1,25 @@
 ;; Conformance fixture: ssr/error-sanitisation
-;; A handler throws during the SSR drain. The runtime captures the full
-;; structured trace event (with exception detail). The active error
-;; projector produces a sanitised :rf/public-error and stamps :status
-;; 500 onto the response accumulator. The :rf/response slot carries
+;; A handler throws during the SSR RENDER-TIME drain (a post-construction
+;; request dispatch — NOT the :initial-events setup step). The runtime
+;; captures the full structured trace event (with exception detail). The
+;; active error projector produces a sanitised :rf/public-error and stamps
+;; :status 500 onto the response accumulator. The :rf/response slot carries
 ;; ONLY the public projection's :status; the rendered HTML body would
 ;; contain NO stack trace, NO exception message, NO internal detail.
 ;; Asserts the projector's output (writes to :rf/response) — NOT a
 ;; user-stub-rolled :rf.server/set-status fx. Per [011 §Server error
 ;; projection].
+;;
+;; rf2-vw5h1r: the throwing :load/article dispatch is a RENDER-TIME request
+;; dispatch (`:fixture/dispatches`), NOT a construction `:initial-events`
+;; step. Construction-time :initial-events is now STRICT (EP-0027 §Failure,
+;; Mike-ruled (a)): a THROWN setup step tears the partial frame down and is
+;; the OUTER `:on-error` transport path (Spec 011 §`:on-error` vs
+;; `:error-view`), NOT a projector-catches-it case. The error PROJECTOR
+;; covers errors INSIDE the render/cascade drain — exactly what a post-
+;; construction request dispatch models. So :rf/server-init is a clean
+;; setup step; the throwing handler fires afterward, in the projector's
+;; domain.
 
 {:fixture/id           :ssr/error-sanitisation
  :fixture/spec-version "1.0"
@@ -24,7 +36,11 @@
          {:doc "The runtime's default error projector — generic 500 in prod."}}}
 
  :fixture/handlers
- {:event {:rf/server-init [[:fx [[:dispatch [:load/article]]]]]
+ ;; :rf/server-init is now a CLEAN setup step (no-op write) — construction
+ ;; succeeds and the frame is alive for the render-time request dispatch. The
+ ;; throwing handler runs AFTER construction, in the projector's drain-time
+ ;; domain.
+ {:event {:rf/server-init [[:set [] {}]]
           :load/article   [[:throw "Database connection failed: SECRET_TOKEN=xyz"]]}}
 
  :fixture/frame-config {:initial-events [[:rf/server-init]]
@@ -32,7 +48,11 @@
                         :ssr {:public-error-id   :rf.ssr/default-error-projector
                               :dev-error-detail? false}}      ;; prod-mode default
 
- :fixture/dispatches []
+ ;; The render-time request dispatch that throws — the error the projector
+ ;; catches. dispatch-sync traces it as :rf.error/handler-exception and
+ ;; recovers in-band (no escaping throw), so the fixture run continues and the
+ ;; :ssr/public-error check below projects the captured trace.
+ :fixture/dispatches [[:load/article]]
 
  :fixture/expect
  {;; The runtime's error-projection listener writes :status 500 to the

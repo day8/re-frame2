@@ -45,7 +45,7 @@
       (is (= {:count 1} (rf/app-db-value :owned/beta))
           "re-acquire preserved durable state (idempotent replacement, not reset)"))))
 
-(deftest acquire-setup-throw-rethrows-and-leaves-no-frame
+(deftest acquire-setup-escaping-throw-rethrows-and-leaves-no-frame
   (testing "rf2-83fwld: an owned-provider acquire whose :initial-events step
             THROWS out of dispatch-sync rethrows out of acquire-owned-frame! AND
             leaves NO frame registered (the EP frame-provider acceptance
@@ -53,15 +53,12 @@
             rethrows). Transitively: acquire -> make-frame -> reg-frame ->
             run-setup-events! tears down the partial frame and rethrows
             :rf.error/initial-events-step-failed, which propagates through
-            acquire (the cancel-pending-destroy! after make-frame never runs)."
+            acquire (the cancel-pending-destroy! after make-frame never runs).
+            This is the ESCAPING-throw detection route."
     ;; A step that requires an UNREGISTERED cofx: cofx resolution throws OUT of
     ;; dispatch-sync (:rf.error/unregistered-cofx via throw-error!), so this is
-    ;; the EP's "throws at runtime" case — run-setup-events! tears down the
-    ;; partial frame and rethrows :rf.error/initial-events-step-failed. (A
-    ;; HANDLER-BODY throw — e.g. a [:rf/set-db <bad>] bad-arg — is instead
-    ;; TRACED-and-RECOVERED by dispatch-sync and leaves the frame alive, so it is
-    ;; NOT the rethrow trigger; mirror frame_initial_events' :test/needs-missing-
-    ;; cofx, the framework-stable throw-out-of-dispatch-sync trigger.)
+    ;; the ESCAPING-throw case — run-setup-events! tears down the partial frame
+    ;; (via its try/catch) and rethrows :rf.error/initial-events-step-failed.
     (rf/reg-event :owned/needs-missing-cofx
       {:rf.cofx/requires [:owned/unregistered-cofx]}
       (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
@@ -79,6 +76,34 @@
           "the rethrown error is the setup-step failure naming the throwing step")
       (is (nil? (frame/frame :owned/boom))
           "no half-created frame is left registered — the partial frame was torn down"))))
+
+(deftest acquire-setup-in-band-handler-throw-rethrows-and-leaves-no-frame
+  (testing "rf2-vw5h1r: the EP frame-provider guarantee — 'a throwing acquire
+            destroys the just-created frame, then rethrows' — now holds for an
+            IN-BAND handler-body throw too, not just an escaping throw. A
+            [:rf/set-db :not-a-map] bad-arg step raises :rf.error/set-db-bad-value
+            from inside the handler; the chain catches it (in-band
+            :rf.error/handler-exception) and dispatch-sync returns nil NORMALLY.
+            Under strict construction run-setup-events! detects that captured
+            in-band failure, tears the partial frame down, and rethrows
+            :rf.error/initial-events-step-failed — which propagates out of
+            acquire-owned-frame!. Before the fix the frame was LEFT ALIVE and
+            acquire returned the id with no signal (the owned-provider bug)."
+    (let [thrown (atom nil)]
+      (try
+        (owned-frame/acquire-owned-frame!
+          {:id :owned/setdb-boom
+           :initial-events [[:rf/set-db {:seeded true}]
+                            [:rf/set-db :not-a-map]]})
+        (catch :default e (reset! thrown e)))
+      (is (some? @thrown)
+          "the in-band handler-body throw RETHROWS out of acquire-owned-frame!")
+      (is (= :rf.error/initial-events-step-failed
+             (:rf.error/id (ex-data @thrown)))
+          "the rethrown error is the setup-step failure naming the failing step")
+      (is (nil? (frame/frame :owned/setdb-boom))
+          "no half-created frame is left registered — the partial frame was torn down
+           (the bug left it ALIVE wrongly-seeded and acquire returned the id)"))))
 
 ;; ---- deferred + cancellable destroy (StrictMode tolerance) ----------------
 ;;
