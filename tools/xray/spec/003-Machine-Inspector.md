@@ -1010,9 +1010,10 @@ A classified sensitive / large machine-snapshot `:data` path is honoured
 in **snapshot egress**: the `:before` / `:after` / `:snapshot` `:data` slots
 on every `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace are
 redacted to `:rf/redacted` / the `:rf.size/large-elided` marker by
-`re-frame.marks/project-trace-event` at emit (which re-roots the frame's
-snapshot-path declaration snapshot-relative via
-`re-frame.marks/frame-snapshot-marks`), BEFORE epoch-capture sees the event.
+`re-frame.classification/project-trace-event` at emit (which re-roots the
+frame's snapshot-path declaration snapshot-relative via
+`re-frame.classification/frame-snapshot-classification`), BEFORE
+epoch-capture sees the event.
 The Machine Inspector's `:data` view reads the focused epoch's
 `:trace-events` — those EGRESSED events — so a frame-declared sensitive
 `:data` slot renders redacted, never raw, in the SHARED mini-pipeline cascade
@@ -1024,7 +1025,7 @@ one path that reads the RAW frame-db slot `[:rf.runtime/machines
 runtime-db state, sourced via `:rf.xray/target-frame-runtime-db`)
 directly rather than a trace, so it has NOT passed through
 the egress redactor. The panel therefore routes each live snapshot
-through the SAME `project-trace-event` chokepoint (as a synthetic
+through the SAME `re-frame.classification/project-trace-event` chokepoint (as a synthetic
 `:rf.machine/snapshot-updated` event **stamped with the target frame**) on
 read, so a frame-declared sensitive `:data` slot in the live snapshot reads
 back `:rf/redacted` for every downstream consumer (the chart's live-snapshot

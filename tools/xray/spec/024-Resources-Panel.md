@@ -399,18 +399,6 @@ stacked sections:
 When the host has **no resources registered AND no live instances**, the
 panel renders the silent-by-default caption.
 
-> **Sibling audit — derived-output declassification (EP-0015 §10).** The
-> standing global-scope list is one of **two** standing
-> security-review audits in re-frame2. Its declassification analogue lives
-> on the Subscriptions / Views (Reactive) panel: the **Declassified
-> Outputs** list enumerates every derived sub / flow carrying
-> `:rf.egress/output-sensitivity :rf.egress/public` — an author's assertion
-> that a derived-from-sensitive value is safe to surface (see
-> [012-Views §Declassification audit](012-Views.md#declassification-audit-rfegresspublic-claims)).
-> A `:rf.egress/public` claim is to derived-output egress what
-> `:rf.scope/global` is to resource scope — a reviewer reads both lists to
-> see every place an author opted out of a fail-closed default.
-
 ## The `:rf.resource/*` trace family
 
 The framework Resources runtime **emits** the `:rf.resource/*` trace rows

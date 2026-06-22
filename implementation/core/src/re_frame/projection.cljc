@@ -66,7 +66,7 @@
   `reg-event {:sensitive [[:password]]}` declares which of ITS OWN event args
   are sensitive, independent of the frame's app-db classification. So the
   `:event` slot is projected through the event registration's `:sensitive` /
-  `:large` marks (the always-on `:marks/redact-event-by-registration` hook)
+  `:large` marks (the always-on `:classification/redact-event-by-registration` hook)
   BEFORE the frame-policy size/sensitive walk — the same arg-map-rooted
   redaction the dev trace path applies. Without this a declared-sensitive event
   arg would ride raw to an off-box `:observability :errors` sink whenever the

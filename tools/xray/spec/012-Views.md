@@ -427,31 +427,19 @@ The panel observes; the framework records.
 | `:rf/epoch-record :db-before` / `:db-after` | Same | Changed-paths derivation used to attribute layer-1 invalidations to specific `app-db` slices. |
 | Render-tracker `:owning-frame` tag | Spec 009 / [`018-Event-Spine.md`](018-Event-Spine.md) §8 I3 | The isolation filter: `(filter #(= (:owning-frame %) (sub :rf.xray/focus.frame)) renders)`. |
 
-## Declassification audit (`:rf.egress/public` claims)
+## Declassification audit — RETIRED (EP-0025)
 
-The Views panel renders a STANDING **Declassified Outputs** audit list — the
-declassification analogue of the Resources panel's `:rf.scope/global`
-scope-audit ([`024-Resources-Panel.md`](024-Resources-Panel.md)). It
-enumerates every registered subscription / flow that carries
-`:rf.egress/output-sensitivity :rf.egress/public` — the EP-0015 issue 9
-derived-output declassification claim ([spec/015 §Derived
-sensitivity](../../../spec/015-Data-Classification.md#derived-sensitivity)).
-
-A `:public` claim asserts "this derived-from-sensitive value is safe to
-surface despite sensitive inputs." Because it is the framework-blessed way to
-turn redaction OFF on a derived output, every such claim is a security-review
-surface: the audit list lets a reviewer see, at a glance, every place an
-author opted out of the fail-closed default. No reason-note is required in v1.
-
-| Surface | Spec | Use |
-|---|---|---|
-| `re-frame.marks/public-declassification-claims` | [spec/015 §Derived sensitivity](../../../spec/015-Data-Classification.md#derived-sensitivity) | Registry-level read returning `[{:kind :sub|:flow :id …} …]` for every `:rf.egress/public`-declared derived output. Pure over the process marks table. |
-
-The list is REGISTRY-level (not epoch-scoped), so it renders even when no
-cascade is focused (the panel's only always-on section). Empty state:
-`(no derived outputs declassified)`. Rendered under
-`rf-xray-reactive-declassify-section` / `-list` / `-row-<id>` /
-`-empty` / `-caption` testids.
+The Views panel formerly rendered a STANDING **Declassified Outputs** audit
+list — every subscription / flow carrying
+`:rf.egress/output-sensitivity :rf.egress/public`. **EP-0025 removed
+derived-output declassification entirely:** classification no longer
+propagates input→output across the dependency graph, so there is no
+`:rf.egress/public` declassify claim to enumerate and the
+`public-declassification-claims` registry read is gone. A derived output is
+classified by declaring its OWN sensitive paths directly (`:sensitive [paths]`
+/ `:large [paths]` on the sub / flow registration). The panel's
+`reactive-declassify-*` section is removed in lockstep (see
+`panels.reactive_panel_subs` / `reactive_panel_view`).
 
 ## Isolation invariant (I3)
 
