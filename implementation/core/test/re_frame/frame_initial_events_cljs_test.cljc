@@ -177,6 +177,15 @@
       (let [sources (->> @dispatched (map :source) (filter #{:frame-init}))]
         (is (= 2 (count sources))
             "both setup dispatches carried :source :frame-init"))
+      ;; rf2-8j4h7i: the :step-index half of the provenance contract reaches the
+      ;; trace — each frame-init dispatch carries its 0-based step index under
+      ;; [:tags :rf.frame/init-step-index], in declaration order (previously the
+      ;; runner set :step-index on the opts but build-envelope dropped it). The
+      ;; index rides under :tags (the raw layer :frame also rides), unlike the
+      ;; hoisted top-level :source.
+      (let [init-steps (->> @dispatched (filter #(= :frame-init (:source %))))]
+        (is (= [0 1] (mapv #(get-in % [:tags :rf.frame/init-step-index]) init-steps))
+            "each frame-init dispatch carries its 0-based :rf.frame/init-step-index"))
       ;; A subsequent RUNTIME dispatch is NOT frame-init — proving the tag
       ;; discriminates construction from runtime.
       (reset! dispatched [])
@@ -187,7 +196,9 @@
       (rf/dispatch-sync [:test/inc] {:frame :prov/main :source :test})
       (rf/unregister-listener! :trace ::prov2)
       (is (not= :frame-init (:source (first @dispatched)))
-          "an ordinary runtime dispatch is NOT tagged :source :frame-init"))))
+          "an ordinary runtime dispatch is NOT tagged :source :frame-init")
+      (is (nil? (get-in (first @dispatched) [:tags :rf.frame/init-step-index]))
+          "an ordinary runtime dispatch carries no :rf.frame/init-step-index"))))
 
 ;; ===========================================================================
 ;; 3. Strict-shape preflight — each bad shape fails the right id, no frame left

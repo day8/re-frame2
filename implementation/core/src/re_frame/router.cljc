@@ -324,7 +324,19 @@
         ;; lever that gates durable generation, not a dev diagnostic) and only
         ;; when supplied, so the override-free hot path keeps the envelope lean
         ;; and `assemble-initial-ctx` reads `nil` for the common case.
-        mint-policy        (:rf.cofx/mint-policy opts)]
+        mint-policy        (:rf.cofx/mint-policy opts)
+        ;; rf2-8j4h7i: the `:initial-events` setup runner (frame.cljc
+        ;; `run-setup-events!`) stamps `:step-index` into each setup-step's
+        ;; dispatch opts as the second half of the EP-0027 §Provenance contract
+        ;; (the `:source :frame-init` half is read just below). Without reading
+        ;; it here the value was silently discarded at the envelope boundary and
+        ;; never reached the `:rf.event/dispatched` trace, so tools could not
+        ;; navigate per setup step. Carried onto the envelope ONLY when present
+        ;; (the override-free hot path keeps the envelope lean), and stamped on
+        ;; the dispatched trace under `:rf.frame/init-step-index`
+        ;; (`emit-dispatched-trace`). It is a debug/trace provenance lever, not a
+        ;; correctness one — the trace stamp itself is debug-gated there.
+        step-index         (:step-index opts)]
     (cond-> {:event                  event
              :frame                  frame
              ;; Merge the lexical-scope `*fx-overrides*`
@@ -377,7 +389,12 @@
       ;; policy onto the envelope only when supplied, so `assemble-initial-ctx`
       ;; reads it (per-call wins over the frame config). Absent ⇒ the key is
       ;; omitted and the frame-config / `:live` fallback applies.
-      mint-policy        (assoc :rf.cofx/mint-policy mint-policy))))
+      mint-policy        (assoc :rf.cofx/mint-policy mint-policy)
+      ;; rf2-8j4h7i: carry the `:initial-events` setup-step index onto the
+      ;; envelope only when present (frame-init dispatches), so
+      ;; `emit-dispatched-trace` can stamp it on the dispatched trace as the
+      ;; second half of the EP-0027 §Provenance contract.
+      step-index         (assoc :step-index step-index))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
@@ -3043,7 +3060,17 @@
                        ;; envelope carried `:source-detail` (the
                        ;; substrate dispatch site opt-in).
                        (:source-detail envelope)
-                       (assoc :rf.event/source-detail (:source-detail envelope))))))))
+                       (assoc :rf.event/source-detail (:source-detail envelope))
+                       ;; rf2-8j4h7i: the `:initial-events` setup-step index
+                       ;; (EP-0027 §Provenance) — stamped only on frame-init
+                       ;; dispatches (the only envelopes carrying `:step-index`),
+                       ;; so tools can navigate per setup step alongside the
+                       ;; `:source :frame-init` tag. This whole `:rf.event/
+                       ;; dispatched` emit already elides in production, so the
+                       ;; tag rides that whole-body elision (it is a dev trace,
+                       ;; not always-on durable data).
+                       (:step-index envelope)
+                       (assoc :rf.frame/init-step-index (:step-index envelope))))))))
 
 (defn- front-insert-machine-internal
   "Return `q` (a PersistentQueue of envelopes) with `envelope` spliced in
