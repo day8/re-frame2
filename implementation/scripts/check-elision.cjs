@@ -280,7 +280,7 @@ const DEV_ONLY_SENTINELS = [
   // (`rf.view/render"`) so it matches ONLY the `:rf.view/render` op
   // keyword and NOT the longer `:rf.view/render-args` slot keyword
   // (rf2-rpgq8) that legitimately survives in production via the
-  // always-reachable `re-frame.marks/project-trace-event` chokepoint.
+  // always-reachable `re-frame.classification/project-trace-event` chokepoint.
   // A bare `view/render` substring would superstring-collide with
   // `rf.view/render-args` and fire a false production-leak positive.
   { source: 're-frame.views/reg-view* frame-aware-view (rf.view/render)',
@@ -307,7 +307,7 @@ const DEV_ONLY_SENTINELS = [
   //
   // NOTE — we deliberately do NOT add a `rf.view/render-args` keyword
   // sentinel: the keyword literal LEGITIMATELY survives in production via
-  // `re-frame.marks/project-trace-event` (the always-reachable marks
+  // `re-frame.classification/project-trace-event` (the always-reachable marks
   // chokepoint, gated at the trace/emit! CALL site, not internally), the
   // same way `:rf.event/db` / `:rf.cofx/value` / `:rf.sub/run` keyword
   // literals survive there. The privacy guarantee is that the VALUES never
@@ -322,7 +322,7 @@ const DEV_ONLY_SENTINELS = [
   // SAME precedent as `:rf.view/render-args` above: we deliberately do NOT add
   // a keyword sentinel for it. The `:rf.interceptor/override-summary` keyword
   // literal LEGITIMATELY survives in production via the always-reachable marks
-  // chokepoint `re-frame.marks/project-trace-event` (the fail-closed
+  // chokepoint `re-frame.classification/project-trace-event` (the fail-closed
   // `(contains? tags :rf.interceptor/override-summary)` projection branch),
   // exactly like `:rf.event/db` / `:rf.view/render-args` / `:rf.cofx/value`.
   // A keyword sentinel here would be a false production-leak positive.

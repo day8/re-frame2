@@ -1583,7 +1583,7 @@
 
 (deftest sub-run-row-threads-large-marker
   (testing "rf2-at60h — the whole-output `:large?` stamp that
-            `re-frame.marks/project-sub-tags` writes onto a `:rf.sub/run`
+            `re-frame.classification/project-sub-tags` writes onto a `:rf.sub/run`
             trace tag (when the sub's output is marked large but its raw
             value is left in place for the on-box ring) is threaded onto
             the structured `:sub-runs` row as `:large?`, so the off-box

@@ -816,7 +816,7 @@
                                ;; :wi/note dispatched event — a deterministic
                                ;; single emit per run. The event vector rides
                                ;; under (:rf.event/v :tags) as [event-id args]
-                               ;; (re-frame.marks §project-event-tags).
+                               ;; (re-frame.classification §project-event-tags).
                                (when (and (nil? @seen)
                                           (= :rf.event (:op-type ev))
                                           (= :rf.event/dispatched (:operation ev))

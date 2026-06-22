@@ -309,7 +309,7 @@
   ;; user render-args reach the production bundle — that absence rides the
   ;; existing `rf.view/rendered` sentinel (same gated body). (The
   ;; `:rf.view/render-args` slot KEYWORD itself legitimately survives via
-  ;; the always-reachable `re-frame.marks/project-trace-event` chokepoint,
+  ;; the always-reachable `re-frame.classification/project-trace-event` chokepoint,
   ;; same as `:rf.event/db` — so no keyword sentinel is added for it.)
   (rf/reg-view* :probe/render-args
     {:ns 're-frame.elision-probe :file "probe.cljs" :line 1 :column 1}
@@ -542,7 +542,7 @@
 ;; NOTE (parallels rf2-rpgq8 `:rf.view/render-args`): NO keyword sentinel for
 ;; `:rf.interceptor/override-summary` is added in check-elision.cjs, because the
 ;; keyword literal LEGITIMATELY survives in production via the always-reachable
-;; marks chokepoint `re-frame.marks/project-trace-event` (the fail-closed
+;; marks chokepoint `re-frame.classification/project-trace-event` (the fail-closed
 ;; `(contains? tags :rf.interceptor/override-summary)` branch). The privacy
 ;; guarantee is that the VALUES (the id/count summary) are constructed only in
 ;; the gated emit path and never reach the production bundle. The distinctive

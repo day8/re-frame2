@@ -23,7 +23,7 @@
   tag — the bulk walk roots that nested db at
   `[<i> :tags :rf.event/db ...]`, so `[:auth :password]` never matches.
 
-  DEFENCE-IN-DEPTH note (verified against `re-frame.marks/project-db-tags`,
+  DEFENCE-IN-DEPTH note (verified against `re-frame.classification/project-db-tags`,
   rf2-6773q): when the frame HAS elision declarations, the t1/t2
   `:rf.event/db` tag is ALSO redacted at EMIT time, so the on-ring trace
   already carries `:rf/redacted` for frame-declared paths. The egress
@@ -117,7 +117,7 @@
   (testing "the live router's t1/t2 :rf.event/db-pending trace carries the
             FULL pending db under :rf.event/db — and for a frame WITH
             elision declarations, that nested tag is redacted at EMIT time
-            (re-frame.marks/project-db-tags, rf2-6773q), so the on-ring
+            (re-frame.classification/project-db-tags, rf2-6773q), so the on-ring
             trace already shows :rf/redacted at [:auth :password]. The
             egress re-root then keeps it redacted (idempotent) and covers
             the not-emit-redacted shapes (pinned by the unit tests)"
