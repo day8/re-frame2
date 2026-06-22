@@ -182,6 +182,73 @@
         "the cleared large path is removed")))
 
 ;; ---------------------------------------------------------------------------
+;; 2b. SOURCE-SCOPED clear (rf2-34jrb6) — a clear removes only the effect's own
+;;     contribution; a path ALSO claimed by another source stays redacted
+;; ---------------------------------------------------------------------------
+
+(deftest clear-sensitive-is-source-scoped-does-not-un-redact-another-source
+  (testing ":clear-sensitive removes only the effect's OWN declaration for a
+            path; a path ALSO claimed by another source (e.g. a reg-flow output
+            under :source :flow) stays classified — the clear must not silently
+            un-redact a path another owner still considers sensitive (a privacy
+            fail-open). rf2-34jrb6."
+    ;; A flow (another source) declares [:user :token] sensitive in the SAME
+    ;; per-frame elision registry slot the effects write. reg-flow lives in a
+    ;; separate artefact, so simulate its registry write directly via the shared
+    ;; swap-elision-slot! seam (the exact slot + shape reg-flow installs:
+    ;; {:source :flow :flow-id …}).
+    (elision/swap-elision-slot! :rf/default
+      (fn [reg]
+        (assoc-in reg [:sensitive-declarations [:user :token]]
+                  {:source :flow :flow-id :token-watch})))
+    (is (= :flow (:source (get (sensitive-decls) [:user :token])))
+        "the flow-sourced declaration is standing in the registry")
+    ;; An effect ALSO classifies the same path — collapses to ONE registry entry
+    ;; per path, now stamped :source :effect (the SET is the later write).
+    (rf/reg-event :effect-classify-token
+      (fn [{:keys [db]} _]
+        {:db (assoc-in db [:user :token] "Bearer secret-xyz")
+         :sensitive [[:user :token]]}))
+    (rf/dispatch-sync [:effect-classify-token])
+    (is (= :effect (:source (get (sensitive-decls) [:user :token])))
+        "the same-path effect SET overwrote the entry to :source :effect")
+    ;; The effect now CLEARS the path. Source-scoped clear removes the effect's
+    ;; own contribution — but the path is STILL claimed by the flow, so it must
+    ;; remain classified and the value must stay REDACTED at egress.
+    ;; Re-install the flow declaration after the effect SET overwrote it (the
+    ;; collapse-to-one-entry means the flow's mark must be re-asserted; a live
+    ;; reg-flow would re-fold on its own lifecycle — here we model the standing
+    ;; flow claim).
+    (elision/swap-elision-slot! :rf/default
+      (fn [reg]
+        (assoc-in reg [:sensitive-declarations [:user :token]]
+                  {:source :flow :flow-id :token-watch})))
+    (rf/reg-event :effect-clear-token
+      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
+    (rf/dispatch-sync [:effect-clear-token])
+    (is (contains? (sensitive-decls) [:user :token])
+        "the path is STILL classified — the flow's claim survives the effect clear")
+    (is (= :flow (:source (get (sensitive-decls) [:user :token])))
+        "the surviving entry is the flow's, not the effect's")
+    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))]
+      (is (= privacy/redacted-sentinel (get-in wire [:user :token]))
+          "the value stays REDACTED at egress — the clear did not un-redact it"))))
+
+(deftest clear-sensitive-removes-effect-sourced-entry-when-sole-claimant
+  (testing "when the effect is the SOLE source for a path, the source-scoped
+            clear removes it (no other-source entry shields it) — the ordinary
+            set/unset case is unchanged. rf2-34jrb6."
+    (rf/reg-event :effect-only-classify
+      (fn [{:keys [db]} _] {:db db :sensitive [[:only :effect]]}))
+    (rf/dispatch-sync [:effect-only-classify])
+    (is (= :effect (:source (get (sensitive-decls) [:only :effect]))))
+    (rf/reg-event :effect-only-clear
+      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:only :effect]]}))
+    (rf/dispatch-sync [:effect-only-clear])
+    (is (not (contains? (sensitive-decls) [:only :effect]))
+        "an effect-sourced path with no other claimant is removed by its clear")))
+
+;; ---------------------------------------------------------------------------
 ;; 3. axes independent — sensitive vs large clears do not cross
 ;; ---------------------------------------------------------------------------
 

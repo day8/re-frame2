@@ -327,11 +327,7 @@
    {:hook :epoch/clear-history!            :phase :post-dispose}
    {:hook :epoch/clear-epoch-listeners!          :phase :post-dispose}
    {:hook :epoch/reset-config!             :phase :post-dispose}
-   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}
-   ;; EP-0025 — classification is derived from the registrar (no side-table)
-   ;; and the per-frame elision registry (reset by frame teardown), so this is
-   ;; a no-op retained for directory symmetry. There is no propagation table.
-   {:hook :classification/clear-classification! :phase :post-dispose}])
+   {:hook :adapter/clear-warn-once-caches! :phase :post-dispose}])
 
 (defn- run-reset-hooks!
   "Driver: fire every `reset-hook-table` row whose `:phase` matches and

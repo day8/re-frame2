@@ -300,14 +300,23 @@
 
   Each SET key (`:sensitive` / `:large`) adds `{:source :effect}` declarations
   for its paths to the axis slot (`:sensitive-declarations` / `:declarations`);
-  each CLEAR key (`:clear-sensitive` / `:clear-large`) DISSOCs its paths from
-  the axis slot. The two axes are INDEPENDENT — clearing one never touches the
-  other's slot — and clearing removes only the named paths (other-sourced
-  entries for an unnamed path survive). Within one effect map, a SET on an axis
-  applies before its own CLEAR is irrelevant (a handler returns at most one of
-  each axis's set/clear), but if both an axis SET and that axis's CLEAR name
-  the same path, the CLEAR wins (last-write per axis). An empty/absent axis
-  slot is pruned (dissoc'd) rather than left as `{}` (matching
+  each CLEAR key (`:clear-sensitive` / `:clear-large`) removes ONLY the
+  effect's OWN contribution to its paths from the axis slot. A clear is
+  SOURCE-SCOPED: it dissocs a path only when the standing entry is
+  `:source :effect` (the effect's own declaration); a path also claimed by
+  another source (`:source :flow` from a `reg-flow` output, `:source :machine`,
+  `:source :route`, or a subsystem projection declaration) is LEFT INTACT, so
+  the clear can never silently un-redact a path another owner still classifies
+  (a privacy fail-open). This mirrors `re-frame.flows.registry/drop-flow-sourced`,
+  which likewise removes only its own `:source :flow` entries. The two axes are
+  INDEPENDENT — clearing one never touches the other's slot — and clearing
+  removes only the named paths (other-sourced entries for an unnamed path
+  survive). Within one effect map, a SET on an axis applies before its own
+  CLEAR (a handler returns at most one of each axis's set/clear), so if both an
+  axis SET and that axis's CLEAR name the same path the CLEAR wins (the SET
+  stamped it `:source :effect`, so the source-scoped clear removes the
+  effect's own just-written entry). An empty/absent axis slot is pruned
+  (dissoc'd) rather than left as `{}` (matching
   `write-elision-slot`). Assumes `effects` already passed
   `validate-classification-effects!` (paths are valid concrete `:rf/path`s);
   normalizes each to its canonical vector form here so the stored decl key
@@ -332,7 +341,18 @@
                     cur     (get reg slot)
                     updated (if set?
                               (reduce (fn [m p] (assoc m p {:source :effect})) (or cur {}) paths)
-                              (apply dissoc (or cur {}) paths))]
+                              ;; SOURCE-SCOPED clear (rf2-34jrb6): remove a path
+                              ;; only when ITS standing entry is the effect's own
+                              ;; (`:source :effect`). A path also claimed by a
+                              ;; flow / machine / route / subsystem source is
+                              ;; left intact, so a clear never un-redacts a path
+                              ;; another owner still classifies (privacy fail-open).
+                              (reduce (fn [m p]
+                                        (if (= :effect (:source (get m p)))
+                                          (dissoc m p)
+                                          m))
+                                      (or cur {})
+                                      paths))]
                 (if (seq updated)
                   (assoc reg slot updated)
                   (dissoc reg slot)))))
@@ -449,11 +469,10 @@
 (defn- marker-opts
   "The `->marker` option map for a declared-`:large` node — derived from the
   matched `large-decl` (its `:hint` / `:source`) and the walk `ctx` (its
-  `:as-of-epoch` / `:include-digests?`). Single source for the BYTE-IDENTICAL
-  4-key option map the path-based walker (`walk`) and the value-match large
-  collector (`collect-large-markers!`) each pass to `->marker`.
-  Both call sites carry the same `:as-of-epoch` / `:include-digests?` keys on
-  their respective `ctx`, so the marker is identical whichever arm emits it."
+  `:as-of-epoch` / `:include-digests?`). The 4-key option map the path-based
+  wire walker (`walk-decider`) passes to `->marker`. The `:source` / `:hint`
+  stay genuinely multi-valued across the flow / effect / schema declaration
+  sources, so the lookup is real even with a single caller."
   [large-decl ctx]
   {:hint             (:hint large-decl)
    :reason           (:source large-decl)
@@ -694,31 +713,6 @@
                 (conj! acc c)))
             (transient #{})
             decl-paths)))
-
-(defn- reduce-indexed-forks
-  "Descend a POSITIONAL container `coll` (a vector OR a seq), tracking an
-  integer element index `i` from 0 and forking the candidate
-  declaration-coordinate set through that index via `fork-index-paths`. For
-  each element this threads an accumulator by calling
-  `(step acc element i forked-decl-paths)`, where `forked-decl-paths` is
-  `(fork-index-paths decl-paths i decl-prefixes)`. Returns the final `acc`.
-
-  This is the single home for the 'descend a positional container tracking an
-  integer index, forking decl-paths via fork-index-paths' micro-shape used by
-  the large-value collector (`collect-large-markers!`'s vector / seq branches).
-  The path-based wire walker forks the same shape through the shared
-  `walk-tree` skeleton's `:index` decider arm (`walk-decider`). `reduce`
-  iterates a vector in index order, so the vector and seq cases share one
-  traversal; the volatile index reproduces the per-element `(conj path i)`
-  exactly. The caller owns `acc`'s identity (a transient `[raw marker]`
-  accumulator for the collector) and what `step` does with each element."
-  [coll decl-paths decl-prefixes step acc]
-  (let [idx (volatile! -1)]
-    (reduce (fn [a x]
-              (let [i (vswap! idx inc)]
-                (step a x i (fork-index-paths decl-paths i decl-prefixes))))
-            acc
-            coll)))
 
 (defn- decl-match
   "Test the candidate declaration-coordinate set against a declaration
