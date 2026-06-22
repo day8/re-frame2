@@ -83,7 +83,7 @@
   (if-not (and (map? snapshot) (contains? snapshot :data) frame-id)
     snapshot
     (let [{:keys [sensitive large]} (classification/frame-snapshot-classification frame-id actor-id)
-          ;; frame-snapshot-marks returns snapshot-rooted paths ([:data …]);
+          ;; frame-snapshot-classification returns snapshot-rooted paths ([:data …]);
           ;; the SSR projector walks the bare :data MAP, so strip the leading
           ;; :data segment to index into it directly.
           strip   (fn [paths] (into [] (comp (filter #(= :data (first %)))
