@@ -1427,7 +1427,20 @@
   dep (router requires frame)."
   [id steps base-opts where-sym]
   (when (seq steps)
-    (when-let [dispatch-sync! (late-bind/get-fn :router/dispatch-sync!)]
+    ;; rf2-jsokxu: the setup runner reaches `dispatch-sync!` via late-bind (the
+    ;; router requires frame, so a compile-time call would be a cyclic dep). If
+    ;; the hook is NOT yet registered (re-frame.router not loaded — a standalone
+    ;; re-frame.frame require with no router) we must NOT silently drop the
+    ;; setup: the EP guiding rule is that `:initial-events` is NO LESS capable
+    ;; than the hand-written `dispatch-sync` loop it replaces (which would error
+    ;; LOUDLY on an unresolved `dispatch-sync` var, never skip), and Conventions
+    ;; §No silent swallow requires a recognised-but-unhonourable input to
+    ;; signal. So when there ARE steps to run and the runner is unavailable,
+    ;; fail loud — tear down the partial frame (the container was already swapped
+    ;; into `frames` by the caller) and throw, naming that the router is not
+    ;; loaded. (The common path — re-frame.core requires re-frame.router, so the
+    ;; hook is published before any runtime reg-frame — is unaffected.)
+    (if-let [dispatch-sync! (late-bind/get-fn :router/dispatch-sync!)]
       (loop [idx 0
              remaining steps]
         (when-let [{:keys [event opts]} (first remaining)]
@@ -1455,7 +1468,28 @@
                               :frame      id
                               #?@(:clj  [:cause t]
                                   :cljs [:cause t])}}))))
-          (recur (inc idx) (rest remaining)))))))
+          (recur (inc idx) (rest remaining))))
+      ;; The runner hook is unavailable but there ARE steps to run: fail loud
+      ;; rather than silently dropping the setup (rf2-jsokxu). Tear down the
+      ;; partial frame (the caller already swapped the container into `frames`)
+      ;; so no half-created, never-setup frame is left live, then throw naming
+      ;; that re-frame.router is not loaded.
+      (do
+        (destroy-frame! id)
+        (error/throw-error!
+          :rf.error/initial-events-runner-unavailable
+          where-sym
+          (str ":initial-events has " (count steps) " setup step(s) to run but "
+               "the setup runner is unavailable — `re-frame.router` is not loaded "
+               "(the `:router/dispatch-sync!` late-bind hook is unregistered). "
+               ":initial-events is dispatched through the router's synchronous "
+               "path; require `re-frame.router` (or `re-frame.core`, which does) "
+               "before constructing a frame with `:initial-events`. The "
+               "partially-created frame was torn down (no half-created frame is "
+               "left live).")
+          {:recovery :require-re-frame-router
+           :extra    {:frame      id
+                      :step-count (count steps)}})))))
 
 (defn- reject-retired-construction-keys!
   "PREFLIGHT guard (EP-0027 §Backwards-compat). `:on-create` and `:initial-db`
