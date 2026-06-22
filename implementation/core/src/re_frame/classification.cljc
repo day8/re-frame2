@@ -695,13 +695,19 @@
 
   EP-0025 (rf2-398kql): the \"machine declares ANY `:sensitive`\" decision now
   consults the FRAME's snapshot-path classification (the sole app-db mechanism)
-  unioned with any author `:event` registration classification."
+  unioned with any author `:event` registration classification.
+
+  A nil / unresolvable frame FAILS CLOSED (redacts) — matching the sibling
+  `project-flow-failed-tags` and Spec 015 §Failure-posture (unknown frame =>
+  fail closed). `:exception-data` is author-shaped `ex-data` that cannot be
+  path-walked safely, so a nil frame redacts the WHOLE slot."
   [tags frame-id]
   (let [machine-id (or (:actor-id tags) (:machine-id tags))
         author     (classification-when :event machine-id)
         frame-mk   (frame-snapshot-classification frame-id machine-id)]
     (if (and (contains? tags :exception-data)
-             (or (seq (:sensitive author)) (seq (:sensitive frame-mk))))
+             (or (nil? frame-id)
+                 (seq (:sensitive author)) (seq (:sensitive frame-mk))))
       (redact-exception-data-slot tags)
       tags)))
 
