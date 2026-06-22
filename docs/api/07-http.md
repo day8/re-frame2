@@ -260,14 +260,15 @@ HTTP is the canonical privacy surface in any app: passwords ride request bodies,
 |---|---|---|
 | **Built-in header denylist** | A closed, **immutable** set of always-sensitive header names (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token`, …). Redacted in every `:rf.http/*` trace's `:headers` slot regardless of any `:sensitive?` flag; case-insensitive. No frame can remove a name. | framework default |
 | **Built-in query-param denylist** | A closed, **immutable** set of always-sensitive query-param names (`api_key`, `access_token`, `token`, `secret`, `password`, `session`, `signature`, …). The **value** is redacted inline in `:url` slots (`?api_key=:rf/redacted&page=2`); name + position preserved. A hit also stamps `:sensitive? true` on the event — the name is the signal. | framework default |
-| **Frame-local carriers** | App-specific sensitive header / query-param names, declared on the **frame**; they **union** onto the built-in defaults for traces emitted from that frame. | `reg-frame` `:sensitive {:http {:headers […] :query-params […]}}` |
+| **Managed-HTTP carriers** | App-specific sensitive header / query-param names, declared on the **`:rf.http/managed` `reg-fx` registration** (the EP-0025 transient-payload case); they **union** onto the built-in defaults. | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
 | **Per-request / per-call `:sensitive?`** | The coarse opt-in that redacts a single request's body / params / all URL param values wholesale. | the `:rf.http/managed` args map (`:sensitive?` at top level, or under `:request`) |
 
 ```clojure
-;; frame-local carrier extensions (union onto the immutable built-ins)
-(rf/reg-frame :app/main
-  {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
-                      :query-params ["shop_token"]}}})
+;; managed-HTTP carrier extensions (union onto the immutable built-ins)
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers      ["X-Honeycomb-Team"]
+              :query-params ["shop_token"]}}
+  re-frame.http.managed/managed-handler)
 
 ;; per-call opt-in for a single sensitive request
 (rf/reg-event :api/login

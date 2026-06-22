@@ -1223,14 +1223,14 @@ The privacy surface has four declaration surfaces, none of them a process-global
 |---|---|---|
 | Built-in header denylist | A closed, **immutable** set of always-sensitive header names ([§1](#1-header-denylist-always-on)). No frame can remove one. | framework default (`re-frame.http.privacy-headers`) |
 | Built-in query-param denylist | A closed, **immutable** set of always-sensitive query-param names ([§2](#2-query-param-denylist-always-on)). | framework default (`re-frame.http.url`) |
-| Frame-local carriers | App-specific sensitive header / query-param names, declared on the **frame** via `:sensitive {:http {:headers [..] :query-params [..]}}` ([§Frame-local carriers](#frame-local-carriers-ep-0015-3)). The frame extension set **unions** onto the built-in defaults for the emitting frame. `:query-params` also accepts a `{:include [..] :except [..]}` policy map whose `:except` set **subtracts** a built-in default for that frame's own dev trace (rf2-4wqxq8); `:headers` has no `:except` form. | `reg-frame` metadata (`re-frame.frame-classification`) |
+| Managed-HTTP carriers | App-specific sensitive header / query-param names, declared on the **`:rf.http/managed` `reg-fx` registration** via the `:carriers {:headers [..] :query-params [..]}` block ([§HTTP carriers](#http-carriers-ep-0025)). The carrier extension set **unions** onto the built-in defaults. `:query-params` also accepts a `{:include [..] :except [..]}` policy map whose `:except` set **subtracts** a built-in default for the app's own dev trace (rf2-4wqxq8); `:headers` has no `:except` form. | `reg-fx :rf.http/managed` metadata (`re-frame.http.privacy`) |
 | Per-request `:sensitive?` | The coarse per-call / per-request flag ([§3](#3-per-request--per-call-sensitive)) that redacts a single request's body / params / all URL params wholesale. | the `:rf.http/managed` args map |
 
 Response **bodies** are classified separately, per-slot, via the request's `:decode` schema ([§Response-body classification](#response-body-classification-ep-0015-5)).
 
-The composers that orchestrate per-emit redaction + stamping — `request-sensitive?`, `prepare-emit-tags`, `prepare-emit-failure` — live in `re-frame.http.privacy` as the privacy orchestrator. They consult the two built-in denylists, the emitting frame's frame-local carrier extension sets (resolved once per emit via `re-frame.frame-classification/http-carriers`), and the per-request / per-call `:sensitive?` flag, and produce the redacted slot values + stamped tags map that `trace/emit!` / `trace/emit-error!` sees.
+The composers that orchestrate per-emit redaction + stamping — `request-sensitive?`, `prepare-emit-tags`, `prepare-emit-failure` — live in `re-frame.http.privacy` as the privacy orchestrator. They consult the two built-in denylists, the app-declared carrier extension sets (resolved once per emit via `re-frame.http.privacy/managed-carriers`, reading the `:rf.http/managed` `reg-fx` registration's `:carriers` block), and the per-request / per-call `:sensitive?` flag, and produce the redacted slot values + stamped tags map that `trace/emit!` / `trace/emit-error!` sees.
 
-> **No process-global carrier mutation (EP-0015 §3).** Earlier drafts exposed `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!` siblings) as a process-global denylist mutation on the `re-frame.http` façade. Those are **removed**: re-frame2 is multi-frame, so app-specific carrier policy is frame-owned durable config, not a process global. The immutable built-in defaults remain.
+> **No process-global carrier mutation, no frame carrier block (EP-0025).** Earlier drafts exposed `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!` siblings) as a process-global denylist mutation on the `re-frame.http` façade; a later draft moved app carrier names onto the **frame** (`:sensitive {:http …}`). Both are **removed** (EP-0025 §HTTP carriers): app-specific carrier names are the transient-payload case and ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block. The immutable built-in defaults remain.
 
 ### 1. Header denylist (always-on)
 
@@ -1253,14 +1253,15 @@ The v1 closed denylist:
 | `WWW-Authenticate` | Challenge response carries scheme + realm details |
 | `Proxy-Authenticate` | Same as WWW-Authenticate at the proxy layer |
 
-The built-in denylist is **immutable** — no frame can remove a name. Apps extend it for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-Stripe-Signature`) on the **frame** (EP-0015 §3 — see [§Frame-local carriers](#frame-local-carriers-ep-0015-3)):
+The built-in denylist is **immutable** — no app can remove a name. Apps extend it for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-Stripe-Signature`) on the **`:rf.http/managed` `reg-fx` registration** (EP-0025 — see [§HTTP carriers](#http-carriers-ep-0025)):
 
 ```clojure
-(rf/reg-frame :app/main
-  {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers ["X-Honeycomb-Team"]}}
+  re-frame.http.managed/managed-handler)
 ```
 
-The frame extension set is lower-cased and **unions** onto the immutable built-in defaults for traces emitted from that frame; matching is case-insensitive.
+The carrier extension set is lower-cased and **unions** onto the immutable built-in defaults; matching is case-insensitive.
 
 ### 2. Query-param denylist (always-on)
 
@@ -1280,24 +1281,26 @@ The v1 closed denylist:
 | `session` / `session_id` / `sessionid` | Session identifier carried on the URL |
 | `signature` / `sig` / `hmac` | Signed-URL HMAC / signature value |
 
-The built-in denylist is **immutable** — no frame can remove a name. Apps extend it for app-specific tokens (e.g. `shop_token` for Shopify, `signature` variants in webhook receivers) on the **frame** (EP-0015 §3 — see [§Frame-local carriers](#frame-local-carriers-ep-0015-3)):
+The built-in denylist is **immutable** — no app can remove a name. Apps extend it for app-specific tokens (e.g. `shop_token` for Shopify, `signature` variants in webhook receivers) on the **`:rf.http/managed` `reg-fx` registration** (EP-0025 — see [§HTTP carriers](#http-carriers-ep-0025)):
 
 ```clojure
-(rf/reg-frame :app/main
-  {:sensitive {:http {:query-params ["shop_token"]}}})
+(rf/reg-fx :rf.http/managed
+  {:carriers {:query-params ["shop_token"]}}
+  re-frame.http.managed/managed-handler)
 ```
 
-The frame extension set is lower-cased and **unions** onto the immutable built-in defaults for traces emitted from that frame; matching is case-insensitive.
+The carrier extension set is lower-cased and **unions** onto the immutable built-in defaults; matching is case-insensitive.
 
-**Frame-local subtraction — `{:include :except}` (rf2-4wqxq8).** `:query-params` additionally accepts a policy map so a frame can stop redacting a *harmless* routing/pagination name (e.g. a `token` that is a CSRF/page token, not an auth secret) in its **own** dev trace, where the broad bare-name default produces friction:
+**Carrier subtraction — `{:include :except}` (rf2-4wqxq8).** `:query-params` additionally accepts a policy map so an app can stop redacting a *harmless* routing/pagination name (e.g. a `token` that is a CSRF/page token, not an auth secret) in its **own** dev trace, where the broad bare-name default produces friction:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:sensitive {:http {:query-params {:include ["shop_token"]   ; extend defaults
-                                     :except  ["token"]}}}})    ; subtract a default
+(rf/reg-fx :rf.http/managed
+  {:carriers {:query-params {:include ["shop_token"]   ; extend defaults
+                             :except  ["token"]}}}      ; subtract a default
+  re-frame.http.managed/managed-handler)
 ```
 
-The effective policy is **`(defaults − except) ∪ include`** — `:include` extends the built-in defaults (identical to the bare vector form), `:except` removes the named defaults for that frame. A name in **both** `:include` and `:except` stays sensitive (`:include` wins — declaring a name sensitive is never undone by also excepting it). The subtraction is **frame-local and dev-trace-only**: all redaction is debug-gated trace surface and elides entirely in production, so `:except` only relaxes dev-trace friction — it never affects a production bundle. The header denylist (§1) has **no** `:except` form (a default-off header would be a real leak), and the query defaults stay **on-by-default**, subtractable only per explicitly-named param. Malformed shapes (unknown key inside the policy map, non-string name, non-vector sub-value) **fail loudly at frame registration**.
+The effective policy is **`(defaults − except) ∪ include`** — `:include` extends the built-in defaults (identical to the bare vector form), `:except` removes the named defaults for the app. A name in **both** `:include` and `:except` stays sensitive (`:include` wins — declaring a name sensitive is never undone by also excepting it). The subtraction is **app-local and dev-trace-only**: all redaction is debug-gated trace surface and elides entirely in production, so `:except` only relaxes dev-trace friction — it never affects a production bundle. The header denylist (§1) has **no** `:except` form (a default-off header would be a real leak), and the query defaults stay **on-by-default**, subtractable only per explicitly-named param. Malformed shapes (unknown key inside the policy map, non-string name, non-vector sub-value) **fail loudly** (`:rf.error/bad-classification`).
 
 Matching is **percent-decoding-aware**: a query-param name is compared against the denylist in both its raw spelling **and** its percent-decoded form, so an encoded denylisted name (`?api%5Fkey=…` for `api_key`, `?%61ccess_token=…` for `access_token`, an app-declared `?shop%5Ftoken=…`) is redacted just like its plain spelling. The decode is comparison-only — the rebuilt URL preserves the original raw name verbatim and replaces only the value. A malformed percent-escape decodes to nothing and falls back to the raw-name match; redaction is total and never throws.
 
@@ -1344,26 +1347,29 @@ For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, 
 
 The `:sensitive?` flag a `:rf.http/*` trace event carries is the one resolved for **that specific request** from its per-request / per-call opt-ins (plus any automatic query-param-denylist stamp). Sensitivity does not transitively propagate across a dispatch cascade — a request fired from a non-sensitive call stays non-sensitive even when an ancestor handler in the cascade fired a sensitive request, and vice versa. The OR-reduce-by-cascade rollup, if a consumer wants one, is the consumer's responsibility (group by `:dispatch-id`).
 
-The header and query-param denylist redaction (rules 1–2) consults the **built-in defaults unioned with the emitting frame's frame-local carriers** — see [§Frame-local carriers](#frame-local-carriers-ep-0015-3) below.
+The header and query-param denylist redaction (rules 1–2) consults the **built-in defaults unioned with the app-declared managed-HTTP carriers** — see [§HTTP carriers](#http-carriers-ep-0025) below.
 
-### Frame-local carriers (EP-0015 §3)
+### HTTP carriers (EP-0025)
 
-App-specific sensitive header and query-param names are declared on the **frame**, not through a process-global mutation. re-frame2 is multi-frame: durable frame-wide facts (which carrier names this frame's HTTP traffic treats as secret) belong to frame config (EP-0015 §3 / [Spec 015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)), so different frames can route to different carrier policies.
+<a id="http-carriers-ep-0025"></a><a id="frame-local-carriers-ep-0015-3"></a>
+
+App-specific sensitive header and query-param NAMES are declared on the **`:rf.http/managed` `reg-fx` registration metadata** — the `:carriers` block — not on the frame and not through a process-global mutation. This is the EP-0025 **transient-payload case**: a managed-HTTP effect declares its own sensitive carriers on its `reg-fx` registration, exactly like any effect declares its `:sensitive` arg-paths (EP-0025 §HTTP carriers / [Spec 015 §HTTP carriers](015-Data-Classification.md#http-carriers)). An app extends the denylists by re-registering `:rf.http/managed` with a `:carriers` block:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
-                      :query-params ["shop_token"]}}})
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers      ["X-Honeycomb-Team"]
+              :query-params ["shop_token"]}}
+  re-frame.http.managed/managed-handler)
 ```
 
 Semantics:
 
-- The carrier names are **frame-local extensions** to the immutable built-in denylists ([§1](#1-header-denylist-always-on) / [§2](#2-query-param-denylist-always-on)). They **union** onto the defaults; they never replace or remove a built-in name.
-- The names are validated at `reg-frame` time (non-string carrier names fail loudly — [Spec 015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)); they ride the frame's durable config. The HTTP privacy redactor resolves the emitting frame's extension sets (lower-cased) once per emit via `re-frame.frame-classification/http-carriers` and unions them onto the built-in defaults.
-- The **emitting frame** is the one the request was issued from (the `:rf.http/managed` fx carries the cascade-envelope frame, propagated onto the in-flight handle so even an actor-destroy abort trace fired from the registry resolves the right frame's carriers). A completion that fires with no resolvable frame applies the built-in defaults only.
-- A frame-local query-param carrier hit **stamps `:sensitive? true`** on the trace event exactly like a built-in denylist hit — the carrier name is the signal.
+- The carrier names are **extensions** to the immutable built-in denylists ([§1](#1-header-denylist-always-on) / [§2](#2-query-param-denylist-always-on)). They **union** onto the defaults; they never replace or remove a built-in name.
+- The names ride the registration metadata; the HTTP privacy redactor resolves the `:carriers` extension sets (lower-cased) once per emit via `re-frame.http.privacy/managed-carriers` (reading `re-frame.registrar/handler-meta :fx :rf.http/managed`) and unions them onto the built-in defaults. A malformed `:carriers` block fails loud with `:rf.error/bad-classification`.
+- Carriers are **process-global** (one `:rf.http/managed` registration), so resolution needs no emitting-frame id — the same carrier policy applies to every managed request across every frame.
+- A query-param carrier hit **stamps `:sensitive? true`** on the trace event exactly like a built-in denylist hit — the carrier name is the signal.
 
-This replaces the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (EP-0015 §3).
+This replaces the earlier frame `:sensitive {:http …}` carrier block and the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (EP-0025 §HTTP carriers).
 
 ### Response-body classification (EP-0015 §5)
 
@@ -1407,7 +1413,7 @@ Rules:
 The HTTP privacy machinery rides the trace surface and elides with it:
 
 - The redact / stamp helpers all gate on `interop/debug-enabled?` at their call sites (the same gate as `trace/emit!` and `trace/emit-error!`). In `:advanced` + `goog.DEBUG=false` builds Closure DCE removes the trace emits AND the redaction step that prepares them.
-- The immutable built-in denylists ship in production as plain data; a frame's frame-local carrier extension sets ride its durable config. The walkers (header / query-param / response-body) only run when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
+- The immutable built-in denylists ship in production as plain data; the app-declared carrier extension sets ride the `:rf.http/managed` `reg-fx` registration metadata. The walkers (header / query-param / response-body) only run when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
 - Handler-meta `:sensitive?` is no longer consulted (the annotation has been removed). Per-call `:sensitive?` on the `:rf.http/managed` args map is the supported per-request sensitivity opt-in.
 
 ### Cross-references
@@ -1466,7 +1472,7 @@ Per [§Aborts](#aborts) `:rf.http/managed` requests issued from inside a spawned
 
 ### Privacy honoured via `:sensitive?` on HTTP trace events
 
-Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive carrier names on the **frame** via `:sensitive {:http {...}}` (EP-0015 §3 — [§Frame-local carriers](#frame-local-carriers-ep-0015-3)), and response bodies classify per-slot via the request's `:decode` schema ([§Response-body classification](#response-body-classification-ep-0015-5)).
+Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`:sensitive?`](009-Instrumentation.md#privacy--sensitive-data-in-traces) contract: per-call and per-request `:sensitive?` flags OR-reduce (handler-meta `:sensitive?` is no longer a source); the framework redacts request/response bodies and a 12-name header denylist (`authorization`, `cookie`, `set-cookie`, etc.). Headers were chosen as the always-on default surface because they carry the highest-value secrets (auth tokens) across the largest fraction of apps. Apps register their own sensitive carrier names on the **`:rf.http/managed` `reg-fx` registration** via the `:carriers` block (EP-0025 — [§HTTP carriers](#http-carriers-ep-0025)), and response bodies classify per-slot via the request's `:decode` schema ([§Response-body classification](#response-body-classification-ep-0015-5)).
 
 ### Query-string denylist is always-on
 

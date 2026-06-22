@@ -1,22 +1,27 @@
 (ns re-frame.frame-classification-cljs-test
-  "EP-0015 §3 (HTTP carriers) + §9 (observability sink policy) — the
-  surviving frame-owned policy on `reg-frame`. EP-0025 REMOVED the durable
-  `:sensitive` / `:large {:app-db …}` app-db classification annotation (a
-  frame is not app-db's definition site); durable app-db classification now
-  rides the commit-plane classification effects (`re-frame.elision`,
-  `:source :effect`). This suite pins what `re-frame.frame-classification`
+  "EP-0015 §9 (observability sink policy) — the surviving frame-owned policy
+  on `reg-frame`. EP-0025 REMOVED the durable `:sensitive` / `:large {:app-db
+  …}` app-db classification annotation (a frame is not app-db's definition
+  site; durable app-db classification now rides the commit-plane
+  classification effects — `re-frame.elision`, `:source :effect`) AND the
+  `:sensitive {:http …}` HTTP carrier block (it moved onto the
+  `:rf.http/managed` `reg-fx` registration `:carriers` block — the
+  transient-payload case). This suite pins what `re-frame.frame-classification`
   still owns:
 
-    (a) the retired `:app-db` key (and the whole `:large` frame key) FAIL
-        LOUD with `:rf.error/bad-frame-classification` at `reg-frame` time —
-        the clean-break guard against the removed annotation;
-    (b) HTTP carriers (`:sensitive {:http {:headers … :query-params …}}`) and
-        `:observability` sink policy validate (shape-only) and ride the
-        frame's `:config` verbatim for the later HTTP / observability slices;
-    (c) fail-loud — unknown classification keys, non-string HTTP carrier
-        names, malformed observability entries, and unknown egress profiles
-        throw `:rf.error/bad-frame-classification` at `reg-frame` time,
-        before any state mutates / before `:initial-events`.
+    (a) the retired `:sensitive` and `:large` frame keys FAIL LOUD with
+        `:rf.error/bad-frame-classification` at `reg-frame` time — the
+        clean-break guard against the removed annotations;
+    (b) `:observability` sink policy validates (shape-only) and rides the
+        frame's `:config` verbatim for the later observability slice;
+    (c) fail-loud — unknown observability keys, malformed observability
+        entries, and unknown egress profiles throw
+        `:rf.error/bad-frame-classification` at `reg-frame` time, before any
+        state mutates / before `:initial-events`.
+
+  HTTP carrier classification (the `:carriers` block on `:rf.http/managed`)
+  is covered in `re-frame.http-privacy-test` (the http artefact owns the
+  resolver + validation now).
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`npm run test:cljs`, `:ns-regexp \"cljs-test$\"`) AND the JVM
@@ -46,20 +51,31 @@
 ;; (a) EP-0025 clean break — the retired durable app-db annotation fails loud
 ;; ---------------------------------------------------------------------------
 
-(deftest retired-sensitive-app-db-key-fails-loud
-  (testing "EP-0025: the retired `:sensitive {:app-db …}` frame annotation
-            fails loud at reg-frame — durable app-db classification moved to
-            the commit-plane classification effects, so the only valid
-            `:sensitive` key is now `:http`"
+(deftest retired-sensitive-frame-key-fails-loud
+  (testing "EP-0025: the whole retired `:sensitive` frame key fails loud at
+            reg-frame — durable app-db classification moved to the
+            commit-plane classification effects AND the `:sensitive {:http …}`
+            HTTP carrier block moved onto the `:rf.http/managed` `reg-fx`
+            registration (`:carriers`). With no valid content left, a frame
+            carrying ANY `:sensitive` block is rejected."
+    ;; The retired durable `:app-db` block.
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/retired-sens
+                 #(rf/reg-frame :app/retired-sens-appdb
                     {:sensitive {:app-db [[:auth :token]]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :app-db] (:bad-key data))
-          "the retired :app-db key is the offending slot"))
-    ;; The frame must NOT have been registered (fail-loud is transactional).
-    (is (nil? (frame/frame :app/retired-sens))
-        "the retired annotation threw before any frame state mutated")))
+      (is (= :sensitive (:bad-key data))
+          "the retired :sensitive frame key is the offending slot"))
+    (is (nil? (frame/frame :app/retired-sens-appdb))
+        "the retired annotation threw before any frame state mutated")
+    ;; The retired `:http` carrier block (now lives on :rf.http/managed).
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/retired-sens-http
+                    {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= :sensitive (:bad-key data))
+          "the retired :sensitive frame key (carrying :http) is the offending slot"))
+    (is (nil? (frame/frame :app/retired-sens-http))
+        "the retired carrier annotation threw before any frame state mutated")))
 
 (deftest retired-large-frame-key-fails-loud
   (testing "EP-0025: the retired top-level `:large {:app-db …}` frame
@@ -83,24 +99,20 @@
     (is (empty? (elision/sensitive-declarations :app/retired-large)))))
 
 ;; ---------------------------------------------------------------------------
-;; (b) HTTP carriers + observability ride the frame config (the surviving
-;;     surface). Durable app-db classification is asserted via the
-;;     commit-plane effect path (`elision/apply-classification-effects`).
+;; (b) :observability rides the frame config (the surviving surface).
+;;     Durable app-db classification is asserted via the commit-plane effect
+;;     path (`elision/apply-classification-effects`); HTTP carriers now ride
+;;     the :rf.http/managed registration (covered in the http artefact).
 ;; ---------------------------------------------------------------------------
 
-(deftest valid-http-and-observability-retained-on-config
-  (testing "well-formed :http carriers and :observability ride the frame config"
+(deftest valid-observability-retained-on-config
+  (testing "well-formed :observability rides the frame config"
     (rf/reg-frame :app/full
-      {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
-                          :query-params ["shop_token"]}}
-       :observability {:handled-events [{:sink :my-app.sinks/datadog
+      {:observability {:handled-events [{:sink :my-app.sinks/datadog
                                          :rf.egress/profile :rf.egress/off-box-observability
                                          :opts {:service "checkout-spa"}}]
                        :errors         [{:sink :my-app.sinks/sentry}]}})
     (let [meta (rf/frame-meta :app/full)]
-      (is (= ["X-Honeycomb-Team"]
-             (get-in meta [:sensitive :http :headers]))
-          ":http carriers ride the frame config (read via frame-meta)")
       (is (= :my-app.sinks/datadog
              (get-in meta [:observability :handled-events 0 :sink]))
           ":observability sink policy rides the frame config"))))
@@ -131,80 +143,18 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fail-loud-on-unknown-classification-key
-  (testing "an unknown :sensitive block key fails loudly (only :http is valid)"
+  (testing "any :sensitive block fails loud — the whole frame key is retired"
     (let [data (bad-classification-ex
                  #(rf/reg-frame :app/bad2
                     {:sensitive {:bogus [:x]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :bogus] (:bad-key data))))
+      (is (= :sensitive (:bad-key data))))
     ;; Unknown :observability stream key.
     (let [data (bad-classification-ex
                  #(rf/reg-frame :app/bad2b
                     {:observability {:bogus-stream []}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:observability :bogus-stream] (:bad-key data))))
-    ;; Unknown :sensitive :http carrier key.
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad2c
-                    {:sensitive {:http {:cookies ["x"]}}}))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :http :cookies] (:bad-key data))))))
-
-(deftest fail-loud-on-non-string-carrier
-  (testing "a non-string HTTP carrier name fails loudly"
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad3
-                    {:sensitive {:http {:headers [:X-Honeycomb-Team]}}}))] ;; keyword, not string
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :http :headers] (:bad-key data)))
-      (is (= :X-Honeycomb-Team (:bad-carrier data))))
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad3b
-                    {:sensitive {:http {:query-params [42]}}}))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :http :query-params] (:bad-key data)))
-      (is (= 42 (:bad-carrier data))))))
-
-;; rf2-4wqxq8 — :query-params accepts a {:include [..] :except [..]} policy map
-;; (an additive frame-local subtraction path) in addition to the legacy vector.
-
-(deftest query-params-policy-map-accepted-and-validated
-  (testing "rf2-4wqxq8 — a well-formed {:include :except} :query-params map is accepted"
-    (rf/reg-frame :app/qp-policy-ok
-      {:sensitive {:http {:query-params {:include ["shop_token"]
-                                         :except  ["token"]}}}})
-    (is (= {:include ["shop_token"] :except ["token"]}
-           (get-in (rf/frame-meta :app/qp-policy-ok)
-                   [:sensitive :http :query-params]))
-        "the policy map rides the frame config verbatim"))
-  (testing "an unknown key inside the :query-params policy map fails loudly"
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/qp-policy-badkey
-                    {:sensitive {:http {:query-params {:include ["x"] :bogus ["y"]}}}}))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= [:sensitive :http :query-params :bogus] (:bad-key data)))))
-  (testing "a non-string name inside :include / :except fails loudly with a precise bad-key"
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/qp-policy-badinc
-                    {:sensitive {:http {:query-params {:include [42]}}}}))]
-      (is (= [:sensitive :http :query-params :include] (:bad-key data)))
-      (is (= 42 (:bad-carrier data))))
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/qp-policy-badexc
-                    {:sensitive {:http {:query-params {:except [:kw]}}}}))]
-      (is (= [:sensitive :http :query-params :except] (:bad-key data)))
-      (is (= :kw (:bad-carrier data)))))
-  (testing "a non-vector :include sub-value fails loudly"
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/qp-policy-nonvec
-                    {:sensitive {:http {:query-params {:include "not-a-vector"}}}}))]
-      (is (= [:sensitive :http :query-params :include] (:bad-key data)))))
-  (testing "the header denylist stays vector-only (no policy-map form)"
-    (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/hdr-policy-rejected
-                    {:sensitive {:http {:headers {:include ["X-Foo"]}}}}))]
-      (is (= [:sensitive :http :headers] (:bad-key data))
-          "a {:include ...} map is not a valid :headers value (immutable denylist)"))))
+      (is (= [:observability :bogus-stream] (:bad-key data))))))
 
 (deftest fail-loud-on-bad-observability-entry
   (testing "an :observability entry without a :sink keyword fails loudly"

@@ -15,21 +15,24 @@
   password, session, signature, sig). These built-in names are an
   **immutable framework default** — no frame can remove one.
 
-  ## App-specific carriers are frame policy (EP-0015 §3, rf2-ppkh3v)
+  ## App-specific carriers ride the :rf.http/managed registration (EP-0025)
 
   An app extends the denylist with its own sensitive query-param names
-  (e.g. `shop_token`, webhook `signature` variants) on the FRAME, not
-  through a process-global mutation:
+  (e.g. `shop_token`, webhook `signature` variants) on the
+  `:rf.http/managed` `reg-fx` registration metadata — the `:carriers` block
+  (the EP-0025 transient-payload case), not through a process-global
+  mutation or a frame annotation:
 
-      (rf/reg-frame :app/main
-        {:sensitive {:http {:query-params [\"shop_token\"]}}})
+      (rf/reg-fx :rf.http/managed
+        {:carriers {:query-params [\"shop_token\"]}}
+        http-managed/managed-handler)
 
-  The frame slice retains the names on the frame's `:config`;
-  `re-frame.frame-classification/http-carriers` lowers them to a
+  `re-frame.http.privacy/managed-carriers` lowers the `:carriers` names to a
   lower-cased extension set, which the redactors UNION onto the immutable
-  built-in defaults for the emitting frame. The old process-global
-  `declare-sensitive-query-param!` / `clear-sensitive-query-params!`
-  surface is removed — frame policy owns app-specific carriers.
+  built-in defaults. The earlier frame `:sensitive {:http {:query-params […]}}`
+  block and the process-global `declare-sensitive-query-param!` /
+  `clear-sensitive-query-params!` surface are both removed — the managed-HTTP
+  registration owns app-specific carriers now (EP-0025 §HTTP carriers).
 
   ## Redaction shape
 
@@ -83,9 +86,10 @@
 
   Drawn from common API-key / bearer-token idioms in older REST APIs,
   webhook receivers, and signed-URL schemes. An **immutable framework
-  default** — no frame can remove one. Apps extend with their own carrier
-  names on the FRAME via `:sensitive {:http {:query-params [\"shop_token\"]}}`
-  (EP-0015 §3); the frame extension set UNIONS onto these defaults."
+  default** — no app can remove one. Apps extend with their own carrier
+  names on the `:rf.http/managed` `reg-fx` registration via
+  `:carriers {:query-params [\"shop_token\"]}` (EP-0025); the carrier
+  extension set UNIONS onto these defaults."
   #{"api_key"
     "apikey"
     "api-key"
@@ -107,27 +111,28 @@
     "hmac"})
 
 (defn sensitive-query-param?
-  "Predicate: is `param-name` sensitive under the emitting frame's effective
-  query-param policy? Case-insensitive.
+  "Predicate: is `param-name` sensitive under the effective query-param
+  policy? Case-insensitive.
 
-  `frame-policy` is the frame-local query-param carrier policy resolved from
-  the emitting frame's `:sensitive {:http {:query-params ..}}` config
-  (EP-0015 §3), or `nil` when the frame declares none. Two shapes are
-  accepted (rf2-4wqxq8):
+  `frame-policy` is the app-declared query-param carrier policy resolved from
+  the `:rf.http/managed` `reg-fx` registration's `:carriers {:query-params
+  ..}` block (EP-0025), or `nil` when no carrier is declared. (Param name
+  retained for the leaf API contract; the policy no longer comes from a
+  frame.) Two shapes are accepted (rf2-4wqxq8):
 
-   - a **set** of lower-cased names — the legacy include-only extension set
+   - a **set** of lower-cased names — the include-only extension set
      (`:query-params [\"shop_token\"]`). The built-in defaults always apply;
      the set EXTENDS them.
    - a **policy map** `{:include #{..} :except #{..}}` — `:include` extends
      the defaults (as above); `:except` SUBTRACTS from the immutable
-     built-in defaults for THIS frame's own dev trace. The effective policy
+     built-in defaults for THIS app's own dev trace. The effective policy
      is `(defaults − except) ∪ include`. A name in BOTH wins as sensitive
      (`:include` takes precedence over `:except`) — declaring a name
      sensitive is never overridden by also excepting it.
 
-  The `:except` path is a frame-local DEV-TRACE subtraction only (all
+  The `:except` path is an app-local DEV-TRACE subtraction only (all
   redaction is debug-gated trace surface, elided entirely in production);
-  it lets a frame stop redacting a harmless routing/pagination key/token in
+  it lets an app stop redacting a harmless routing/pagination key/token in
   its OWN local trace. The immutable header denylist and the on-by-default
   query defaults are unchanged — `:except` is opt-in per name.
 
@@ -186,8 +191,8 @@
   sensitive. The redactor consults the decoded form so an encoded auth
   token is denied just like its plain spelling.
 
-  `frame-policy` is the emitting frame's frame-local query-param carrier
-  policy (EP-0015 §3) — a legacy include-only set OR a
+  `frame-policy` is the app-declared query-param carrier policy from the
+  `:rf.http/managed` `:carriers` block (EP-0025) — an include-only set OR a
   `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
   defaults-only. Threaded verbatim to `sensitive-query-param?`.
 
@@ -251,8 +256,8 @@
   verbatim in the rebuilt pair — only the value is replaced (decoding is
   comparison-only).
 
-  `frame-policy` is the emitting frame's frame-local query-param carrier
-  policy (EP-0015 §3) — a legacy include-only set OR a
+  `frame-policy` is the app-declared query-param carrier policy from the
+  `:rf.http/managed` `:carriers` block (EP-0025) — an include-only set OR a
   `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
   defaults-only."
   [pair force-all? frame-policy]
@@ -277,11 +282,11 @@
   (e.g. `?api_key=SECRET&page=2` → `?api_key=:rf/redacted&page=2`).
   Fragment portion (`#…`) preserved verbatim.
 
-  `frame-policy` is the emitting frame's frame-local query-param carrier
-  policy (EP-0015 §3), or `nil` for defaults-only. Accepts a legacy
-  include-only set (UNIONed onto the immutable built-in denylist) OR a
-  `{:include #{..} :except #{..}}` map (rf2-4wqxq8) whose `:except` set
-  SUBTRACTS from the built-in defaults for this frame's own dev trace —
+  `frame-policy` is the app-declared query-param carrier policy from the
+  `:rf.http/managed` `:carriers` block (EP-0025), or `nil` for defaults-only.
+  Accepts an include-only set (UNIONed onto the immutable built-in denylist)
+  OR a `{:include #{..} :except #{..}}` map (rf2-4wqxq8) whose `:except` set
+  SUBTRACTS from the built-in defaults for this app's own dev trace —
   effective policy `(defaults − except) ∪ include`. Applies to the
   always-on (`sensitive?` false) redaction; a `sensitive?`-true request
   still redacts EVERY param regardless of policy.

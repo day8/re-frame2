@@ -20,6 +20,7 @@
   `re-frame.http-privacy-integration-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.http.managed :as http-managed]
             [re-frame.http.privacy :as privacy]
             [re-frame.http.privacy-headers :as headers]
             [re-frame.http.url :as url]
@@ -58,48 +59,48 @@
     (is (not (headers/sensitive-header? "User-Agent")))
     (is (not (headers/sensitive-header? "X-Request-Id")))))
 
-(deftest frame-extras-extend-header-denylist
-  (testing "frame-local header carriers (EP-0015 §3) compose with defaults"
+(deftest carrier-extras-extend-header-denylist
+  (testing "app-declared header carriers (EP-0025) compose with defaults"
     (let [extras #{"x-honeycomb-team"}]
       (is (headers/sensitive-header? "X-Honeycomb-Team" extras))
       (is (headers/sensitive-header? "x-honeycomb-team" extras))
       ;; defaults still apply with extras present
       (is (headers/sensitive-header? "Authorization" extras))
-      ;; absent frame-extras → only the built-in defaults apply
+      ;; absent extras → only the built-in defaults apply
       (is (not (headers/sensitive-header? "X-Honeycomb-Team")))
       (is (not (headers/sensitive-header? "X-Honeycomb-Team" nil)))
       ;; defaults are immutable — they apply regardless of extras
       (is (headers/sensitive-header? "Authorization")))))
 
-(deftest frame-cannot-remove-a-built-in-header-default
-  (testing "EP-0015 §3 — the built-in header denylist is IMMUTABLE: a frame's
+(deftest carrier-cannot-remove-a-built-in-header-default
+  (testing "EP-0025 — the built-in header denylist is IMMUTABLE: an app's
             carrier policy is a union-EXTEND of the defaults, never a remove.
-            There is no removal API; the only frame surface is the additive
-            `:sensitive {:http {:headers [..]}}` extras set. Adversarially: a
-            frame that tries to 'declare' a built-in default itself (a no-op
-            redeclaration) cannot DROP it, and extras for unrelated headers
-            leave every default intact — a built-in carrier stays denylisted
-            regardless of what the frame supplies (rf2-t55hxg.5)"
-    ;; a frame whose extras set is non-empty (even if it names a default,
-    ;; which is a harmless redeclaration) cannot turn a default OFF.
+            There is no removal API; the only carrier surface is the additive
+            `:rf.http/managed` `:carriers {:headers [..]}` extras set.
+            Adversarially: a carrier that tries to 'declare' a built-in default
+            itself (a no-op redeclaration) cannot DROP it, and extras for
+            unrelated headers leave every default intact — a built-in carrier
+            stays denylisted regardless of what the app supplies (rf2-t55hxg.5)"
+    ;; an extras set that is non-empty (even if it names a default, which is a
+    ;; harmless redeclaration) cannot turn a default OFF.
     (let [extras-redeclaring-default #{"authorization"}
           extras-unrelated          #{"x-honeycomb-team"}
           extras-empty              #{}]
       (doseq [extras [extras-redeclaring-default extras-unrelated extras-empty nil]]
         (is (headers/sensitive-header? "Authorization" extras)
-            "the built-in Authorization default survives every frame extras shape")
+            "the built-in Authorization default survives every carrier extras shape")
         (is (headers/sensitive-header? "Cookie" extras)
-            "the built-in Cookie default survives every frame extras shape")
+            "the built-in Cookie default survives every carrier extras shape")
         (is (headers/sensitive-header? "Set-Cookie" extras)
-            "the built-in Set-Cookie default survives every frame extras shape"))
+            "the built-in Set-Cookie default survives every carrier extras shape"))
       ;; redact-headers (the egress chokepoint) honours the same immutability:
-      ;; a built-in default value is scrubbed even when the frame supplies
+      ;; a built-in default value is scrubbed even when the app supplies
       ;; unrelated extras.
       (let [r (headers/redact-headers
                 {"Authorization" "Bearer abc" "X-Honeycomb-Team" "team-1" "Accept" "json"}
                 extras-unrelated)]
         (is (= :rf/redacted (get r "Authorization")) "built-in default still redacted")
-        (is (= :rf/redacted (get r "X-Honeycomb-Team")) "frame extra also redacted (extend)")
+        (is (= :rf/redacted (get r "X-Honeycomb-Team")) "carrier extra also redacted (extend)")
         (is (= "json" (get r "Accept")) "an unlisted header rides verbatim")))))
 
 (deftest sensitive-header-tolerates-non-string
@@ -360,14 +361,14 @@
     (is (not (url/sensitive-query-param? "id")))
     (is (not (url/sensitive-query-param? "user_id")))))
 
-(deftest frame-extras-extend-query-param-denylist
-  (testing "frame-local query-param carriers (EP-0015 §3) compose with defaults"
+(deftest carrier-extras-extend-query-param-denylist
+  (testing "app-declared query-param carriers (EP-0025) compose with defaults"
     (let [extras #{"shop_token"}]
       (is (url/sensitive-query-param? "shop_token" extras))
       (is (url/sensitive-query-param? "SHOP_TOKEN" extras))
       ;; defaults still apply with extras present
       (is (url/sensitive-query-param? "api_key" extras))
-      ;; absent frame-extras → only the built-in defaults apply
+      ;; absent extras → only the built-in defaults apply
       (is (not (url/sensitive-query-param? "shop_token")))
       (is (not (url/sensitive-query-param? "shop_token" nil)))
       ;; defaults are immutable — they apply regardless of extras
@@ -379,13 +380,13 @@
     (is (not (url/sensitive-query-param? :keyword)))
     (is (not (url/sensitive-query-param? 42)))))
 
-;; rf2-4wqxq8 — frame-local query-param policy MAP {:include :except}: a frame
-;; can SUBTRACT a built-in default (relaxing its OWN dev-trace friction over a
-;; harmless routing/pagination key) while still extending with :include. The
-;; effective policy is (defaults − except) ∪ include; :include wins over :except.
+;; rf2-4wqxq8 — query-param policy MAP {:include :except}: an app can SUBTRACT a
+;; built-in default (relaxing its OWN dev-trace friction over a harmless
+;; routing/pagination key) while still extending with :include. The effective
+;; policy is (defaults − except) ∪ include; :include wins over :except.
 
 (deftest query-param-policy-except-subtracts-a-default
-  (testing "rf2-4wqxq8 — :except removes a built-in default for this frame"
+  (testing "rf2-4wqxq8 — :except removes a built-in default for this app"
     (let [policy {:except #{"token"}}]
       ;; the excepted default is no longer sensitive
       (is (not (url/sensitive-query-param? "token" policy)))
@@ -393,7 +394,7 @@
       ;; other defaults still apply
       (is (url/sensitive-query-param? "api_key" policy))
       (is (url/sensitive-query-param? "signature" policy))
-      ;; without the policy the default still redacts (subtraction is frame-local)
+      ;; without the policy the default still redacts (subtraction is app-local)
       (is (url/sensitive-query-param? "token")))))
 
 (deftest query-param-policy-include-and-except-compose
@@ -417,7 +418,7 @@
 
 (deftest redact-url-policy-except-leaves-default-param-visible
   (testing "rf2-4wqxq8 — end-to-end: :except keeps a default param's value
-            visible in the frame's own dev trace"
+            visible in the app's own dev trace"
     (let [policy {:except #{"token"}}
           [url any?] (url/redact-url-query-string
                        "https://api.example.com/list?token=abc&api_key=SECRET&page=2"
@@ -491,13 +492,13 @@
              url))
       (is (true? any?)))))
 
-(deftest redact-url-frame-extras-denylist
-  (testing "frame-local query-param carriers (EP-0015 §3) apply on URL redaction"
+(deftest redact-url-carrier-extras-denylist
+  (testing "app-declared query-param carriers (EP-0025) apply on URL redaction"
     (let [extras #{"shop_token"}
           [url _] (url/redact-url-query-string
                     "https://api.example.com/x?shop_token=abc&page=2" false extras)]
       (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" url)))
-    ;; absent frame-extras → only the built-in defaults redact
+    ;; absent extras → only the built-in defaults redact
     (let [[url _] (url/redact-url-query-string
                     "https://api.example.com/x?shop_token=abc&page=2" false)]
       (is (= "https://api.example.com/x?shop_token=abc&page=2" url)))))
@@ -695,96 +696,131 @@
       (is (= :auth/check (:interceptor-id r)))
       (is (= :app (:frame r))))))
 
-;; ---- frame-local HTTP carriers (EP-0015 §3, rf2-ppkh3v) -------------------
+;; ---- managed-HTTP carriers (EP-0025 §HTTP carriers) ----------------------
 ;;
-;; The `prepare-emit-*` composers resolve the EMITTING frame's frame-local
-;; carrier extension sets (from `:sensitive {:http {...}}` frame policy) and
-;; thread them to the header / URL redactors so app-specific carriers redact
-;; alongside the built-in defaults.
+;; App-specific carrier names ride the `:rf.http/managed` `reg-fx`
+;; registration metadata (`:carriers` block, EP-0025 §HTTP carriers). The
+;; `prepare-emit-*` composers resolve them ONCE per emit
+;; (`privacy/managed-carriers`) and thread them to the header / URL redactors
+;; so app-specific carriers redact alongside the built-in defaults. Carriers
+;; are process-global (one registration), so resolution needs no frame id.
 
-(deftest frame-http-carriers-resolves-frame-policy
-  (testing "frame-http-carriers reads the frame's :sensitive {:http {...}}"
-    (rf/reg-frame :app/carriers
-      {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
-                          :query-params ["shop_token"]}}})
-    (let [carriers (privacy/frame-http-carriers :app/carriers)]
+(defn- reg-managed-carriers!
+  "Re-register `:rf.http/managed` with a `:carriers` block (the app-extension
+  shape). `registrar/clear-all!` in the reset fixture clears the framework's
+  own registration, so each carrier test installs the carriers it needs."
+  [carriers]
+  (rf/reg-fx :rf.http/managed {:carriers carriers} http-managed/managed-handler))
+
+(deftest managed-carriers-resolves-registration-carriers
+  (testing "managed-carriers reads the :rf.http/managed :carriers block"
+    (reg-managed-carriers! {:headers      ["X-Honeycomb-Team"]
+                            :query-params ["shop_token"]})
+    (let [carriers (privacy/managed-carriers)]
       ;; names lower-cased for the case-insensitive wire match.
       (is (= #{"x-honeycomb-team"} (:headers carriers)))
       (is (= #{"shop_token"} (:query-params carriers))))
-    (testing "a frame with no :sensitive :http block resolves to nil"
-      (rf/reg-frame :app/plain {})
-      (is (nil? (privacy/frame-http-carriers :app/plain))))
-    (testing "a nil / unregistered frame resolves to nil"
-      (is (nil? (privacy/frame-http-carriers nil)))
-      (is (nil? (privacy/frame-http-carriers :app/never-registered))))))
+    (testing "a registration with no :carriers block resolves to nil"
+      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
+      (is (nil? (privacy/managed-carriers))))
+    (testing "an unregistered :rf.http/managed resolves to nil"
+      (registrar/clear-all!)
+      (is (nil? (privacy/managed-carriers))))))
 
-(deftest prepare-emit-tags-honours-frame-header-carrier
-  (testing "a frame-local header carrier redacts on a non-sensitive request"
-    (rf/reg-frame :app/hc {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}})
+(deftest prepare-emit-tags-honours-managed-header-carrier
+  (testing "a managed-HTTP header carrier redacts on a non-sensitive request"
+    (reg-managed-carriers! {:headers ["X-Honeycomb-Team"]})
     (let [tags {:url     "https://api.example.com/x"
                 :headers {"X-Honeycomb-Team" "hc-secret"
                           "Authorization"    "Bearer abc"
                           "Content-Type"     "application/json"}}
-          out  (privacy/prepare-emit-tags tags false {:frame :app/hc})]
+          out  (privacy/prepare-emit-tags tags false)]
       (is (= :rf/redacted (get-in out [:headers "X-Honeycomb-Team"]))
-          "frame-declared carrier redacted")
+          "app-declared carrier redacted")
       (is (= :rf/redacted (get-in out [:headers "Authorization"]))
           "built-in default still redacted")
       (is (= "application/json" (get-in out [:headers "Content-Type"]))
           "ordinary header preserved"))
-    (testing "without the frame, only the built-in defaults redact"
+    (testing "without a :carriers block, only the built-in defaults redact"
+      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (let [tags {:headers {"X-Honeycomb-Team" "hc-secret"
                             "Authorization"    "Bearer abc"}}
             out  (privacy/prepare-emit-tags tags false)]
         (is (= "hc-secret" (get-in out [:headers "X-Honeycomb-Team"]))
-            "no frame → frame carrier not consulted")
+            "no carrier block → app carrier not consulted")
         (is (= :rf/redacted (get-in out [:headers "Authorization"]))
             "built-in default always applies")))))
 
-(deftest prepare-emit-tags-honours-frame-query-param-carrier
-  (testing "a frame-local query-param carrier redacts the URL value + stamps sensitive"
-    (rf/reg-frame :app/qp {:sensitive {:http {:query-params ["shop_token"]}}})
+(deftest prepare-emit-tags-honours-managed-query-param-carrier
+  (testing "a managed-HTTP query-param carrier redacts the URL value + stamps sensitive"
+    (reg-managed-carriers! {:query-params ["shop_token"]})
     (let [tags {:url "https://api.example.com/x?shop_token=abc&page=2"}
-          out  (privacy/prepare-emit-tags tags false {:frame :app/qp})]
+          out  (privacy/prepare-emit-tags tags false)]
       (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" (:url out)))
       (is (true? (:sensitive? out))
-          "a frame-carrier query-param hit stamps :sensitive? (the name is the signal)"))
-    (testing "without the frame the same param rides unredacted (built-in only)"
+          "a carrier query-param hit stamps :sensitive? (the name is the signal)"))
+    (testing "without a :carriers block the same param rides unredacted (built-in only)"
+      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (let [tags {:url "https://api.example.com/x?shop_token=abc&page=2"}
             out  (privacy/prepare-emit-tags tags false)]
         (is (= "https://api.example.com/x?shop_token=abc&page=2" (:url out)))))))
 
-;; rf2-4wqxq8 — frame-local :query-params {:include :except} policy map.
+;; rf2-4wqxq8 — :query-params {:include :except} policy map (carried verbatim
+;; onto the :rf.http/managed registration now).
 
-(deftest frame-http-carriers-resolves-policy-map
+(deftest managed-carriers-resolves-policy-map
   (testing "rf2-4wqxq8 — the :query-params {:include :except} map form lowers
             to a {:include #{..} :except #{..}} policy (sub-sets lower-cased)"
-    (rf/reg-frame :app/qp-policy
-      {:sensitive {:http {:query-params {:include ["Shop_Token"]
-                                         :except  ["Token" "Sig"]}}}})
-    (let [carriers (privacy/frame-http-carriers :app/qp-policy)
+    (reg-managed-carriers! {:query-params {:include ["Shop_Token"]
+                                           :except  ["Token" "Sig"]}})
+    (let [carriers (privacy/managed-carriers)
           qp       (:query-params carriers)]
       (is (= #{"shop_token"} (:include qp)))
       (is (= #{"token" "sig"} (:except qp))))
     (testing "the legacy vector form still resolves to a plain set"
-      (rf/reg-frame :app/qp-legacy
-        {:sensitive {:http {:query-params ["shop_token"]}}})
-      (is (= #{"shop_token"} (:query-params (privacy/frame-http-carriers :app/qp-legacy)))))
+      (reg-managed-carriers! {:query-params ["shop_token"]})
+      (is (= #{"shop_token"} (:query-params (privacy/managed-carriers)))))
     (testing "a policy map of all-empty vectors resolves :query-params to nil"
-      (rf/reg-frame :app/qp-empty
-        {:sensitive {:http {:query-params {:include [] :except []}}}})
-      (is (nil? (:query-params (privacy/frame-http-carriers :app/qp-empty)))))))
+      (reg-managed-carriers! {:query-params {:include [] :except []}})
+      (is (nil? (:query-params (privacy/managed-carriers)))))))
 
-(deftest prepare-emit-tags-honours-frame-query-param-except
-  (testing "rf2-4wqxq8 — a frame-local :except keeps a built-in default param
-            VISIBLE in the frame's own dev trace (subtraction is frame-local)"
-    (rf/reg-frame :app/qp-except
-      {:sensitive {:http {:query-params {:except ["token"]}}}})
+(deftest prepare-emit-tags-honours-managed-query-param-except
+  (testing "rf2-4wqxq8 — a managed-HTTP :except keeps a built-in default param
+            VISIBLE in the app's own dev trace (subtraction is app-local)"
+    (reg-managed-carriers! {:query-params {:except ["token"]}})
     (let [tags {:url "https://api.example.com/x?token=abc&api_key=SECRET&page=2"}
-          out  (privacy/prepare-emit-tags tags false {:frame :app/qp-except})]
+          out  (privacy/prepare-emit-tags tags false)]
       (is (= "https://api.example.com/x?token=abc&api_key=:rf/redacted&page=2" (:url out))
           "excepted default visible; non-excepted default still redacted"))
-    (testing "without the frame the default param redacts as usual"
+    (testing "without a :carriers block the default param redacts as usual"
+      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (let [tags {:url "https://api.example.com/x?token=abc&page=2"}
             out  (privacy/prepare-emit-tags tags false)]
         (is (= "https://api.example.com/x?token=:rf/redacted&page=2" (:url out)))))))
+
+;; ---- managed-HTTP carrier shape validation (fail-loud) -------------------
+
+(deftest managed-carriers-fail-loud-on-malformed-block
+  (testing "a non-string carrier name fails loud (:rf.error/bad-classification)"
+    (reg-managed-carriers! {:headers [:X-Honeycomb-Team]}) ;; keyword, not string
+    (let [data (try (privacy/managed-carriers) nil
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/bad-classification (:rf.error/id data)))
+      (is (= [:carriers :headers] (:bad-key data)))
+      (is (= :X-Honeycomb-Team (:bad-carrier data)))))
+  (testing "an unknown :carriers key fails loud"
+    (reg-managed-carriers! {:cookies ["x"]})
+    (let [data (try (privacy/managed-carriers) nil
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= :rf.error/bad-classification (:rf.error/id data)))
+      (is (= [:carriers :cookies] (:bad-key data)))))
+  (testing "the header denylist stays vector-only (no policy-map form)"
+    (reg-managed-carriers! {:headers {:include ["X-Foo"]}})
+    (let [data (try (privacy/managed-carriers) nil
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= [:carriers :headers] (:bad-key data)))))
+  (testing "an unknown key inside the :query-params policy map fails loud"
+    (reg-managed-carriers! {:query-params {:include ["x"] :bogus ["y"]}})
+    (let [data (try (privacy/managed-carriers) nil
+                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= [:carriers :query-params :bogus] (:bad-key data))))))

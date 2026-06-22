@@ -787,10 +787,10 @@
                      {:abort-fn   abort-fn
                       :url        (:url ctx)
                       :sensitive? (true? (:sensitive? ctx))
-                      ;; rf2-ppkh3v — carry the originating frame so the
-                      ;; actor-destroy abort trace (emitted from the registry
-                      ;; ns, distant from the fx ctx) can resolve the frame's
-                      ;; frame-local HTTP carriers for the URL redaction.
+                      ;; Carry the originating frame for the actor-destroy abort
+                      ;; trace's frame stamp. HTTP carrier redaction is
+                      ;; process-global now (the :rf.http/managed `:carriers`
+                      ;; registration, EP-0025) — no longer frame-resolved.
                       :frame      (:frame ctx)
                       ;; rf2-hbus90 — carry the SLEEPING attempt's reply-ctx
                       ;; identity facts on the backoff handle, exactly as the
@@ -1349,9 +1349,10 @@
                     ;; trace event without re-resolving registration
                     ;; metadata.
                     :sensitive? (true? (:sensitive? ctx))
-                    ;; rf2-ppkh3v — carry the originating frame so the
-                    ;; actor-destroy abort trace can resolve the frame's
-                    ;; frame-local HTTP carriers for URL redaction.
+                    ;; Carry the originating frame for the actor-destroy abort
+                    ;; trace's frame stamp. HTTP carrier redaction is
+                    ;; process-global now (the :rf.http/managed `:carriers`
+                    ;; registration, EP-0025) — no longer frame-resolved.
                     :frame      (:frame ctx)
                     ;; rf2-azcmd3 — carry the superseded attempt's reply-ctx
                     ;; identity facts on the handle so `supersede!` can build

@@ -22,20 +22,23 @@
   `clojure.core/get`; we `:refer-clojure :exclude [get]` — users alias
   the ns (`[re-frame.http :as rf.http]`).
 
-  ## Privacy — app-specific carriers are FRAME policy (EP-0015 §3, rf2-ppkh3v)
+  ## Privacy — app-specific carriers ride the :rf.http/managed registration (EP-0025)
 
   This façade no longer re-exports `declare-sensitive-header!` /
   `declare-sensitive-query-param!` (and their `clear-*!` siblings). An app
-  declares its sensitive HTTP carrier names on the FRAME, not through a
-  process-global mutation:
+  declares its sensitive HTTP carrier NAMES on the `:rf.http/managed`
+  `reg-fx` registration metadata — the `:carriers` block (the EP-0025
+  transient-payload case), not on the frame and not through a process-global
+  mutation:
 
-      (rf/reg-frame :app/main
-        {:sensitive {:http {:headers      [\"X-Honeycomb-Team\"]
-                            :query-params [\"shop_token\"]}}})
+      (rf/reg-fx :rf.http/managed
+        {:carriers {:headers      [\"X-Honeycomb-Team\"]
+                    :query-params [\"shop_token\"]}}
+        re-frame.http.managed/managed-handler)
 
   The immutable built-in header / query-param denylists still apply
-  unconditionally; the frame extension set UNIONS onto them for the
-  emitting frame. See Spec 014 §Privacy and `re-frame.frame-classification`."
+  unconditionally; the registration's carrier extension set UNIONS onto them.
+  See Spec 014 §Privacy and `re-frame.http.managed` / `re-frame.http.privacy`."
   (:refer-clojure :exclude [get]))
 
 (defn- build

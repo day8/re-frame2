@@ -163,14 +163,18 @@ Schemas describe shape; **classification of durable `app-db` data is event-owned
 ;;   :clear-sensitive / :clear-large un-classify a path when its ownership ends.
 
 ;; Wire the init event at frame creation; the classification is in place
-;; before any off-box egress. Frame-local HTTP carriers + sink policy still
-;; live on the frame — durable app-db paths do NOT.
+;; before any off-box egress. The frame owns only the :observability sink
+;; policy now — durable app-db paths and HTTP carriers do NOT live on it.
 (rf/reg-frame :app/main
-  {:sensitive      {:http {:headers ["X-Honeycomb-Team"]}}  ;; HTTP carriers stay on the frame
-   :initial-events [[:app/init]]})
+  {:initial-events [[:app/init]]})
+
+;; App-specific HTTP carrier names ride the :rf.http/managed registration.
+(rf/reg-fx :rf.http/managed
+  {:carriers {:headers ["X-Honeycomb-Team"]}}
+  re-frame.http.managed/managed-handler)
 ```
 
-A `reg-frame` / `make-frame` config carrying `:sensitive {:app-db …}` / `:large {:app-db …}` **fails loud at registration** (EP-0025 removed the durable frame annotation). There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](04-machines.md), [16 — Resources](16-resources.md), [07 — HTTP](07-http.md).) Transient payloads (event args, sub/flow outputs) are classified by `:sensitive` / `:large` metadata on the registration that introduces the shape.
+A `reg-frame` / `make-frame` config carrying `:sensitive` or `:large` **fails loud at registration** (EP-0025 retired the frame keys — the durable `:app-db` block moved to the commit-plane effects, the `:http` carrier block moved to `:rf.http/managed`). There is likewise **no** schema-attached or imperative-mark route to classify a durable `app-db` path; the event is `app-db`'s definition site, and that is the one route. (Schema `:sensitive?` / `:large?` props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP response bodies — see [04 — Machines](04-machines.md), [16 — Resources](16-resources.md), [07 — HTTP](07-http.md).) Transient payloads (event args, sub/flow outputs, the `:rf.http/managed` `:carriers` block) are classified by the registration that introduces the shape.
 
 The full teaching of the three owners, the two projection primitives, and the egress profiles lives in [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md). For the framework-internal egress primitives (`project-egress`, `elide-wire-value`) consumed by tools and sinks, see [11 — Instrumentation](11-instrumentation.md).
 

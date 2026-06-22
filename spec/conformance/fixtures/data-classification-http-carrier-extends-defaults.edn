@@ -1,0 +1,50 @@
+;; Conformance fixture: data-classification/http-carrier-extends-defaults
+;;
+;; Per Spec 015 §Tests (the `http-carrier-extends-defaults.edn` row),
+;; Spec 014 §Privacy, and EP-0025 §HTTP carriers — an app-declared
+;; `:rf.http/managed` `:carriers {:headers ["X-Honeycomb-Team"]}` carrier name
+;; redacts that header IN ADDITION TO the immutable built-in defaults
+;; (`Authorization`, `Cookie`, `X-API-Key`, …); no app can REMOVE a built-in
+;; default. App-specific carriers ride the managed-HTTP registration — the
+;; carrier extension set UNIONS onto the framework defaults, it never replaces
+;; them.
+;;
+;; Mode-B pure-call (`:redact-headers`): the HTTP header carrier denylist is a
+;; leaf fn (`re-frame.http.privacy-headers/redact-headers`) — a pure
+;; `(headers-map, frame-extras) → redacted-map` projection. `:frame-extras`
+;; is the lower-cased carrier extension set the resolver lowers a `:carriers
+;; {:headers […]}` declaration to (the call-op arg name is historical; the
+;; declaration site is the `:rf.http/managed` registration now). The fixture
+;; pins the UNION semantics directly: a built-in default AND a carrier both
+;; redact; an unclassified header rides verbatim.
+;;
+;; Two calls pin the union both ways: WITH the carrier (both redact)
+;; and WITHOUT it (the built-in default STILL redacts — defaults are
+;; unconditional; an app cannot turn one off by omitting it).
+
+{:fixture/id           :data-classification/http-carrier-extends-defaults
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/doc          "An app-declared :rf.http/managed :carriers {:headers [\"X-Honeycomb-Team\"]} carrier redacts that header IN ADDITION to the immutable built-in HTTP header defaults (Authorization, …); the carrier extension set UNIONS onto the defaults and no app can remove a default. An unclassified header (Content-Type) rides verbatim (Spec 014 §Privacy / EP-0025 §HTTP carriers)."
+
+ :fixture/calls
+ [;; WITH the carrier extension: the built-in default Authorization AND
+    ;; the carrier X-Honeycomb-Team both redact; Content-Type rides raw.
+  {:call         :redact-headers
+   :frame-extras #{"x-honeycomb-team"}
+   :headers      {"Authorization"    "Bearer xyz"
+                  "X-Honeycomb-Team" "team-key"
+                  "Content-Type"     "application/json"}
+   :expect       {"Authorization"    :rf/redacted
+                  "X-Honeycomb-Team" :rf/redacted
+                  "Content-Type"     "application/json"}}
+
+  ;; WITHOUT the carrier: the built-in default STILL redacts
+    ;; (defaults are unconditional), but the now-unclassified X-Honeycomb-Team
+    ;; rides verbatim — proving the carrier extension, not the default, is
+    ;; what redacted it in the first call.
+  {:call         :redact-headers
+   :headers      {"Authorization"    "Bearer xyz"
+                  "X-Honeycomb-Team" "team-key"}
+   :expect       {"Authorization"    :rf/redacted
+                  "X-Honeycomb-Team" "team-key"}}]}
