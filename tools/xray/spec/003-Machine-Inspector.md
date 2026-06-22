@@ -496,7 +496,8 @@ For the currently-focused event in the L2 event list:
    initial state, not a from→to), so a birth would otherwise be invisible
    to this lens. The `:rf.machine.event/unhandled-no-op` traces are
    guard-blocked / unhandled **NO-OPs** (rf2-skmc7) — an event that DID
-   target a registered machine but matched no transition (xstate-v5 parity)
+   target a registered machine but matched no transition (XState parity —
+   the silent no-op v5 introduced and the v6 direction retains)
    so the machine stayed in its current state; a no-op emits no
    `:rf.machine/transition`, so it too would otherwise be invisible. Each
    trace (transition or no-op) carries `:tags {:actor-id …}` naming the live
@@ -564,7 +565,7 @@ this treatment from the Figma authority; if Figma has no settled
 empty-state pattern yet, this section is the normative reference.
 
 **Unhandled-event no-op is NOT this empty state (rf2-ugdas, impl rf2-skmc7).**
-An event that DOES target a machine but matches no transition (xstate-v5
+An event that DOES target a machine but matches no transition (XState
 parity — a benign no-op, op-type `:rf.machine`, emitting
 `:rf.machine.event/unhandled-no-op`) still targets a machine, so the Machines
 tab renders the machine's topology with the CURRENT state highlighted (the "no
@@ -654,7 +655,7 @@ resolution layer:
 In both cases the runtime emits exactly one `:rf.machine.event/unhandled-no-op`
 trace (Spec 009 §`:op-type` vocabulary; the SOLE signal — a no-op macrostep
 emits NO `:rf.machine/transition`), op-type `:rf.machine` (machine-activity
-family, NOT an error / warning — xstate-v5 parity). The trace carries `:tags
+family, NOT an error / warning — XState parity). The trace carries `:tags
 {:machine-id :event :state}` where `:state` is the machine's **current**
 (unchanged) state.
 
@@ -948,7 +949,8 @@ one to inspect and **which one** it inspects:
 
 EP-0005 adds an optional `:data-schema` to `reg-machine` — a Malli
 validator for the machine's `:data` context (the re-frame2-native analog
-of XState v5 typed context). It carries two consequences the Machine
+of XState typed context; being retired for `[:schemas :data]` per EP-0029
+rf2-f9nvu9). It carries two consequences the Machine
 Inspector surfaces, both consumer-side of the framework work
 ([the declared Context shape](../../machines-viz/spec/001-Topology-Parity.md)
 is rf2-3q4k5b; the `:data` redaction is now **frame-owned** per

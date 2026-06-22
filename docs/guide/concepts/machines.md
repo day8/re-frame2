@@ -2,7 +2,7 @@
 
 Some flows aren't "set a flag." They're "what state are we even *in*?" A login can be idle, submitting, authed, error-shown, or locked-out. A websocket can be connecting, connected, dropped, reconnecting. For flows like those, the interesting question isn't what value sits in app-db (your app's single state map). It's which of a fixed set of **named states** you're in, and which events — the messages your app reacts to — move you between them. re-frame2 makes that shape first-class, so you don't have to reconstruct it from scattered code.
 
-The anchor here is [**XState v5**](https://stately.ai/docs). re-frame2's machine grammar deliberately borrows its vocabulary and behaviour: transition tables, guards, actions, tags, `:after`, run-to-completion. There's one big difference, and it's worth saying up front: a machine is not an actor object you create and `send` to. It's an event handler — a function that receives an event and decides what happens next. The full delta is a table below.
+The anchor here is [**XState**](https://stately.ai/docs) — and specifically the direction XState is heading in **v6** (still on the `alpha` dist-tag, but settled enough to track). re-frame2's machine grammar deliberately borrows its vocabulary and behaviour: transition tables, guards, actions, tags, `:after`, run-to-completion. There's one big difference, and it's worth saying up front: a machine is not an actor object you create and `send` to. It's an event handler — a function that receives an event and decides what happens next. The full delta is a table below. re-frame2 tracks the v6 *direction*, not exact compatibility with an alpha release — where the two differ on purpose, this page says so.
 
 > **Deciding where a value should live?** A machine is the right home when a value has a *lifecycle* — named states, timers, retries, cancellation — rather than just a value you read. [Where should this value live?](../where-state-lives.md) has the full decision procedure.
 
@@ -127,7 +127,7 @@ Dispatching routes through the machine's id, wrapping an inner event vector:
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
 ```
 
-If the current state has no transition for an event, it's a **silent no-op** — nothing throws, because XState v5 dropped strict mode too. The runtime emits a benign `:rf.machine.event/unhandled-no-op` trace so a debugger can still show that the event arrived and was ignored.
+If the current state has no transition for an event, it's a **silent no-op** — nothing throws, matching XState (which dropped strict mode in v5 and keeps it dropped in the v6 direction). The runtime emits a benign `:rf.machine.event/unhandled-no-op` trace so a debugger can still show that the event arrived and was ignored.
 
 The snapshot — `{:state :submitting :data {:attempts 1 :error nil}}` — lives in the frame's **runtime-db** at `[:rf.runtime/machines :snapshots :auth.login/flow]`, kept apart from your app data. A frame is one isolated instance of your running app, and the snapshot is just a value riding it, so undo, time-travel, persistence, and SSR hydration all work on machines for free. Views — the functions that turn state into UI — read the snapshot through a subscription, a reactive query that recomputes when its inputs change. The canonical read is the framework-registered `:rf/machine` sub, addressed by the machine's id:
 
@@ -142,19 +142,21 @@ It's worth pausing on the async wiring in `:issue-request`. `:on-success [:auth.
 
 **Do, then observe.** Dispatch one event with Xray open. The transition shows up as an ordinary event row, snapshot before and after, riding the same trace stream as everything else — see [Debug with Xray](../how-to/debug-with-xray.md).
 
-## Coming from XState v5? The five-row delta
+## Coming from XState? The five-row delta
 
-XState v5 is the behaviour re-frame2 matches; the *expression* is re-frame-native. Here are the rows that matter:
+XState's behaviour is the reference re-frame2 matches; the *expression* is re-frame-native. The rows below hold across XState versions, and several of them are exactly where the **v6 direction** is heading anyway — v6 removes the `assign` helper and the `setup()` implementation registry, leaning toward plain functions, which is the shape re-frame2 already has. Here are the rows that matter:
 
-| XState v5 | re-frame2 | The difference, and why |
+| XState | re-frame2 | The difference, and why |
 |---|---|---|
 | `context` (extended state) | `:data` | Same idea; "context" is already overloaded in re-frame2 (interceptor context, React context). |
-| `createActor(machine).start()`, then `actor.send({type: ...})` | the machine **is an event handler**; `(rf/dispatch [machine-id [event]])` | **The big one.** No actor object, no separate send mechanism — one router queue, one cascade. |
-| actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event` handler; effects are data, actioned by the runtime. |
+| `createActor(machine).start()`, then `actor.send({type: ...})` | the machine **is an event handler**; `(rf/dispatch [machine-id [event]])` | **The big one.** No actor object, no separate send mechanism — one router queue, one cascade. (v6 replaces v5's `interpret` with `createActor`; re-frame2 has neither — machines are event handlers.) |
+| actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event` handler; effects are data, actioned by the runtime. v6 removes the `assign` helper creator — re-frame2 never had it. |
 | state lives in the actor; `actor.getSnapshot()` | the snapshot is a value in runtime-db, read via `@(rf/subscribe [:rf/machine id])` | Time-travel, undo, persistence, and SSR hydration extend to machines for free. |
-| `setup({guards, actions})` | machine-local `:guards` / `:actions` maps inside the spec | Each machine carries its own, validated at registration; cross-machine reuse is ordinary Clojure vars, not a string registry. |
+| `setup({guards, actions})` | machine-local `:guards` / `:actions` maps inside the spec | Each machine carries its own, validated at registration; cross-machine reuse is ordinary Clojure vars, not a string registry. v6 already simplifies `setup()` away from implementation registration — re-frame2's machine-local maps are the same direction. |
 
-The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and v5's internal-by-default self-transitions (re-frame2's `:reenter? true` is v5's `reenter: true`). An XState v5 author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
+The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and the internal-by-default self-transitions (re-frame2's `:reenter? true` is XState's `reenter: true`). An XState author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
+
+> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. The v6-direction features that motivate new grammar (broader `:schemas`, explicit `:timeout`, `:choice` states, `:internal-events`) land in later re-frame2 work; this page teaches the model, not those not-yet-shipped slots.
 
 > **Coming from re-frame v1?** Machines don't exist there — the keyword-in-app-db + `cond` pattern above *is* the v1 shape this replaces. Nothing to unlearn; see [From re-frame v1](../25-from-re-frame-v1.md).
 
@@ -283,6 +285,6 @@ By the end of this page, you can:
 
 - spot a state machine hiding in scattered `cond` clauses, and name the three diseases the transition-table rewrite cures
 - register a machine (`reg-machine` — sugar over an event handler), dispatch into it, and read it with the `[:rf/machine <id>]` and `[:rf/machine-has-tag? <id> <tag>]` subscription vectors
-- map your XState v5 vocabulary onto re-frame2's five deltas
+- map your XState vocabulary onto re-frame2's five deltas, and name the three deliberate divergences (declarative topology, runtime-db snapshots, event-shaped completion)
 - test transitions as pure function calls with `machine-transition`
 - recognise when you need hierarchy, parallel regions, history, or spawned actors — and know where their contracts live

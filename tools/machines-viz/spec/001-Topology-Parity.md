@@ -147,7 +147,7 @@ scoping + §3.1 G9).
 > declare `:error?` true — an **error terminal**. This is a re-frame2
 > **extension**: a child that finishes via an `:error?` final routes the
 > spawning parent's `:spawn` **`:on-error`** transition instead of
-> `:on-done`. XState v5 has final-states-with-output and actor `onError`
+> `:on-done`. XState has final-states-with-output and actor `onError`
 > but **no first-class error-final flag**, and Stately therefore draws no
 > such marker — so this is *not* a parity feature to look up; it is a
 > distinction **the re-frame2 framework acts on** that the chart must not
