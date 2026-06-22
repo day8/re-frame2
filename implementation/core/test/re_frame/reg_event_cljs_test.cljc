@@ -283,6 +283,15 @@
         "[:rf/set-db 5] (non-map) fails :rf.error/set-db-bad-value")
     (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db "nope"]))
         "[:rf/set-db \"nope\"] (non-map) fails :rf.error/set-db-bad-value"))
+  (testing "EXTRA trailing args fail with :rf.error/set-db-bad-value (rf2-izy3b2)
+            — :rf/set-db takes exactly one map argument; extras were previously
+            silently ignored"
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db {:n 0} :junk]))
+        "[:rf/set-db {:n 0} :junk] (extra arg) fails :rf.error/set-db-bad-value")
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db {} :a :b]))
+        "[:rf/set-db {} :a :b] (two extra args) fails :rf.error/set-db-bad-value")
+    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db nil :x]))
+        "[:rf/set-db nil :x] (extra arg, non-map primary) fails :rf.error/set-db-bad-value"))
   (testing "a valid map argument (including {}) does NOT throw and returns the
             {:db new-db} effect"
     (is (= {:db {:n 0}} (events/set-db-handler {} [:rf/set-db {:n 0}]))

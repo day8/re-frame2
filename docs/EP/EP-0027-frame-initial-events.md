@@ -92,8 +92,8 @@ event form, `reg-event`; EP-0018 removed `reg-event-db` / `reg-event-fx`.)
 - It returns a `{:db new-db}` effect, so it replaces the **app-db partition only**
   (it cannot touch runtime-db) and rides the **normal post-commit app-db schema
   validation / rollback** like any `:db` effect.
-- It **validates exactly one map argument**: a missing, `nil`, or non-map argument fails
-  with `:rf.error/set-db-bad-value`. Set app-db empty with `[:rf/set-db {}]`.
+- It **validates exactly one map argument**: a missing, `nil`, non-map, or extra-trailing
+  argument fails with `:rf.error/set-db-bad-value`. Set app-db empty with `[:rf/set-db {}]`.
 - It **replaces all of app-db** (it is not a merge); for partial updates, write an
   ordinary event.
 - It is **public and developer-friendly** — intended for tests, docs, and apps alike —
@@ -229,7 +229,7 @@ All ids live in the `:rf.error/*` family and are raised through `error/throw-err
 | `:rf.error/initial-events-bad-opts` | `:opts` is not a map, or contains `:frame` |
 | `:rf.error/initial-events-step-failed` | a setup step threw (carries `:step-index`, `:event`) |
 | `:rf.error/frame-construction-in-handler` | construction attempted while a cascade is in flight |
-| `:rf.error/set-db-bad-value` | `[:rf/set-db x]` with missing / `nil` / non-map `x` |
+| `:rf.error/set-db-bad-value` | `[:rf/set-db x]` with missing / `nil` / non-map `x`, or extra trailing args |
 
 ## Out of scope
 
