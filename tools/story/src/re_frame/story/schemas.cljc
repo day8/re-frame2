@@ -903,9 +903,9 @@
     [:viewport              {:optional true} ViewportSlot]
     [:background            {:optional true} BackgroundSlot]
     ;; EP-0025 frame-owned durable classification. A variant declares which
-    ;; of ITS app-db paths are sensitive / large at frame creation, the SAME
-    ;; carrier-keyed owner model the framework's `reg-frame` uses
-    ;; (`{:app-db [[:auth :token]] :http {...}}`). EP-0025 removed the durable
+    ;; of ITS app-db paths are sensitive / large at frame creation, in the
+    ;; SAME durable `{:app-db [[:auth :token]]}` form the four commit-plane
+    ;; classification effects carry. EP-0025 removed the durable
     ;; frame annotation: the runtime no longer threads these onto the
     ;; variant's `reg-frame` config — instead it lowers the `:app-db` paths
     ;; into the variant frame's elision registry as commit-plane
@@ -916,9 +916,10 @@
     ;; (spec/015 §Frame-owned durable classification; spec/Conventions.md
     ;; §Privacy).
     ;;
-    ;; The slot is a CARRIER-KEYED MAP — app-db paths under `:app-db`, with an
-    ;; optional `:http` carrier block (the `:sensitive` axis only) that stays
-    ;; on the frame config (HTTP carriers are not app-db classification). The
+    ;; The slot is a MAP carrying app-db paths under `:app-db` (EP-0025 retired
+    ;; the frame `:sensitive {:http}` carrier block — HTTP carriers moved onto
+    ;; the `:rf.http/managed` `reg-fx` registration's `:carriers` block — so
+    ;; only `:app-db` rides here). The
     ;; `:app-db` value is a vector-of-paths; we keep it `[:vector :any]` here
     ;; on purpose — the rigorous per-path `:rf/path` shape validation is owned
     ;; ONCE by the framework's commit-plane validator

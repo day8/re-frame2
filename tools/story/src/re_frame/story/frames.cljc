@@ -564,10 +564,11 @@
   "Convert a variant body's `:sensitive` / `:large` classification declaration
   (the durable app-db form `{:app-db [[path]…]}`) into the flat EP-0025
   commit-plane effect form `{:sensitive [[path]…] :large [[path]…]}`. The
-  variant's `:sensitive` block may ALSO carry `:http` carriers — those stay on
-  the frame config (HTTP carriers are not app-db classification), so only the
-  `:app-db` paths are lowered here. Returns nil when no app-db paths are
-  declared."
+  variant `:sensitive` / `:large` slots carry only `:app-db` paths — EP-0025
+  retired the frame `:sensitive {:http}` carrier block (HTTP carriers moved
+  onto the `:rf.http/managed` `reg-fx` registration's `:carriers` block), so
+  only the `:app-db` paths are lowered here. Returns nil when no app-db paths
+  are declared."
   [{:keys [sensitive large]}]
   (let [sens (:app-db sensitive)
         lrg  (:app-db large)]
