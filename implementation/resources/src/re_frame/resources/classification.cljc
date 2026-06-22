@@ -61,12 +61,11 @@
   - It does NOT change the Spec-Schemas schema-marker grammar (the
     `:sensitive?` / `:large?` Malli props are owned by the schemas artefact
     + Spec-Schemas — EP-0015 bead-plan item 9)."
-  (:require [re-frame.elision :as elision]
-            [re-frame.late-bind :as late-bind]
+  (:require [re-frame.late-bind :as late-bind]
             [re-frame.classification :as classification]
             [re-frame.path :as path]
             [re-frame.projection :as projection]
-            [re-frame.resources.scope-registry :as scope-registry]))
+            [re-frame.resources.state :as state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -103,140 +102,27 @@
     :else              :serialize))
 
 ;; ---------------------------------------------------------------------------
-;; Named-scope-resolver DERIVED-sensitivity propagation (EP-0016 wave,
-;; rf2-fi6tda.1) — the fourth framework-known derivation graph EP-0015
-;; disposition 8 names (subs / flows / machine-selectors shipped in
-;; rf2-t55hxg.8; this is the deferred scope-resolver arm rf2-t55hxg.11 walked
-;; back to EP-0016).
+;; No derived-sensitivity propagation (EP-0025, rf2-71dr8t).
 ;;
-;; A resource whose `:scope` policy is a `{:from-db <resolver-id>}` reference
-;; derives its cache scope from the resolver's declared `:db` inputs. If any of
-;; those inputs reads a FRAME-SENSITIVE app-db path, the derived scope (user /
-;; tenant / impersonation identity) MAY carry that sensitivity — so the
-;; resource's durable entry (whose scoped KEY embeds the resolved scope, and
-;; whose data shares the same privacy class — Spec 016 clause 4) inherits
-;; `:sensitive` EVEN WHEN the owning resource was not itself declared
-;; `:sensitive?`. This is the automatic-inheritance defence-in-depth arm,
-;; consistent with the subs/flows `:rf.egress/output-sensitivity` model
-;; (EP-0015 issue 9):
+;; A resource whose `:scope` is a `{:from-db <id>}` reference derives its cache
+;; scope from the resolver's declared `:db` inputs. EARLIER (EP-0016 wave,
+;; rf2-fi6tda.1) that derivation was a sensitivity PROPAGATION arm: a `:db`
+;; input reading a frame-sensitive path made the derived scope (and the
+;; resource's WHOLE durable entry) INHERIT `:sensitive` even when the owning
+;; resource was not declared sensitive, honouring a closed
+;; `:rf.egress/output-sensitivity` declassification enum.
 ;;
-;;   :rf.egress/sensitive — force-mark the derived scope sensitive;
-;;   :rf.egress/public    — DECLASSIFY (the resolver asserts the derived scope
-;;                          is safe to surface despite sensitive inputs — the
-;;                          declassification analogue of :rf.scope/global,
-;;                          enumerable as a standing audit surface);
-;;   :rf.egress/inherit   — (default) propagate: sensitive iff any declared
-;;                          `:db` input path overlaps a frame-sensitive
-;;                          declaration.
-;;
-;; Conservative + FAIL-CLOSED (footgun prevention, not security-grade taint —
-;; the SAME posture as subs' layer-1 check and flows' input-overlap check): an
-;; input that reads a sensitive slot, a parent of one, or a child of one all
-;; count (path overlap, either direction). The PRIMARY scope boundary holds
-;; independently of this arm (the resource-owned `:sensitive?` claim +
-;; scoped-key redaction); this arm only ADDS the inheritance precision.
-;; ---------------------------------------------------------------------------
-
-(defn- frame-sensitive-paths
-  "The frame's classified sensitive app-db paths for `frame-id` — the keys of
-  the `:sensitive` elision declarations (the union of every source:
-  `:source :effect` commit-plane effects, `:source :flow` flow outputs,
-  `:source :route` / `:source :machine` subsystem declarations;
-  `re-frame.elision/sensitive-declarations`). A nil `frame-id` (a frameless / pure projection —
-  no resolvable frame scope) yields `[]`: there is no frame classification to
-  inherit from, and the primary owner `:sensitive?` boundary still governs."
-  [frame-id]
-  (if frame-id
-    (vec (keys (elision/sensitive-declarations frame-id)))
-    []))
-
-(defn- input-overlaps-sensitive?
-  "True iff ANY of the resolver's declared `:db` input paths overlaps ANY
-  frame-sensitive path (one a prefix of the other, either direction — the
-  shared `re-frame.path/overlap?` relation, the SAME prefix test subs / flows
-  inherit). Conservative + fail-closed: an input reading a sensitive slot, a
-  parent of one, or a child of one all count. Empty input or sensitive-path
-  set → false."
-  [input-paths sensitive-paths]
-  (boolean
-    (when (and (seq input-paths) (seq sensitive-paths))
-      (some (fn [in-path]
-              (some #(path/overlap? in-path %) sensitive-paths))
-            input-paths))))
-
-(defn resolver-derived-sensitive?
-  "True iff the named-scope resolver `resolver-id` derives a SENSITIVE scope
-  against `frame-id`'s app-db classification (EP-0016 wave, rf2-fi6tda.1 —
-  EP-0015 disposition 8's fourth framework-known graph). Pure over the resolver
-  registry + the frame's elision registry. Resolution, honouring the closed
-  `:rf.egress/output-sensitivity` claim (the SAME claim subs/flows honour):
-
-    :rf.egress/sensitive — true (force-mark, even from public inputs);
-    :rf.egress/public    — false (DECLASSIFY — the resolver asserts safe);
-    :rf.egress/inherit   — (default) true iff any declared `:db` input path
-                           overlaps a frame-sensitive declaration.
-
-  Fail-closed: a `resolver-id` with no registered resolver returns false (no
-  derivation graph to read — the consumption side still honours the owner's
-  `:sensitive?` independently). Per Spec 015 §Derived sensitivity."
-  [resolver-id frame-id]
-  (let [spec (scope-registry/scope-resolver-meta resolver-id)]
-    (if (nil? spec)
-      false
-      (case (:output-sensitivity spec :rf.egress/inherit)
-        :rf.egress/sensitive true
-        :rf.egress/public    false
-        ;; :rf.egress/inherit (default) — propagate from sensitive :db inputs
-        (input-overlaps-sensitive?
-          (scope-registry/input-db-paths (:inputs spec))
-          (frame-sensitive-paths frame-id))))))
-
-(defn scope-derived-sensitive?
-  "True iff a resource `spec`'s `:scope` policy is a `{:from-db <resolver-id>}`
-  reference whose resolver derives a SENSITIVE scope against `frame-id`
-  (`resolver-derived-sensitive?`). The provenance hook the consumption side
-  reads at scoped-key / entry classification: the resolved concrete scope in a
-  cache key has lost its resolver provenance, but the resource SPEC retains the
-  `{:from-db …}` policy, so the resolver-id is recoverable from the resource-id
-  the entry's scoped key carries (Spec 016 §Scope resolution). A non-`{:from-db}`
-  scope policy (`:rf.scope/global`, a literal scope, a fn resolver,
-  `:rf.scope/from-caller`) has no named-resolver derivation graph and returns
-  false. A nil spec returns false. Pure. Per Spec 015 §Derived sensitivity /
-  Spec 016 §Resolver references — `{:from-db <id>}`."
-  [spec frame-id]
-  (boolean
-    (when-let [scope (:scope spec)]
-      (when (scope-registry/from-db-reference? scope)
-        (resolver-derived-sensitive? (:from-db scope) frame-id)))))
-
-(defn whole-entry-disposition-for
-  "Frame-aware whole-entry disposition (EP-0016 wave, rf2-fi6tda.1). Returns
-  `:serialize` / `:redact` / `:omit` exactly as `whole-entry-disposition`, but
-  ALSO folds in the named-scope-resolver derived-sensitivity inheritance arm
-  against `frame-id`:
-
-    - the resource OWNER's coarse `:sensitive?` / `:large?` claims govern as
-      before (`whole-entry-disposition`) — the PRIMARY boundary, frame-blind;
-    - ADDITIONALLY, when the owner did not declare `:sensitive?` but the
-      resource's `:scope` is a `{:from-db <id>}` reference whose resolver
-      derives a sensitive scope against the frame (`scope-derived-sensitive?`),
-      the entry is `:redact` — automatic inheritance, defence-in-depth.
-
-  Sensitive (owner-declared OR derived) wins over large: a derived-sensitive
-  resource that is also coarse-`:large?` redacts (the more conservative shape).
-  A nil `frame-id` (frameless projection) reduces to `whole-entry-disposition`
-  (no frame classification to inherit from; the owner boundary still governs).
-  Pure. Per Spec 015 §Derived sensitivity / Spec 016 clause 4."
-  [spec frame-id]
-  (let [owner (whole-entry-disposition spec)]
-    (if (= :redact owner)
-      ;; owner already redacts (declared :sensitive?) — unchanged
-      :redact
-      ;; owner is :serialize or :omit — derived-sensitivity, when it fires,
-      ;; UPGRADES to :redact (sensitive wins over large / serialize).
-      (if (scope-derived-sensitive? spec frame-id)
-        :redact
-        owner))))
+;; EP-0025 REMOVED all sensitivity propagation (subs / flows / this resource-
+;; scope arm). Classification does not flow input -> output (Spec 015 §No
+;; propagation, no taint). The inheritance pass (`resolver-derived-sensitive?` /
+;; `scope-derived-sensitive?`) and the frame-aware `whole-entry-disposition-for`
+;; are GONE: a resource's durable-entry disposition is the OWNER's coarse
+;; root-prop claim ALONE (`whole-entry-disposition`), and its fine-grained
+;; classification rides its OWN projection-relative `:sensitive` / `:large`
+;; declarations (lowered per instance into the per-frame elision registry — see
+;; the lowering section below). A genuinely-sensitive derived scope is declared
+;; directly (`[:scope ...]` / `[:params ...]` sensitive); nothing is inherited
+;; from the paths the resolver read.
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0025 §subsystems projection-relative declarations (rf2-h3d8tf).
@@ -357,65 +243,32 @@
      :params {:sensitive (->decl (:params s)) :large (->decl (:params l))}}))
 
 ;; ---------------------------------------------------------------------------
-;; Per-slot owner classification — the schema-natural co-declaration surface.
+;; Fine-grained owner classification — projection-relative declarations ONLY.
 ;;
-;; EP-0015 issue 11: per-slot `:sensitive?` / `:large?` props on the owner's
-;; `:data-schema` / `:params-schema` (the EP-0005 mechanism). They are
-;; extracted through the SHARED schema walker hooks
-;; (`:schemas/extract-sensitive-paths-from-schema` /
-;; `:schemas/extract-large-paths-from-schema`) — the same walker
-;; `re-frame.elision` consumes for app-schema slots — never a resource-local
-;; re-implementation. An inline schema form contributes its marks; a keyword
-;; registry ref is an opaque leaf (the walker's documented limitation, shared
-;; with every other schema-mark consumer). EP-0025 §subsystems UNIONS the
-;; explicit projection-relative declarations (`spec-declaration-marks`) on top
-;; of these — the projection-relative path vocabulary is the canonical surface,
-;; the schema-prop the schema-natural co-declaration.
+;; EP-0025 (rf2-fuqcob, mirroring the rf2-398kql machine schema->classification
+;; bridge reversal): a resource's `:data-schema` / `:params-schema` / per-page
+;; `:page-data-schema` VALIDATES the value; it does NOT drive DURABLE egress
+;; classification. The per-slot `:sensitive?` / `:large?` schema props survive
+;; ONLY for VALIDATION-FAILURE-TRACE redaction (the validator's own transient
+;; egress product — `redact-invalid-params-error`, via the shared
+;; `:schemas/redact-validation-tags` seam) — NOT as a co-equal route into
+;; durable resource data / params / scope classification (Spec 015 §Schemas
+;; describe shape, not durable egress policy). The SINGLE durable classification
+;; surface is the projection-relative `:sensitive` / `:large` path declarations
+;; on the spec (`spec-declaration-marks`) — one name per fact.
 ;; ---------------------------------------------------------------------------
-
-(defn- union-marks
-  "Union two `{:sensitive {path decl} :large {path decl}}` mark maps (the
-  schema-prop marks and the EP-0025 projection-relative declaration marks).
-  Per axis the path-keyed maps merge (a path classified by both routes keeps
-  one entry; sensitive-wins-over-large is resolved later by the walker). Pure."
-  [a b]
-  {:sensitive (merge (:sensitive a) (:sensitive b))
-   :large     (merge (:large a)     (:large b))})
-
-(defn- extract-paths
-  "Extract the `{path decl}` map of `:sensitive?` (or `:large?`) per-slot
-  marks from `schema` rooted at `base-path`, via the late-bound shared schema
-  walker hook. Returns `{}` when the hook is unbound (no schemas artefact) or
-  `schema` is nil / carries no marks."
-  [hook schema base-path]
-  (if-let [extract (and schema (late-bind/get-fn-cached hook))]
-    (or (extract schema base-path) {})
-    {}))
-
-(defn- schema-marks
-  "The per-slot `:sensitive?` / `:large?` classification a `schema` declares,
-  as `{:sensitive {path decl} :large {path decl}}` rooted at `[]`, via the
-  shared schema walker. The common engine behind `data-schema-marks`
-  (resource DATA value) and `params-schema-marks` (resource PARAMS value) —
-  one extraction, two owner surfaces (EP-0015 issue 11: `:data-schema` /
-  `:params-schema` are CO-EQUAL fine-grained surfaces). Empty maps when
-  `schema` is nil or carries no marks. Pure (modulo the memoised walker)."
-  [schema]
-  {:sensitive (extract-paths :schemas/extract-sensitive-paths-from-schema schema [])
-   :large     (extract-paths :schemas/extract-large-paths-from-schema     schema [])})
 
 (defn data-schema-marks
   "The fine-grained owner classification for a resource / mutation `spec`'s
   DATA value, as `{:sensitive {path decl} :large {path decl}}` rooted at the
-  data root (`[]`) — the UNION of (a) the EP-0025 projection-relative
-  `:sensitive` / `:large` declarations' `:data`-rooted paths (the canonical
-  surface — `spec-declaration-marks`) and (b) the per-slot `:data-schema`
-  `:sensitive?` / `:large?` props (the schema-natural co-declaration, EP-0015
-  issue 11). Empty maps when the spec declares neither route. Pure (modulo the
-  memoised shared walker)."
+  data root (`[]`) — the EP-0025 projection-relative `:sensitive` / `:large`
+  declarations' `:data`-rooted paths (`spec-declaration-marks`). EP-0025
+  (rf2-fuqcob): the per-slot `:data-schema` `:sensitive?` / `:large?` props are
+  NOT a durable classification route (the schema VALIDATES; it does not classify
+  durable egress). Empty maps when the spec declares no `:data`-rooted
+  declaration. Pure."
   [spec]
-  (union-marks (schema-marks (:data-schema spec))
-               (:data (spec-declaration-marks spec))))
+  (:data (spec-declaration-marks spec)))
 
 (defn infinite-spec?
   "True iff `spec` declares an infinite feed (`:infinite true` — EP-0021 R1).
@@ -429,46 +282,47 @@
   (true? (:infinite spec)))
 
 (defn page-data-schema-marks
-  "The per-slot `:sensitive?` / `:large?` classification an infinite resource
-  `spec`'s `:page-data-schema` declares for ONE PAGE value, as
-  `{:sensitive {path decl} :large {path decl}}` rooted at the page root (`[]`).
-  The per-page egress/classification contract (EP-0021 R5) — applied per page
-  over the accumulated `:data` vector by `project-data`, NOT over the whole
-  framework-owned page vector. Empty maps when no `:page-data-schema` or no
-  marks. Pure (modulo the memoised shared walker)."
+  "The per-PAGE fine-grained owner classification an infinite resource `spec`
+  declares for ONE PAGE value, as `{:sensitive {path decl} :large {path decl}}`
+  rooted at the page root (`[]`). EP-0025 (rf2-fuqcob): an infinite feed's per-
+  page classification rides the resource's `:data`-rooted projection-relative
+  declarations (`spec-declaration-marks`), applied PER PAGE by `project-data`
+  over each page of the accumulated `:data` vector — NOT the `:page-data-schema`
+  per-slot props (the schema VALIDATES each page; it does not classify durable
+  egress). Empty maps when the spec declares no `:data`-rooted declaration.
+  Pure."
   [spec]
-  (schema-marks (:page-data-schema spec)))
+  (:data (spec-declaration-marks spec)))
 
 (defn params-schema-marks
   "The fine-grained owner classification for a resource / mutation `spec`'s
   PARAMS value, as `{:sensitive {path decl} :large {path decl}}` rooted at the
-  params root (`[]`) — the UNION of (a) the EP-0025 projection-relative
-  `:sensitive` / `:large` declarations' `:params`-rooted (and `:scope`-rooted)
-  paths (the canonical surface — `spec-declaration-marks`) and (b) the per-slot
-  `:params-schema` `:sensitive?` / `:large?` props (the schema-natural
-  co-declaration, EP-0015 issue 11). The CO-EQUAL params counterpart to
-  `data-schema-marks`. Spec 016 §Runtime-subsystem graduation clause 4:
-  \"params, scopes, and data carry the same classification.\" Empty maps when
-  neither route declares. Pure."
+  params root (`[]`) — the EP-0025 projection-relative `:sensitive` / `:large`
+  declarations' `:params`-rooted (and `:scope`-rooted) paths
+  (`spec-declaration-marks`). The CO-EQUAL params counterpart to
+  `data-schema-marks`. EP-0025 (rf2-fuqcob): the per-slot `:params-schema`
+  `:sensitive?` / `:large?` props are NOT a durable classification route (the
+  schema VALIDATES; it does not classify durable egress). Spec 016
+  §Runtime-subsystem graduation clause 4: \"params, scopes, and data carry the
+  same classification.\" Empty maps when the spec declares no `:params`-rooted
+  declaration. Pure."
   [spec]
-  (union-marks (schema-marks (:params-schema spec))
-               (:params (spec-declaration-marks spec))))
+  (:params (spec-declaration-marks spec)))
 
 (defn data-schema-classifies?
-  "True iff `spec`'s `:data-schema` marks ANY slot `:sensitive?` or
-  `:large?` (the fine-grained surface declares something). When true, a
-  `:serialize` (non-whole-redacted) entry's data MUST still be projected
-  through frame classification so the marked slots redact / elide — see
-  `project-data`."
+  "True iff `spec` declares ANY `:data`-rooted `:sensitive` / `:large`
+  projection-relative path (`data-schema-marks` — the durable owner surface).
+  When true, a `:serialize` (non-whole-redacted) entry's data MUST still be
+  projected so the declared slots redact / elide — see `project-data`."
   [spec]
   (let [{:keys [sensitive large]} (data-schema-marks spec)]
     (boolean (or (seq sensitive) (seq large)))))
 
 (defn params-schema-classifies?
-  "True iff `spec`'s `:params-schema` marks ANY slot `:sensitive?` or
-  `:large?`. When true, a `:serialize` entry's scoped-key PARAMS carry a
-  fine-grained classification that must be honoured on the wire — see
-  `project-params`."
+  "True iff `spec` declares ANY `:params`-rooted (or `:scope`-rooted)
+  `:sensitive` / `:large` projection-relative path (`params-schema-marks`).
+  When true, a `:serialize` entry's scoped-key PARAMS carry a fine-grained
+  classification that must be honoured on the wire — see `project-params`."
   [spec]
   (let [{:keys [sensitive large]} (params-schema-marks spec)]
     (boolean (or (seq sensitive) (seq large)))))
@@ -480,19 +334,21 @@
 ;; composed layers, both deferring to SHARED primitives (never a
 ;; family-private resource elider):
 ;;
-;;   (a) the RESOURCE-OWNED per-slot `:data-schema` `:sensitive?` AND `:large?`
-;;       marks (the canonical fine-grained owner surface, issue 11) project
-;;       through the shared frame-independent `re-frame.classification/redact-with-paths`
-;;       walker — `:sensitive?` slots redact to the `:rf/redacted` sentinel,
-;;       `:large?` slots elide to the `:rf.size/large-elided` marker. This is
-;;       the OWNER's declaration firing irrespective of frame app-db
-;;       classification — a resource that marks `[:token]` sensitive in its
-;;       `:data-schema` redacts that slot on SSR even when the frame's app-db
-;;       classification says nothing about it, and a `[:body]` `:large?` slot
-;;       elides on the wire whether or not the frame independently marks it
-;;       (resource cache data does not live at a frame app-db path; rf2-260yhk).
-;;       This is the SAME walker the CO-EQUAL `project-params` already uses for
-;;       the params component of the key — one walker, two owner surfaces.
+;;   (a) the RESOURCE-OWNED `:data`-rooted projection-relative `:sensitive` /
+;;       `:large` declaration marks (the canonical fine-grained owner surface —
+;;       EP-0025; the `:data-schema` props no longer classify durably,
+;;       rf2-fuqcob) project through the shared frame-independent
+;;       `re-frame.classification/redact-with-paths` walker — sensitive slots
+;;       redact to the `:rf/redacted` sentinel, large slots elide to the
+;;       `:rf.size/large-elided` marker. This is the OWNER's declaration firing
+;;       irrespective of frame app-db classification — a resource that declares
+;;       `[:data :token]` sensitive redacts that slot on SSR even when the
+;;       frame's app-db classification says nothing about it, and a `[:data
+;;       :body]` large slot elides on the wire whether or not the frame
+;;       independently marks it (resource cache data does not live at a frame
+;;       app-db path; rf2-260yhk). This is the SAME walker the CO-EQUAL
+;;       `project-params` uses for the params component of the key — one walker,
+;;       two owner surfaces.
 ;;   (b) the data is THEN projected through the merged frame-owned
 ;;       `re-frame.projection/project-egress` (over `elide-wire-value`) under
 ;;       the boundary profile, so any path the FRAME ALSO classifies redacts /
@@ -693,38 +549,262 @@
 ;; Schemas-optional: when the `:schemas/redact-validation-tags` hook is unbound
 ;; (schemas artefact absent) there is no schema to redact `:error` against and
 ;; the seam falls through verbatim — consistent with the no-validator path that
-;; never produced an `:error` in the first place. `project-params` is
-;; schema-hook-independent for the redact axis (it reads the owner's
-;; `:params-schema` marks through the shared walker, the same one already
-;; gating SSR egress), so the `:params` slot is projected regardless.
+;; never produced an `:error` in the first place.
+;;
+;; EP-0025 (rf2-fuqcob): the `:params-schema` per-slot `:sensitive?` / `:large?`
+;; props no longer drive DURABLE classification (`project-params` reads only the
+;; projection-relative declarations now). But the VALIDATION-FAILURE-TRACE
+;; redaction is the schema's OWN surviving egress product (Spec 015 §Schemas
+;; describe shape: "for a slot's own validation-failure-trace redaction the
+;; schema produces that record, so it owns its egress shape"). So this seam reads
+;; the schema PROPS directly (via the shared walker hooks) to redact the failing
+;; `:params` per-slot — NOT `project-params`. That keeps the schema-prop route
+;; alive exactly where it is legitimate (the validator's own failure product),
+;; while the durable wire/SSR/tool egress is governed solely by the projection-
+;; relative declarations.
 ;; ---------------------------------------------------------------------------
+
+(defn- validation-failure-params-marks
+  "The per-slot `:sensitive?` / `:large?` props a `:params-schema` declares, as
+  `{:sensitive {path decl} :large {path decl}}` rooted at the params root — the
+  SCHEMA-PROP marks, read via the shared late-bound walker hooks. Used ONLY by
+  `redact-invalid-params-error` to redact the failing params in the VALIDATION-
+  FAILURE-TRACE (the schema's own egress product, the surviving schema-prop
+  route per EP-0025 / Spec 015 §Schemas describe shape) — NOT a durable
+  classification route. Empty maps when the schema is nil / unschematic / the
+  walker hooks are unbound. Pure (modulo the memoised walker)."
+  [schema]
+  (let [extract (fn [hook]
+                  (if-let [f (and schema (late-bind/get-fn-cached hook))]
+                    (or (f schema []) {})
+                    {}))]
+    {:sensitive (extract :schemas/extract-sensitive-paths-from-schema)
+     :large     (extract :schemas/extract-large-paths-from-schema)}))
 
 (defn redact-invalid-params-error
   "Project the `:params` + `:error` (explainer output) slots of an invalid-params
-  failure error payload against the resource / mutation `spec`'s OWNER per-slot
-  `:params-schema` classification (rf2-99j4e4). Returns
+  failure error payload against the resource / mutation `spec`'s `:params-schema`
+  per-slot `:sensitive?` / `:large?` VALIDATION props (rf2-99j4e4). Returns
   `{:params <projected> :error <projected-or-nil>}`:
 
-    - `:params` is projected through `project-params` (the CO-EQUAL fine-grained
-      owner surface — `:sensitive?` slots redact, `:large?` slots elide); and
+    - `:params` per-slot redaction reads the `:params-schema` `:sensitive?` /
+      `:large?` props directly (`validation-failure-params-marks`): each
+      `:sensitive?` slot redacts to `:rf/redacted`, each `:large?` slot elides
+      to the `:rf.size/large-elided` marker, plain slots ride verbatim (so the
+      non-sensitive failing field stays diagnostic);
     - `:error` (the explainer output, which carries the failing params VERBATIM
       under Malli's `:value` slots) is routed through THE shared schema-aware
       redaction seam `:schemas/redact-validation-tags`: the whole `:error` blob
       scrubs to `:rf/redacted` when `spec`'s `:params-schema` declares ANY
       `:sensitive?` slot, else rides verbatim.
 
-  Same two shared primitives the resources family egress already uses (the SSR
-  key projection + the schemas validation-failure redactor) — never a
-  registry-private elider. `error` may be nil (no explainer registered); the
-  `:error` key is then nil. Pure (modulo the memoised walker + the late-bound
-  redaction hook)."
+  EP-0025 (rf2-fuqcob): this is the schema's OWN VALIDATION-FAILURE-TRACE egress
+  product, the surviving schema-prop redaction route (Spec 015 §Schemas describe
+  shape) — distinct from the DURABLE wire/SSR/tool egress, which `project-params`
+  governs via the projection-relative declarations alone (schema props no longer
+  classify durably). `error` may be nil (no explainer registered); the `:error`
+  key is then nil. Pure (modulo the memoised walker + the late-bound redaction
+  hook)."
   [params error spec]
   (let [schema     (:params-schema spec)
         redact-fn  (late-bind/get-fn-cached :schemas/redact-validation-tags)
+        {:keys [sensitive large]} (validation-failure-params-marks schema)
+        ;; The failing params slot is the validator's own failure product — redact
+        ;; the schema's `:sensitive?` / `:large?` slots per-slot (the surviving
+        ;; schema-prop route), keeping the non-sensitive failing field diagnostic.
+        params'    (if (or (seq sensitive) (seq large))
+                     (classification/redact-with-paths params (keys sensitive) (keys large))
+                     params)
         ;; The explainer output carries the failing params verbatim; treat it as
         ;; the `:explain` value-bearing slot the shared seam scrubs whole-payload.
         redacted-e (if (and redact-fn (some? schema) (some? error))
                      (:explain (redact-fn schema {:explain error}))
                      error)]
-    {:params (project-params params spec)
+    {:params params'
      :error  redacted-e}))
+
+;; ---------------------------------------------------------------------------
+;; Per-instance lowering into the per-frame elision registry (EP-0025
+;; §subsystems, rf2-v8x9n8 — aligning resources to the machines / routing
+;; standard model).
+;;
+;; Per the EP-0025 subsystem matrix a resource declares its `:sensitive` /
+;; `:large` PROJECTION-RELATIVE to the entry projection (its `:params` / `:data`)
+;; and the runtime LOWERS the declaration into the SAME per-frame elision
+;; registry (`[:rf.runtime/elision …]`) PER INSTANCE — re-rooting each declared
+;; projection-relative path to the instance's ABSOLUTE runtime path and writing
+;; it `{:source :resource}` — exactly as machines lower at spawn
+;; (`re-frame.machines.classification/lower-at-spawn!` →
+;; `[:rf.runtime/machines :snapshots <actor-id> :data …]`) and routes lower at
+;; activation (`re-frame.routing.classification/lower-for-route` →
+;; `[:rf.runtime/routing :current …]`). BEFORE rf2-v8x9n8 resources DID NOT
+;; lower: the `{:source :owner-declaration}` marks were applied DIRECTLY at the
+;; family-private `project-data` / `project-params` projectors, so a generic
+;; registry reader (Xray "what is classified", an MCP registry view, the SSR
+;; registry-projection defence-in-depth) never SAW resource classification. Now
+;; the registry carries it, so the "union every source" model the spec sells is
+;; uniform across all four subsystems.
+;;
+;; The lowering is a PURE runtime-db transform (`reconcile-registry`, mirroring
+;; routing's `apply-route-classification`) so the durable runtime-db transition
+;; that writes / evicts entries folds the registry update into the SAME atomic
+;; `:rf.db/runtime` commit. It is VALUE-INDEPENDENT (the declared path redacts
+;; whatever later occupies the slot) and IDEMPOTENT + SELF-DROPPING: it derives
+;; the full `:source :resource` declaration set from the CURRENT `:entries`, so
+;; an evicted entry's declarations vanish (the per-instance teardown the matrix
+;; names) with no separate drop hook, and other-sourced entries (`:effect` /
+;; `:flow` / `:route` / `:machine`) are left untouched.
+;;
+;; Absolute re-rooting (per instance, keyed on the entry's byte `key-id`):
+;;   - a `:data`-rooted declared path `[:k …]`   → `[:rf.runtime/resources
+;;                                                  :entries <key-id> :data :k …]`
+;;     (the durable entry's `:data` value lives at `… <key-id> :data`);
+;;   - a `:params` / `:scope`-rooted declared path → the entry's scoped-key
+;;     `:resource/key` carrier at `… <key-id> :resource/key`. The scoped key is
+;;     the vector `[scope resource-id params]`, so a `:params`-rooted path
+;;     indexes position 2 and a `:scope`-rooted path position 0.
+;; ---------------------------------------------------------------------------
+
+(def ^:private resource-source
+  "The elision-registry `:source` tag a resource-lowered declaration carries —
+  the resources peer of `:source :machine` / `:source :route` / `:source
+  :effect`. Source-scoped so reconciliation / eviction touch only resource-
+  sourced entries."
+  :resource)
+
+(def ^:private elision-registry-key :rf.runtime/elision)
+
+(defn- entry-data-prefix
+  "The ABSOLUTE runtime-db prefix for an entry's `:data` value, keyed on the
+  byte `key-id` — `[:rf.runtime/resources :entries <key-id> :data]`."
+  [key-id]
+  (conj (state/entry-path-by-id key-id) :data))
+
+(defn- entry-key-prefix
+  "The ABSOLUTE runtime-db prefix for an entry's scoped-key `:resource/key`
+  carrier — `[:rf.runtime/resources :entries <key-id> :resource/key]`. The
+  scoped key is `[scope resource-id params]`, so a `:params`-rooted declared
+  path re-roots under index 2, a `:scope`-rooted one under index 0."
+  [key-id]
+  (conj (state/entry-path-by-id key-id) :resource/key))
+
+(defn- instance-declaration-paths
+  "The ABSOLUTE `{:sensitive [paths] :large [paths]}` runtime-db paths a single
+  entry contributes, re-rooting `spec`'s projection-relative declarations under
+  the entry's byte `key-id`. `:data`-rooted paths re-root under the entry's
+  `:data`; `:params`-rooted paths re-root under the scoped key's params (index
+  2 of `:resource/key`); `:scope`-rooted paths under the scope (index 0). Pure;
+  returns `{:sensitive [] :large []}` when the spec declares neither axis."
+  [key-id spec]
+  (let [s     (split-projection-paths spec :sensitive)
+        l     (split-projection-paths spec :large)
+        data-prefix (entry-data-prefix key-id)
+        key-prefix  (entry-key-prefix key-id)
+        ;; a `:params`-rooted path was stripped of its `:params` head in
+        ;; `split-projection-paths`; the scoped key holds params at index 2 and
+        ;; scope at index 0, so re-root accordingly. A `:scope`-rooted path was
+        ;; kept WITH its `[:scope …]` head, so strip it and target index 0.
+        ->key-abs (fn [p]
+                    (if (= :scope (first p))
+                      (into (conj key-prefix 0) (subvec (vec p) 1))
+                      (into (conj key-prefix 2) p)))
+        ->abs     (fn [axis]
+                    (into (mapv #(into data-prefix %) (:data axis))
+                          (mapv ->key-abs (:params axis))))]
+    {:sensitive (->abs s)
+     :large     (->abs l)}))
+
+(defn- without-resource-sourced
+  "Drop `:source :resource` entries from a `{path decl}` declaration map,
+  preserving every other-sourced entry (`:effect` / `:flow` / `:route` /
+  `:machine` / `:owner-declaration`). Returns `{}` for nil."
+  [decls]
+  (reduce-kv (fn [acc p decl]
+               (if (= resource-source (:source decl))
+                 acc
+                 (assoc acc p decl)))
+             {}
+             (or decls {})))
+
+(defn- with-resource-paths
+  "Overlay `:source :resource` declarations for the absolute `paths` onto the
+  carried (non-resource-sourced) declaration map WITHOUT clobbering a foreign-
+  source standing entry on the same absolute path (the registry is one entry-
+  per-path-per-axis; an app-effect / flow / route claim on the same path is left
+  standing — the same posture machines' `apply-decls` SET uses)."
+  [carried paths]
+  (reduce (fn [acc p]
+            (if (contains? acc p)
+              acc
+              (assoc acc p {:source resource-source})))
+          carried
+          paths))
+
+(defn reconcile-registry
+  "PURE per-instance lowering: given a base `runtime-db` value and a `spec-of`
+  resolver `(fn [resource-id] -> spec|nil)`, return the runtime-db with the
+  `[:rf.runtime/elision …]` registry's `:source :resource` entries REPLACED by
+  the declarations of EVERY current cache entry (re-rooted absolute per the
+  entry's byte `key-id`). The standard EP-0025 lowering — the resources peer of
+  `re-frame.routing.classification/apply-route-classification` and
+  `re-frame.machines.classification/lower-at-spawn!` (rf2-v8x9n8).
+
+  Operates on a VALUE so a resource handler's durable `:rf.db/runtime`
+  transition folds the registry update into the SAME atomic commit that
+  writes / evicts the entry. IDEMPOTENT + SELF-DROPPING: the full resource-
+  sourced set is rebuilt from the current `:entries`, so an evicted entry's
+  declarations vanish (the per-instance teardown) and a newly-minted entry's
+  appear, with no separate drop hook. Value-INDEPENDENT (the declared path
+  redacts whatever later occupies the slot). Other-sourced registry entries
+  (`:effect` / `:flow` / `:route` / `:machine`) ride untouched and union at
+  egress-lookup time.
+
+  `spec-of` is injected (resources' `registry` requires `classification`, so a
+  static back-require would cycle) — the caller (a resource event handler in
+  `re-frame.resources.events`) passes `registry/resource-meta`. A resource id
+  with no registered spec, or a spec that declares no classification, contributes
+  nothing.
+
+  Reconcile-aware (router `re-frame.elision/reconcile-runtime-db-effect`): when
+  the lowering touched the registry (the base carried resource-sourced entries
+  or the current entries declare some), it emits an EXPLICIT
+  `:rf.runtime/elision` key (possibly cleared of all resource entries) so a
+  whole-value runtime-db commit honours an eviction's drop verbatim rather than
+  resurrecting the prior registry. The common no-classification-ever case emits
+  no key."
+  [runtime-db spec-of]
+  (let [base    (or runtime-db {})
+        entries (get-in base (state/entries-path))
+        reg     (get base elision-registry-key)
+        carry-s (without-resource-sourced (:sensitive-declarations reg))
+        carry-l (without-resource-sourced (:declarations reg))
+        ;; gather every current entry's absolute declaration paths
+        {:keys [sensitive large]}
+        (reduce-kv
+          (fn [acc key-id entry]
+            (let [resource-id (second (:resource/key entry))
+                  spec        (when resource-id (spec-of resource-id))]
+              (if-not spec
+                acc
+                (let [{:keys [sensitive large]} (instance-declaration-paths key-id spec)]
+                  (-> acc
+                      (update :sensitive into sensitive)
+                      (update :large into large))))))
+          {:sensitive [] :large []}
+          (or entries {}))
+        new-s   (with-resource-paths carry-s sensitive)
+        new-l   (with-resource-paths carry-l large)
+        new-reg (cond-> {}
+                  (seq new-s) (assoc :sensitive-declarations new-s)
+                  (seq new-l) (assoc :declarations new-l))]
+    (cond
+      (seq new-reg)
+      (assoc base elision-registry-key new-reg)
+
+      ;; emptied, but the base carried a registry → emit the explicit clear so
+      ;; the router's reconcile honours an eviction's drop verbatim.
+      (contains? base elision-registry-key)
+      (assoc base elision-registry-key {})
+
+      ;; nothing ever classified → leave the key absent (no stray sub-tree).
+      :else base)))

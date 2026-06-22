@@ -64,6 +64,7 @@
   (:require [clojure.set :as set]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as rreply]
             [re-frame.resources.reply-handlers :as reply-handlers]
@@ -76,6 +77,38 @@
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; ---- per-instance classification lowering (EP-0025 §subsystems, rf2-v8x9n8) -
+;;
+;; Every resource handler that writes / evicts `:entries` returns a durable
+;; `{:rf.db/runtime rdb'}` effect. `with-classification-lowering` wraps such a
+;; handler so its returned runtime-db is reconciled through
+;; `classification/reconcile-registry` (passing `registry/resource-meta` as the
+;; `spec-of` resolver) BEFORE it is committed — lowering each current entry's
+;; projection-relative `:sensitive` / `:large` declarations into the per-frame
+;; elision registry under `:source :resource`, and self-dropping an evicted
+;; entry's declarations. This is the resources peer of the routing
+;; navigation-commit fold (`re-frame.routing.events`) and the machines
+;; spawn/destroy lowering. The reconciliation is idempotent + value-independent,
+;; so wrapping every entry-mutating handler keeps the registry's resource-sourced
+;; set exactly in step with `:entries` regardless of which handler ran. A handler
+;; whose effects map carries no `:rf.db/runtime` (a pure dispatch / no-op turn)
+;; rides through unchanged.
+
+(defn with-classification-lowering
+  "Wrap a resource event handler `f` so the `:rf.db/runtime` value of its
+  returned effects map is reconciled through `classification/reconcile-registry`
+  (resolver = `registry/resource-meta`) — lowering each live entry's
+  projection-relative classification into the per-frame elision registry under
+  `:source :resource` (rf2-v8x9n8). A returned map with no `:rf.db/runtime` key
+  rides unchanged. Variadic in the handler arity (coeffects + payload + any
+  extra args)."
+  [f]
+  (fn [& args]
+    (let [effects (apply f args)]
+      (if (and (map? effects) (contains? effects :rf.db/runtime))
+        (update effects :rf.db/runtime classification/reconcile-registry registry/resource-meta)
+        effects))))
 
 ;; ---- shared timestamp helpers ---------------------------------------------
 ;;

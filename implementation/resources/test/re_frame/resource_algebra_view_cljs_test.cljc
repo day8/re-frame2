@@ -374,34 +374,55 @@
           "non-sensitive scope + params ride verbatim")
       (is (= scoped-key (:id node)) "non-sensitive scoped key rides verbatim"))))
 
-(deftest live-view-redacts-derived-sensitive-scope
-  (testing "rf2-0t0l3w: a resource whose {:from-db <resolver>} scope derives
-            sensitivity from a frame-sensitive :db input is redacted at egress
-            EVEN when the owner did not declare :sensitive? (derived-sensitivity
-            inheritance, Spec 015 §Derived sensitivity)"
-    ;; FRAME classification: the resolver's :db input path is sensitive.
-    ;; EP-0025: classified via the commit-plane effect path (:source :effect) —
-    ;; no longer a frame annotation.
+(deftest live-view-no-derived-sensitivity-inheritance
+  (testing "rf2-71dr8t / EP-0025: a resource whose {:from-db <resolver>} scope
+            derives from a frame-sensitive :db input is NOT auto-redacted — the
+            derived-sensitivity propagation engine was removed (no input→output
+            inheritance, Spec 015 §No propagation, no taint). Confirm-by-revert:
+            the OWNER's coarse :sensitive? claim still redacts the whole key."
+    ;; FRAME classification: the resolver's :db input path is sensitive
+    ;; (commit-plane effect path, :source :effect).
     (rf/reg-frame :sens/frame {:doc "frame with a sensitive tenant-id"})
     (frame/swap-runtime-db! :sens/frame
       (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
-    ;; resolver reading the frame-sensitive path (default :inherit propagates)
+    ;; resolver reading the frame-sensitive path — NO propagation now.
     (rf/reg-resource-scope :session/tenant
                            {:inputs  {:tenant-id [:db [:session :tenant-id]]}
                             :resolve (fn [{:keys [tenant-id]} _]
                                        (when tenant-id [:rf.scope/tenant tenant-id]))})
-    ;; a tenant-scoped resource — NOT itself declared :sensitive?
+    ;; a tenant-scoped resource NOT declared :sensitive? — the derived scope is
+    ;; NO LONGER inherited as sensitive (the secret rides; fail-open).
     (rf/reg-resource :derived/article
                      (article-spec {:scope {:from-db :session/tenant}})
                      article-spec-request)
-    (let [scope      [:rf.scope/tenant secret]
-          params     {:slug "x"}
-          scoped-key (install-live-entry! :sens/frame :derived/article scope params
-                                          {:status :loaded :owner [:lease :d 1]})
-          view       (resources-tooling/resource-cache-algebra-view :sens/frame)]
-      (is (= 1 (count view)) "one node")
-      (testing "the derived-sensitive scope is redacted at egress (no raw secret)"
-        (is (not (contains-secret? view)))))))
+    (let [scope  [:rf.scope/tenant secret]
+          params {:slug "x"}]
+      (install-live-entry! :sens/frame :derived/article scope params
+                           {:status :loaded :owner [:lease :d 1]})
+      (let [view (resources-tooling/resource-cache-algebra-view :sens/frame)]
+        (is (= 1 (count view)) "one node")
+        (testing "the derived scope is NOT auto-redacted (no inheritance)"
+          (is (contains-secret? view)
+              "the raw derived-scope secret rides — no propagation"))))
+    (testing "confirm-by-revert: an OWNER-declared :sensitive? resource redacts
+              the whole scoped key (the surviving coarse-claim boundary)"
+      ;; a FRESH frame so only the secret-article rides the view (its redacted
+      ;; key is content-addressed, so a raw-key lookup would miss — assert the
+      ;; whole frame view is secret-free instead).
+      (rf/reg-frame :sens/frame2 {:doc "second frame for the revert check"})
+      (rf/reg-resource :derived/secret-article
+                       (article-spec {:scope      {:from-db :session/tenant}
+                                      :sensitive? true})
+                       article-spec-request)
+      (let [scope  [:rf.scope/tenant secret]
+            params {:slug "y"}]
+        (install-live-entry! :sens/frame2 :derived/secret-article scope params
+                             {:status :loaded :owner [:lease :s 1]})
+        (let [view (resources-tooling/resource-cache-algebra-view :sens/frame2)]
+          (is (= 1 (count view)) "one node in the fresh frame")
+          (testing "the owner-:sensitive? key redacts the secret"
+            (is (not (contains-secret? view))
+                "the owner coarse claim redacts the scope+params in the wire key")))))))
 
 ;; ---- registry semantics --------------------------------------------------
 

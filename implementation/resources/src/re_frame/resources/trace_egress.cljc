@@ -56,13 +56,12 @@
   `re-frame.resources.classification/whole-entry-disposition` of a nil spec is
   `:serialize` (a no-coarse-claim ALGEBRA read), but a TRACE row whose owner we
   cannot read is not provably safe, so this projector REDACTS an
-  unregistered-owner key (and stamps `:sensitive? true`). A missing / unknown
-  frame likewise reduces conservatively (`whole-entry-disposition-for`'s
-  nil-frame reduction keeps the owner boundary; the unregistered arm fails
-  closed). Structural attribution survives every case: the resource-id (position
-  1 of the projected key) and every NON-key tag ride verbatim, so a tool still
-  attributes the row to its resource and reads the structural facts; only the
-  identity-bearing scope + params components are tokenized.
+  unregistered-owner key (and stamps `:sensitive? true`). The unregistered arm
+  fails closed independently of any frame. Structural attribution survives every
+  case: the resource-id (position 1 of the projected key) and every NON-key tag
+  ride verbatim, so a tool still attributes the row to its resource and reads the
+  structural facts; only the identity-bearing scope + params components are
+  tokenized.
 
   The redaction is the off-box DEFAULT; the trusted-local `:include-sensitive?`
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
@@ -79,10 +78,10 @@
   "Fail-closed projection of one trace-row `scoped-key`
   `[scope resource-id params]` for OFF-BOX trace egress (rf2-8x0gfa). Returns
   `[projected-key sensitive?]`. For a REGISTERED owner the scope + params
-  tokenize per the owner's `whole-entry-disposition-for` classification (a
-  `:sensitive?` / `:large?` / derived-sensitive key redacts to opaque
-  content-addressed `{:rf/redacted <digest>}` tokens; a plain key rides
-  verbatim). A key whose resource-id is UNREGISTERED (nil owner spec — the
+  tokenize per the owner's `whole-entry-disposition` classification (a
+  `:sensitive?` / `:large?` key redacts to opaque content-addressed
+  `{:rf/redacted <digest>}` tokens; a plain key rides verbatim). A key whose
+  resource-id is UNREGISTERED (nil owner spec — the
   trace names an owner we cannot read) is REDACTED rather than serialized raw
   (the trace-egress fail-closed default). An already-projected key (both scope
   and params are opaque tokens) rides as-is + stays marked sensitive
@@ -162,13 +161,13 @@
   (`re-frame.resources.scope-registry/project-scope-resolved-egress`), which the
   epoch tool-pair runs BEFORE this family projector on the SAME row
   (`omit-off-box-resource-scope-values` → `omit-off-box-resource-trace-keys`).
-  That projector already classifies these resolver-owned slots — redacting them
-  for a sensitive resolver, but leaving them VERBATIM for an explicitly
-  `:rf.egress/public` (declassified) resolver (rf2-84l82t, the enumerable
-  declassification surface). They must therefore PASS THROUGH this projector's
-  fail-closed map default unchanged — re-tokenizing a declassified `:input-
-  values` map here would undo the sibling's deliberate declassification
-  (rf2-7qbxbm)."
+  That projector already classifies these resolver-owned slots — EP-0025
+  (rf2-71dr8t) made resolved-scope egress UNCONDITIONALLY fail-closed (the
+  `:rf.egress/public` declassification escape hatch was the removed propagation
+  enum), so the sibling always redacts `:input-values` / `:scope` to
+  `:rf/redacted`. They must therefore PASS THROUGH this projector's fail-closed
+  map default unchanged — they were already classified upstream (an already-
+  redacted token re-redacts to itself; rf2-7qbxbm)."
   #{:input-values :scope})
 
 (def ^:private cursor-slot
@@ -183,15 +182,15 @@
   walk is structurally blind to it once copied into a free tag, and it is NOT a
   scoped-key vector, so it escapes the scoped-key slots above (rf2-3tysyj). It
   is tokenized iff the ROW's resource owner classifies non-`:serialize`
-  (sensitive / large / derived-sensitive / unregistered fail-closed) — the SAME
+  (sensitive / large / unregistered fail-closed) — the SAME
   disposition that governs the row's `:resource/key` — so a plain feed's cursor
   rides verbatim (no over-redaction)."
   #{:page-param :next-page-param})
 
 (defn- row-owner-redacts?
   "Whether the resource OWNER named by this trace row's `:resource/key`
-  classifies non-`:serialize` (sensitive / large / derived-sensitive against
-  `frame-id`, or UNREGISTERED → fail-closed) — i.e. whether the row's
+  classifies non-`:serialize` (sensitive / large, or UNREGISTERED →
+  fail-closed) — i.e. whether the row's
   owner-local identity-bearing FREE tags (the load-more cursor) must tokenize.
   Reuses the SAME owner classification the scoped-key projection uses
   (`disposition+project-key`), with the trace-egress fail-closed default for an
@@ -322,9 +321,9 @@
                 ;; tokenizing them would destroy attribution / a tool's joins
                 ;; with no security gain; the scope-resolved sibling projector's
                 ;; `:input-values` / `:scope` slots (`sibling-owned-slot`) were
-                ;; ALREADY classified upstream (and a `:rf.egress/public`
-                ;; resolver's ride VERBATIM by design), so re-tokenizing them
-                ;; here would undo that declassification. The genuine app-data
+                ;; ALREADY classified upstream (EP-0025 made resolved-scope egress
+                ;; unconditionally fail-closed), so re-tokenizing them here is a
+                ;; no-op at best and double-work at worst. The genuine app-data
                 ;; leak vectors are the scoped keys (above), the cursor (above),
                 ;; and the MAP-shaped HTTP envelope (above) — the conservative
                 ;; fail-closed scope the audit ruled.
@@ -352,10 +351,10 @@
   / `:exempt` / `:committed` / `:restored` / `:conflicted` / `:refetched` /
   `:restored-keys` / `:conflicted-keys` / `:refetched-keys`), and the
   optimistic-rollback `:dispositions` (per-key maps) is projected through the
-  resource OWNER classification (`whole-entry-disposition-for` +
+  resource OWNER classification (`whole-entry-disposition` +
   `ssr/project-scoped-key`).
 
-  A `:sensitive?` / `:large?` / derived-sensitive owner's scope + params
+  A `:sensitive?` / `:large?` owner's scope + params
   tokenize to opaque content-addressed `{:rf/redacted <digest>}` (distinct
   values stay distinct, so a tool's per-key joins survive); a plain owner's key
   rides verbatim; an UNREGISTERED owner FAILS CLOSED (redacted — the
@@ -371,7 +370,7 @@
   a record id / tenant offset / timestamp), not a scoped key, so it escapes the
   scoped-key slots. It rides the ROW's owner classification (read from the
   sibling `:resource/key`): tokenized to a content-addressed `{:rf/redacted
-  <digest>}` when that owner is non-`:serialize` (sensitive / large / derived /
+  <digest>}` when that owner is non-`:serialize` (sensitive / large /
   unregistered fail-closed), riding verbatim for a plain feed (no
   over-redaction) — rf2-3tysyj.
 

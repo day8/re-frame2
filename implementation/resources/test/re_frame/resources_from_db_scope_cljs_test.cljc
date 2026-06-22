@@ -479,14 +479,17 @@
                               :else     false))]
           (is (not (secret? proj))))))))
 
-(deftest scope-resolved-off-box-egress-public-resolver-rides-verbatim
-  ;; A resolver that explicitly DECLASSIFIES (:rf.egress/public) asserts its
-  ;; derived scope is safe to surface — the trusted, enumerable audit surface.
+(deftest scope-resolved-off-box-egress-no-declassify-escape-hatch
+  ;; EP-0025 (rf2-71dr8t): the :rf.egress/public DECLASSIFICATION escape hatch
+  ;; was the removed propagation enum — off-box scope-resolved egress is now
+  ;; UNCONDITIONALLY fail-closed. A resolver that once carried :rf.egress/public
+  ;; now still redacts its resolved values (the key is silently ignored).
   (rf/reg-resource-scope :t/public-locale
     {:inputs  {:locale [:db [:i18n :locale]]}
-     :rf.egress/output-sensitivity :rf.egress/public
+     :rf.egress/output-sensitivity :rf.egress/public   ;; silently ignored now
      :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
-  (testing "an explicitly :rf.egress/public resolver's values ride verbatim"
+  (testing "a resolver's resolved values are REDACTED off-box regardless of the
+            (now-ignored) :rf.egress/output-sensitivity key"
     (let [tags {:resource-id  :t/public-locale
                 :kind         :resource-scope
                 :inputs       [:locale]
@@ -494,19 +497,22 @@
                 :scope        [:rf.scope/locale {:locale "en"}]
                 :resolved-nil? false}
           proj (scope-registry/project-scope-resolved-egress tags)]
-      (is (= {:locale "en"} (:input-values proj)))
-      (is (= [:rf.scope/locale {:locale "en"}] (:scope proj)))
-      (is (not (:sensitive? proj))))))
+      (is (= :rf/redacted (:input-values proj)) "resolved input-values redacted")
+      (is (= :rf/redacted (:scope proj)) "derived scope redacted")
+      (is (:sensitive? proj) "the row is stamped sensitive")
+      (is (= [:locale] (:inputs proj)) "the structural input NAMES ride verbatim"))))
 
-(deftest scope-resolver-egress-sensitive-fails-closed-on-unregistered
-  ;; An unregistered resolver id → sensitive (fail-closed: no spec proves safe).
-  (testing "the predicate fails closed for an unknown resolver"
+(deftest scope-resolver-egress-sensitive-always-fail-closed
+  ;; EP-0025: off-box resolved-scope egress is unconditionally sensitive — the
+  ;; declassify escape hatch is gone (rf2-71dr8t).
+  (testing "the predicate is sensitive for an unregistered resolver"
     (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/never-registered))))
-  (testing "the predicate is sensitive for a db-reading :inherit resolver"
+  (testing "the predicate is sensitive for a db-reading resolver"
     (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/session))))
-  (testing "the predicate is NOT sensitive for an explicitly :public resolver"
+  (testing "a resolver that once declared :rf.egress/public is STILL sensitive
+            (the declassify hatch was removed)"
     (rf/reg-resource-scope :t/public2
       {:inputs  {:locale [:db [:i18n :locale]]}
        :rf.egress/output-sensitivity :rf.egress/public
        :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
-    (is (false? (scope-registry/scope-resolver-egress-sensitive? :t/public2)))))
+    (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/public2)))))

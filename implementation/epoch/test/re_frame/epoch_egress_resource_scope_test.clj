@@ -106,15 +106,22 @@
       (testing "no raw secret survives anywhere in the projected record"
         (is (not (contains-secret? projected)))))))
 
-(deftest off-box-projection-keeps-declassified-resolver-values
-  (testing "rf2-84l82t — an explicitly :rf.egress/public resolver's values ride
-            VERBATIM off-box (the trusted, enumerable declassification surface)"
+(deftest off-box-projection-redacts-formerly-declassified-resolver-values
+  (testing "rf2-71dr8t / EP-0025 — the :rf.egress/public DECLASSIFICATION escape
+            hatch was the removed propagation enum, so a resolver that once
+            declared it now STILL redacts its resolved values off-box (off-box
+            resolved-scope egress is unconditionally fail-closed)"
     (let [record    (record-with
                        [(scope-resolved-event :rs/public-locale
                                               {:locale "en"}
                                               [:rf.scope/locale {:locale "en"}])])
           projected (epoch/projected-record record)
           row       (first (:trace-events projected))]
-      (is (= {:locale "en"} (get-in row [:tags :input-values])))
-      (is (= [:rf.scope/locale {:locale "en"}] (get-in row [:tags :scope])))
-      (is (not (get-in row [:tags :sensitive?]))))))
+      (is (= :rf/redacted (get-in row [:tags :input-values]))
+          "the resolved input-values are redacted (no declassify hatch)")
+      (is (= :rf/redacted (get-in row [:tags :scope]))
+          "the derived scope is redacted")
+      (is (true? (get-in row [:tags :sensitive?])) "stamped sensitive")
+      (testing "the structural attribution slots ride verbatim"
+        (is (= :rs/public-locale (get-in row [:tags :resource-id])))
+        (is (= [:locale] (get-in row [:tags :inputs])))))))

@@ -203,29 +203,33 @@
           (scope/resolve-from-db-reference {:from-db :s/nope} {} 'test)))))
 
 ;; ===========================================================================
-;; 7. Derived-sensitivity claim + input-path accessor (EP-0016 wave,
-;;    rf2-fi6tda.1) — the resolver MAY classify its derived scope with the
-;;    closed :rf.egress/output-sensitivity enum, and the declared :db input
-;;    paths are the dependency graph the propagation pass reads.
+;; 7. No :rf.egress/output-sensitivity claim (EP-0025, rf2-71dr8t) — the
+;;    derived-sensitivity PROPAGATION enum is removed; the key is silently
+;;    ignored if present (NOT validated fail-closed). The declared :db input
+;;    paths accessor remains for tooling.
 ;; ===========================================================================
 
-(deftest output-sensitivity-claim-stored-and-validated
-  (testing "a resolver with no claim defaults to :rf.egress/inherit"
+(deftest output-sensitivity-claim-silently-ignored
+  (testing "a resolver carries no :output-sensitivity on its canonical spec
+            (the propagation enum is gone — EP-0025)"
     (resources/reg-resource-scope :s/default session-spec)
-    (is (= :rf.egress/inherit (:output-sensitivity (resources/scope-resolver-meta :s/default)))))
-  (testing "an explicit claim is validated against the closed enum + stored verbatim"
+    (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/default)))))
+  (testing "a present :rf.egress/output-sensitivity key is silently ignored, not
+            stored, and registration does NOT throw (Spec 015 §No propagation:
+            the key is gone and silently ignored if present)"
     (doseq [claim [:rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
-      (resources/reg-resource-scope :s/claim
-                                    (assoc session-spec :rf.egress/output-sensitivity claim))
-      (is (= claim (:output-sensitivity (resources/scope-resolver-meta :s/claim))))))
-  (testing "the whole-db fn sugar defaults to :rf.egress/inherit"
+      (is (= :s/claim
+             (resources/reg-resource-scope :s/claim
+                                           (assoc session-spec :rf.egress/output-sensitivity claim))))
+      (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/claim))))))
+  (testing "the whole-db fn sugar carries no :output-sensitivity"
     (resources/reg-resource-scope :s/sugar-claim (fn [_db _ctx] nil))
-    (is (= :rf.egress/inherit (:output-sensitivity (resources/scope-resolver-meta :s/sugar-claim)))))
-  (testing "an unknown :rf.egress/output-sensitivity value is rejected FAIL-CLOSED"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/typo-claim
-                                        (assoc session-spec :rf.egress/output-sensitivity :rf.egress/publik))))))
+    (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/sugar-claim)))))
+  (testing "a value that was a fail-closed enum typo is now silently ignored —
+            no :rf.error/invalid-resource-scope-spec throw"
+    (is (= :s/was-typo-claim
+           (resources/reg-resource-scope :s/was-typo-claim
+                                         (assoc session-spec :rf.egress/output-sensitivity :rf.egress/publik))))))
 
 (deftest input-db-paths-extracts-the-dependency-graph
   (testing "input-db-paths returns the concrete :db paths a resolver reads"

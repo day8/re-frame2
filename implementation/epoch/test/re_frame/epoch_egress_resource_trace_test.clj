@@ -62,17 +62,17 @@
                    :large?        true
                    :params-schema [:map [:blob :string]]}
                   (fn [_ _] {:request {:method :get :url "/y"}}))
-                ;; a derived-sensitive {:from-db} scope: the owner did NOT
-                ;; declare :sensitive?, but the resolver is explicitly
-                ;; :rf.egress/sensitive (force-mark), so the entry inherits
-                ;; :redact (defence-in-depth — Spec 015 §Derived sensitivity).
+                ;; a {:from-db} scope resource. EP-0025 (rf2-71dr8t) removed the
+                ;; derived-sensitivity PROPAGATION arm, so the entry no longer
+                ;; INHERITS :redact from the resolver's inputs — the OWNER must
+                ;; declare :sensitive? to redact its scoped key off-box.
                 (rf/reg-resource-scope :rt/session
                   {:inputs  {:username [:db [:auth :user :username]]}
-                   :rf.egress/output-sensitivity :rf.egress/sensitive
                    :resolve (fn [{:keys [username]} _]
                               (when username [:rf.scope/session {:username username}]))})
                 (rf/reg-resource :derived/profile
                   {:scope         {:from-db :rt/session}
+                   :sensitive?    true
                    :params-schema [:map [:slug :string]]}
                   (fn [_ _] {:request {:method :get :url "/z"}}))
                 ;; a PLAIN resource — must ride verbatim (no over-redaction).
@@ -173,12 +173,14 @@
 ;; (3) rollback :dispositions — per-key maps (derived-sensitive {:from-db} scope)
 ;; ---------------------------------------------------------------------------
 
-(deftest off-box-redacts-rollback-dispositions-derived-sensitive-scope
-  (testing "rf2-8x0gfa — a :rf.mutation/optimistic-rolled-back row's
-            :dispositions per-key maps have their derived-sensitive scope +
-            params tokenized off-box; the boolean disposition facts survive"
-    (let [;; the resolver derives [:rf.scope/session {:username secret}] — the
-          ;; entry inherits :redact even though the owner didn't declare it.
+(deftest off-box-redacts-rollback-dispositions-owner-sensitive-scope
+  (testing "rf2-8x0gfa / rf2-71dr8t — a :rf.mutation/optimistic-rolled-back row's
+            :dispositions per-key maps have their OWNER-declared-sensitive scope
+            + params tokenized off-box; the boolean disposition facts survive.
+            EP-0025: the scope is tokenized via the owner's :sensitive? claim
+            (the derived-sensitivity propagation arm was removed)"
+    (let [;; :derived/profile declares :sensitive? → its scoped key is redacted
+          ;; off-box (the owner boundary, NOT derived-sensitivity inheritance).
           scoped-key (sk [:rf.scope/session {:username secret}]
                          :derived/profile {:slug "me"})
           record     (record-with
