@@ -161,9 +161,16 @@
 
   Note: the emit site does NOT stamp `:sensitive?` here — the production
   bug rf2-md2wn0 hinges on that. The flag is decided downstream by marks
-  projection, and the top-level hoist must lift it from `:tags`."
+  projection, and the top-level hoist must lift it from `:tags`.
+
+  Carries an explicit `:frame :rf/default` — a KNOWN (non-nil) frame — so
+  the projector takes the resolved-frame branch and these precision fixtures
+  exercise the non-redacting plain-machine path (rf2-xmnlvc: with the
+  nil-frame fail-closed arm a missing `:frame` now redacts; the nil-frame
+  regression below intentionally omits it)."
   [id-key machine-id]
   {id-key             machine-id
+   :frame             :rf/default
    :action-id         :do/thing
    :state-path        [:running]
    :event             [machine-id [:tick]]
@@ -264,6 +271,32 @@
       (is (some? out) "the machine-action-exception trace was delivered")
       (is (map? (:exception-data tags)) ":exception-data verbatim (no marks)")
       (is (not (:sensitive? out)) "no top-level :sensitive? stamp"))))
+
+(deftest machine-exception-data-redacted-for-nil-frame
+  (testing "rf2-xmnlvc — a machine-action-exception whose trace carries NO
+            :frame (nil / unresolvable frame) FAILS CLOSED: :exception-data is
+            elided to :rf/redacted and the TOP-LEVEL :sensitive? flag is
+            hoisted — matching the sibling project-flow-failed-tags and Spec
+            015 §Failure-posture (unknown frame => fail closed). Even a PLAIN
+            machine (no author :sensitive mark) redacts here, because the
+            author-shaped :exception-data cannot be path-walked safely without
+            a resolved frame. Confirm-by-revert: dropping the (nil? frame-id)
+            arm in project-machine-error-tags makes this RED — the sentinel
+            leaks raw."
+    (declare-machine-marks!)
+    (let [tags-no-frame (dissoc (machine-action-exception-tags
+                                  :actor-id plain-machine-id)
+                                :frame)
+          out           (emit-machine-action-exception tags-no-frame)
+          tags          (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
+      (is (nil? (:frame tags)) "the trace carries no resolvable :frame")
+      (is (= :rf/redacted (:exception-data tags))
+          ":exception-data redacted (fail-closed on a nil frame)")
+      (is (true? (:sensitive? out)) "top-level :sensitive? hoisted")
+      (is (not (contains-sentinel? out))
+          (str "the sentinel leaked into the nil-frame exception trace: "
+               (pr-str tags))))))
 
 ;; ---------------------------------------------------------------------------
 ;; SITE 1 — :actor-id PREFERRED branch (rf2-sxmeqs).
