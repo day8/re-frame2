@@ -787,6 +787,7 @@ Why the canonical form is `[<id> <map>]`:
 - **Refactor stability.** Adding a field is one key, not a coordinated edit across every call site.
 - **Generator-amenable.** AI scaffolds (per [Construction-Prompts §CP-1](Construction-Prompts.md#cp-1-add-an-event-handler)) emit the map form; round-tripping through the spec preserves it.
 - **`unwrap` sugar.** The optional `unwrap` interceptor (per [API §Standard interceptors](API.md#standard-interceptors)) assumes this exact shape — handlers using it destructure the payload directly: `(fn [_ {:keys [...]}] ...)`.
+- **Redactable at egress.** Trace/error redaction is path-based, and a path can only address the arg-map (`(second event)`). A secret in a **positional** arg is not path-addressable, so under the fail-open EP-0025 model it ships RAW into every trace/error sink — prefer the map payload form for sensitive args, then classify the path (per [015-Data-Classification §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) and [docs/guide §keep-secrets-out-of-traces](../docs/guide/how-to/keep-secrets-out-of-traces.md)).
 
 Cross-refs: [002 §Routing — canonical call shapes table](002-Frames.md#routing-the-dispatch-envelope), [Construction-Prompts §CP-1 — Call-shape convention](Construction-Prompts.md#cp-1-add-an-event-handler), [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in).
 

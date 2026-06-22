@@ -128,3 +128,50 @@
       (is (= secret (get-in wire [:auth :token]))
           "the unclassified path ships raw — fail-open on omission")
       (is (contains-secret? wire)))))
+
+;; ---------------------------------------------------------------------------
+;; 4. A secret in a POSITIONAL EVENT ARG ships RAW through `redact-event`
+;;    (the event-payload egress edge of the SAME fail-open contract — rf2-5n2clp
+;;    option (a): document + test the limitation as KNOWN, EXPECTED behavior).
+;; ---------------------------------------------------------------------------
+;;
+;; `privacy/redact-event` is the path-based event-vector redactor that feeds
+;; `:rf/redacted-event` → every `:event/*` trace, `:event/db-changed`, and the
+;; `:event` slot of a `:rf.error/handler-exception` record. It is map-key
+;; oriented: only `(second event)` — the arg-map — is path-addressable. A
+;; positional index has NO declarable `:sensitive` path, so a secret carried in
+;; a positional arg is structurally unreachable by the redactor and egresses
+;; RAW. This is a KNOWN STRUCTURAL LIMITATION of the EP-0025 fail-open model,
+;; not a bug; the test pins it so it is VISIBLE + tested rather than a silent
+;; false sense of safety, and so a future change cannot quietly regress it.
+;; The remediation is authorial: PREFER THE MAP PAYLOAD FORM for sensitive
+;; args (the positive half, exercised below for contrast).
+
+(deftest positional-event-arg-ships-raw
+  (testing "a secret in a POSITIONAL event arg passes through redact-event
+            UNCHANGED — positional indices are not path-addressable, so the
+            path-based redactor cannot reach them (KNOWN fail-open limitation)"
+    ;; A path declared at `[:token]` indexes into the arg-map. With a positional
+    ;; payload there IS no arg-map at that slot, so redaction is a no-op and the
+    ;; secret survives RAW in the redacted event vector.
+    (let [positional-event [:auth/login "alice" secret]
+          redacted         (privacy/redact-event positional-event [[:token]])]
+      (is (= positional-event redacted)
+          "the positional-arg event passes through redact-event unchanged")
+      (is (= secret (nth redacted 2))
+          "the secret survives RAW in the positional slot — fail-open: a
+           positional index is not path-redactable")
+      (is (contains-secret? redacted)
+          "the secret egresses RAW through redact-event (the documented
+           positional-arg limitation — prefer the map payload form)")))
+
+  (testing "the MAP payload form of the same event IS path-redactable — the
+            authorial remediation: carry sensitive args in the arg-map and
+            classify the path"
+    (let [map-event [:auth/login {:user "alice" :token secret}]
+          redacted  (privacy/redact-event map-event [[:token]])]
+      (is (= privacy/redacted-sentinel (get-in redacted [1 :token]))
+          "the classified arg-map path redacts to :rf/redacted")
+      (is (not (contains-secret? redacted))
+          "no raw secret survives when the secret rides a classified arg-map
+           path — the recommended shape for sensitive args"))))

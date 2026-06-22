@@ -76,9 +76,11 @@ Values that flow *through* the cascade — event args, fx/cofx values, a subscri
 
 The handler body sees `password` verbatim, because handlers need real values to do their work. Only the *observable shadow* is projected: the dispatched-event trace and the HTTP record ship `:password` as `:rf/redacted`. Paths index into the registration's primary shape — the event arg-map, the fx-input map, the sub output; an empty path `[[]]` marks the whole shape, and a mark at a missing slot is a silent no-op (payload shapes evolve).
 
-!!! tip "Prefer the map payload for sensitive args — positional args are not path-addressable"
+!!! warning "Positional args are not path-addressable — a secret in one egresses RAW"
 
-    A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`). A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has no stable named path to classify, so the registration mark can't name it cleanly. When an event carries a secret, pass a map payload and classify the key.
+    A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`), so the registration mark can name it. A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has **no** stable named path: a positional index is not path-addressable, so there is nothing for `:sensitive` to classify. Under the fail-open contract that means the secret is **not redacted at egress** — it ships RAW into every trace and error sink (the dispatched-event trace, `:event/db-changed`, and the `:event` slot of a `:rf.error/handler-exception` record). This is a known structural limitation, not a bug: redaction is path-based, and only the arg-map (`(second event)`) is reachable by a path.
+
+    **When an event carries a secret, pass a map payload and classify the key** — `[:auth/sign-in {:user "alice" :token "hunter2"}]` with `{:sensitive [[:token]]}` on the registration. The positional form is fine for non-sensitive args; reserve it for data you would not mind seeing in a trace.
 
 The `:auth/signed-in` handler then stores the response token at `[:auth :token]` — the path step 1 classified. Note the boundary of fail-open: the **HTTP reply** is redacted by its `:decode` schema (a transient payload), and the **durable copy** in app-db is redacted by step 1's path classification. Those are two separate declarations for the same secret on two different surfaces; there is no propagation that carries one to the other. Classify each surface the secret crosses.
 
