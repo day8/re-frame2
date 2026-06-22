@@ -20,6 +20,7 @@
     - clear-all / lifecycle interaction with the per-frame registry"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -576,6 +577,195 @@
                              :inputs []
                              :derive (fn [] 42)
                              :output-path   [:k]})))))
+
+;; ---------------------------------------------------------------------------
+;; 1c. validate-flow data-classification well-formedness (EP-0025
+;;     :rf.error/flow-bad-marks)
+;;
+;; EP-0025 lets a `reg-flow` registration carry data-classification keys
+;; describing the SENSITIVITY / SIZE of the flow's OWN output value:
+;; `:sensitive [paths]`, `:large [paths]`, and the `:large?` whole-output size
+;; override (`[[]]` marks the whole output). `validate-flow`'s rejection table
+;; (registry.cljc ~L558-612) fail-CLOSES on a malformed classification shape
+;; rather than silently installing no redaction / large-elision — the worst
+;; failure mode for a SAFETY feature is the author believing a slot is
+;; protected when it is not.
+;;
+;; These rules fire AFTER the core `:id` / `:inputs` / `:derive` /
+;; `:output-path` rules but BEFORE any registry / app-db / elision-declaration
+;; state mutates (`validate-flow` is the first call in `reg-flow`). So a
+;; rejected registration installs NO flow row and NO elision declaration. The
+;; sibling `flow-missing-id` / `flow-bad-id` / `flow-bad-inputs` /
+;; `flow-bad-output` / `flow-bad-path` / `flow-cycle` families are covered
+;; above and in flows_destroy_frame_teardown_test; this block backstops the
+;; EP-0025-added `:rf.error/flow-bad-marks` family, which had ZERO coverage
+;; (rf2-r87zhb). Spec 015:325 names `:rf.error/flow-bad-marks` normatively.
+;;
+;; Branch on the canonical `:rf.error/id` discriminator, never on the
+;; (human-sentence) message string.
+
+(defn- flow-bad-marks? [^Throwable t]
+  (= :rf.error/flow-bad-marks (:rf.error/id (ex-data t))))
+
+(defn- reg-flow-throwing
+  "reg-flow `flow-map`, returning the thrown Throwable (or nil if it did not
+  throw). Centralises the try/catch so each malformation test reads as a
+  single assertion against the canonical id + ex-data shape."
+  [flow-map]
+  (try (rf/reg-flow flow-map) nil
+       (catch Throwable t t)))
+
+(deftest reg-flow-rejects-non-vector-sensitive
+  (testing ":sensitive must be a vector of output subpaths — a non-vector is
+            rejected :rf.error/flow-bad-marks with :bad-key / :bad-value"
+    (let [bad {:secret :leak}                      ; a map, not a vector
+          ex  (reg-flow-throwing {:id          :bad/sensitive-shape
+                                  :inputs      [[:n]]
+                                  :derive      identity
+                                  :output-path [:out]
+                                  :sensitive   bad})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (re-find #"\[:rf\.error/flow-bad-marks\]" (ex-message ex))
+          "message carries the [:rf.error/flow-bad-marks] token")
+      (is (= :sensitive (:bad-key (ex-data ex)))
+          "ex-data names the offending key")
+      (is (= bad (:bad-value (ex-data ex)))
+          "ex-data carries the offending value for the diagnostic"))))
+
+(deftest reg-flow-rejects-malformed-sensitive-entry
+  (testing ":sensitive entries must each be a vector of path segments — a bare
+            keyword entry is rejected :rf.error/flow-bad-marks with :bad-entries"
+    ;; [:token] (a bare keyword) is NOT a valid output subpath — a subpath is a
+    ;; vector of scalar keys ([] = whole output). The diagnostic distinguishes
+    ;; "you passed a non-vector" (above) from "one of your entries is malformed".
+    (let [ex (reg-flow-throwing {:id          :bad/sensitive-entry
+                                 :inputs      [[:n]]
+                                 :derive      identity
+                                 :output-path [:out]
+                                 :sensitive   [[:ok] :token]})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= :sensitive (:bad-key (ex-data ex)))
+          "ex-data names the offending key")
+      (is (= [:token] (:bad-entries (ex-data ex)))
+          "only the malformed entry is named — the well-formed [:ok] is fine"))))
+
+(deftest reg-flow-rejects-non-vector-large
+  (testing ":large must be a vector of output subpaths — a non-vector is
+            rejected :rf.error/flow-bad-marks with :bad-key / :bad-value"
+    (let [bad "blob"                               ; a string, not a vector
+          ex  (reg-flow-throwing {:id          :bad/large-shape
+                                  :inputs      [[:n]]
+                                  :derive      identity
+                                  :output-path [:out]
+                                  :large       bad})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= :large (:bad-key (ex-data ex)))
+          "ex-data names the offending key")
+      (is (= bad (:bad-value (ex-data ex)))
+          "ex-data carries the offending value"))))
+
+(deftest reg-flow-rejects-malformed-large-entry
+  (testing ":large entries must each be a vector of path segments — a
+            collection path step is rejected :rf.error/flow-bad-marks"
+    ;; [[:nested]] is a path whose step is itself a vector (not a scalar key),
+    ;; so it is not a valid output subpath.
+    (let [ex (reg-flow-throwing {:id          :bad/large-entry
+                                 :inputs      [[:n]]
+                                 :derive      identity
+                                 :output-path [:out]
+                                 :large       [[:ok] [[:nested]]]})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= :large (:bad-key (ex-data ex)))
+          "ex-data names the offending key")
+      (is (= [[[:nested]]] (:bad-entries (ex-data ex)))
+          "only the malformed entry is named — the well-formed [:ok] is fine"))))
+
+(deftest reg-flow-rejects-boolean-sensitive?-spelling
+  (testing "the boolean :sensitive? spelling is rejected on a flow output
+            (EP-0025) — :rf.error/flow-bad-marks, with :use :sensitive pointing
+            at the correct whole-output spelling :sensitive [[]]"
+    ;; EP-0025 removed flow input→output propagation; the boolean :sensitive?
+    ;; spelling stays rejected (use :sensitive [[]] for a whole-output mark).
+    (let [ex (reg-flow-throwing {:id          :bad/sensitive?-spelling
+                                 :inputs      [[:n]]
+                                 :derive      identity
+                                 :output-path [:out]
+                                 :sensitive?  true})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= :sensitive? (:bad-key (ex-data ex)))
+          "ex-data names the rejected :sensitive? key")
+      (is (= true (:bad-value (ex-data ex)))
+          "ex-data carries the offending boolean value")
+      (is (= :sensitive (:use (ex-data ex)))
+          "ex-data :use points at the correct :sensitive spelling"))))
+
+(deftest reg-flow-rejects-output-sensitivity-propagation-key
+  (testing ":rf.egress/output-sensitivity is removed (EP-0025 — no flow
+            input→output propagation) and rejected :rf.error/flow-bad-marks"
+    (let [ex (reg-flow-throwing {:id                            :bad/output-sensitivity
+                                 :inputs                        [[:n]]
+                                 :derive                        identity
+                                 :output-path                   [:out]
+                                 :rf.egress/output-sensitivity  :inherit})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= :rf.egress/output-sensitivity (:bad-key (ex-data ex)))
+          "ex-data names the removed propagation key")
+      (is (= :inherit (:bad-value (ex-data ex)))
+          "ex-data carries the offending (removed enum) value"))))
+
+(deftest reg-flow-rejects-non-boolean-large?
+  (testing ":large?, when present, must be a boolean — a non-boolean (e.g. 1)
+            is rejected :rf.error/flow-bad-marks with :bad-key / :bad-value"
+    (let [ex (reg-flow-throwing {:id          :bad/large?-shape
+                                 :inputs      [[:n]]
+                                 :derive      identity
+                                 :output-path [:out]
+                                 :large?      1})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= :large? (:bad-key (ex-data ex)))
+          "ex-data names the offending key")
+      (is (= 1 (:bad-value (ex-data ex)))
+          "ex-data carries the offending non-boolean value"))))
+
+(deftest reg-flow-bad-marks-installs-no-flow-row-and-no-elision-declaration
+  (testing "a malformed flow-classification shape is rejected BEFORE any state
+            mutates: no flow row lands in the per-frame registry, and no
+            elision declaration is installed (mirrors
+            reg-flow-against-destroyed-frame-rejects-and-mutates-nothing)"
+    ;; validate-flow is the first call in reg-flow — before frame-id / the
+    ;; swap! that writes the flows row and before write-flow-output-marks!
+    ;; folds the classification declarations into the frame elision registry.
+    ;; So a rejected registration must leave all three surfaces untouched.
+    (let [flows-before     (flows/flows-snapshot)
+          sensitive-before (elision/sensitive-declarations :rf/default)
+          large-before     (elision/declarations :rf/default)
+          ex (reg-flow-throwing {:id          :bad/no-leak
+                                 :inputs      [[:n]]
+                                 :derive      identity
+                                 :output-path [:out]
+                                 ;; both a well-formed AND a malformed mark —
+                                 ;; the malformed one must reject the WHOLE
+                                 ;; registration, installing neither.
+                                 :sensitive   [[:secret]]
+                                 :large       :not-a-vector})]
+      (is (some? ex) "registration threw")
+      (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
+      (is (= flows-before (flows/flows-snapshot))
+          "no flow row was installed — the per-frame flows registry is unchanged")
+      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :bad/no-leak))
+          "specifically: the rejected flow id is absent from the registry")
+      (is (= sensitive-before (elision/sensitive-declarations :rf/default))
+          "no :sensitive elision declaration was installed (the well-formed
+           [:secret] mark did not leak past the malformed :large rejection)")
+      (is (= large-before (elision/declarations :rf/default))
+          "no :large elision declaration was installed"))))
 
 (deftest reg-flow-detects-cycles-at-registration
   (testing ":a depends on :b, :b depends on :a — registering the second throws"

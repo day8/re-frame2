@@ -1179,6 +1179,113 @@
             "before-marker carries :reason :effect")))))
 
 ;; ---------------------------------------------------------------------------
+;; 7c. End-to-end: a REAL reg-flow classification mark REDACTS at egress
+;;     (rf2-i6l02n).
+;;
+;; The wire-elision tests above (computed-trace-elides-large-result / -before,
+;; failed-trace-elides-inputs) and the schema-scope inheritance tests seed the
+;; frame's classification via `install-large!` / `install-sensitive!`, which
+;; write `:source :effect` through `apply-classification-effects` — so the
+;; redaction CAUSE in those tests is a commit-plane effect, never the flow's
+;; OWN registration key. (`flows_destroy_frame_teardown_test` asserts a real
+;; reg-flow `:sensitive` mark is INSTALLED, but never that it REDACTS a value.)
+;;
+;; These tests close the claim-vs-delivery gap for flow-SOURCED classification
+;; end-to-end: a real `reg-flow` carrying a `:sensitive` / `:large?` output
+;; declaration (a `:source :flow` registry write, NOT an effect) drives
+;; redaction on BOTH observation channels —
+;;   (a) the `:rf.flow/computed` `:result` trace slot, and
+;;   (b) the app-db destination slot at `:output-path` through the SAME
+;;       registry (`elision/elide-wire-value`) —
+;; with the marker / declaration source-attributed `:reason :flow` (the large
+;; marker) and `:source :flow` (the sensitive declaration), distinguishing it
+;; from the `:source :effect` helper path the sibling tests exercise.
+;;
+;; Current-main note: the source-scoped clear (rf2-34jrb6) + nested-axis fix
+;; (rf2-izlr7f) are merged; these assert against that behaviour (a flow's claim
+;; is a standing `:source :flow` registry entry).
+
+(deftest reg-flow-large?-output-redacts-at-egress-reason-flow
+  (testing "rf2-i6l02n: a REAL reg-flow :large? whole-output declaration drives
+            redaction on BOTH channels — the :rf.flow/computed :result trace
+            slot carries the :rf.size/large-elided marker with :reason :flow,
+            AND the app-db destination slot projects the marker via the SAME
+            registry (elision/elide-wire-value)"
+    ;; A plain replacing :init handler is safe: a :db return replaces ONLY the
+    ;; app-db partition, so the flow's own :source :flow elision declaration —
+    ;; installed at reg-flow time into the runtime-db partition at
+    ;; [:rf.runtime/elision] — survives for the flow's evaluate-time + egress
+    ;; registry read.
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-flow {:id          :payload
+                  :inputs      [[:n]]
+                  :derive      (fn [_] {:bytes "BIG"})
+                  :output-path [:derived :blob]
+                  ;; The flow classifies its OWN whole output large — a
+                  ;; :source :flow registry write, NOT an install-large! effect.
+                  :large?      true})
+    ;; Precondition: the flow's own registration installed the :source :flow
+    ;; declaration (not a helper, not an effect).
+    (is (= :flow (:source (get (elision/declarations :rf/default) [:derived :blob])))
+        "precondition: the reg-flow :large? mark stands as a :source :flow declaration")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    ;; (a) the trace channel — :rf.flow/computed :result rides elide-wire-value.
+    (let [ev     (last (by-op :rf.flow/computed))
+          result (:result (:tags ev))]
+      (is (some? ev) ":rf.flow/computed fired")
+      (is (elision/marker? result)
+          ":result is replaced by the :rf.size/large-elided marker")
+      (let [marker (:rf.size/large-elided result)]
+        (is (= [:derived :blob] (:path marker))
+            "marker carries the flow's output path")
+        (is (= :flow (:reason marker))
+            "marker carries :reason :flow — source-attributed to the reg-flow
+             declaration, NOT the :reason :effect of the install-large! helper path")))
+    ;; (b) the app-db destination channel — the slot at :output-path projects
+    ;; the marker through the SAME per-frame elision registry.
+    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))
+          slot (get-in wire [:derived :blob])]
+      (is (elision/marker? slot)
+          "the app-db destination slot egresses as the large marker")
+      (is (= :flow (:reason (:rf.size/large-elided slot)))
+          "the app-db-slot marker is also :reason :flow (same flow-sourced declaration)"))))
+
+(deftest reg-flow-sensitive-output-redacts-at-egress-source-flow
+  (testing "rf2-i6l02n: a REAL reg-flow :sensitive output declaration drives
+            sensitive redaction on BOTH channels — the :rf.flow/computed
+            :result trace slot redacts to :rf/redacted, AND the app-db
+            destination slot projects :rf/redacted via the SAME registry —
+            from a :source :flow declaration, not the :source :effect helper"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n "raw-token"}}))
+    (rf/reg-flow {:id          :creds
+                  :inputs      [[:n]]
+                  :derive      (fn [n] {:secret (str "Bearer-" n)})
+                  :output-path [:auth :creds]
+                  ;; The flow classifies the :secret sub-slot of its own output
+                  ;; sensitive — a :source :flow registry write.
+                  :sensitive   [[:secret]]})
+    ;; Precondition: the sensitive sub-slot roots at :output-path ++ [:secret]
+    ;; and is a :source :flow declaration.
+    (is (= :flow (:source (get (elision/sensitive-declarations :rf/default)
+                               [:auth :creds :secret])))
+        "precondition: the reg-flow :sensitive mark stands as a :source :flow declaration")
+    (reset! *captured* [])
+    (rf/dispatch-sync [:init])
+    ;; (a) the trace channel — :result's :secret sub-slot redacts (sensitive
+    ;; wins over large; the scalar :rf/redacted sentinel replaces the value).
+    (let [ev     (last (by-op :rf.flow/computed))
+          result (:result (:tags ev))]
+      (is (some? ev) ":rf.flow/computed fired")
+      (is (= privacy/redacted-sentinel (:secret result))
+          ":result's sensitive sub-slot is redacted to :rf/redacted on the trace bus"))
+    ;; (b) the app-db destination channel — the destination sub-slot projects
+    ;; :rf/redacted through the SAME per-frame elision registry.
+    (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))]
+      (is (= privacy/redacted-sentinel (get-in wire [:auth :creds :secret]))
+          "the app-db destination sub-slot egresses as :rf/redacted (flow-sourced)"))))
+
+;; ---------------------------------------------------------------------------
 ;; 8. `:sensitive?` inheritance on `:rf.flow/*` traces (Spec 013 §`:sensitive?`
 ;;    inheritance, 013-Flows.md:242).
 ;;
