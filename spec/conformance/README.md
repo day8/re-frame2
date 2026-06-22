@@ -198,7 +198,7 @@ The host runs the call by invoking `reg-frame` (or the host equivalent) on `:con
 
 #### The `:assemble-image` op — EP-0026 image API
 
-The `:assemble-image` op pins the [EP-0026 image-API surface](../../docs/EP/EP-0026-image-api-simplification.md) — `:select-ns` namespace selection, image-order layering (the later image wins), the shadow report, and the fail-loud collision / duplicate-image-id / framework-standard / retired-key / inline-grammar taxonomy — at the conformance layer. It is a **pure** Mode-B call (no frame loop): a function of a fixture-supplied descriptor **pool** plus **image specs**, exactly mirroring the reference implementation's `re-frame.image` constructor + `re-frame.image-assembly` explicit-pool assembler.
+The `:assemble-image` op pins the EP-0026 image-API surface — `:select-ns` namespace selection, image-order layering (the later image wins), the shadow report, and the fail-loud collision / duplicate-image-id / framework-standard / retired-key / inline-grammar taxonomy — at the conformance layer. It is a **pure** Mode-B call (no frame loop): a function of a fixture-supplied descriptor **pool** plus **image specs**, exactly mirroring the reference implementation's `re-frame.image` constructor + `re-frame.image-assembly` explicit-pool assembler.
 
 A call carries:
 
