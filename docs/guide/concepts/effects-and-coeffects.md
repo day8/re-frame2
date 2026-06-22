@@ -53,7 +53,24 @@ You aren't limited to the shipped effect set. When you need a new one, register 
     (.setItem js/localStorage key (pr-str value))))
 ```
 
-This `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each one is named, registered, and addressable by id — exactly what lets a test redirect it (`:fx-overrides`), the trace stream record it, and Xray display it. The `:platforms #{:client}` declaration says where it may run: during [server-side rendering](ssr.md) the runtime skips it and emits a `:rf.fx/skipped-on-platform` trace event, so handlers never branch on platform.
+This `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each one is named, registered, and addressable by id — exactly what lets a test redirect it (`:fx-overrides`), the trace stream record it, and Xray display it. The `:platforms #{:client}` declaration says where it may run: during [server-side rendering](ssr.md) the runtime skips it and emits a `:rf.fx/skipped-on-platform` trace event (carrying `:rf.fx/id`, `:rf.fx/platform`, and `:rf.fx/registered-platforms`), so handlers never branch on platform. A `:platforms` set with more than one member runs on each listed platform; omit the key and the effect runs everywhere.
+
+The handler's two arguments matter. The first, `m`, is the same context map the originating event handler received — `:db`, `:event`, `:frame`, plus any coeffects; the second is the row's argument. **Frame-aware effects read `(:frame m)`** so a follow-up dispatch lands in the right `app-db` rather than the default frame; an *async* effect (an HTTP callback, a timer, a deferred promise) captures `(:frame m)` into the closure that fires later:
+
+```clojure
+(rf/reg-fx :my-app/save
+  {:doc "POST a value and dispatch the outcome back into the originating frame."
+   :platforms #{:client}}
+  (fn [m {:keys [url body on-success on-failure]}]
+    (let [frame (:frame m)]                          ;; read once, at entry
+      (-> (js/fetch url #js {:method "POST" :body (pr-str body)})
+          (.then  #(rf/dispatch on-success {:frame frame}))
+          (.catch #(rf/dispatch on-failure {:frame frame}))))))
+```
+
+> **Why pass `:frame` back in the callback?** Outside a synchronous dispatch there is no ambient frame scope, so a bare `(rf/dispatch …)` in a `.then` raises `:rf.error/no-frame-context`. Capturing `(:frame m)` and threading it through keeps the reply addressed to the frame that started the work — see [reactive state per frame](frames.md). (You can `:dispatch`/`:dispatch-later`/`:rf.http/managed` instead of hand-rolling fetch; this example exists to show the closure rule for fx you write yourself.)
+
+> **Gotcha — register before you use it.** An `:fx` row naming an effect-id that was never `reg-fx`'d is a fail-loud `:rf.error/no-such-handler`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration ordering across files doesn't matter — the lookup happens when the row runs, not when the handler is defined.
 
 How does a plain map become action? Your handler returns, the [interceptor chain](interceptors.md) completes, and the runtime commits `:db`. Then it walks `:fx` in source order, invoking each entry by id: `:dispatch`, `:rf.http/managed`, your `:localstorage/set`, all in one registry, run by one interpreter loop. Periodic and delayed work goes through the same door — the 7GUIs timer example (`examples/reagent/seven_guis/timer/`) drives its ticks with `[:dispatch-later {:ms 100 :event [:timer/tick gen]}]` rows, so there's no `js/setInterval` in app code. Every tick is an ordinary recorded event that carries its frame.
 
@@ -119,6 +136,16 @@ Two consequences worth pinning:
 - **`inject-cofx` is gone.** re-frame v1's coeffect-injection interceptor is removed, with no alias — calling it is a hard error that names `:rf.cofx/requires` as the replacement. Coeffect delivery is no longer a chain member you order relative to other interceptors; it's the construction of the chain's input. So v1's wart — an early interceptor blind to a later injection — can't even be expressed.
 
 > **Coming from re-frame v1?** `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and your cofx handler drops the ctx wrapper — see the [migration guide](../25-from-re-frame-v1.md).
+
+#### When a declaration goes wrong
+
+Because every consumed fact is declared, the failure modes are precise and named — and the framework distinguishes a *typo* from a *genuinely-absent* value, which is the whole point of registering provided facts:
+
+- **Required id that was never registered** → `:rf.error/unregistered-cofx`. Caught at registration where statically checkable, otherwise at first processing — typos die before dispatch semantics apply.
+- **Declared, registered, but `:provided?` and absent from the token** → `:rf.error/missing-required-cofx`, in *every* mint mode. This is the case `:provided?` exists to make legible: the fact has a home and a `:schema`, so a missing supply is reported as "you didn't stamp this," not "no such coeffect." (`:rf/time-ms` is the exception — the enqueue stamp guarantees it is always present.)
+- **A supplier that throws** at context assembly → `:rf.error/coeffect-exception`, attributed to the failing supplier, not the handler.
+- **A recordable value that isn't EDN** (a generator or supplied `:rf.cofx` carrying a host object — a `js/Date`, a DOM node) → `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value`, caught in dev at the boundary where the value enters the record. Recordable means "goes into the log," and the log is EDN.
+- **Declaring the same id twice** in one handler (any args) → `:rf.error/cofx-name-collision`; a malformed `:rf.cofx/requires` (not a vector, or a non-id entry) → `:rf.error/cofx-request-invalid` at registration.
 
 ### Registering suppliers: `reg-cofx`
 
@@ -242,14 +269,31 @@ That try-it *is* the testing story. **Supply data, don't swap mechanisms.** The 
       (is (= 1735732800000 (:created-at todo))))))
 ```
 
-No clock mock, no monkey-patching. The handler never knows it's being tested, and `:rf.cofx/requires` doubles as the fixture checklist telling you exactly which facts to supply. SSR hydration and replay fixtures use the same key. You stub effects with the symmetric move on the output side: `:fx-overrides` in the same opts map redirects a registered fx-id to a test double. Ambient coeffects are the one place you re-register a supplier, legal precisely because ambient facts never feed durable state.
+No clock mock, no monkey-patching. The handler never knows it's being tested, and `:rf.cofx/requires` doubles as the fixture checklist telling you exactly which facts to supply. SSR hydration and replay fixtures use the same key. Supplied values are preserved verbatim and never overwritten, so the runtime fills only what you leave out.
+
+You stub effects with the symmetric move on the output side: **`:fx-overrides`** in the same opts map redirects a registered fx-id. It takes either a plain function (a test double) or *another registered fx-id* (the override then composes with the registry — it's itself a queryable, schema'd, source-coordinated artefact rather than an opaque lambda):
+
+```clojure
+;; A bare function — the quick test double.
+(rf/dispatch-sync [:counter/save]
+                  {:fx-overrides {:rf.http/managed (fn [_m _req] (reset! sent? true))}})
+
+;; An fx-id — redirect to a registered canned effect (Story / SSR / contract tests).
+(rf/dispatch-sync [:counter/save]
+                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+```
+
+Overrides can also be pinned per frame at construction — `(rf/make-frame {:fx-overrides {…}})` — so an entire test frame, Story canvas, or SSR render runs against stubbed effects without touching any dispatch site. Ambient coeffects are the one place you re-register a *supplier* (legal precisely because ambient facts never feed durable state); recordable facts you supply as data, never by swapping a mechanism.
+
+> **Gotcha — the v1 escape hatches are gone, loudly.** Calling `rf/inject-cofx` is a hard error (`:rf.error/inject-cofx-removed`) that names `:rf.cofx/requires` as the replacement, and supplying a `:dispatched-at` dispatch opt is a hard error (`:rf.error/dispatched-at-retired`) that points you at `:rf/time-ms` on the `:rf.cofx` envelope. Both fire in production too — they're correctness contracts, not dev-only nags — so an old habit can't silently no-op.
 
 ---
 
 **You can now:**
 
-- return any side-effect as a `[fx-id args]` row in `:fx`, and register your own with `reg-fx`
+- return any side-effect as a `[fx-id args]` row in `:fx`, and register your own with `reg-fx` — reading `(:frame m)` to keep follow-up dispatches frame-addressed
 - name the two coeffect grades and choose the right one — ambient for reads no durable write depends on, recordable for everything else
 - declare a handler's world facts with `:rf.cofx/requires` and read them flat, knowing nothing (not even time) arrives undeclared
+- recognise the fail-loud cases — `:rf.error/unregistered-cofx` for a typo, `:rf.error/missing-required-cofx` for an un-stamped provided fact, `:rf.error/no-such-handler` for an unregistered fx
 - mint fresh ids by the ladder: derive from state, ride the event payload, recorded coeffect last
-- make any handler deterministic in a test by supplying `{:rf.cofx {...}}` on the dispatch
+- make any handler deterministic in a test by supplying `{:rf.cofx {...}}` on the dispatch, and stub effects with `:fx-overrides` (a test-double fn or a redirect to a registered fx-id)

@@ -8,7 +8,7 @@ Here's the one sentence to carry out of this page:
 
 **Supply data, don't swap mechanisms.**
 
-You never patch `js/Date`. You never intercept `fetch`. You never replace a module. You hand the runtime the exact facts a handler declared it needs, then read the data it produced. Everything below is that sentence applied three times — to a handler, to a cascade, and to the release build.
+You never patch `js/Date`. You never intercept `fetch`. You never replace a module. You hand the runtime the exact facts a handler declared it needs, then read the data it produced. Everything below is that one sentence applied across the slice — to a handler, a subscription, a view, a whole cascade, and finally the release build.
 
 ## 1. Set up the JVM test runner
 
@@ -148,17 +148,90 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 > **Client-only effects skip on the server.** Effects gated to the browser — like Part 3's localStorage persist fx, declared `:platforms #{:client}` — simply skip on the server platform, leaving a trace note behind. That's by design, not a gap in your test. Your assertion targets the durable outcome (the session in app-db), not the host write, so the same test is meaningful on the JVM where there's no `localStorage` to write to.
 
+## 4. Test a subscription: compute it against a db
+
+Your views read app-db through subscriptions — Part 3's `:auth.login-form/can-submit?`, the field-error visibility rule, the form's `dirty?` flag. A subscription is a pure derivation: `app-db` value in, derived value out. So you test it the same way you tested a handler — give it a value, read the value back — except a sub doesn't take its `db` as an argument the way a handler does. `compute-sub` supplies it:
+
+```clojure
+(deftest can-submit-flips-once-the-draft-is-filled
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:auth.login-form/initialise])      ;; seed the empty form
+    (rf/dispatch-sync [:auth.login-form/edit-field :email    "ada@example.com"])
+    (rf/dispatch-sync [:auth.login-form/edit-field :password "hunter2"])
+    (is (= true (rf/compute-sub [:auth.login-form/can-submit?] (rf/app-db-value f))))))
+```
+
+`compute-sub` runs the sub's body against the supplied `db` and returns the result — no reactive cache, no Reagent, no JS runtime, fully JVM-runnable. Notice the shape: rather than hand-building an `app-db` map, you *dispatch the real events* that build the state, then read the resulting `app-db-value` and compute the sub against it. That's deliberate. The test exercises the sub against state produced by the same code paths the app uses, so when you reshape where the form lives, the events move, the sub moves, and this test keeps passing unmodified. (For a trivial reader where the dispatch adds nothing, you *can* pass a literal map — `(compute-sub [:auth.login-form/can-submit?] {:auth {:login-form {:errors {} :status :idle}}})` — but reach for that escape hatch sparingly; a hand-rolled db shape silently rots when the real schema moves underneath it.)
+
+That `:auth.login-form/can-submit?` sub is **layered** — it's defined `:<- [:auth.login-form/slice]`, so it reads through another sub. `compute-sub` resolves the chain transitively: it computes the input sub against `db` first, depth-first, then runs the outer body against that value — all without spinning up the cache. It's the same for a parametric `input-fn` sub. The point: you test the top sub and the whole derivation underneath it comes along, exactly as the running app composes it.
+
+There's one more wrinkle worth pinning, because the cascade tests above already used it. They read `:auth/state` with `(rf/frame-state-value f)`, not `(rf/app-db-value f)`. That's because `:auth/state` is **machine-backed** — its value lives in the frame's *runtime-db* partition, not in app-db. `frame-state-value` returns the coherent both-partitions projection `{:rf.db/app … :rf.db/runtime …}`, and `compute-sub` reads whichever partition each sub belongs to. So the rule is simple: app-db subs take `app-db-value`; subs that touch machine snapshots (or any runtime-db state, like mutation status below) take `frame-state-value`. One function, both partitions — and `frame-state-value` always works, so when in doubt, reach for it.
+
+> **Where did `subscribe` go?** You never call `@(rf/subscribe …)` in these tests. `subscribe` needs a live reactive cache and an installed adapter — overhead for an assertion against a value. `compute-sub` is the pure, headless form. (If you genuinely want "what would the running frame see *right now*, cache and all", there's `rf/subscribe-once` — current value, synchronously, no live ratom left dangling — but for unit tests `compute-sub` is the right tool.)
+
+## 5. Test the view, not just the state
+
+Everything so far asserts on *state*. But two bugs live in the gap between correct state and a correct screen: the handler writes the right value, the sub computes it, and the view still reads the wrong path, or wires `:on-click` into the wrong frame. State assertions stay green; the user sees a broken page. You catch both on the JVM — no JSDOM, no React, no `act()` — because a view-fn is just a function and the hiccup it returns is just data.
+
+To address a node from a test, give it a stable handle. The `testid` helper builds an attrs map carrying a `:data-testid` — a one-line change at the view's call site, the same `:data-testid` convention React Testing Library uses, and it dead-code-eliminates from production. Part 4's `favorite-button` grows one attribute:
+
+```clojure
+;; in the view (Part 4's favorite-button), tag the button:
+[:button.btn.btn-outline-primary.btn-sm
+ (th/testid "favorite-btn" {:type "button" :on-click #(dispatch [:ui/favorite slug favorited])})
+ [:i.ion-heart] " " favoritesCount]
+```
+
+Now require the view helpers and walk the tree the view returns:
+
+```clojure
+;; add to the test ns:
+;;   [re-frame.test-helpers :as th]
+
+(deftest favorite-button-shows-the-count-and-clicks-into-this-frame
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:rf/set-db {:auth {:user {:username "ada"}}}])   ;; a user is signed in
+    (let [article {:slug "x" :favorited false :favoritesCount 7}
+          tree    (favorite-button {:article article})]                ;; call the view-fn directly
+      ;; class-1 bug: does the button render the count it was handed?
+      (is (= "  7" (th/text-content (th/find-by-testid tree "favorite-btn"))))
+      ;; class-2 bug: invoking :on-click must dispatch into THIS frame —
+      ;; the favorite mutation's instance comes alive only if it landed here.
+      (th/invoke-handler (th/find-by-testid tree "favorite-btn") :on-click)
+      (is (some? (rf/compute-sub [:rf.mutation/state {:instance [:favorite "x"]}]
+                                 (rf/frame-state-value f)))))))
+```
+
+Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hiccup data: `find-by-testid` locates the node carrying that `:data-testid`, `text-content` collects the string leaves under it (the heart glyph contributes nothing, so you read `"  7"` — the two spaces flanking `favoritesCount`), and `invoke-handler` calls a wired handler (`:on-click`, `:on-change`, …). The handler assertion is what catches the wrong-frame-dispatch bug: if the click fired into a sibling frame, *this* frame's mutation instance would never come alive and the second `is` would fail. (The mutation-state sub reads runtime-db, so it's computed against `frame-state-value` — same partition rule as `:auth/state`.) `find-by-testid` expands nested function components on the way down, so calling a parent view shows you the leaf hiccup the user actually sees.
+
+> **Two flavours of view test.** Reach for hiccup-walk (above) when you care about *structure* or *handlers* — which testid is present, which `:on-click` is wired. Reach for `rf/render-to-string` when you care about the rendered *markup* — "is the `<button>` disabled?", "does the `<h1>` carry the right class?". It emits the whole view to an HTML string, also JVM-runnable, also no DOM. Only tests that need real React mounting (a click firing through actual DOM listeners, scroll behaviour) need a CLJS runtime — and that's a small minority. The boundary is catalogued in [Spec 008 §JVM-runnable boundary](../../../spec/008-Testing.md).
+
+A note on requires: view-content tests pull `re-frame.test-helpers` (the view-tree axis), while the event/sub/cascade tests above pull `re-frame.test-support` for its sugar — `dispatch-sequence` to fire a vector of events in order, `assert-path-equals` and `assert-db-equals` for `clojure.test`-aware state assertions, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes from `dispatch-sync` / `app-db-value` / `compute-sub` directly. The full inventory — every helper, both test namespaces, the JVM/CLJS split — is in [Spec 008 — Testing](../../../spec/008-Testing.md), and there are focused recipes in [Test an event handler](../how-to/test-an-event-handler.md) and [Test a cascade](../how-to/test-a-cascade.md).
+
+## 6. Reset between tests
+
+One detail underwrites every test above: each runs against a clean runtime, with nothing bleeding in from the last. That's the fixture from step 1:
+
+```clojure
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :ambient-frame nil}))
+```
+
+`make-reset-runtime-fixture` is the default `:each` fixture for re-frame2 suites. It snapshots the registrar and resets the per-process state — frames, flows, schemas, machine timers, in-flight HTTP, epoch history, trace listeners — around every test, then restores. It's a *factory*: it returns the fixture fn, which is why you call it (`(make-reset-runtime-fixture {…})`) rather than passing it bare. The reset machinery no-ops for any subsystem your suite doesn't touch, so a thin JVM suite that never pulls flows or schemas doesn't pay for resetting them — it's the cheap default for thin suites and the complete one for thick. Reach below it (to `with-fresh-registrar`, which brackets just the registrar around a single body) only when a test registers a handful of handlers and never mounts an adapter or drives a long-lived frame.
+
+> **The `with-new-frame` blocks are belt-and-braces.** Every cascade test above also wraps its body in `(rf/with-new-frame [f (rf/make-frame …)] …)`, which creates a fresh frame for the body and destroys it on exit — success *or* exception. The fixture resets the process; `with-new-frame` scopes one frame's lifetime to one test. Together they guarantee no frame, no registration, and no in-flight request survives into the next test.
+
 Run the suite:
 
 ```bash
 clojure -M:test
-# Ran 4 tests containing 6 assertions.
+# Ran 6 tests containing 10 assertions.
 # 0 failures, 0 errors.
 ```
 
 The whole run takes well under a second. **Try it:** break `:auth/initialise` — store the token under the wrong key — and run again. The pure test fails pointing at the exact map entry. There's no stack of rendering internals to dig through, because there was no rendering. Fix it, and notice the loop is fast enough to leave running on every save.
 
-## 4. Ship it: the release build
+## 7. Ship it: the release build
 
 Now cut the production bundle — same build id you've been running with `watch`:
 
@@ -200,7 +273,9 @@ That's the tutorial. You built a real app — pages, server data, auth, writes �
 **You can now:**
 
 - test any handler by calling it with a literal coeffects map, reading `:rf.cofx/requires` off `handler-meta` as the fixture checklist
+- compute a subscription headlessly with `compute-sub` — app-db subs against `app-db-value`, machine-backed subs against `frame-state-value`
+- assert on the rendered view on the JVM — walk the hiccup with `find-by-testid` / `text-content` / `invoke-handler`, or emit markup with `render-to-string` — catching state-correct/view-broken and wrong-frame-dispatch bugs
 - drive a full cascade deterministically — facts supplied via `{:rf.cofx ...}`, HTTP answered by canned stubs, everything settled when `dispatch-sync` returns
-- run the suite on the JVM in milliseconds, with per-test frame isolation and no DOM emulation
+- run the suite on the JVM in milliseconds, with per-test frame isolation (`make-reset-runtime-fixture` + `with-new-frame`) and no DOM emulation
 - cut a release bundle and state precisely what elided (schemas, the trace channel) and what survived (the causal channel, the always-on error axis)
 - wire a production error sink that receives already-projected records

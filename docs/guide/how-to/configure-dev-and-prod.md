@@ -55,7 +55,12 @@ On the JVM there's no Closure compiler, so the same gate becomes a runtime flag 
 java -Dre-frame.debug=false -jar app.jar
 ```
 
-The flag is read once, at namespace load, so set it before `re-frame.interop` loads. The always-on event/error streams and the SSR error projector keep firing — they exist precisely for this posture ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
+Two spellings; pick whichever fits your deployment:
+
+- **Java system property `re-frame.debug`** — the `-Dre-frame.debug=false` above, on the JVM command line.
+- **Environment variable `RE_FRAME_DEBUG`** — set in the process environment, which is often the cleaner fit for a containerised deploy (`RE_FRAME_DEBUG=false` in the Dockerfile / orchestrator config, no command-line surgery).
+
+The flag is read **once**, at namespace load, so set it before `re-frame.interop` loads — i.e. as a real process-level setting, not something you `System/setProperty` after the app has booted. With it off, every JVM-side dev surface drops to the same no-op floor that Closure DCE gives a `:advanced` + `goog.DEBUG=false` browser build: no trace rings, no epoch history retaining user input. The always-on event/error streams and the SSR error projector keep firing — they exist precisely for this posture ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
 
 ## 4. The dev knobs: three buckets, one rule
 
@@ -78,11 +83,28 @@ A *frame*, here, is one isolated app instance — its own `app-db`, its own hand
 
 A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:cascades-retained 200}})` — or compose all three in one value. An unknown top-level key is a silent no-op, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
 
-- **`:epoch-history`** — depth of the per-frame epoch ring that powers Xray's time travel; `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set.
-- **`:trace-buffer`** — how many whole *cascades* (one dispatch plus everything it fanned into) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. Dev-only, same as above.
-- **`:elision`** — the size threshold above which a value is replaced by a `:rf.size/large-elided` marker on wire-bound surfaces. This one is *not* dev-only — it shapes the always-on listener records your production monitors receive, so it matters in a release build too. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
+> **One thing fails loud.** The *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The silent no-op is reserved for *unknown keys inside* a well-formed map (that's the property that lets a wrapper pass a composed config straight through); a malformed argument is a programming error and surfaces as one.
 
-You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator via `rf/set-schema-validator!`, a substrate via `rf/install-adapter!` — and on the happy path the boot wiring does both for you, so most apps never call them directly. The per-frame bucket rides `reg-frame` metadata; its safety-relevant knob is `:drain-depth`, which comes up next.
+- **`:epoch-history`** — depth of the per-frame epoch ring that powers Xray's time travel; `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set. It carries two more opts, both for the security-conscious deployment: `:trace-events-keep` (a non-negative integer) caps how many raw `:trace-events` each epoch record retains, and `:redact-fn` (`(fn [record] …)` or `nil`, default `nil`) is a projection-side override invoked once per record *at the off-box egress boundary* — the moment an epoch is about to leave the process for a hosted post-mortem dashboard. It does **not** mutate the in-process ring, so it never affects `restore-epoch!` fidelity; it only shapes what egresses. Reach for it when the built-in classification (schema `:sensitive?`, the commit-plane effects) doesn't cover a field you need to scrub on the way out. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
+- **`:trace-buffer`** — how many whole *cascades* (one dispatch plus everything it fanned into) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. `:cascades-retained 0` disables retention while the surface stays live (listeners still fire; nothing is *kept*). Dev-only, same as `:epoch-history`.
+- **`:elision`** — the size threshold above which a value is replaced by a `:rf.size/large-elided` marker on wire-bound surfaces. `:rf.size/threshold-bytes 0` turns off runtime size auto-detection entirely, so only values you *declared* large (or marked via a schema `:large?`) elide. This one is *not* dev-only — it shapes the always-on listener records your production monitors receive, so it matters in a release build too. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
+
+> **Looking for `:sub-cache`?** It's gone. The old `:sub-cache {:grace-period-ms N}` knob — a deferred-disposal timer for subscriptions — no longer exists: sub-cache disposal is now synchronous the instant a subscription's derefer count hits zero, so there's no grace window to tune. If you have it in an old config, drop it (it'll no-op as an unknown key, but it's dead weight).
+
+You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator via `rf/set-schema-validator!`, an explainer via `rf/set-schema-explainer!`, a substrate via `rf/install-adapter!` — and on the happy path the boot wiring does both for you, so most apps never call them directly. The per-frame bucket rides `reg-frame` metadata (or, per-dispatch, the `dispatch` opts argument, which merges over the frame's metadata on conflict). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
+
+```clojure
+;; A frame that ships its own error sink — survives goog.DEBUG=false,
+;; because production observability is a frame-owned policy, not a dev knob.
+(rf/reg-frame :my-app/main
+  {:initial-events [[:my-app/boot]]
+   :drain-depth    100
+   :observability  {:errors [{:sink :my-app.sinks/sentry}]}})
+```
+
+An `:observability` entry names a user- or library-owned `:sink` keyword (you register the sink; the framework routes pre-redacted records to it), with an optional `:rf.egress/profile` and `:opts` map. The two collections it accepts are `:handled-events` and `:errors` — the production read of the event-emit and error-emit streams, declared once on the frame rather than wired imperatively. ([Report errors in production](report-errors-in-production.md))
+
+Its safety-relevant knob is `:drain-depth`, which comes up next.
 
 > **Why three buckets, not one config map?** The split sorts settings by the lifetime and *shape* of the thing being set: process-wide data (a number, a map) goes through `configure!`; a swappable *implementation* (a function, an adapter) goes through `set-…!`; a per-frame *override* rides that frame's metadata. Each shape has exactly one home, so reading config is never a scavenger hunt and merging two configs never produces a conflict — a property worth more than the convenience of a single grab-bag map.
 

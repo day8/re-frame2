@@ -36,6 +36,8 @@ The total is never wrong, because there's no second copy to drift out of sync. I
 
 > **Coming from Redux?** This is a reselect selector — a memoized derivation over store state — and the `:<- [:cart/items]` is its input-signal vector, the moral equivalent of the selectors you'd pass to `createSelector`. The difference: in re-frame2 the dependency wiring is explicit data, not a closure you assemble by hand, so the framework can draw the graph for you.
 
+> **The one rule a subscription must obey: stay pure.** A subscription is a *read* — same inputs, same output, no reaching into the world. The moment it fetches, writes `localStorage`, or reads the clock, it has stopped being a derivation and become a question the wrong home is trying to answer. (That smell, and where the value should go instead, is the first row of [the wrong-home table](#signs-you-picked-the-wrong-home) below.)
+
 ### Question 2 — must a handler read it? Then promote it to a flow
 
 Now a new requirement lands. When the total crosses $50 the user gets free shipping, and the *checkout event handler* (the function that runs in response to a dispatched event) needs to know that while building its order payload. Here's the wall you hit: **handlers can't read subscriptions.** A subscription lives view-side, not in `app-db`, and a handler reads state as plain `db` data — so it has no way to ask for a subscription. Recomputing the total inside the handler would put the formula in two places, and they'll drift the first time pricing changes.
@@ -59,9 +61,16 @@ This is the moment the value wants to be *part of the application's state*. That
 
 The formula is identical. What changed is *where the value lives*. Your checkout handler now reads `(:cart/total db)` like any other state, and because the value is part of the frame's state, it rides time-travel and SSR. Dispatch a cart event with Xray open and you'll see the flow's recompute ride the same event row that changed its inputs — so the total becomes part of the event's outcome, not a render-time afterthought.
 
+The four keys above are the whole core of a flow: `:id` names it, `:inputs` is the ordered vector of paths to watch (each value arrives positionally to `:derive`), `:derive` is the pure recompute, and `:output-path` is the `app-db` path written for you. Two more knobs are worth knowing now:
+
+- **`:inputs` can read *runtime-db*, not just app-db.** A bare path like `[:cart :items]` reads `app-db`; a qualified path `[:rf.db/runtime …]` reads the runtime-db partition — so a flow can derive an app-db value from a machine's snapshot or the current route, e.g. `[:rf.db/runtime :rf.runtime/machines :snapshots :checkout/flow :state]`. The **write side stays app-db-only**, always: a flow's `:output-path` is never a runtime-db path.
+- **Flows are frame-scoped.** `reg-flow` registers the flow against the surrounding frame; pass `{:frame …}` as a second argument (or wrap the call in `with-frame`) to target a specific one. A bare `(reg-flow …)` outside any frame scope fails loudly with `:rf.error/no-frame-context` rather than guessing a default.
+
 The cost is an `app-db` write on every recompute, plus a piece of registered runtime. You pay it *because a handler needs the value as data*, and not before. As a rule of thumb, a typical app has dozens of subscriptions and a *handful* of flows. If no handler reads a flow's output, you've over-paid — go back to a sub.
 
 > **You write the inputs, never the output.** A flow's `:output-path` belongs to the flow. Your handlers `assoc` into `[:cart :items]` (an input); the flow computes `[:cart/total]` (the output) for you, atomically, on the same event. Writing the output by hand from a handler reintroduces exactly the two-copies-drift problem the flow was meant to kill. ([Flows](concepts/flows.md) covers the rules a flow's `:output-path` must obey; the paths are ordinary [app-db paths](concepts/app-db.md).)
+
+> **Flows fail loud, at registration, before they can bite.** The flow graph is checked the moment you register, not the first time it runs. Two flows whose `:inputs`/`:output-path` form a cycle (`:a` reads `:b`'s output, `:b` reads `:a`'s) throw `:rf.error/flow-cycle` — the `ex-data` even names the offending chain (e.g. `[:a :b :a]`). Two flows that would write the same slot throw `:rf.error/flow-path-overlap`. And at *run* time the flow is **atomic with its event**: if a `:derive` throws, the whole event aborts before any `:db` install — no half-written `app-db`, no partial total. You never debug a flow that silently produced garbage; it either computes cleanly or fails where you can see it.
 
 ### Question 3 — does it come from a server and go stale? Then it's a resource
 
@@ -70,7 +79,8 @@ The cart so far is *local*. The user built it, so it's true by construction. But
 > **Coming from TanStack Query?** A resource is your query — identity-as-params, staleness, tag invalidation — except reads are subscriptions and fetches are caused by routes and events, never by render. No `useQuery` smuggling a side effect into a component's render path: the cause is named data you can see in the trace, and the read is a pure subscription that never reaches out to the network.
 
 ```clojure
-;; Register once: identity (params), leak boundary (scope), request.
+;; Register once: identity (params-schema), leak boundary (scope), then the
+;; request fn as the THIRD slot — (reg-resource id metadata request-fn).
 (rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global}
@@ -82,18 +92,37 @@ The cart so far is *local*. The user built it, so it's true by construction. But
 ;; (Declaring the resource on the route is the most common cause of all.)
 [:dispatch [:rf.resource/ensure {:resource :article/by-slug
                                  :params   {:slug "widget"}
-                                 :cause    [:event :checkout/opened]}]]
+                                 :cause    [:manual :checkout/opened]}]]
 
 ;; A view READS it passively — it never fetches.
 @(rf/subscribe [:rf.resource/state {:resource :article/by-slug :params {:slug "widget"}}])
 ;; → {:status :loaded :data {:title "Widget" :price 1200} :has-data? true ...}
 ```
 
+Three keys make a registration valid, and they fail closed if you forget one: **`:params-schema`** (every variable that names *which* thing you fetched), **`:scope`** (the leak boundary — see below), and the **`:request`** function in the third slot returning a [managed-HTTP](concepts/http.md) args map (`:request`, `:decode`, plus optional `:accept`/`:retry`). A `reg-resource` missing any of them throws at registration (`:rf.error/resource-missing-scope-policy` for a missing scope, `:rf.error/invalid-resource-spec` for the others) — there is no half-registered resource.
+
 Two ideas make a resource a resource. First, its **identity is the params** — `{:slug "widget"}` says *which* article, so two screens asking for the same one share one cache entry and one request. Second, its **scope is the leak boundary**: scope decides *whose* cache an entry lives in.
 
-> **Scope is what stops a cross-user data leak.** Get the scope wrong and you get a loud error, never a logged-out user quietly reading the previous user's data. There is no silent default scope — every resource declares its policy at registration, and a global cache is a deliberate, auditable claim (`:scope :rf.scope/global`), not a convenience hideaway. Treat the scope as a security boundary, not a tuning knob.
+> **Scope is what stops a cross-user data leak.** Get the scope wrong and you get a loud error, never a logged-out user quietly reading the previous user's data. There is no silent default scope — every resource declares its policy at registration, and a global cache is a deliberate, auditable claim (`:scope :rf.scope/global`), not a convenience hideaway. The policies you'll reach for: `:rf.scope/global` (the same params produce the same data for everyone — a public article), a resolver `{:from-db :app/session}` that derives the scope from current viewer identity (a per-user or per-tenant cache), or `:rf.scope/from-caller` (every `ensure`/`refetch`/`state` call must supply `:scope` itself). Treat the scope as a security boundary, not a tuning knob.
 
-Staleness and invalidation come built in, too: ensuring a stale entry refetches in the background while old data stays on screen, and a write elsewhere invalidates by tag. ([Server state: resources](concepts/server-state.md) is the full story; the transport underneath is [managed HTTP](concepts/http.md).)
+Reads are a small, passive family of subscriptions — you never poke at the raw cache. `[:rf.resource/state …]` is the aggregate projection above; when you want one fact, the scalar subs are `[:rf.resource/data …]`, `[:rf.resource/status …]`, `[:rf.resource/loading?]`, `[:rf.resource/fetching?]`, `[:rf.resource/stale?]`, `[:rf.resource/error]`, `[:rf.resource/refresh-error]`, and `[:rf.resource/has-data?]`. They keep the `:loading` / `:loaded` / `:error` distinction honest for you, so a view never has to infer "stale data plus a refresh warning" from raw fields:
+
+```clojure
+;; First-load failure — no data ever arrived.
+{:status :error  :data nil
+ :error {:kind :rf.http/http-5xx :status 503}
+ :refresh-error nil  :has-data? false}
+
+;; Background-refresh failure — prior data kept on screen, refresh warning surfaced.
+{:status :loaded  :data {:title "Welcome"}
+ :error nil
+ :refresh-error {:kind :rf.http/http-5xx :status 503}
+ :has-data? true}
+```
+
+> **The read-side scope footgun.** A subscription can't run a `(route, ctx)` resolver — it's pure — so a `:rf.scope/from-caller` resource that a route ensured under one scope, then a view subscribes to without passing the *same* `:scope`, fails closed. If the scope is unresolvable you get a loud `:rf.error/resource-sub-unresolved-scope`; if it resolves to a *different* key the view reads `:idle` forever (a permanent skeleton), and the framework emits a dev warning naming the active scope you probably meant. The fix is always the same: subscribe with the same `:scope` the owning route/event ensured under.
+
+Staleness and invalidation come built in, too: ensuring a stale entry refetches in the background while old data stays on screen, and a write elsewhere invalidates by tag. ([Server state: resources](concepts/server-state.md) is the full story; the most common cause of all is a route declaring its `:resources`, covered in [Routing](concepts/routing.md); the transport underneath is [managed HTTP](concepts/http.md).)
 
 ### Question 4 — does it have its own lifecycle? Then it's a machine
 
@@ -123,9 +152,11 @@ Three booleans encode eight combinations, but checkout has only five *legal* sta
     :failed           {:on {:checkout/retry   {:target :validating}}}}})
 ```
 
-Now checkout can only be in a state it can legally reach. The timeout belongs to the state that owns it and is cancelled automatically on exit, so a stale timer can't fire after you've moved on. "What happens on payment?" has *one* answer, not a `cond` smeared across five handlers. The snapshot lives in the frame's runtime-db partition, where time-travel and Xray see it like any other state.
+Now checkout can only be in a state it can legally reach. The timeout belongs to the state that owns it and is cancelled automatically on exit, so a stale timer can't fire after you've moved on. "What happens on payment?" has *one* answer, not a `cond` smeared across five handlers. The snapshot lives in the frame's runtime-db partition at `[:rf.runtime/machines :snapshots :checkout/flow]`, where time-travel and Xray see it like any other state — and a view reads it with `@(rf/subscribe [:rf/machine :checkout/flow])`, never by digging into runtime-db by hand.
 
-> **Coming from XState?** This is a statechart, and if you know XState v5 you already know most of the grammar — `:initial`, `:states`, `:on`, `:after` map almost one-for-one onto `initial`, `states`, `on`, and `after`. The re-frame2 spelling is EDN instead of JS objects, and transitions integrate with the event/effect system you already use, but the model — finite states, declared transitions, entry/exit, delayed transitions — is the one you carried over from XState. ([State machines](concepts/machines.md) is the full grammar.)
+> **Coming from XState?** This is a statechart, and if you know XState you already know most of the grammar — `:initial`, `:states`, `:on`, `:after` map almost one-for-one onto `initial`, `states`, `on`, and `after`. The parity reference is **XState v6**: re-frame2 tracks v6's transition-selection order, its internal-by-default self-transitions, and its `schemas` direction for typed context (a machine's data-context schema lives at `[:schemas :data]`). The re-frame2 spelling is EDN instead of JS objects, and transitions integrate with the event/effect system you already use, but the model — finite states, declared transitions, entry/exit, delayed transitions — is the one you carried over from XState. ([State machines](concepts/machines.md) is the full grammar.)
+
+> **An event a state doesn't handle is a no-op, not a crash.** Dispatch `:checkout/paid` while the machine is `:idle` and nothing happens — the snapshot is unchanged and the runtime emits one benign `:rf.machine.event/unhandled-no-op` trace (XState-parity: an unhandled event is a no-op). So you never have to guard every dispatch with "are we even in the right state?" — the machine simply ignores what it has no transition for, and you can see the ignored event in the trace if you're hunting for a missed wire. Two contrasts worth knowing: a transition is also *not selected* if its `:guard` predicate returns false (lower-priority transitions for the same event stay eligible), and a state with `{}` for a body (like `:complete`) is a legal terminal — it simply has no outgoing transitions.
 
 > **For the categorically curious.** All four homes are nodes in **one dependency graph rooted at your state**. They differ on only two policies: *storage* (where the value is kept) and *evaluation* (when it's recomputed). A subscription is *no storage, recompute on demand*. A flow is *stored in app-db, recomputed after each event*. A resource is *stored in a runtime cache, recomputed on cause and staleness*. A machine is *stored as a snapshot, recomputed on transition*. One more axis: storage always names the **local** home. "Remote" is never a storage class. A resource's data lives in your cache; the server is its *authority*, a separate fact. That's why this page's question never answers "on a server". These axes are the framework's derivation algebra, specified in [`spec/Derivations.md`](../../spec/Derivations.md).
 
@@ -137,8 +168,10 @@ The four questions get you there the first time. This table is for the second ti
 |---|---|---|
 | A **subscription that does IO** — fetches, writes `localStorage`, reads the clock. | A subscription is a *pure read*. If it reaches into the world, it isn't a derivation. | A **resource** if it's remote data; otherwise the [event boundary](concepts/effects-and-coeffects.md) — an effect for the write, a declared coeffect for the read. |
 | A **flow whose output no handler reads.** | An `app-db` write paid to materialize a value only views consume — a subscription in a flow's costume. | A **subscription** — drop the flow, recompute on demand. |
+| A **handler writing a flow's `:output-path` by hand.** | The two-copies-drift bug the flow exists to kill, reintroduced — and now the flow and the handler fight over the same slot. | Nothing — *remove the hand-write*. Let the handler `assoc` an **input**; the flow owns the output. |
 | A **machine wrapping a single fetch** — `:loading`, `:loaded`, nothing else. | No real branching, timers, or cancellation isn't a process; it's a remote read with a status. | A **resource** — its status model already *is* the loading/loaded/error lifecycle. |
 | **Remote data hand-rolled into `app-db`** with `:loading?` / `:error?` booleans set in success/failure handlers. | The resource cache — identity, staleness, dedupe, the leak boundary — re-implemented per feature, races included. | A **resource** — register once, let the runtime own the bookkeeping. |
+| A **boolean trio** (`:validating?` / `:awaiting?` / `:error?`) that handlers keep re-deriving "which one are we really in" from. | A finite-state process flattened into independent flags, most of whose combinations are illegal. | A **machine** — name the states, make the illegal combinations unrepresentable. |
 
 Each wrong home is a value asked to do a job its home isn't shaped for. Move it, and the code defending against impossible states evaporates.
 
@@ -154,4 +187,6 @@ A value graduates to a heavier home only when it earns the upgrade — a handler
 
 - route any new value to a subscription, a flow, a resource, or a machine by asking the four questions in order
 - say what each heavier home costs, and what a value must need before it earns the promotion
+- name each home's core registration surface — a flow's `:id` / `:inputs` / `:derive` / `:output-path`, a resource's `:params-schema` / `:scope` / `:request`, a machine's `:initial` / `:states` / `:on` / `:after`
+- recognise the fail-loud errors each home raises when you misuse it — a flow cycle or path overlap, a resource with no scope, a subscription that can't resolve its scope — and read them as guidance, not noise
 - recognise a value living in the wrong home and name where it should move

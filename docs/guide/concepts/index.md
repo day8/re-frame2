@@ -27,7 +27,7 @@ flowchart LR
     D5 --> D6["6 · Views<br/>re-render"]
 ```
 
-1. **Event dispatched.** `(rf/dispatch [:counter/inc])` — dispatch puts the event vector on the runtime's queue and returns immediately. Nothing has run yet, and the click handler's job is already over.
+1. **Event dispatched.** `(rf/dispatch [:counter/inc])` — dispatch puts the event vector on the runtime's queue and returns immediately. Nothing has run yet, and the click handler's job is already over. (For the rare moment you need the cascade to finish *before* the calling line continues — a test asserting on the result, a boot step that must settle first — `rf/dispatch-sync` runs the same pipeline inline rather than queueing it. Reach for it deliberately, not by default; `dispatch` is the right tool almost everywhere.)
 2. **Handler runs.** The runtime pops the event off the queue and runs its registered handler, a pure function: same inputs, same output, no I/O.
 3. **Effects produced.** The handler *returns a description* of everything that should happen, as data — `{:db <new-state> :fx [[effect-id args] ...]}` — and performs none of it itself. (An **effect** is just one of those data entries: a request for the world to do something. Returning a `[:rf.http/managed …]` entry no more fires an HTTP request than returning the string `"rm -rf /"` deletes your disk — it's just a value until something downstream chooses to run it.)
 4. **Effects executed.** The runtime walks that description and actually does the work. The app-db swap happens **inside this domino**: `:db` is itself an effect, applied as one atomic swap, so no half-updated state is ever visible. Then any other effects fire — the HTTP request, the navigation, the storage write.
@@ -80,7 +80,7 @@ Domino 4 is the only place the system touches the world, and everything that cro
 
 ## Where the loop runs
 
-All of this — the queue, app-db, the subscription cache — lives inside a **frame**: an isolated world the loop runs in. Most apps have exactly one frame and never name it, so `dispatch` and `subscribe` just work. But the frame is why a page can mount the same app several times without the copies sharing state, why every test gets a pristine world, and why a server can run one frame per request. [Frames: isolated worlds](frames.md) has the shape.
+All of this — the queue, app-db, the subscription cache — lives inside a **frame**: an isolated world the loop runs in. Most apps have exactly one frame and never name it, so `dispatch` and `subscribe` just work. But the frame is why a page can mount the same app several times without the copies sharing state, why every test gets a pristine world, and why a server can run one frame per request. A frame starts with an empty app-db and seeds itself by dispatching its `:initial-events` — the first dominoes that fall the moment it exists — so "load the app" is just the loop running on itself. [Frames: isolated worlds](frames.md) has the shape.
 
 ## The map
 

@@ -1,6 +1,6 @@
 # Subscriptions: the derivation graph
 
-**App-db stores facts; subscriptions derive conclusions.** App-db is your app's single state map, and your views never read it directly. Instead they ask, by name, for a conclusion: "the visible articles", "can this form submit?", "the current user's name". A subscription — a named, cached derivation that turns state into a value a view wants — is that question answered. Those derivations form a graph rooted at [app-db](app-db.md), with your views hanging off the leaves. The nice part is that re-frame2 recomputes only along the paths where values actually changed. This page walks that graph end to end: how to build it, why it's fast with no tuning from you, and how to watch it prune work in Xray.
+**App-db stores facts; subscriptions derive conclusions.** App-db is your app's single state map, and your views never read it directly. Instead they ask, by name, for a conclusion: "the visible articles", "can this form submit?", "the current user's name". A subscription — a named, cached derivation that turns state into a value a view wants — is that question answered. Those derivations form a graph rooted at [app-db](app-db.md), with your views hanging off the leaves. The nice part is that re-frame2 recomputes only along the paths where values actually changed. This page walks that graph end to end: how to build it, why it's fast with no tuning from you, how to test it, and how to watch it prune work in Xray.
 
 > **Coming from Redux?** A subscription is a selector — Reselect's `createSelector` with the memoisation built in. **Coming from Solid or Jotai?** It's a derived signal / derived atom. Three deliberate divergences from both: subscriptions are named by keyword in a registry, so tools can draw the whole graph without running your app; change detection is deep value equality (`=`), never reference identity, so there is no "don't allocate a new object or you'll bust the memo" dance; and dependencies are declared as data, not discovered by tracking a function run.
 
@@ -67,7 +67,7 @@ Layer 1 reaches into the map. Everybody else reaches into layer 1, or into each 
 
 The `:<-` arrow reads as "this sub's input comes from". Notice what changed between layers. `:articles/by-date` does **not** take `db`. It takes the already-extracted value that `:articles/all` produced. One arrow delivers that input as a bare value; two or more deliver a vector, destructured above as `[articles tag]`. That's the only wrinkle in the syntax, and once you've seen it once it stays put.
 
-Here's the part worth pausing on: the shape of the registration *is* the topology. `(fn [db _] ...)` makes an extractor by construction; `:<-` makes a composer by construction. The framework reads the registry and knows the whole graph as data. That is how [Xray](../how-to/debug-with-xray.md) can draw your subscription topology without executing a single computation function.
+Here's the part worth pausing on: the shape of the registration *is* the topology. `(fn [db _] ...)` makes an extractor by construction; `:<-` makes a composer by construction. The framework reads the registry and knows the whole graph as data. That is how [Xray](../how-to/debug-with-xray.md) can draw your subscription topology without executing a single computation function. (The tool that exposes the static graph to debuggers is `re-frame.subs.tooling/sub-topology`, a literal projection of the registry — it never runs your bodies.)
 
 ## The equality gate
 
@@ -160,7 +160,32 @@ A few things keep this form predictable. The first one trips people up, so it le
 
 > **Gotcha.** The input function returns query vectors — plain data — never live subscriptions. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape errors loudly rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
 
-The other two are gentler:
+### The exact return grammar — what's accepted, what's rejected
+
+This is the one corner of `reg-sub` with a strict shape, so it's worth seeing the whole grammar in one place. An input function **must** return a vector, and **every element** must itself be a query vector (a vector whose head is a keyword):
+
+```clojure
+;; Accepted
+[[:article/by-id id] [:viewer/current]]   ;; multiple inputs
+[[:item/by-id id]]                         ;; a single input — still a vector OF query vectors
+[]                                         ;; no inputs (unusual, but valid)
+
+;; Rejected — each signals :rf.error/sub-input-fn-bad-return
+:viewer/current                            ;; a bare keyword
+[:article/by-id id]                        ;; a scalar query vector (ambiguous: arg vs two inputs)
+[[:article/by-id id] :viewer]              ;; a mix of query vector and bare keyword
+{:article [:article/by-id id]}             ;; a map
+```
+
+These aren't silent coercions — they fail loudly so a typo can't quietly produce the wrong dependency edges:
+
+- A **malformed registration shape** (e.g. a stray non-fn in the tail) is caught at `reg-sub` time and signals `:rf.error/reg-sub-bad-args`. It's a programming error to fix, surfaced at registration rather than first use.
+- A **bad return value** from the input function signals `:rf.error/sub-input-fn-bad-return` when the concrete subscription is first materialised.
+- A **throw inside the input function** signals `:rf.error/sub-input-fn-exception`.
+
+All three are catalogued in [Errors and recovery](errors.md) and the spec's [error-event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). When something computes the wrong thing, that's where to look first.
+
+The other two predictability rules are gentler:
 
 - **It is not on the hot path.** It runs once, when a concrete query vector like `[:article/page :a1]` is first materialised. From then on that entry is an ordinary cached node, and `[:article/page :a2]` is a separate entry with its own inputs.
 - **Dependencies cannot come from app-db.** A sub whose edges changed with state would break disposal, hot reload, and Xray's topology view. So when the parameter you need lives in app-db, read it at the call site and thread it through the query vector:
@@ -177,6 +202,96 @@ The dynamism lives at the view boundary, where component mount and unmount alrea
 The choice between the two forms is sharp: **use `:<-` for static inputs; reach for an input function only when the upstream query vectors need values from the outer query vector.** `:<-` is exactly a constant input function with the boilerplate removed, and its edges are statically drawable. The two-function form trades that for parametricity, so spend it only where you need it.
 
 > **Coming from re-frame v1?** Your signal functions returned live `(rf/subscribe ...)` calls — v2 input functions return query vectors as plain data, and the single-input and map-returning v1 shapes need rewriting; [From re-frame v1](../25-from-re-frame-v1.md) has the mechanical recipes.
+
+## Registration metadata: docs, schema, and classification
+
+Any `reg-sub` may carry an optional **metadata map** immediately after the id, before the `:<-` chain or the body. It's where you put declarations *about* the subscription rather than its computation:
+
+```clojure
+(rf/reg-sub :user/initials
+  {:doc    "The current user's initials, for the avatar badge."
+   :schema [:maybe :string]
+   :tags   #{:user}}
+  :<- [:user/name]
+  (fn [name _]
+    (->> (clojure.string/split (or name "") #"\s+")
+         (map first)
+         (clojure.string/join))))
+```
+
+The keys you'll reach for:
+
+- **`:doc`** — a human-readable description. It's structurally optional, but the dev build *warns* when a registration omits it, because tools (Xray's sub list, the topology view) surface it. Treat it as a SHOULD.
+- **`:schema`** — a [Malli](https://github.com/metosin/malli) schema (or your implementation's equivalent) describing the sub's **output**. When present, the runtime validates the computed value against it at the `:sub-return` validation boundary — a fail-loud guard that catches a derivation that's quietly producing the wrong shape, long before a view chokes on it. (`:schema` is the canonical key; the v1 `:spec` was renamed.) The full schema-everywhere story is in [Validate with schemas](../how-to/validate-with-schemas.md).
+- **`:tags`** — a set of keywords for your own grouping and tooling.
+
+There are two metadata keys specific to subscriptions, both from the data-classification model ([EP-0025](../../../spec/015-Data-Classification.md)). They classify the sub's **own output** so the observability pipeline knows what to redact or summarise when it captures a value into a trace:
+
+- **`:sensitive`** — a vector of paths into the output shape that hold sensitive data (`[[]]` marks the whole output). A sub deriving a token, a card number, or a session secret should classify it so it's elided from traces and recordings.
+- **`:large`** — a vector of paths into the output that are big enough to summarise rather than capture verbatim (a 5,000-row table, a decoded blob).
+
+```clojure
+(rf/reg-sub :auth/session-token
+  {:doc       "The raw bearer token — never goes to traces."
+   :sensitive [[]]}                       ;; the whole output is sensitive
+  (fn [db _] (:auth/token db)))
+```
+
+> **Gotcha.** Classification doesn't propagate along the graph. A sub does **not** inherit its inputs' `:sensitive`/`:large` declarations — EP-0025 removed derived-output sensitivity propagation. If a derived value is sensitive, classify it *at the sub that produces it*. Each output path is classified where it's declared, full stop. The narrative and the keep-it-out-of-traces recipe live in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
+
+A malformed `:sensitive`/`:large` value is rejected at registration with `:rf.error/bad-classification` — another fail-loud guard rather than a silent drop.
+
+## Testing a subscription without a browser
+
+Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`, you don't need a reactive runtime — or a DOM, or a browser — to test what a subscription *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It's JVM-runnable: no Reagent, no React, no installed adapter, no live cache.
+
+```clojure
+(deftest visible-articles-honour-the-tag-filter
+  (let [db {:articles      [{:slug "a" :tag-list ["clj"]   :created-at 2}
+                            {:slug "b" :tag-list ["redux"] :created-at 1}]
+            :feed/tag-filter "clj"}]
+    ;; compute-sub resolves the whole :<- chain — :articles/all and
+    ;; :articles/by-date run automatically as inputs.
+    (is (= ["a"]
+           (mapv :slug (rf/compute-sub [:articles/visible] db))))))
+```
+
+`compute-sub` resolves the entire input chain for you — pass it the outer query vector and a `db`, and it computes `:articles/all`, then `:articles/by-date`, then `:articles/visible`, in dependency order. It's **pure**: same `(query-v, db)` always returns the same value, with no cache carried between calls. That makes it the workhorse for sub tests and the function the conformance corpus invokes for `:sub-values` assertions.
+
+There's a sharper, more robust variant when the `db` shape matters. Instead of hand-rolling a literal map — which silently rots when your handler-side schema evolves — drive real events through a test frame and then read the sub against the resulting db:
+
+```clojure
+(deftest pending-todos-after-events
+  (let [f (rf/make-frame {:id :test})]
+    (rf/dispatch-sync :test [:add-todo {:text "milk"}])
+    (rf/dispatch-sync :test [:add-todo {:text "eggs"}])
+    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/app-db-value f)))))))
+```
+
+> **Two styles, one rule of thumb.** `compute-sub` against a literal `db` is the escape hatch for very simple readers where the dispatch path adds nothing. For anything that depends on the *shape* events produce, dispatch real events into a frame and read `(rf/app-db-value f)` — your test then exercises the same db your handlers actually build, so it can't drift from reality. Avoid `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter. The full testing matrix is in [Test an event handler](../how-to/test-an-event-handler.md) and [Spec 008 §Sub testing](../../../spec/008-Testing.md#sub-testing--compute-sub-vs-dispatch-sync--app-db-value).
+
+## Lifecycle: a sub exists only while something watches it
+
+A subscription node isn't a permanent fixture in the cache — it's reference-counted. When a view derefs `[:articles/visible]`, the cache materialises the node (computing the whole input chain) and bumps a ref-count. A second view sharing the same query vector bumps it again and reads the same cached value. When a view unmounts, its dependency is released, and on the **last** release — ref-count hits zero — the cache slot is disposed **synchronously, in the same tick**: the reaction is torn down, its input ref-counts are released (which can cascade disposal up the chain), and the slot is removed. A `:rf.sub/dispose` trace event marks the eviction.
+
+This matters in two everyday ways:
+
+- **There's no grace-period timer.** Disposal is immediate on the 1 → 0 edge, so a sub can't be kept alive — recomputing pointlessly — across a state change that lands after its last reader has gone. (Equally: re-subscribing after disposal is a fresh cache miss that rebuilds against the registered body. Because the body and the db are the same, the recomputed value `=` what was disposed, so a remount observes no flicker.)
+- **Hot-reload and frame teardown are clean.** Re-registering a sub disposes every cached slot for that query, regardless of ref-count — the next subscribe builds against the new body. Destroying a [frame](frames.md) disposes every cached slot it owns. You get correct behaviour across a `shadow-cljs` reload without thinking about it.
+
+Two functions let you step outside the deref-driven lifecycle deliberately:
+
+- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once frame-id query-v)`) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, a machine action, or a handler body that genuinely needs a derived value once. If you reach for it routinely from a handler, the value probably wants to be a [flow](flows.md) instead (see below).
+- **`rf/unsubscribe`** — `(unsubscribe query-v)` decrements the ref-count by hand, for the rare case where you took a reference programmatically and need to release it. Views never call this; their mount/unmount lifecycle does it for you.
+
+## Standard registered subscriptions
+
+The framework registers a handful of subscriptions for you — you read subsystem state through them exactly as you'd read your own:
+
+- **`[:rf/machine <machine-id>]`** returns a [state machine](machines.md)'s snapshot `{:state :data}` (or `nil` before it's initialised). It's the canonical way to drive a view off a machine.
+- The router publishes a family — **`:rf/route`** (the whole route slice), **`:rf.route/id`**, **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**, **`:rf.route/chain`**, and more — covered in [Routing](routing.md).
+
+These follow the [reserved-namespace convention](../../../spec/Conventions.md): anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned. Keep your own subs out of that namespace and the two never collide.
 
 ## When a subscription is the wrong tool
 
@@ -198,5 +313,8 @@ You can now:
 - register a layer-1 extractor and chain derivations off it with `:<-`
 - predict which subscriptions recompute after an event — and verify the pruning in Xray's Views tab
 - keep extractors tiny so the equality gate cuts work off at the root
-- write a parametric subscription whose inputs are computed from the query vector, and thread state-derived parameters through the call site
+- write a parametric subscription whose inputs are computed from the query vector, thread state-derived parameters through the call site, and recognise the input-fn return shapes that error loudly
+- attach `:doc`, `:schema`, and `:sensitive`/`:large` metadata to a registration
+- test what a subscription computes with `compute-sub`, no browser required
+- reason about subscription lifecycle — ref-counted disposal, `subscribe-once`, hot-reload safety
 - tell when a derivation belongs in a sub versus a flow or a resource

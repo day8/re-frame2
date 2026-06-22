@@ -59,11 +59,54 @@ The second is **frame-aware injection.** Inside the body, unqualified `dispatch`
 
 So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and `subscribe` → `rf/subscribe`. The reverse, though, is not a free rewrite, which is worth knowing before you try it: the qualified forms resolve their frame from the surrounding scope, and a mounted app's frame-provider hands a frame only to *registered* views. An unregistered `defn` deref'ing `rf/subscribe` under it fails loudly with `:rf.error/no-frame-context`. (A plain fn that must stay unregistered captures a `(rf/frame-handle)` at render instead — [spec 004](../../../spec/004-Views.md).)
 
+### The three shapes of `reg-view`
+
+`reg-view` is *defn-shape*, and like `defn` it takes an optional docstring and lets you override the auto-derived id. There are three call shapes, and they all produce the same registered view — the choice is only about what you want at the source level:
+
+```clojure
+;; 1. Bare — id auto-derived as (keyword *ns* "cart-line"), e.g. :my.app.cart/cart-line
+(rf/reg-view cart-line [item]
+  [:tr [:td (:name item)] [:td (:qty item)]])
+
+;; 2. With a docstring — lands in the registry's :doc field, so tooling shows it
+(rf/reg-view cart-line
+  "One row in the cart table; receives a normalised item map."
+  [item]
+  [:tr [:td (:name item)] [:td (:qty item)]])
+
+;; 3. With an explicit id via metadata — when the symbol shouldn't drive the id
+;;    (a stable id across rename, or matching an external contract)
+(rf/reg-view ^{:rf/id :cart/line} cart-line [item]
+  [:tr [:td (:name item)] [:td (:qty item)]])
+```
+
+In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]` from sibling code regardless. The docstring and the `^{:rf/id …}` override are the only two knobs; the body is just hiccup. Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a Form-3 `(reagent.core/create-class …)` — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface below). That's the right tool for those cases; the macro is the defn-shaped 80% lane.
+
+> **A view that runs setup on mount.** If a screen needs an event to fire when its frame comes up — load the cart, hydrate a form — don't `dispatch` from the render body (that couples reads to writes and, under a reactive substrate, can loop the render). Name the setup as an event and list it in the frame's `:initial-events`: `(rf/reg-frame :cart {:initial-events [[:cart/load]]})`. The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the Form-1-friendly home for "do this on mount" — see [Frames](frames.md).
+
 Every live cell in this guide uses the `defn` spelling, because the cells run in a functions-only environment. `reg-view` isn't available there, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell environment supplies the frame scope that makes the qualified forms resolve. So when a cell and a prose listing differ in this one way, this section is why: same component, two spellings. In project code, write `reg-view`.
 
 ??? note "The other lane: tooling and library registration"
 
     `reg-view` and Var references are the whole app-facing story — register a screen, render it by name. There's a second, separate lane you'll only meet if you write *tooling* or *library* code: `reg-view*`, the plain-fn surface beneath the macro, which registers a view from a **computed id** or a non-`defn` render fn, and `(rf/view id)`, which resolves a registered view by id at render time. That pairing is how a tool panel or story canvas hosts a view it doesn't know at the call site, how a code-gen pipeline emits views from a manifest, and how Reagent class components (`create-class`) register. If you're building screens, you won't reach for either — they're the host/tooling entry points, not the app-facing one. The full split is in the API reference under [Tooling / host view registration](../../api/02-views.md#tooling--host-view-registration); the contract is in [spec 004](../../../spec/004-Views.md).
+
+??? note "Form-1, Form-2, Form-3: the three Reagent shapes"
+
+    Everything above is a **Form-1** view — a render fn that runs fresh on each render. It's the canonical shape, and it's all most screens ever need. Reagent's two other shapes are supported, mostly for migration:
+
+    **Form-2** is a view whose body returns *another fn*. The outer fn runs once per mount (a place for per-mount setup that genuinely depends on props); the inner fn is the render fn, re-run on each render. Lexical closure does the right thing — the injected `dispatch` / `subscribe` are in scope for both:
+
+    ```clojure
+    (rf/reg-view counter-with-init [label]
+      (dispatch [:counter/initialise label])    ;; outer: fires once on mount
+      (fn [label]                               ;; inner: the actual render fn
+        [:button {:on-click #(dispatch [:counter/inc])}
+         (str label ": " @(subscribe [:counter/value]))]))
+    ```
+
+    Prefer Form-1 + a frame `:initial-events` step over Form-2 for *stable* setup — the outer fn hides a mount-time side effect that doesn't appear at the call site. Reach for Form-2 only when the setup truly needs the per-mount props.
+
+    **Form-3** (`reagent.core/create-class`, with `:component-did-mount` / `:component-will-unmount`) is the escape hatch for wrapping a stateful imperative library (a chart, a map, a code editor) that owns its own DOM. It is *out of scope for the `reg-view` macro* — register it through `reg-view*` instead, where the body can be any callable. Full detail in [spec 004 §Form-1, Form-2, Form-3](../../../spec/004-Views.md#form-1-form-2-form-3-components).
 
 ## A view, live
 
@@ -99,6 +142,19 @@ Here is a `defn` view doing its whole job: subscribe in, dispatch out, hiccup be
 !!! note "Try it"
 
     Change the last form to `[:div [counter] [counter]]` and re-evaluate. Click either counter: both move, because neither owns the number — each is a window onto the same `app-db` value. There is no local copy to fall out of sync.
+
+### Targeting a different frame
+
+The injected `dispatch` / `subscribe` always read *the frame the view is rendering under* — that's the whole point of the injection, and it's what you want almost always. Once in a while a view needs to read or write a *different* frame than its own: a side-by-side comparison panel, a story-tool variant that drives a sibling variant, a debug overlay watching another world. For that, the qualified two-arg forms take a `{:frame …}` opt that names the target explicitly and bypasses the injection:
+
+```clojure
+;; Subscribe to / dispatch into a named OTHER frame, from a view rendering in this one.
+(let [their-total @(rf/subscribe [:cart/total] {:frame :other-tab})]
+  [:button {:on-click #(rf/dispatch [:cart/clear] {:frame :other-tab})}
+   (str "Other tab: " their-total)])
+```
+
+This is the deliberate escape hatch, not the daily path — reaching across frames is the exception that proves the isolation rule. The unqualified injected form is canonical; `{:frame …}` is for the genuine cross-frame case. To re-point a whole *subtree* of children at an existing frame instead of opt-ing call by call, scope them with `rf/with-frame` (or `rf/frame-provider-existing` across a React boundary) — see [Frames](frames.md).
 
 ## The one rule: views compute hiccup only
 
@@ -181,12 +237,18 @@ Step back and notice what all this buys you at debugging time. A view holds no s
 
 So don't debug views. Inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](events-and-the-cascade.md) that wrote it. Both are pure functions you can test without a browser. With Xray open, find the event row for the action that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../how-to/debug-with-xray.md)).
 
+The render itself is observable too, which helps with the *other* failure mode — not "wrong value" but "why did this re-render at all?" Each render emits a trace entry keyed by a `:render-key` — the tuple `[view-id instance-token]`, where the token disambiguates two mounted instances of the same view (`[:cart/row 1473]` vs `[:cart/row 1474]`). The entry also carries what *triggered* the render (the sub or props that changed) and the view's render args, so an over-rendering view shows its cause rather than leaving you to guess. (Plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a name in the trace, which is one more reason to register the views you want to see.) All of this sits behind the dev-build gate and elides completely in production. The slow-render hunt that uses these signals is [Find and fix a slow view](../how-to/fix-a-slow-view.md).
+
 ---
 
 **You can now:**
 
 - name a view's only two openings — subscribe in, dispatch out — and explain why the round trip always goes through the cascade
 - read `reg-view` and `defn` views as the same component, and say exactly what the macro adds (a registry entry and frame-aware `dispatch`/`subscribe`)
+- write `reg-view` in all three shapes — bare, with a docstring, with an `^{:rf/id …}` override — and know that a Form-3 class body falls through to `reg-view*`
+- run setup on mount the Form-1 way (a named event in the frame's `:initial-events`) instead of dispatching from a render body
+- target another frame deliberately with the `{:frame …}` opt, and know it's the exception to the isolation rule
 - push computation out of views into subscriptions, and spot the compute-in-view smell in review
 - key a dynamic list with stable `^{:key …}` metadata so the substrate diffs by identity, not position
 - avoid the imperative-listener trap, and say why the failure is loud instead of silent
+- read a render's trace `:render-key` to find *why* a view re-rendered, not just *that* it did

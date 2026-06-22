@@ -8,7 +8,7 @@ The guide teaches you the model; the exact contracts live in the spec. This page
 
 The docs come in three layers, and it helps to know which one you're standing in.
 
-- **This guide** (tutorial, how-to, explanation) teaches you the *model* — the why and the how, prose-first.
+- **This guide** (tutorial, how-to, explanation) teaches you the *model* — the why and the how, prose-first. It splits three ways by *intent*: the [tutorial](tutorial/index.md) walks one app end to end; the [how-to recipes](how-to/index.md) answer "I need to do X" in isolation; the [concepts pages](concepts/index.md) explain one idea at a time, prose-first (app-db, events, subscriptions, effects, frames, machines, flows, routing, http, server-state, ssr, observability, errors). When you half-remember a concept and want the *explanation* rather than the *signature*, the concepts pages are the bridge between this map and the API reference.
 - The **[API reference](../api/README.md)** is the signature lookup, organised by domain. Go there once you know the concept and just need the call shape.
 - The **[spec](../../spec/README.md)** is the normative source: exhaustive, written for AI and implementors, and the thing every other layer is downstream of.
 
@@ -19,7 +19,12 @@ Four spec documents are *entry points*, not contracts. They don't define a surfa
 - [Ownership](../../spec/Ownership.md) — the "where does X live?" matrix. Every contract surface maps to exactly one owning spec document, so when you don't know which document answers your question, start here. It's the spec's own table of contents-by-concept.
 - [Conventions](../../spec/Conventions.md) — the reserved `:rf/*` namespace scheme, reserved fx-ids, reserved app-db keys (app-db is your app's single state map), and packaging conventions. The "which names are mine and which are the framework's?" reference.
 - [Principles](../../spec/Principles.md) — the nine practical principles the design serves, so you can see the *reasoning* behind a rule, not just the rule. Read this when a constraint feels arbitrary; it usually isn't.
-- [The spec index](../../spec/README.md) — the full catalogue. It includes the `Pattern-*` documents, which name canonical shapes (app boot, websockets, stale-reply detection, the nine render states, and more) — handy when your problem turns out to be a recurring one with a known answer.
+- [The spec index](../../spec/README.md) — the full catalogue. It includes the `Pattern-*` documents, which name canonical shapes — [app boot](../../spec/Pattern-Boot.md), [websockets](../../spec/Pattern-WebSocket.md), [stale-reply detection](../../spec/Pattern-StaleDetection.md), [the nine render states](../../spec/Pattern-NineStates.md), [remote data](../../spec/Pattern-RemoteData.md), [forms](../../spec/Pattern-Forms.md), [long-running work](../../spec/Pattern-LongRunningWork.md), [reusable components](../../spec/Pattern-ReusableComponents.md), and more — handy when your problem turns out to be a recurring one with a known answer.
+
+Two further documents are *companion indexes* — not contracts, but the place to land for a cross-cutting concern that no single owning spec fully holds:
+
+- [Privacy](../../spec/Privacy.md) — the discoverability index for data classification: where every privacy primitive lives across the artefacts, the composition order from handler-exit to off-box wire, and what you declare to keep a value out of egress. It defers to [015-Data-Classification](../../spec/015-Data-Classification.md) for the normative contract; read it when you want the *map* of the privacy surface rather than one corner of it. The classification model is the EP-0025 `:sensitive` / `:large` one (path-based, no taint/propagation, fail-open hygiene — *not* a security boundary).
+- [Security](../../spec/Security.md) — the threat model and the pattern-level "what is defended, and where each defense's contract lives." The mirror of Ownership: Ownership names *where* a surface lives, Security names *what* it protects. The CLJS-reference specifics (named functions, numeric defaults, the exact `:rf.error/*` keyword each safety check emits) live downstream in [implementation/SECURITY.md](../../implementation/SECURITY.md).
 
 ## The API surface, by domain
 
@@ -45,6 +50,15 @@ Every public surface gets one row below. The API page gives signatures with intu
 | Resources | `reg-resource` / `reg-mutation` — declarative server state and the invalidate-then-refetch loop | [16 — Resources](../api/16-resources.md) | [016-Resources](../../spec/016-Resources.md) |
 
 Want the same surface on *one* page — every signature, status, and tier in a single `Ctrl-F` target? That's [spec/API.md](../../spec/API.md). Think of the table above as the domain-by-domain reading and `API.md` as the flat search index over the very same rows.
+
+## Looking up a failure mode
+
+The intro promised "the full failure list," so here's where it lives. re-frame2 fails *loud* and *structured* — when something goes wrong the runtime emits a record keyed by a reserved `:rf.error/<kebab-id>` keyword, never a bare string — so "what does this error mean and what does the framework do next?" is a lookup, not a guess. Two documents own that lookup, and they split along the same Conventions-vs-009 seam as everything else:
+
+- [Conventions §Error and warning ids](../../spec/Conventions.md) *reserves* the namespaces — `:rf.error/*` and `:rf.warning/*` follow the `:rf.<prefix>/<category>` shape, single-segment kebab-case under the reserved sub-namespace.
+- [009-Instrumentation §Error namespace convention](../../spec/009-Instrumentation.md#error-namespace-convention--five-prefix-shapes) and its [Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue-single-source-of-truth) own the *grammar*: the closed set of categories, what each one means, the trace `:operation` it maps to, and — crucially — the **default recovery per category** (does the cascade roll back? is it logged-and-skipped? a benign no-op?). That catalogue is the single source of truth; the per-domain specs reference it rather than redefining it.
+
+So a `:rf.error/set-db-bad-value` (you passed `[:rf/set-db]` a non-map), a `:rf.error/image-zero-match` (a `:select-ns :include` glob matched no loaded namespace), or a `:rf.error/invalid-image` (an image carrying a retired key like `:include-ns` or `:replace`) all resolve to one row in that catalogue. The narrative version — *why* errors are dossiers rather than log lines, and how the always-on error stream surfaces them in production — is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [09-Instrumentation](../api/11-instrumentation.md) and [how-to: Report errors in production](how-to/report-errors-in-production.md).
 
 ## The test-helper namespaces
 
