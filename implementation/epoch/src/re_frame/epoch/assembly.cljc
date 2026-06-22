@@ -294,9 +294,11 @@
 ;;
 ;; A path P counts when:
 ;;   1. P appears in `sensitive-paths-for frame-id`
-;;      (frame-declared via `:sensitive {:app-db …}` on `reg-frame` —
-;;      EP-0015 §3/§8; the app-db elision registry is frame-owned, no
-;;      longer populated from schema `{:sensitive? true}` props).
+;;      (declared via the commit-plane `:sensitive` effect a handler
+;;      returns — EP-0025; the app-db elision registry
+;;      `[:rf.runtime/elision :sensitive-declarations]` is written by
+;;      those effects, not by a frame `:sensitive {:app-db …}` annotation
+;;      and not from schema `{:sensitive? true}` props).
 ;;   2. `(not= (get-in db-before P) (get-in db-after P))`.
 ;;
 ;; The check uses **value-equality** on the raw (pre-redact-fn) dbs.

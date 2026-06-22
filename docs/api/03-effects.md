@@ -40,7 +40,7 @@ SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.
 
 The interceptor chain wraps the handler. Every interceptor has a `:before` (runs before the handler) and / or `:after` (runs after the handler). The runtime threads a context map — the **ctx** — through the chain, and the chain composes deterministically. Interceptors are how you add cross-cutting behaviour (validation, focus-on-path, logging) without writing it into every handler.
 
-Under [EP-0022](../EP/EP-0022-registered-interceptors.md) the public interceptor-authoring surface is **`reg-interceptor`**, and event / frame `:interceptors` chains carry interceptor **references** (a bare keyword id, or `[id arg]` for a parameterised factory) — never inline interceptor values. The framework ships exactly **one** standard interceptor — `[:rf.interceptor/path <path-vector>]` — referenced, not constructed. There is **no** public `path` value constructor and **no** standard `unwrap`: the v1 `path` / `unwrap` value forms are removed (a stale `rf/path` / `rf/unwrap` call raises the always-loud `:rf.error/path-removed` / `:rf.error/unwrap-removed`); the canonical replacements are the `:rf.interceptor/path` reference and handler-payload destructuring (the map-payload form). Five v1 interceptors are also removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); so is `inject-cofx` — coeffect delivery is now declared with `:rf.cofx/requires`, not injected by an interceptor (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [15 — Removed](15-removed.md)).
+Under [EP-0022](../EP/EP-0022-registered-interceptors.md) the public interceptor-authoring surface is **`reg-interceptor`**, and event / frame `:interceptors` chains carry interceptor **references** (a bare keyword id, or `[id arg]` for a parameterised factory) — never inline interceptor values. The framework ships exactly **one** standard interceptor — `[:rf.interceptor/path <path-vector>]` — referenced, not constructed. There is **no** public `path` value constructor and **no** standard `unwrap`: the v1 `path` / `unwrap` value forms are removed (a stale `rf/path` call raises the always-loud `:rf.error/path-removed`, and a stale `rf/unwrap-interceptor` reference raises `:rf.error/unwrap-removed`); the canonical replacements are the `:rf.interceptor/path` reference and handler-payload destructuring (the map-payload form). Five v1 interceptors are also removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); so is `inject-cofx` — coeffect delivery is now declared with `:rf.cofx/requires`, not injected by an interceptor (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [15 — Removed](15-removed.md)).
 
 ### `[:rf.interceptor/path <path-vector>]`
 
@@ -82,7 +82,7 @@ The chain entry is the **reference** `[:rf.interceptor/path [:cart :items]]`, no
 
 ### Payload destructuring: the replacement for v1 `unwrap`
 
-There is no standard `unwrap` interceptor in v2 (the v1 value is removed; a stale `rf/unwrap` raises `:rf.error/unwrap-removed`). The canonical way to receive a payload map directly is the **map-payload call shape** — destructure the handler's payload argument:
+There is no standard `unwrap` interceptor in v2 (the v1 value is removed; a stale `rf/unwrap-interceptor` reference raises `:rf.error/unwrap-removed`). The canonical way to receive a payload map directly is the **map-payload call shape** — destructure the handler's payload argument:
 
 ```clojure
 (rf/reg-event :foo/update
