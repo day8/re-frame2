@@ -817,7 +817,7 @@ The framework's wire-egress walker is `rf/elide-wire-value` (per [API.md §Size-
 
 **Defence in depth — what this contract does and does not displace.** This subsection commits the **wire-egress** posture for direct reads. It does **not** displace path-level privacy mechanisms upstream of the read:
 
-- Apps that need fine-grained app-db privacy declare frame-owned `:sensitive {:app-db …}` classification (per [015 §Frame-owned durable classification](015-Data-Classification.md)) so the trace stream's `:db-after` projection is redacted at emit time by `project-egress`, regardless of subsequent reads.
+- Apps that need fine-grained app-db privacy classify the durable path with a commit-plane `:sensitive` classification effect (a `reg-event` returns `:sensitive` alongside `:db`, per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects)) so the trace stream's `:db-after` projection is redacted at emit time by `project-egress`, regardless of subsequent reads.
 - Apps that need stronger guarantees keep sensitive values **out of `app-db`** entirely (host-side keychain, IndexedDB with separate-origin access, in-memory only) — the contract above protects the wire, not the in-process value.
 - A future framework-side path-level privacy mechanism (potential post-v1 surface; see [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) for the design space) would compose under the same wire-egress contract — `elide-wire-value` is the single normative emission site, so any future tightening of the path-level surface flows through the same walker without changing the MCP-server obligation here.
 

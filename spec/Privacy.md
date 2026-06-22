@@ -296,7 +296,7 @@ The single most-asked question this doc answers: **what runs when, in what order
 
 ### Rule summary
 
-- **Composition is additive at every site.** Frame-owned `:sensitive {:app-db …}` and an owner-local schema `:sensitive?` prop that resolve to the same path both redact at the same observation surface — they union.
+- **Composition is additive at every site.** A commit-plane `:sensitive` classification effect (durable app-db) and an owner-local schema `:sensitive?` prop that resolve to the same path both redact at the same observation surface — they union.
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
 - **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect. Projection happens at the observation/egress boundary *after* the handler returns, never before.
@@ -471,7 +471,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | Handler body (`:auth/log-in`) | Real password value in `:event` coeffect (via the regular handler arg) |
 | Trace bus `:rf.event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
 | Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:rf.fx/args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
-| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (frame `:sensitive {:app-db ...}`, plus event-arg propagation from `:auth/log-in-success`) |
+| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (the commit-plane `:sensitive` classification effect that classified `[:auth :token]`) |
 | Xray App-DB Diff panel | Same as above (Xray projects via `project-egress` under `:rf.egress/local-redacted`, consulting the same frame classification) |
 | MCP `get-app-db` tool response | `:rf/redacted` at the marked slots (projected under `:rf.egress/off-box-tool`); `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
 | Off-box log shipper (Datadog/Sentry) | Routed by frame `:observability` under `:rf.egress/off-box-observability`; drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
