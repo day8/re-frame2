@@ -251,13 +251,13 @@ The rules:
 
 1. **Every value-bearing slot passes through
    `re-frame.elision/elide-wire-value` before landing in `:assertions`.**
-   Durable app-db classification is **frame-owned** per
-   [spec/015 §Frame-owned durable classification](../../../spec/015-Data-Classification.md#frame-owned-durable-classification):
-   a variant declares its sensitive / large paths at frame creation
-   (`:sensitive` / `:large` on the variant's `reg-frame` config — see
-   [`002-Runtime.md` §Frame-owned classification](002-Runtime.md)). A
-   `:rf.assert/path-equals [:auth :token] ...` lookup against a frame-marked-
-   sensitive slot records `:actual :rf/redacted`, NOT the raw value. The
+   Durable app-db classification is carried by the **commit-plane effects** per
+   [spec/015 §Durable app-db — the four commit-plane effects](../../../spec/015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects):
+   a variant declares its sensitive / large paths from a handler body, as the
+   `:sensitive` / `:large` commit-plane effects returned alongside the `:db`
+   write (not on the variant's `reg-frame` config — that route was retired). A
+   `:rf.assert/path-equals [:auth :token] ...` lookup against a slot classified
+   sensitive records `:actual :rf/redacted`, NOT the raw value. The
    `evaluate-path-equals` / `evaluate-sub-equals` evaluators project
    `:actual` keyed on the asserted path; `evaluate-sub-equals` keys on the
    sub-vec's args path (`(rest sub-vec)`), so a parameterised sub
