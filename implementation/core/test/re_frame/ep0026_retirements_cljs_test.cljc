@@ -92,8 +92,9 @@
           "the image value no longer carries an :rf.image/requires slot"))))
 
 (deftest sealed-generation-carries-no-requires-slot
-  (testing "EP-0026 removed :rf.gen/requires — a sealed generation carries only
-            :rf.gen/resolver / :rf.gen/images / :rf.gen/kinds"
+  (testing "EP-0026 removed :rf.gen/requires — a sealed generation carries
+            :rf.gen/resolver / :rf.gen/images / :rf.gen/kinds (+ the additive
+            :rf.gen/shadows report, rf2-ke7w5j), but no :rf.gen/requires"
     (let [pool [{:rf.provenance/ns "a.b" :kind :event :id :foo/x :handler-fn (fn [_ _])}]
           img  (image/image {:id :app/main :select-ns {:include ["a.b"]}})
           gen  (asm/assemble [img] pool)]

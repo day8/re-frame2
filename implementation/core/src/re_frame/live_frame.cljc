@@ -190,6 +190,19 @@
   [frame-target]
   (frame/frame-generation (frame/frame-value->id frame-target)))
 
+(defn frame-shadows
+  "The cross-image SHADOW REPORT for the image composition a frame target is
+  running (EP-0026 §Shadow Report, rf2-ke7w5j). The flat `[{:registration
+  [kind id] :image <defined-in> :shadowed-by <winner>}]` list a frame's resolved
+  generation carries at `:rf.gen/shadows` — one entry per cross-image shadow,
+  naming the loser image + the FINAL winner. Accepts a frame VALUE or a frame id
+  (it reads the record's generation via `frame-generation`). An EMPTY vector when
+  the frame ran a composition with no cross-image overrides; nil when the target
+  names no image-loaded frame (an ordinary configured frame, or an
+  unknown/destroyed one). Pure."
+  [frame-target]
+  (some-> (frame-generation frame-target) (asm/generation-shadows)))
+
 (defn live-frame
   "Return the live frame VALUE for a frame id when that frame is currently
   IMAGE-LOADED (its `frames` record carries a resolved generation), or nil
@@ -747,9 +760,18 @@
 
   Returns the reload REPORT:
 
-    {:rf.frame/frame  <frame value for the reloaded frame>
-     :rf.reload/diff  {:added #{[kind id] …} :changed #{…}
-                       :removed #{…} :retained #{…}}}
+    {:rf.frame/frame   <frame value for the reloaded frame>
+     :rf.reload/diff   {:added #{[kind id] …} :changed #{…}
+                        :removed #{…} :retained #{…}}
+     :rf.reload/shadows [{:registration [kind id] :image <defined-in>
+                          :shadowed-by <winner>} …]}
+
+  `:rf.reload/shadows` is the NEW generation's cross-image SHADOW REPORT
+  (EP-0026 §Shadow Report, rf2-ke7w5j) — the flat list naming the loser image +
+  the FINAL winner for every cross-image override the reloaded composition
+  resolved (empty when none). It mirrors the `:rf.gen/shadows` the new generation
+  carries, so a hot reload that changes the override set surfaces it in the
+  report alongside the `[kind id]` diff.
 
   The generation lives on the ONE `frames` record, updated IN PLACE, so the id
   keeps naming the same live context (now running the new generation) and every
@@ -767,8 +789,9 @@
          old-generation (frame/frame-generation id)
          new-generation (resolve-generation! images descriptors)]
      (swap-frame-generation! id new-generation)
-     {:rf.frame/frame (frame/make-frame-value {:id id :runnable-id id})
-      :rf.reload/diff (generation-diff old-generation new-generation)})))
+     {:rf.frame/frame    (frame/make-frame-value {:id id :runnable-id id})
+      :rf.reload/diff    (generation-diff old-generation new-generation)
+      :rf.reload/shadows (asm/generation-shadows new-generation)})))
 
 ;; ===========================================================================
 ;; Source-store reprojection (EP-0023 §Default Image Semantics / §Hot Reload,

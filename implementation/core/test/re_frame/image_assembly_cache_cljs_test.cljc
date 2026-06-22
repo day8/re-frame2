@@ -235,6 +235,57 @@
       (is (= 1 (asm/cache-size))))))
 
 ;; ===========================================================================
+;; 5b. rf2-ke7w5j — the resolved-generation cache key MUST include the
+;;     :select-ns SELECTION. Two images with the SAME id but a DIFFERENT
+;;     :select-ns (so a different selected descriptor set) are DIFFERENT
+;;     compositions and must NOT cache-collide. The :select-ns lowers to the
+;;     normalized :rf.image/include-ns / :rf.image/exclude-ns slots, which ride
+;;     the image VALUE — and the ordered image vector IS the key's image leg, so
+;;     a different selection is a different key by value.
+;; ===========================================================================
+
+(deftest select-ns-selection-is-part-of-the-key
+  (testing "two images differing ONLY in their :select-ns :include selection are
+            distinct compositions → distinct cache slots, distinct generations
+            (selection is part of the key — rf2-ke7w5j)"
+    (record! "shop.cart"  :event :cart/add  ::cart)
+    (record! "shop.admin" :event :admin/ban ::admin)
+    (let [img-cart  (image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
+          img-admin (image/image {:id :shop/main :select-ns {:include ["shop.admin"]}})
+          gen-cart  (asm/assemble [img-cart])
+          gen-admin (asm/assemble [img-admin])]
+      (is (not (identical? gen-cart gen-admin))
+          "a different :select-ns selection is a different key → no cache collision")
+      (is (contains? (:rf.gen/resolver gen-cart)  [:event :cart/add]))
+      (is (not (contains? (:rf.gen/resolver gen-cart) [:event :admin/ban]))
+          "the cart selection resolves ONLY the cart namespace")
+      (is (contains? (:rf.gen/resolver gen-admin) [:event :admin/ban]))
+      (is (not (contains? (:rf.gen/resolver gen-admin) [:event :cart/add]))
+          "the admin selection resolves ONLY the admin namespace")
+      (is (= 2 (asm/cache-size))
+          "two distinct selections occupy two cache slots"))))
+
+(deftest exclude-ns-selection-is-part-of-the-key
+  (testing "two images with the same :include but a DIFFERENT :exclude resolve
+            DIFFERENT descriptor sets → distinct cache slots (the exclude leg is
+            part of the selection key — rf2-ke7w5j)"
+    (record! "app.feature"     :event :feature/run ::run)
+    (record! "app.feature.dev" :event :dev/probe   ::probe)
+    (let [img-all (image/image {:id :app/main
+                                :select-ns {:include ["app.feature.**" "app.feature"]}})
+          img-prod (image/image {:id :app/main
+                                 :select-ns {:include ["app.feature.**" "app.feature"]
+                                             :exclude ["app.feature.dev.**" "app.feature.dev"]}})
+          gen-all  (asm/assemble [img-all])
+          gen-prod (asm/assemble [img-prod])]
+      (is (not (identical? gen-all gen-prod))
+          "a different :exclude is a different key → no cache collision")
+      (is (contains? (:rf.gen/resolver gen-all) [:event :dev/probe]))
+      (is (not (contains? (:rf.gen/resolver gen-prod) [:event :dev/probe]))
+          "the excluded dev namespace is dropped from the prod generation")
+      (is (= 2 (asm/cache-size))))))
+
+;; ===========================================================================
 ;; 6. Fail-loud inputs are NOT cached
 ;; ===========================================================================
 

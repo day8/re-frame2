@@ -1711,6 +1711,56 @@
   (-> (resolve-live-frame-object frame-target 'rf/frame-generation)
       (live-frame/frame-resolution-generation)))
 
+(defn frame-shadows
+  "Return the cross-image SHADOW REPORT for the image composition a live frame is
+  running (EP-0026 §Shadow Report, rf2-ke7w5j) — the data the programmer reads to
+  see exactly what a LATER image overrode in an EARLIER one. The public accessor
+  for the report a frame's resolved generation carries at `:rf.gen/shadows`.
+
+  `frame-target` is a REGISTERED frame id (keyword, looked up in the process-local
+  live-frame registry) OR a direct live frame VALUE (`rf/make-frame`'s return
+  value) — the same target shapes `rf/frame-generation` / `rf/reload-images!`
+  accept.
+
+  Returns a FLAT vector, one entry per cross-image shadow — three keys, nothing
+  else (no winner descriptor, image index, tier, source namespace, or scope tag):
+
+    [{:registration [kind id]    ;; the shadowed registration
+      :image        <defined-in> ;; the image id the LOSER was defined in
+      :shadowed-by  <winner>}    ;; the image id of the FINAL live winner
+     …]
+
+  An EMPTY vector when no later image shadowed an earlier one (the common
+  deliberate-no-override case — `(empty? (rf/frame-shadows frame))` asserts
+  nothing was overridden). For a shadow CHAIN — `[base override-a override-b]`
+  defining one `[kind id]` — every loser names the FINAL winner (`override-b`),
+  not the immediate predecessor, so an assertion never walks a chain. Every shadow
+  is cross-image (a within-image collision is an error, not a resolved winner), so
+  the two image ids name exactly one image each.
+
+  This is the EP-0026 model that REPLACED the retired `:replace` /
+  `:replace-standard` declared-winner keys: define the winner in a later image,
+  image order decides, and read this report to assert on (or log / ignore) what
+  each later image shadowed. A tool wanting fuller detail (source namespace, etc.)
+  reads the live registration's `:rf.provenance/*` via the `:frame` arity of
+  `rf/registrations` / `rf/handler-meta`.
+
+  FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-target` does not
+  resolve to a live frame carrying a generation: NO nil-as-default, NO fallback to
+  the default/realm registrar — a shadow-report read needs a live EP-0023 frame
+  (the same contract as `rf/frame-generation`). Per Spec 002 §The public registrar
+  query API; EP-0026 §Shadow Report."
+  [frame-target]
+  ;; Resolve the live frame object FIRST (fail-loud on a non-live target, exactly
+  ;; like `rf/frame-generation`), then read the shadow report off its sealed
+  ;; generation. The `:rf.gen/shadows` key is read directly so the façade keeps
+  ;; its existing load edges (it requires `re-frame.live-frame`, not
+  ;; `re-frame.image-assembly`); `live-frame/frame-shadows` is the equivalent
+  ;; internal accessor.
+  (-> (resolve-live-frame-object frame-target 'rf/frame-shadows)
+      (live-frame/frame-resolution-generation)
+      (:rf.gen/shadows)))
+
 (defn registrations
   "Return all ids registered under `kind` with their metadata — the
   introspection workhorse used by tools, agents, and storybook resolution.
