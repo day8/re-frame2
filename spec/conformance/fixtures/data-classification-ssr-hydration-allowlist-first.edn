@@ -28,7 +28,7 @@
 
 {:fixture/id           :data-classification/ssr-hydration-allowlist-first
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/marks}
+ :fixture/capabilities #{:data-classification/classification-effects}
  :fixture/doc          "SSR hydration is allowlist-first (Spec 011 §14): :payload [:public] ships ONLY :public; the unlisted :private slice does not cross even unclassified; an absent policy fails closed (:rf.error/ssr-missing-payload-policy). Defence-in-depth: a frame-sensitive [:public :token] inside the allowlisted slice still redacts under the :rf.egress/ssr-hydration profile."
 
  :fixture/frames
@@ -36,11 +36,11 @@
 
  ;; EP-0025: durable app-db classification rides the commit-plane
  ;; `:sensitive` / `:large` effects, not a frame annotation. The corpus
- ;; `:fixture/app-marks` op installs the classification into the frame's
- ;; elision registry under `:source :effect` (the same write a reg-event
- ;; returning `:sensitive [[:public :token]]` performs).
- :fixture/app-marks
- [{:add-marks {[:public :token] :sensitive}}]
+ ;; `:fixture/classification-effects` op installs the classification into the
+ ;; frame's elision registry under `:source :effect` (the same write a
+ ;; reg-event returning `:sensitive [[:public :token]]` performs).
+ :fixture/classification-effects
+ [{:sensitive [[:public :token]]}]
 
  :fixture/calls
  [;; 1a. Allowlist projection — only :public crosses; :private dropped.

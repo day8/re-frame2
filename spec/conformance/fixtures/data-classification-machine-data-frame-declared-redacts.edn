@@ -21,7 +21,8 @@
 ;; rf2-398kql "frame-declared paths are the sole machine :data mechanism"
 ;; disposition that EP-0025 §subsystems reversed). The fixture's machine spec
 ;; now carries the classification directly (`:sensitive [[:data :token]]`); no
-;; `:fixture/app-marks` op is needed — the machine lifecycle lowers it at boot.
+;; `:fixture/classification-effects` op is needed — the machine lifecycle lowers
+;; it at boot.
 ;;
 ;; The machine's `:data-schema` carries NO `:sensitive?` prop (validation-only,
 ;; EP-0025 reverses the EP-0005 schema→classification bridge); the
@@ -33,13 +34,13 @@
 ;; lowered snapshot-path declaration relative to the snapshot value via
 ;; `classification/frame-snapshot-classification`).
 ;;
-;; Capability `:data-classification/marks` (claimed by both the JVM and CLJS
-;; conformance corpus runners) + `:fsm/flat` + `:core/trace`.
+;; Capability `:data-classification/classification-effects` (claimed by both the
+;; JVM and CLJS conformance corpus runners) + `:fsm/flat` + `:core/trace`.
 
 {:fixture/id           :data-classification/machine-data-frame-declared-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A reg-machine declaring :sensitive [[:data :token]] PROJECTION-RELATIVE (lowered per actor instance at spawn, :source :machine), after a transition whose action writes a secret token into :data, projects :rf/redacted at [:data :token] in the :rf.machine/transition and :rf.machine/snapshot-updated trace :after snapshot; an unmarked sibling slot (:retries) rides egress verbatim. The committed runtime-db snapshot carries the raw value — redaction is trace-egress only. EP-0025: the machine definition declares its own classification (the :data-schema validates but no longer classifies); no frame annotation, no author-side absolute runtime path."
 
  :fixture/registry

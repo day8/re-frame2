@@ -10,7 +10,7 @@
 ;;
 ;; Like the sibling sensitive fixture, the OBSERVABLE seam is the t1
 ;; `:rf.event/db-pending` trace event: the full pending app-db is walked by
-;; `re-frame.elision/elide-wire-value` (`re-frame.marks/project-db-tags`), and
+;; `re-frame.elision/elide-wire-value` (`re-frame.classification/project-db-tags`), and
 ;; the large-marked path elides to the structured marker before any listener
 ;; observes it. The committed app-db carries the RAW bulk value.
 ;;
@@ -21,15 +21,15 @@
 ;; quotes; identical on JVM `.getBytes UTF-8` and CLJS `count`). `:reason
 ;; :effect` reflects the declaration source (EP-0025: the harness installs the
 ;; classification with `:source :effect`, the commit-plane classification-effect
-;; route; the imperative add-marks API is removed).
+;; route — the durable app-db classification owner).
 ;;
-;; Harness note: `:fixture/app-marks` declares the large path. Capability
-;; `:data-classification/marks`.
+;; Harness note: `:fixture/classification-effects` declares the large path.
+;; Capability `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/frame-large-app-db-elides
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A frame that classifies [:docs :csv-upload] large (EP-0025 commit-plane :large effect), after an event writes a value to that path, projects a :rf.size/large-elided marker at the marked path in the t1 :rf.event/db-pending trace event; the marker carries :path / :bytes / :type / :reason / :handle (never the bulk value). An unmarked sibling rides egress verbatim."
 
  :fixture/registry
@@ -40,8 +40,8 @@
                       [:set [:docs :title]      "Q3"]]}}
 
  ;; Declare [:docs :csv-upload] large BEFORE the event writes it.
- :fixture/app-marks
- [{:add-marks {[:docs :csv-upload] :large}}]
+ :fixture/classification-effects
+ [{:large [[:docs :csv-upload]]}]
 
  :fixture/frame-config
  {:initial-events [[:dc/upload]]}

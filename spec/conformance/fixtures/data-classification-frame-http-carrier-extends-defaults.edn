@@ -22,7 +22,7 @@
 
 {:fixture/id           :data-classification/frame-http-carrier-extends-defaults
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/marks}
+ :fixture/capabilities #{:data-classification/classification-effects}
  :fixture/doc          "A frame-local :sensitive {:http {:headers [\"X-Honeycomb-Team\"]}} carrier redacts that header IN ADDITION to the immutable built-in HTTP header defaults (Authorization, …); the frame extension set UNIONS onto the defaults and no frame can remove a default. An unclassified header (Content-Type) rides verbatim (Spec 014 §Privacy / EP-0015 §3)."
 
  :fixture/calls

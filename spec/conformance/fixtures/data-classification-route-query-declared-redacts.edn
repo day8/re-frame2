@@ -31,13 +31,14 @@
 ;; :final-runtime-db) — classification is read ONLY at egress; the handler /
 ;; route subs always see the real value.
 ;;
-;; Capability :data-classification/marks (claimed by BOTH the JVM and CLJS
-;; conformance corpus runners) + :routing/match-url + :core/event-handler.
+;; Capability :data-classification/classification-effects (claimed by BOTH the
+;; JVM and CLJS conformance corpus runners) + :routing/match-url +
+;; :core/event-handler.
 
 {:fixture/id           :data-classification/route-query-declared-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A reg-route declaring :sensitive [[:query :token]] (projection-relative, lowered per-frame at activation, :source :route, re-rooted under [:rf.runtime/routing :current …]), after navigation, redacts the slice :query :token at egress: project-egress of a route-slice-shaped value against the navigated frame under :rf.egress/off-box-observability projects :rf/redacted at the declared path while an unmarked sibling (:other) rides verbatim. The committed runtime-db slice carries the RAW token — classification is read only at egress."
 
  ;; The route carries its OWN projection-relative classification on the

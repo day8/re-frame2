@@ -26,14 +26,14 @@
 ;; descendant-redacts` (path walker) deftests, lifted to the host-agnostic
 ;; corpus through the runtime's emit-time projection chokepoint. rf2-izlr7f.
 ;;
-;; Harness note: `:fixture/app-marks` declares `[:a]` :large and `[:a :b]`
-;; :sensitive via two ordered `add-marks` ops. Capability
-;; `:data-classification/marks`.
+;; Harness note: `:fixture/classification-effects` declares `[:a]` :large and
+;; `[:a :b]` :sensitive via two ordered ops. Capability
+;; `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/nested-large-over-sensitive-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/marks}
+                         :data-classification/classification-effects}
  :fixture/doc          "A :large-marked subtree [:a] containing a :sensitive descendant [:a :b] REDACTS the descendant in place and emits NO :rf.size/large-elided marker (which would leak path / size / type / digest over the secret-containing subtree) at [:a] in the t1 :rf.event/db-pending trace event. The non-sensitive sibling [:a :c] rides egress verbatim. Sensitive dominates nested under large (Spec 015 §No-propagation, a normative MUST)."
 
  :fixture/registry
@@ -44,11 +44,11 @@
                      [:set [:a :c] "public"]]}}
 
  ;; Declare [:a] :large (the ancestor subtree) and [:a :b] :sensitive (a
- ;; strict descendant) — two ordered add-marks ops. The nested-axis
- ;; suppression must fire regardless of declaration order.
- :fixture/app-marks
- [{:add-marks {[:a] :large}}
-  {:add-marks {[:a :b] :sensitive}}]
+ ;; strict descendant) — two ordered ops. The nested-axis suppression must
+ ;; fire regardless of declaration order.
+ :fixture/classification-effects
+ [{:large     [[:a]]}
+  {:sensitive [[:a :b]]}]
 
  :fixture/frame-config
  {:initial-events [[:dc/store]]}
