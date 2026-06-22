@@ -158,20 +158,34 @@ machinery.
 
 ### Failure
 
-Setup failures fall into three categories, and none adds detection beyond what the
-hand-written loop already gives:
+**Construction-time `:initial-events` is STRICT** (Mike-ruled (a), 2026-06-23, rf2-vw5h1r):
+**any** setup-step failure tears the partially created frame down (no half-created frame is
+left live) and raises `:rf.error/initial-events-step-failed`. The runtime's traced-and-recover
+leniency is a **runtime** concern and does **not** apply during construction. Setup failures
+fall into three categories:
 
 - **Preflight validation** — an invalid `:initial-events` shape, an invalid step, a step
   `:opts` violation, or a supplied `:on-create` / `:initial-db`. Caught **before any step
   runs**; **throws** (`:rf.error/*`); no frame is left registered.
 - **A setup step that throws at runtime** — construction aborts and the partially created
   frame is **torn down** (no half-created frame is left live); the error names the failing
-  **step index** and event. A bad `[:rf/set-db x]` argument falls here: its diagnostic is
-  raised through `error/throw-error!`, so it throws.
-- **A setup step whose failure re-frame traces and recovers** — a missing handler, or a
-  handler/interceptor error that `dispatch-sync` records as an error *trace* rather than
-  re-throwing. The frame is **left alive in whatever state resulted**, exactly as after the
-  manual loop; tests assert on that, as they do today.
+  **step index** and event. This covers both an **escaping** throw out of `dispatch-sync` (a
+  coeffect-resolution throw escaping context assembly) and a bad `[:rf/set-db x]` argument:
+  the latter's diagnostic is raised through `error/throw-error!` from inside the `:rf/set-db`
+  handler, which the interceptor chain catches and surfaces **in-band** as
+  `:rf.error/handler-exception` (so `dispatch-sync` returns normally) — strict construction
+  detects that captured in-band failure and tears down all the same.
+- **A setup step whose failure re-frame would trace and recover at runtime** — a
+  handler/interceptor/cofx/flow error that `dispatch-sync` records as an error *trace* and
+  recovers from rather than re-throwing. **At runtime** the frame is left alive in whatever
+  state resulted, exactly as after the manual loop. **During construction this leniency does
+  NOT apply**: the runner detects the in-band failure (the chain fans it out on the always-on
+  error-emit axis) and tears the partial frame down — a construction step that fails is a
+  construction failure, not a recoverable runtime hiccup. (A POST-COMMIT `:fx`-handler throw is
+  the one exception — the event committed and the fx throw is best-effort per the FX atomicity
+  asymmetry; the SSR server error projector catches such render-walk/cascade fx throws, while a
+  thrown setup step is the outer `:on-error` transport path — see [011 §`:on-error` vs
+  `:error-view`](../../spec/011-SSR.md#on-error-vs-error-view--the-error-handling-division).)
 
 ### Provenance
 

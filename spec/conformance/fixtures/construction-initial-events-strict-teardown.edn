@@ -1,0 +1,91 @@
+;; Conformance fixture: construction/initial-events-strict-teardown
+;; EP-0027 §Failure (Mike-ruled (a) 2026-06-23, rf2-vw5h1r) — construction-time
+;; `:initial-events` is STRICT: ANY setup-step failure tears down the partially-
+;; created frame (no half-created frame is left live) and the construction
+;; throws `:rf.error/initial-events-step-failed`. The runtime's traced-and-
+;; recover leniency does NOT apply during construction.
+;;
+;; This closes the rf2-emqiqk teardown-fixture gap. It pins the discriminator
+;; for the two IN-BAND failure triggers the interceptor chain CAPTURES (so
+;; `dispatch-sync` returns nil normally — the bug was that the runner's
+;; try/catch never fired and the partial frame was LEFT ALIVE):
+;;
+;;   1. a `[:rf/set-db :not-a-map]` bad-arg step — `:rf/set-db` raises
+;;      `:rf.error/set-db-bad-value` from INSIDE the handler via
+;;      `error/throw-error!`, surfaced as in-band `:rf.error/handler-exception`
+;;      (the EP-0027 §Failure canonical trigger; rf2-izy3b2);
+;;   2. a plain HANDLER-BODY throw step (`:throw`) — surfaced the same way,
+;;      generalising case 1 to ANY handler-body throw.
+;;
+;; Both abort construction with `:rf.error/initial-events-step-failed`. A
+;; well-formed control config (seed + a non-throwing step) is the must-NOT-throw
+;; lane — proving the strictness rejects the FAILING steps specifically, not all
+;; construction. Mode-B `:reg-frame` call op (mirror of construction-shape-
+;; validation): each call's `:expect-error` names the `:rf.error/id` the
+;; construction must throw; the runner tears down any registered frame
+;; afterward. The cross-host throw discriminator IS the teardown signal — the
+;; runner's `run-setup-events!` always destroys the partial frame BEFORE raising
+;; `:rf.error/initial-events-step-failed` (they are inseparable in the impl); the
+;; frame-absent assertion + confirm-by-revert is pinned in the CLJS/JVM unit
+;; test (frame_initial_events_cljs_test).
+
+{:fixture/id           :construction/initial-events-strict-teardown
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame :core/error}
+ :fixture/doc          "Per EP-0027 §Failure (rf2-vw5h1r, strict construction): an :initial-events setup step that fails in-band — a [:rf/set-db :not-a-map] bad-arg (raises :rf.error/set-db-bad-value from inside the handler → in-band :rf.error/handler-exception) or a plain handler-body throw — tears down the partial frame and aborts construction with :rf.error/initial-events-step-failed. A well-formed config is the must-not-throw control. Mode-B :reg-frame call op."
+
+ :fixture/registry
+ {:event {:ctor/seed {:doc "Seed step — succeeds, so a partial frame exists when the failing step runs."}
+          :ctor/boom {:doc "Handler-body throw — the generalised in-band failure trigger."}
+          :ctor/inc  {:doc "A trailing non-throwing step (well-formed control)."}}}
+
+ :fixture/handlers
+ {:event {:ctor/seed [[:set [] {:n 0}]]
+          ;; :rf2:builder-bypass-ok — the :throw op's message IS the
+          ;; fixture-supplied trigger for the handler-body-throw case.
+          :ctor/boom [[:throw "setup blew up during construction"]]
+          :ctor/inc  [[:update [:n] [:fn :inc]]]}}
+
+ :fixture/dispatches []
+
+ :fixture/calls
+ [;; (1) The EP-0027 §Failure CANONICAL trigger: a [:rf/set-db :not-a-map]
+  ;; bad-arg setup step. :rf/set-db (the framework-standard seed event)
+  ;; validates exactly one MAP arg; :not-a-map raises :rf.error/set-db-bad-value
+  ;; from inside the handler via error/throw-error!. The interceptor chain
+  ;; CATCHES it → in-band :rf.error/handler-exception → dispatch-sync returns
+  ;; nil. Strict construction detects the captured error, tears down the partial
+  ;; frame (the [:rf/set-db {}] seed before it succeeded, so a partial frame
+  ;; exists), and raises :rf.error/initial-events-step-failed.
+  {:call         :reg-frame
+   :frame-id     :ctor/set-db-bad
+   :config       {:initial-events [[:rf/set-db {:n 0}]
+                                   [:rf/set-db :not-a-map]
+                                   [:ctor/inc]]}
+   :expect-error :rf.error/initial-events-step-failed}
+
+  ;; (2) A plain HANDLER-BODY throw setup step — generalises case (1) to ANY
+  ;; handler-body throw the chain catches in-band. Before the fix this was
+  ;; TRACED-and-recovered and the frame LEFT ALIVE; strict construction now
+  ;; tears it down and raises the same discriminator.
+  {:call         :reg-frame
+   :frame-id     :ctor/handler-boom
+   :config       {:initial-events [[:ctor/seed]
+                                   [:ctor/boom]
+                                   [:ctor/inc]]}
+   :expect-error :rf.error/initial-events-step-failed}
+
+  ;; (3) Control: a well-formed :initial-events config (seed + non-throwing
+  ;; step) must construct silently (no :expect-error) — proving strictness
+  ;; rejects the FAILING steps specifically, not all construction.
+  {:call     :reg-frame
+   :frame-id :ctor/strict-ok
+   :config   {:initial-events [[:ctor/seed]
+                               [:ctor/inc]]}}]
+
+ :fixture/expect
+ ;; The construction frames are all torn down (by the failing-step teardown for
+ ;; (1)/(2), by the call op's best-effort destroy for the (3) control); the
+ ;; runner's :rf/default frame is empty. The contract under test is the call
+ ;; results' :rf.error/initial-events-step-failed discriminator.
+ {:final-app-db {}}}

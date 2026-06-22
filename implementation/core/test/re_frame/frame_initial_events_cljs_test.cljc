@@ -19,8 +19,12 @@
       replay (rf2-qnk02m — the silent registrar-degrade guard);
     * RE-REGISTRATION — an idempotent re-`reg-frame` RE-RECORDS but does NOT
       REPLAY the setup (durable app-db preserved);
-    * TEARDOWN — a setup step that THROWS at runtime tears down the partial frame
-      (no live half-frame is left) and the error names the `:step-index`;
+    * TEARDOWN (STRICT construction, EP-0027 §Failure / rf2-vw5h1r) — ANY setup-
+      step failure tears down the partial frame (no live half-frame is left) and
+      the error names the `:step-index`: an ESCAPING throw out of `dispatch-sync`
+      (unregistered cofx) AND an IN-BAND failure the chain captures and recovers
+      (the `[:rf/set-db :not-a-map]` bad-arg / a plain handler-body throw).
+      Runtime traced-and-recover leniency does NOT apply during construction;
     * the HANDLER-TIME guard — constructing a frame inside an event handler fails
       `:rf.error/frame-construction-in-handler`. The guard keys on
       `trace/*handler-scope*` being bound, which the router holds across the
@@ -91,20 +95,25 @@
     (fn [{:keys [db rf/time-ms]} _]
       {:db (assoc db :stamped-at time-ms)}))
   (rf/reg-event :test/boom
-    ;; A HANDLER-body throw: re-frame's dispatch-sync TRACES it as
-    ;; :rf.error/handler-exception and RECOVERS (does not re-raise), so a setup
-    ;; step that hits this is the EP's "traces-and-recovers" case — the frame is
-    ;; left alive in the resulting state, exactly as after the manual loop.
+    ;; A HANDLER-body throw. At RUNTIME re-frame's dispatch-sync TRACES it as
+    ;; :rf.error/handler-exception and RECOVERS (does not re-raise) — the chain
+    ;; captures it into :rf/interceptor-error and fans it out on the always-on
+    ;; error-emit axis WITHOUT re-throwing, so dispatch-sync returns nil normally.
+    ;; During CONSTRUCTION (rf2-vw5h1r, Mike-ruled (a) — strict :initial-events),
+    ;; that in-band handler-exception IS a setup-step failure: the runner detects
+    ;; the captured error, tears the partial frame down, and raises
+    ;; :rf.error/initial-events-step-failed. The runtime traced-and-recover
+    ;; leniency does NOT apply at construction time.
     (fn [_ _] (throw (ex-info "setup blew up" {:kind :boom}))))
   (rf/reg-event :test/needs-missing-cofx
     ;; Requires a cofx that is NOT registered: cofx resolution throws OUT of
     ;; dispatch-sync (:rf.error/unregistered-cofx, raised through throw-error!),
-    ;; so a setup step that hits this is the EP's "throws at runtime" case — the
-    ;; partial frame is torn down and the step is named. (The EP's canonical
-    ;; trigger is a `[:rf/set-db x]` bad-arg, which likewise throws through
-    ;; throw-error!; that event lands in a PARALLEL bead, so this ns exercises
-    ;; the SAME throw-out-of-dispatch-sync teardown path with a framework-stable
-    ;; trigger.)
+    ;; so a setup step that hits this fails via the ESCAPING-throw path — the
+    ;; partial frame is torn down and the step is named. Distinct from the
+    ;; in-band handler-exception path above (which dispatch-sync swallows): this
+    ;; one escapes dispatch-sync entirely. Both now tear down under strict
+    ;; construction; keeping a cofx-escape case alongside the handler-throw /
+    ;; set-db-bad-arg cases pins BOTH detection routes (escaping + in-band).
     {:rf.cofx/requires [:test/unregistered-cofx]}
     (fn [{:keys [db]} _] {:db (assoc db :ran true)})))
 
@@ -461,13 +470,20 @@
         "reset-frame! after re-reg replays the RE-RECORDED setup (n=999)")))
 
 ;; ===========================================================================
-;; 7. Teardown — a throwing setup step destroys the partial frame, names the step
+;; 7. Teardown — STRICT construction: ANY setup-step failure destroys the partial
+;;    frame and names the step (EP-0027 §Failure, Mike-ruled (a) — rf2-vw5h1r).
+;;    Both detection routes are pinned: an ESCAPING throw out of dispatch-sync
+;;    (a cofx-resolution throw) AND an IN-BAND handler-body throw the chain
+;;    captures (the canonical [:rf/set-db :not-a-map] bad-arg case + a plain
+;;    handler throw). Runtime traced-and-recover leniency does NOT apply during
+;;    construction.
 ;; ===========================================================================
 
-(deftest throwing-setup-step-tears-down-partial-frame
-  (testing "a setup step that THROWS at runtime (out of dispatch-sync) tears down
-            the partially-created frame (no live half-frame) and the error names
-            the :step-index + :event"
+(deftest escaping-throw-setup-step-tears-down-partial-frame
+  (testing "a setup step that THROWS OUT of dispatch-sync (an unregistered-cofx
+            resolution throw escaping context assembly) tears down the partially-
+            created frame (no live half-frame) and the error names the
+            :step-index + :event — the ESCAPING-throw detection route"
     (reg-test-events!)
     (let [data (err-data
                  #(rf/reg-frame :teardown/main
@@ -481,22 +497,58 @@
       (is (nil? (frame/frame :teardown/main))
           "the partially-created frame was torn down — no live half-frame is left"))))
 
-(deftest trace-and-recover-setup-step-leaves-frame-alive
-  (testing "a setup step whose failure dispatch-sync TRACES-and-recovers (a
-            handler-body throw) does NOT tear down — the frame is left alive in
-            the resulting state, exactly as after the manual loop"
+(deftest set-db-bad-arg-setup-step-tears-down-partial-frame
+  (testing "rf2-vw5h1r (the test that CATCHES the bug): a [:rf/set-db :not-a-map]
+            bad-arg setup step tears down the partial frame. This is the EP-0027
+            §Failure canonical trigger: :rf/set-db raises :rf.error/set-db-bad-
+            value from INSIDE the handler via error/throw-error!, so the
+            interceptor chain CATCHES it -> in-band :rf.error/handler-exception ->
+            dispatch-sync returns nil NORMALLY (no escaping throw). Before the fix
+            the runner's try/catch never fired, so the partial frame was LEFT
+            ALIVE wrongly-seeded (the bug); with the fix the runner detects the
+            captured in-band error on the always-on error-emit axis, tears down,
+            and raises :rf.error/initial-events-step-failed. CONFIRM-BY-REVERT:
+            reverting run-setup-events! to the old try/catch-only form makes
+            (frame/frame :set-db-bad/main) NON-nil here — the frame survives — and
+            no :rf.error/initial-events-step-failed is raised."
     (reg-test-events!)
-    ;; The :test/boom handler throws, but dispatch-sync traces it as
-    ;; :rf.error/handler-exception and recovers (no re-raise). Construction
-    ;; completes; the seed before it survives, the step after it still runs.
-    (rf/reg-frame :recover/main
-      {:initial-events [[:test/set-db {:n 0}]
-                        [:test/boom]
-                        [:test/inc]]})
-    (is (some? (frame/frame :recover/main))
-        "the frame is LEFT ALIVE — a traced-and-recovered step is not a teardown")
-    (is (= 1 (:n (rf/app-db-value :recover/main)))
-        "the seed + the trailing :test/inc ran; the recovered :test/boom left no db change")))
+    ;; :rf/set-db is the FRAMEWORK-STANDARD seed event (re-seeded by the reset
+    ;; fixture). [:rf/set-db :not-a-map] is the canonical bad-arg: it must be a
+    ;; map. The seed BEFORE it succeeds, so a partial frame exists when the bad
+    ;; step runs — exactly the half-created-frame scenario teardown must clean up.
+    (let [data (err-data
+                 #(rf/reg-frame :set-db-bad/main
+                    {:initial-events [[:rf/set-db {:n 0}]
+                                      [:rf/set-db :not-a-map]
+                                      [:test/inc]]}))]
+      (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
+          "the in-band-captured handler-exception raises :rf.error/initial-events-step-failed")
+      (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
+      (is (= [:rf/set-db :not-a-map] (:event data)) "the error names the failing event")
+      (is (nil? (frame/frame :set-db-bad/main))
+          "the partially-created frame was TORN DOWN — the bug left it ALIVE wrongly-seeded"))))
+
+(deftest handler-body-throw-setup-step-tears-down-partial-frame
+  (testing "rf2-vw5h1r: a plain HANDLER-BODY throw (:test/boom) in a setup step
+            tears down the partial frame too — generalising the set-db-bad-arg
+            case to ANY handler-body throw the chain catches in-band. Before the
+            fix this was TRACED-and-recovered and the frame LEFT ALIVE (the prior
+            test's stale expectation); strict construction now tears it down."
+    (reg-test-events!)
+    ;; The :test/boom handler throws; dispatch-sync traces it as
+    ;; :rf.error/handler-exception and returns nil (no escaping throw). Strict
+    ;; construction detects the captured error and tears down.
+    (let [data (err-data
+                 #(rf/reg-frame :boom/main
+                    {:initial-events [[:test/set-db {:n 0}]
+                                      [:test/boom]
+                                      [:test/inc]]}))]
+      (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
+          "the in-band handler-body throw raises :rf.error/initial-events-step-failed")
+      (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
+      (is (= [:test/boom] (:event data)) "the error names the failing event")
+      (is (nil? (frame/frame :boom/main))
+          "the partially-created frame was TORN DOWN — no live half-frame is left"))))
 
 (deftest runner-unavailable-fails-loud-not-silent-drop
   (testing "rf2-jsokxu: when there ARE :initial-events steps to run but the setup
