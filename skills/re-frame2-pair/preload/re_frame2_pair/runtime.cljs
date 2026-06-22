@@ -3420,21 +3420,26 @@
                     control). When omitted the curated structural set
                     rides PLUS a `data-*` / `aria-*` prefix sweep.
      :frame         optional operating-frame override — names the frame
-                    whose declared-`:sensitive?` app-db values the rendered
-                    text / attrs are value-redacted against (see below).
+                    whose declared classification the rendered text / attrs
+                    are PATH-projected against (see below).
 
-   PRIVACY. Rendered DOM text / attribute values can carry a
-   secret copied out of a declared-sensitive app-db slot — a NON-app-db
-   position the path-based `elide-wire-value` walker can never reach. Under
-   the off-box egress posture (raw-state gate OFF — the published-build
-   default) the matched nodes are value-redacted via `maybe-redact-derived`
-   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary) against the operating frame's
-   secrets, so a rendered secret lands as `:rf/redacted` before crossing
-   the off-box wire. Gate ON (`--allow-sensitive-reads`) passes the nodes
-   through verbatim (the operator's deliberate trusted-local raw read). When
-   the gate is OFF and the frame is AMBIGUOUS (multi-app, none pinned) the
-   op FAILS CLOSED with `:reason :ambiguous-frame` rather than ship raw DOM
-   or synthesise `:rf/default`.
+   PRIVACY. Rendered DOM text / attribute values that sit AT a declared-
+   classified app-db PATH within the projected tree redact. Under the off-box
+   egress posture (raw-state gate OFF — the published-build default) the
+   matched nodes are PATH-projected via `maybe-redact-derived`
+   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary)
+   against the operating frame's classification, so a value at a classified
+   path lands as `:rf/redacted` before crossing the off-box wire. EP-0025
+   FAIL-OPEN: value-match (taint-by-equality) is REMOVED, so a secret copied
+   out of a declared-sensitive app-db slot INTO a non-app-db DOM position
+   ships RAW — the path walker reaches only values at a classified path. To
+   keep a value out of rendered content, classify its app-db PATH so it is
+   redacted at the source before a view renders it. Gate ON
+   (`--allow-sensitive-reads`) passes the nodes through verbatim (the
+   operator's deliberate trusted-local raw read). When the gate is OFF and the
+   frame is AMBIGUOUS (multi-app, none pinned) the op FAILS CLOSED with
+   `:reason :ambiguous-frame` rather than ship raw DOM or synthesise
+   `:rf/default`.
 
    Returns (success):
      {:ok? true :selector <sel> [:sub-selector <sub>] :count <total>
@@ -3460,20 +3465,19 @@
          attr-opts (if attrs
                      {:names attrs :prefix-sweep? false}
                      {:names nil   :prefix-sweep? true})
-         ;; Resolve the frame whose declared-sensitive app-db
-         ;; values the rendered nodes are value-redacted against. Only
-         ;; load-bearing under the off-box gate (gate ON passes raw, frame
-         ;; irrelevant).
+         ;; Resolve the frame whose declared classification the rendered
+         ;; nodes are PATH-projected against. Only load-bearing under the
+         ;; off-box gate (gate ON passes raw, frame irrelevant).
          gate-on?  (:allow-raw-state? @raw-state-config)
          frame-id  (current-frame frame)]
      (cond
        (not (exists? js/document))
        {:ok? false :reason :rf.error/read-dom-no-document}
 
-       ;; Fail CLOSED: off-box posture needs a frame to source the secret
-       ;; set for value-redaction; an ambiguous frame can't pick one, so
-       ;; refuse rather than ship raw DOM (acceptance: never synthesise
-       ;; :rf/default).
+       ;; Fail CLOSED: off-box posture needs a frame to source the
+       ;; classification for the PATH projection; an ambiguous frame can't
+       ;; pick one, so refuse rather than ship raw DOM (acceptance: never
+       ;; synthesise :rf/default).
        (and (not gate-on?) (nil? frame-id))
        (ambiguous-frame-error :read-dom {:selector selector})
 
@@ -3485,8 +3489,8 @@
                         nodes)
                total  (count scoped)
                want   (take limit scoped)
-               ;; Value-redact rendered text + attrs against the frame's
-               ;; secrets (off-box default); gate ON passes verbatim.
+               ;; PATH-project rendered text + attrs against the frame's
+               ;; classification (off-box default); gate ON passes verbatim.
                proj   (-> (mapv #(node->content % max-text attr-opts) want)
                           (maybe-redact-derived frame-id))]
            (cond-> {:ok?        true
@@ -3582,22 +3586,25 @@
                 text is replaced with a `:rf.size/large-elided` marker
                 BEFORE the redaction pass runs.
      :frame     operating-frame override for the `:subs-read` slice +
-                the value-redaction source-db.
+                the PATH-projection source-db.
 
-   PRIVACY. The rendered `:content` (text AND attrs) can carry
-   a secret copied out of a declared-sensitive app-db slot — a NON-app-db
-   position the path-based `elide-wire-value` walker can never reach (a
-   bare `(elide-wire-value text {:frame …})` over the anonymous string is
-   a no-op for this leak class, and never touches attrs). Under
-   the off-box egress posture (raw-state gate OFF — the published-build
-   default) the whole `:content` is value-redacted via `maybe-redact-derived`
-   (`re-frame.core/project-egress`, the :rf.observe/derived-tree boundary) against the frame's secrets, so a
-   rendered secret lands as `:rf/redacted`. The hard per-node `max-text` cap
-   still trims the common large case first. Gate ON (`--allow-sensitive-
-   reads`) passes the content through verbatim (trusted-local raw). When the
-   gate is OFF and the frame is AMBIGUOUS (multi-app, none pinned) the op
-   FAILS CLOSED with `:reason :ambiguous-frame` rather than ship raw content
-   or synthesise `:rf/default`.
+   PRIVACY. The rendered `:content` (text AND attrs) is PATH-projected: a
+   value sitting AT a declared-classified app-db PATH within the content
+   redacts. Under the off-box egress posture (raw-state gate OFF — the
+   published-build default) the whole `:content` is PATH-projected via
+   `maybe-redact-derived` (`re-frame.core/project-egress`, the
+   :rf.observe/derived-tree boundary) against the frame's classification, so a
+   value at a classified path lands as `:rf/redacted`. EP-0025 FAIL-OPEN:
+   value-match (taint-by-equality) is REMOVED, so a secret copied out of a
+   declared-sensitive app-db slot INTO a non-app-db DOM position ships RAW —
+   the path walker reaches only values at a classified path. To keep a value
+   out of rendered content, classify its app-db PATH so it is redacted at the
+   source before a view renders it. The hard per-node `max-text` cap still
+   trims the common large case first. Gate ON (`--allow-sensitive-reads`)
+   passes the content through verbatim (trusted-local raw). When the gate is
+   OFF and the frame is AMBIGUOUS (multi-app, none pinned) the op FAILS CLOSED
+   with `:reason :ambiguous-frame` rather than ship raw content or synthesise
+   `:rf/default`.
 
    Returns:
      {:ok?     true
@@ -3666,14 +3673,14 @@
                    base      (node->content hit-el max-text
                                             {:names nil :prefix-sweep? true
                                              :drop-internal? true})
-                   ;; Value-redact the WHOLE rendered content
-                   ;; (text AND attrs) against the frame's declared-sensitive
-                   ;; app-db secrets. The path-based `elide-wire-value`
-                   ;; redacts by app-db PATH, and rendered text has none, so
-                   ;; it can't catch a secret copied INTO the DOM, nor touch
-                   ;; attrs. `project-egress` (:rf.observe/derived-tree) is the value-based dual:
-                   ;; it substitutes any leaf `=` to a frame secret. Off-box
-                   ;; default redacts; gate ON passes verbatim (trusted-local).
+                   ;; PATH-project the WHOLE rendered content (text AND attrs)
+                   ;; against the frame's declared classification.
+                   ;; `project-egress` (:rf.observe/derived-tree) walks the
+                   ;; tree through the path-based `elide-wire-value`: a value
+                   ;; AT a classified app-db path redacts. EP-0025 FAIL-OPEN —
+                   ;; value-match is removed, so a secret re-keyed INTO a
+                   ;; non-app-db DOM position ships raw. Off-box default
+                   ;; projects; gate ON passes verbatim (trusted-local).
                    content   (maybe-redact-derived base frame-id)]
                {:ok?     true
                 :via     via
@@ -3870,9 +3877,10 @@
 
    FAIL CLOSED: under the off-box gate a signal that needs
    frame policy (`:app-db` / `:sub` always; `:dom` / `:focus` because their
-   derived values are value-redacted against the frame's secrets) cannot be
-   sampled when `frame-id` is nil (ambiguous frame). Rather than sample
-   against a nil frame — which would ship raw derived DOM / focus text — the
+   derived values are PATH-projected against the frame's classification)
+   cannot be sampled when `frame-id` is nil (ambiguous frame). Rather than
+   sample against a nil frame — which would ship raw derived DOM / focus text
+   — the
    one-shot returns an `:ambiguous-frame` refusal so `watch-until` surfaces
    a clear error instead of silently leaking. Under the trusted-local gate
    raw is the operator's choice, so a nil frame still samples (verbatim)."
@@ -4010,17 +4018,17 @@
    frame policy but no frame can be resolved (multi-frame session, no
    selection) — read ops must not silently fall back to :rf/default.
    `:app-db` / `:sub` always need a frame (they read it); `:dom` / `:focus`
-   need one under the off-box gate (their derived values are
-   value-redacted against the frame's secrets, so the secret source must be
-   pickable). Under the trusted-local gate (`--allow-sensitive-reads`) a
+   need one under the off-box gate (their derived values are PATH-projected
+   against the frame's classification, so the source-db must be pickable).
+   Under the trusted-local gate (`--allow-sensitive-reads`) a
    `:dom` / `:focus`-only recording needs no frame (it ships raw)."
   [{:keys [signals stop frame max-entries elide-opts]}]
   (let [signals  (vec signals)
         gate-on? (:allow-raw-state? @raw-state-config)
         needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)
-                                ;; :dom / :focus are value-redacted under the
+                                ;; :dom / :focus are PATH-projected under the
                                 ;; off-box gate, so they need a frame to
-                                ;; source the secret set.
+                                ;; source the classification.
                                 (and (not gate-on?)
                                      (or (contains? % :dom) (contains? % :focus))))
                            signals)
