@@ -154,7 +154,7 @@ There are *two* members of the `frame-provider` name family, and picking the wro
 
 > **Idempotent re-mount is safe.** Re-mounting a `frame-provider` under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state. `make-frame` is idempotent replacement and the destroy-on-unmount is deferred and cancelled by a re-acquire. You don't have to special-case dev tooling.
 
-> **Note on `:initial-events`.** Frames always start with `app-db = {}` — there's no `:db` config key. Seeding initial state is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step (per [EP-0027](../../../docs/EP/EP-0027-frame-initial-events.md)). If you were looking for the retired `:initial-db` or `:on-create` keys, this is where they went: setup is now ordinary events through the ordinary dispatch pipeline. See [Frames](../concepts/frames.md) for the full init surface.
+> **Note on `:initial-events`.** Frames always start with `app-db = {}` — there's no `:db` config key. Seeding initial state is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step. If you were looking for the retired `:initial-db` or `:on-create` keys, this is where they went: setup is now ordinary events through the ordinary dispatch pipeline. See [Frames](../concepts/frames.md) for the full init surface.
 
 ## reagent-slim: kilobytes for capability
 
