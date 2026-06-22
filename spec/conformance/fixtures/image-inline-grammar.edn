@@ -1,0 +1,92 @@
+;; Conformance fixture: image/inline-grammar
+;;
+;; EP-0026 §Inline Registration Grammar
+;; (../../docs/EP/EP-0026-image-api-simplification.md): inline `:registrations`
+;; DEFINE new registrations inline (the image-local analogue of a namespace's
+;; `(def …)`). The outer tuple shape is EXACT:
+;;
+;;   [id body]            ;; metadata defaults to {}
+;;   [id metadata body]   ;; explicit metadata map
+;;
+;; Every inline registration carries a BODY. A 1-tuple `[id]`, an empty tuple
+;; `[]`, a 4+-tuple, a non-vector, and — deliberately reversing EP-0023 — a
+;; metadata-only `[id metadata]` tuple are ALL INVALID (fail loud at `rf/image`
+;; with :rf.error/invalid-image). EP-0026 standardizes inline grammar for EXACTLY
+;; four kinds with a concrete parser + a published lowering hook — `:reg-event`,
+;; `:reg-sub`, `:reg-fx`, `:reg-cofx`; every OTHER inline section
+;; (`:reg-interceptor`, `:reg-view`, `:reg-route`, `:reg-flow`, …) fails loud
+;; with the unsupported-inline-kind diagnostic until its owning spec defines
+;; inline lowering.
+;;
+;; Mode-B `:assemble-image` call op: positive calls assert the inline descriptor
+;; resolves with its inline coordinate (`{:image … :inline [section id]}`);
+;; per-kind metadata rides on the descriptor (the cofx grade is read from the
+;; entry metadata). Negative calls carry `:expect-error :rf.error/invalid-image`
+;; (Spec 009 §The thrown-error shape — `case` on `:rf.error/id`, never the
+;; message string). Inline bodies are realised to a host no-op by the runner (EDN
+;; cannot carry fns); who-won is read from the pure-EDN coordinate.
+
+{:fixture/id           :image/inline-grammar
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 inline grammar: the four supported kinds (:reg-event / :reg-sub / :reg-fx / :reg-cofx) lower from [id body] and [id metadata body] tuples; metadata rides on the descriptor. An unsupported inline section, a metadata-only [id metadata] tuple, a too-short tuple, and a too-long tuple all fail loud with :rf.error/invalid-image."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) All four supported kinds lower + assemble cleanly, mixing the 2-tuple
+  ;; [id body] and the 3-tuple [id metadata body] forms; the resolved descriptors
+  ;; carry the inline coordinate. The :reg-cofx 3-tuple carries the grade
+  ;; (:recordable?) as per-kind metadata (read by the cofx lowering hook).
+  {:call :assemble-image
+   :pool []
+   :images [{:id :quickstart/all
+             :registrations
+             {:reg-event [[:counter/inc {:doc "increment"} :inc-body]]   ;; 3-tuple + metadata
+              :reg-sub   [[:counter/value :value-body]]                  ;; 2-tuple
+              :reg-fx    [[:metrics/send :send-body]]                    ;; 2-tuple
+              :reg-cofx  [[:clock/now {:recordable? true} :now-body]]}}] ;; 3-tuple + grade metadata
+   :expect-resolves [{:kind :event :id :counter/inc
+                      :coordinate {:image :quickstart/all :inline [:reg-event :counter/inc]}}
+                     {:kind :sub :id :counter/value
+                      :coordinate {:image :quickstart/all :inline [:reg-sub :counter/value]}}
+                     {:kind :fx :id :metrics/send
+                      :coordinate {:image :quickstart/all :inline [:reg-fx :metrics/send]}}
+                     {:kind :cofx :id :clock/now
+                      :coordinate {:image :quickstart/all :inline [:reg-cofx :clock/now]}}]
+   :expect-kinds #{:event :sub :fx :cofx}}
+
+  ;; (2) An UNSUPPORTED inline section (:reg-view — namespace-authored until its
+  ;; owning spec defines inline lowering) fails loud.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :i :registrations {:reg-view [[:my/view :view-body]]}}]
+   :expect-error :rf.error/invalid-image}
+
+  ;; (3) A typo'd / unknown inline section key also fails loud (no silent drop).
+  {:call :assemble-image
+   :pool []
+   :images [{:id :i :registrations {:reg-bogus [[:x :body]]}}]
+   :expect-error :rf.error/invalid-image}
+
+  ;; (4) A metadata-only [id metadata] 2-tuple is INVALID (EP-0026 reverses
+  ;; EP-0023): a 2-tuple's second slot is the handler BODY, not metadata — a map
+  ;; in the body slot is the retired metadata-only form.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :m :registrations {:reg-fx [[:my/fx {:doc "meta only"}]]}}]
+   :expect-error :rf.error/invalid-image}
+
+  ;; (5) A too-short 1-tuple [id] (no body) fails loud.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :i :registrations {:reg-event [[:counter/inc]]}}]
+   :expect-error :rf.error/invalid-image}
+
+  ;; (6) A too-long 4-tuple [id metadata body extra] fails loud (the extra slot
+  ;; is not silently dropped).
+  {:call :assemble-image
+   :pool []
+   :images [{:id :i :registrations {:reg-event [[:counter/inc {} :body :extra]]}}]
+   :expect-error :rf.error/invalid-image}]}

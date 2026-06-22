@@ -1,0 +1,76 @@
+;; Conformance fixture: image/select-ns-selection
+;;
+;; EP-0026 §Namespace Selection (../../docs/EP/EP-0026-image-api-simplification.md):
+;; an image SELECTS existing namespace-authored registrations with a single
+;; `:select-ns {:include [globs] :exclude [globs]}` map. The selected set is
+;; `union(:include matches) minus union(:exclude matches)` with exclusion GLOBAL
+;; to the image selection (a namespace matched by ANY `:exclude` is never
+;; selected, no re-admission). `:include` is REQUIRED and an include pattern that
+;; matches NO registration source namespace MUST fail image assembly; an exclude
+;; pattern matching nothing is a no-op. Selection is BY `:rf.provenance/ns`
+;; (source namespace), never by the registration-id namespace.
+;;
+;; Mode-B `:assemble-image` call op (see ../README.md §The :assemble-image op):
+;; the `:pool` is the candidate registered descriptors (each carrying
+;; `:rf.provenance/ns` / `:kind` / `:id` / a `:handler-fn` sentinel); the
+;; `:images` are `rf/image` spec maps. `:expect-resolves` asserts who-won by the
+;; pure-EDN descriptor coordinate (`{:ns …}` for a selected descriptor);
+;; `:expect-present` / `:expect-absent` pin resolver membership; `:expect-error`
+;; pins the fail-loud `:rf.error/id` discriminator (Spec 009 §The thrown-error
+;; shape — consumers `case` on `:rf.error/id`, never the message string).
+
+{:fixture/id           :image/select-ns-selection
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 :select-ns selection: :include selects by source-namespace provenance (not by the id namespace); a global :exclude subtracts the matched namespaces; an include pattern with zero matches fails image assembly with :rf.error/image-zero-match while an exclude matching nothing is a no-op."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) :include selects by SOURCE-NAMESPACE provenance, not by the id's
+  ;; namespace. The pool reuses the id :counter/inc across two distinct source
+  ;; namespaces; selecting "docs.counter.v2" picks ONLY the v2 descriptors.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "docs.counter.v2" :kind :event :id :counter/inc   :handler-fn :v2-inc}
+          {:rf.provenance/ns "docs.counter.v2" :kind :sub   :id :counter/value :handler-fn :v2-val}
+          {:rf.provenance/ns "docs.counter.v3" :kind :event :id :counter/inc   :handler-fn :v3-inc}
+          {:rf.provenance/ns "shop.cart"       :kind :event :id :cart/add      :handler-fn :cart}]
+   :images [{:id :app/v2 :select-ns {:include ["docs.counter.v2"]}}]
+   :expect-resolves [{:kind :event :id :counter/inc   :coordinate {:ns "docs.counter.v2"}}
+                     {:kind :sub   :id :counter/value :coordinate {:ns "docs.counter.v2"}}]
+   ;; the v3 :counter/inc (same id namespace, different SOURCE ns) and the
+   ;; unselected shop.cart event are not in the generation.
+   :expect-absent [[:event :cart/add]]}
+
+  ;; (2) Recursive `**` include + GLOBAL exclude: the exclude drops the matched
+  ;; source namespaces from the include selection regardless of which include
+  ;; caught them. Only the production descriptors survive.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "app.feature.core"           :kind :event :id :feat/open  :handler-fn :open}
+          {:rf.provenance/ns "app.feature.panels"         :kind :sub   :id :feat/data  :handler-fn :data}
+          {:rf.provenance/ns "app.feature.core-cljs-test" :kind :event :id :feat/probe :handler-fn :probe}]
+   :images [{:id :app/feat
+             :select-ns {:include ["app.feature.**"]
+                         :exclude ["app.feature.**.*-cljs-test"
+                                   ;; an exclude matching NOTHING in this pool is
+                                   ;; a no-op (not zero-match fail-loud).
+                                   "never.loaded.**"]}}]
+   :expect-resolves [{:kind :event :id :feat/open :coordinate {:ns "app.feature.core"}}
+                     {:kind :sub   :id :feat/data :coordinate {:ns "app.feature.panels"}}]
+   ;; the *-cljs-test sibling is excluded.
+   :expect-absent [[:event :feat/probe]]}
+
+  ;; (3) Zero-match :include FAILS LOUD: every include pattern must select at
+  ;; least one descriptor (a typo / forgotten require / DCE-removed namespace).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "shop.cart" :kind :event :id :cart/add :handler-fn :cart}]
+   :images [{:id :app/ghost :select-ns {:include ["does.not.exist.**"]}}]
+   :expect-error :rf.error/image-zero-match}
+
+  ;; (4) Zero-match fires EVEN when ANOTHER include pattern matches — every
+  ;; pattern must select at least one descriptor.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "shop.cart" :kind :event :id :cart/add :handler-fn :cart}]
+   :images [{:id :app/partial :select-ns {:include ["shop.**" "ghost.*"]}}]
+   :expect-error :rf.error/image-zero-match}]}

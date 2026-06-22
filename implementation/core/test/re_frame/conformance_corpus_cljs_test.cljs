@@ -122,7 +122,16 @@
             [re-frame.resources :as resources]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.resources.tooling :as resources-tooling]
-            [re-frame.routing.tooling :as routing-tooling])
+            [re-frame.routing.tooling :as routing-tooling]
+            ;; EP-0026 (rf2-qp8qi8) — the image-API conformance ops. `re-frame.image`
+            ;; (the `rf/image` constructor) + `re-frame.image-assembly` (the
+            ;; explicit-pool assembler) back the Mode-B `:assemble-image` call op.
+            ;; CLJS has no `:reload`, so requiring at ns-load is enough — the four
+            ;; inline-lowering hooks publish at ns-load via events/subs/fx/cofx,
+            ;; already on the require graph through `re-frame.core`. Mirror of the
+            ;; JVM runner's requires.
+            [re-frame.image :as image]
+            [re-frame.image-assembly :as image-assembly])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj). The
   ;; macro ns is .clj — shadow-cljs picks it up via :require-macros
   ;; (a CLJS-only form; cannot live in the top-level :require above).
@@ -140,6 +149,9 @@
     ;; :core/trace + :core/frame — rf2-3pnob. See JVM runner for rationale.
     :core/trace
     :core/frame
+    ;; EP-0026 (rf2-qp8qi8) — the image-API surface. Matches the JVM runner's
+    ;; claim so the `image-*.edn` fixtures run on CLJS too via `:assemble-image`.
+    :core/image
     :fsm/flat
     :fsm/eventless-always
     :fsm/hierarchical
@@ -1240,6 +1252,125 @@
                     (str "ssr-apply-policy " (pr-str (:opts call))
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
+
+    ;; EP-0026 (rf2-qp8qi8) — `:assemble-image`. Mirror of the JVM runner: pin
+    ;; the EP-0026 image-API surface (selection, image-order layering, the
+    ;; shadow report, the fail-loud collision / retired-key / inline-grammar
+    ;; taxonomy) host-agnostically against the live `re-frame.image` constructor
+    ;; + `re-frame.image-assembly` assembler. PURE — a function of the call's
+    ;; descriptor `:pool` + `:images` specs. See the JVM runner for the full
+    ;; call-shape contract (`:pool` / `:standards` / `:images` / `:default?` +
+    ;; `:expect-error` OR `:expect-resolves` / `:expect-present` / `:expect-absent`
+    ;; / `:expect-kinds` / `:expect-shadows`). Inline bodies are realised to a
+    ;; host no-op (EDN cannot carry fns; who-won is read from the descriptor
+    ;; coordinate, which is pure EDN).
+    :assemble-image
+    (let [;; A FRESH fn per entry (see JVM runner) so two inline entries for one
+          ;; [kind id] stay DISTINCT registrations — a shared body would dedupe
+          ;; them and mask the two-inline within-image collision.
+          realise-entry
+          (fn [entry]
+            (cond
+              (and (vector? entry) (= 3 (count entry)))
+              (assoc entry 2 (fn [& _] nil))
+              (and (vector? entry) (= 2 (count entry)) (not (map? (nth entry 1))))
+              (assoc entry 1 (fn [& _] nil))
+              :else entry))
+          realise-regs
+          (fn [regs]
+            (reduce-kv (fn [m section entries]
+                         (assoc m section (mapv realise-entry entries)))
+                       {} regs))
+          realise-spec
+          (fn [spec]
+            (cond-> spec
+              (contains? spec :registrations)
+              (update :registrations realise-regs)))
+          want-error (:expect-error call)
+          ;; `:images-literal` — the `make-frame` BOUNDARY case (EP-0026 §Default
+          ;; Image — `:images []` is an error). `validate-images!` fires inside
+          ;; `make-frame` BEFORE any frame record is created, so the error case is
+          ;; pure (no live frame seated). Used ONLY for the `:images []` →
+          ;; `:rf.error/make-frame-bad-images` fixture. Mirror of the JVM runner.
+          outcome
+          (if (contains? call :images-literal)
+            (try (rf/make-frame {:images (:images-literal call)})
+                 {:err :no-error}
+                 (catch :default e
+                   (if-let [id (:rf.error/id (ex-data e))]
+                     {:err id}
+                     {:err-msg (ex-message e)})))
+          (try
+            (image-assembly/clear-standards!)
+            (image-assembly/clear-generation-cache!)
+            (doseq [[kind id] (:standards call)]
+              (image-assembly/register-standard! kind id {:handler-fn :rf.std/sentinel}))
+            (let [pool   (vec (:pool call))
+                  images (mapv (fn [spec] (image/image (realise-spec spec)))
+                               (:images call))
+                  gen    (if (or (:default? call) (empty? images))
+                           (image-assembly/assemble-default pool)
+                           (image-assembly/assemble images pool))]
+              {:gen gen})
+            (catch :default e
+              (if-let [id (:rf.error/id (ex-data e))]
+                {:err id}
+                {:err-msg (ex-message e)}))
+            (finally (image-assembly/clear-standards!))))]
+      (if want-error
+        (let [got (:err outcome)]
+          {:passed? (= want-error got)
+           :detail  (when (not= want-error got)
+                      (str "assemble-image expected error " want-error
+                           " got " (pr-str (or got (:err-msg outcome)
+                                               (when (:gen outcome) :no-error)))))})
+        (if-let [gen (:gen outcome)]
+          (let [resolver (:rf.gen/resolver gen)
+                fails
+                (concat
+                  (keep (fn [{:keys [kind id coordinate]}]
+                          (let [d (get resolver [kind id])]
+                            (cond
+                              (nil? d)
+                              (str "expected [" kind " " id "] to resolve, but it is absent")
+                              (not= coordinate (image-assembly/descriptor-coordinate d))
+                              (str "[" kind " " id "] resolved to coordinate "
+                                   (pr-str (image-assembly/descriptor-coordinate d))
+                                   " — expected " (pr-str coordinate)))))
+                        (:expect-resolves call))
+                  (keep (fn [k+id]
+                          (when-not (contains? resolver (vec k+id))
+                            (str "expected resolver key " (pr-str (vec k+id)) " present")))
+                        (:expect-present call))
+                  (keep (fn [k+id]
+                          (when (contains? resolver (vec k+id))
+                            (str "expected resolver key " (pr-str (vec k+id)) " ABSENT")))
+                        (:expect-absent call))
+                  (when (contains? call :expect-kinds)
+                    (let [got (:rf.gen/kinds gen)]
+                      (when (not= (set (:expect-kinds call)) got)
+                        [(str "expected kinds " (pr-str (set (:expect-kinds call)))
+                              " got " (pr-str got))])))
+                  ;; `:expect-gen-absent` — top-level GENERATION keys that MUST
+                  ;; NOT appear on the sealed generation map (e.g. the retired
+                  ;; `:rf.gen/requires` image-capability slot).
+                  (keep (fn [k]
+                          (when (contains? gen k)
+                            (str "generation key " (pr-str k) " must be ABSENT (got "
+                                 (pr-str (get gen k)) ")")))
+                        (:expect-gen-absent call))
+                  (when (contains? call :expect-shadows)
+                    (let [got (:rf.gen/shadows gen)]
+                      (when (not= (:expect-shadows call) got)
+                        [(str "expected shadows\n      " (pr-str (:expect-shadows call))
+                              "\n    got\n      " (pr-str got))]))))]
+            {:passed? (empty? fails)
+             :detail  (when (seq fails)
+                        (str "assemble-image:\n    "
+                             (str/join "\n    " fails)))})
+          {:passed? false
+           :detail  (str "assemble-image: assembly threw unexpectedly — "
+                         (pr-str (or (:err outcome) (:err-msg outcome))))})))
 
     ;; EP-0014 (rf2-k0meap.3; rf2-djofbh) — `:derivation-graph`. Compose the
     ;; cross-family derivation/process graph over the FULL contributor set

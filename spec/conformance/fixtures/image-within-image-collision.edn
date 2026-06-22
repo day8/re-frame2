@@ -1,0 +1,61 @@
+;; Conformance fixture: image/within-image-collision
+;;
+;; EP-0026 §Layered Resolution (../../docs/EP/EP-0026-image-api-simplification.md):
+;; an image must resolve cleanly to ONE descriptor per `[kind id]` — there is no
+;; within-image winner rule. So any `[kind id]` that resolves two ways WITHIN one
+;; image is an ERROR. Three cases:
+;;
+;;   * two SELECTED descriptors for the same [kind id] (different source
+;;     namespaces) — AMBIGUOUS → :rf.error/image-duplicate-id;
+;;   * two INLINE entries for the same [kind id] — malformed →
+;;     :rf.error/image-within-image-collision;
+;;   * an INLINE entry colliding with a SELECTED one — an override must be a
+;;     LATER image → :rf.error/image-within-image-collision.
+;;
+;; (The ordinary SAME-source dedupe — the same registration selected by two
+;; overlapping globs — is NOT a collision; that control is pinned below.)
+;;
+;; Mode-B `:assemble-image` call op. Each negative call carries `:expect-error`
+;; (Spec 009 §The thrown-error shape — `case` on `:rf.error/id`, never the
+;; message string).
+
+{:fixture/id           :image/within-image-collision
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 within-image disjointness: two selected descriptors for one [kind id] is :rf.error/image-duplicate-id (ambiguous); two inline entries, or an inline entry colliding with a selected one, is :rf.error/image-within-image-collision (an override must be a later image). The same registration selected twice is a dedupe, not a collision."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) Two SELECTED descriptors for one [kind id] from DIFFERENT source
+  ;; namespaces, both selected by one image — ambiguous; assembly fails. The
+  ;; error fires regardless of pool order (no last-write-wins).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "todo.boot"    :kind :event :id :boot/init :handler-fn :todo}
+          {:rf.provenance/ns "counter.boot" :kind :event :id :boot/init :handler-fn :counter}]
+   :images [{:id :both/img :select-ns {:include ["todo.boot" "counter.boot"]}}]
+   :expect-error :rf.error/image-duplicate-id}
+
+  ;; (2) Two INLINE entries for the same [kind id] in ONE image — malformed.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :i :registrations {:reg-fx [[:checkout.http/post :a]
+                                             [:checkout.http/post :b]]}}]
+   :expect-error :rf.error/image-within-image-collision}
+
+  ;; (3) An INLINE entry colliding with a SELECTED one in ONE image — an override
+  ;; must be a LATER image, not a within-image act.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "counter.core" :kind :event :id :counter/inc :handler-fn :selected}]
+   :images [{:id :i
+             :select-ns {:include ["counter.core"]}
+             :registrations {:reg-event [[:counter/inc :inline]]}}]
+   :expect-error :rf.error/image-within-image-collision}
+
+  ;; (4) CONTROL: the SAME registration selected by two overlapping globs is a
+  ;; DEDUPE (same source + impl), not a collision — it seals cleanly.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "shop.cart" :kind :event :id :cart/add :handler-fn :add}]
+   :images [{:id :i :select-ns {:include ["shop.*" "shop.cart"]}}]
+   :expect-resolves [{:kind :event :id :cart/add :coordinate {:ns "shop.cart"}}]}]}
