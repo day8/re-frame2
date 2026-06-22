@@ -20,7 +20,7 @@ tree (see [How to run](#how-to-run)).
 - **CP-8 schema attachment** — `AuthLoginData`, a Malli schema for the
   machine snapshot's `:data` SLOT (the `:attempts` + `:error` map — not
   the whole `{:state … :data …}` snapshot), attached via the machine's
-  top-level `:data-schema` slot on `make-machine-handler`. It validates
+  top-level `[:schemas :data]` slot on `make-machine-handler`. It validates
   at the `:where :machine-data` boundary. (Machine snapshots are
   runtime-db, not app-db, so `reg-app-schema` — which validates the
   app-db partition only — is not the surface for them.)

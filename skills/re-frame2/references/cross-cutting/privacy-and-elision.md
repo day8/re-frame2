@@ -80,13 +80,13 @@ There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop
 A runtime subsystem owns its storage, so you never name an absolute runtime path. You declare `:sensitive` / `:large` **projection-relative to the instance's shape** on the subsystem definition, and the framework lowers it into the registry per instance (at spawn / fetch) and drops it on teardown:
 
 ```clojure
-;; the :data-schema still VALIDATES :data; the :sensitive declaration below is
-;; what classifies :data for SNAPSHOT egress (EP-0025 reverses the old
+;; the [:schemas :data] schema still VALIDATES :data; the :sensitive declaration
+;; below is what classifies :data for SNAPSHOT egress (EP-0025 reverses the old
 ;; schema-prop → snapshot-redaction bridge).
 (rf/reg-machine :checkout/payment
-  {:sensitive   [[:data :payment :token]]      ;; projection-relative to one actor's :data
-   :large       [[:data :payment :receipt-pdf]]
-   :data-schema [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]
+  {:sensitive [[:data :payment :token]]      ;; projection-relative to one actor's :data
+   :large     [[:data :payment :receipt-pdf]]
+   :schemas   {:data [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]}
    :initial :collecting
    :states  {,,,}})
 

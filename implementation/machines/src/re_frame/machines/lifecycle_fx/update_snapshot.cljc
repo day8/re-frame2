@@ -45,7 +45,7 @@
   Per Spec 005 §Snapshot-level escape hatch.
 
   Validation scope: the merged candidate's `:data` IS validated against the
-  actor's `:data-schema` (below). A `:state` / `:meta` patch is NOT
+  actor's `[:schemas :data]` schema (below). A `:state` / `:meta` patch is NOT
   occupiability-checked — the escape hatch
   trusts the caller to supply a `:state` that resolves to a real, occupiable
   state-node of the machine's definition. A `:state` patch naming a non-
@@ -95,15 +95,15 @@
           ;; The escape-hatch `:data` patch is NOT exempt from the
           ;; `:where :machine-data` boundary. Spec 005 §Snapshot-
           ;; level escape hatch says user error/status state lives under
-          ;; `:data` *where `:data-schema` validation covers it*. The fx
+          ;; `:data` *where `[:schemas :data]` validation covers it*. The fx
           ;; runs on the single drainer (Spec 002), so read-then-write is
           ;; atomic for this actor's snapshot: read the current snapshot,
           ;; compute the would-be-merged candidate, validate its `:data`
-          ;; against the actor's resolved `:data-schema`, and SKIP the
-          ;; write when it fails (a PRE-WRITE rejection — nothing is
+          ;; against the actor's resolved `[:schemas :data]` schema, and SKIP
+          ;; the write when it fails (a PRE-WRITE rejection — nothing is
           ;; committed, so `:rollback? false`; the trace fires with
           ;; `:phase :update-snapshot`). A valid patch — or a machine with
-          ;; no `:data-schema` — writes exactly as before. Absent actor
+          ;; no `[:schemas :data]` schema — writes exactly as before. Absent actor
           ;; (destroyed / unknown) is a no-op: nothing to merge into, and
           ;; nothing to validate.
           (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)

@@ -74,10 +74,10 @@
            (catch #?(:clj Throwable :cljs :default) _ nil))))
   nil)
 
-;; ---- per-instance :data-schema marks cleanup -------------------------------
+;; ---- per-instance [:schemas :data] marks cleanup ---------------------------
 ;;
-;; A machine's `:data-schema` is validation-only; it does not produce a
-;; per-instance marks table. There is therefore no schema-marks entry to
+;; A machine's `[:schemas :data]` schema is validation-only; it does not produce
+;; a per-instance marks table. There is therefore no schema-marks entry to
 ;; clear at destroy — a destroyed actor leaves no schema-marks residue by
 ;; construction. A spawned actor's `:data` redaction (if any) rides the
 ;; frame's declared paths, the sole app-db redaction mechanism.

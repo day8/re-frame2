@@ -201,15 +201,15 @@
 
 (defn- with-metadata
   "Attach the `:source` coordinates, `:doc`, and `:schema` (the machine's
-  `:data-schema`) to a node when present. The macro-stamped `:reg-machine`
-  spec co-locates `:ns` / `:line` / `:file` source coords on the spec map (and
-  the registrar metadata mirrors them); `:doc` / `:data-schema` are
+  `[:schemas :data]` schema) to a node when present. The macro-stamped
+  `:reg-machine` spec co-locates `:ns` / `:line` / `:file` source coords on the
+  spec map (and the registrar metadata mirrors them); `:doc` / `:schemas` are
   user-supplied spec keys. Functions stay opaque — a machine's transition
   logic is its `:states` / `:actions` / `:guards`, never serialized here."
   [node machine meta]
   (cond-> (node/attach-source node meta)
-    (contains? machine :doc)         (assoc :doc (:doc machine))
-    (contains? machine :data-schema) (assoc :schema (:data-schema machine))))
+    (contains? machine :doc)              (assoc :doc (:doc machine))
+    (get-in machine [:schemas :data])     (assoc :schema (get-in machine [:schemas :data]))))
 
 (defn- node-for
   "Build the derivation/process algebra view of one machine spec (Derivations
@@ -286,8 +286,8 @@
                      process is an actor parent; its live children appear in
                      `machine-instance-algebra-view`).
   - `:source` / `:schema` / `:doc` — present when the registration carried them
-                     (`:schema` is the machine's `:data-schema`; source coords
-                     auto-captured by the `reg-machine` macro).
+                     (`:schema` is the machine's `[:schemas :data]` schema;
+                     source coords auto-captured by the `reg-machine` macro).
 
   Zero-arity returns `{machine-id <node>}` for every registered machine (`{}`
   when none). The one-arity form returns the single node for `machine-id`, or

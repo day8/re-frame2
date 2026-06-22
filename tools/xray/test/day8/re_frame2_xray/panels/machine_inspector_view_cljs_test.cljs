@@ -707,16 +707,16 @@
     :else            nil))
 
 (def ^:private schema-fixture-definition
-  "A machine carrying a `:data-schema` so the declared Context shape wins
-  over the (deliberately misleading) one-sample `:data` inference."
-  {:initial     :idle
-   :data        {:retries nil}          ; misleading partial sample
-   :data-schema [:map
-                 [:retries :int]
-                 [:token {:optional true} [:maybe :string]]]
-   :states      {:idle    {:on {:start :authing}}
-                 :authing {:on {:ok :done}}
-                 :done    {:final? true}}})
+  "A machine carrying a `[:schemas :data]` schema so the declared Context shape
+  wins over the (deliberately misleading) one-sample `:data` inference."
+  {:initial :idle
+   :data    {:retries nil}          ; misleading partial sample
+   :schemas {:data [:map
+                    [:retries :int]
+                    [:token {:optional true} [:maybe :string]]]}
+   :states  {:idle    {:on {:start :authing}}
+             :authing {:on {:ok :done}}
+             :done    {:final? true}}})
 
 (deftest focused-event-chart-shows-declared-context-shape-rf2-kq8nac
   (testing "rf2-kq8nac (EP-0005): when the focused machine declares a
@@ -807,11 +807,11 @@
 
 (defn- reg-sensitive-machine! []
   (rf/reg-machine redaction-machine-id
-    {:initial     :anon
-     :data        {:retries 0 :token nil}
-     :data-schema sensitive-schema
-     :states      {:anon   {:on {:login :authed}}
-                   :authed {}}}))
+    {:initial :anon
+     :data    {:retries 0 :token nil}
+     :schemas {:data sensitive-schema}
+     :states  {:anon   {:on {:login :authed}}
+               :authed {}}}))
 
 (defn- declare-redaction-frame-marks!
   "Declare the redaction machine's snapshot `:data` token slot SENSITIVE on
@@ -845,7 +845,7 @@
       (override-machines!    [redaction-machine-id])
       (override-definitions! {redaction-machine-id
                               {:initial :anon
-                               :data-schema sensitive-schema
+                               :schemas {:data sensitive-schema}
                                :states {:anon   {:on {:login :authed}}
                                         :authed {}}}})
       ;; A RAW transition trace carrying the secret token in :before/:after

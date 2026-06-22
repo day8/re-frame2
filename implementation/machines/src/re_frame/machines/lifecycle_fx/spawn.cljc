@@ -195,8 +195,8 @@
 (defn- spawn-rejected?
   "Decide whether a spawn must be rejected by
   schema validation BEFORE any registration or install side effect runs.
-  When the spawning machine's spec carries a `:data-schema`, the freshly-built
-  `initial-snap`'s `:data` is validated against it. A failure emits
+  When the spawning machine's spec carries a `[:schemas :data]` schema, the
+  freshly-built `initial-snap`'s `:data` is validated against it. A failure emits
   `:rf.error/schema-validation-failure :where :machine-data :phase :spawn`
   (via `validate-spawn-data!`) and returns `true`; the caller then skips
   the trace, the handler registration, the snapshot/system-id/spawn-slot

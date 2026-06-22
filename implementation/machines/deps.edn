@@ -34,10 +34,11 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {;; rf2-try1x — silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       ;; rf2-jbbp7 — `:data-schema` validation tests reach the
+                       ;; `[:schemas :data]` validation tests reach the
                        ;; default Malli validator via `re-frame.schemas.malli`.
                        ;; Test-only dep so the artefact's production
-                       ;; classpath stays schemas-free.
+                       ;; classpath stays schemas-free (machine core requires
+                       ;; no schema library — EP-0029 Non-goal / rf2-49zxkc).
                        day8/re-frame2-schemas    {:local/root "../schemas"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}

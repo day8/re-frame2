@@ -118,10 +118,10 @@
    ;; §Spawn-time validation). The loader is only ever spawned (one
    ;; instance per asset, gensym'd id e.g. `:boot/loader#0`), so its
    ;; snapshot lives at a per-instance path no fixed `reg-app-schema`
-   ;; can reach — the machine `:data-schema` slot is the mechanism that
+   ;; can reach — the machine `[:schemas :data]` slot is the mechanism that
    ;; boundary-checks the spawn. The per-child `:data` fn (see :app/boot
    ;; below) replaces this base map with the planted identity at spawn.
-   :data-schema schema/LoaderData
+   :schemas {:data schema/LoaderData}
    :data    {:parent-id   nil
              :child-id    nil
              :staging-key nil
@@ -208,10 +208,10 @@
    ;; Validates the `:app/boot` snapshot's `:data` slot at the
    ;; `:where :machine-data` boundary (Spec 010 §Machine data schema +
    ;; Spec 005 §Schema validation). `BootData` describes `:data` only —
-   ;; the singleton's snapshot is runtime-db, so its `:data-schema` (not
+   ;; the singleton's snapshot is runtime-db, so its `[:schemas :data]` (not
    ;; an `reg-app-schema`) is the snapshot-validation surface, symmetric
    ;; with the `:boot/loader` child above.
-   :data-schema schema/BootData
+   :schemas {:data schema/BootData}
    :data    {:phase  :configuring
              :config nil
              :flags  nil

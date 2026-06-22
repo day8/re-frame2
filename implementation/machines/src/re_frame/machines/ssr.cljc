@@ -31,8 +31,8 @@
   definition declares its sensitive / large `:data` slots PROJECTION-RELATIVE
   (`re-frame.machines.classification`), lowered per actor instance into the
   registry under `:source :effect`; the commit-plane `:sensitive` / `:large`
-  effects are the general app-db mechanism. The `:data-schema` VALIDATES
-  `:data`; it does not classify it for egress.
+  effects are the general app-db mechanism. The `[:schemas :data]` schema
+  VALIDATES `:data`; it does not classify it for egress.
 
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
   projection is precise, not a blanket scrub. The sibling registry slots

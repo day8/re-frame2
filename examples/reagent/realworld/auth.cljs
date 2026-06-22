@@ -140,12 +140,12 @@
 ;; ============================================================================
 
 ;; `reg-machine` is the single registration home.
-;; The auth machine carries a `:data-schema` (validating the snapshot's
+;; The auth machine carries a `[:schemas :data]` (validating the snapshot's
 ;; `:data` slot); registering it here stamps the `:rf/machine?` /
-;; `:rf/machine` metadata that makes the `:data-schema` LIVE (`(machine-meta
+;; `:rf/machine` metadata that makes the `[:schemas :data]` LIVE (`(machine-meta
 ;; :auth/flow)` reads it, the `:where :machine-data` walker resolves it) AND
 ;; bridges its redaction marks — both in one place. The metadata is what makes
-;; the `:data-schema` enforced rather than inert. This
+;; the `[:schemas :data]` enforced rather than inert. This
 ;; machine validates only its `:data` (no outer event-vector `:schema`), so
 ;; the opts map carries just `:doc` + `:rf.http/decode-schemas`.
 (rf/reg-machine :auth/flow
@@ -161,9 +161,9 @@
    :data    {:error nil}
    ;; Snapshot :data validation. The snapshot lives in runtime-db
    ;; ([:rf.runtime/machines :snapshots :auth/flow]), so its :data shape is
-   ;; validated here via :data-schema — not via an app-schema (EP-0001,
+   ;; validated here via [:schemas :data] — not via an app-schema (EP-0001,
    ;; Mike ruling #11: app schemas validate the app-db partition only).
-   :data-schema schema/AuthFlowData
+   :schemas {:data schema/AuthFlowData}
    :guards
    {:has-token?
     (fn [{[_ token] :event}]

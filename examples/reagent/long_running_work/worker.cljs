@@ -103,9 +103,9 @@
    ;; validation). This is how a spawned child's shape is boundary-
    ;; checked: the runtime addresses each instance by a gensym'd id
    ;; (e.g. `:work/processor#0`), so no fixed `reg-app-schema` path can
-   ;; reach it — the machine `:data-schema` slot validates the spawn
+   ;; reach it — the machine `[:schemas :data]` slot validates the spawn
    ;; regardless of id. (See schema.cljs ns docstring.)
-   :data-schema schema/ProcessorData
+   :schemas {:data schema/ProcessorData}
 
    ;; The :data is materialised from the parent's per-child invoke-spec
    ;; :data slot at spawn time (see :work/flow below). :shard is the
@@ -249,9 +249,9 @@
              :outcome  nil}
 
    ;; Validates the snapshot's :data slot. The snapshot lives in runtime-db
-   ;; ([:rf.runtime/machines :snapshots :work/flow]), so :data-schema — not
+   ;; ([:rf.runtime/machines :snapshots :work/flow]), so [:schemas :data] — not
    ;; an app-schema — is the validation surface (EP-0001, Mike ruling #11).
-   :data-schema schema/FlowData
+   :schemas {:data schema/FlowData}
 
    :actions
    {:reset-progress

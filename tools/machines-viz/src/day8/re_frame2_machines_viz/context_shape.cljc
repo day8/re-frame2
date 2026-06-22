@@ -4,29 +4,30 @@
   operator sees the machine's `:data` keys + their type shape even with no
   live snapshot in hand (`chart.cljs` `:context-band`).
 
-  ## Declared over inferred (rf2-3q4k5b · EP-0005)
+  ## Declared over inferred (EP-0005 · EP-0029 A3)
 
   Two tiers, declared wins:
 
-    1. **Declared (authoritative).** When the machine spec carries a
-       `:data-schema` (a Malli `[:map [k schema] …]`, EP-0005 / rf2-rcim4m),
+    1. **Declared (authoritative).** When the machine spec declares its
+       data-context schema at `[:schemas :data]` (a Malli `[:map [k schema] …]`;
+       the EP-0029 A3 clean-break home for what EP-0005 called `:data-schema`),
        the shape is read straight off the schema's `:map` entries. This is
        AUTHORITATIVE — the author declared the context shape — so the chart
-       drops the `inferred from :data` badge for that machine (rf2-5tz9p's
-       badge becomes conditional on schema-absence rather than always-on).
-    2. **Inferred (one-sample).** When there is no `:data-schema`, fall back
-       to the pre-existing behaviour (rf2-vcnvj): derive `{key → type}` from
+       drops the `inferred from :data` badge for that machine.
+    2. **Inferred (one-sample).** When there is no `[:schemas :data]` schema,
+       fall back to the pre-existing behaviour: derive `{key → type}` from
        ONE sample of the definition's initial `:data`, which the chart badges
        `inferred from :data` because a partial initial `:data` can mislead.
 
   `static-context-shape` returns `{:shape {k caption} :inferred? bool}` — the
   shape plus the flag the host threads into the chart's `:context-band` +
   `:context-band-inferred?` props. Returns nil when the machine declares
-  neither a `:data-schema` nor a map `:data`, so the panel stays hidden.
+  neither a `[:schemas :data]` schema nor a map `:data`, so the panel stays
+  hidden.
 
   ## Dependency-free, JVM-portable
 
-  This walks the Malli `:data-schema` as PLAIN DATA — a vector whose head is
+  This walks the Malli `[:schemas :data]` schema as PLAIN DATA — a vector whose head is
   the schema-type keyword and whose tail is entries / children. It does NOT
   `:require` Malli (machines-viz carries no Malli dep — it is a viz tool, not
   a validator). The schema is the framework's already-validated artefact; the
@@ -62,7 +63,7 @@
     (when (map? data)
       (into {} (map (fn [[k v]] [k (value-type-caption v)])) data))))
 
-;; ---- declared (authoritative, from :data-schema) -----------------------
+;; ---- declared (authoritative, from [:schemas :data]) -------------------
 
 (defn- schema-type-caption
   "A short human caption for a Malli child schema, walking the PLAIN-DATA
@@ -150,8 +151,8 @@
   child, skipping a props map) until a `:map` head is reached or the form is
   not a recognised wrapper. Pure; walks plain data — no Malli runtime.
 
-  This is what makes a `:data-schema` wrapped in a refinement still count as
-  DECLARED for the declared-over-inferred contract: a contained `:map`
+  This is what makes a `[:schemas :data]` schema wrapped in a refinement still
+  count as DECLARED for the declared-over-inferred contract: a contained `:map`
   declares the per-key context shape regardless of the outer wrapper."
   [schema]
   (loop [s schema
@@ -168,7 +169,7 @@
 
 (defn declared-shape
   "rf2-3q4k5b / rf2-2btfzr — derive `{key → type-caption}` from a machine's
-  declared `:data-schema` when it is (or WRAPS) a Malli `:map`. Returns the
+  declared `[:schemas :data]` schema when it is (or WRAPS) a Malli `:map`. Returns the
   shape map — POSSIBLY EMPTY for a declared-but-empty `[:map]` /
   `[:map {:closed true}]` — when a contained `:map` is found, else nil when
   the schema is absent or declares no per-KEY context shape (a non-map schema
@@ -213,20 +214,21 @@
   for a machine DEFINITION. Returns `{:shape {key → type-caption} :inferred?
   bool}`:
 
-    - When the definition declares a `:data-schema` that is (or WRAPS) a
-      Malli `:map` — INCLUDING an empty `[:map]` / `[:map {:closed true}]` or
-      a wrapper like `[:and [:map …] [:fn …]]` — the shape is AUTHORITATIVE
-      off the schema and `:inferred?` is FALSE (the chart drops the `inferred
-      from :data` badge — EP-0005 option-A). A declared-but-empty map yields
-      `{:shape {} :inferred? false}`; the host hides the band on an empty
-      shape, but inference is NOT triggered (declared-but-empty ≠ undeclared).
+    - When the definition declares a `[:schemas :data]` schema that is (or
+      WRAPS) a Malli `:map` — INCLUDING an empty `[:map]` / `[:map {:closed
+      true}]` or a wrapper like `[:and [:map …] [:fn …]]` — the shape is
+      AUTHORITATIVE off the schema and `:inferred?` is FALSE (the chart drops
+      the `inferred from :data` badge — EP-0005 option-A). A declared-but-empty
+      map yields `{:shape {} :inferred? false}`; the host hides the band on an
+      empty shape, but inference is NOT triggered (declared-but-empty ≠
+      undeclared).
     - Otherwise the shape is INFERRED from one sample of the initial `:data`
       and `:inferred?` is TRUE (rf2-5tz9p's behaviour, unchanged).
 
-  Returns nil when neither a `:map`-shaped `:data-schema` nor a map `:data`
-  is present (the panel stays hidden). Pure — testable without a browser."
+  Returns nil when neither a `:map`-shaped `[:schemas :data]` schema nor a map
+  `:data` is present (the panel stays hidden). Pure — testable without a browser."
   [definition]
-  (if-let [shape (declared-shape (:data-schema definition))]
+  (if-let [shape (declared-shape (get-in definition [:schemas :data]))]
     {:shape shape :inferred? false}
     (when-let [shape (infer-shape definition)]
       {:shape shape :inferred? true})))

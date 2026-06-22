@@ -43,35 +43,36 @@
 
 ;; ---- single-registration-home flag ----------------------------------------
 ;;
-;; A machine that carries a `:data-schema` MUST flow through the single
-;; registration home so the `:rf/machine?` / `:rf/machine` registration-
+;; A machine that carries a `[:schemas :data]` schema MUST flow through the
+;; single registration home so the `:rf/machine?` / `:rf/machine` registration-
 ;; metadata stamp runs — the `:where :machine-data` post-commit walker resolves
-;; the `:data-schema` THROUGH `(machine-meta id)`, so without the stamp the
-;; schema validates NOTHING.
+;; the `[:schemas :data]` schema THROUGH `(machine-meta id)`, so without the
+;; stamp the schema validates NOTHING.
 ;;
 ;; `register-machine-event!` below is the SINGLE HOME that stamps it (it is the
 ;; body of `reg-machine*` AND the event-`:schema` arity). The bare
 ;; `(reg-event id meta (make-machine-handler spec))` direct path does NOT stamp
-;; it — which is exactly how a `:data-schema` could go silently inert. So
-;; `make-machine-handler` FAILS LOUD when it is handed a `:data-schema`-bearing
-;; spec OUTSIDE the home (`*in-registration-home?*` unbound to true): a
-;; schema-bearing machine MUST flow through `reg-machine` / `reg-machine*`. The
-;; home, plus the spawned-actor materialisation seams (`handler-meta-for` /
-;; `resolve-actor-handler-meta`), bind the flag around their
-;; `make-machine-handler` calls. A schema-LESS machine has nothing to validate,
-;; so the bare direct path stays legal for it (the Story testbed / schema-free
-;; examples rely on it).
+;; it — which is exactly how a `[:schemas :data]` schema could go silently
+;; inert. So `make-machine-handler` FAILS LOUD when it is handed a
+;; `[:schemas :data]`-bearing spec OUTSIDE the home (`*in-registration-home?*`
+;; unbound to true): a schema-bearing machine MUST flow through `reg-machine` /
+;; `reg-machine*`. The home, plus the spawned-actor materialisation seams
+;; (`handler-meta-for` / `resolve-actor-handler-meta`), bind the flag around
+;; their `make-machine-handler` calls. A schema-LESS machine has nothing to
+;; validate, so the bare direct path stays legal for it (the Story testbed /
+;; schema-free examples rely on it).
 ;;
-;; The home runs exactly one `:data-schema` side-effect: the validation-stamp.
-;; A machine's `:data-schema` is VALIDATION-ONLY — per-slot props do not
-;; classify durable `:data` for snapshot egress. EP-0025: durable `:data`
-;; classification rides the projection-relative subsystem declaration (lowered
-;; per actor under `:source :effect`); the commit-plane `:sensitive` / `:large`
-;; effects are the general app-db data-classification mechanism.
+;; The home runs exactly one `[:schemas :data]` side-effect: the
+;; validation-stamp. The machine `[:schemas :data]` schema is VALIDATION-ONLY —
+;; per-slot props do not classify durable `:data` for snapshot egress. EP-0025:
+;; durable `:data` classification rides the projection-relative subsystem
+;; declaration (lowered per actor under `:source :effect`); the commit-plane
+;; `:sensitive` / `:large` effects are the general app-db data-classification
+;; mechanism.
 (def ^:dynamic *in-registration-home?*
   "True while `make-machine-handler` is invoked from a registration site that
   ALSO stamps the `:rf/machine?` / `:rf/machine` meta (the single home, or the
-  spawned-actor resolver seams). When false/unbound, a `:data-schema`-bearing
+  spawned-actor resolver seams). When false/unbound, a `[:schemas :data]`-bearing
   spec handed to `make-machine-handler` is an unstamped-schema misconfiguration
   — fail loud (the schema would validate nothing)."
   false)
@@ -750,36 +751,37 @@
   ;; `:rf/cofx-ensure-index` for the dispatch-time `ensure-ctx-cofx` to read.
   (let [machine (cofx-attach/index-ensure-sets machine)]
   (validation/validate-machine! machine)
-  ;; Fail-loud guard. A `:data-schema`-bearing spec MUST be
+  ;; Fail-loud guard. A `[:schemas :data]`-bearing spec MUST be
   ;; registered through the single home (`reg-machine` / `reg-machine*` / the
   ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
   ;; `:rf/machine` registration-metadata stamp runs — the `:where :machine-data`
-  ;; post-commit walker resolves the `:data-schema` THROUGH `(machine-meta id)`,
-  ;; so without the stamp the schema validates NOTHING. The bare `(reg-event id
-  ;; meta (make-machine-handler spec))` direct path does not stamp it — so a
-  ;; `:data-schema` reached here outside the home would be silently inert.
-  ;; Surface it at the moment of construction rather than letting it no-op. A
-  ;; schema-LESS spec is unaffected — the bare direct path stays legal for it.
-  ;; The guard secures the validation-stamp: it ensures a `:data-schema` reaches
-  ;; the home that stamps the meta the validator resolves through. (`:data-schema`
-  ;; props do not classify `:data` for egress — schema is validation-only.)
-  (when (and (:data-schema machine)
+  ;; post-commit walker resolves the `[:schemas :data]` schema THROUGH
+  ;; `(machine-meta id)`, so without the stamp the schema validates NOTHING. The
+  ;; bare `(reg-event id meta (make-machine-handler spec))` direct path does not
+  ;; stamp it — so a `[:schemas :data]` schema reached here outside the home
+  ;; would be silently inert. Surface it at the moment of construction rather
+  ;; than letting it no-op. A schema-LESS spec is unaffected — the bare direct
+  ;; path stays legal for it. The guard secures the validation-stamp: it ensures
+  ;; a `[:schemas :data]` schema reaches the home that stamps the meta the
+  ;; validator resolves through. (The schema's props do not classify `:data` for
+  ;; egress — schema is validation-only.)
+  (when (and (get-in machine [:schemas :data])
              (not *in-registration-home?*))
     (error/throw-error!
       :rf.error/machine-schema-requires-reg-machine
       'rf-machines/make-machine-handler
       (str "make-machine-handler was handed a machine spec carrying a "
-           ":data-schema via the bare (reg-event id meta "
+           "[:schemas :data] schema via the bare (reg-event id meta "
            "(make-machine-handler spec)) direct path. That path does NOT "
            "stamp the :rf/machine? / :rf/machine registration metadata, so "
-           "the :data-schema validates NOTHING. Register the machine through "
-           "reg-machine / reg-machine* — and when the machine ALSO validates "
-           "its outer event vector, use the event-:schema arity (the opts "
-           "metadata map is the canonical MIDDLE slot, rf2-wvh95f F2): "
+           "the [:schemas :data] schema validates NOTHING. Register the "
+           "machine through reg-machine / reg-machine* — and when the machine "
+           "ALSO validates its outer event vector, use the event-:schema "
+           "arity (the opts metadata map is the canonical MIDDLE slot): "
            "(reg-machine id {:schema EventSchema} machine) or "
            "(reg-machine* id {:schema EventSchema} machine).")
       {:recovery :use-reg-machine
-       :extra    {:data-schema (:data-schema machine)}}))
+       :extra    {:schemas (:schemas machine)}}))
   ;; `build-initial-snapshot` runs lazily INSIDE the
   ;; returned handler, not at registration time. The initial-state
   ;; computation reaches through `:initial` / `:states` / `:regions`;
@@ -939,12 +941,13 @@
                       ;; trace.
                       (commit-or-finalize ctx step-result boot-result))))))))))))))
 
-;; ---- :data-schema is validation-only; classification is machine-owned ------
+;; ---- [:schemas :data] is validation-only; classification is machine-owned --
 ;;
-;; A machine's `:data-schema` is a Malli EDN form that VALIDATES the machine's
-;; `:data` slot. It is a validation contract only — its per-slot
-;; `:sensitive?` / `:large?` props do NOT classify the machine's durable
-;; `:data` for trace / SSR egress.
+;; A machine's `[:schemas :data]` schema is an OPAQUE schema value that
+;; VALIDATES the machine's `:data` slot (through the late-bound optional
+;; validator adapter — machine core requires no schema library). It is a
+;; validation contract only — its per-slot `:sensitive?` / `:large?` props do
+;; NOT classify the machine's durable `:data` for trace / SSR egress.
 ;;
 ;; EP-0025 §subsystems (rf2-h3d8tf): durable `:data` egress classification is
 ;; MACHINE-OWNED and PROJECTION-RELATIVE — a machine declares its sensitive /
@@ -952,21 +955,23 @@
 ;; (rooted at one actor snapshot's `:data`), validated for shape at registration
 ;; (`re-frame.machines.classification/validate-machine-classification!`, above)
 ;; and LOWERED per actor instance into the per-frame elision registry at spawn /
-;; first-boot (dropped at destroy). The `:data-schema` is for validation only.
+;; first-boot (dropped at destroy). The `[:schemas :data]` schema is for
+;; validation only.
 
 ;; ---- the single registration home -----------------------------------------
 
 (defn- register-machine-event!
   "THE single home for registering a machine as an event handler. It
   stamps the `:rf/machine?` / `:rf/machine` registration metadata
-  so the `:where :machine-data` post-commit walker resolves the `:data-schema`
-  through `(machine-meta id)` (without the stamp the schema validates nothing).
+  so the `:where :machine-data` post-commit walker resolves the
+  `[:schemas :data]` schema through `(machine-meta id)` (without the stamp the
+  schema validates nothing).
 
   `reg-machine*` (both arities) routes through here. The bare
   `(reg-event id meta (make-machine-handler spec))` direct path does
-  not stamp the meta and so would leave a `:data-schema` inert, so
-  `make-machine-handler` fails loud when handed a `:data-schema`-bearing spec
-  outside this home (see its guard) — a schema-bearing machine MUST flow
+  not stamp the meta and so would leave a `[:schemas :data]` schema inert, so
+  `make-machine-handler` fails loud when handed a `[:schemas :data]`-bearing
+  spec outside this home (see its guard) — a schema-bearing machine MUST flow
   through the home.
 
   `opts` is an optional registration-metadata map. Its `:schema`
@@ -976,12 +981,12 @@
   `:rf/machine?` / `:rf/machine` keys are stamped here and MUST NOT appear in
   `opts`.
 
-  The home runs the `:data-schema` validation-stamp plus the EP-0025
+  The home runs the `[:schemas :data]` validation-stamp plus the EP-0025
   projection-relative-classification shape check (rf2-h3d8tf). The
-  `:data-schema` is validation-only — its per-slot props do not classify
-  durable `:data` for egress; the machine's top-level `:sensitive` / `:large`
-  projection-relative declarations are the classification surface (lowered per
-  actor instance at spawn / first-boot)."
+  `[:schemas :data]` schema is validation-only — its per-slot props do not
+  classify durable `:data` for egress; the machine's top-level `:sensitive` /
+  `:large` projection-relative declarations are the classification surface
+  (lowered per actor instance at spawn / first-boot)."
   [machine-id machine opts]
   ;; The MIDDLE `opts` slot must be a map BEFORE
   ;; any `contains?`/`assoc` runs against it. The 2-arity passes `nil` (the
@@ -1029,8 +1034,8 @@
    ;; is needed.
    (let [machine    (parallel/install-region-cache machine)
         ;; The home is the legitimate `make-machine-handler` site for a
-        ;; `:data-schema`-bearing spec — bind the flag so the fail-loud guard
-        ;; passes (the guard exists to catch the bare direct path, not us).
+        ;; `[:schemas :data]`-bearing spec — bind the flag so the fail-loud
+        ;; guard passes (the guard exists to catch the bare direct path, not us).
         handler-fn (binding [*in-registration-home?* true]
                      (make-machine-handler machine))
         ;; Stamp the framework-owned discriminator keys LAST so they win over
@@ -1039,11 +1044,11 @@
                           :rf/machine? true
                           :rf/machine  machine)]
     (events/reg-event machine-id meta handler-fn)
-    ;; The `:data-schema` VALIDATES `:data` (via the `:where :machine-data`
-    ;; post-commit walker, resolved through the `:rf/machine` meta stamped above);
-    ;; its per-slot props do not classify the machine's durable `:data` for
-    ;; trace / SSR egress — frame-declared `:sensitive` / `:large {:app-db …}`
-    ;; paths are the sole app-db mechanism.
+    ;; The `[:schemas :data]` schema VALIDATES `:data` (via the
+    ;; `:where :machine-data` post-commit walker, resolved through the
+    ;; `:rf/machine` meta stamped above); its per-slot props do not classify the
+    ;; machine's durable `:data` for trace / SSR egress — frame-declared
+    ;; `:sensitive` / `:large {:app-db …}` paths are the sole app-db mechanism.
     ;; The dev-only consumer-attachment
     ;; lints (consume-without-declaring + ambient-durable). Run here in the
     ;; home (with the machine-id known) over a locally-indexed copy so the
@@ -1122,7 +1127,7 @@
   (let [machine    (parallel/install-region-cache spec)
         ;; This materialisation seam stamps the `:rf/machine?` /
         ;; `:rf/machine` meta below, so it is a legitimate `make-machine-handler`
-        ;; home for a `:data-schema`-bearing spec — bind the flag so the
+        ;; home for a `[:schemas :data]`-bearing spec — bind the flag so the
         ;; fail-loud guard passes.
         handler-fn (binding [*in-registration-home?* true]
                      (make-machine-handler machine))]

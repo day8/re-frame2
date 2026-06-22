@@ -163,9 +163,9 @@
 ;; Machine snapshots live in the framework-owned **runtime-db** partition at
 ;; [:rf.runtime/machines :snapshots <id>], NOT in app-db. `reg-app-schema`
 ;; validates the app-db partition only (EP-0001, Mike ruling #11), so a machine
-;; snapshot's shape is validated through the machine's own `:data-schema` slot
+;; snapshot's shape is validated through the machine's own `[:schemas :data]` slot
 ;; (which describes the snapshot's `:data` map) rather than an app-schema on a
-;; runtime path. The `*Data` schemas below are attached as `:data-schema` where
+;; runtime path. The `*Data` schemas below are attached as `[:schemas :data]` where
 ;; each machine is registered (auth.cljs / tags.cljs / settings.cljs).
 
 (def AuthFlowData
@@ -251,7 +251,7 @@
 ;; registered entry.
 
 ;; All paths here are app-db paths. Machine snapshots are NOT app-db — they
-;; live in runtime-db and are validated through each machine's `:data-schema`
+;; live in runtime-db and are validated through each machine's `[:schemas :data]`
 ;; (the *Data schemas above), so they do not appear in this app-schema map.
 ;;
 ;; EP-0002: reg-app-schemas is context-required frame-local; a

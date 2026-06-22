@@ -17,7 +17,7 @@
      `rf/reg-app-schema` on those paths; app schemas validate the app-db
      partition ONLY.
    - **Machine `:data`** — both the singleton `:app/boot` machine and the
-     spawned `:boot/loader` child declare a top-level `:data-schema` on
+     spawned `:boot/loader` child declare a top-level `[:schemas :data]` on
      `reg-machine` (see `boot.cljs`) that validates the snapshot's `:data`
      slot at the `:where :machine-data` boundary. `BootData` describes the
      `:app/boot` machine's `:data`; `LoaderData` describes each spawned
@@ -93,9 +93,9 @@
 ;; per-phase progress slot and the loaded payloads.
 ;;
 ;; `BootData` describes the `:data` SLOT only (Spec 010 §Machine data
-;; schema — the machine `:data-schema` validates `:data`, not the whole
+;; schema — the machine `[:schemas :data]` validates `:data`, not the whole
 ;; `{:state … :data …}` snapshot and not an app-db path). It is attached
-;; via the `:app/boot` machine's top-level `:data-schema` on `reg-machine`
+;; via the `:app/boot` machine's top-level `[:schemas :data]` on `reg-machine`
 ;; (see `boot.cljs`) and validates at the `:where :machine-data` boundary.
 ;; Every payload slot is `:maybe` because they are nil through the
 ;; staging/loading phases and only fill on entering `:hydrating`.
@@ -117,9 +117,9 @@
 ;; loader holds the parent-id + child-id + staging-key + URL it was
 ;; spawned with, fetches once, and dispatches `:boot/asset-loaded` (or
 ;; `:boot/asset-failed`) back to its parent on transition into `:done`
-;; (or `:failed`). Attached via the child machine's `:data-schema` slot on
+;; (or `:failed`). Attached via the child machine's `[:schemas :data]` slot on
 ;; `(reg-machine :boot/loader ...)` in `boot.cljs` — the runtime owns
-;; the surrounding snapshot, so the machine `:data-schema` describes `:data`
+;; the surrounding snapshot, so the machine `[:schemas :data]` describes `:data`
 ;; only (Spec 005 §Schema validation) and validates each spawned
 ;; instance's initial `:data` at spawn time, regardless of its gensym'd
 ;; id. The per-child `:data` fn (see :app/boot) plants identity only, so
@@ -171,7 +171,7 @@
 ;; EP-0001: machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
-;; `:app/boot` machine's own `:data-schema schema/BootData` (attached on
+;; `:app/boot` machine's own `:schemas {:data schema/BootData}` (attached on
 ;; `reg-machine` in boot.cljs) is the snapshot-`:data` validation surface,
 ;; so no app-schema reg applies to the boot machine snapshot. The
 ;; `reg-app-schema` calls below validate only the app-db slices.

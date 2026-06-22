@@ -787,7 +787,7 @@
       caption shape the host feeds via `:context-band`), with a provenance
       badge: a quiet `inferred from :data` badge when `:contextInferred` is
       true (the one-sample inference), or a positive `declared` badge when
-      false (the authoritative `:data-schema` shape, EP-0005).
+      false (the authoritative `[:schemas :data]` shape, EP-0005 / EP-0029 A3).
 
   Structural chrome, not a state: NEUTRAL border (no runtime accent — the
   projector never marks it `:active`), no `:onClick`. The painted box FILLS
@@ -912,9 +912,9 @@
             ;; The provenance badge. The shape is either INFERRED from one
             ;; sample of the machine's `:data` (the quiet caveat badge — a
             ;; partial initial `:data` can mislead) OR AUTHORITATIVE from a
-            ;; declared `:data-schema` (EP-0005). When declared, a positive
-            ;; `declared` badge marks the shape as authoritative in place of
-            ;; the `inferred from :data` badge.
+            ;; declared `[:schemas :data]` schema (EP-0005 / EP-0029 A3). When
+            ;; declared, a positive `declared` badge marks the shape as
+            ;; authoritative in place of the `inferred from :data` badge.
             (if inferred?
               [:span {:data-testid (str "rf-mv-chart-root-container-context-inferred-"
                                         (.-id props))
@@ -926,7 +926,7 @@
                "inferred from :data"]
               [:span {:data-testid (str "rf-mv-chart-root-container-context-declared-"
                                         (.-id props))
-                      :title "Declared by the machine's :data-schema — authoritative context shape"
+                      :title "Declared by the machine's [:schemas :data] schema — authoritative context shape"
                       :style {:font-size      "8px"
                               :font-weight    600
                               :letter-spacing "0.04em"

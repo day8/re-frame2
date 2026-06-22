@@ -132,12 +132,13 @@ Some data lives inside a runtime subsystem — a machine's `:data`, a resource's
 
 ```clojure
 ;; a machine declares its own sensitive / large :data slots, projection-relative
-;; to one actor snapshot's :data. The :data-schema still VALIDATES :data; it no
-;; longer classifies it for snapshot egress — that is the declaration below.
+;; to one actor snapshot's :data. The [:schemas :data] schema still VALIDATES
+;; :data; it no longer classifies it for snapshot egress — that is the
+;; declaration below.
 (rf/reg-machine :checkout/payment
-  {:sensitive   [[:data :payment :token]]
-   :large       [[:data :payment :receipt-pdf]]
-   :data-schema [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]
+  {:sensitive [[:data :payment :token]]
+   :large     [[:data :payment :receipt-pdf]]
+   :schemas   {:data [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]}
    :initial :collecting
    :states  {:collecting {:on {:submit :charging}}
              :charging   {:spawn {:src :checkout/charge :on-done :done}}
@@ -168,7 +169,7 @@ So a route that carries a token in its query string (`?reset_token=…`) classif
 
 A malformed subsystem declaration fails loud at registration under its own per-subsystem error id — `reg-machine` raises `:rf.error/invalid-machine-classification`, a bad resource spec folds into `:rf.error/invalid-resource-spec`.
 
-> **The schema prop is a *different* axis — validation-failure traces, not durable egress.** A `:sensitive?` / `:large?` prop on a `:data-schema` slot still does exactly one thing: it redacts that slot in the schema's own **validation-failure trace** (the schema produces that record, so it owns its egress shape). It does **not** classify the durable `:data` for snapshot egress — that's the projection-relative `:sensitive` / `:large` declaration above. The same `:sensitive?` prop on an HTTP request's `:decode` schema *is* the right and only route for the *transient* response body (step 2). The rule underneath: schemas own *transient* and *validation-failure* products; durable state is the effect (step 1) or the subsystem declaration (here).
+> **The schema prop is a *different* axis — validation-failure traces, not durable egress.** A `:sensitive?` / `:large?` prop on a `[:schemas :data]` slot still does exactly one thing: it redacts that slot in the schema's own **validation-failure trace** (the schema produces that record, so it owns its egress shape). It does **not** classify the durable `:data` for snapshot egress — that's the projection-relative `:sensitive` / `:large` declaration above. The same `:sensitive?` prop on an HTTP request's `:decode` schema *is* the right and only route for the *transient* response body (step 2). The rule underneath: schemas own *transient* and *validation-failure* products; durable state is the effect (step 1) or the subsystem declaration (here).
 
 This trips people up, so it's worth pinning the difference between `:sensitive` and `:sensitive?` once and for all. `:sensitive` (no `?`) names a *collection of paths* — a classification effect, a registration mark, a subsystem declaration. `:sensitive?` (with `?`) is a *yes/no Malli prop on one schema slot*, surviving only for validation-failure-trace redaction and for the schema-owned *transient* products (HTTP `:decode` body, resource params). Because `:sensitive` is a path collection, it's never spelled `:sensitive false` — you *clear* the sensitive axis with `:clear-sensitive`, you don't set it false. The `:large` / `:large?` pair carries the identical distinction. Three durable owners, no overlap:
 

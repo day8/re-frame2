@@ -2,17 +2,17 @@
   "The single registration home, the fail-loud guard, and the public
   `reg-machine` event-vector `:schema` arity.
 
-  Background. A machine carrying a `:data-schema` must flow through the single
-  registration home so the `:rf/machine?` / `:rf/machine` registration-metadata
-  stamp runs — the `:where :machine-data` post-commit walker resolves the
-  `:data-schema` THROUGH `(machine-meta id)`, so without the stamp the schema
-  validates nothing.
+  Background. A machine carrying a `[:schemas :data]` schema must flow through the
+  single registration home so the `:rf/machine?` / `:rf/machine`
+  registration-metadata stamp runs — the `:where :machine-data` post-commit
+  walker resolves the `[:schemas :data]` schema THROUGH `(machine-meta id)`, so
+  without the stamp the schema validates nothing.
 
   The single home (`reg-machine*` and its event-`:schema` arity) stamps the
-  meta. `make-machine-handler` is the fail-loud guard: a `:data-schema`-bearing
+  meta. `make-machine-handler` is the fail-loud guard: a `[:schemas :data]`-bearing
   spec reaching it outside the single registration home raises.
 
-  A `:data-schema` is validation-only; it does not run a second
+  A `[:schemas :data]` schema is validation-only; it does not run a second
   egress-classification side-effect. Durable machine `:data` egress
   classification rides the projection-relative subsystem declaration / the
   commit-plane `:sensitive` / `:large` effects (EP-0025), and that redaction
@@ -23,15 +23,15 @@
    1. **Auto-stamp / live validation via the event-:schema arity.** A machine
       registered via `(reg-machine* id {:schema EventSchema} machine)` — the
       opts metadata map is the canonical MIDDLE slot — validates its
-      `:data-schema`.
+      `[:schemas :data]` schema.
 
    2. **Event-vector :schema arity.** The `:schema` on the opts map validates
       the dispatched OUTER event vector at the `:where :event` boundary
       (rejecting a malformed vector BEFORE the handler runs), while the
-      `:data-schema` validates the machine's `:data`. Both live together.
+      `[:schemas :data]` schema validates the machine's `:data`. Both live together.
 
    3. **Fail-loud guard.** The bare `(reg-event id meta
-      (make-machine-handler spec))` path on a `:data-schema`-bearing spec
+      (make-machine-handler spec))` path on a `[:schemas :data]`-bearing spec
       RAISES `:rf.error/machine-schema-requires-reg-machine` rather than
       silently no-opping. A schema-LESS spec stays legal on the bare path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -122,24 +122,24 @@
    [:token    {:sensitive? true} [:maybe :string]]
    [:error    [:maybe :string]]])
 
-;; ---- (1) auto-stamp / live :data-schema via the event-:schema arity --------
+;; ---- (1) auto-stamp / live [:schemas :data] via the event-:schema arity ----
 
 (deftest event-schema-arity-makes-data-schema-live
   (testing "a machine registered via (reg-machine* id {:schema ...} machine)
             carries the :rf/machine? / :rf/machine meta (was inert under the
-            bare direct path) and its :data-schema validates"
-    (let [spec {:initial     :idle
-                :data        {:attempts 0 :token nil :error nil}
-                :data-schema AuthLoginData
-                :actions     {:break (fn [_] {:data {:attempts "nope" :token nil :error nil}})}
-                :states      {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
+            bare direct path) and its [:schemas :data] schema validates"
+    (let [spec {:initial :idle
+                :data    {:attempts 0 :token nil :error nil}
+                :schemas {:data AuthLoginData}
+                :actions {:break (fn [_] {:data {:attempts "nope" :token nil :error nil}})}
+                :states  {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
       (machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
-      ;; The machine meta is stamped — machine-meta reads the spec + :data-schema
+      ;; The machine meta is stamped — machine-meta reads the spec + [:schemas :data]
       ;; back (so the schema is live, not inert).
       (let [meta (machines/machine-meta flow-id)]
         (is (some? meta) "machine-meta is non-nil (meta WAS stamped)")
-        (is (= AuthLoginData (:data-schema meta))
-            ":data-schema round-trips through machine-meta — it is LIVE"))
+        (is (= AuthLoginData (get-in meta [:schemas :data]))
+            "[:schemas :data] round-trips through machine-meta — it is LIVE"))
       ;; And it actually validates: an action returning a non-int :attempts
       ;; trips the :where :machine-data boundary (inert before the fix).
       (rf/dispatch-sync [flow-id [:noop]]) ;; bootstrap cleanly
@@ -149,9 +149,9 @@
             "exactly one :where :machine-data trace fired — the schema is LIVE")
         (is (= flow-id (-> traces first :tags :machine-id)))))))
 
-;; NOTE: a `:data-schema` is validation-only — it carries no schema→marks
-;; redaction bridge. Durable machine `:data` egress classification is
-;; frame-owned, and the redaction surface is pinned by
+;; NOTE: a `[:schemas :data]` schema is validation-only — it carries no
+;; schema→marks redaction bridge. Durable machine `:data` egress classification
+;; is frame-owned, and the redaction surface is pinned by
 ;; `re-frame.machine-data-schema-redaction-test` (frame-declared snapshot paths).
 
 ;; ---- (3) the event-vector :schema validates the outer vector ---------------
@@ -168,13 +168,13 @@
                        [:tuple [:= :auth.login/submit] Credentials]]]
       (machines/reg-machine* flow-id
         {:schema StrictEvent}
-        {:initial     :idle
-         :data        {:attempts 0 :token nil :error nil}
-         :data-schema AuthLoginData
-         :actions     {:clear (fn [_] {:data {:error nil}})}
-         :states      {:idle       {:on {:auth.login/submit {:target :submitting
-                                                            :action :clear}}}
-                       :submitting {}}})
+        {:initial :idle
+         :data    {:attempts 0 :token nil :error nil}
+         :schemas {:data AuthLoginData}
+         :actions {:clear (fn [_] {:data {:error nil}})}
+         :states  {:idle       {:on {:auth.login/submit {:target :submitting
+                                                         :action :clear}}}
+                   :submitting {}}})
       ;; Malformed submit (password too short) — the :where :event boundary
       ;; rejects the vector; the machine never transitions out of :idle.
       (let [traces (collect-event-traces!
@@ -207,16 +207,16 @@
             still pass"
     (machines/reg-machine* flow-id
       {:schema LoginExampleEvent}
-      {:initial     :idle
-       :data        {:attempts 0 :token nil :error nil}
-       :data-schema AuthLoginData
-       :actions     {:clear (fn [_] {:data {:error nil}})}
-       :states      {:idle       {:on {:auth.login/submit {:target :submitting
-                                                           :action :clear}}}
-                     :submitting {:on {:auth.login/success {:target :authed}
-                                       :auth.login/failure {:target :error-shown}}}
-                     :authed       {}
-                     :error-shown  {}}})
+      {:initial :idle
+       :data    {:attempts 0 :token nil :error nil}
+       :schemas {:data AuthLoginData}
+       :actions {:clear (fn [_] {:data {:error nil}})}
+       :states  {:idle       {:on {:auth.login/submit {:target :submitting
+                                                       :action :clear}}}
+                 :submitting {:on {:auth.login/success {:target :authed}
+                                   :auth.login/failure {:target :error-shown}}}
+                 :authed       {}
+                 :error-shown  {}}})
     ;; (a) short password — rejected at the boundary; the machine stays :idle.
     (let [traces (collect-event-traces!
                    #(rf/dispatch-sync
@@ -254,14 +254,14 @@
 
 (deftest bare-direct-path-with-data-schema-fails-loud
   (testing "the bare (reg-event id meta (make-machine-handler spec)) path on
-            a :data-schema-bearing spec RAISES :rf.error/machine-schema-requires-
+            a [:schemas :data]-bearing spec RAISES :rf.error/machine-schema-requires-
             reg-machine rather than silently no-opping"
     (let [ex (try
                (machines/make-machine-handler
-                 {:initial     :idle
-                  :data        {:attempts 0 :token nil :error nil}
-                  :data-schema AuthLoginData
-                  :states      {:idle {}}})
+                 {:initial :idle
+                  :data    {:attempts 0 :token nil :error nil}
+                  :schemas {:data AuthLoginData}
+                  :states  {:idle {}}})
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "make-machine-handler threw on the schema-bearing bare path")
@@ -330,13 +330,13 @@
 
 (deftest two-arity-reg-machine-still-works
   (testing "the existing 2-arity (reg-machine* id machine) is unchanged — it
-            stamps the meta so the :data-schema is LIVE"
+            stamps the meta so the [:schemas :data] schema is LIVE"
     (machines/reg-machine* :rf.machine-arity/plain
-      {:initial     :idle
-       :data        {:attempts 0 :token nil :error nil}
-       :data-schema AuthLoginData
-       :states      {:idle {}}})
+      {:initial :idle
+       :data    {:attempts 0 :token nil :error nil}
+       :schemas {:data AuthLoginData}
+       :states  {:idle {}}})
     (is (some? (machines/machine-meta :rf.machine-arity/plain))
         "2-arity still stamps machine-meta")
-    (is (= AuthLoginData (:data-schema (machines/machine-meta :rf.machine-arity/plain)))
-        "2-arity stamps the :data-schema so it round-trips (validation is LIVE)")))
+    (is (= AuthLoginData (get-in (machines/machine-meta :rf.machine-arity/plain) [:schemas :data]))
+        "2-arity stamps the [:schemas :data] schema so it round-trips (validation is LIVE)")))

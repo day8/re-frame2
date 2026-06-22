@@ -10,7 +10,7 @@
      `:socket-id` (the address of the currently-live socket actor),
      `:subscriptions`, the offline send `:queue`, and the request-reply
      `:in-flight` map. Attached as the `:ws/connection` machine's
-     `:data-schema` (see `connection.cljs`) — the snapshot-`:data`
+     `[:schemas :data]` (see `connection.cljs`) — the snapshot-`:data`
      validation surface, symmetric with the boot/login siblings.
 
    - The `:messages` slice in app-db. The running app records every
@@ -100,7 +100,7 @@
 ;; EP-0001: machine snapshots are runtime-db state, not app-db —
 ;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
 ;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` is the snapshot-validation surface; no
+;; machine's own `[:schemas :data]` is the snapshot-validation surface; no
 ;; app-schema reg is wired on the snapshot path.
 ;;
 ;; EP-0002: reg-app-schema is context-required frame-local; a

@@ -614,13 +614,13 @@
              :authing {:final? true}}})
 
 (def ^:private declared-fixture-definition
-  "Declares a :data-schema → the context shape is AUTHORITATIVE off the
-  schema (the chart drops the inferred badge)."
-  {:initial     :idle
-   :data        {:counter 0 :label "x"}
-   :data-schema [:map [:counter :int] [:label :string]]
-   :states      {:idle {:on {:start :authing}}
-                 :authing {:final? true}}})
+  "Declares a [:schemas :data] schema → the context shape is AUTHORITATIVE off
+  the schema (the chart drops the inferred badge)."
+  {:initial :idle
+   :data    {:counter 0 :label "x"}
+   :schemas {:data [:map [:counter :int] [:label :string]]}
+   :states  {:idle {:on {:start :authing}}
+             :authing {:final? true}}})
 
 (defn- sim-chart-props
   "Render SimChart for `definition` and return the embedded

@@ -401,10 +401,10 @@
   ;; (the spawn-time gate or post-commit gate emits + rejects), so the
   ;; failing machine leaves no state behind.
   (rf/reg-machine :rf.probe/machine-with-schema
-    {:initial     :idle
-     :data        {:n 0}                              ;; 0 violates pos-int?
-     :data-schema [:map [:n pos-int?]]
-     :states      {:idle {}}})
+    {:initial :idle
+     :data    {:n 0}                              ;; 0 violates pos-int?
+     :schemas {:data [:map [:n pos-int?]]}
+     :states  {:idle {}}})
   (rf/dispatch-sync [:rf.probe/machine-with-schema [:noop]]))
 
 ;; ---- rf2-ts1a: call-site source-coord macros ------------------------------

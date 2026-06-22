@@ -32,7 +32,7 @@
   (rf/reg-machine :checkout/payment
     {:sensitive [[:data :payment :token]]
      :large     [[:data :payment :receipt-pdf]]
-     :data-schema …, :initial …, :states …})
+     :schemas {:data …}, :initial …, :states …})
   ```
 
   At spawn / first-boot the runtime LOWERS each declared path per actor by

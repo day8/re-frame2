@@ -79,11 +79,11 @@
      [:* :any]]]
    [:? :any]])
 
-;; The machine's `:data-schema` validates the machine's `:data` slot ONLY —
+;; The machine's `[:schemas :data]` validates the machine's `:data` slot ONLY —
 ;; the user-domain extended state `{:attempts ... :error ...}` — NOT the whole
 ;; `{:state ... :data ...}` snapshot. Per Spec 005 §Schema validation
 ;; (005-StateMachines.md:182, :200, :429-435) and Spec 010
-;; (010-Schemas.md:52, :162, :178): `:data-schema` sits as a top-level key on
+;; (010-Schemas.md:52, :162, :178): `[:schemas :data]` sits as a top-level key on
 ;; the machine spec map beside `:data`, and the framework validates it at every
 ;; macrostep-commit boundary + at bootstrap, emitting
 ;; `:rf.error/schema-validation-failure :where :machine-data` and rolling back
@@ -98,7 +98,7 @@
 
 ;; Machine snapshots are runtime-db state, not app-db — a `reg-app-schema` on a
 ;; machine-snapshot path validates nothing (app schemas validate the app-db
-;; partition only). The machine's own `:data-schema` (attached to the spec map
+;; partition only). The machine's own `[:schemas :data]` (attached to the spec map
 ;; below) is the live validation surface for `:data`, so no app-schema reg is
 ;; needed.
 
@@ -153,13 +153,13 @@
 ;; STATE MACHINE
 ;; ============================================================================
 
-;; The login flow's machine spec. `:data-schema` is a TOP-LEVEL key on the
-;; spec map (Spec 005 §Schema validation) — it validates the `:data` slot
-;; (`{:attempts ... :error ...}`), NOT the whole snapshot.
+;; The login flow's machine spec. `[:schemas :data]` is the machine-level
+;; schema map's data entry (Spec 005 §Schema validation) — it validates the
+;; `:data` slot (`{:attempts ... :error ...}`), NOT the whole snapshot.
 (def auth-login-machine
-  {:initial     :idle
-   :data        {:attempts 0 :error nil}
-   :data-schema AuthLoginData
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+   :schemas {:data AuthLoginData}
 
    :guards
    {:under-retry-limit
@@ -260,7 +260,7 @@
 ;; A machine that ALSO validates its outer event vector. The canonical
 ;; surface for registering a machine is `reg-machine` / `reg-machine*`
 ;; (Spec 005 §reg-machine — the form tools, examples, and scaffolds default
-;; to). This login flow needs BOTH a live machine `:data-schema` AND an
+;; to). This login flow needs BOTH a live machine `[:schemas :data]` AND an
 ;; event-vector `:schema` (`AuthLoginEvent`, the `:where :event` boundary on
 ;; the dispatched vector) — the machine + event-vector-schema shape — so it
 ;; uses `reg-machine`'s event-`:schema` arity: the optional opts map carries
@@ -268,10 +268,10 @@
 ;;
 ;; `reg-machine` is the single registration home: it stamps the `:rf/machine?`
 ;; / `:rf/machine` metadata that `(machine-meta :auth.login/flow)` reads (so
-;; the `:where :machine-data` walker resolves the `:data-schema` and it
+;; the `:where :machine-data` walker resolves the `[:schemas :data]` and it
 ;; VALIDATES). EP-0025: durable machine `:data` snapshot-egress classification
 ;; is a projection-relative `:sensitive` / `:large` declaration on the machine
-;; spec — NOT a `:data-schema` prop (which now drives only
+;; spec — NOT a `[:schemas :data]` prop (which now drives only
 ;; validation-failure-trace redaction); this machine's `:data` holds no secret,
 ;; so it declares none.
 (rf/reg-machine :auth.login/flow

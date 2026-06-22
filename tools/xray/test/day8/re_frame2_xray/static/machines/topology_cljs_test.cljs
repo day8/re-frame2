@@ -29,13 +29,13 @@
              :opening {:final? true}}})
 
 (def ^:private declared-definition
-  "Declares a :data-schema → the context shape is AUTHORITATIVE off the
-  schema (the chart drops the inferred badge)."
-  {:initial     :idle
-   :data        {:opened-count 0 :held-open? false}
-   :data-schema [:map [:opened-count :int] [:held-open? :boolean]]
-   :states      {:idle {:on {:open :opening}}
-                 :opening {:final? true}}})
+  "Declares a [:schemas :data] schema → the context shape is AUTHORITATIVE off
+  the schema (the chart drops the inferred badge)."
+  {:initial :idle
+   :data    {:opened-count 0 :held-open? false}
+   :schemas {:data [:map [:opened-count :int] [:held-open? :boolean]]}
+   :states  {:idle {:on {:open :opening}}
+             :opening {:final? true}}})
 
 (def ^:private no-data-definition
   "Neither :data nor :data-schema → the shape is nil so the chart hides
@@ -93,7 +93,7 @@
 
 (deftest topology-hides-context-panel-when-no-shape
   (testing "rf2-eao0s0 — a machine that declares neither :data nor a
-            :data-schema forwards a nil :context-band so the chart hides
+            [:schemas :data] schema forwards a nil :context-band so the chart hides
             the Context panel (the existing chart contract)."
     (let [props (chart-props no-data-definition)]
       (is (some? props) "the chart wrapper still mounts machine-canvas/Chart")

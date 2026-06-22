@@ -12,21 +12,21 @@
    runtime-db partition at `[:rf.runtime/machines :snapshots <id>]`, NOT in
    app-db — and `reg-app-schema` validates the app-db partition only (EP-0001,
    Mike ruling #11). So both machines validate their snapshot's `:data` via the
-   machine's own `:data-schema` slot, the surface the runtime addresses for
+   machine's own `[:schemas :data]` slot, the surface the runtime addresses for
    runtime-db-resident snapshots:
 
    - `:work/flow`       — the parent coordinator, a singleton at the fixed
                           id `:work/flow`. `FlowData` is attached via its
-                          `:data-schema` slot on `reg-machine`.
+                          `[:schemas :data]` slot on `reg-machine`.
    - `:work/processor`  — the child machine type. Each child is
                           spawned via `:spawn-all` and gets a gensym'd
                           id (e.g. `:work/processor#0`) assigned by the
                           runtime at spawn time, so its snapshot lives
                           at an UNKNOWN runtime-db path that varies per
-                          instance — another reason `:data-schema` (not a
+                          instance — another reason `[:schemas :data]` (not a
                           fixed path) is the right surface. `ProcessorData`
                           is attached via the
-                          child machine's `:data-schema` slot on `reg-machine`
+                          child machine's `[:schemas :data]` slot on `reg-machine`
                           (see `worker.cljs`), which validates each spawned
                           instance's initial `:data` at spawn time, before
                           the snapshot installs (Spec 005 §Schema
@@ -39,7 +39,7 @@
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so the
-            ;; machines' `:data-schema` slots are validated at runtime.
+            ;; machines' `[:schemas :data]` slots are validated at runtime.
             [re-frame.schemas]))
 
 ;; ============================================================================
@@ -66,8 +66,8 @@
 ;;    :tags     #{...}}                       ;; runtime-owned union
 
 ;; The parent snapshot's `:data` slot. The surrounding snapshot (`:state`,
-;; `:tags`) is runtime-owned; the machine `:data-schema` describes `:data`
-;; only (Spec 005 §Schema validation). Attached via the `:data-schema` slot
+;; `:tags`) is runtime-owned; the machine `[:schemas :data]` describes `:data`
+;; only (Spec 005 §Schema validation). Attached via the `[:schemas :data]` slot
 ;; on `(reg-machine :work/flow ...)` in `worker.cljs`.
 (def FlowData
   [:map
@@ -82,9 +82,9 @@
 ;;
 ;; The child machine's `:data` slot — the user-domain working memory the
 ;; child carries. The runtime owns the surrounding snapshot (`:state`, the
-;; `:tags` union, the reserved `:rf/*` slots), so the machine `:data-schema`
+;; `:tags` union, the reserved `:rf/*` slots), so the machine `[:schemas :data]`
 ;; describes `:data` ONLY (Spec 005 §Schema validation). Attached via the
-;; `:data-schema` slot on `(reg-machine :work/processor ...)` in `worker.cljs`,
+;; `[:schemas :data]` slot on `(reg-machine :work/processor ...)` in `worker.cljs`,
 ;; which validates each spawned instance's initial `:data` at spawn time —
 ;; the value here is what the parent's per-child `:spawn-all` invoke-spec
 ;; plants (every field below is supplied, so all are required).
@@ -107,9 +107,9 @@
 ;; SCHEMA ATTACHMENT
 ;; ============================================================================
 ;;
-;; Both machines attach their `:data` schema via the machine `:data-schema`
+;; Both machines attach their `:data` schema via the machine `[:schemas :data]`
 ;; slot in `worker.cljs` — `FlowData` on `:work/flow`, `ProcessorData` on
 ;; `:work/processor`. There is no `reg-app-schema` here: machine snapshots
 ;; live in the runtime-db partition, and `reg-app-schema` validates the
-;; app-db partition only (EP-0001, Mike ruling #11). `:data-schema` is the
+;; app-db partition only (EP-0001, Mike ruling #11). `[:schemas :data]` is the
 ;; snapshot-validation surface for runtime-db-resident machine state.

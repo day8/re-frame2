@@ -70,9 +70,9 @@ registry).
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
 | `:fit-signal` | no | `nil` | rf2-6tw7t. Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
-| `:context-band` | no | `nil` | rf2-qo5xy; rf2-q129z8; rf2-3q4k5b. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `:data-schema` when present, else inferred from one `:data` sample (rf2-3q4k5b). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
-| `:context-band-inferred?` | no | `true` | rf2-5tz9p; rf2-3q4k5b. Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `:data-schema` (rf2-3q4k5b · EP-0005). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
-| `:context-band-sensitive` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine's `:data-schema` `:sensitive?` slot props. See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
+| `:context-band` | no | `nil` | rf2-qo5xy; rf2-q129z8; rf2-3q4k5b. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `[:schemas :data]` schema when present, else inferred from one `:data` sample (rf2-3q4k5b). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:context-band-inferred?` | no | `true` | rf2-5tz9p; rf2-3q4k5b. Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `[:schemas :data]` schema (rf2-3q4k5b · EP-0005 · EP-0029 A3). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:context-band-sensitive` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine's `[:schemas :data]` schema `:sensitive?` slot props. See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
 | `:context-band-large` | no | `#{}` | rf2-27e38h · EP-0015. A SET of Context-band keys whose values are elided to the canonical content-FREE `:rf.size/large-elided` marker before export. Unmarked over-cap values elide too; sensitive wins over large. |
 | `:context-band-raw?` | no | `false` | rf2-27e38h · EP-0015. The explicit trusted-local (`:rf.egress/local-raw`) opt-in. `true` skips Context-band redaction and serialises raw values — an operator act for a developer inspecting their own process. Default `false` keeps the band local-redacted. |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
@@ -590,8 +590,8 @@ Two host projections feed it:
   machines-viz `context-shape/static-context-shape` helper), so the
   root Context chrome renders the context KEYS + their TYPE shape (e.g.
   `{:opened-count "number" :trail "vector"}`). The shape is **declared
-  over inferred** (rf2-3q4k5b · EP-0005): if the machine declares a
-  `:data-schema` (a Malli `[:map …]`), the shape is read AUTHORITATIVELY
+  over inferred** (rf2-3q4k5b · EP-0005 · EP-0029 A3): if the machine declares a
+  `[:schemas :data]` schema (a Malli `[:map …]`), the shape is read AUTHORITATIVELY
   off the schema; otherwise it is INFERRED from one sample of the
   initial `:data`. This satisfies the rf2-vcnvj acceptance "root
   title/context chrome at the top when context shape is available"
@@ -603,7 +603,7 @@ provenance, gated by the optional `:context-band-inferred?` prop
 (**default `true`**):
 
 - **`:context-band-inferred? true`** (the default; absent
-  `:data-schema`) — a subtle italic `inferred from :data` badge
+  `[:schemas :data]` schema) — a subtle italic `inferred from :data` badge
   (`rf-mv-chart-root-container-context-inferred-<id>`). A type shape
   derived from one sample of the initial `:data` is **not** a declared
   schema and can mislead when the initial `:data` is partial or
@@ -613,7 +613,7 @@ provenance, gated by the optional `:context-band-inferred?` prop
   (`rf-mv-chart-root-container-context-declared-<id>`) badge. Two hosts
   pass false: one feeding **live `:data` values** (key→value), and — per
   rf2-3q4k5b — the Static path when the shape is AUTHORITATIVE off a
-  declared `:data-schema` (EP-0005's declared-over-inferred upgrade,
+  declared `[:schemas :data]` schema (EP-0005's declared-over-inferred upgrade,
   closing the deferred `rf2-wto1k` option A). The badge distinguishes
   an authoritative/declared shape from the one-sample inference.
 
@@ -634,7 +634,7 @@ The chart therefore applies a **local-redacted projection
 single `chart.projection/xyflow-graph` projection chokepoint — so the
 redaction is identical for the on-screen band AND every export derived
 from it. The host declares which slots carry sensitive/large content
-(the machine's `:data-schema` `:sensitive?` / `:large?` per-slot props —
+(the machine's `[:schemas :data]` schema `:sensitive?` / `:large?` per-slot props —
 the EP-0005 mechanism; `context-redaction/derive-classification` extracts
 them) via two optional props:
 
@@ -1285,8 +1285,8 @@ colour is subordinate to structure**.
   prop — live context `(key → value)` when a snapshot is in hand, or the
   static **context-shape** `(key → type-caption)` the Xray topology path
   derives via `topology-view/static-context-shape` (rf2-vcnvj),
-  **declared over inferred** — authoritative off a `:data-schema` when
-  present, else inferred from one `:data` sample (rf2-3q4k5b · EP-0005);
+  **declared over inferred** — authoritative off a `[:schemas :data]` schema when
+  present, else inferred from one `:data` sample (rf2-3q4k5b · EP-0005 · EP-0029 A3);
   the badge beside the header reads `declared` for the authoritative shape
   and `inferred from :data` for the inference. **Pre-q129z8** the
   title strip + Context were two `position:absolute` overlays welded to the

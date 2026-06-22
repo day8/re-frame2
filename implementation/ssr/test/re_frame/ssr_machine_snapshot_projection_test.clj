@@ -16,10 +16,11 @@
   This pins the fix end-to-end on the ACTUAL SSR projection path
   (`re-frame.ssr.payload-policy/project-runtime-db` →
   `re-frame.ssr.payload-policy/build-payload`), with a real `reg-machine` (whose
-  `:data-schema` still VALIDATES `:data`) and a FRAME-declared classification of
-  the snapshot `:data` path; the machines artefact is loaded so the late-bound
-  `:machines/project-ssr-runtime-db` hook is bound. (EP-0025 removed the EP-0005
-  `:data-schema`→marks SSR-classification bridge; classification is frame-side.)
+  `[:schemas :data]` schema still VALIDATES `:data`) and a FRAME-declared
+  classification of the snapshot `:data` path; the machines artefact is loaded so
+  the late-bound `:machines/project-ssr-runtime-db` hook is bound. (EP-0025
+  removed the EP-0005 schema→marks SSR-classification bridge; classification is
+  frame-side.)
 
   EP-0025 B4-ssr follow-on (rf2-ux7983): the snapshot `:data` path is classified
   through the post-purge mechanism — a B3 COMMIT-PLANE `:sensitive` / `:large`
@@ -46,7 +47,7 @@
 (def ^:private auth-id :rf.ssr-machine/auth)
 
 (def ^:private auth-schema
-  "A machine `:data-schema` — VALIDATION ONLY (EP-0025: props no longer
+  "A machine `[:schemas :data]` schema — VALIDATION ONLY (EP-0025: props no longer
   classify). The frame, not the schema, classifies the snapshot `:data` path."
   [:map
    [:retries :int]
@@ -55,11 +56,11 @@
 
 (defn- reg-auth-machine! []
   (rf/reg-machine auth-id
-    {:initial     :anon
-     :data        {:retries 0 :token nil :blob nil}
-     :data-schema auth-schema
-     :states      {:anon   {:on {:login :authed}}
-                   :authed {}}}))
+    {:initial :anon
+     :data    {:retries 0 :token nil :blob nil}
+     :schemas {:data auth-schema}
+     :states  {:anon   {:on {:login :authed}}
+               :authed {}}}))
 
 ;; Classify the snapshot `:data` token slot SENSITIVE and blob slot LARGE on the
 ;; ambient `:rf/default` frame via a B3 COMMIT-PLANE classification effect

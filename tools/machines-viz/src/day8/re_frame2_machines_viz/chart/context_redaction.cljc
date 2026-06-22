@@ -34,8 +34,8 @@
     - everything else passes through unchanged.
 
   Sensitivity is supplied as a SET of sensitive keys + a SET of large keys
-  (`derive-classification` extracts them from a `:data-schema`), so this
-  namespace stays dependency-free and JVM-portable (no Malli runtime — it
+  (`derive-classification` extracts them from a `[:schemas :data]` schema), so
+  this namespace stays dependency-free and JVM-portable (no Malli runtime — it
   reads the schema as plain data, mirroring `context-shape`).
 
   The static type-caption shape is already value-free, so redaction over
@@ -74,8 +74,8 @@
 
 (defn derive-classification
   "Extract `{:sensitive #{k …} :large #{k …}}` from a machine's
-  `:data-schema` by reading the per-slot `:sensitive?` / `:large?` props
-  on each `:map` entry (EP-0005 / Spec 015 §Machine `:data`). Pure;
+  `[:schemas :data]` schema by reading the per-slot `:sensitive?` / `:large?`
+  props on each `:map` entry (EP-0005 / Spec 015 §Machine `:data`). Pure;
   walks the schema as plain data — no Malli runtime. Returns
   `{:sensitive #{} :large #{}}` when the schema is absent or carries no
   `:map`."

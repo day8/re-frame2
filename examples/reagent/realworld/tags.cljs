@@ -74,7 +74,7 @@
    ;; Validates the snapshot's :data slot at every macrostep boundary.
    ;; The snapshot lives in runtime-db, so this — not an app-schema — is
    ;; the validation surface (EP-0001, Mike ruling #11).
-   :data-schema schema/TagsData
+   :schemas {:data schema/TagsData}
 
    :actions
    {:bump-attempt
