@@ -1223,8 +1223,9 @@
             ;; A whole-value `:rf.db/runtime` effect REPLACES the
             ;; runtime-db partition (decision #5), but the elision declaration
             ;; registry at `[:rf.runtime/elision]` is a CROSS-CUTTING durable
-            ;; subsystem child written OUT-OF-BAND by `reg-flow` / the EP-0025 classification effects /
-            ;; frame-classification — not by the event returning the effect. An
+            ;; subsystem child written OUT-OF-BAND by `reg-flow` outputs /
+            ;; the EP-0025 classification effects / machine + route subsystem
+            ;; declarations — not by the event returning the effect. An
             ;; effect that seeds an unrelated subsystem (e.g.
             ;; `:rf.runtime/routing`) and omits `:rf.runtime/elision` would
             ;; otherwise drop the registry on commit, silently losing every
@@ -1235,26 +1236,32 @@
             ;;
             ;; Privacy fail-open: reconcile against the LIVE
             ;; runtime-db read AT COMMIT, NOT the chain-start `runtime-before`
-            ;; snapshot. The flow drain's `refresh-flow-output-declarations!`
-            ;; writes propagated output-sensitivity marks straight into the
-            ;; LIVE runtime-db `[:rf.runtime/elision]` slot DURING the `:after`
-            ;; chain (after `runtime-before` was captured by reference in
-            ;; `assemble-initial-ctx`). When the handler ALSO returns a
-            ;; `:rf.db/runtime` effect, reconciling against the STALE snapshot
-            ;; carries the PRE-refresh registry forward and the commit overwrites
-            ;; the just-written mark — so a flow-derived sensitive path egresses
-            ;; RAW for one commit (until the next drain re-propagates). Reading
-            ;; the live runtime-db here picks up the refreshed marks: the
-            ;; registry the reconcile preserves is the freshest one, not the
-            ;; one captured before the drain ran. (The whole-frame-install /
-            ;; deliberate-clear path is unaffected — an effect that carries
-            ;; `:rf.runtime/elision` is still honoured verbatim.) `runtime-before`
-            ;; remains the rollback target below — rollback must restore the
-            ;; PRE-handler state, so it correctly stays the chain-start snapshot.
-            ;; Read the LIVE runtime-db whenever a runtime-db OR a
-            ;; classification effect commits — both need the freshest registry
-            ;; (the flow drain may have just written propagated marks; see the
-            ;; reconcile fail-open note above) as their base.
+            ;; snapshot. Under the post-EP-0025 model flows install their output
+            ;; declarations at `reg-flow` REGISTRATION time, not during the
+            ;; `:after` drain (the drain-time `refresh-flow-output-declarations!`
+            ;; propagation engine the old rationale cited was REMOVED by
+            ;; EP-0025 — there is no input→output sensitivity propagation). But
+            ;; an out-of-band subsystem write to `[:rf.runtime/elision]` can
+            ;; STILL land DURING this cascade, AFTER `runtime-before` was
+            ;; captured by reference in `assemble-initial-ctx`: a handler (or an
+            ;; `:after` interceptor) may call `reg-flow` reentrantly to MOVE an
+            ;; output-path (rewriting the live registry's flow marks), or a
+            ;; machine actor spawn / route activation may lower a subsystem mark
+            ;; mid-cascade. When the handler ALSO returns a `:rf.db/runtime`
+            ;; effect, reconciling against the STALE chain-start snapshot would
+            ;; carry the PRE-cascade registry forward and the commit would
+            ;; overwrite those just-written out-of-band marks — so the path
+            ;; egresses RAW for one commit (until the subsystem re-asserts it).
+            ;; Reading the live runtime-db here picks up the freshest
+            ;; out-of-band marks as the reconcile / classification base. (The
+            ;; whole-frame-install / deliberate-clear path is unaffected — an
+            ;; effect that carries `:rf.runtime/elision` is still honoured
+            ;; verbatim.) `runtime-before` remains the rollback target below, but
+            ;; the rollback restore is SOURCE-AWARE
+            ;; (`elision/restore-elision-slot`), not a verbatim carry-live — see
+            ;; the rollback arm. Read the LIVE runtime-db whenever a runtime-db
+            ;; OR a classification effect commits — both need the freshest
+            ;; out-of-band registry as their base.
             live-runtime-db (when (or rt-effect? class-effect?)
                               (frame/frame-runtime-db-value frame))
             ;; The reconciled runtime-db partition value (only when a
@@ -1343,30 +1350,58 @@
             ;; listeners see the restored state. The schema-failure error
             ;; trace already fired between the forward and rollback commits.
             ;;
-            ;; Privacy fail-safe (forward/rollback symmetry, rf2-qzs1y9): the
-            ;; forward commit above reconciles the runtime-db effect against the
-            ;; LIVE runtime-db so flow-written elision marks ([:rf.runtime/elision])
-            ;; propagated during the `:after` drain SURVIVE the commit. The
-            ;; rollback target `runtime-before` is the chain-start snapshot
-            ;; captured by reference BEFORE the drain ran, so it predates those
-            ;; marks. Restoring it verbatim would silently DISCARD the
-            ;; flow-written elision declarations — the very marks the forward
-            ;; path takes care to preserve — and a flow-derived sensitive path
-            ;; would egress RAW until the next successful drain re-propagated.
-            ;; The elision registry is CROSS-CUTTING durable subsystem state
-            ;; written OUT-OF-BAND (`reg-flow` / the EP-0025 classification effects / frame-
-            ;; classification), NOT part of the transactional handler effect the
-            ;; schema rejected — so it must NOT be unwound with the rejected db.
-            ;; Carry the LIVE registry (the freshest flow-propagated marks, as
-            ;; preserved by the forward reconcile and still resident on the
-            ;; container) forward onto the restored `runtime-before`, mirroring
-            ;; the forward path. A stale declaration for a path the rolled-back
-            ;; db no longer contains is harmless (it redacts nothing); dropping a
-            ;; live one risks raw egress — fail safe toward redaction.
-            (let [live-elision (get (frame/frame-runtime-db-value frame)
+            ;; EP-0025 SOURCE-AWARE elision restore (rf2-5lo1fk / rf2-fwejwc /
+            ;; rf2-o6rsi2). The `[:rf.runtime/elision]` registry is durable
+            ;; framework state that several sources write at DIFFERENT planes:
+            ;;
+            ;;   - IN-BAND, by THIS event: the four commit-plane classification
+            ;;     effects (`:sensitive` / `:large` / `:clear-sensitive` /
+            ;;     `:clear-large`) the rejected handler returned, applied just
+            ;;     above as `{:source :effect}` marks. Per Spec 015 §84 a
+            ;;     classification `walks back atomically with the frame on a
+            ;;     revert`, so these MUST unwind with the rejected `:db`.
+            ;;   - OUT-OF-BAND, by long-lived subsystems: `reg-flow` outputs
+            ;;     (`:source :flow`), machine actor spawns (`:source :machine`),
+            ;;     route activation (`:source :route`). These are NOT the
+            ;;     transactional handler effect the schema rejected. Under the
+            ;;     post-EP-0025 model flows install their output declarations at
+            ;;     `reg-flow` REGISTRATION time, never during the `:after` drain
+            ;;     (`flows.cljc` `write-flow-output-marks!` /
+            ;;     `flows/registry.cljc` `fold-flow-declarations`) — there is no
+            ;;     drain-time propagation engine to protect (the removed
+            ;;     `refresh-flow-output-declarations!` mechanism the old
+            ;;     rationale here cited). A pre-existing `:source :flow` mark is
+            ;;     already in the chain-start snapshot and survives a verbatim
+            ;;     restore; a mark a subsystem LOWERED DURING this event (an
+            ;;     actor spawn / route activation inside the rejected event, or
+            ;;     a reentrant `reg-flow` output-path move's NEW path) is the
+            ;;     ONLY legitimate during-event out-of-band write and may
+            ;;     survive.
+            ;;
+            ;; Carrying the WHOLE live registry forward (the old source-blind
+            ;; behaviour) is wrong in BOTH directions: it over-preserves an
+            ;; in-band `:source :effect` mark (rf2-5lo1fk) AND under-restores a
+            ;; `:source :flow` mark a mid-drain reentrant `reg-flow`
+            ;; output-path move DROPPED — the live registry already lost the old
+            ;; path, so preserving-live still leaks it (rf2-o6rsi2). The correct
+            ;; target is the PRE-CASCADE registry — the `[:rf.runtime/elision]`
+            ;; sub-tree of the chain-start `runtime-before` (captured by
+            ;; reference BEFORE the cascade ran), the symmetric mirror of the
+            ;; `last-inputs` / `abandoned-paths` pre-cascade snapshots restored
+            ;; below — overlaid with the LIVE out-of-band entries so the
+            ;; during-event subsystem-lowered survivors are kept while the
+            ;; in-band `:source :effect` marks unwind
+            ;; (`elision/restore-elision-slot`). Privacy posture stays fail-safe
+            ;; toward redaction: a kept mark over a value the rolled-back db no
+            ;; longer holds redacts nothing (harmless); a dropped one risks raw
+            ;; egress.
+            (let [pre-elision  (get runtime-before :rf.runtime/elision)
+                  live-elision (get (frame/frame-runtime-db-value frame)
                                     :rf.runtime/elision)
+                  restored-elision (elision/restore-elision-slot
+                                     pre-elision live-elision)
                   runtime-restore (elision/write-elision-slot runtime-before
-                                                              live-elision)
+                                                              restored-elision)
                   rb-changed (frame/replace-frame-state!
                                frame
                                {frame/app-partition-key     db-before
