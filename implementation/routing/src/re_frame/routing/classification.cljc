@@ -74,11 +74,34 @@
   (including `[:rf.runtime/elision]`) is dropped, so the route-sourced entries
   vanish with the frame with no separate teardown hook.
 
+  ## The query-key promotion advisory (rf2-x1x5am, EP-0025 footgun closure)
+
+  A route declares classification paths PROJECTION-RELATIVE to its
+  `{:query … :params …}` shape, so a `:sensitive [[:query :token]]` names the
+  KEYWORD key `:token`. But the runtime query slice keys a query key as a
+  KEYWORD only when the route PROMOTES it via its `:query` schema /
+  `:query-defaults` / `:query-retain` (`re-frame.routing.registry/coerce-query`,
+  rf2-5ifai); an undeclared key stays a STRING. So a `:sensitive [[:query
+  :token]]` path on a route that does NOT name `:token` in its query vocabulary
+  SILENTLY FAILS OPEN — the re-rooted keyword decl never matches the runtime
+  string key, and the value ships raw with zero signal.
+
+  EP-0025 (Spec 012 §319) blesses fail-open as the hygiene bargain, so this is
+  an AUTHORING footgun, not a contract break — it must not throw. Instead a
+  reg-route-time ADVISORY warning (`:rf.warning/route-classification-query-key-
+  unpromoted`) fires when a `[:query k]` classification path names a query key
+  the route's vocabulary does not promote to a keyword, so the author sees the
+  pairing they forgot. PARAMS are immune (path captures are always keyword-keyed,
+  `match.cljc`), so the advisory is query-axis-only. The `[]` whole-projection
+  path and a deeper `[:query :token …]` path are advised on their `[:query k]`
+  HEAD (the head key is what must promote).
+
   Internal namespace; the public facade is `re-frame.routing`. Per the
   rf2-2yabr cohesion split convention: ROUTE-CLASSIFICATION seam."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
-            [re-frame.path :as path]))
+            [re-frame.path :as path]
+            [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -314,3 +337,68 @@
   too. Pure over the runtime-db value."
   [runtime-db route-id route-meta]
   (apply-route-classification runtime-db (validate+extract route-id route-meta)))
+
+;; ---- query-key promotion advisory (rf2-x1x5am) ---------------------------
+;;
+;; A reg-route-time WARNING (never a throw) that closes the EP-0025 query-key
+;; footgun: a `:sensitive` / `:large` `[:query k]` path on a route that does NOT
+;; promote `k` to a keyword (via `:query` / `:query-defaults` / `:query-retain`)
+;; silently fails open at egress — the keyword decl never matches the runtime
+;; STRING key. PARAMS are immune (always keyword-keyed), so this is query-only.
+
+(defn unpromoted-query-keys
+  "Return the set of query keys a route's `classification` (the
+  `validate+extract` result) names under a `[:query k]` HEAD that the route's
+  declared `promoted-keys` set does NOT promote to a keyword — the silent
+  fail-open footgun (rf2-x1x5am). Scans both axes' normalised paths; a path
+  whose first two segments are `[:query k]` contributes `k` when `k` is a
+  keyword absent from `promoted-keys`. The whole-projection path `[]` and a
+  bare `[:query]` carry no query KEY to advise on (no second segment). A
+  non-keyword head key (a string `[:query \"token\"]`) is the rf2-z07m4m
+  string-segment fail-open, separately documented — it is reported too, since a
+  string key can never be a keyword-promoted slot key. Pure; returns `#{}` for
+  nil classification."
+  [classification promoted-keys]
+  (let [promoted (set promoted-keys)]
+    (into #{}
+          (comp (mapcat (fn [axis] (get classification axis)))
+                (keep (fn [p]
+                        (when (and (sequential? p)
+                                   (= :query (first p))
+                                   (>= (count p) 2))
+                          (second p))))
+                (remove (fn [k] (and (keyword? k) (contains? promoted k)))))
+          [:sensitive :large])))
+
+(defn advise-query-promotion!
+  "Emit a `:rf.warning/route-classification-query-key-unpromoted` advisory
+  (rf2-x1x5am) when `route-meta`'s `:sensitive` / `:large` classification names
+  a `[:query k]` path whose query key `k` the route does NOT promote to a
+  keyword via `:query` / `:query-defaults` / `:query-retain` (`promoted-keys`).
+  Such a path silently FAILS OPEN at egress — the keyword decl never matches the
+  runtime string key, shipping the value raw with no signal. This is an
+  authoring footgun, not a contract break (EP-0025 blesses fail-open as the
+  hygiene bargain), so it WARNS, never throws.
+
+  A no-op when the route declares no classification, names no `[:query k]` path,
+  or promotes every classified query key. `route-id` names the route on the
+  trace; `promoted-keys` is the route's declared query vocabulary (the keyword
+  keys of `:query` / `:query-defaults` / `:query-retain`). Returns nil."
+  [route-id route-meta promoted-keys]
+  (when-some [classification (validate+extract route-id route-meta)]
+    (let [missing (unpromoted-query-keys classification promoted-keys)]
+      (when (seq missing)
+        (trace/emit! :warning :rf.warning/route-classification-query-key-unpromoted
+                     {:route-id      route-id
+                      :query-keys    (vec (sort-by str missing))
+                      :promoted-keys (vec (sort-by str promoted-keys))
+                      :advice        (str "route " route-id " declares a :sensitive / :large "
+                                          "[:query k] path for query key(s) it does not promote "
+                                          "to a keyword via :query / :query-defaults / :query-retain. "
+                                          "An unpromoted query key stays a STRING in the route slice, "
+                                          "so the keyword classification path never matches it and the "
+                                          "value SILENTLY ships raw at egress (EP-0025 fail-open). Add "
+                                          "the key to the route's :query schema (e.g. :query [:map "
+                                          "[:token :string]]) so the slice carries the keyword key the "
+                                          "path targets.")}))))
+  nil)

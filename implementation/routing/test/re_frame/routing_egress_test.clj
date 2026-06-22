@@ -92,6 +92,65 @@
     (is (nil? (egress/redact-url-carriers nil)))))
 
 ;; ===========================================================================
+;; rf2-vh4lbf — ADVERSARIAL-INPUT battery for redact-url-carriers (review F5).
+;;
+;; The core cases above cover the happy path; these pin the wrong-SHAPED edge
+;; inputs. Every one is redaction-SAFE today (no secret leaks), but each
+;; produces a cosmetically odd output a future refactor could turn LEAKY — so
+;; they are refactor-fragility guards. The two load-bearing ones (a
+;; parsing-order regression COULD expose a value):
+;;   - trailing `&`: the empty trailing pair must not resurrect a raw value;
+;;   - fragment-before-query ordering (`#a=1?b=2`): the `?` lives INSIDE the
+;;     fragment, so the whole fragment must redact wholesale — the query-split
+;;     must NOT reach across the `#` boundary and treat `b=2` as a live query.
+;; ===========================================================================
+
+(deftest redact-url-carriers-empty-query-rides-bare-question-mark
+  (testing "rf2-vh4lbf: `/x?` (empty query) keeps the bare `?` — no pair to
+            redact, nothing leaks (shape is cosmetic, not a carrier)"
+    (is (= "/x?" (egress/redact-url-carriers "/x?"))
+        "an empty query string rides as a bare `?` (no `key=value` to scrub)")))
+
+(deftest redact-url-carriers-trailing-ampersand-drops-empty-pair
+  (testing "rf2-vh4lbf: `/x?a=1&` (trailing &) redacts the real pair and drops
+            the empty trailing pair — no raw value survives the split/rejoin"
+    (let [out (egress/redact-url-carriers "/x?a=1&")]
+      (is (= (str "/x?a=" sentinel-str) out)
+          "the real value redacts; the empty trailing pair is dropped (no `&` tail)")
+      (is (not (re-find #"=1" out))
+          "GUARD: the raw value `1` never survives the trailing-& split")
+      ;; Two trailing ampersands collapse the same way — still no raw value.
+      (is (not (re-find #"=1" (egress/redact-url-carriers "/x?a=1&&")))
+          "GUARD: doubled trailing `&` still drops the raw value"))))
+
+(deftest redact-url-carriers-empty-fragment-synthesizes-sentinel
+  (testing "rf2-vh4lbf: `/x#` (empty fragment) synthesizes `/x#rf/redacted` —
+            cosmetic noise on an empty fragment, but never a leak"
+    (is (= (str "/x#" sentinel-str) (egress/redact-url-carriers "/x#"))
+        "an empty fragment still redacts to the sentinel (the whole fragment is opaque)")))
+
+(deftest redact-url-carriers-question-mark-inside-fragment-redacts-whole
+  (testing "rf2-vh4lbf: `/p#a=1?b=2` — the `?` lives INSIDE the fragment, so the
+            WHOLE fragment redacts and the query-split never crosses the `#`"
+    (let [out (egress/redact-url-carriers "/p#a=1?b=2")]
+      (is (= (str "/p#" sentinel-str) out)
+          "the fragment (incl. its embedded `?b=2`) redacts wholesale; no live query")
+      ;; The crucial ordering guard: a parsing-order regression that split on
+      ;; `?` BEFORE `#` would treat `b=2` as a live query and could expose a
+      ;; fragment value as a raw query value.
+      (is (not (re-find #"=2" out))
+          "GUARD: the fragment-internal `?b=2` value never escapes as a raw query")
+      (is (not (re-find #"a=1" out))
+          "GUARD: the fragment-internal `a=1` never escapes raw")))
+  (testing "rf2-vh4lbf: a REAL query BEFORE a `?`-bearing fragment scrubs both
+            sides correctly (the `#` split precedes the `?` split)"
+    (let [out (egress/redact-url-carriers "/p?q=secret#frag?x=y")]
+      (is (= (str "/p?q=" sentinel-str "#" sentinel-str) out)
+          "the real query value redacts; the whole fragment (with its `?x=y`) redacts")
+      (is (not (re-find #"secret" out)) "GUARD: the real query secret never rides raw")
+      (is (not (re-find #"x=y" out)) "GUARD: the fragment-internal query never escapes"))))
+
+;; ===========================================================================
 ;; rf2-1wmni6 / rf2-pbbo68 — scroll/history fx :sensitive marks project the
 ;; :rf.fx/args carrier slots on the :rf.fx/handled trace egress copy.
 ;; ===========================================================================

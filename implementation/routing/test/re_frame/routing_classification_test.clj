@@ -23,9 +23,15 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
+            [re-frame.projection :as projection]
             [re-frame.routing.classification :as classification]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rts]
+            ;; rf2-ugoxyv: drive the REAL SSR egress consumer (project-runtime-db
+            ;; / project-routing-egress, #4896). SSR is a test-only dep of the
+            ;; routing artefact (routing/deps.edn :test), so the routing suite
+            ;; may exercise the real SSR projection.
+            [re-frame.ssr.payload-policy :as payload-policy]))
 
 (use-fixtures :each rts/reset-runtime)
 
@@ -288,7 +294,15 @@
       ;; current leaking behaviour as if it were correct.
       (println "  [rf2-y8k6br SKIP] nested-axis suppression (rf2-izlr7f) absent on this build —"
                "egress assertion deferred until PR #4895 merges (see rf2-bdwxkp).")
-      (let [rdb     (-> (rf/runtime-db-value :rf/default)
+      ;; rf2-b43y3o: the probe above navigated to :route/_probe (a route is a
+      ;; SINGLETON current-route, so the probe nav REPLACED :route/nested's
+      ;; :source :route classification with :route/_probe's). Re-navigate to
+      ;; :route/nested so the egress assertion runs against THIS route's
+      ;; classification rather than the probe's leftover — without this the
+      ;; slice carries :route/_probe's [:query :p] decls and the [:query
+      ;; :payload] value ships raw (the false-positive leak the gate hid).
+      (let [_       (rf/dispatch-sync [:rf.route/transitioned "/nested"])
+            rdb     (-> (rf/runtime-db-value :rf/default)
                         (assoc-in [:rf.runtime/routing :current :query :payload]
                                   {:secret "topsecret-bearer-token-value"
                                    :public "ok"}))
@@ -446,3 +460,275 @@
     (let [out (classification/apply-route-classification {:other :state} nil)]
       (is (not (contains? out :rf.runtime/elision))
           "a route without classification (and no prior slot) allocates nothing"))))
+
+;; ===========================================================================
+;; (rf2-z07m4m) Authoring-boundary footguns on reg-route classification —
+;; reviewer 3/3 F6 (low). Two minor surfaces with no prior coverage, both
+;; pinned here so the intended (fail-open) behaviour is EXPLICIT:
+;;
+;;   (1) :clear-sensitive / :clear-large — a plausible copy-paste from the
+;;       app-db commit-plane effect surface — are NOT classification keys
+;;       (validate+extract triggers ONLY on #{:sensitive :large}). A route is a
+;;       SINGLETON current-route, so a "clear" verb is meaningless by design.
+;;       They are SILENTLY IGNORED by validate+extract (returns nil — no
+;;       classification), BUT the reg-route bare-key guard rejects them LOUD
+;;       (they are unreserved bare keys → :rf.error/invalid-route-metadata), so
+;;       a typo does fail at the authoring boundary. Pin both halves.
+;;
+;;   (2) :sensitive [[:query "token"]] with a STRING segment is accepted at
+;;       validation as concrete EDN, but the runtime slice keys an undeclared
+;;       query key as a STRING and a DECLARED one as a KEYWORD (coerce-query,
+;;       rf2-5ifai). So a string-key declaration can never match a
+;;       keyword-promoted slot — it fails OPEN. Spec 012 §319 warns of the
+;;       keyword pairing; this locks the string-segment fail-open mode.
+;; ===========================================================================
+
+(deftest clear-keys-are-not-classification-keys-ignored-by-extract
+  (testing "rf2-z07m4m: :clear-sensitive / :clear-large are NOT classification
+            keys — validate+extract returns nil (silently ignored, no decl)"
+    ;; validate+extract triggers only on #{:sensitive :large}; a route carrying
+    ;; ONLY clear-keys has no classification to lower (a route is a singleton —
+    ;; a clear verb is meaningless).
+    (is (nil? (classification/validate+extract
+                :route/clearish {:clear-sensitive [[:query :token]]}))
+        ":clear-sensitive is not a classification key → no classification extracted")
+    (is (nil? (classification/validate+extract
+                :route/clearish {:clear-large [[:params :payload]]}))
+        ":clear-large is not a classification key → no classification extracted")))
+
+(deftest clear-keys-rejected-loud-at-reg-route-bare-key-guard
+  (testing "rf2-z07m4m: a bare :clear-sensitive / :clear-large key is NOT in the
+            reserved set, so reg-route's authoring-boundary guard fails it LOUD
+            (a typo cannot silently no-op at registration)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-metadata\]"
+          (rf/reg-route :route/clear1 {:clear-sensitive [[:query :token]]} "/clear1"))
+        ":clear-sensitive is an unreserved bare key → rejected at reg-route")
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-metadata\]"
+          (rf/reg-route :route/clear2 {:clear-large [[:params :payload]]} "/clear2"))
+        ":clear-large is an unreserved bare key → rejected at reg-route")))
+
+(deftest string-query-segment-accepted-at-validation
+  (testing "rf2-z07m4m: a :sensitive [[:query \"token\"]] STRING segment is
+            accepted at validation as concrete EDN (it does not throw)"
+    ;; A string IS a concrete EDN segment, so normalize-concrete admits it — the
+    ;; declaration is well-formed and lowers a string-keyed path.
+    (let [c (classification/validate+extract :route/strkey {:sensitive [[:query "token"]]})]
+      (is (= [[:query "token"]] (:sensitive c))
+          "the string-segment path is admitted verbatim as a concrete path")))
+  (testing "rf2-z07m4m: reg-route accepts the string-segment declaration too
+            (no throw at the authoring boundary)"
+    (is (some? (rf/reg-route :route/strkey {:sensitive [[:query "token"]]} "/strkey")))))
+
+(deftest string-query-segment-fails-open-against-keyword-promoted-slice
+  (testing "rf2-z07m4m: a :sensitive [[:query \"token\"]] STRING-key declaration
+            silently FAILS OPEN — a route that PROMOTES :token keys the slice
+            with the KEYWORD :token, so the string-key decl never matches and the
+            value ships RAW at egress (the documented fail-open mode)"
+    ;; The route promotes `token` to the keyword `:token` via its :query schema,
+    ;; so the runtime slice key is `:token` (keyword) — but the classification
+    ;; declares the STRING key "token", which can never match.
+    (rf/reg-route :route/strmiss
+                  {:sensitive [[:query "token"]] :query [:map [:token :string]]}
+                  "/strmiss")
+    (rf/dispatch-sync [:rf.route/transitioned "/strmiss?token=secret123"])
+    ;; The lowered registry carries the re-rooted STRING-key path…
+    (is (= #{[:rf.runtime/routing :current :query "token"]}
+           (route-sensitive-paths))
+        "the string-segment path lowers verbatim (string key, not keyword)")
+    ;; …but the runtime slice keys the value under the KEYWORD :token, so at
+    ;; egress the classification path does not match → the value ships RAW.
+    (let [rdb    (rf/runtime-db-value :rf/default)
+          elided (elision/elide-wire-value rdb {:frame :rf/default})
+          slice  (get-in elided [:rf.runtime/routing :current])]
+      (is (= "secret123" (get-in slice [:query :token]))
+          "FAIL-OPEN: the keyword-promoted slot is NOT redacted by the string-key decl"))))
+
+(deftest keyword-query-decl-matches-keyword-promoted-slice
+  (testing "rf2-z07m4m (contrast): the CORRECT keyword-segment declaration DOES
+            redact the keyword-promoted slice — the pairing the spec prescribes"
+    (rf/reg-route :route/kwmatch
+                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                  "/kwmatch")
+    (rf/dispatch-sync [:rf.route/transitioned "/kwmatch?token=secret123"])
+    (let [rdb    (rf/runtime-db-value :rf/default)
+          elided (elision/elide-wire-value rdb {:frame :rf/default})
+          slice  (get-in elided [:rf.runtime/routing :current])]
+      (is (= sentinel (get-in slice [:query :token]))
+          "the keyword-segment decl matches the keyword-promoted slot → redacted"))))
+
+;; ===========================================================================
+;; (rf2-x1x5am) reg-route-time query-key promotion ADVISORY. A :sensitive /
+;; :large [:query k] path on a route that does NOT promote `k` to a keyword
+;; (via :query / :query-defaults / :query-retain) silently fails open; the
+;; advisory is a WARN (never a throw — fail-open is intended). These pin the
+;; advisory fires for the footgun and stays quiet for the correct pairing.
+;; ===========================================================================
+
+(defn- capture-warnings
+  "Run `thunk` with a :trace listener that captures every
+  :rf.warning/route-classification-query-key-unpromoted advisory; return the
+  captured trace tags maps (one per emit)."
+  [thunk]
+  (let [seen (atom [])]
+    (rf/register-listener! :trace ::advisory
+                           (fn [ev]
+                             (when (= :rf.warning/route-classification-query-key-unpromoted
+                                      (:operation ev))
+                               (swap! seen conj (:tags ev)))))
+    (try (thunk) (finally (rf/unregister-listener! :trace ::advisory)))
+    @seen))
+
+(deftest advisory-fires-for-unpromoted-sensitive-query-key
+  (testing "rf2-x1x5am: a :sensitive [[:query :token]] on a route with NO :query
+            schema naming :token emits the unpromoted-query-key advisory"
+    (let [warnings (capture-warnings
+                     #(rf/reg-route :route/advmiss {:sensitive [[:query :token]]} "/advmiss"))]
+      (is (= 1 (count warnings)) "exactly one advisory fired")
+      (let [w (first warnings)]
+        (is (= :route/advmiss (:route-id w)) "the advisory names the route")
+        (is (= [:token] (:query-keys w)) "the unpromoted key is named")
+        (is (empty? (:promoted-keys w)) "the route promotes no query keys")
+        (is (string? (:advice w)) "the advisory carries actionable guidance")))))
+
+(deftest advisory-quiet-when-query-key-promoted
+  (testing "rf2-x1x5am: a :sensitive [[:query :token]] paired with a :query
+            schema naming :token (the correct pairing) emits NO advisory"
+    (let [warnings (capture-warnings
+                     #(rf/reg-route :route/advok
+                                    {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                                    "/advok"))]
+      (is (empty? warnings) "no advisory when the query key is promoted"))))
+
+(deftest advisory-honours-defaults-and-retain-promotion
+  (testing "rf2-x1x5am: :query-defaults and :query-retain also count as
+            promotion — a key declared in either does NOT trigger the advisory"
+    (is (empty? (capture-warnings
+                  #(rf/reg-route :route/advdef
+                                 {:sensitive [[:query :page]] :query-defaults {:page 1}}
+                                 "/advdef")))
+        ":query-defaults promotes :page → no advisory")
+    (is (empty? (capture-warnings
+                  #(rf/reg-route :route/advret
+                                 {:sensitive [[:query :ref]] :query-retain [:ref]}
+                                 "/advret")))
+        ":query-retain promotes :ref → no advisory")))
+
+(deftest advisory-fires-for-string-segment-and-large-axis
+  (testing "rf2-x1x5am: a STRING [:query \"token\"] segment (can never be a
+            keyword-promoted slot) AND a :large [:query k] unpromoted key both
+            trigger the advisory"
+    (let [w-str (capture-warnings
+                  #(rf/reg-route :route/advstr {:sensitive [[:query "token"]]} "/advstr"))]
+      (is (= 1 (count w-str)) "the string-segment query key triggers the advisory")
+      (is (= ["token"] (:query-keys (first w-str))) "the string key is named"))
+    (let [w-large (capture-warnings
+                    #(rf/reg-route :route/advlarge {:large [[:query :blob]]} "/advlarge"))]
+      (is (= 1 (count w-large)) "an unpromoted :large [:query k] key triggers the advisory")
+      (is (= [:blob] (:query-keys (first w-large)))))))
+
+(deftest advisory-quiet-for-params-axis
+  (testing "rf2-x1x5am: a :sensitive [[:params k]] path NEVER triggers the
+            advisory — path captures are always keyword-keyed (immune)"
+    (is (empty? (capture-warnings
+                  #(rf/reg-route :route/advparam
+                                 {:sensitive [[:params :secret]]} "/advparam/:secret")))
+        "the :params axis is immune to the query-promotion footgun")))
+
+;; ===========================================================================
+;; (rf2-ugoxyv + rf2-v0k2mq) Real EGRESS-CONSUMER + non-default PROFILE
+;; coverage. The egress assertions above call elide-wire-value MANUALLY under
+;; the bare {:frame :rf/default} (no :rf.egress/profile), exercising the walker
+;; directly but NO real consumer — exactly the gap that masked the rf2-4xut98
+;; SSR leak. These drive a sensitive route through:
+;;
+;;   (rf2-v0k2mq) project-egress under NAMED non-default egress profiles
+;;     (:rf.egress/ssr-hydration, :rf.egress/off-box-observability,
+;;      :rf.egress/off-box-tool) — profile-AWARE redaction, not bare opts; and
+;;   (rf2-ugoxyv) the REAL SSR consumer product — re-frame.ssr.payload-policy/
+;;     project-runtime-db + project-routing-egress (the #4896 egress boundary) —
+;;     asserting the sensitive route's :query value redacts in the serialized
+;;     :rf/runtime-db slice end-to-end, while an unclassified field rides raw.
+;;
+;; SSR is a TEST-ONLY dep of the routing artefact (routing/deps.edn :test), so
+;; the routing test suite may drive the real SSR projection without SSR
+;; depending on routing.
+;; ===========================================================================
+
+(defn- navigate-sensitive-oauth!
+  "reg-route a :sensitive oauth route (token + payload) with a :query schema
+  that PROMOTES :token, navigate to it carrying a secret, and return the
+  frame's runtime-db value (with the route classification lowered)."
+  []
+  (rf/reg-route :route/oauth
+                {:sensitive [[:query :token]]
+                 :large     [[:query :payload]]
+                 :query     [:map [:token :string] [:payload :string]]}
+                "/oauth")
+  (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123&payload=big"])
+  (rf/runtime-db-value :rf/default))
+
+(deftest sensitive-route-redacts-under-ssr-hydration-profile
+  (testing "rf2-v0k2mq: a route-declared :sensitive query value redacts under the
+            NAMED :rf.egress/ssr-hydration profile (not just bare opts)"
+    (let [rdb    (navigate-sensitive-oauth!)
+          elided (projection/project-egress
+                   rdb {:frame :rf/default
+                        :rf.egress/profile :rf.egress/ssr-hydration})
+          slice  (get-in elided [:rf.runtime/routing :current])]
+      (is (= sentinel (get-in slice [:query :token]))
+          "the sensitive query value redacts under :rf.egress/ssr-hydration")
+      (is (= :route/oauth (:route-id slice)) "an unclassified field rides verbatim"))))
+
+(deftest sensitive-route-redacts-under-off-box-profiles
+  (testing "rf2-v0k2mq: the same route redacts under :rf.egress/off-box-observability
+            and :rf.egress/off-box-tool (every named off-box default profile)"
+    (let [rdb (navigate-sensitive-oauth!)]
+      (doseq [profile [:rf.egress/off-box-observability :rf.egress/off-box-tool]]
+        (let [slice (-> (projection/project-egress
+                          rdb {:frame :rf/default :rf.egress/profile profile})
+                        (get-in [:rf.runtime/routing :current]))]
+          (is (= sentinel (get-in slice [:query :token]))
+              (str "the sensitive query value redacts under " profile))
+          ;; The :large payload elides to a size marker under off-box profiles.
+          (is (elision/marker? (get-in slice [:query :payload]))
+              (str "the :large query value elides to a size marker under " profile)))))))
+
+(deftest sensitive-route-redacts-through-real-ssr-consumer
+  (testing "rf2-ugoxyv: a :sensitive route driven through the REAL SSR consumer
+            (project-runtime-db → project-routing-egress, the #4896 egress
+            boundary) redacts the :query value in the serialized :rf/runtime-db
+            slice end-to-end — the adversarial coverage that would have caught
+            the rf2-4xut98 raw-ship leak"
+    (let [rdb   (navigate-sensitive-oauth!)
+          ;; project-runtime-db resolves the current frame (:rf/default, pinned
+          ;; by the reset-runtime fixture's with-frame) and runs the durable
+          ;; routing slice through project-routing-egress under
+          ;; :rf.egress/ssr-hydration.
+          slice (payload-policy/project-runtime-db rdb)
+          route (get-in slice [:rf.runtime/routing :current])]
+      (is (some? route) "the durable :current route slice rides the payload")
+      (is (= sentinel (get-in route [:query :token]))
+          "the sensitive :query value is redacted in the SSR :rf/runtime-db slice")
+      (is (= :route/oauth (:route-id route))
+          "the unclassified route id rides the payload verbatim")
+      ;; The transient sibling never rides the wire (fail-closed allowlist).
+      (is (not (contains? (:rf.runtime/routing slice) :pending-navigation))
+          "only the durable :current slice ships")))
+  (testing "rf2-ugoxyv: the in-process slice still carries the RAW value"
+    (is (= "secret123"
+           (get-in (rf/runtime-db-value :rf/default)
+                   [:rf.runtime/routing :current :query :token]))
+        "classification is read ONLY at egress — app code sees the real value")))
+
+(deftest unclassified-route-rides-raw-through-real-ssr-consumer
+  (testing "rf2-ugoxyv: a route with NO classification rides its :query verbatim
+            through the real SSR consumer (the projection is path-precise, not a
+            blanket scrub) — the negative control"
+    (rf/reg-route :route/plain {:query [:map [:q :string]]} "/plain")
+    (rf/dispatch-sync [:rf.route/transitioned "/plain?q=visible"])
+    (let [slice (payload-policy/project-runtime-db (rf/runtime-db-value :rf/default))
+          route (get-in slice [:rf.runtime/routing :current])]
+      (is (= "visible" (get-in route [:query :q]))
+          "an unclassified query value rides verbatim through the SSR projection"))))

@@ -297,6 +297,22 @@
         rank         (when structural (conj structural (- idx)))
         compiled     (when parsed (select-keys parsed [:regex :names :pattern :groups]))
         query-coerce (compile-schema-coercions (:query metadata))
+        ;; rf2-x1x5am: query-key promotion ADVISORY (warn, never throw). A
+        ;; `:sensitive` / `:large` `[:query k]` path on a route that does NOT
+        ;; promote `k` to a keyword via `:query` / `:query-defaults` /
+        ;; `:query-retain` silently fails open at egress (the keyword decl never
+        ;; matches the runtime STRING key — `coerce-query`, rf2-5ifai). EP-0025
+        ;; blesses fail-open as the hygiene bargain, so this is an authoring
+        ;; footgun, not a contract break: emit a reg-route-time warning naming
+        ;; the unpromoted key(s) so the author sees the pairing they forgot. The
+        ;; promoted vocabulary is the SAME union `coerce-query` / `route-url`
+        ;; treat as declared: the `query-coerce` keys (the `:query` schema) plus
+        ;; the `:query-defaults` keys plus `:query-retain`.
+        _            (classification/advise-query-promotion!
+                       id metadata
+                       (into (set (keys query-coerce))
+                             (concat (keys (:query-defaults metadata))
+                                     (:query-retain metadata))))
         ;; rf2-cylse.5: compile the `:params` schema into a path-coerce
         ;; table the SAME way as the query side, so PATH captures coerce
         ;; against their declared type (`:int`/`:uuid`/`:double`/enum)
