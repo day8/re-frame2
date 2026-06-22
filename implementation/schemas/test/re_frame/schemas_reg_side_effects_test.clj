@@ -11,15 +11,27 @@
 
   EP-0015 §8 (rf2-d2r3um): `reg-app-schema` NO LONGER populates the
   durable elision registry from `:large?` / `:sensitive?` per-slot flags —
-  durable app-db egress classification is frame-owned
-  (`re-frame.frame-classification`, exercised in the core/ssr suites).
-  Schema `:sensitive?` still drives THIS file's hot-reload-trace redaction
+  durable app-db egress classification rides the EP-0025 commit-plane
+  classification effects (a `reg-event` returns `:sensitive` / `:large`
+  alongside `:db`; `re-frame.elision/apply-classification-effects`,
+  `:source :effect`, exercised in the core/ssr suites). It is NOT installed
+  by `re-frame.frame-classification` anymore — EP-0025 retired the durable
+  app-db classification install there (a `reg-frame` `:sensitive {:app-db …}`
+  block / a `:large` frame key now fail loud with
+  `:rf.error/bad-frame-classification`). Schema `:sensitive?` still drives
+  THIS file's hot-reload-trace redaction
   (`violation-redacts-mismatching-value-when-new-schema-sensitive`),
   consulting the schema directly rather than any elision-registry feed.
 
   The effect is gated on `interop/debug-enabled?` and DCE'd in
   production; the JVM test build is always dev-enabled."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
+            ;; rf2-u9bjgr / rf2-kzghnz — compiled `m/schema` objects exercise
+            ;; the opaque-schema fail-closed redaction arm of the hot-reload
+            ;; `:rf.schema/violation` path. Malli is on the schemas test
+            ;; classpath (the artefact deps on metosin/malli).
+            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
@@ -128,6 +140,46 @@
         ;; `trace/build-event`.
         (is (true? sensitive?) ":sensitive? hoisted to top level")
         (is (= [:token] (:path tags)) "structural :path is kept")))))
+
+(deftest violation-redacts-mismatching-value-when-new-schema-opaque-and-sensitive
+  (testing "rf2-u9bjgr / rf2-kzghnz — when the NEW (re-registered) schema is
+            a COMPILED / OPAQUE m/schema object carrying a {:sensitive? true}
+            slot, the hot-reload violation FAILS CLOSED: the pure-data walker
+            cannot see the per-slot flag, so the path must redact
+            :mismatching-value to :rf/redacted anyway, never leaking the live
+            value. Mirrors the validate-*! opaque fail-closed posture
+            (schemas_sensitive_test/app-db-validation-opaque-schema-fails-closed)."
+    (let [secret "OPAQUE-HOTRELOAD-SECRET-kzghnz"]
+      ;; Original schema is a plain (walkable) vector form; the live value is a
+      ;; credential string. Re-register the SAME path with a COMPILED opaque
+      ;; schema that (a) differs from the prior schema (so the change-gate
+      ;; fires), (b) the live value fails (so a violation fires), and (c)
+      ;; declares its slot {:sensitive? true} — a flag Malli honours for
+      ;; validation but the walker cannot introspect through the opaque value.
+      (rf/reg-app-schema [:token] {:schema :int})
+      (set-app-db! {:token secret})
+      (let [violations (capture :rf.schema/violation
+                         (fn []
+                           (rf/reg-app-schema
+                             [:token]
+                             {:schema (m/schema [:int {:sensitive? true}])})))]
+        (is (= 1 (count violations)) "exactly one violation trace")
+        (let [{:keys [sensitive? tags] :as ev} (first violations)]
+          ;; FAIL CLOSED: the opaque schema cannot be walked, so the path must
+          ;; redact regardless of what schema-has-sensitive? can see.
+          (is (= :rf/redacted (:mismatching-value tags))
+              "opaque schema fails closed: live value scrubbed to :rf/redacted")
+          (is (true? sensitive?) ":sensitive? hoisted to top level (fail-closed stamp)")
+          (is (= [:token] (:path tags)) "structural :path is kept")
+          (is (not (str/includes? (pr-str ev) secret))
+              "the secret survives nowhere in the opaque hot-reload violation trace"))))))
+
+;; CONFIRM-BY-REVERT (rf2-kzghnz): reverting the fail-closed arm to the bare
+;; `(walker/schema-has-sensitive? new-schema)` (dropping the
+;; `(or … (walker/schema-opaque? new-schema))`) makes `sensitive?` false for
+;; the opaque schema above, `:mismatching-value` then ships `secret` verbatim,
+;; the `:rf/redacted` and `not str/includes? secret` assertions both fail, and
+;; the violation egresses the credential — the leak this test pins closed.
 
 (deftest violation-is-per-frame
   (testing "rf2-ee38b.6 — the violation check reads the live app-db of

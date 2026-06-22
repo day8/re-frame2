@@ -647,6 +647,17 @@
 ;; redaction posture so the hot-reload trace never re-leaks a credential.
 ;; rf2-qe237 — refer to the canonical core def rather than a local copy so
 ;; the keyword can never drift across artefacts.
+;;
+;; rf2-u9bjgr / rf2-kzghnz — the sensitivity decision below ALSO fails CLOSED
+;; on an OPAQUE schema (a compiled `m/schema` object the pure-data walker
+;; cannot introspect): `schema-has-sensitive?` returns false on an opaque
+;; value even though Malli may honour a `{:sensitive? true}` slot inside it for
+;; the violation. Without the fail-closed arm a hot-reload violation against an
+;; opaque schema carrying a sensitive slot leaked `:mismatching-value` verbatim
+;; — the SAME asymmetry the `:rf.error/schema-validation-failure` redactor
+;; closed for the validate-*! egress (`re-frame.schemas.validate`, the
+;; `(or schema-has-sensitive? schema-opaque?)` posture). This is the redaction
+;; half of the same fail-closed posture for the hot-reload egress edge.
 (def ^:private redacted-sentinel privacy/redacted-sentinel)
 
 (defn- maybe-emit-schema-violation!
@@ -675,7 +686,16 @@
                            (catch #?(:clj Throwable :cljs :default) _ true))]
         (when-not passes?
           (when-let [emit! (late-bind/get-fn :trace/emit!)]
-            (let [sensitive? (walker/schema-has-sensitive? new-schema)]
+            ;; rf2-u9bjgr / rf2-kzghnz — fail CLOSED on an OPAQUE schema. The
+            ;; pure-data walker cannot see a `{:sensitive? true}` slot inside a
+            ;; compiled `m/schema` value, so `schema-has-sensitive?` alone would
+            ;; return false and `:mismatching-value` would egress the live value
+            ;; verbatim — the asymmetry the validate-*! redactor already closes
+            ;; (`re-frame.schemas.validate` uses the same
+            ;; `(or schema-has-sensitive? schema-opaque?)` posture). A bare
+            ;; keyword is provably flag-free and is NOT opaque (`schema-opaque?`).
+            (let [sensitive? (or (walker/schema-has-sensitive? new-schema)
+                                 (walker/schema-opaque? new-schema))]
               (emit! :warning :rf.schema/violation
                      {:path               path
                       :pre-reload-schema  prior-schema
@@ -709,8 +729,16 @@
 ;;
 ;; The schema's `{:sensitive? true}` slot prop still drives
 ;; schema-validation-failure-trace redaction (`re-frame.schemas.validate`),
-;; and the per-slot extractors still serve the machine `:data-schema` bridge
-;; (EP-0005) — both consult the schema directly, never this registry.
+;; and the per-slot extractors still serve their surviving owner-local
+;; consumers (the resource `:data-schema` classification, the HTTP body-privacy
+;; projector, story-mcp's tool-egress projector) — each consults the schema
+;; directly, never this registry. The machine `:data-schema`→MARKS redaction
+;; bridge (EP-0005) is NOT among them: EP-0025 (rf2-398kql) reversed it —
+;; durable machine `:data` classification now rides the SAME commit-plane
+;; classification effects as every other app-db path, not a schema→marks walk.
+;; (The machine `:data-schema` still VALIDATES and its props still drive the
+;; machine-data validation-FAILURE-trace redactor — only the schema→marks
+;; CLASSIFICATION bridge is gone; see `re-frame.schemas.walker` ns-doc.)
 
 ;; ---- app-db schema registration -------------------------------------------
 
