@@ -2371,10 +2371,42 @@
   before): no snapshot, no replay tape, no atomicity. Because construction is
   events-only, the recorded script IS the constructed state — there is no
   separate baseline to restore. The other app-db reset verbs
-  (`reset-app-db!` / `replace-app-db!`) are unchanged."
+  (`reset-app-db!` / `replace-app-db!`) are unchanged.
+
+  IMAGE-LOADED FRAMES (EP-0024, rf2-qnk02m). A frame created via
+  `make-frame {:images …}` runs against its OWN resolved image GENERATION (the
+  `:generation` slot), and that generation is the registration namespace its
+  `:initial-events` replay resolves `(kind, id)` against. The stored `:config`
+  carries NEITHER `:images` (consumed by `make-frame` BEFORE `reg-frame` saw it)
+  NOR `:rf.frame/generation` (stripped by `new-frame-record` / the re-reg path
+  into the `:generation` slot). So a naive `(reg-frame id (:config f))` recreated
+  the frame with `:generation` nil — silently DEGRADING an image-loaded frame to
+  registrar resolution: if the image carried INLINE-ONLY registrations (present
+  only in the generation, never the global registrar), the `:initial-events`
+  replay would dispatch events whose handlers no longer resolve, and
+  `dispatch-sync` TRACES-and-recovers an unregistered handler (no throw) — leaving
+  a LIVE frame in a wrong/empty state with NO loud signal.
+
+  Reset replays against the SAME resolved frame definition, so the recreated
+  frame MUST keep the same generation. We SNAPSHOT the live `:generation` BEFORE
+  `destroy-frame!` and re-thread it through the reserved `:rf.frame/generation`
+  construction key, so `new-frame-record` seats it onto the recreated record's
+  `:generation` slot BEFORE the `:initial-events` replay runs — the replay then
+  resolves through the frame's OWN image generation exactly as the original
+  construction did. An ordinary (no-image) frame carries `:generation` nil; the
+  re-thread is a no-op there (nil ⇒ registrar resolution, byte-identical to
+  before)."
   [id]
   (when-let [f (frame id)]
-    (let [config (:config f)]
+    (let [;; Snapshot the resolved image generation BEFORE destroy so the
+          ;; recreated frame keeps the SAME image-derived registrations
+          ;; (rf2-qnk02m). nil for an ordinary configured frame — the re-thread
+          ;; is then a no-op (registrar resolution, unchanged).
+          generation (:generation f)
+          ;; Re-thread the generation via the reserved construction key only when
+          ;; present, so an ordinary frame's config is byte-identical to before.
+          config     (cond-> (:config f)
+                       (some? generation) (assoc :rf.frame/generation generation))]
       (destroy-frame! id)
       (reg-frame id config))))
 
