@@ -335,6 +335,75 @@
     {:frame             frame-id
      :rf.egress/profile :rf.egress/ssr-hydration}))
 
+;; ---- ssr-hydration egress projection of the routing slice (rf2-4xut98) ----
+;;
+;; EP-0025 §Subsystem matrix (`reg-route` row) + Spec 012 §Route data
+;; classification + Spec 015 §SSR: a route declares `:sensitive` / `:large`
+;; paths PROJECTION-RELATIVE to its `{:query … :params …}` current-state
+;; projection (`(rf/reg-route … {:sensitive [[:query :token]]} …)`). At route
+;; activation those declarations are RE-ROOTED under
+;; `[:rf.runtime/routing :current …]` and lowered into the per-frame elision
+;; registry (`re-frame.routing.classification/apply-route-classification`,
+;; `:source :route`) — the SAME `[:rf.runtime/elision …]` slot the
+;; `:rf.egress/ssr-hydration` egress walk reads. But the prior
+;; `project-runtime-db` shipped the routing `:current` slice via a bare
+;; `select-keys`, so a route declaring `:sensitive [[:query :token]]` installed
+;; the registry decl yet serialised the raw `:query` / `:params` value into the
+;; hydration `:rf/runtime-db` payload (the leak rf2-4xut98 names). This mirrors
+;; the IDENTICAL leak class machines fixed under rf2-jm2u63 (snapshots shipped
+;; raw before the `:machines/project-ssr-runtime-db` hook), and the app-db slice
+;; fixed under rf2-bt9kct (`project-app-db-egress` above).
+;;
+;; The routing decls are stored as ABSOLUTE runtime-db paths
+;; (`[:rf.runtime/routing :current :query :token]`), so the slice is walked
+;; through `project-egress` seeded at the offset `:path [:rf.runtime/routing]`:
+;; `elide-wire-value`'s `:path` opt seeds the candidate declaration-coordinate
+;; set, so a value walked under that offset matches the registry's re-rooted
+;; route paths exactly. A `:sensitive` route path redacts to `:rf/redacted`; a
+;; `:large` one elides to the size marker; an unclassified route slice rides
+;; verbatim (the projection is precise, not a blanket scrub) — only the
+;; classified paths are touched.
+
+(defn project-routing-egress
+  "Run the already-allowlisted durable routing `slice` (the `{:current …}`
+  map, the `durable-routing-keys` projection of `:rf.runtime/routing`) through
+  the centralized `:rf.egress/ssr-hydration` egress projection seeded at
+  `frame-id`, so a route's projection-relative `:sensitive` / `:large`
+  classification — lowered into the per-frame elision registry under
+  `[:rf.runtime/routing :current …]` at route activation — redacts / elides the
+  classified `:query` / `:params` value before it serialises into the hydration
+  `:rf/runtime-db` (Spec 012 §Route data classification, Spec 015 §SSR,
+  EP-0025). Mirrors `project-app-db-egress` (app-db slice, rf2-bt9kct) and the
+  machines `:machines/project-ssr-runtime-db` hook (snapshot `:data`, rf2-jm2u63).
+
+  The route decls are stored as ABSOLUTE runtime-db paths
+  (`[:rf.runtime/routing :current :query :token]`), so the walk is seeded at the
+  offset `:path [:rf.runtime/routing]` — `elide-wire-value` seeds the candidate
+  declaration-coordinate set with the offset, so the slice value matches the
+  registry's re-rooted route paths exactly. Defers to
+  `re-frame.projection/project-egress` (over the shared `elide-wire-value`
+  walker) — never a family-private elider.
+
+  No-live-frame ⇒ the slice rides VERBATIM, mirroring the sibling machines
+  snapshot projection (`re-frame.machines.ssr/project-snapshot-data` rides
+  verbatim when `frame-id` is nil). The route classification is a PATH-precise
+  redaction of declared `:query` / `:params` slots — like machines, it is not a
+  fail-closed whole-value scrub: with no live frame there are no route
+  declarations to apply, so the durable route slice (already allowlisted to
+  `:current`) passes through. A real server render always carries the live
+  request frame, so the projection runs against that frame's route declarations.
+  This is why we do NOT hand a kindless slice straight to `project-egress` with
+  a nil frame (which would fail closed and redact the whole `:current` slice to
+  `:rf/redacted`)."
+  [slice frame-id]
+  (if (and (some? frame-id) (some? (frame/frame frame-id)))
+    (projection/project-egress
+      slice
+      {:frame             frame-id
+       :path              [:rf.runtime/routing]
+       :rf.egress/profile :rf.egress/ssr-hydration})
+    slice))
+
 ;; ---- runtime-db projection (EP-0001 rf2-30kzz2) --------------------------
 ;;
 ;; Per Spec 011 §The hydration payload (`:rf/runtime-db`) + §Off-box redaction
@@ -386,7 +455,8 @@
     - `:rf.runtime/routing`  — only the durable `:current` route slice
       (`:pending-navigation` is local-subscribable client state; the
       scroll / nav-token / pending-nav caches are host-side transient
-      state, not runtime-db at all — rf2-1hncp2 / rf2-oosjmh);
+      state, not runtime-db at all — rf2-1hncp2 / rf2-oosjmh), PROJECTED
+      against the frame's route classification (rf2-4xut98 — see below);
     - `:rf.runtime/elision`  — the wire-elision declaration registry;
     - `:rf.runtime/ssr`       — the SSR hydration metadata.
 
@@ -404,7 +474,17 @@
   symmetric with the resource projection's `:ssr/extend-runtime-db-projection`.
   When the machines artefact is absent the hook is unbound and the slice rides
   unchanged (a runtime-db with `:rf.runtime/machines` but no machines artefact
-  loaded cannot carry actor snapshots anyway)."
+  loaded cannot carry actor snapshots anyway).
+
+  rf2-4xut98 — the `:rf.runtime/routing` slice is NOT shipped raw either: the
+  allowlisted durable `:current` route slice is run through
+  `project-routing-egress` under the `:rf.egress/ssr-hydration` boundary, so a
+  route's projection-relative `:sensitive` / `:large` `:query` / `:params`
+  classification (re-rooted under `[:rf.runtime/routing :current …]` into the
+  per-frame elision registry at route activation) redacts / elides before it
+  rides the hydration blob raw — symmetric with the machines snapshot
+  projection and the app-db slice projection. An unclassified route slice rides
+  verbatim (the walk is path-precise)."
   [runtime-db]
   (when (map? runtime-db)
     (let [project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
@@ -413,13 +493,20 @@
                              (if project-machines
                                (project-machines runtime-db frame-id)
                                (:rf.runtime/machines runtime-db)))
+          ;; Allowlist the durable routing keys (only `:current` rides; the
+          ;; transient `:pending-navigation` / counter siblings stay off the
+          ;; wire — fail-closed), THEN project the surviving slice against the
+          ;; frame's route classification so a `:sensitive` / `:large` query /
+          ;; param redacts / elides (rf2-4xut98) before it serialises raw.
+          routing-allowed  (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys)
+          routing-slice    (when (seq routing-allowed)
+                             (project-routing-egress routing-allowed frame-id))
           slice (cond-> {}
                   (contains? runtime-db :rf.runtime/machines)
                   (assoc :rf.runtime/machines machines-slice)
 
-                  (seq (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys))
-                  (assoc :rf.runtime/routing
-                         (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys))
+                  (some? routing-slice)
+                  (assoc :rf.runtime/routing routing-slice)
 
                   (contains? runtime-db :rf.runtime/elision)
                   (assoc :rf.runtime/elision (:rf.runtime/elision runtime-db))
