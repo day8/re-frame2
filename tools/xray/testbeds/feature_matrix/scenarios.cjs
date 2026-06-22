@@ -138,6 +138,20 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'machine_epochs', 'index.html'],
     servedPath: 'testbeds/machine-epochs',
   },
+  // The two-frame isolation deck (rf2-4279q4). The standard-epochs button
+  // ladder mounted TWICE — once per `:above` / `:below` frame-provider —
+  // on one page, with an inline Xray on the right. It is THE canonical
+  // per-frame ISOLATION surface: the same app code path drives two fully
+  // independent reactive contexts. Served from the deck's own
+  // hand-written index.html (source dir first, like the 8030 :dev-http
+  // entry); the compiled main.js falls through to
+  // out/examples/two-frame-isolation.
+  {
+    build: 'examples/two-frame-isolation',
+    bundleDir: ['out', 'examples', 'two-frame-isolation'],
+    html: ['tools', 'xray', 'testbeds', 'two_frame_isolation', 'index.html'],
+    servedPath: 'testbeds/two-frame-isolation',
+  },
 ];
 
 function sleep(ms) {
@@ -2959,11 +2973,25 @@ async function runMachineEpochs(page, state) {
   // traffic steps (door is still :locked from its last step) — frame
   // isolation, the core lens of this scenario. Re-selecting resumes door's
   // ring.
+  //
+  // We ALSO capture the door's ACCUMULATED machine DATA here, not just its
+  // :state. Driving door steps 0-6 ran the :open state's :count-open :entry
+  // TWICE (push @ step 1; the reopen inside :machine-epochs/reopen-then-block
+  // @ step 3), so :data :opened-count has climbed to 2. That non-zero datum
+  // is the BASELINE the restart assertion below contrasts against: a real
+  // reset-frame replay re-runs :initial-events from the machine's
+  // :initial state, where :data is {:opened-count 0 …}; a no-op reset would
+  // leave :opened-count at its accumulated 2. We assert it is >0 here so the
+  // post-restart `:opened-count 0` check is provably a STATE CHANGE the
+  // replay produced, not a value that was already 0 (the NO-SIGNAL trap the
+  // bare `:locked`-only assertion fell into — door is already :locked, so a
+  // no-op restart would pass a `:locked`-only check).
   await selectMachineTrack(page, 'door');
   const doorAfterReturn = await waitForTrackSnapshot(
     page, 'door', [':door/main'],
-    (t) => /:door\/main state: :locked/.test(t),
-    'switch-and-return: door frame intact (:locked) after driving traffic — isolation proven',
+    (t) => /:door\/main state: :locked/.test(t) &&
+      /:opened-count ([1-9]\d*)/.test(t),
+    'switch-and-return: door frame intact (:locked, :opened-count accumulated >0) after driving traffic — isolation proven',
   );
   // And traffic's frame is ALSO intact (still :amber/:walk) — not reset by
   // returning to door.
@@ -2973,14 +3001,23 @@ async function runMachineEpochs(page, state) {
     'switch-and-return: traffic frame intact (:amber/:walk) after returning to door',
   );
 
-  // RESTART door: resets its machine frame (ring clears, re-arcs from boot) —
-  // door returns to :locked and the cursor clears. (Door is already :locked,
-  // so we assert the restart does not crash + the frame re-boots clean.)
+  // RESTART door: resets its machine frame (reset-frame! = destroy +
+  // re-reg-frame with the SAME :initial-events, so the ring clears and the
+  // machine RE-ARCS FROM BOOT). The signal-bearing proof a REAL replay ran —
+  // not a no-op — is the machine DATA being reset to its :initial value: the
+  // accumulated `:opened-count` (>0 above, asserted as the baseline) must
+  // snap back to 0, the value door's :initial :data declares. The :state is
+  // :locked both before AND after (door was already :locked), so :state alone
+  // carries no signal — only re-running :initial-events from :initial resets
+  // :opened-count to 0, so observing that reset is a state change a no-op
+  // CANNOT produce. (If the restart silently no-op'd, :opened-count would
+  // stay at the accumulated value and this assertion would time out — the
+  // gate would go red, which is the signal we just bought.)
   await restartMachineTrack(page);
   await waitForTrackSnapshot(
     page, 'door', [':door/main'],
-    (t) => /:door\/main state: :locked/.test(t),
-    'restart: door frame reset + re-arced from boot (:locked)',
+    (t) => /:door\/main state: :locked/.test(t) && /:opened-count 0\b/.test(t),
+    'restart: :initial-events replay re-ran — door re-arced from boot (:locked) AND :data reset to :initial (:opened-count 0, was >0)',
   );
 
   // ===== Quiz (MICROSTEP — :always eventless settle) ====================
@@ -3254,6 +3291,217 @@ async function runMachineEpochs(page, state) {
   };
 }
 
+// ===========================================================================
+// TWO-FRAME ISOLATION (rf2-4279q4)
+// ===========================================================================
+//
+// The two-frame deck mounts the standard-epochs button ladder TWICE — once
+// per `:above` / `:below` frame-provider. The two frames share one app code
+// path (the standard-epochs `root` ladder) but each is a fully isolated
+// reactive context: its OWN app-db, sub-cache, epoch history, and runner
+// `:step` cursor. The runner RUN-THIS-STEP buttons are testid'd
+// `standard-epochs-<frame>-step-<n>-run` (n = 0-based step index).
+//
+// This scenario drives the two highest-signal cross-frame rungs — the FLOW
+// step (label "Increment + flow", 1-based step 5 → runner index 4, which
+// bumps `:base` and recomputes the `:standard-epochs/derived` reg-flow slot)
+// and the APP-SCHEMA step (label "Bad app-db write", 1-based step 19 →
+// runner index 18, which writes an int into `[:auth :token]` and the
+// frame-local app-schema rolls the `:db` back) — IN BOTH FRAMES, and asserts
+// the per-frame ISOLATION the deck exists to prove. Before this scenario
+// existed these two rungs were INERT: nothing exercised them in the
+// `:above` / `:below` frames, so the deck's central isolation claim for
+// flows + app-schemas carried no automated signal.
+
+// The 0-based runner indices for the two rungs under test. Named off the
+// standard-epochs step ladder (standard_epochs/core.cljs §steps): the FLOW
+// rung is `:standard-epochs/increment-flow`; the APP-SCHEMA rung is
+// `:standard-epochs/bad-app-db-write`.
+const TWO_FRAME_FLOW_STEP = 4; // 1-based step 5 — "Increment + flow"
+const TWO_FRAME_SCHEMA_STEP = 18; // 1-based step 19 — "Bad app-db write"
+
+// Read one two-frame frame's app-db via the PUBLIC
+// `re-frame.core/app-db-value` accessor, scoped to `:above` / `:below`.
+// Returns the `:base` / `:derived` flow slots, the `[:auth :token]` slot
+// (the app-schema target), and the runner `:step` cursor — the per-frame
+// facts the isolation assertions read. `app-db-value` is the same public
+// seam the deck's own per-track state read uses (machine_epochs core).
+async function readTwoFrameDb(page, frameId) {
+  return page.evaluate((targetFrame) => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !rf || typeof rf.app_db_value !== 'function') {
+      return { ok: false, reason: 'cljs.core / re_frame.core.app_db_value unavailable' };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const db = rf.app_db_value(keyword(targetFrame));
+    if (db == null) return { ok: false, reason: `no ${targetFrame} app-db` };
+    function get(...ks) {
+      let v = db;
+      for (const k of ks) {
+        if (v == null) return null;
+        v = cljs.get(v, keyword(k));
+      }
+      return v;
+    }
+    const base = get(':base');
+    const derived = get(':derived');
+    const token = get(':auth', ':token');
+    const step = get(':step');
+    return {
+      ok: true,
+      base: base == null ? null : base,
+      derived: derived == null ? null : derived,
+      // `pr-str` the token so a string vs int rollback contrast is
+      // unambiguous in diagnostics ("seed-token" vs 42).
+      token: token == null ? 'nil' : cljs.pr_str(token),
+      step: step == null ? null : step,
+    };
+  }, frameId);
+}
+
+async function waitForTwoFrameDb(page, frameId, pred, description, timeoutMs = 10000) {
+  return waitForValue(
+    () => readTwoFrameDb(page, frameId),
+    (snap) => snap.ok && pred(snap),
+    { timeoutMs, description },
+  );
+}
+
+// Drive runner step `n` (0-based) in the given two-frame frame by clicking
+// that frame's RUN-THIS-STEP button (`standard-epochs-<frame>-step-<n>-run`).
+async function runTwoFrameStep(page, frameLabel, n) {
+  await clickTestId(page, `standard-epochs-${frameLabel}-step-${n}-run`);
+}
+
+async function runTwoFrameIsolation(page, state) {
+  await openXray(page);
+
+  // Sanity: BOTH frames boot to the seed db (`:base 1`, `[:auth :token]`
+  // the seed string "seed-token"). Read both before driving anything so the
+  // isolation deltas below are provably state CHANGES from a known baseline.
+  // (`:derived` is left unconstrained at seed — the post-step-5 assertion
+  // below is the load-bearing flow-recompute proof, and it holds whatever
+  // the registration-time initial derive produced.)
+  const aSeed = await waitForTwoFrameDb(
+    page, 'above',
+    (s) => s.base === 1 && s.token === '"seed-token"',
+    'above frame seeded (:base 1, :auth/:token "seed-token")',
+  );
+  const bSeed = await waitForTwoFrameDb(
+    page, 'below',
+    (s) => s.base === 1 && s.token === '"seed-token"',
+    'below frame seeded (:base 1, :auth/:token "seed-token")',
+  );
+
+  // ===== FLOW rung (1-based step 5) — per-frame isolation ================
+  // Drive the FLOW step in `:above` ONLY. It bumps `:above`'s `:base` 1 → 2,
+  // and the frame-local `:standard-epochs/derived` reg-flow recomputes
+  // `:derived` 2 → 4 ON THE POST-HANDLER FLOWS PASS — proving the flow
+  // actually RAN in `:above`'s reactive context. `:below` MUST be untouched
+  // (still `:base 1`, `:derived 2`): a flow is frame-scoped state, so driving
+  // `:above` cannot move `:below`'s derived slot. (If the flow leaked across
+  // frames — or if `:derived` did not recompute — this assertion times out
+  // and the gate goes red. Pre-fix NOTHING drove this rung, so the leak/no-op
+  // class was unobserved.)
+  await runTwoFrameStep(page, 'above', TWO_FRAME_FLOW_STEP);
+  const aAfterFlow = await waitForTwoFrameDb(
+    page, 'above',
+    (s) => s.base === 2 && s.derived === 4,
+    'above flow rung: :base 1→2 AND the :standard-epochs/derived flow recomputed :derived 2→4',
+  );
+  // `:below` is unmoved by `:above`'s flow — assert it STILL reads :base 1
+  // and its `:derived` did NOT advance to 4 (the value only `:above`'s flow
+  // produced). A flow is frame-scoped state, so `:above`'s recompute cannot
+  // move `:below`'s derived slot.
+  await waitForTwoFrameDb(
+    page, 'below',
+    (s) => s.base === 1 && s.derived !== 4,
+    'flow isolation: below frame still :base 1 and :derived not advanced to 4 (above\'s flow did not leak across frames)',
+  );
+
+  // Now drive the FLOW step in `:below` and confirm the two frames diverge
+  // INDEPENDENTLY: `:below` advances to :base 2 / :derived 4 while `:above`
+  // stays at the 2/4 it reached above (not double-bumped by `:below`'s
+  // dispatch). Two independent flow recomputes, one per frame.
+  await runTwoFrameStep(page, 'below', TWO_FRAME_FLOW_STEP);
+  await waitForTwoFrameDb(
+    page, 'below',
+    (s) => s.base === 2 && s.derived === 4,
+    'below flow rung: :base 1→2 AND :derived 2→4 (independent of above)',
+  );
+  await waitForTwoFrameDb(
+    page, 'above',
+    (s) => s.base === 2 && s.derived === 4,
+    'flow isolation: above frame unchanged (:base 2 / :derived 4) by below\'s flow dispatch',
+  );
+
+  // ===== APP-SCHEMA rung (1-based step 19) — per-frame isolation =========
+  // Drive the APP-SCHEMA step in `:above` ONLY. The handler writes an int
+  // (42) into `[:auth :token]`; the frame-local app-schema (`[:auth] →
+  // [:map [:token :string]]`, registered once globally, resolved per-frame)
+  // REJECTS the write and the post-handler app-db validation ROLLS THE :db
+  // BACK — so `:above`'s `[:auth :token]` must still read the seed STRING
+  // "seed-token", NOT 42. The rolled-back-to-string read is the observable
+  // proof the schema fired AND the rollback engaged in `:above`'s frame.
+  // `:below` MUST be wholly untouched (still the seed string) — the schema
+  // violation + rollback are scoped to the driven frame.
+  await runTwoFrameStep(page, 'above', TWO_FRAME_SCHEMA_STEP);
+  const aAfterSchema = await waitForTwoFrameDb(
+    page, 'above',
+    (s) => s.token === '"seed-token"',
+    'above app-schema rung: int write to [:auth :token] rolled back — token still "seed-token" (frame-local schema fired + rollback engaged)',
+  );
+  await waitForTwoFrameDb(
+    page, 'below',
+    (s) => s.token === '"seed-token"',
+    'app-schema isolation: below frame [:auth :token] untouched (still "seed-token") by above\'s schema-violating write',
+  );
+
+  // Drive the APP-SCHEMA step in `:below` too and assert its db likewise
+  // rolls back (token stays the seed string) — the same frame-local
+  // schema-rollback contract holds independently in the second frame.
+  await runTwoFrameStep(page, 'below', TWO_FRAME_SCHEMA_STEP);
+  await waitForTwoFrameDb(
+    page, 'below',
+    (s) => s.token === '"seed-token"',
+    'below app-schema rung: int write rolled back — token still "seed-token" (frame-local schema + rollback)',
+  );
+
+  // The runner `:step` cursors are also per-frame isolated — each frame's
+  // last-run step is its OWN index. Both frames last ran the schema rung, so
+  // both cursors read TWO_FRAME_SCHEMA_STEP; the load-bearing isolation point
+  // is that each frame carries its own cursor (per-frame app-db `:step`),
+  // never a shared one.
+  const aFinal = await readTwoFrameDb(page, 'above');
+  const bFinal = await readTwoFrameDb(page, 'below');
+  if (aFinal.step !== TWO_FRAME_SCHEMA_STEP || bFinal.step !== TWO_FRAME_SCHEMA_STEP) {
+    failWithDetails('Two-frame runner :step cursors did not land per-frame on the schema rung', {
+      expectedStep: TWO_FRAME_SCHEMA_STEP,
+      above: aFinal,
+      below: bFinal,
+    });
+  }
+
+  state.twoFrameIsolation = {
+    seed: { above: aSeed, below: bSeed },
+    flow: { aboveAfter: aAfterFlow },
+    schema: { aboveAfter: aAfterSchema },
+    finalCursors: { above: aFinal.step, below: bFinal.step },
+  };
+}
+
 const SCENARIOS = [
   {
     name: 'feature matrix shell and panel handoff',
@@ -3437,6 +3685,21 @@ const SCENARIOS = [
     panels: ['machines'],
     coveredRows: ['Machines'],
     run: runMachineEpochs,
+  },
+  {
+    // The two-frame isolation deck (rf2-4279q4): the standard-epochs ladder
+    // mounted twice (`:above` / `:below`). Drives the FLOW rung (step 5 —
+    // `:standard-epochs/derived` reg-flow recompute) + the APP-SCHEMA rung
+    // (step 19 — `[:auth :token]` schema rollback) in BOTH frames and
+    // asserts per-frame ISOLATION off each frame's app-db (`app-db-value`):
+    // a flow recompute / a schema violation+rollback in one frame never
+    // moves the other. These two cross-frame rungs were INERT before this
+    // scenario — nothing exercised them in the above/below frames.
+    name: 'two-frame isolation: flow + app-schema rungs exercise + isolate across :above / :below (rf2-4279q4)',
+    url: '/testbeds/two-frame-isolation/',
+    panels: ['app-db'],
+    coveredRows: ['App-DB Diff', 'Flows'],
+    run: runTwoFrameIsolation,
   },
   {
     name: '20-event large value elision load',

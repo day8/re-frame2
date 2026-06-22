@@ -118,7 +118,7 @@
             ;; frame — the isolation proof. The cursor itself lives in each
             ;; frame's app-db `:step`.
             [runner.core :as runner])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; FRAME IDS
@@ -143,6 +143,47 @@
 
 (runner/reg-runner! {:id run-step-above :steps se/steps :host-frame frame-above})
 (runner/reg-runner! {:id run-step-below :steps se/steps :host-frame frame-below})
+
+;; ============================================================================
+;; PER-FRAME FRAME-LOCAL FEATURES — the flow + app-schema rungs
+;; ============================================================================
+;;
+;; `standard-epochs.core` registers its `:standard-epochs/derived` reg-flow
+;; and its `[:auth] → [:map [:token :string]]` app-schema under
+;; `(with-frame :rf/default …)` (EP-0002: both are CONTEXT-REQUIRED
+;; FRAME-LOCAL). Those registrations therefore live ONLY in `:rf/default` —
+;; the frame the SINGLE-frame standalone deck mounts on. This two-frame deck
+;; mounts the same ladder in `:above` / `:below` instead, where neither the
+;; flow nor the schema is registered. Without re-registering them per frame
+;; the FLOW rung (step 5) would bump `:base` but NEVER recompute `:derived`
+;; (no flow in this frame), and the APP-SCHEMA rung (step 19) would write
+;; an int into `[:auth :token]` and it would STICK (no schema → no
+;; validation → no rollback) — both rungs INERT in these frames (rf2-4279q4).
+;;
+;; The cleanest fix is to register the frame-local features in EACH frame the
+;; deck actually mounts on, so the per-frame isolation the deck exists to
+;; prove holds for flows + app-schemas too: a flow recompute / a schema
+;; rollback in one frame is genuinely scoped to that frame's reactive
+;; context. The flow body + schema mirror standard-epochs' (the schema slice
+;; `se/AuthSlice` is reused directly; the flow is the same `:base × 2 →
+;; :derived` declaration).
+
+(defn- register-frame-local-features!
+  "Register the `:standard-epochs/derived` flow + the `[:auth] :string`
+  app-schema INTO `frame-id` so the FLOW (step 5) + APP-SCHEMA (step 19)
+  rungs actually fire when the ladder is driven in that frame. Both are
+  context-required frame-local (EP-0002): the `with-frame` scope names the
+  frame they install into. Run at the TOP LEVEL (from `run`, AFTER the
+  frame is `reg-frame`'d) — never inside a handler cascade."
+  [frame-id]
+  (rf/with-frame frame-id
+    (rf/reg-flow
+      {:id          :standard-epochs/derived
+       :inputs      [[:base]]
+       :derive      (fn [base] (* 2 (or base 0)))
+       :output-path [:derived]
+       :doc         "Derived = 2 × :base (two-frame deck, per-frame). Recomputes on the post-handler flows pass."})
+    (rf/reg-app-schema [:auth] {:schema se/AuthSlice})))
 
 ;; ============================================================================
 ;; ROOT VIEW — the standard-epochs ladder mounted twice, one per frame-provider
@@ -231,4 +272,22 @@
   ;; per-frame state evolution is automatic.
   (rf/reg-frame frame-above {:initial-events [[:standard-epochs/reset]]})
   (rf/reg-frame frame-below {:initial-events [[:standard-epochs/reset]]})
+  ;; Register the frame-local FLOW + APP-SCHEMA into BOTH frames so the
+  ;; step-5 (flow) and step-19 (app-schema) rungs fire here instead of
+  ;; being inert (standard-epochs registers them only in :rf/default —
+  ;; rf2-4279q4). reg-flow / reg-app-schema require a LIVE frame, so this
+  ;; runs AFTER reg-frame. Top-level, never inside a handler cascade.
+  (register-frame-local-features! frame-above)
+  (register-frame-local-features! frame-below)
+  ;; Re-seed each frame AFTER its flow is registered so the
+  ;; `:standard-epochs/derived` flow computes its initial value (:derived =
+  ;; 2 × :base) on this drain's flows pass — mirroring the standalone deck,
+  ;; where the flow is registered (ns-load, in :rf/default) BEFORE `run`'s
+  ;; seed dispatch. The `:initial-events` seed above ran while the frame had
+  ;; no flow yet, so `:derived` would otherwise stay absent until the first
+  ;; step-5 press. The re-seed leaves each frame at the deterministic
+  ;; baseline (`:base 1`, `:derived 2`, `[:auth :token]` "seed-token") the
+  ;; isolation assertions read.
+  (rf/with-frame frame-above (rf/dispatch-sync [:standard-epochs/reset]))
+  (rf/with-frame frame-below (rf/dispatch-sync [:standard-epochs/reset]))
   (rdc/render react-root [root]))
