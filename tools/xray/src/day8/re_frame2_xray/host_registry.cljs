@@ -13,7 +13,7 @@
   targeting an image-loaded frame). So a bare `(rf/registrations :route)` /
   `(rf/handler-meta :event id)` call INSIDE a sub computation resolves through
   Xray's OWN image resolver — which selects ONLY Xray's `:rf.xray/*` namespaces
-  (`xray-image`'s `:include-ns`), NOT the host app's registrations. The
+  (`xray-image`'s `:select-ns :include`), NOT the host app's registrations. The
   inspector would then see only its OWN handlers / routes / resources, never the
   HOST app's — the Routing panel renders an empty route table, the palette lists
   only Xray's own handlers, the Resources panel loses the host's resource

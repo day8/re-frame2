@@ -31,12 +31,12 @@
     * a non-map `opts` ARGUMENT (nil / keyword / vector / string) is REJECTED at
       the public boundary (`:rf.error/make-frame-bad-opts`, rf2-r6r2yi) BEFORE any
       frame is registered; the empty map `{}` is accepted (the all-defaults
-      frame), and nil is rejected (no zero-arity / `{}` carries that meaning);
-    * the capability frame-boundary check (rf2-32siq3.6): fails loud on a missing
-      capability; an image with requirements but NO `:capabilities` map fails
-      (the check is unconditional — EP-0013 fail-loud parity); an image with no
-      requirements needs no `:capabilities` map; the multi-image requires UNION
-      is checked as one set at the frame boundary.
+      frame), and nil is rejected (no zero-arity / `{}` carries that meaning).
+
+  (EP-0026, rf2-dlvmpc: image-declared host capabilities are removed end-to-end —
+  there is no `:capabilities` image-selection key, no `:rf.image/requires`, no
+  `:rf.gen/requires`, no frame-boundary capability check, and no
+  `:rf.frame/capabilities` slot.)
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -122,8 +122,8 @@
 
 (defn- err-data
   "The full `ex-data` of a thrown re-frame2 error, or nil. The `:extra` slots
-  (`:missing-capabilities` / `:supplied-capabilities`) are merged at the top
-  level of the ex-data — see `re-frame.error/throw-error!`."
+  are merged at the top level of the ex-data — see
+  `re-frame.error/throw-error!`."
   [thunk]
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
@@ -149,7 +149,7 @@
   (testing "make-frame resolves a one-element :images vector into one sealed
             image generation and returns the live frame OBJECT carrying it"
     (let [img   (image/image {:id :examples/counter
-                              :include-ns ["examples.counter"]})
+                              :select-ns {:include ["examples.counter"]}})
           frame (lf/make-frame {:images [img]} counter-pool)]
       (testing "the return value is a live frame OBJECT, not a frame-id keyword"
         (is (lf/frame-object? frame))
@@ -168,8 +168,8 @@
             §Image Composition — the frame still runs one resolved generation)"
     (let [pool  [(reg-desc "lib.widgets"   :event :widgets/init ::winit)
                  (reg-desc "examples.counter" :event :counter/inc ::inc)]
-          a     (image/image {:id :lib/widgets   :include-ns ["lib.widgets"]})
-          b     (image/image {:id :examples/counter :include-ns ["examples.counter"]})
+          a     (image/image {:id :lib/widgets   :select-ns {:include ["lib.widgets"]}})
+          b     (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
           frame (lf/make-frame {:images [a b]} pool)
           gen   (lf/frame-generation frame)]
       (is (some? (asm/resolve-descriptor gen :event :widgets/init)))
@@ -236,7 +236,7 @@
             registry under that id (EP-0024 §One registry). `lf/live-frame`
             RECONSTRUCTS a fresh value from the record (routing to the same id,
             NOT identical? to the originally-returned value)"
-    (let [img   (image/image {:include-ns ["examples.counter"]})
+    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
           frame (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
       (is (= :counter/main (rf/frame-value->id (lf/live-frame :counter/main)))
           "live-frame lookup reconstructs a value routing to the same id")
@@ -248,7 +248,7 @@
             image is behaviour, frame is state) and :initial-events seeds app-db
             (EP-0027 retired :initial-db; the value no longer carries an
             :rf.frame/initial-db slot — seeding is the :rf/set-db setup event)"
-    (let [img   (image/image {:include-ns ["examples.counter"]})
+    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
           frame (lf/make-frame {:id :counter/seeded
                                 :images [img]
                                 :initial-events [[:rf/set-db {:count 7}]]
@@ -272,7 +272,7 @@
             :rf.error/live-frame-id-conflict is GONE). Seed durable state via
             :initial-events, re-make under the SAME id with NO :initial-events, and
             assert the app-db survived (a fresh record would have reset it to {})"
-    (let [img    (image/image {:include-ns ["examples.counter"]})
+    (let [img    (image/image {:select-ns {:include ["examples.counter"]}})
           first  (lf/make-frame {:id :counter/main :images [img]
                                  :initial-events [[:rf/set-db {:count 7}]]}
                                 counter-pool)]
@@ -297,7 +297,7 @@
   (testing "two DIFFERENT frame ids may each carry an image reusing the same
             REGISTRATION ids — registration ids are reusable across images;
             only FRAME ids are unique (the heart of the same-id story)"
-    (let [img   (image/image {:include-ns ["examples.counter"]})
+    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
           left  (lf/make-frame {:id :counter/left  :images [img]} counter-pool)
           right (lf/make-frame {:id :counter/right :images [img]} counter-pool)]
       ;; Both live frames resolve the SAME registration id :counter/inc; no
@@ -327,7 +327,7 @@
             :rf.frame/<gensym> runnable-id, so it contributes NO public frame id
             (EP-0024 §Frame value — direct frame values bypass the PUBLIC
             frame-id space; the gensym record itself is image-loaded)"
-    (let [img   (image/image {:include-ns ["examples.counter"]})
+    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
           frame (lf/make-frame {:images [img]} counter-pool)]
       (is (lf/frame-object? frame))
       (is (nil? (:rf.frame/id frame)) "a no-id frame value carries no public :rf.frame/id")
@@ -343,7 +343,7 @@
   (testing "two local direct frame values can coexist with no PUBLIC ids — each
             gets its own private :rf.frame/<gensym> runnable-id (EP-0024 — two
             local direct frame values can coexist, distinct records)"
-    (let [img (image/image {:include-ns ["examples.counter"]})
+    (let [img (image/image {:select-ns {:include ["examples.counter"]}})
           a   (lf/make-frame {:images [img]} counter-pool)
           b   (lf/make-frame {:images [img]} counter-pool)]
       (is (lf/frame-object? a))
@@ -361,7 +361,7 @@
   (testing ":images must be a VECTOR (the one spelling, always a vector — EP-0023
             §Image Composition); a bare image map, a seq, or any non-vector throws
             :rf.error/make-frame-bad-images"
-    (let [img (image/image {:include-ns ["examples.counter"]})]
+    (let [img (image/image {:select-ns {:include ["examples.counter"]}})]
       (testing "a bare (unwrapped) image map is rejected"
         (is (= :rf.error/make-frame-bad-images
                (err-id #(lf/make-frame {:images img} counter-pool)))))
@@ -412,179 +412,50 @@
       (is (lf/frame-object? (lf/make-frame {} counter-pool))))))
 
 ;; ===========================================================================
-;; 6. The capability frame-boundary check (EP-0023 §Public API)
-;; ===========================================================================
-
-(deftest missing-capability-fails-loud-at-the-frame-boundary
-  (testing "when an image requires a capability the supplied :capabilities map
-            does not provide, frame creation fails loud
-            (:rf.error/image-missing-capability) BEFORE the generation is runnable"
-    (let [img (image/image {:id :articles/browser
-                            :include-ns ["examples.counter"]
-                            :rf.image/requires #{:rf.capability/http}})]
-      (is (= :rf.error/image-missing-capability
-             (err-id #(lf/make-frame {:id :articles/main
-                                      :images [img]
-                                      :capabilities {}}
-                                     counter-pool))))
-      (testing "the conflicting frame id was NOT registered (creation aborted)"
-        (is (not (contains? (lf/live-frame-ids) :articles/main)))))))
-
-(deftest supplied-capability-satisfies-the-requirement
-  (testing "when :capabilities provides the required capability, frame creation
-            succeeds and the capabilities ride the object"
-    (let [img   (image/image {:include-ns ["examples.counter"]
-                              :rf.image/requires #{:rf.capability/http}})
-          frame (lf/make-frame {:images [img]
-                                :capabilities {:rf.capability/http ::http-impl}}
-                               counter-pool)]
-      (is (lf/frame-object? frame))
-      (is (= {:rf.capability/http ::http-impl} (:rf.frame/capabilities frame))))))
-
-(deftest absent-capabilities-map-fails-a-required-image
-  (testing "an image declaring :rf.image/requires but supplied NO :capabilities
-            map fails loud at the frame boundary — an absent map provides
-            nothing (EP-0013 fail-loud parity), so the check is NOT skipped"
-    (let [img (image/image {:id :articles/browser
-                            :include-ns ["examples.counter"]
-                            :rf.image/requires #{:rf.capability/http}})]
-      (is (= :rf.error/image-missing-capability
-             (err-id #(lf/make-frame {:id :articles/main
-                                      :images [img]}
-                                     counter-pool)))
-          "no :capabilities key at all still fails the non-empty requires")
-      (testing "the frame id was NOT registered (creation aborted before insert)"
-        (is (not (contains? (lf/live-frame-ids) :articles/main)))))))
-
-(deftest no-requirements-needs-no-capabilities-map
-  (testing "an image with empty/absent :rf.image/requires creates a frame with
-            NO :capabilities map — the unconditional check is a no-op when the
-            generation requires nothing"
-    (let [img   (image/image {:include-ns ["examples.counter"]})
-          frame (lf/make-frame {:images [img]} counter-pool)]
-      (is (lf/frame-object? frame))
-      (is (= #{} (:rf.gen/requires (lf/frame-generation frame))))
-      (is (not (contains? frame :rf.frame/capabilities))
-          "no :capabilities supplied → the slot is absent on the object"))))
-
-(deftest multi-image-requires-union-checked-at-the-frame-boundary
-  (testing "two images each declaring a distinct capability: the frame's
-            generation carries the UNION, and the :capabilities map must satisfy
-            ALL of it or creation fails loud"
-    (let [pool  [(reg-desc "examples.counter" :event :counter/inc ::inc)
-                 (reg-desc "examples.cart"    :event :cart/add    ::add)]
-          img-a (image/image {:id :counter/img :include-ns ["examples.counter"]
-                              :rf.image/requires #{:rf.capability/http}})
-          img-b (image/image {:id :cart/img :include-ns ["examples.cart"]
-                              :rf.image/requires #{:rf.capability/schemas}})]
-      (testing "a :capabilities map satisfying only ONE image fails the union"
-        (is (= :rf.error/image-missing-capability
-               (err-id #(lf/make-frame {:images [img-a img-b]
-                                        :capabilities {:rf.capability/http ::http-impl}}
-                                       pool)))))
-      (testing "a :capabilities map satisfying the FULL union creates the frame,
-                and the union rides the generation"
-        (let [frame (lf/make-frame
-                      {:images [img-a img-b]
-                       :capabilities {:rf.capability/http    ::http-impl
-                                      :rf.capability/schemas ::schemas}}
-                      pool)]
-          (is (lf/frame-object? frame))
-          (is (= #{:rf.capability/http :rf.capability/schemas}
-                 (:rf.gen/requires (lf/frame-generation frame)))))))))
-
-;; ---- capability-union BOUNDARY diagnostic is structured (rf2-32siq3.40
-;;      minor c) -------------------------------------------------------------
-;;
-;; The .31 review found the make-frame BOUNDARY capability failures asserted
-;; only the `:rf.error/id` discriminator, while the bare `check-capabilities!`
-;; unit test (image_assembly_cljs_test/partial-capabilities-fail-on-the-unmet-
-;; subset) asserts the structured `:missing-capabilities` / `:supplied-
-;; capabilities` slots. The frame-boundary failure rides the SAME error helper,
-;; so the boundary diagnostic must carry the SAME structured slots — pinning
-;; that the union check at the frame boundary names the unmet subset and the
-;; supplied set, not just the error id.
-
-(deftest capability-boundary-diagnostic-carries-structured-slots
-  (testing "the make-frame frame-boundary capability failure carries the SAME
-            structured :missing-capabilities / :supplied-capabilities slots as
-            the bare check-capabilities! unit test — the diagnostic names the
-            unmet subset (sorted) and what the frame DID supply, at the boundary"
-    (let [pool  [(reg-desc "examples.counter" :event :counter/inc ::inc)
-                 (reg-desc "examples.cart"    :event :cart/add    ::add)]
-          ;; Two images → a UNION requires of {http schemas}; the frame supplies
-          ;; only http, so the boundary check fails on the unmet schemas subset.
-          img-a (image/image {:id :counter/img :include-ns ["examples.counter"]
-                              :rf.image/requires #{:rf.capability/http}})
-          img-b (image/image {:id :cart/img :include-ns ["examples.cart"]
-                              :rf.image/requires #{:rf.capability/schemas
-                                                   :rf.capability/storage}})
-          d (err-data #(lf/make-frame {:id :articles/main
-                                       :images [img-a img-b]
-                                       :capabilities {:rf.capability/http ::http-impl}}
-                                      pool))]
-      (is (= :rf.error/image-missing-capability (:rf.error/id d))
-          "the boundary union failure is :rf.error/image-missing-capability")
-      (testing ":missing-capabilities names exactly the unmet union subset, sorted"
-        (is (= [:rf.capability/schemas :rf.capability/storage]
-               (:missing-capabilities d))))
-      (testing ":supplied-capabilities names what the frame DID provide (a
-                CAPABILITY gap, not a registration gap)"
-        (is (= [:rf.capability/http]
-               (:supplied-capabilities d))))
-      (testing "the conflicting frame id was NOT registered (creation aborted)"
-        (is (not (contains? (lf/live-frame-ids) :articles/main)))))))
-
-;; ===========================================================================
-;; 7. Host-handle exclusion — the EP-0023 §Host Boundary two-boundaries
+;; 6. Host-handle exclusion — the EP-0023 §Host Boundary two-boundaries
 ;;    invariant at the OBJECT boundary (rf2-32siq3.40 MAJOR-2)
 ;; ===========================================================================
 ;;
 ;; The .31 review found the EP two-boundaries invariant (host handles / adapter
 ;; binding NEVER enter the frame-state value) untested at the EP-0023 OBJECT
-;; boundary. make-frame stores :rf.frame/adapter + :rf.frame/capabilities on the
-;; frame object (the host-handle slots); existing tests assert they are
-;; PRESERVED across reload, but none asserts they are EXCLUDED from the
-;; serializable frame-state projection.
+;; boundary. make-frame stores :rf.frame/adapter on the frame object (the
+;; host-handle slot); existing tests assert it is PRESERVED across reload, but
+;; none asserts it is EXCLUDED from the serializable frame-state projection.
+;; (EP-0026, rf2-dlvmpc: the former :rf.frame/capabilities host slot is gone with
+;; the image-capability feature, so the invariant is now exercised over the
+;; adapter binding alone.)
 ;;
 ;; The serializable frame-STATE is the seeded app-db (EP-0027 retired the
 ;; :rf.frame/initial-db value slot; seeding is the :rf/set-db setup event). The
-;; invariant tested here: the adapter binding and the capability map handed to
-;; make-frame are confined to their OWN object slots and never bleed into the
-;; seeded app-db (the serializable state), and the host-handle slots are a
-;; distinct, non-serializable concern from the state.
+;; invariant tested here: the adapter binding handed to make-frame is confined to
+;; its OWN object slot and never bleeds into the seeded app-db (the serializable
+;; state), and the host-handle slot is a distinct, non-serializable concern from
+;; the state.
 
 (deftest host-handles-excluded-from-serializable-frame-state
-  (testing "the adapter binding + capability map ride DEDICATED object slots
-            (:rf.frame/adapter, :rf.frame/capabilities) and are EXCLUDED from the
-            serializable frame-state (the :initial-events-seeded app-db) — the
-            EP-0023 §Host Boundary two-boundaries invariant: host handles never
-            enter the frame-state value (MAJOR-2)"
-    (let [img        (image/image {:include-ns ["examples.counter"]
-                                   :rf.image/requires #{:rf.capability/http}})
+  (testing "the adapter binding rides a DEDICATED object slot (:rf.frame/adapter)
+            and is EXCLUDED from the serializable frame-state (the
+            :initial-events-seeded app-db) — the EP-0023 §Host Boundary
+            two-boundaries invariant: host handles never enter the frame-state
+            value (MAJOR-2)"
+    (let [img        (image/image {:select-ns {:include ["examples.counter"]}})
           adapter    {:rf.adapter/kind :reagent :rf.adapter/render-root ::host-handle}
-          caps       {:rf.capability/http ::http-impl}
           state-seed {:count 7 :user/name "ada"}
           frame      (lf/make-frame {:id         :counter/host-excl
                                      :images     [img]
                                      :initial-events [[:rf/set-db state-seed]]
-                                     :adapter    adapter
-                                     :capabilities caps}
+                                     :adapter    adapter}
                                     counter-pool)]
-      (testing "the host handles ride their OWN object slots (preserved)"
-        (is (= adapter (:rf.frame/adapter frame)))
-        (is (= caps    (:rf.frame/capabilities frame))))
+      (testing "the host handle rides its OWN object slot (preserved)"
+        (is (= adapter (:rf.frame/adapter frame))))
       (testing "the serializable frame-state is EXACTLY the seeded app-db — no
-                adapter binding, no capability map bled into it"
+                adapter binding bled into it"
         (is (= state-seed (rf/app-db-value :counter/host-excl)))
         (let [serializable (rf/app-db-value :counter/host-excl)]
           (is (not (contains? serializable :rf.frame/adapter))
               "the adapter binding is NOT in the serializable state value")
-          (is (not (contains? serializable :rf.frame/capabilities))
-              "the capability map is NOT in the serializable state value")
-          (is (not-any? #{::host-handle ::http-impl} (vals serializable))
+          (is (not-any? #{::host-handle} (vals serializable))
               "no host-handle VALUE leaked into the serializable state value")))
-      (testing "the host-handle slots are a DISTINCT concern from the state
-                (object slots ≠ the serializable frame-state seed)"
-        (is (not= (:rf.frame/adapter frame)      (rf/app-db-value :counter/host-excl)))
-        (is (not= (:rf.frame/capabilities frame) (rf/app-db-value :counter/host-excl)))))))
+      (testing "the host-handle slot is a DISTINCT concern from the state
+                (object slot ≠ the serializable frame-state seed)"
+        (is (not= (:rf.frame/adapter frame) (rf/app-db-value :counter/host-excl)))))))

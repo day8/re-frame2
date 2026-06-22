@@ -46,7 +46,7 @@
 
 (def ^:private fn-syms
   '[frame-registrar-describe frame-registrar-list
-    frame-registrar-registrations frame-capability-requires describe-image
+    frame-registrar-registrations describe-image
     coordinate-summary])
 
 (deftest all-frame-derived-fns-present
@@ -82,15 +82,10 @@
         "describe-image MUST route through (rf/frame-generation frame) — the public facade read (rf2-wkw8na), NOT re-frame.image-assembly internals.")
     (is (form-contains? (fn [n] (= :rf.gen/resolver n)) f)
         "describe-image reads the sealed generation's :rf.gen/resolver for the per-kind counts / registrations.")
-    (is (form-contains? (fn [n] (= :rf.gen/requires n)) f)
-        "describe-image surfaces :rf.gen/requires — the missing-capability discriminator (EP-0023 Use-Case 7).")))
-
-(deftest frame-capability-requires-reads-generation-requires
-  (let [f (defn-form 'frame-capability-requires)]
-    (is (calls? f 'rf/frame-generation)
-        "frame-capability-requires MUST read the public frame-generation.")
-    (is (form-contains? (fn [n] (= :rf.gen/requires n)) f)
-        "frame-capability-requires reports the image-declared :rf.gen/requires set.")))
+    ;; EP-0026 (rf2-dlvmpc): the image-capability surface is removed end-to-end,
+    ;; so describe-image no longer surfaces :rf.gen/requires.
+    (is (not (form-contains? (fn [n] (= :rf.gen/requires n)) f))
+        "describe-image MUST NOT read :rf.gen/requires — the image-capability surface was retired (EP-0026).")))
 
 ;; ---------------------------------------------------------------------------
 ;; describe-image guards the no-generation fail-loud.
@@ -124,7 +119,7 @@
 
 (deftest no-live-frame-or-image-assembly-internals-in-frame-fns
   (doseq [sym '[frame-registrar-describe frame-registrar-list
-                frame-registrar-registrations frame-capability-requires
+                frame-registrar-registrations
                 describe-image]]
     (let [f (defn-form sym)
           leaks? (form-contains?

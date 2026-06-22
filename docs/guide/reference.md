@@ -66,15 +66,14 @@ The full inventory is in [10 — Testing](../api/10-testing.md), and the working
 
 The public model is `image → frame → event stream`. Two nouns carry it:
 
-An **image** is a *value* naming a set of registrations (events, subs, fx, …) plus their capability requirements — built with `rf/image`, either by selecting registrations from loaded namespaces (`:include-ns`) or by listing them inline. Think of it as the recipe: what's in the app, but not yet running.
+An **image** is a *value* naming a set of registrations (events, subs, fx, …) — built with `rf/image`, either by selecting registrations from loaded namespaces (`:select-ns`) or by listing them inline. Think of it as the recipe: what's in the app, but not yet running.
 
-A **frame** is the live, isolated execution context — the running dish. It owns the app state, the subscription cache, the trace surface, the adapter binding, a capability map, and one resolved image generation. You build a frame from images with `rf/make-frame`:
+A **frame** is the live, isolated execution context — the running dish. It owns the app state, the subscription cache, the trace surface, the adapter binding, and one resolved image generation. You build a frame from images with `rf/make-frame`:
 
 ```clojure
-(rf/make-frame {:id           :app/main
-                :images       [app-image]
-                :adapter      :reagent
-                :capabilities {:rf.capability/http http-client}})
+(rf/make-frame {:id      :app/main
+                :images  [app-image]
+                :adapter :reagent})
 ```
 
 A frame *is* the natural unit for hermetic tests and multi-frame inspection: each frame runs its own *sealed* registration set, so two frames can hold different handlers for the same id without collision. Most apps never touch any of this by hand — a single-app process just `reg-*`s into the global registrar and the runtime assembles the standard image for it. You reach for explicit images and `make-frame` when you want isolation: a test that needs a clean slate, a tool inspecting several frames at once, or a hot-reloaded image generation.

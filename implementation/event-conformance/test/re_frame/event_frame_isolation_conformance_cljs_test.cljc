@@ -144,8 +144,8 @@
                                     (fn [{:keys [db]} _] {:db (assoc db :booted-by :todo)}))]
           counter-pool [(event-desc "examples.counter" :boot/init
                                     (fn [{:keys [db]} _] {:db (assoc db :booted-by :counter)}))]
-          todo-img     (image/image {:id :examples/todo    :include-ns ["examples.todo"]})
-          counter-img  (image/image {:id :examples/counter :include-ns ["examples.counter"]})
+          todo-img     (image/image {:id :examples/todo    :select-ns {:include ["examples.todo"]}})
+          counter-img  (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
           todo-frame    (lf/make-frame {:id :todo/main    :images [todo-img]}    todo-pool)
           counter-frame (lf/make-frame {:id :counter/main :images [counter-img]} counter-pool)]
       ;; REAL frame-targeted dispatches through the PUBLIC path — no manual
@@ -214,7 +214,7 @@
     (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
     (let [pool [(event-desc "ex.counter" :counter/inc
                             (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))]
-          img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})
+          img  (image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
           ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
           ;; DIFFERENT initial-db. No reg-frame, no shared frame id.
           fa   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
@@ -275,8 +275,8 @@
                        (fn [{:keys [db]} _] {:db (assoc db :inc :sibling)}))
            (event-desc "examples.todo" :counter/step
                        (fn [{:keys [db]} _] {:db (assoc db :step :sibling)}))]
-          target-img  (image/image {:id :examples/counter :include-ns ["examples.counter"]})
-          sibling-img (image/image {:id :examples/todo    :include-ns ["examples.todo"]})
+          target-img  (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
+          sibling-img (image/image {:id :examples/todo    :select-ns {:include ["examples.todo"]}})
           _ (lf/make-frame {:id :counter/main :images [target-img]}  target-pool)
           _ (lf/make-frame {:id :sibling/main :images [sibling-img]} sibling-pool)]
       (rf/dispatch-sync [:counter/inc] {:frame :counter/main})

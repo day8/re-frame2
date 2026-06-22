@@ -292,10 +292,10 @@
     (let [slot (ss/descriptor-for :event :counter/inc 'docs.counter.v2)]
       (is (= :event (:kind slot)) "register!-recorded descriptor carries :kind")
       (is (= :counter/inc (:id slot)) "register!-recorded descriptor carries :id"))
-    ;; Assemble an :include-ns image against the live source store. Without the
+    ;; Assemble a :select-ns image against the live source store. Without the
     ;; :kind/:id stamp this threw :rf.error/image-unsupported-kind (nil kind).
     (let [img (image/image {:id :docs.counter/v2
-                            :include-ns ["docs.counter.v2"]})
+                            :select-ns {:include ["docs.counter.v2"]}})
           gen (assembly/assemble [img])]
       (is (some? (assembly/resolve-descriptor gen :event :counter/inc))
           "the registered descriptor resolves in the sealed generation")

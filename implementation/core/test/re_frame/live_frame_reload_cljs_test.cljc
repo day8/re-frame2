@@ -115,7 +115,7 @@
 ;; (the source store), not the image composition — exactly as a same-namespace
 ;; reg-* re-eval does. (reload-images! also replaces composition; the diff is
 ;; over the resolved generations either way.)
-(def ^:private img (image/image {:id :counter/img :include-ns ["counter.core"]}))
+(def ^:private img (image/image {:id :counter/img :select-ns {:include ["counter.core"]}}))
 
 ;; ===========================================================================
 ;; 1. reload-images! swaps the generation but PRESERVES frame memory
@@ -152,11 +152,7 @@
       (testing "durable frame memory continues: the app-db seeded at creation
                 survives the reload (only the generation moved, the record was
                 NOT torn down and recreated)"
-        (is (= {:count 7} (rf/app-db-value :counter/main)))
-        (testing "the capabilities the frame was created with persist on the
-                  record (re-checkable by id after the swap)"
-          (is (nil? (frame/frame-capabilities :counter/main))
-              "no :capabilities were supplied, so the record carries none"))))))
+        (is (= {:count 7} (rf/app-db-value :counter/main)))))))
 
 ;; ===========================================================================
 ;; 2. Resolution AFTER reload uses the NEW image
@@ -210,7 +206,7 @@
 
 (deftest reload-report-names-removed-ids
   (testing "reloading to a NARROWER image reports the dropped ids as :removed"
-    (let [narrow (image/image {:id :counter/narrow :include-ns ["counter.narrow"]})
+    (let [narrow (image/image {:id :counter/narrow :select-ns {:include ["counter.narrow"]}})
           pool-n [(reg-desc "counter.narrow" :event :counter/inc ::inc-n)]
           frame  (lf/make-frame {:id :counter/main :images [img]} pool-v1)
           {diff :rf.reload/diff} (lf/reload-images! :counter/main {:images [narrow]} pool-n)]
@@ -335,7 +331,7 @@
           :event :explicit/inc
           {:rf.provenance/ns "explicit.feature" :kind :event :id :explicit/inc
            :handler-fn ::inc-original})
-        (let [img   (image/image {:id :explicit/img :include-ns ["explicit.feature"]})
+        (let [img   (image/image {:id :explicit/img :select-ns {:include ["explicit.feature"]}})
               frame (lf/make-frame {:id :explicit/main :images [img]})
               gen-before (lf/frame-generation frame)]
           (testing "the frame resolves the original impl against the live store"
@@ -369,7 +365,7 @@
           :event :stable/inc
           {:rf.provenance/ns "stable.feature" :kind :event :id :stable/inc
            :handler-fn ::stable})
-        (let [img   (image/image {:id :stable/img :include-ns ["stable.feature"]})
+        (let [img   (image/image {:id :stable/img :select-ns {:include ["stable.feature"]}})
               frame (lf/make-frame {:id :stable/main :images [img]})
               gen-before (lf/frame-generation frame)
               ;; No source change between creation and reproject.
@@ -409,7 +405,7 @@
           :sub :rm/value
           {:rf.provenance/ns "removal.feature" :kind :sub :id :rm/value
            :handler-fn ::rm-value})
-        (let [img   (image/image {:id :rm/img :include-ns ["removal.feature"]})
+        (let [img   (image/image {:id :rm/img :select-ns {:include ["removal.feature"]}})
               frame (lf/make-frame {:id :rm/main :images [img]})
               gen-before (lf/frame-generation frame)]
           (testing "both selected ids resolve before the forget (control)"
@@ -466,8 +462,8 @@
           :event :compose.b/go
           {:rf.provenance/ns "compose.member-b" :kind :event :id :compose.b/go
            :handler-fn ::b-stable})
-        (let [img-a (image/image {:id :compose/a :include-ns ["compose.member-a"]})
-              img-b (image/image {:id :compose/b :include-ns ["compose.member-b"]})
+        (let [img-a (image/image {:id :compose/a :select-ns {:include ["compose.member-a"]}})
+              img-b (image/image {:id :compose/b :select-ns {:include ["compose.member-b"]}})
               frame (lf/make-frame {:id :compose/main :images [img-a img-b]})
               gen-before (lf/frame-generation frame)]
           (testing "both members resolve in the composed generation (control)"
@@ -565,7 +561,7 @@
           (registrar/register! :event :auto/inc
             {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v1})
           (lf/flush-pending-reprojection!)
-          (let [img   (image/image {:id :auto/img :include-ns ["auto.feature"]})
+          (let [img   (image/image {:id :auto/img :select-ns {:include ["auto.feature"]}})
                 frame (lf/make-frame {:id :auto/main :images [img]})
                 gen-before (lf/frame-generation frame)]
             (testing "the frame resolves the ORIGINAL impl before any re-eval (control)"
@@ -626,7 +622,7 @@
           :event :burst/seed
           {:rf.provenance/ns "burst.feature" :kind :event :id :burst/seed
            :handler-fn ::burst-seed})
-        (let [img (image/image {:id :burst/img :include-ns ["burst.feature"]})]
+        (let [img (image/image {:id :burst/img :select-ns {:include ["burst.feature"]}})]
           (lf/make-frame {:id :burst/main :images [img]})
           (lf/flush-pending-reprojection!)
           ;; Redef next-tick to COUNT schedules and CAPTURE (defer) the flush —
@@ -744,7 +740,7 @@
           :event :reentry/inc
           {:rf.provenance/ns "reentry.feature" :kind :event :id :reentry/inc
            :handler-fn ::v1})
-        (let [img (image/image {:id :reentry/img :include-ns ["reentry.feature"]})]
+        (let [img (image/image {:id :reentry/img :select-ns {:include ["reentry.feature"]}})]
           (lf/make-frame {:id :reentry/main :images [img]})
           (lf/flush-pending-reprojection!)
           (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
@@ -778,7 +774,7 @@
         (finally
           ;; Clear the live frame BEFORE draining: the body may leave a flush
           ;; pending, and a reproject of the still-live :reentry/main would
-          ;; re-assemble its :include-ns ["reentry.feature"] image AFTER we forget
+          ;; re-assemble its :select-ns {:include ["reentry.feature"]} image AFTER we forget
           ;; the descriptors below — a zero-match. Forgetting the frame first makes
           ;; the drain a no-op (nothing reprojectable).
           (reset! frame/frames {})

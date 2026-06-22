@@ -3,11 +3,14 @@
   Overrides — the ASSEMBLY slice (rf2-32siq3.4): resolve image values into a
   SEALED, VALIDATED `[kind id]` generation and fail loud before a frame runs.
 
-  Sections 1-2 + 6-11 pin EP-0023 assembly coverage (projection, dedupe,
-  unsupported kind, references, capabilities, structured diagnostics). Sections
-  3, 3b, 5, 9 are UPDATED to EP-0026 §Layered Resolution (rf2-6ls85a): the
-  EP-0023 declared-`:replace`/`:replace-standard` winner model is replaced by
-  deterministic IMAGE-ORDER layering.
+  Sections 1-2 + 6+ pin EP-0023 assembly coverage (projection, dedupe,
+  unsupported kind, references, structured diagnostics). Sections 3, 3b, 5, 9
+  are UPDATED to EP-0026 §Layered Resolution (rf2-6ls85a): the EP-0023
+  declared-`:replace`/`:replace-standard` winner model is replaced by
+  deterministic IMAGE-ORDER layering. EP-0026 (rf2-dlvmpc) further RETIRED the
+  image-capability surface end-to-end — there is no `:rf.image/requires`, no
+  `check-capabilities!`, and no `:rf.gen/requires` on the generation — so the
+  capability-check coverage that lived here is removed.
 
   Pins the enumerated coverage:
 
@@ -23,12 +26,7 @@
     * unsupported descriptor kind FAILS LOUD;
     * a public app image colliding with a framework STANDARD FAILS LOUD (a
       standard is protected — not part of app layer order, no public opt-in);
-    * missing application interceptor reference FAILS LOUD;
-    * capability checking (rf2-32siq3.6): missing capability FAILS LOUD; an
-      empty/absent `:rf.image/requires` is a no-op; an absent (nil) or empty
-      `:capabilities` map fails any non-empty requires (EP-0013 fail-loud
-      parity); a partial-capability map fails on exactly the unmet subset; the
-      multi-image requires UNION is collected and checked as one set.
+    * missing application interceptor reference FAILS LOUD.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator (NEVER the
   message bytes — Spec 009 §The thrown-error shape rule 3).
@@ -102,7 +100,7 @@
                 (reg-desc "shop.other" :event :other/noise ::noise)]
           img  (image/image
                  {:id :shop/main
-                  :include-ns ["shop.cart"]
+                  :select-ns {:include ["shop.cart"]}
                   :registrations
                   {:reg-fx [[:cart.http/post {:doc "post"} ::http-post]]}})
           gen  (asm/assemble [img] pool)]
@@ -117,25 +115,14 @@
       (testing "resolve-descriptor reads one descriptor for a (kind, id)"
         (is (= ::cart-add (:handler-fn (asm/resolve-descriptor gen :event :cart/add))))
         (is (= ::http-post (:impl (asm/resolve-descriptor gen :fx :cart.http/post)))))
-      (testing "the generation carries kinds + (empty) requires"
+      (testing "the generation carries the kinds present (EP-0026 retired
+                :rf.gen/requires with the image-capability feature)"
         (is (= #{:event :sub :fx} (asm/generation-kinds gen)))
-        (is (= #{} (:rf.gen/requires gen))))
+        (is (not (contains? gen :rf.gen/requires))))
       (testing "the sealed generation is an inert immutable value"
         (is (map? gen))
         (is (= gen (asm/assemble [img] pool))
             "equal image inputs over the same pool produce an equal generation")))))
-
-(deftest requires-union-carried-onto-the-generation
-  (testing "the union of every image's :rf.image/requires is carried on the
-            generation for the slice-.6 capability check"
-    (let [pool [(reg-desc "a.core" :event :a/e ::a)]
-          img  (image/image {:id :a/img
-                             :include-ns ["a.core"]
-                             :rf.image/requires #{:rf.capability/http
-                                                  :rf.capability/schemas}})
-          gen  (asm/assemble [img] pool)]
-      (is (= #{:rf.capability/http :rf.capability/schemas}
-             (:rf.gen/requires gen))))))
 
 ;; ===========================================================================
 ;; 2. Duplicate-id collision — order NEVER silently decides (the central rule)
@@ -147,7 +134,7 @@
             (load order does NOT pick a survivor)"
     (let [pool [(reg-desc "todo.boot"    :event :boot/init ::todo-boot)
                 (reg-desc "counter.boot" :event :boot/init ::counter-boot)]
-          img  (image/image {:id :both/img :include-ns ["todo.boot" "counter.boot"]})]
+          img  (image/image {:id :both/img :select-ns {:include ["todo.boot" "counter.boot"]}})]
       (is (= :rf.error/image-duplicate-id
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
@@ -156,7 +143,7 @@
             is no last-write that 'wins'"
     (let [a    (reg-desc "todo.boot"    :event :boot/init ::a)
           b    (reg-desc "counter.boot" :event :boot/init ::b)
-          img  (image/image {:id :i :include-ns ["todo.boot" "counter.boot"]})]
+          img  (image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
       (is (= :rf.error/image-duplicate-id
              (assembly-error-id #(asm/assemble [img] [a b]))))
       (is (= :rf.error/image-duplicate-id
@@ -166,7 +153,7 @@
   (testing "the SAME registration (same coordinate + impl) selected by two
             overlapping globs is a DEDUPE, not a collision — it seals cleanly"
     (let [d    (reg-desc "shop.cart" :event :cart/add ::add)
-          img  (image/image {:id :i :include-ns ["shop.*" "shop.cart"]})
+          img  (image/image {:id :i :select-ns {:include ["shop.*" "shop.cart"]}})
           gen  (asm/assemble [img] [d])]
       (is (= ::add (:handler-fn (asm/resolve-descriptor gen :event :cart/add)))))))
 
@@ -255,7 +242,7 @@
             → :rf.error/image-unsupported-kind"
     (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
                  :handler-fn ::w}]
-          img  (image/image {:id :i :include-ns ["weird.ns"]})]
+          img  (image/image {:id :i :select-ns {:include ["weird.ns"]}})]
       (is (= :rf.error/image-unsupported-kind
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
@@ -263,13 +250,14 @@
 ;; 5. Framework-standard replacement policy (default non-replaceable)
 ;; ===========================================================================
 
-(deftest standard-collision-without-replace-standard-fails-loud
-  (testing "a selected descriptor colliding with a framework STANDARD, with no
-            :replace-standard, → :rf.error/image-standard-replacement-forbidden
-            (a standard must not be shadowed accidentally)"
+(deftest standard-collision-fails-loud
+  (testing "a selected descriptor colliding with a framework STANDARD →
+            :rf.error/image-standard-replacement-forbidden (a standard must not
+            be shadowed — there is no public :replace-standard opt-in, EP-0026
+            §Framework Standard Registrations)"
     (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
     (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (image/image {:id :i :include-ns ["product.story"]})]
+          img  (image/image {:id :i :select-ns {:include ["product.story"]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
@@ -315,7 +303,7 @@
             :rf.error/image-missing-reference"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])]
-          img  (image/image {:id :i :include-ns ["app.core"]})]
+          img  (image/image {:id :i :select-ns {:include ["app.core"]}})]
       (is (= :rf.error/image-missing-reference
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
@@ -324,7 +312,7 @@
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])
                 (reg-desc "app.core" :interceptor :my.audit/guard ::guard)]
-          img  (image/image {:id :i :include-ns ["app.core"]})
+          img  (image/image {:id :i :select-ns {:include ["app.core"]}})
           gen  (asm/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:interceptor :my.audit/guard])))))
 
@@ -333,93 +321,19 @@
             image-supplied — it is not flagged as a missing reference"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [[:rf.interceptor/path [:cart]]])]
-          img  (image/image {:id :i :include-ns ["app.core"]})
+          img  (image/image {:id :i :select-ns {:include ["app.core"]}})
           gen  (asm/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
           "assembly succeeds — the standard ref is not an app-supplied reference"))))
 
 ;; ===========================================================================
-;; 7. Capability check (the .6 seam fn — fail-loud point)
+;; 7. Image capabilities — RETIRED (EP-0026 rf2-dlvmpc). The image-declared
+;;    host-capability surface (:rf.image/requires / make-frame :capabilities /
+;;    :rf.gen/requires) and the assembly check-capabilities! fn are removed
+;;    end-to-end, so this section's coverage is gone. The :rf.image/requires key
+;;    failing loud at rf/image construction is pinned in image-cljs-test
+;;    (retired-ep0023-image-keys-fail-loud).
 ;; ===========================================================================
-
-(deftest missing-capability-fails-loud
-  (testing "check-capabilities! throws :rf.error/image-missing-capability when a
-            required capability is absent from the frame's supplied map"
-    (is (= :rf.error/image-missing-capability
-           (assembly-error-id
-             #(asm/check-capabilities! #{:rf.capability/http :rf.capability/schemas}
-                                       {:rf.capability/http ::http-impl}))))))
-
-(deftest present-capabilities-pass
-  (testing "check-capabilities! returns when every required capability is supplied"
-    (is (= #{:rf.capability/http}
-           (asm/check-capabilities! #{:rf.capability/http}
-                                    {:rf.capability/http ::http-impl
-                                     :rf.capability/schemas ::s})))))
-
-(deftest empty-requires-is-a-no-op
-  (testing "check-capabilities! with NO requirements is a no-op regardless of the
-            supplied map — including an empty or nil capability map"
-    (is (= #{} (asm/check-capabilities! #{} {:rf.capability/http ::http-impl})))
-    (is (= #{} (asm/check-capabilities! #{} {})))
-    (is (= #{} (asm/check-capabilities! #{} nil)))))
-
-(deftest absent-capability-map-fails-non-empty-requires
-  (testing "a nil :capabilities map provides nothing, so ANY non-empty requires
-            fails loud — an absent map is read as {} (EP-0013 fail-loud parity)"
-    (is (= :rf.error/image-missing-capability
-           (assembly-error-id
-             #(asm/check-capabilities! #{:rf.capability/http} nil))))
-    (testing "an empty {} map behaves identically to nil"
-      (is (= :rf.error/image-missing-capability
-             (assembly-error-id
-               #(asm/check-capabilities! #{:rf.capability/http} {})))))))
-
-(deftest partial-capabilities-fail-on-the-unmet-subset
-  (testing "when SOME required capabilities are supplied but not all, the check
-            fails loud and the diagnostic names exactly the missing subset"
-    (let [ex (try (asm/check-capabilities!
-                    #{:rf.capability/http :rf.capability/schemas :rf.capability/storage}
-                    {:rf.capability/http ::http-impl})
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-          d  (ex-data ex)]
-      (is (= :rf.error/image-missing-capability (:rf.error/id d)))
-      (testing "the missing subset is exactly the unmet capabilities, sorted
-                (the :extra slots are merged at the top level of the ex-data)"
-        (is (= [:rf.capability/schemas :rf.capability/storage]
-               (:missing-capabilities d))))
-      (testing "the supplied set names what the frame DID provide (a CAPABILITY
-                gap, not a registration gap)"
-        (is (= [:rf.capability/http]
-               (:supplied-capabilities d)))))))
-
-(deftest multi-image-requires-union-then-checked
-  (testing "the generation's :rf.gen/requires is the UNION across all images'
-            :rf.image/requires, and check-capabilities! is satisfied only when
-            EVERY image's requirement is supplied"
-    (let [pool [(reg-desc "a.core" :event :a/e ::a)
-                (reg-desc "b.core" :event :b/e ::b)]
-          img-a (image/image {:id :a/img :include-ns ["a.core"]
-                              :rf.image/requires #{:rf.capability/http}})
-          img-b (image/image {:id :b/img :include-ns ["b.core"]
-                              :rf.image/requires #{:rf.capability/schemas}})
-          gen   (asm/assemble [img-a img-b] pool)]
-      (testing "the union of both images' requires rides the generation"
-        (is (= #{:rf.capability/http :rf.capability/schemas}
-               (:rf.gen/requires gen))))
-      (testing "a map satisfying only ONE image's requirement still fails loud
-                — the union must be fully satisfied"
-        (is (= :rf.error/image-missing-capability
-               (assembly-error-id
-                 #(asm/check-capabilities! (:rf.gen/requires gen)
-                                           {:rf.capability/http ::http-impl})))))
-      (testing "a map satisfying the FULL union passes"
-        (is (= #{:rf.capability/http :rf.capability/schemas}
-               (asm/check-capabilities! (:rf.gen/requires gen)
-                                        {:rf.capability/http    ::http-impl
-                                         :rf.capability/schemas ::schemas
-                                         :rf.capability/extra   ::ignored})))))))
 
 ;; ===========================================================================
 ;; 8. Descriptor-coordinate identity (the source coordinate errors/winners use)
@@ -510,7 +424,7 @@
             absent from the generation → :rf.error/image-missing-reference"
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})]
-          img  (image/image {:id :i :include-ns ["shop.articles"]})]
+          img  (image/image {:id :i :select-ns {:include ["shop.articles"]}})]
       (is (= :rf.error/image-missing-reference
              (assembly-error-id #(asm/assemble [img] pool)))))))
 
@@ -520,7 +434,7 @@
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})
                 (scope-resolver-desc "shop.scopes" :shop/session)]
-          img  (image/image {:id :i :include-ns ["shop.articles" "shop.scopes"]})
+          img  (image/image {:id :i :select-ns {:include ["shop.articles" "shop.scopes"]}})
           gen  (asm/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:resource :article/by-slug]))
       (is (contains? (:rf.gen/resolver gen) [:resource-scope :shop/session])))))
@@ -533,7 +447,7 @@
           tuple    (resource-desc "shop.b" :b/session [:rf.scope/session {:u 1}])
           from-clr (resource-desc "shop.c" :c/from-caller :rf.scope/from-caller)
           pool     [global tuple from-clr]
-          img      (image/image {:id :i :include-ns ["shop.a" "shop.b" "shop.c"]})
+          img      (image/image {:id :i :select-ns {:include ["shop.a" "shop.b" "shop.c"]}})
           gen      (asm/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:resource :a/global]))
       (is (contains? (:rf.gen/resolver gen) [:resource :b/session]))
@@ -545,7 +459,7 @@
             id] reference, and a repair path (rf2-32siq3.26)"
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})]
-          img  (image/image {:id :shop/img :include-ns ["shop.articles"]})
+          img  (image/image {:id :shop/img :select-ns {:include ["shop.articles"]}})
           d    (assembly-error-data #(asm/assemble [img] pool))]
       (is (= :rf.error/image-missing-reference (:rf.error/id d)))
       (is (= :shop/img (:image d)))
@@ -567,7 +481,7 @@
             coordinate alongside image/[kind id]/missing-reference/recovery"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])]
-          img  (image/image {:id :app/img :include-ns ["app.core"]})
+          img  (image/image {:id :app/img :select-ns {:include ["app.core"]}})
           d    (assembly-error-data #(asm/assemble [img] pool))]
       (is (= :rf.error/image-missing-reference (:rf.error/id d)))
       (is (= :app/img (:image d)))
@@ -583,7 +497,7 @@
             ns/coordinate/recovery (rf2-32siq3.26)"
     (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
                  :handler-fn ::w}]
-          img  (image/image {:id :w/img :include-ns ["weird.ns"]})
+          img  (image/image {:id :w/img :select-ns {:include ["weird.ns"]}})
           d    (assembly-error-data #(asm/assemble [img] pool))]
       (is (= :rf.error/image-unsupported-kind (:rf.error/id d)))
       (is (= :w/img (:image d)))

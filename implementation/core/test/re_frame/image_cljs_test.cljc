@@ -1,8 +1,19 @@
 (ns re-frame.image-cljs-test
-  "EP-0023 §Image / §Namespace-Selected Images / §Image Fragments — the
-  foundation slice (rf2-32siq3.3): `rf/image` constructor, the normalized image
-  value, the `:include-ns` glob grammar, inline `:registrations`, and the PURE
+  "EP-0023 §Image / §Namespace-Selected Images / §Image Fragments + EP-0026
+  §Image Keys / §Namespace Selection — the foundation slice (rf2-32siq3.3,
+  rf2-dlvmpc): `rf/image` constructor, the normalized image value, the glob
+  grammar, the `:select-ns` selection map, inline `:registrations`, and the PURE
   `select-descriptors` selector against SYNTHETIC descriptor collections.
+
+  EP-0026 (rf2-dlvmpc) RETIRED the EP-0023 image keys `:include-ns` /
+  `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires`: the
+  public image value accepts ONLY `:id`, `:select-ns`, and `:registrations`, and
+  a retired key fails loud (`:rf.error/invalid-image`). Namespace selection now
+  uses the single `:select-ns {:include [globs] :exclude [globs]}` map (the
+  normalized internal slots `:rf.image/include-ns` / `:rf.image/exclude-ns` the
+  selector runs are unchanged). Composition resolves by IMAGE ORDER (the later
+  image wins) — there is no declared-winner `:replace` map and no image-declared
+  capability surface.
 
   Pins the bead's enumerated coverage:
 
@@ -13,8 +24,9 @@
     * exact (no-wildcard) inclusion vs prefix (`*`) vs recursive (`**`);
     * inline `:registrations` lowering + unconditional selection;
     * selection BY `:rf.provenance/ns`, NOT by the registration-id namespace;
-    * zero-match `:include-ns` patterns fail loud;
-    * each selected descriptor included at most once.
+    * zero-match `:select-ns :include` patterns fail loud;
+    * each selected descriptor included at most once;
+    * each RETIRED EP-0023 key fails loud at construction.
 
   Dual-runtime: the ns ends in `-cljs-test` so it rides the always-on
   `:node-test` gate (`npm run test:cljs`); cognitect-test-runner also discovers
@@ -181,34 +193,31 @@
 ;; ============================================================================
 
 (deftest image-normalizes-the-spec
-  (testing "id stamps :rf.image/id; include-ns becomes a vector; requires a set"
+  (testing "id stamps :rf.image/id; :select-ns :include becomes a vector"
     (let [v (image/image {:id :docs.counter/v2
-                          :include-ns ["docs.counter.v2"]
-                          :rf.image/requires [:rf.capability/http]})]
+                          :select-ns {:include ["docs.counter.v2"]}})]
       (is (= :docs.counter/v2 (:rf.image/id v)))
       (is (= ["docs.counter.v2"] (:rf.image/include-ns v)))
       (is (= [] (:rf.image/exclude-ns v)) "exclude-ns defaults to an empty vector")
-      (is (= #{:rf.capability/http} (:rf.image/requires v)))
       (is (= [] (:rf.image/inline v)))))
-  (testing ":exclude-ns becomes a vector of glob strings alongside :include-ns"
+  (testing ":select-ns :exclude becomes a vector alongside :include"
     (let [v (image/image {:id :tool/img
-                          :include-ns ["day8.re-frame2-xray.**"]
-                          :exclude-ns ["day8.re-frame2-xray.**-cljs-test"]})]
+                          :select-ns {:include ["day8.re-frame2-xray.**"]
+                                      :exclude ["day8.re-frame2-xray.**-cljs-test"]}})]
       (is (= ["day8.re-frame2-xray.**"] (:rf.image/include-ns v)))
       (is (= ["day8.re-frame2-xray.**-cljs-test"] (:rf.image/exclude-ns v)))))
   (testing "anonymous image (no :id) omits :rf.image/id — valid for local use"
-    (let [v (image/image {:include-ns ["docs.counter.**"]})]
+    (let [v (image/image {:select-ns {:include ["docs.counter.**"]}})]
       (is (not (contains? v :rf.image/id)))
-      (is (= ["docs.counter.**"] (:rf.image/include-ns v)))
-      (is (= #{} (:rf.image/requires v)))))
+      (is (= ["docs.counter.**"] (:rf.image/include-ns v)))))
   (testing "empty spec yields an empty-but-well-formed image value"
     (let [v (image/image {})]
       (is (= [] (:rf.image/include-ns v)))
-      (is (= [] (:rf.image/inline v)))
-      (is (= #{} (:rf.image/requires v)))))
+      (is (= [] (:rf.image/exclude-ns v)))
+      (is (= [] (:rf.image/inline v)))))
   (testing "equal specs produce equal image values (inert data)"
-    (is (= (image/image {:id :x :include-ns ["a.b.*"]})
-           (image/image {:id :x :include-ns ["a.b.*"]})))))
+    (is (= (image/image {:id :x :select-ns {:include ["a.b.*"]}})
+           (image/image {:id :x :select-ns {:include ["a.b.*"]}})))))
 
 (deftest image-rejects-malformed-specs
   (testing "non-map spec throws :rf.error/invalid-image"
@@ -218,15 +227,16 @@
   (testing "unknown top-level key throws"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x :includeNS ["a"]}))))
-  (testing "non-string :include-ns pattern throws"
+                          (image/image {:id :x :selectNS ["a"]}))))
+  (testing "non-string :select-ns :include pattern throws"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
-                          (image/image {:include-ns ['docs.counter]}))))
-  (testing "non-string :exclude-ns pattern throws (same glob-string validation)"
+                          (image/image {:select-ns {:include ['docs.counter]}}))))
+  (testing "non-string :select-ns :exclude pattern throws (same glob-string validation)"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
-                          (image/image {:exclude-ns ['docs.counter]}))))
+                          (image/image {:select-ns {:include ["docs.counter"]
+                                                    :exclude ['docs.counter]}}))))
   (testing "the ex-data carries :rf.error/id for machine branching"
     (is (= :rf.error/invalid-image
            (try (image/image {:bogus 1})
@@ -234,141 +244,42 @@
                   (:rf.error/id (ex-data e))))))))
 
 ;; ============================================================================
-;; :replace / :replace-standard — declared-winner maps (EP-0023 §Image
-;; Patching And Overrides). The constructor validates the STRUCTURAL shape of
-;; each entry (the [kind id] key + the winner source coordinate, rf2-32siq3.20)
-;; and carries the validated map through uninterpreted; the SEMANTIC winner
-;; resolution against the actual selected collisions is the assembly slice's job.
+;; EP-0026 (rf2-dlvmpc) — the RETIRED EP-0023 image keys FAIL LOUD. The public
+;; image value accepts ONLY :id, :select-ns, :registrations; a spec carrying any
+;; of :include-ns / :exclude-ns / :replace / :replace-standard / :rf.image/requires
+;; throws :rf.error/invalid-image at construction (so a stale example cannot keep
+;; working by accident — EP-0026 §Backwards Compatibility). The declared-winner
+;; :replace / :replace-standard model is gone (composition resolves by image
+;; order); image-declared host capabilities (:rf.image/requires) are removed
+;; end-to-end.
 ;; ============================================================================
 
-(deftest image-rejects-non-map-replace-keys
-  (testing "a non-map :replace throws :rf.error/invalid-image"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x :replace [:not :a :map]}))))
-  (testing "a non-map :replace-standard throws :rf.error/invalid-image"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x :replace-standard :nope}))))
-  (testing "the bad-key/received surface slots ride the top-level ex-data"
-    ;; thrown-ex-info MERGES :extra onto the top-level ex-data (not nested) —
-    ;; read the surface slots at the top level.
-    (let [data (try (image/image {:id :y :replace 42})
+(deftest retired-ep0023-image-keys-fail-loud
+  (testing "each retired EP-0023 key throws :rf.error/invalid-image at rf/image"
+    ;; Each spec below deliberately carries ONE retired key — they MUST fail loud.
+    (doseq [spec [{:id :x :include-ns ["a.b"]}        ;; retired
+                  {:id :x :exclude-ns ["a.b"]}        ;; retired
+                  {:id :x :replace {[:event :counter/inc] {:ns "a.b"}}}        ;; retired
+                  {:id :x :replace-standard {[:fx :rf.nav/push-url] {:standard true}}}  ;; retired
+                  {:id :x :rf.image/requires #{:rf.capability/http}}]]  ;; retired
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                            #"\[:rf\.error/invalid-image\]"
+                            (image/image spec))
+          (str "retired key in " (pr-str (vec (remove #{:id :x} (keys spec))))))))
+  (testing "the diagnostic names the retired key (machine-branchable ex-data)"
+    (let [data (try (image/image {:id :y :include-ns ["a.b"]})
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
                       (ex-data e)))]
       (is (= :rf.error/invalid-image (:rf.error/id data)))
-      (is (= :replace (:bad-key data)))
-      (is (= 42 (:received data))))))
-
-(deftest image-carries-replace-keys-through
-  (testing "valid :replace / :replace-standard maps carry through to the value"
-    (let [rep      {[:event :counter/inc] {:ns "docs.counter.v3"}}
-          rep-std  {[:fx :http] {:standard true}}
-          v        (image/image {:id :combo
-                                 :replace          rep
-                                 :replace-standard rep-std})]
-      (is (= rep     (:replace v)))
-      (is (= rep-std (:replace-standard v)))))
-  (testing "an inline winner coordinate carries through"
-    (let [rep {[:fx :checkout.http/post]
-               {:image :checkout/story :inline [:reg-fx :checkout.http/post]}}
-          v   (image/image {:id :checkout/story :replace rep})]
-      (is (= rep (:replace v)))))
-  (testing "an empty :replace map is still carried through (present-when-supplied)"
-    ;; cond-> branches on (:replace spec) truthiness; an empty map is truthy.
-    (let [v (image/image {:id :e :replace {}})]
-      (is (contains? v :replace))
-      (is (= {} (:replace v)))))
-  (testing "absent :replace / :replace-standard keys are NOT stamped onto the value"
-    (let [v (image/image {:id :bare :include-ns ["docs.counter.v2"]})]
-      (is (not (contains? v :replace)))
-      (is (not (contains? v :replace-standard))))))
-
-;; rf2-32siq3.20 — replacement map ENTRY-shape validation at the image boundary.
-;; Malformed keys / winner coordinates must fail loud at rf/image with an
-;; actionable :rf.error/invalid-image, BEFORE assembly's collision checks
-;; destructure the key (where a keyword key would surface as `nth not supported`).
-
-(deftest replace-key-must-be-a-kind-id-pair
-  (testing "a keyword :replace key (not a [kind id] vector) throws"
+      (is (= :include-ns (:retired-key data)))
+      (is (= :y (:image data)))))
+  (testing "a retired key fails loud EVEN alongside valid :select-ns"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
+                          ;; the retired :replace key is rejected even here
                           (image/image {:id :x
-                                        :replace {:counter/inc {:ns "a.b"}}}))))
-  (testing "a wrong-arity key (1- or 3-element vector) throws"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:event] {:ns "a.b"}}})))
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:event :counter/inc :extra]
-                                                  {:ns "a.b"}}}))))
-  (testing "the bad-key diagnostic rides the top-level ex-data"
-    (let [data (try (image/image {:id :y :replace {:nope {:ns "a.b"}}})
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-                      (ex-data e)))]
-      (is (= :rf.error/invalid-image (:rf.error/id data)))
-      (is (= :replace (:replace-map data)))
-      (is (= :nope (:bad-key data))))))
-
-(deftest replace-key-kind-must-be-supported
-  (testing "an unsupported registration kind in the key throws"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:bogus-kind :counter/inc]
-                                                  {:ns "a.b"}}}))))
-  (testing "the unsupported-kind diagnostic carries the bad kind"
-    (let [data (try (image/image {:id :y
-                                  :replace-standard {[:nope :x] {:standard true}}})
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-                      (ex-data e)))]
-      (is (= :rf.error/invalid-image (:rf.error/id data)))
-      (is (= :replace-standard (:replace-map data)))
-      (is (= :nope (:bad-kind data))))))
-
-(deftest replace-winner-must-be-a-supported-coordinate
-  (testing "a keyword winner (not a coordinate map) throws"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:event :counter/inc]
-                                                  :docs.counter.v3/winner}}))))
-  (testing "a malformed registered coordinate (:ns not a string) throws"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:event :counter/inc]
-                                                  {:ns :not-a-string}}}))))
-  (testing "a registered coordinate with extra keys throws"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:event :counter/inc]
-                                                  {:ns "a.b" :stray 1}}}))))
-  (testing "a malformed inline coordinate (:inline not a 2-vector) throws"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (image/image {:id :x
-                                        :replace {[:fx :checkout.http/post]
-                                                  {:image :s :inline [:reg-fx]}}}))))
-  (testing "the bad-winner diagnostic rides the top-level ex-data"
-    (let [data (try (image/image {:id :y
-                                  :replace {[:event :counter/inc] 99}})
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-                      (ex-data e)))]
-      (is (= :rf.error/invalid-image (:rf.error/id data)))
-      (is (= 99 (:bad-winner data)))))
-  (testing "all three valid coordinate shapes are accepted"
-    (is (some? (image/image {:id :a :replace {[:event :e] {:ns "x.y"}}})))
-    (is (some? (image/image {:id :b
-                             :replace {[:fx :p]
-                                       {:image :s :inline [:reg-fx :p]}}})))
-    (is (some? (image/image {:id :c
-                             :replace-standard {[:fx :rf.nav/push-url]
-                                                {:standard true}}})))))
+                                        :select-ns {:include ["a.b"]}
+                                        :replace {[:event :e] {:ns "a.b"}}})))))
 
 ;; ============================================================================
 ;; inline :registrations — lowering to inline descriptors
@@ -526,8 +437,8 @@
    (desc "shop.auth"                   :event :auth/set-user)])
 
 (deftest select-by-provenance-ns-not-id-ns
-  (testing "exact :include-ns selects only the matching provenance namespace"
-    (let [img (image/image {:id :i :include-ns ["docs.quickstart.counter.v2"]})
+  (testing "exact :select-ns :include selects only the matching provenance namespace"
+    (let [img (image/image {:id :i :select-ns {:include ["docs.quickstart.counter.v2"]}})
           sel (image/select-descriptors img synthetic-store)]
       (is (= 2 (count sel)))
       ;; BOTH selected descriptors came from v2 — the v3 :counter/inc (same id
@@ -535,7 +446,7 @@
       (is (every? #(= "docs.quickstart.counter.v2" (:rf.provenance/ns %)) sel))
       (is (= #{:counter/inc :counter/value} (set (map :id sel))))))
   (testing "the v3 :counter/inc is reachable only via its own provenance ns"
-    (let [img (image/image {:id :i :include-ns ["docs.quickstart.counter.v3"]})
+    (let [img (image/image {:id :i :select-ns {:include ["docs.quickstart.counter.v3"]}})
           sel (image/select-descriptors img synthetic-store)]
       (is (= 1 (count sel)))
       (is (= "docs.quickstart.counter.v3" (:rf.provenance/ns (first sel))))
@@ -543,17 +454,17 @@
 
 (deftest select-glob-prefix-and-recursive
   (testing "prefix `*` selects exactly-one-deeper provenance namespaces"
-    (let [img (image/image {:id :i :include-ns ["docs.shared.widgets.*"]})
+    (let [img (image/image {:id :i :select-ns {:include ["docs.shared.widgets.*"]}})
           sel (image/select-descriptors img synthetic-store)]
       ;; matches docs.shared.widgets.button but NOT docs.shared.widgets
       (is (= ["docs.shared.widgets.button"] (map :rf.provenance/ns sel)))))
   (testing "recursive `**` selects the base ns AND any deeper ns"
-    (let [img (image/image {:id :i :include-ns ["docs.shared.**"]})
+    (let [img (image/image {:id :i :select-ns {:include ["docs.shared.**"]}})
           sel (image/select-descriptors img synthetic-store)]
       (is (= #{"docs.shared.widgets" "docs.shared.widgets.button"}
              (set (map :rf.provenance/ns sel))))))
   (testing "a `*.*` mid-glob selects across sibling counter versions"
-    (let [img (image/image {:id :i :include-ns ["docs.*.counter.*"]})
+    (let [img (image/image {:id :i :select-ns {:include ["docs.*.counter.*"]}})
           sel (image/select-descriptors img synthetic-store)]
       (is (= #{"docs.quickstart.counter.v2" "docs.quickstart.counter.v3"}
              (set (map :rf.provenance/ns sel)))))))
@@ -561,26 +472,26 @@
 (deftest select-multiple-patterns-deduped-and-ordered
   (testing "a descriptor matched by two patterns is included at most once"
     (let [img (image/image {:id :i
-                            :include-ns ["docs.shared.**"
-                                         "docs.shared.widgets.button"]})
+                            :select-ns {:include ["docs.shared.**"
+                                                  "docs.shared.widgets.button"]}})
           sel (image/select-descriptors img synthetic-store)]
       ;; docs.shared.widgets.button matches BOTH patterns — but appears once.
       (is (= 2 (count sel)))
       (is (= #{"docs.shared.widgets" "docs.shared.widgets.button"}
              (set (map :rf.provenance/ns sel))))))
   (testing "selection preserves input order of the descriptor collection"
-    (let [img (image/image {:id :i :include-ns ["shop.**"]})
+    (let [img (image/image {:id :i :select-ns {:include ["shop.**"]}})
           sel (image/select-descriptors img synthetic-store)]
       (is (= [:cart/add :auth/set-user] (map :id sel))))))
 
 (deftest select-zero-match-fails-loud
-  (testing "an :include-ns pattern matching no descriptor throws"
-    (let [img (image/image {:id :i :include-ns ["does.not.exist.**"]})]
+  (testing "a :select-ns :include pattern matching no descriptor throws"
+    (let [img (image/image {:id :i :select-ns {:include ["does.not.exist.**"]}})]
       (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                             #"\[:rf\.error/image-zero-match\]"
                             (image/select-descriptors img synthetic-store)))))
   (testing "the diagnostic names the image, the pattern, and loaded namespaces"
-    (let [img (image/image {:id :my/image :include-ns ["nope.*"]})]
+    (let [img (image/image {:id :my/image :select-ns {:include ["nope.*"]}})]
       (try
         (image/select-descriptors img synthetic-store)
         (is false "expected a zero-match throw")
@@ -593,26 +504,26 @@
             (is (= "nope.*" (:pattern data)))
             (is (some #{"shop.cart"} (:loaded-ns data))))))))
   (testing "ONE matching + ONE zero-match pattern still fails (every pattern must match)"
-    (let [img (image/image {:id :i :include-ns ["shop.**" "ghost.*"]})]
+    (let [img (image/image {:id :i :select-ns {:include ["shop.**" "ghost.*"]}})]
       (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                             #"\[:rf\.error/image-zero-match\]"
                             (image/select-descriptors img synthetic-store))))))
 
 (deftest select-includes-inline-descriptors-unconditionally
-  (testing "inline descriptors are selected even with NO :include-ns globs"
+  (testing "inline descriptors are selected even with NO :select-ns globs"
     (let [body (fn [_ _] {})
           img  (image/image
                  {:id :test/small
                   :registrations {:reg-event [[:counter/inc {} body]]}})
           sel  (image/select-descriptors img synthetic-store)]
-      ;; no :include-ns → no glob selection, but the inline descriptor is present
+      ;; no :select-ns → no glob selection, but the inline descriptor is present
       (is (= 1 (count sel)))
       (is (= :counter/inc (:id (first sel))))
       (is (= :test/small (:rf.provenance/image (first sel))))))
   (testing "inline descriptors are appended AFTER the glob-selected ones"
     (let [img (image/image
                 {:id :combo
-                 :include-ns ["shop.auth"]
+                 :select-ns {:include ["shop.auth"]}
                  :registrations {:reg-event [[:extra/evt {} (fn [_ _] {})]]}})
           sel (image/select-descriptors img synthetic-store)]
       (is (= 2 (count sel)))
@@ -623,7 +534,7 @@
   (testing "a descriptor with no :rf.provenance/ns is never glob-selected"
     (let [store (conj synthetic-store
                       {:kind :fx :id :standard/fx :impl (fn [_] nil)}) ; no provenance
-          img   (image/image {:id :i :include-ns ["**"]})
+          img   (image/image {:id :i :select-ns {:include ["**"]}})
           sel   (image/select-descriptors img store)]
       ;; bare `**` matches every PROVENANCE ns, but the provenance-less
       ;; descriptor is excluded (it carries no :rf.provenance/ns to match).
@@ -636,15 +547,16 @@
       (is (= [] (image/select-descriptors img synthetic-store))))))
 
 ;; ============================================================================
-;; :exclude-ns — the subtractive narrowing knob (EP-0023 §Namespace-Selected
-;; Images). Drops glob-selected descriptors whose provenance ns matches an
-;; exclude glob; never zero-match fail-loud; never touches inline descriptors.
+;; :select-ns :exclude — the subtractive narrowing knob (EP-0023 §Namespace-
+;; Selected Images, authored via the EP-0026 :select-ns map). Drops glob-selected
+;; descriptors whose provenance ns matches an exclude glob; never zero-match
+;; fail-loud; never touches inline descriptors.
 ;; ============================================================================
 
 (def ^:private xray-style-store
   "A store modelling the EP-0023 §Xray Beside The Target singleton-seating case:
   PRODUCTION namespaces alongside their `*-cljs-test` siblings that co-register
-  the same `(kind, id)` — the collision a `:exclude-ns` of the test nss avoids."
+  the same `(kind, id)` — the collision a :select-ns :exclude of the test nss avoids."
   [(desc "day8.re-frame2-xray.open-in-editor"          :fx    :rf.editor/open)
    (desc "day8.re-frame2-xray.mount"                   :event :rf.xray/open)
    (desc "day8.re-frame2-xray.panels.app-db-diff"      :sub   :rf.xray/diff)
@@ -656,12 +568,12 @@
    (desc "day8.re-frame2-xray.test-helpers.host-fixtures.counter" :event :counter/inc)])
 
 (deftest exclude-ns-subtracts-from-the-glob-selection
-  (testing "an :exclude-ns glob drops the matched descriptors from the
-            :include-ns selection — the test siblings are gone"
+  (testing "a :select-ns :exclude glob drops the matched descriptors from the
+            :include selection — the test siblings are gone"
     (let [img (image/image {:id :rf.xray/image
-                            :include-ns ["day8.re-frame2-xray.**"]
-                            :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
-                                         "day8.re-frame2-xray.test-helpers.**"]})
+                            :select-ns {:include ["day8.re-frame2-xray.**"]
+                                        :exclude ["day8.re-frame2-xray.**.*-cljs-test"
+                                                  "day8.re-frame2-xray.test-helpers.**"]}})
           sel (image/select-descriptors img xray-style-store)
           prov (set (map :rf.provenance/ns sel))]
       ;; only the 3 PRODUCTION descriptors survive
@@ -674,17 +586,17 @@
       (is (not-any? #(re-find #"test-helpers" %) prov)))))
 
 (deftest exclude-ns-makes-the-selection-id-disjoint
-  (testing "without :exclude-ns the same `**` glob selects BOTH a prod and a
+  (testing "without :exclude the same `**` glob selects BOTH a prod and a
             test descriptor for the same [kind id] (the collision); WITH it the
             selection is id-disjoint"
     (let [include-only (image/image {:id :rf.xray/image
-                                     :include-ns ["day8.re-frame2-xray.**"]})
+                                     :select-ns {:include ["day8.re-frame2-xray.**"]}})
           sel-all      (image/select-descriptors include-only xray-style-store)
           editor-all   (filter #(= :rf.editor/open (:id %)) sel-all)
           narrowed     (image/image {:id :rf.xray/image
-                                     :include-ns ["day8.re-frame2-xray.**"]
-                                     :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
-                                                  "day8.re-frame2-xray.test-helpers.**"]})
+                                     :select-ns {:include ["day8.re-frame2-xray.**"]
+                                                 :exclude ["day8.re-frame2-xray.**.*-cljs-test"
+                                                           "day8.re-frame2-xray.test-helpers.**"]}})
           sel-narrow   (image/select-descriptors narrowed xray-style-store)
           editor-narrow (filter #(= :rf.editor/open (:id %)) sel-narrow)]
       ;; the bare `**` glob selects TWO :rf.editor/open descriptors (prod + test)
@@ -696,11 +608,11 @@
              (:rf.provenance/ns (first editor-narrow)))))))
 
 (deftest exclude-ns-is-not-zero-match-fail-loud
-  (testing "an :exclude-ns pattern that matches nothing in this build is a
-            no-op, NOT a fail-loud error (unlike :include-ns)"
+  (testing "a :select-ns :exclude pattern that matches nothing in this build is a
+            no-op, NOT a fail-loud error (unlike :include)"
     (let [img (image/image {:id :i
-                            :include-ns ["docs.shared.**"]
-                            :exclude-ns ["does.not.exist.**" "*-cljs-test"]})
+                            :select-ns {:include ["docs.shared.**"]
+                                        :exclude ["does.not.exist.**" "*-cljs-test"]}})
           sel (image/select-descriptors img synthetic-store)]
       ;; the include selection is untouched; the no-match excludes are no-ops.
       (is (= #{"docs.shared.widgets" "docs.shared.widgets.button"}
@@ -708,14 +620,14 @@
 
 (deftest exclude-ns-never-drops-inline-descriptors
   (testing "inline descriptors are selected by image membership, never by
-            provenance ns — an :exclude-ns glob does NOT remove them even if it
-            would match their (synthetic) coordinate"
+            provenance ns — a :select-ns :exclude glob does NOT remove them even
+            if it would match their (synthetic) coordinate"
     (let [img (image/image {:id :combo
-                            :include-ns ["day8.re-frame2-xray.**"]
-                            :exclude-ns ["day8.re-frame2-xray.**.*-cljs-test"
-                                         "day8.re-frame2-xray.test-helpers.**"
-                                         ;; even a `**` that would match everything
-                                         "**"]
+                            :select-ns {:include ["day8.re-frame2-xray.**"]
+                                        :exclude ["day8.re-frame2-xray.**.*-cljs-test"
+                                                  "day8.re-frame2-xray.test-helpers.**"
+                                                  ;; even a `**` that would match everything
+                                                  "**"]}
                             :registrations {:reg-event [[:inline/evt {} (fn [_ _] {})]]}})
           sel (image/select-descriptors img xray-style-store)]
       ;; the bare `**` exclude drops every glob-selected registered descriptor,

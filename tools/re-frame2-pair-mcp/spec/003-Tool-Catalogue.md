@@ -3407,10 +3407,13 @@ frame; a multi-frame session with no selection returns
  :frame    <frame-id>
  :images   [<image-id> ...]        ; the composed image ids
  :kinds    [<kind> ...]            ; registrar kinds present (sorted)
- :requires [<capability> ...]      ; union :rf.gen/requires (sorted)
  :counts   {<kind> N ...}          ; selected-registration count per kind
  :registrations {[<kind> <id>] <coordinate> ...}}  ; only with :include-ns true
 ```
+
+> EP-0026 (rf2-dlvmpc) removed image-declared host capabilities end-to-end —
+> there is no `:rf.gen/requires`, so `describe-image` no longer returns a
+> `:requires` capability set.
 
 The `:registrations` slot (only with `include-ns true`) maps each selected
 `(kind, id)` to its provenance/standard **coordinate** — `{:source
@@ -3420,14 +3423,11 @@ resolution. It is OFF by default because the full resolver can be large;
 `:counts` plus a per-kind `list-handlers {:frame ...}` drill cover the common
 case.
 
-**Missing-capability vs missing-registration**. `:requires` is the
-discriminator EP-0023 §Use-Case 7 wants surfaced: an image that **declares** a
-capability the host frame did not provide is a **missing-capability**
-situation, distinct from a `(kind, id)` simply being **absent** from the
-resolver (**missing-registration**). The frame-**owned** capability map /
-adapter the requires are checked against is frame-object interior and **not**
-exposed by the public read surface; `describe-image` reports the
-**image-declared** requirement — the side an agent can act on.
+A `(kind, id)` simply being **absent** from the resolver is a
+**missing-registration** — drill `:counts` or `list-handlers {:frame ...}` to
+see what each frame actually resolves. (EP-0026 retired image-declared host
+capabilities, so there is no longer a missing-**capability** discriminator on
+this read.)
 
 **Error envelopes**:
 

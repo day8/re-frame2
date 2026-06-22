@@ -45,17 +45,17 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
 ```clojure
 (deftest cart-add-isolated
   (let [frame (rf/make-frame
-                {:images     [(rf/image {:include-ns ["shop.cart.**"
-                                                      "shop.test-doubles.**"]})]
+                {:images     [(rf/image {:select-ns {:include ["shop.cart.**"
+                                                               "shop.test-doubles.**"]}})]
                  :initial-events [[:rf/set-db {:cart/items []}]]})]
     (rf/dispatch-sync [:cart/add "SKU-1"] {:frame frame})
     (is (= ["SKU-1"] @(rf/subscribe frame [:cart/items])))))
 ```
 
 - **The frame is a local frame value** (no `:id`) — born in the test, discarded with it, never claiming a public frame id. `make-frame` returns the frame value (the lifecycle token); a test passes it (or its id, via `rf/frame-value->id`) to `dispatch-sync` / `subscribe`. That is the direct-frame-value test pattern (EP-0024).
-- **Override behaviour through the image**, not a global install: an `rf/image` `:replace` / `:replace-standard` declares an exact winning descriptor (order never silently decides), so a swap is data the test states rather than last-writer-wins on a shared table.
+- **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read `rf/frame-shadows` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. (The EP-0023 `:replace` / `:replace-standard` declared-winner keys are retired by EP-0026.)
 - For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`; reach for the image shape above when a test must isolate *behaviour*, not just state. A frame created with no `:images` is an ordinary configured frame (resolves against the shared registrar); pass `:images [...]` to isolate behaviour.
-- The test-isolation path is the **image + frame** shape — there is no realm / app / module install surface to reach for (the public composition model is `image → frame → event stream`; see [`fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story)). Isolate *behaviour* with an `rf/image` `:replace` / `:replace-standard` supplied via a frame's `:images`; isolate *state* with a fresh frame.
+- The test-isolation path is the **image + frame** shape — there is no realm / app / module install surface to reach for (the public composition model is `image → frame → event stream`; see [`fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story)). Isolate *behaviour* with a later overrides image supplied via a frame's `:images`; isolate *state* with a fresh frame.
 
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 

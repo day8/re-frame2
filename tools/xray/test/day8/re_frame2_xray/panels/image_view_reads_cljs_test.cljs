@@ -59,7 +59,7 @@
    {:kind :sub   :id :counter/value :rf.provenance/ns "app.counter" :impl :val}])
 
 (def ^:private target-image
-  (image/image {:id :app/counter :include-ns ["app.counter"]}))
+  (image/image {:id :app/counter :select-ns {:include ["app.counter"]}}))
 
 ;; ---- Xray's own image (the dogfooding) -----------------------------------
 
@@ -71,7 +71,7 @@
       (is (= :rf.xray/image (:rf.image/id img)))
       (is (= ["day8.re-frame2-xray.**"] (:rf.image/include-ns img))
           "Xray selects ONLY its own source namespaces")
-      ;; rf2-rjml45 — the include glob is NARROWED by `:exclude-ns` so Xray's
+      ;; rf2-rjml45 — the include glob is NARROWED by `:select-ns :exclude` so Xray's
       ;; OWN `*-cljs-test` + `test-helpers.**` namespaces (which co-register the
       ;; same `:rf.xray/*` ids in a dev/test build) are subtracted, keeping the
       ;; production image registration-disjoint from Xray's own test
@@ -137,13 +137,13 @@
     ;; OWN ids, so the keysets OVERLAP → NOT isolated. The predicate is a real
     ;; keyset-disjointness check, not a constant true.
     (let [leaky (image/image {:id :leaky/img
-                              :include-ns ["day8.re-frame2-xray.**" "app.counter"]})]
+                              :select-ns {:include ["day8.re-frame2-xray.**" "app.counter"]}})]
       (is (false? (reads/xray-image-isolated-from? leaky combined-pool))
           "an image selecting Xray's namespaces shares Xray's [kind id]s → NOT
            isolated"))))
 
 (deftest xray-isolation-is-keyset-not-selector-string
-  (testing "the predicate compares RESOLVER KEYSETS, not :include-ns selector
+  (testing "the predicate compares RESOLVER KEYSETS, not :select-ns selector
             STRINGS — two DIFFERENT globs that select OVERLAPPING namespaces are
             correctly reported NOT isolated (the proxy a string comparison would
             miss)"
@@ -154,12 +154,12 @@
     ;; keysets SHARE [:event :rf.xray/refresh] → the keyset check correctly
     ;; reports NOT isolated.
     (let [overlap-target (image/image {:id :overlap/img
-                                       :include-ns ["day8.re-frame2-xray.panels.*"]})
+                                       :select-ns {:include ["day8.re-frame2-xray.panels.*"]}})
           xray-sel       (set (:rf.image/include-ns (reads/xray-image)))
           target-sel     (set (:rf.image/include-ns overlap-target))]
       (is (empty? (set/intersection xray-sel target-sel))
-          "the two :include-ns selector STRINGS are disjoint (the old proxy
-           would call this isolated)")
+          "the two :select-ns :include selector STRINGS are disjoint (the old
+           proxy would call this isolated)")
       (is (false? (reads/xray-image-isolated-from? overlap-target xray-pool))
           "but the two RESOLVER KEYSETS overlap → the strengthened predicate
            correctly reports NOT isolated"))))

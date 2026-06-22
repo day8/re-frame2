@@ -531,7 +531,8 @@ const DEV_ONLY_SENTINELS = [
 //      the keyword through the same `record-descriptor!` path `reg-*` walks.
 //
 //   2. PROD_ABSENT_WHEN_UNUSED_SENTINELS — strings inside EP-0023 image-ASSEMBLY
-//      fns (make-frame / assemble / check-capabilities!) that MUST be ABSENT in
+//      fns (make-frame / assemble / the within-image collision check) that MUST
+//      be ABSENT in
 //      production WHEN THE PROBE DOES NOT ROOT THE IMAGE-LOADING PATH. These fns
 //      carry NO debug gate; image_assembly.cljc's own docstring states "an app
 //      that never assembles an image never reaches these fns (Closure DCE
@@ -559,16 +560,17 @@ const PROD_SURVIVING_SENTINELS = [
 ];
 
 const PROD_ABSENT_WHEN_UNUSED_SENTINELS = [
-  // re-frame.image-assembly/check-capabilities! — the fail-loud diagnostic
-  // string (EP-0023 §Public API / §Image — the frame-boundary capability
-  // check). The probe records into the source store but NEVER calls
-  // make-frame/assemble/check-capabilities!, so this assembly-only literal must
-  // DCE from the production bundle (reachability DCE — image_assembly.cljc
-  // docstring: "an app that never assembles an image never reaches these fns").
-  // The fragment is the distinctive head of the error message, unambiguous
-  // under a global grep.
-  { source: 're-frame.image-assembly/check-capabilities! (assembly-only, DCE when unused)',
-    sentinel: 'rf/make-frame: the image requires capabilities the frame does not' },
+  // re-frame.image-assembly/resolve-within-image — the within-image duplicate-id
+  // fail-loud diagnostic string (EP-0026 §Layered Resolution — an image must
+  // resolve cleanly to ONE descriptor per [kind id]). The probe records into the
+  // source store but NEVER calls make-frame/assemble, so this assembly-only
+  // literal must DCE from the production bundle (reachability DCE —
+  // image_assembly.cljc docstring: "an app that never assembles an image never
+  // reaches these fns"). The fragment is the distinctive head of the error
+  // message, unambiguous under a global grep. (EP-0026, rf2-dlvmpc retired the
+  // former check-capabilities! sentinel with the image-capability feature.)
+  { source: 're-frame.image-assembly/resolve-within-image (assembly-only, DCE when unused)',
+    sentinel: 'is selected from' },
 ];
 
 // ----- helpers ---------------------------------------------------------------

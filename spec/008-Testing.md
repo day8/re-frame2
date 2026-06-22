@@ -258,21 +258,23 @@ Four ways to "reset between tests" ship in `re-frame.test-support`. They form a 
 
 `make-reset-runtime-fixture` is a **factory**: the call shape is `(make-reset-runtime-fixture opts) → fixture-fn`. Use the returned fn in `(use-fixtures :each ...)`. Contrast `with-fresh-registrar`, which takes a thunk and runs it directly — the names differ deliberately to mark the call-shape axis.
 
-## Hermetic-frame testing — a fresh frame from images + injected capabilities
+## Hermetic-frame testing — a fresh frame composed from images
 
-The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. An **image-loaded frame** (per [EP-0023 §Image / §Public API](../docs/EP/EP-0023-image-loaded-frames.md)) offers a different isolation axis: build a frame from exactly the images under test, supply exactly the capabilities those images require, and destroy it on teardown — there is no process-global registrar to clear, because the test never touched one. The frame *is* the hermetic unit: it owns its own resolved image generation (the sealed registration set), app state, subscription cache, and capability map.
+The fixture-granularity ladder above isolates tests by **snapshot/restore of the process-global registrar** (L1–L3) — capture the one shared registrar, run, restore it. An **image-loaded frame** (per [EP-0023 §Image / §Public API](../docs/EP/EP-0023-image-loaded-frames.md)) offers a different isolation axis: build a frame from exactly the images under test, **compose** an overrides image after them to stub the doubles you need, and destroy it on teardown — there is no process-global registrar to clear, because the test never touched one. The frame *is* the hermetic unit: it owns its own resolved image generation (the sealed registration set), app state, and subscription cache. Test doubles are supplied by a later image whose registrations shadow the app's (EP-0026 §Use Cases — composition resolves by image order, and `rf/frame-shadows` reports what got overridden).
 
 ```clojure
-;; A hermetic test frame — the images under test and exactly the capabilities
-;; they need, with no process-global state to clear or restore.
+;; A hermetic test frame — the images under test composed with an overrides
+;; image that stubs the doubles, with no process-global state to clear.
+(def test-doubles
+  (rf/image {:id :test/doubles
+             :registrations {:reg-fx   [[:cart.http/post fake-http]]
+                             :reg-cofx [[:cart/clock     (fn [] fixed-instant)]]}}))
+
 (deftest cart-checkout
   (let [frame (rf/make-frame
-                {:id           :test/cart
-                 :images       [cart-image]                    ;; the images under test
-                 :adapter      :plain-atom
-                 :capabilities {:rf.capability/http   fake-http
-                                :rf.capability/clock  fixed-clock
-                                :rf.capability/random seeded-random}})]
+                {:id      :test/cart
+                 :images  [cart-image test-doubles]   ;; doubles win (later image)
+                 :adapter :plain-atom})]
     (try
       ;; The frame is the carried target — an explicit :frame dispatch opt (or
       ;; the carried frame established by scope); there is no ambient default
@@ -284,9 +286,9 @@ The fixture-granularity ladder above isolates tests by **snapshot/restore of the
         (rf/destroy-frame! :test/cart)))))               ;; drop the frame + its state for GC
 ```
 
-**Capability injection is the explicit dependency seam.** A frame's `:capabilities` map names the runtime services its images depend on — `:rf.capability/http` (request execution), `:rf.capability/clock` (time), `:rf.capability/random` (id/randomness generation), and the rest (per [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps)). A hermetic test injects test doubles for exactly those it needs; image assembly capability-checks first, failing with `:rf.error/image-missing-capability` (naming the missing + supplied capabilities) *before* the frame runs any event if an image `:rf.image/requires` a capability the frame does not supply. This is the **injectable** alternative to process-global stubs discovered by namespace load order.
+**Composing an overrides image is the explicit dependency seam.** Instead of injecting a capability map, a hermetic test composes a later image whose `:registrations` stub exactly the effects/coeffects it needs to control (`:cart.http/post`, a fixed clock, a seeded random source). Image order resolves the composition — the later overrides image wins — and `rf/frame-shadows` reports each registration it shadowed, so the test can assert on exactly which doubles it installed. This is the **injectable** alternative to process-global stubs discovered by namespace load order. (EP-0026, rf2-dlvmpc, retired the image-declared host-capability surface: there is no `make-frame :capabilities` map and no `:rf.image/requires` capability-check; model a host dependency as an overriding registration instead. The `:rf.capability/*` vocabulary itself remains the name for those runtime services — see [Runtime-Subsystems §Capability maps](Runtime-Subsystems.md#capability-maps).)
 
-**The public surface** (all from `re-frame.core`, per [API §Registration](API.md#registration)): `(rf/make-frame {:id … :images [...] :adapter … :capabilities {…}})` builds + registers a hermetic-by-default frame from the named images; `(rf/destroy-frame! frame-or-id)` drops it (runs `:on-destroy`, the machine teardown cascade, and sub-cache disposal). Each frame runs its own resolved image generation, so two frames can hold different handlers for the same id without collision.
+**The public surface** (all from `re-frame.core`, per [API §Registration](API.md#registration)): `(rf/make-frame {:id … :images [...] :adapter …})` builds + registers a hermetic-by-default frame from the named images; `(rf/destroy-frame! frame-or-id)` drops it (runs `:on-destroy`, the machine teardown cascade, and sub-cache disposal). Each frame runs its own resolved image generation, so two frames can hold different handlers for the same id without collision.
 
 **Reconciling with the snapshot/restore ladder.** Both isolate; pick by what the test needs:
 
@@ -743,7 +745,7 @@ The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. r
 
 A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)). The testing surface guarantees these shapes for 007:
 
-- `(make-frame {:images [...] :id … :initial-events [[:rf/set-db {…}]] :capabilities {…} :adapter …})` — the EP-0024 one-constructor opts shape; image-selection and record-config keys (`:initial-events` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors`) ride the same call. Seed app-db via a leading `[:rf/set-db {…}]` setup step.
+- `(make-frame {:images [...] :id … :initial-events [[:rf/set-db {…}]] :adapter …})` — the EP-0024 one-constructor opts shape; image-selection and record-config keys (`:initial-events` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors`) ride the same call. Seed app-db via a leading `[:rf/set-db {…}]` setup step. (EP-0026 retired the `:capabilities` key.)
 - `(reg-frame :id {:initial-events [[:event-id]] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact record-config opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(app-db-value f)` — current `app-db` value (a plain map) for the named frame.

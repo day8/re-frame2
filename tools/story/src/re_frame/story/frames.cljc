@@ -674,8 +674,8 @@
       ;; ("behavior variant -> image", EP-0023 §Stories). Image-less variants
       ;; carry no generation and resolve against the shared default registrar
       ;; (absence-is-default). The framework's `rf/image` / assembly own all
-      ;; validation — a malformed image or a zero-match `:include-ns` glob FAILS
-      ;; LOUDLY here at frame creation.
+      ;; validation — a malformed image or a zero-match `:select-ns :include`
+      ;; glob FAILS LOUDLY here at frame creation.
       ;;
       ;; EP-0024 — ONE `make-frame` call. The unified constructor accepts
       ;; BOTH the image-selection opts AND the full record-config in one

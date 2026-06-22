@@ -855,9 +855,11 @@ derived behaviour plus its provenance.** The tool is `describe-image`
 EP-0023 Use-Case 7 wants a one-round-trip read of the **composed
 image** a frame actually runs — the selected universe of registrations
 (across namespaces / inline sections / framework standards), the kinds
-present, the union of capability `:rf.gen/requires`, per-kind counts,
+present, per-kind counts,
 and (opt-in) the per-registration provenance coordinate that shows
-*which source won* each `(kind, id)` resolution. The same `(kind, id)`
+*which source won* each `(kind, id)` resolution. (EP-0026 retired
+image-declared host capabilities, so the read no longer surfaces a
+`:rf.gen/requires` set.) The same `(kind, id)`
 resolves differently per frame, so this is a per-frame COMPOSITION
 read, not a registrar-union enumeration. What verb does it take?
 

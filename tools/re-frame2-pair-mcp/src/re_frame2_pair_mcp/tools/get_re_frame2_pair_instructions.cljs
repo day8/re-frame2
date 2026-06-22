@@ -120,7 +120,7 @@
     "                          :frame to enumerate that frame's image-resolved\n"
     "                          ids (EP-0023).\n"
     "  describe-image        — describe a frame's running image generation —\n"
-    "                          composed images, kinds, capability requires,\n"
+    "                          composed images, kinds,\n"
     "                          per-kind counts (+ :include-ns provenance). The\n"
     "                          'what behaviour does this frame run, and where\n"
     "                          did each piece come from?' read (rf2-srobm0).\n"

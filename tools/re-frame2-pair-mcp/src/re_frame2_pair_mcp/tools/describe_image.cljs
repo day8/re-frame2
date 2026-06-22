@@ -36,19 +36,12 @@
     `{:ok? true :frame <id>
       :images   [<image-id> …]        the composed image ids
       :kinds    [<kind> …]            registrar kinds present (sorted)
-      :requires [<capability> …]      union :rf.gen/requires (sorted)
       :counts   {<kind> N …}          selected-registration count per kind
       :registrations {[kind id] coordinate …}}   ; only with :include-ns true
 
-  ## Missing-capability vs missing-registration
-
-  `:requires` is the discriminator EP-0023 §Use-Case 7 wants surfaced: an
-  image that DECLARES a capability the host frame did not provide is a
-  MISSING-CAPABILITY situation, distinct from a `(kind, id)` simply being
-  ABSENT from the resolver (missing-registration). The frame-OWNED
-  capability MAP / adapter the requires are checked against is frame-object
-  interior and not exposed by the public read surface; this reports the
-  IMAGE-declared requirement — the side an agent can act on."
+  (EP-0026, rf2-dlvmpc: image-declared host capabilities are removed
+  end-to-end — there is no `:rf.gen/requires`, so this tool no longer reports
+  a `:requires` capability set.)"
   (:require [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.args :as args]

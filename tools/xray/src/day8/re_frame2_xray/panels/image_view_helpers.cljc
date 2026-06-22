@@ -101,7 +101,6 @@
 
       {:images          [<:rf.image/id> …]   ;; the image ids composed (nil entry
                                               ;; for an anonymous image)
-       :requires        #{:rf.capability/* …};; the union :rf.gen/requires
        :kinds           [<kind> …]            ;; sorted kinds present
        :descriptor-count <int>                ;; total [kind id] entries resolved
        :descriptors     [{:kind … :id … :provenance {…}} …]}
@@ -109,9 +108,11 @@
                                               ;; sorted by (kind id) str
 
   `generation` is the inert sealed value `assemble` returns
-  (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/requires` /
-  `:rf.gen/kinds`). A nil generation projects to the empty image-row (no
-  descriptors). Pure `data -> data`; JVM-testable."
+  (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/kinds`). A nil generation
+  projects to the empty image-row (no descriptors). Pure `data -> data`;
+  JVM-testable. (EP-0026, rf2-dlvmpc: the generation no longer carries
+  `:rf.gen/requires` — image-declared host capabilities are removed — so the
+  projection no longer surfaces a `:requires` set.)"
   [generation]
   (let [resolver (:rf.gen/resolver generation)
         descs    (->> resolver
@@ -121,7 +122,6 @@
                                :id         id
                                :provenance (descriptor-provenance descriptor)})))]
     {:images           (mapv :rf.image/id (:rf.gen/images generation))
-     :requires         (set (:rf.gen/requires generation))
      :kinds            (vec (sort-by str (:rf.gen/kinds generation)))
      :descriptor-count (count resolver)
      :descriptors      descs}))
@@ -138,7 +138,6 @@
       {:frame-id     <:rf.frame/id> | nil    ;; nil for a direct (no-id) frame
        :anonymous?   <bool>                  ;; true iff no public frame id
        :has-adapter? <bool>                  ;; carries an active-substrate binding?
-       :capabilities #{:rf.capability/* …}   ;; the host capability map's keys
        :image        {<project-generation> …}};; the resolved image this frame runs
 
   `frame-id` is the registry key; `frame-object` is the inert FRAME VIEW the
@@ -146,13 +145,14 @@
   (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` / …, EP-0024
   rf2-tu2vr7). The frame's IMAGE is its resolved generation projected via
   `project-generation` — that is the `frame -> resolved image generation` half
-  of the EP-0023 resolution path. Pure `data -> data`; JVM-testable."
+  of the EP-0023 resolution path. Pure `data -> data`; JVM-testable. (EP-0026,
+  rf2-dlvmpc: frame views no longer carry `:rf.frame/capabilities` — image
+  capabilities are removed — so the row no longer surfaces `:capabilities`.)"
   [frame-id frame-object]
   (let [gen (:rf.frame/generation frame-object)]
     {:frame-id     frame-id
      :anonymous?   (nil? frame-id)
      :has-adapter? (boolean (:rf.frame/adapter frame-object))
-     :capabilities (set (keys (:rf.frame/capabilities frame-object)))
      :image        (project-generation gen)}))
 
 (defn project-frames
@@ -262,7 +262,7 @@
   the operator understands it is the honest not-using-images state, not a
   broken surface. Pure `data -> string`."
   (str "No image-loaded frames — this process is not using the EP-0023 "
-       "image/frame model yet. Construct an image (rf/image {:include-ns [...]}) "
+       "image/frame model yet. Construct an image (rf/image {:select-ns {:include [...]}}) "
        "and load it into a frame (rf/make-frame {:images [...]}) to surface the "
        "resolved registration set (the [kind id] descriptors a frame sees) and "
        "each frame's execution context here."))

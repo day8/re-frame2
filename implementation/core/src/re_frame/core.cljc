@@ -681,15 +681,17 @@
 ;; ---- images (EP-0023) ----------------------------------------------------
 
 (def ^{:doc "Construct an IMAGE value — the selected registration-set value a
-  frame resolves against (EP-0023 §Image, §Public API). `rf/image` is the
-  public constructor; `spec` is a map carrying `:id` (optional), `:include-ns`
-  (a vector of namespace-glob strings selecting registered descriptors by
-  their `:rf.provenance/ns`), `:registrations` (inline registrar-keyed
-  sections), `:rf.image/requires` (the `:rf.capability/*` set), and the
-  declared-winner maps `:replace` / `:replace-standard`. Returns a normalized,
+  frame resolves against (EP-0023 §Image / EP-0026 §Image Keys). `rf/image` is
+  the public constructor; `spec` is a map carrying EXACTLY three public keys —
+  `:id` (optional), `:select-ns` (the `{:include [globs] :exclude [globs]}`
+  selection map, selecting registered descriptors by their `:rf.provenance/ns`),
+  and `:registrations` (inline registrar-keyed sections). Returns a normalized,
   INERT image value — PURE: no realm, no registrar, no side effect (an image
   is data, not registration). Supplied to `make-frame` / `reg-frame` via the
-  `:images` vector. See `re-frame.image/image`."}
+  `:images` vector; composition resolves by image order (the later image wins,
+  EP-0026 §Layered Resolution). The EP-0023 keys `:include-ns` / `:exclude-ns` /
+  `:replace` / `:replace-standard` / `:rf.image/requires` are RETIRED (EP-0026)
+  and fail loud. See `re-frame.image/image`."}
   image    image/image)
 
 ;; ---- frame management ----------------------------------------------------
@@ -697,7 +699,7 @@
 ;; EP-0024 (rf2-tu2vr7): `rf/make-frame` is the ONE public frame constructor.
 ;; It backs onto `re-frame.live-frame/make-frame` — the unified constructor over
 ;; the ONE `frames` registry — which accepts BOTH image-selection opts
-;; (`:images` / `:id` / `:capabilities` / `:adapter`) AND
+;; (`:images` / `:id` / `:adapter`) AND
 ;; record-config opts (`:initial-events` / `:fx-overrides` / `:platform` / `:ssr` /
 ;; `:doc` / `:preset` / `:tags` / …) in ONE call, and returns the frame VALUE.
 ;;
@@ -731,9 +733,11 @@
                    policy). When ABSENT, the frame is LOCAL-ONLY — keep the
                    returned value and pass it (or its id) to dispatch / subscribe
                    / test helpers.
-    :capabilities  the host capability map the image's `:rf.image/requires` is
-                   checked against (optional, fail-loud on a missing capability).
     :adapter       the active-substrate adapter binding/configuration (optional).
+
+  (EP-0026, rf2-dlvmpc: the `:capabilities` key is RETIRED — image-declared host
+  capabilities are removed end-to-end; a `:capabilities` key now flows through as
+  ordinary record-config.)
 
   EVERY OTHER key is RECORD-CONFIG, honoured in the same call: `:initial-events`
   (a vector of event vectors dispatch-sync'd into the new frame at construction,
@@ -763,8 +767,7 @@
   OBJECT (`re-frame.live-frame/make-frame`'s return value); `opts` takes the same
   `:images` VECTOR shape as the object constructor. Reload is composition-
   REPLACING (it replaces the whole `:images` vector, not one member) and frame-
-  targeted: it re-assembles `:images` into a fresh sealed generation
-  (capability-checked against the frame's own `:rf.frame/capabilities`) and SWAPS
+  targeted: it re-assembles `:images` into a fresh sealed generation and SWAPS
   only `:rf.frame/generation` onto the frame — app-db, runtime-db, caches,
   lifecycle, and every other frame slot continue unchanged (\"hot reload must not
   be implemented by tearing down and recreating the frame\"). It does NOT move
@@ -1686,22 +1689,24 @@
   local live-frame registry) OR a direct live frame OBJECT (`rf/make-frame`'s
   return value) — the same target shapes `rf/reload-images!` accepts.
 
-  Returns the generation map with the four documented stable public keys (EP-0023
+  Returns the generation map with the documented stable public keys (EP-0023
   §Specification Summary; `re-frame.image-assembly`):
 
     :rf.gen/resolver  {[kind id] descriptor, …}   the sealed [kind id] map
     :rf.gen/images    [<normalized image value> …]
-    :rf.gen/requires  #{:rf.capability/* …}        union of image requires
     :rf.gen/kinds     #{kind …}                     kinds present, for tools
+
+  (EP-0026, rf2-dlvmpc: `:rf.gen/requires` was retired with the image-capability
+  feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j.)
 
   FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-target` does not
   resolve to a live frame carrying a generation: NO nil-as-default, NO fallback
   to the default/realm registrar — a frame-generation read needs a live EP-0023
   frame. Use the `:frame` arity of `registrations` / `handler-meta` /
   `handler-ids` for per-`(kind, id)` resolution WITH provenance; use this when a
-  view needs the whole generation (selected registrations, capability set,
-  replacement facts) without per-kind round-trips. Per Spec 002 §The public
-  registrar query API; EP-0023 §Public API / Use-Case 7."
+  view needs the whole generation (selected registrations, kinds) without
+  per-kind round-trips. Per Spec 002 §The public registrar query API; EP-0023
+  §Public API / Use-Case 7."
   [frame-target]
   (-> (resolve-live-frame-object frame-target 'rf/frame-generation)
       (live-frame/frame-resolution-generation)))

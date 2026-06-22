@@ -95,7 +95,7 @@
     (testing "binding a frame's generation routes the SAME id to the FRAME'S
               own image descriptor instead"
       (let [pool  [(reg-desc "examples.app" :event :app/boot ::image-boot)]
-            img   (image/image {:include-ns ["examples.app"]})
+            img   (image/image {:select-ns {:include ["examples.app"]}})
             frame (lf/make-frame {:images [img]} pool)]
         (lf/call-with-frame-resolution frame
           (fn []
@@ -117,9 +117,9 @@
     (let [todo-pool    [(reg-desc "examples.todo"    :event :boot/init ::todo-boot)]
           counter-pool [(reg-desc "examples.counter" :event :boot/init ::counter-boot)]
           todo-img     (image/image {:id :examples/todo
-                                     :include-ns ["examples.todo"]})
+                                     :select-ns {:include ["examples.todo"]}})
           counter-img  (image/image {:id :examples/counter
-                                     :include-ns ["examples.counter"]})
+                                     :select-ns {:include ["examples.counter"]}})
           todo-frame    (lf/make-frame {:id :todo/main    :images [todo-img]}    todo-pool)
           counter-frame (lf/make-frame {:id :counter/main :images [counter-img]} counter-pool)]
       (testing "the TODO frame resolves :boot/init to the todo image's handler"
@@ -153,7 +153,7 @@
                  (reg-desc "examples.feat" :cofx     :feat/now       ::cofx)
                  (reg-desc "examples.feat" :view     :feat/root      ::view)
                  (reg-desc "examples.feat" :resource :feat/by-id     ::resource)]
-          img   (image/image {:include-ns ["examples.feat"]})
+          img   (image/image {:select-ns {:include ["examples.feat"]}})
           frame (lf/make-frame {:images [img]} pool)]
       (lf/call-with-frame-resolution frame
         (fn []
@@ -183,7 +183,7 @@
     (let [pool  [(reg-desc "examples.q" :event :q/a ::a)
                  (reg-desc "examples.q" :event :q/b ::b)
                  (reg-desc "examples.q" :sub   :q/s ::s)]
-          img   (image/image {:include-ns ["examples.q"]})
+          img   (image/image {:select-ns {:include ["examples.q"]}})
           frame (lf/make-frame {:images [img]} pool)]
       (testing "the default (unbound) registrations sees the global registry"
         (is (contains? (registrar/registrations :event) :global/only))
@@ -235,7 +235,7 @@
   (testing "frame-resolution-generation returns a frame object's generation and
             nil for any non-frame-object / no-generation target"
     (let [pool  [(reg-desc "examples.g" :event :g/go ::go)]
-          img   (image/image {:include-ns ["examples.g"]})
+          img   (image/image {:select-ns {:include ["examples.g"]}})
           frame (lf/make-frame {:images [img]} pool)]
       (is (= (lf/frame-generation frame) (lf/frame-resolution-generation frame)))
       (is (nil? (lf/frame-resolution-generation nil)))
@@ -253,7 +253,7 @@
             descriptor (same behaviour, different memory — EP-0023 §Same
             Behavior, Many Instances)"
     (let [pool  [(reg-desc "examples.counter" :event :counter/inc ::inc)]
-          img   (image/image {:include-ns ["examples.counter"]})
+          img   (image/image {:select-ns {:include ["examples.counter"]}})
           left  (lf/make-frame {:id :counter/left  :images [img]} pool)
           right (lf/make-frame {:id :counter/right :images [img]} pool)]
       (lf/call-with-frame-resolution left
@@ -274,7 +274,7 @@
     (let [pool  [(reg-desc "examples.c" :event :c/go   ::go)
                  (reg-desc "examples.c" :cofx  :c/now  ::now)
                  (reg-desc "examples.c" :fx    :c/save ::save)]
-          img   (image/image {:include-ns ["examples.c"]})
+          img   (image/image {:select-ns {:include ["examples.c"]}})
           frame (lf/make-frame {:images [img]} pool)
           ;; A nested fn that resolves a DIFFERENT kind, simulating the cofx
           ;; injection / fx walk that runs deeper in the cascade.

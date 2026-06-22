@@ -115,7 +115,7 @@
     ;; The frame's IMAGE registers the SAME id with a DIFFERENT impl.
     (let [pool  [(event-desc "examples.counter" :counter/inc
                              (fn [{:keys [db]} _] {:db (assoc db :written-by :image)}))]
-          img   (image/image {:id :examples/counter :include-ns ["examples.counter"]})
+          img   (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
           ;; Register the live-frame OBJECT (carrying the image generation) under
           ;; the SAME id as the runnable frame record.
           _     (lf/make-frame {:id :counter/main :images [img]} pool)]
@@ -143,7 +143,7 @@
     (rf/reg-sub :counter/value (fn [_db _] :global))
     ;; The frame's IMAGE registers the SAME sub id with a DIFFERENT computation.
     (let [pool  [(sub-desc "examples.counter" :counter/value (fn [_db _] :image))]
-          img   (image/image {:id :examples/counter :include-ns ["examples.counter"]})
+          img   (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
           _     (lf/make-frame {:id :counter/main :images [img]} pool)]
       (is (= :image @(rf/subscribe :counter/main [:counter/value]))
           "the IMAGE sub computed — subscribe resolved [:sub :counter/value]
@@ -170,8 +170,8 @@
                                     (fn [{:keys [db]} _] {:db (assoc db :booted-by :todo)}))]
           counter-pool [(event-desc "examples.counter" :boot/init
                                     (fn [{:keys [db]} _] {:db (assoc db :booted-by :counter)}))]
-          todo-img     (image/image {:id :examples/todo    :include-ns ["examples.todo"]})
-          counter-img  (image/image {:id :examples/counter :include-ns ["examples.counter"]})
+          todo-img     (image/image {:id :examples/todo    :select-ns {:include ["examples.todo"]}})
+          counter-img  (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
           _ (lf/make-frame {:id :todo/main    :images [todo-img]}    todo-pool)
           _ (lf/make-frame {:id :counter/main :images [counter-img]} counter-pool)]
       (rf/dispatch-sync [:boot/init] {:frame :todo/main})
@@ -231,7 +231,7 @@
                                :fx [[:dispatch [:counter/step]]]}))
                 (event-desc "examples.counter" :counter/step
                             (fn [{:keys [db]} _] {:db (assoc db :step :image)}))]
-          img  (image/image {:id :examples/counter :include-ns ["examples.counter"]})
+          img  (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
           _    (lf/make-frame {:id :counter/main :images [img]} pool)]
       (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
       (let [db (rf/app-db-value :counter/main)]
@@ -264,7 +264,7 @@
     (let [pool [(event-desc "ex.counter" :counter/inc
                             (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
-          img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})
+          img  (image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
           ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
           ;; DIFFERENT initial-db. No reg-frame, no shared frame id.
           fa   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
@@ -318,7 +318,7 @@
     (let [pool  [(event-desc "ex.counter" :counter/inc
                              (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
                  (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
-          img   (image/image {:include-ns ["ex.counter"]})
+          img   (image/image {:select-ns {:include ["ex.counter"]}})
           frame (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
       (rf/dispatch-sync [:counter/inc] {:frame frame})
       (is (= 1 @(rf/subscribe frame [:counter/value]))
@@ -350,7 +350,7 @@
     (let [pool [(event-desc "ex.counter" :counter/inc
                             (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
-          img  (image/image {:id :ex/counter :include-ns ["ex.counter"]})]
+          img  (image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})]
       (testing "frame OBJECT as the FIRST positional dispatch arg"
         (let [obj (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
           ;; frame-first: object is arg-1, event-vec is arg-2.
@@ -479,8 +479,8 @@
           pool-v2 [(event-desc "ex.counter.v2" :counter/inc
                                (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 10)}))
                    (sub-desc   "ex.counter.v2" :counter/value (fn [db _] (:n db)))]
-          img-v1 (image/image {:id :ex/counter-v1 :include-ns ["ex.counter.v1"]})
-          img-v2 (image/image {:id :ex/counter-v2 :include-ns ["ex.counter.v2"]})
+          img-v1 (image/image {:id :ex/counter-v1 :select-ns {:include ["ex.counter.v1"]}})
+          img-v2 (image/image {:id :ex/counter-v2 :select-ns {:include ["ex.counter.v2"]}})
           frame  (lf/make-frame {:id :counter/main :images [img-v1] :initial-events [[:rf/set-db {:n 0}]]}
                                 pool-v1)]
       ;; Run the v1 image once: n 0 -> 1.
@@ -502,7 +502,7 @@
   (testing "rf/reload-images! also targets a direct frame OBJECT and a bad target
             fails loud"
     (let [pool [(event-desc "ex.r" :r/noop (fn [{:keys [db]} _] {:db db}))]
-          img  (image/image {:include-ns ["ex.r"]})
+          img  (image/image {:select-ns {:include ["ex.r"]}})
           obj  (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 7}]]} pool)
           report (rf/reload-images! obj {:images [img]} pool)]
       (is (lf/frame-object? (:rf.frame/frame report))
@@ -539,8 +539,8 @@
           pool-v2 [(event-desc "ex.counter.v2" :counter/inc
                                (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 10)}))
                    (sub-desc   "ex.counter.v2" :counter/value (fn [db _] (:n db)))]
-          img-v1  (image/image {:include-ns ["ex.counter.v1"]})
-          img-v2  (image/image {:include-ns ["ex.counter.v2"]})
+          img-v1  (image/image {:select-ns {:include ["ex.counter.v1"]}})
+          img-v2  (image/image {:select-ns {:include ["ex.counter.v2"]}})
           ;; NO :id — a direct object keyed in the registry under a gensym
           ;; runnable-id only.
           frame   (lf/make-frame {:images [img-v1] :initial-events [[:rf/set-db {:n 0}]]} pool-v1)
@@ -575,8 +575,8 @@
                    (event-desc "ex.c.v2" :counter/bump ;; v2-ONLY event
                                (fn [{:keys [db]} _] {:db (assoc db :bumped true)}))
                    (sub-desc   "ex.c.v2" :counter/which (fn [db _] (:gen db)))]
-          img-v1  (image/image {:include-ns ["ex.c.v1"]})
-          img-v2  (image/image {:include-ns ["ex.c.v2"]})
+          img-v1  (image/image {:select-ns {:include ["ex.c.v1"]}})
+          img-v2  (image/image {:select-ns {:include ["ex.c.v2"]}})
           frame   (lf/make-frame {:images [img-v1] :initial-events [[:rf/set-db {}]]} pool-v1)
           reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
       ;; Dispatch the SHARED id through the reloaded object: it must run v2's impl.
@@ -612,8 +612,8 @@
                                   :fx [[:dispatch [:counter/child]]]}))
                    (event-desc "ex.cd.v2" :counter/child ;; v2-ONLY child
                                (fn [{:keys [db]} _] {:db (assoc db :child :v2)}))]
-          img-v1  (image/image {:include-ns ["ex.cd.v1"]})
-          img-v2  (image/image {:include-ns ["ex.cd.v2"]})
+          img-v1  (image/image {:select-ns {:include ["ex.cd.v1"]}})
+          img-v2  (image/image {:select-ns {:include ["ex.cd.v2"]}})
           frame   (lf/make-frame {:images [img-v1] :initial-events [[:rf/set-db {}]]} pool-v1)
           reloaded (:rf.frame/frame (rf/reload-images! frame {:images [img-v2]} pool-v2))]
       (rf/dispatch-sync reloaded [:counter/inc])

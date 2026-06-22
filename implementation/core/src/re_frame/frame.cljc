@@ -726,15 +726,6 @@
   [id]
   (frame-slot id :generation))
 
-(defn frame-capabilities
-  "Return the host capability map frame `id` was created with (EP-0024), or nil
-  when the frame supplied none / is unknown. Stored on the
-  record's `:config` under the reserved `:rf.frame/capabilities` key by
-  `make-frame` so `reload-images!` / reprojection can re-check capabilities by id
-  without a second registry holding them. Pure."
-  [id]
-  (:rf.frame/capabilities (frame-slot id :config)))
-
 (defn frame-adapter
   "Return the active-substrate adapter binding frame `id` was created with
   (EP-0024), or nil when the frame supplied none / is unknown.
@@ -1257,8 +1248,9 @@
     ;; The construction-only reserved `:rf.frame/generation` key is consumed
     ;; above into the `:generation` slot; it is stripped from the stored
     ;; `:config` so `frame-meta` / tooling never surface a one-shot construction
-    ;; input as durable frame config. `:rf.frame/capabilities` stays in
-    ;; `:config` — `reload-images!` / reprojection re-read it by id.
+    ;; input as durable frame config. (EP-0026, rf2-dlvmpc: the
+    ;; `:rf.frame/capabilities` config slot is gone with the image-capability
+    ;; feature.)
     ;; EP-0027: `:initial-events` is DURABLE frame config — it stays in `:config`
     ;; so `reset-frame!` can re-dispatch the recorded setup. The retired
     ;; `:rf.frame/initial-db` reserved key is dissoc'd defensively (it is no
@@ -1879,8 +1871,8 @@
   "Build a live frame VALUE for frame id `runnable-id` (EP-0024) —
   the lifecycle token `make-frame` returns. INTERNAL: the value carries the
   `:rf.frame/object` marker, its `:rf.frame/runnable-id` (= the id its record is
-  keyed by), and the public `:rf.frame/id` + the creation inputs
-  (`:rf.frame/capabilities` / `:rf.frame/adapter`) when present. The resolved
+  keyed by), and the public `:rf.frame/id` + the creation input
+  (`:rf.frame/adapter`) when present. The resolved
   generation is NOT embedded on the value — it lives on the record
   (`:generation`), read by id via `frame-generation`, so a value and its id
   resolve the same generation and a `reload-images!` swap is observed by every
@@ -1889,13 +1881,13 @@
 
   EP-0027 retired `:initial-db`: app-db seeding is now a setup event
   (`:initial-events`), so the constructed value no longer carries an
-  `:rf.frame/initial-db` slot."
-  [{:keys [id runnable-id capabilities adapter]}]
+  `:rf.frame/initial-db` slot. EP-0026 (rf2-dlvmpc) retired the
+  `:rf.frame/capabilities` slot with the image-capability feature."
+  [{:keys [id runnable-id adapter]}]
   (cond-> {object-marker         true
            runnable-id-key       runnable-id}
-    (some? id)           (assoc :rf.frame/id id)
-    (some? capabilities) (assoc :rf.frame/capabilities capabilities)
-    (some? adapter)      (assoc :rf.frame/adapter adapter)))
+    (some? id)      (assoc :rf.frame/id id)
+    (some? adapter) (assoc :rf.frame/adapter adapter)))
 
 ;; ---- destruction ----------------------------------------------------------
 ;;

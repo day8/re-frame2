@@ -55,6 +55,8 @@ on:
       - 'scripts/_test_fixtures/check_inject_cofx_residue/**'
       - 'scripts/check_retired_composition_vocab.py'
       - 'scripts/_test_fixtures/check_retired_composition_vocab/**'
+      - 'scripts/check_retired_image_keys.py'
+      - 'scripts/_test_fixtures/check_retired_image_keys/**'
       # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
       # trees too; a drift there must trigger the gate.
       - 'tools/**/spec/**'
@@ -333,6 +335,31 @@ jobs:
 
       - name: Validate no live retired app/realm/module composition vocabulary
         run: python scripts/check_retired_composition_vocab.py --verbose
+
+      # EP-0026 (rf2-dlvmpc) RETIRED five EP-0023 image source keys + the three
+      # image-capability surfaces with fail-loud rejection. The public rf/image
+      # value now accepts only :id / :select-ns / :registrations; composition
+      # resolves by image order; standards are protected; image-declared host
+      # capabilities are removed end-to-end. This guard keeps the retirement
+      # done: it scans the doc/teaching markdown (fenced code) AND the Clojure
+      # source (implementation/tools/examples/skills, string literals + comments
+      # masked) for the EXACT retired spellings — :include-ns / :exclude-ns /
+      # :replace / :replace-standard / :rf.image/requires / :rf.gen/requires /
+      # make-frame :capabilities — as LIVE, copy-pasteable API. It is SCOPED to
+      # those exact tokens and NEVER matches the bare word "capability": the
+      # :rf.capability/* host-service vocabulary, conformance capability ids, and
+      # tool capability flags (incl. describe-image's :include-ns tool ARG) are
+      # untouched. Removed-context prose + inline spans + masked docstrings/
+      # comments never fire; :include-ns/:exclude-ns/:replace fire only in
+      # image/make-frame proximity. docs/EP/** is the allowlisted historical
+      # record. Self-test first (proves each live shape fires + every sanctioned
+      # counterpart stays green), then the live scan. See
+      # scripts/check_retired_image_keys.py.
+      - name: Self-test the retired EP-0026 image-key gate
+        run: python scripts/check_retired_image_keys.py --self-test --verbose
+
+      - name: Validate no live retired EP-0026 image keys
+        run: python scripts/check_retired_image_keys.py --verbose
 
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.

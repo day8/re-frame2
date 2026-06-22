@@ -3,8 +3,8 @@
 
   Sibling of `image-behaviour-v1`: registers the SAME event id
   `:img.counter/step` but adds 100 (the DIFFERENT behaviour). Selected into a
-  variant's `:images` via `(rf/image {:include-ns
-  [\"re-frame.story.test-helpers.image-behaviour-v2\"]})`. See the v1 sibling's
+  variant's `:images` via `(rf/image {:select-ns {:include
+  [\"re-frame.story.test-helpers.image-behaviour-v2\"]}})`. See the v1 sibling's
   docstring for the 'behavior variant -> image' rationale."
   (:require [re-frame.core :as rf]))
 

@@ -3,8 +3,8 @@
 
   Registers the SAME event id `:img.counter/step` as the v2 sibling but with a
   DIFFERENT meaning: v1 adds 1. A behaviour-variant test selects this namespace
-  into a variant's `:images` via `(rf/image {:include-ns
-  [\"re-frame.story.test-helpers.image-behaviour-v1\"]})` so the variant frame
+  into a variant's `:images` via `(rf/image {:select-ns {:include
+  [\"re-frame.story.test-helpers.image-behaviour-v1\"]}})` so the variant frame
   resolves `:img.counter/step` to THIS handler — proving 'behavior variant ->
   image': two variants reuse the same global id with different behaviour purely
   by mounting under different images.
