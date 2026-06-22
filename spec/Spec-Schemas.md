@@ -495,7 +495,7 @@ Inside the Malli schema value passed to `reg-app-schema`, individual slots may c
 
 | Per-slot key | Type | Used for | Spec |
 |---|---|---|---|
-| `:large?` | boolean | **Owner-local size-elision nomination** for a schema-owned data shape (machine `:data-schema`, resource `:data-schema` / `:params-schema`) — the slot's data elides to the `:rf.size/large-elided` marker at the owner's trace / projection egress (the EP-0005 mechanism, per [015 §Machine-owned durable classification](015-Data-Classification.md)). On a `reg-app-schema` slot it has **no** egress effect (EP-0015 §8 — app-db size policy is frame-owned `:large {:app-db [...]}`). | 015 |
+| `:large?` | boolean | **Owner-local size-elision nomination** for a schema-owned data shape (machine `:data-schema`, resource `:data-schema` / `:params-schema`) — the slot's data elides to the `:rf.size/large-elided` marker at the owner's trace / projection egress (per [015 §Machine-owned durable classification](015-Data-Classification.md)). On a `reg-app-schema` slot it has **no** egress effect (EP-0025 — durable app-db size policy is the commit-plane `:large` classification effect a handler returns alongside `:db`, not a schema prop). | 015 |
 | `:hint` | string | A free-form short description of the slot. When `:large? true` rides alongside on an owner-local schema, the value is copied verbatim into the `:rf.size/large-elided` marker's `:hint` slot. | 009 |
 | `:sensitive?` | boolean | **Owner-local path-level privacy declaration** for a schema-owned data shape (machine / resource), the EP-0005 mechanism. On a `reg-app-schema` slot its **only** effect is **validation-failure-trace redaction**: when the slot fails validation, the emit-site redacts the failing `:value` / `:explain` / `:fx-args` slots with the framework-reserved sentinel `:rf/redacted` (path-targeted, most-specific-wins). It does **not** feed the app-db egress registry (EP-0015 §8 — app-db sensitivity is frame-owned `:sensitive {:app-db [...]}`); the legacy handler-meta `:sensitive?` annotation was removed earlier (see [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Per [010 §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md). | 010 |
 
@@ -1825,10 +1825,10 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason   :string]])
 
 ;; --- warning: dev-mode advisory when the walker observes a large value at an undeclared path ---
-;; Frame-owned `:large {:app-db [...]}` classification (EP-0015 §3 / §8) is the nomination path
-;; for app-db size elision; the walker does NOT auto-elide undeclared values, but it emits this
-;; warning once per (frame, path) to nudge authors toward adding the path to the frame's
-;; `:large {:app-db [...]}` classification. Per spec/009-Instrumentation.md §Size elision in traces.
+;; The commit-plane `:large` classification effect (EP-0025) is the nomination path
+;; for durable app-db size elision; the walker does NOT auto-elide undeclared values, but it emits this
+;; warning once per (frame, path) to nudge authors toward classifying the path with a `:large` effect
+;; returned from a handler alongside its `:db` write. Per spec/009-Instrumentation.md §Size elision in traces.
 
 (def LargeValueUnschemadTags
   [:map
