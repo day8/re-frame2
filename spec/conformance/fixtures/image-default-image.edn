@@ -1,0 +1,71 @@
+;; Conformance fixture: image/default-image
+;;
+;; EP-0026 §Default Image (../../docs/EP/EP-0026-image-api-simplification.md):
+;; the default image is a frame-construction behavior, not an ordinary
+;; `rf/image` value. The default image is the implicit selector over the WHOLE
+;; default source-store pool — it selects ALL ordinary namespace-authored
+;; registrations and includes the framework standards. Duplicate distinct
+;; `[kind id]` descriptors in the default image FAIL LOUD (no image order to
+;; resolve them, no last-write-wins). `:images []` is an ERROR: pass at least one
+;; image, or OMIT `:images` for the default.
+;;
+;; SCOPE NOTE — this fixture pins the SHIPPED pure-assembler default path
+;; (`re-frame.image-assembly/assemble-default`, exercised via the
+;; `:assemble-image` op's omit-`:images` / `:default? true` branch). EP-0026
+;; ALSO rules that `make-frame {}` (omit `:images` at the frame boundary) should
+;; resolve the default generation, but that OMIT→default BOUNDARY WIRING is
+;; DEFERRED (follow-up bead rf2-59orj0): the shipped `make-frame {}` still
+;; carries NO generation (an ordinary configured frame). This fixture
+;; deliberately does NOT pin the deferred make-frame-{}=default behavior — only
+;; the shipped default-projection assembler + the `:images []` error.
+;;
+;; Mode-B `:assemble-image` call op. The default-projection calls OMIT `:images`
+;; (the op routes to `assemble-default :pool`); the `:images []` error uses the
+;; `:images-literal` make-frame-boundary leg (`validate-images!` fires BEFORE any
+;; frame record is created, so it is pure).
+
+{:fixture/id           :image/default-image
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 default image (shipped assemble-default path): omitting :images projects the WHOLE pool + framework standards; an empty pool is a valid empty projection (no zero-match fail); a cross-namespace same-[kind id] collision in the default projection fails loud with :rf.error/image-duplicate-id (no last-write-wins). :images [] is an error (:rf.error/make-frame-bad-images). Does NOT pin the deferred make-frame-{}=default boundary (rf2-59orj0)."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) The default projection (omit :images) selects the WHOLE pool — every
+  ;; namespace's descriptors — plus the framework standards.
+  {:call :assemble-image
+   :standards [[:fx :rf.nav/push-url]]
+   :pool [{:rf.provenance/ns "shop.cart"    :kind :event :id :cart/add     :handler-fn :add}
+          {:rf.provenance/ns "shop.cart"    :kind :sub   :id :cart/items   :handler-fn :items}
+          {:rf.provenance/ns "shop.auth"    :kind :event :id :auth/login   :handler-fn :login}
+          {:rf.provenance/ns "shop.catalog" :kind :view  :id :catalog/grid :handler-fn :grid}]
+   ;; no :images key — the op routes to assemble-default over the pool.
+   :expect-present [[:event :cart/add] [:sub :cart/items]
+                    [:event :auth/login] [:view :catalog/grid]
+                    [:fx :rf.nav/push-url]]
+   :expect-kinds #{:event :sub :view :fx}}
+
+  ;; (2) An EMPTY pool default projection is VALID — an empty generation (no
+  ;; zero-match fail-loud, unlike a :select-ns :include glob).
+  {:call :assemble-image
+   :pool []
+   :default? true
+   :expect-kinds #{}}
+
+  ;; (3) A cross-namespace same-[kind id] collision in the default projection
+  ;; FAILS LOUD — the default image does NOT guess and does NOT let load order
+  ;; win (no last-write-wins on the default path).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "examples.todo.boot"    :kind :event :id :boot/init :handler-fn :todo}
+          {:rf.provenance/ns "examples.counter.boot" :kind :event :id :boot/init :handler-fn :counter}]
+   :default? true
+   :expect-error :rf.error/image-duplicate-id}
+
+  ;; (4) :images [] is an ERROR at the make-frame boundary — pass at least one
+  ;; image, or OMIT :images for the default. (validate-images! fires before any
+  ;; frame record is created, so this leg is pure.)
+  {:call :assemble-image
+   :images-literal []
+   :expect-error :rf.error/make-frame-bad-images}]}

@@ -1,0 +1,38 @@
+;; Conformance fixture: image/duplicate-image-id
+;;
+;; EP-0026 §Image Keys (../../docs/EP/EP-0026-image-api-simplification.md): image
+;; ids MUST be unique within a single `:images` composition. The shadow report
+;; identifies images by id, so two images sharing an id in one composition could
+;; not be told apart — assembly fails loud with
+;; :rf.error/image-duplicate-image-id. Anonymous images (no `:id`) are exempt: an
+;; absent id is not a shared id (the control below composes two anonymous images
+;; cleanly).
+;;
+;; Mode-B `:assemble-image` call op. The negative call carries `:expect-error`
+;; (Spec 009 §The thrown-error shape — `case` on `:rf.error/id`, never the
+;; message string).
+
+{:fixture/id           :image/duplicate-image-id
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 image-id uniqueness: two images sharing an :id within one :images composition fail loud with :rf.error/image-duplicate-image-id (the shadow report identifies images by id). Anonymous images (no :id) are exempt — two compose cleanly."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) Two images share :id :dup within one composition — fail loud.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "a.core" :kind :fx :id :checkout.http/post :handler-fn :a}
+          {:rf.provenance/ns "b.core" :kind :fx :id :checkout.http/post :handler-fn :b}]
+   :images [{:id :dup :select-ns {:include ["a.core"]}}
+            {:id :dup :select-ns {:include ["b.core"]}}]
+   :expect-error :rf.error/image-duplicate-image-id}
+
+  ;; (2) CONTROL: two ANONYMOUS images (no :id) with disjoint inline [kind id]s
+  ;; compose cleanly — an absent id is not a shared id.
+  {:call :assemble-image
+   :pool []
+   :images [{:registrations {:reg-fx [[:a/post :a]]}}
+            {:registrations {:reg-fx [[:b/post :b]]}}]
+   :expect-present [[:fx :a/post] [:fx :b/post]]}]}

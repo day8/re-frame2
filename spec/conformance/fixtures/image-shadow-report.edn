@@ -1,0 +1,78 @@
+;; Conformance fixture: image/shadow-report
+;;
+;; EP-0026 §Shadow Report (../../docs/EP/EP-0026-image-api-simplification.md):
+;; when a later image shadows an earlier image's registration, composition
+;; records it on the generation's `:rf.gen/shadows`. Each entry says EXACTLY
+;; three things — nothing else (no winner descriptor, image index, tier, source
+;; namespace, or scope tag):
+;;
+;;   {:registration [kind id]    ;; the shadowed registration
+;;    :image        <defined-in> ;; the image the LOSER was defined in
+;;    :shadowed-by  <winner>}    ;; the FINAL live winner image
+;;
+;; A cross-image shadow RESOLVES (later wins) and is REPORTED — it does NOT fail
+;; assembly (EP-0026 Acceptance Bar 2). When images form a CHAIN for one
+;; [kind id], every loser names the FINAL winner (not the immediate
+;; predecessor), so an assertion never has to walk a chain. A composition with no
+;; shared [kind id] carries an EMPTY report.
+;;
+;; Mode-B `:assemble-image` call op: `:expect-shadows` asserts the EXACT shadow
+;; report vector (deterministically ordered by registration then loser image
+;; position). The report is pure EDN — the three keys are keywords + the loser /
+;; winner image ids + the [kind id] tuple.
+
+{:fixture/id           :image/shadow-report
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 shadow report: a cross-image shadow does NOT fail assembly — it resolves (later wins) and is reported as a flat {:registration [kind id] :image <loser> :shadowed-by <winner>} entry. A chain names the FINAL winner for every loser. A disjoint composition reports empty."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) A cross-image shadow RESOLVES (later wins) AND is reported — it does NOT
+  ;; fail assembly. One later image overriding one earlier registration produces
+  ;; ONE flat entry naming the loser image + the winner image.
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "checkout.core" :kind :fx :id :checkout.http/post :handler-fn :real}]
+   :images [{:id :app/main :select-ns {:include ["checkout.core"]}}
+            {:id :test/doubles :registrations {:reg-fx [[:checkout.http/post :stub]]}}]
+   ;; the later image wins the resolver …
+   :expect-resolves [{:kind :fx :id :checkout.http/post
+                      :coordinate {:image :test/doubles :inline [:reg-fx :checkout.http/post]}}]
+   ;; … and the shadow report names the loser + the winner.
+   :expect-shadows [{:registration [:fx :checkout.http/post]
+                     :image        :app/main
+                     :shadowed-by  :test/doubles}]}
+
+  ;; (2) A CHAIN [base override-a override-b] reports the FINAL winner for EVERY
+  ;; loser — base AND override-a are both :shadowed-by override-b, never the
+  ;; immediate predecessor.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :base :registrations {:reg-fx [[:checkout.http/post :base]]}}
+            {:id :ov/a :registrations {:reg-fx [[:checkout.http/post :a]]}}
+            {:id :ov/b :registrations {:reg-fx [[:checkout.http/post :b]]}}]
+   :expect-shadows [{:registration [:fx :checkout.http/post] :image :base :shadowed-by :ov/b}
+                    {:registration [:fx :checkout.http/post] :image :ov/a :shadowed-by :ov/b}]}
+
+  ;; (3) Two earlier images each shadowed by the same later one for DIFFERENT
+  ;; [kind id]s — two entries (one per shadowed registration).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "a.core" :kind :fx  :id :pay/post  :handler-fn :a-pay}
+          {:rf.provenance/ns "b.core" :kind :sub :id :pay/total :handler-fn :b-total}]
+   :images [{:id :img/a :select-ns {:include ["a.core"]}}
+            {:id :img/b :select-ns {:include ["b.core"]}}
+            {:id :test/doubles :registrations {:reg-fx  [[:pay/post :stub-post]]
+                                               :reg-sub [[:pay/total :stub-total]]}}]
+   :expect-shadows [{:registration [:fx :pay/post]   :image :img/a :shadowed-by :test/doubles}
+                    {:registration [:sub :pay/total] :image :img/b :shadowed-by :test/doubles}]}
+
+  ;; (4) A composition with NO shared [kind id] carries an EMPTY report (nothing
+  ;; was overridden — the common deliberate-no-override case).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "a.core" :kind :fx :id :a/post :handler-fn :a}
+          {:rf.provenance/ns "b.core" :kind :fx :id :b/post :handler-fn :b}]
+   :images [{:id :img/a :select-ns {:include ["a.core"]}}
+            {:id :img/b :select-ns {:include ["b.core"]}}]
+   :expect-shadows []}]}

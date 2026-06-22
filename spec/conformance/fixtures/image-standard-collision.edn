@@ -1,0 +1,61 @@
+;; Conformance fixture: image/standard-collision
+;;
+;; EP-0026 §Framework Standard Registrations
+;; (../../docs/EP/EP-0026-image-api-simplification.md): framework standard
+;; registrations are PROTECTED. They are not part of ordinary app image layer
+;; order, and a public app image MUST NOT shadow one. A standard encodes an
+;; execution invariant (e.g. `:rf.interceptor/path`, the app-db commit no-op
+;; rule), so shadowing it is a correctness violation, not an app policy choice.
+;; An app descriptor (selected OR inline) with the same `[kind id]` as a
+;; framework standard fails assembly with
+;; :rf.error/image-standard-replacement-forbidden — regardless of image position
+;; (even a LATER image cannot shadow a standard). A standard with NO colliding
+;; app id is simply unioned into the generation.
+;;
+;; Mode-B `:assemble-image` call op: `:standards` is a vector of `[kind id]`
+;; framework standards the op `register-standard!`s before assembling (the
+;; protected base). Each negative call carries `:expect-error` (Spec 009 §The
+;; thrown-error shape — `case` on `:rf.error/id`, never the message string).
+
+{:fixture/id           :image/standard-collision
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 protected standards: a public app descriptor (selected or inline) colliding with a framework standard's [kind id] fails loud with :rf.error/image-standard-replacement-forbidden, regardless of image position — even a later image cannot shadow a standard. A standard with no colliding app id is unioned in."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) A SELECTED app descriptor colliding with a framework standard — fail
+  ;; loud (there is no public :replace-standard opt-in).
+  {:call :assemble-image
+   :standards [[:fx :rf.nav/push-url]]
+   :pool [{:rf.provenance/ns "product.story" :kind :fx :id :rf.nav/push-url :handler-fn :app-override}]
+   :images [{:id :p/img :select-ns {:include ["product.story"]}}]
+   :expect-error :rf.error/image-standard-replacement-forbidden}
+
+  ;; (2) An INLINE app entry colliding with a framework standard — also fail loud.
+  {:call :assemble-image
+   :standards [[:fx :rf.nav/push-url]]
+   :pool []
+   :images [{:id :i :registrations {:reg-fx [[:rf.nav/push-url :app]]}}]
+   :expect-error :rf.error/image-standard-replacement-forbidden}
+
+  ;; (3) Even a LATER image cannot shadow a standard — standards are not part of
+  ;; app layer order, so the app/standard collision fails regardless of position.
+  {:call :assemble-image
+   :standards [[:fx :rf.nav/push-url]]
+   :pool [{:rf.provenance/ns "app.core" :kind :event :id :app/boot :handler-fn :boot}]
+   :images [{:id :base :select-ns {:include ["app.core"]}}
+            {:id :ovr  :registrations {:reg-fx [[:rf.nav/push-url :app]]}}]
+   :expect-error :rf.error/image-standard-replacement-forbidden}
+
+  ;; (4) CONTROL: a framework standard with NO colliding app id is simply unioned
+  ;; into the generation alongside the selected app descriptors.
+  {:call :assemble-image
+   :standards [[:fx :rf.nav/push-url]]
+   :pool [{:rf.provenance/ns "product.story" :kind :event :id :product/open :handler-fn :open}]
+   :images [{:id :i :select-ns {:include ["product.story"]}}]
+   :expect-present [[:fx :rf.nav/push-url] [:event :product/open]]
+   :expect-resolves [{:kind :event :id :product/open :coordinate {:ns "product.story"}}
+                     {:kind :fx :id :rf.nav/push-url :coordinate {:standard true}}]}]}

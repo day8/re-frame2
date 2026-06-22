@@ -1,0 +1,64 @@
+;; Conformance fixture: image/order-resolution
+;;
+;; EP-0026 §Layered Resolution (../../docs/EP/EP-0026-image-api-simplification.md):
+;; image composition is ordered data and resolves by ONE rule — the LATER image
+;; in `:images` wins. Image order is the ONLY precedence (there is no
+;; within-image winner rule, because an image must resolve cleanly to one
+;; descriptor per `[kind id]`). So every override is BETWEEN images: a later
+;; image SHADOWS an earlier one, and a multi-image chain resolves to the LAST
+;; image. A cross-image shadow resolves (later wins) and is recorded in the
+;; shadow report — it does NOT fail assembly (the shadow-report SHAPE is pinned
+;; by image-shadow-report.edn).
+;;
+;; Mode-B `:assemble-image` call op: who-won is read from the resolved
+;; descriptor's pure-EDN coordinate — `{:ns …}` for a namespace-selected
+;; descriptor, `{:image … :inline …}` for an inline one. The override image (a
+;; later image whose inline `:registrations` define the winner) is the canonical
+;; test-doubles composition shape from the EP §Use Cases.
+
+{:fixture/id           :image/order-resolution
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/image}
+ :fixture/doc          "EP-0026 image-order resolution: the LATER image in :images wins a cross-image [kind id]; reversing image order reverses the winner; a multi-image chain resolves to the last image. Image order is the only precedence."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) The test-doubles shape: the app image SELECTS :checkout.http/post; a
+  ;; LATER override image DEFINES it inline. The later image wins — the resolved
+  ;; descriptor is the inline one (coordinate names the override image).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "checkout.core" :kind :fx :id :checkout.http/post :handler-fn :real}]
+   :images [{:id :app/main :select-ns {:include ["checkout.core"]}}
+            {:id :test/doubles :registrations {:reg-fx [[:checkout.http/post :stub]]}}]
+   :expect-resolves [{:kind :fx :id :checkout.http/post
+                      :coordinate {:image :test/doubles :inline [:reg-fx :checkout.http/post]}}]}
+
+  ;; (2) Image order is the ONLY precedence: composing the app image LAST makes
+  ;; its SELECTED registration the winner instead (the inline override now loses).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "checkout.core" :kind :fx :id :checkout.http/post :handler-fn :real}]
+   :images [{:id :test/doubles :registrations {:reg-fx [[:checkout.http/post :stub]]}}
+            {:id :app/main :select-ns {:include ["checkout.core"]}}]
+   :expect-resolves [{:kind :fx :id :checkout.http/post :coordinate {:ns "checkout.core"}}]}
+
+  ;; (3) A multi-image chain [base override-a override-b] resolves the shared
+  ;; [kind id] to the LAST image's descriptor.
+  {:call :assemble-image
+   :pool []
+   :images [{:id :base  :registrations {:reg-fx [[:checkout.http/post :base]]}}
+            {:id :ov/a  :registrations {:reg-fx [[:checkout.http/post :a]]}}
+            {:id :ov/b  :registrations {:reg-fx [[:checkout.http/post :b]]}}]
+   :expect-resolves [{:kind :fx :id :checkout.http/post
+                      :coordinate {:image :ov/b :inline [:reg-fx :checkout.http/post]}}]}
+
+  ;; (4) Two namespace-selected images defining the same [kind id] resolve to the
+  ;; LATER image's selected descriptor (image order, not the registrar / pool
+  ;; order).
+  {:call :assemble-image
+   :pool [{:rf.provenance/ns "a.core" :kind :fx :id :pay/post :handler-fn :a}
+          {:rf.provenance/ns "b.core" :kind :fx :id :pay/post :handler-fn :b}]
+   :images [{:id :img/a :select-ns {:include ["a.core"]}}
+            {:id :img/b :select-ns {:include ["b.core"]}}]
+   :expect-resolves [{:kind :fx :id :pay/post :coordinate {:ns "b.core"}}]}]}
