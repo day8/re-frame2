@@ -29,6 +29,13 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
+            ;; Load the flows artefact so the rollback-survivor tests below can
+            ;; register REAL `reg-flow` outputs (which install `:source :flow`
+            ;; elision marks at registration time) and exercise the
+            ;; source-aware rollback restore (rf2-5lo1fk / rf2-o6rsi2 /
+            ;; rf2-yzsims). Requiring it publishes the `:flows/*` late-bind
+            ;; hooks the drain + rollback paths consult.
+            [re-frame.flows]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -384,63 +391,182 @@
       (is (= {:rf.runtime/machines {:m :pre}} (rf/runtime-db-value :pc/rb))
           "runtime-db ALSO rolled back — the whole transition unwinds coherently"))))
 
-;; rf2-qzs1y9 — forward/rollback symmetry for flow-written elision marks.
+;; EP-0025 SOURCE-AWARE rollback restore — rf2-5lo1fk / rf2-fwejwc /
+;; rf2-o6rsi2 / rf2-3pglag / rf2-yzsims.
 ;;
-;; The forward commit reconciles the runtime-db effect against the LIVE
-;; runtime-db so an elision mark a flow's `:after`-chain drain wrote into
-;; `[:rf.runtime/elision]` (AFTER the chain-start `runtime-before` snapshot was
-;; captured by reference) SURVIVES the commit. The post-commit schema-validation
-;; ROLLBACK must mirror that care: it restores the pre-handler `runtime-before`,
-;; which predates the in-drain mark — restoring it verbatim would silently
-;; DISCARD the flow-written elision declaration, and a flow-derived sensitive
-;; path would egress RAW until the next successful drain re-propagated. We model
-;; the flow's in-drain `refresh-flow-output-declarations!` write with `add-marks`
-;; from an `:after` interceptor — both reach the SAME `[:rf.runtime/elision]`
-;; slot via `elision/swap-elision-slot!`, the exact out-of-band write the
-;; forward-path comment names, running in-chain after `runtime-before` is fixed.
-(deftest schema-rollback-preserves-flow-written-elision-marks
-  (testing "a post-commit schema rollback PRESERVES an elision mark written
-            out-of-band during the :after chain (the mark the forward path
-            preserves) — forward/rollback symmetry (rf2-qzs1y9)"
-    (when (late-bind/get-fn :schemas/validate-app-schema!)
-      (rf/reg-frame :pc/rb-elision {:doc "rb-elision"})
-      ;; seed a coherent pre-handler frame-state with NO elision registry — the
-      ;; mark must be born DURING the chain, so it is absent from `runtime-before`.
-      (rf/replace-frame-state! :pc/rb-elision {:rf.db/app {:n 0}
+;; The post-commit schema-rollback arm restores the per-frame elision registry
+;; SOURCE-AWARE, not by carrying the whole LIVE registry forward. Per Spec 015
+;; §84 a classification `walks back atomically with the frame on a revert`, but
+;; only the IN-BAND classification the rejected event produced:
+;;
+;;   - an in-band `:source :effect` mark (a `:sensitive` / `:large`
+;;     commit-plane classification effect the rejected handler returned) MUST
+;;     UNWIND with the rejected `:db` (rf2-5lo1fk);
+;;   - an out-of-band `:source :flow` / `:source :machine` / `:source :route`
+;;     mark — written at `reg-flow` registration time, or lowered by a subsystem
+;;     during the event — MAY legitimately SURVIVE the rollback;
+;;   - a `:source :flow` mark a mid-drain reentrant `reg-flow` output-path MOVE
+;;     dropped from the LIVE registry is RESTORED to its pre-cascade old path
+;;     (rf2-o6rsi2) — a privacy fail-open the old carry-live behaviour caused.
+;;
+;; The base is the PRE-CASCADE registry (the `[:rf.runtime/elision]` sub-tree of
+;; the chain-start `runtime-before`), overlaid with the LIVE out-of-band
+;; entries. (rf2-3pglag note: the old version of the next test FAKED a flow with
+;; a `:source :effect` write and asserted it SURVIVED — which pinned the
+;; rf2-5lo1fk bug. It is rewritten below: a real `:source :effect`
+;; classification UNWINDS; a real `:source :flow` mark SURVIVES.)
+
+(deftest schema-rollback-unwinds-in-band-effect-keeps-flow-mark
+  (testing "a post-commit schema rollback UNWINDS the rejected event's in-band
+            :source :effect classification (rf2-5lo1fk) while a real
+            :source :flow mark (installed at reg-flow time, pre-existing the
+            rejected event) SURVIVES (rf2-3pglag)"
+    (when (and (late-bind/get-fn :schemas/validate-app-schema!)
+               (late-bind/get-fn :flows/run-flows-on-db))
+      (rf/reg-frame :pc/rb-srcaware {:doc "rb-srcaware"})
+      ;; Seed a coherent pre-handler app-db that PASSES the schema below, so the
+      ;; rollback target is `{:n 0}` (the rejected `{:n -5}` unwinds to it).
+      (rf/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0}
                                                :rf.db/runtime {}})
-      (is (= {} (elision/sensitive-declarations :pc/rb-elision))
-          "precondition: no flow-written sensitive declaration before dispatch")
+      ;; A REAL flow whose output is classified sensitive. `reg-flow` installs
+      ;; the `{:source :flow}` mark at REGISTRATION time, so it is present in
+      ;; `runtime-before` (the chain-start snapshot) and must survive a rollback.
+      (rf/reg-flow {:id          :creds
+                    :inputs      [[:n]]
+                    :derive      (fn [n] {:secret n})
+                    :output-path [:derived :creds]
+                    :sensitive   [[:secret]]}
+                   {:frame :pc/rb-srcaware})
+      (is (= {:source :flow :flow-id :creds}
+             (get (elision/sensitive-declarations :pc/rb-srcaware)
+                  [:derived :creds :secret]))
+          "precondition: the :source :flow mark is installed at reg-flow time")
       ;; app schema demanding :n stay a non-negative int — the bad handler
       ;; violates it, forcing the post-commit rollback.
-      (rf/with-frame :pc/rb-elision
+      (rf/with-frame :pc/rb-srcaware
         (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
-      ;; An :after interceptor that writes a sensitive elision declaration into
-      ;; the LIVE runtime-db — the stand-in for a flow drain installing an
-      ;; output classification mid-chain. It runs after `runtime-before` was
-      ;; captured, so the declaration exists ONLY in the live runtime-db, never
-      ;; in the snapshot. EP-0025: the imperative add-marks API is removed, so we
-      ;; write directly through the kept elision registry (`:source :effect`).
-      (rf/reg-interceptor* :pc/flow-mark-writer
+      ;; The rejected handler returns BOTH an invalid :db AND an in-band
+      ;; commit-plane :sensitive classification effect (`:source :effect`). The
+      ;; schema rejects :db → the whole transition rolls back; the in-band
+      ;; classification MUST unwind with it.
+      (rf/reg-event :pc/bad-with-effect
+        {:doc "schema-violating handler returning an in-band classification effect"}
+        (fn [_ _]
+          {:db        {:n -5}                            ;; violates the schema → rollback
+           :sensitive [[:another-secret]]}))             ;; in-band :source :effect mark
+      (rf/dispatch-sync [:pc/bad-with-effect] {:frame :pc/rb-srcaware})
+      (is (= {:n 0} (rf/app-db-value :pc/rb-srcaware))
+          "app-db rolled back to the pre-handler value (the schema rejection held)")
+      ;; rf2-5lo1fk: the in-band :source :effect classification UNWINDS with the
+      ;; rejected db (before the fix the source-blind carry-live PRESERVED it).
+      (is (not (contains? (elision/sensitive-declarations :pc/rb-srcaware)
+                          [:another-secret]))
+          "the rejected event's in-band :source :effect classification UNWINDS on rollback (rf2-5lo1fk)")
+      ;; rf2-3pglag: the pre-existing :source :flow mark SURVIVES the rollback.
+      (is (= {:source :flow :flow-id :creds}
+             (get (elision/sensitive-declarations :pc/rb-srcaware)
+                  [:derived :creds :secret]))
+          "the pre-existing :source :flow mark SURVIVES the rollback (rf2-3pglag)"))))
+
+;; rf2-yzsims — positive rollback-survivor coverage for genuine out-of-band
+;; sources LOWERED DURING the rejected event, plus the rf2-o6rsi2 reentrant
+;; reg-flow output-path MOVE case (old-path mark restored).
+
+(deftest schema-rollback-keeps-subsystem-mark-lowered-during-event
+  (testing "a :source :machine declaration lowered DURING the rejected event
+            (the only legitimate during-event out-of-band write under the
+            post-EP-0025 model) SURVIVES the rollback while the rejected :db
+            unwinds (rf2-yzsims)"
+    (when (late-bind/get-fn :schemas/validate-app-schema!)
+      (rf/reg-frame :pc/rb-subsys {:doc "rb-subsys"})
+      (rf/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0}
+                                              :rf.db/runtime {}})
+      (is (= {} (elision/sensitive-declarations :pc/rb-subsys))
+          "precondition: no subsystem mark before dispatch")
+      (rf/with-frame :pc/rb-subsys
+        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+      ;; An :after interceptor models a subsystem (machine actor spawn / route
+      ;; activation) lowering a declaration into the LIVE registry DURING the
+      ;; event — out-of-band (`:source :machine`), after `runtime-before` was
+      ;; captured. This is the load-bearing positive case the source-aware
+      ;; restore preserves.
+      (rf/reg-interceptor* :pc/subsystem-mark-writer
         {:after (fn [ctx]
-                  (elision/swap-elision-slot! :pc/rb-elision
+                  (elision/swap-elision-slot! :pc/rb-subsys
                     (fn [reg]
-                      (assoc-in reg [:sensitive-declarations [:secret]]
-                                {:source :effect})))
+                      (assoc-in reg [:sensitive-declarations [:actor :token]]
+                                {:source :machine :machine-id :door})))
                   ctx)})
-      (rf/reg-event :pc/bad-elision
-        {:doc "schema-violating handler that triggers the rollback"
-         :interceptors [:pc/flow-mark-writer]}
+      (rf/reg-event :pc/bad-subsys
+        {:doc "schema-violating handler; the interceptor lowers a subsystem mark"
+         :interceptors [:pc/subsystem-mark-writer]}
         (fn [_ _]
           {:db {:n -5}}))                                ;; violates the schema → rollback
-      (rf/dispatch-sync [:pc/bad-elision] {:frame :pc/rb-elision})
-      (is (= {:n 0} (rf/app-db-value :pc/rb-elision))
-          "app-db rolled back to the pre-handler value (the schema rejection held)")
-      ;; THE REGRESSION: before the fix the rollback restored `runtime-before`
-      ;; verbatim and this declaration was gone, so `[:secret]` would egress RAW.
-      (is (= {[:secret] {:source :effect}}
-             (elision/sensitive-declarations :pc/rb-elision))
-          "the flow-written elision mark SURVIVES the rollback — the rollback
-           mirrors the forward path's privacy fail-safe (rf2-qzs1y9)"))))
+      (rf/dispatch-sync [:pc/bad-subsys] {:frame :pc/rb-subsys})
+      (is (= {:n 0} (rf/app-db-value :pc/rb-subsys))
+          "app-db rolled back to the pre-handler value")
+      (is (= {:source :machine :machine-id :door}
+             (get (elision/sensitive-declarations :pc/rb-subsys) [:actor :token]))
+          "the during-event out-of-band :source :machine mark SURVIVES the rollback (rf2-yzsims)"))))
+
+(deftest schema-rollback-restores-moved-flow-old-path-mark
+  (testing "a reentrant reg-flow output-path MOVE inside a schema-rejected
+            event drops the OLD-path :source :flow mark from the LIVE registry;
+            the source-aware rollback RESTORES it from the pre-cascade snapshot
+            (rf2-o6rsi2) — a privacy fail-open the old carry-live caused"
+    (when (and (late-bind/get-fn :schemas/validate-app-schema!)
+               (late-bind/get-fn :flows/run-flows-on-db))
+      (rf/reg-frame :pc/rb-move {:doc "rb-move"})
+      ;; Seed a coherent pre-handler app-db that PASSES the schema below.
+      (rf/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0}
+                                            :rf.db/runtime {}})
+      ;; A real flow whose sensitive output sits at the OLD path. The mark is
+      ;; installed at reg-flow time, so it is in the chain-start snapshot.
+      (rf/reg-flow {:id          :mover
+                    :inputs      [[:n]]
+                    :derive      (fn [n] {:secret n})
+                    :output-path [:old :creds]
+                    :sensitive   [[:secret]]}
+                   {:frame :pc/rb-move})
+      (is (= {:source :flow :flow-id :mover}
+             (get (elision/sensitive-declarations :pc/rb-move)
+                  [:old :creds :secret]))
+          "precondition: the OLD-path :source :flow mark is installed")
+      (rf/with-frame :pc/rb-move
+        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+      ;; An :after interceptor MOVES the flow's output-path mid-cascade (a
+      ;; reentrant reg-flow), so the LIVE registry drops the OLD-path mark and
+      ;; installs a NEW-path one — BEFORE the post-commit schema rejection.
+      (rf/reg-interceptor* :pc/flow-mover
+        {:after (fn [ctx]
+                  (rf/reg-flow {:id          :mover
+                                :inputs      [[:n]]
+                                :derive      (fn [n] {:secret n})
+                                :output-path [:new :creds]
+                                :sensitive   [[:secret]]}
+                               {:frame :pc/rb-move})
+                  ctx)})
+      (rf/reg-event :pc/bad-move
+        {:doc "schema-violating handler; the interceptor moves the flow output-path"
+         :interceptors [:pc/flow-mover]}
+        (fn [_ _]
+          {:db {:n -5}}))                                ;; violates the schema → rollback
+      (rf/dispatch-sync [:pc/bad-move] {:frame :pc/rb-move})
+      (is (= {:n 0} (rf/app-db-value :pc/rb-move))
+          "app-db rolled back to the pre-handler value")
+      ;; rf2-o6rsi2: the OLD-path mark is restored from the pre-cascade snapshot
+      ;; (the live registry had dropped it; the rolled-back db still holds the
+      ;; old output value, so dropping the mark would leak it RAW).
+      (is (= {:source :flow :flow-id :mover}
+             (get (elision/sensitive-declarations :pc/rb-move)
+                  [:old :creds :secret]))
+          "the dropped OLD-path :source :flow mark is RESTORED on rollback (rf2-o6rsi2)")
+      ;; The NEW-path mark — lowered out-of-band during the event — legitimately
+      ;; survives too (the flow now declares it; harmless over the rolled-back db).
+      (is (= {:source :flow :flow-id :mover}
+             (get (elision/sensitive-declarations :pc/rb-move)
+                  [:new :creds :secret]))
+          "the NEW-path out-of-band :source :flow mark survives (during-event subsystem write)"))))
 
 ;; rf2-wfy2kq (P1 DATA-CORRUPTION) — the post-commit schema rollback must
 ;; restore the FULL prior app-db, not a path-focused SLICE.

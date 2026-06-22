@@ -119,6 +119,78 @@
     :else
     runtime-db))
 
+(defn ^:no-doc restore-elision-slot
+  "EP-0025 SOURCE-AWARE rollback restore for the per-frame elision registry.
+
+  Used by the router's post-commit schema-rollback arm. A rejected `:db`
+  unwinds with the WHOLE frame-state transition (both partitions back to the
+  pre-handler value). Per Spec 015 §84 a classification `walks back atomically
+  with the frame on a revert` — but only the IN-BAND classification this event
+  produced: the four commit-plane classification effects write
+  `{:source :effect}` marks (`apply-classification-effects`), and those MUST
+  unwind. The OTHER sources are written OUT-OF-BAND by long-lived subsystems —
+  `reg-flow` outputs (`:source :flow`), machine actor spawns
+  (`:source :machine`), route activation (`:source :route`) — and a
+  declaration one of those LOWERED during the rejected event may LEGITIMATELY
+  survive the rollback (the actor / route registration is not the
+  schema-rejected `:db` effect).
+
+  The base is `pre-reg` — the per-frame elision registry as it was at
+  chain-start, BEFORE the cascade ran (the `[:rf.runtime/elision]` sub-tree of
+  the chain-start `runtime-before` runtime-db, captured by reference in the
+  router's `assemble-initial-ctx`, so it is a true PRE-CASCADE snapshot at no
+  copy cost). Restoring to that base alone already:
+
+    - UNWINDS in-band `:source :effect` marks the rejected event added
+      (rf2-5lo1fk) — they were not in the pre-cascade snapshot, so they are
+      gone; and
+    - RESTORES an out-of-band `:source :flow` mark a mid-drain reentrant
+      `reg-flow` output-path MOVE dropped (rf2-o6rsi2) — the OLD path's
+      `:source :flow` entry is still in the pre-cascade snapshot, so it comes
+      back (the live registry had already dropped it; carrying live forward
+      would leak — a privacy fail-open on revert).
+
+  But the base alone would also drop an out-of-band declaration LOWERED
+  DURING the event (a `:source :machine` / `:source :route` mark from an actor
+  spawn / route activation inside the rejected event, or the NEW-path
+  `:source :flow` mark from a reentrant move) — those are absent from the
+  pre-cascade snapshot yet legitimately survive. So OVERLAY the LIVE
+  out-of-band entries (`:source` ≠ `:effect`) onto the pre-cascade base: this
+  re-adds the during-event subsystem-lowered marks WITHOUT re-adding the
+  in-band `:source :effect` marks (the only sourced kind that must unwind).
+  Privacy posture stays fail-safe-toward-redaction: a kept mark over a value
+  the rolled-back db no longer holds redacts nothing (harmless); a dropped one
+  risks raw egress.
+
+  `pre-reg` / `live-reg` are the `[:rf.runtime/elision]` registry maps (each
+  may be nil). Returns the restored registry map (or nil when both axes empty)
+  — the caller folds it onto `runtime-before` via `write-elision-slot`.
+  Pure."
+  [pre-reg live-reg]
+  (let [;; Per axis slot (`:sensitive-declarations` / `:declarations`): start
+        ;; from the pre-cascade entries, then overlay the LIVE OUT-OF-BAND
+        ;; (`:source` ≠ `:effect`) entries. The pre-cascade base unwinds in-band
+        ;; `:source :effect` and restores a dropped old-path `:source :flow`;
+        ;; the overlay re-adds during-event subsystem-lowered survivors.
+        restore-axis
+        (fn [slot]
+          (let [pre  (get pre-reg slot)
+                live (get live-reg slot)
+                out-of-band-live (reduce-kv
+                                   (fn [m path decl]
+                                     (if (= :effect (:source decl))
+                                       m
+                                       (assoc m path decl)))
+                                   {}
+                                   (or live {}))
+                merged (merge (or pre {}) out-of-band-live)]
+            (not-empty merged)))
+        s (restore-axis :sensitive-declarations)
+        l (restore-axis :declarations)]
+    (cond-> nil
+      s (assoc :sensitive-declarations s)
+      l (assoc :declarations l))))
+
 (defn ^:no-doc reconcile-runtime-db-effect
   "Reconcile the durable elision registry across a whole-value
   `:rf.db/runtime` partition commit.
