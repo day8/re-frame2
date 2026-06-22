@@ -2395,8 +2395,35 @@
   resolves through the frame's OWN image generation exactly as the original
   construction did. An ordinary (no-image) frame carries `:generation` nil; the
   re-thread is a no-op there (nil ⇒ registrar resolution, byte-identical to
-  before)."
+  before).
+
+  MID-CASCADE GUARD (EP-0027, rf2-y6uzx8). `reset-frame!` is a top-level / view
+  LIFECYCLE op, not a handler op — like construction (a handler mutates app-db;
+  views and top-level materialize / reset frames). Calling it INSIDE an event
+  handler (a cascade in flight, `trace/*handler-scope*` bound) is rejected
+  LOUD with `:rf.error/frame-reset-in-handler` BEFORE any teardown. Without
+  this preflight the sequence was: `destroy-frame!` succeeds (no handler-scope
+  guard on destroy) — the frame is GONE — then the re-`reg-frame` hits the
+  construction-in-handler guard and throws, leaving the frame
+  DESTROYED-AND-NOT-RECREATED (a half-completed reset, the live app a frame
+  short, signalled by an error naming the WRONG cause). The up-front rejection
+  is atomic: no partial teardown."
   [id]
+  ;; EP-0027 §Reset (rf2-y6uzx8): reject a mid-cascade reset BEFORE the destroy.
+  (when trace/*handler-scope*
+    (error/throw-error!
+      :rf.error/frame-reset-in-handler
+      'rf/reset-frame!
+      (str "resetting a frame inside an event handler is not supported "
+           "(EP-0027) — got reset-frame! " (pr-str id) " while a cascade is in "
+           "flight. reset-frame! is a top-level / view LIFECYCLE op (it destroys "
+           "and re-constructs the frame, re-running :initial-events); a handler "
+           "changes app-db, and the view materializes / resets frames from it. "
+           "Move the reset to a frame-provider in the view tree, or to top-level "
+           "boot. (Rejected up front so no partial teardown is left — the frame "
+           "is untouched.)")
+      {:recovery :reset-frames-in-view-or-top-level
+       :extra    {:frame id}}))
   (when-let [f (frame id)]
     (let [;; Snapshot the resolved image generation BEFORE destroy so the
           ;; recreated frame keeps the SAME image-derived registrations
