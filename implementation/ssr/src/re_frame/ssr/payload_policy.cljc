@@ -457,7 +457,7 @@
       scroll / nav-token / pending-nav caches are host-side transient
       state, not runtime-db at all — rf2-1hncp2 / rf2-oosjmh), PROJECTED
       against the frame's route classification (rf2-4xut98 — see below);
-    - `:rf.runtime/elision`  — the wire-elision declaration registry;
+    - `:rf.runtime/elision`  — OMITTED from the wire (rf2-ybn1yb — see below);
     - `:rf.runtime/ssr`       — the SSR hydration metadata.
 
   Returns nil for a nil / empty runtime-db OR when no durable subsystem fact
@@ -484,7 +484,24 @@
   per-frame elision registry at route activation) redacts / elides before it
   rides the hydration blob raw — symmetric with the machines snapshot
   projection and the app-db slice projection. An unclassified route slice rides
-  verbatim (the walk is path-precise)."
+  verbatim (the walk is path-precise).
+
+  rf2-ybn1yb — the `:rf.runtime/elision` per-frame DECLARATION REGISTRY is NOT
+  shipped at all: it is OMITTED from the hydration wire. Its declaration KEYS are
+  themselves app-db / runtime-db PATHS, and a classified path can embed a
+  sensitive id (`[:by-id \"user-secret\" :token]`), so shipping the raw registry
+  would leak both the sensitive PATH STRUCTURE (what the app classifies, and
+  where) and any sensitive id embedded in a key off-box to every visitor — the
+  exact leak EP-0025 / Spec 015 §SSR forbids (\"the per-frame registry is itself
+  projected before any view of it crosses the hydration wire\"). Omitting is the
+  strongest form of that projection. It is also sufficient: SSR and the client
+  run the SAME app image, so the client rebuilds its own identical registry from
+  its `reg-event` classification effects / `reg-flow` / `reg-route` /
+  `reg-machine` as they re-run on mount, and the egress walk consults the LIVE
+  per-frame registry, never the wire copy. The classified app-db / route /
+  machine slices above were ALREADY projected against this registry server-side,
+  so their redaction is baked into the wire value and does not need the
+  declarations to re-derive it."
   [runtime-db]
   (when (map? runtime-db)
     (let [project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
@@ -508,8 +525,12 @@
                   (some? routing-slice)
                   (assoc :rf.runtime/routing routing-slice)
 
-                  (contains? runtime-db :rf.runtime/elision)
-                  (assoc :rf.runtime/elision (:rf.runtime/elision runtime-db))
+                  ;; rf2-ybn1yb — `:rf.runtime/elision` is intentionally OMITTED
+                  ;; (no `(contains? … :rf.runtime/elision)` clause): the per-frame
+                  ;; declaration registry must not cross the hydration wire (its
+                  ;; keys ARE classified paths that can embed a sensitive id; the
+                  ;; client rebuilds its own registry from its registrations on
+                  ;; mount — see the docstring's rf2-ybn1yb note).
 
                   (contains? runtime-db :rf.runtime/ssr)
                   (assoc :rf.runtime/ssr (:rf.runtime/ssr runtime-db)))

@@ -27,7 +27,8 @@
 
   These tests run on both JVM and Node — the policy logic is
   platform-neutral .cljc."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr.payload-policy :as payload-policy]))
@@ -324,26 +325,83 @@
                          ;; still carry one — the fail-closed allowlist strips
                          ;; it regardless, which this sample proves.
                          :nav-token-counter  7}
-   :rf.runtime/elision  {:declarations {[:auth :token] {:sensitive? true}}}
+   ;; rf2-ybn1yb — the per-frame elision DECLARATION registry. Its keys are
+   ;; classified PATHS, and a key can embed a sensitive id
+   ;; (`[:by-id "user-secret-id" :token]`) — so shipping it raw leaks both the
+   ;; sensitive path STRUCTURE and the embedded id off-box. The SSR projection
+   ;; OMITS this slot entirely (the client rebuilds its own registry on mount).
+   :rf.runtime/elision  {:declarations           {[:auth :token] {:source :effect}}
+                         :sensitive-declarations {[:by-id "user-secret-id" :token]
+                                                  {:source :effect}}}
    :rf.runtime/ssr      {:hydration {:server-hash "h1"}}})
 
 (deftest project-runtime-db-ships-durable-omits-transient
-  (testing "project-runtime-db ships machines / route :current / elision / ssr
-            and drops the non-durable routing keys (:pending-navigation +
-            any stale counter)"
+  (testing "project-runtime-db ships machines / route :current / ssr, OMITS the
+            elision declaration registry (rf2-ybn1yb), and drops the non-durable
+            routing keys (:pending-navigation + any stale counter)"
     (let [slice (payload-policy/project-runtime-db sample-runtime-db)]
       (is (= {:snapshots {:auth.session/abc {:state :authenticated}}}
              (:rf.runtime/machines slice))
           "machine snapshots ride the wire whole")
       (is (= {:current {:route-id :route/home}} (:rf.runtime/routing slice))
           "only the durable :current route slice rides; :pending-navigation + any counter are dropped")
-      (is (= {:declarations {[:auth :token] {:sensitive? true}}}
-             (:rf.runtime/elision slice))
-          "elision declarations ride the wire")
       (is (= {:hydration {:server-hash "h1"}} (:rf.runtime/ssr slice))
           "SSR hydration metadata rides the wire")
       (is (not (contains? (:rf.runtime/routing slice) :pending-navigation)))
       (is (not (contains? (:rf.runtime/routing slice) :nav-token-counter))))))
+
+;; ---- rf2-ybn1yb: the elision declaration registry is OMITTED off-box --------
+;;
+;; EP-0025 / Spec 015 §SSR: "the per-frame registry is itself projected before
+;; any view of it crosses the hydration wire (a classified path can embed a
+;; sensitive id)". The prior `project-runtime-db` shipped the registry RAW —
+;; leaking both the sensitive PATH STRUCTURE (which app-db paths the app
+;; classifies sensitive / large, and where) and any sensitive id embedded in a
+;; declaration key. The safe fix is to OMIT the registry: the client rebuilds
+;; its own identical registry from its registrations on mount, and the egress
+;; walk reads the LIVE registry, never the wire copy. Confirm-by-revert: restore
+;; the `(contains? … :rf.runtime/elision) (assoc :rf.runtime/elision …)` clause
+;; in `project-runtime-db` and these turn red.
+
+(deftest project-runtime-db-omits-elision-registry
+  (testing "rf2-ybn1yb — the :rf.runtime/elision declaration registry is NOT in
+            the projected runtime-db slice (the raw registry never crosses the
+            hydration wire — its keys are classified paths)"
+    (let [slice (payload-policy/project-runtime-db sample-runtime-db)]
+      (is (not (contains? slice :rf.runtime/elision))
+          "the elision declaration registry is omitted from the SSR slice")
+      (is (not (str/includes? (pr-str slice) "sensitive-declarations"))
+          "no sensitive-declarations registry sub-map survives in the slice")
+      (is (not (str/includes? (pr-str slice) "user-secret-id"))
+          "a sensitive id embedded in a classified declaration key does not leak")
+      (is (not (str/includes? (pr-str slice) ":source :effect"))
+          "the registry declaration records (the {:source :effect} marks) do not
+           leak — the classified PATH STRUCTURE never crosses the wire"))))
+
+(deftest full-hydration-payload-omits-elision-registry
+  (testing "rf2-ybn1yb — the full :rf/hydration-payload the client receives
+            carries no :rf.runtime/elision registry and no classified path
+            structure / embedded sensitive id"
+    (let [rt-slice (payload-policy/project-runtime-db sample-runtime-db)
+          payload  (payload-policy/build-payload
+                     :rf/default {:public/page :dashboard} "h1"
+                     {:version 1 :runtime-db rt-slice})]
+      (is (not (contains? (:rf/runtime-db payload) :rf.runtime/elision))
+          "the hydration payload's :rf/runtime-db carries no elision registry")
+      (is (not (str/includes? (pr-str payload) "user-secret-id"))
+          "no sensitive id embedded in a classification key rides the wire")
+      (is (not (str/includes? (pr-str payload) "sensitive-declarations"))
+          "the registry's sensitive-declaration STRUCTURE never crosses the wire"))))
+
+(deftest project-runtime-db-elision-only-projects-to-nil
+  (testing "rf2-ybn1yb — a runtime-db carrying ONLY the elision registry (no
+            other durable subsystem fact) projects to nil, so build-payload
+            omits the optional :rf/runtime-db key entirely (the registry can
+            never be the sole reason a runtime-db slice rides)"
+    (is (nil? (payload-policy/project-runtime-db
+                {:rf.runtime/elision {:sensitive-declarations
+                                      {[:auth :token] {:source :effect}}}}))
+        "elision-only runtime-db contributes no wire slice")))
 
 (deftest project-runtime-db-nil-and-empty
   (testing "nil / empty / non-map runtime-db projects to nil so build-payload
