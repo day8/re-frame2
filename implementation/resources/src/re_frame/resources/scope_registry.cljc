@@ -64,24 +64,21 @@
   marking the whole-db cost on both axes — narrow re-resolution AND
   sensitivity-inheritance precision, EP-0015 disposition 8).
 
-  ## Derived-sensitivity propagation (EP-0016 wave, rf2-fi6tda.1)
+  ## No derived-sensitivity propagation (EP-0025)
 
-  The automatic-inheritance propagation arm IS wired (EP-0015 disposition 8's
-  fourth framework-known graph): a derived scope is treated as sensitive when
-  a declared `:db` input reads a frame-sensitive app-db path, EVEN when the
-  owning resource was not declared `:sensitive?` — defence-in-depth automatic
-  inheritance, consistent with the subs/flows `:rf.egress/output-sensitivity`
-  model (EP-0015 issue 9). The stored `:inputs` shape is the dependency graph
-  the propagation pass reads (`re-frame.resources.classification/`
-  `resolver-derived-sensitive?`); the CONSUMPTION side reads it at scoped-key /
-  entry classification (`whole-entry-disposition-for` → `:redact`). A resolver
-  declares its output's classification with the closed
-  `:rf.egress/output-sensitivity` enum (the SAME claim subs/flows honour —
-  `:rf.egress/inherit` default propagates, `:rf.egress/sensitive` force-marks,
-  `:rf.egress/public` declassifies). The primary scope boundary holds
-  INDEPENDENTLY of this arm via the resource-owned `:sensitive?` claim +
-  scoped-key redaction (Spec 016); the arm only ADDS the precision case where
-  the owning resource was not itself declared `:sensitive?`.
+  There is NO sensitivity PROPAGATION from a resolver's `:db` inputs to its
+  derived scope. EP-0025 removed all sensitivity propagation (subs / flows /
+  the resource scope-resolver arm) — classification does not flow input →
+  output (Spec 015 §No propagation, no taint). A resolver no longer carries a
+  `:rf.egress/output-sensitivity` declassification claim: the key is GONE and
+  silently ignored if present (NOT a fail-closed enum validation). A resource
+  is governed by its OWN projection-relative `:sensitive` / `:large`
+  declarations (lowered per instance into the per-frame elision registry — see
+  `re-frame.resources.classification`), never by sensitivity inherited from the
+  paths its scope resolver read. The off-box trace egress of a resolved scope's
+  identity-bearing values is still FAIL-CLOSED (`project-scope-resolved-egress`)
+  — that is conservative redaction of resolver-owned values copied into trace
+  tags, not a propagation engine.
 
   ## The `resolve-resource-scope` resolver helper
 
@@ -226,44 +223,15 @@
                         " Per Conventions §Segment domain.")
                    {:scope-id scope-id :input input-name :descriptor descriptor})))))))
 
-;; EP-0025 NOTE (FLAGGED to mayor): the resource named-scope-resolver
-;; derived-sensitivity inheritance (EP-0016, rf2-fi6tda) is itself a sensitivity
-;; PROPAGATION surface — a resolver's derived scope inherits its `:db` inputs'
-;; classification. EP-0025 removes sub + flow propagation but this resource-scope
-;; arm was NOT in the rf2-j3jlgu purge scope, so it is RETAINED unchanged here.
-;; Its `:rf.egress/output-sensitivity` enum no longer depends on the deleted
-;; `re-frame.marks` ns — the closed value set is defined locally. If the mayor
-;; rules resource-scope propagation should also go (consistent with EP-0025
-;; §"all sensitivity propagation"), it is a contained follow-up (this fn +
-;; resolver-derived-sensitive? / scope-derived-sensitive? / whole-entry-
-;; disposition-for + their ssr/trace-egress consumers).
-(def ^:private resolver-output-sensitivity-values
-  "The closed value set of a scope resolver's `:rf.egress/output-sensitivity`
-  derived-output declassification claim (EP-0016 resource-scope inheritance)."
-  #{:rf.egress/inherit :rf.egress/sensitive :rf.egress/public})
-
-(defn- coerce-resolver-output-sensitivity
-  "Validate a resolver's `:rf.egress/output-sensitivity` derived-output
-  declassification claim against the closed enum (EP-0016 resource-scope
-  inheritance). Returns the validated value, or `:rf.egress/inherit` (the
-  default) when the key is absent. FAIL-CLOSED: an unknown value THROWS
-  `:rf.error/invalid-resource-scope-spec`."
-  [scope-id v]
-  (cond
-    (nil? v)                                              :rf.egress/inherit
-    (contains? resolver-output-sensitivity-values v)      v
-    :else
-    (throw (registration-error
-             :rf.error/invalid-resource-scope-spec
-             'rf/reg-resource-scope
-             (str "resource-scope " scope-id " declares an invalid "
-                  ":rf.egress/output-sensitivity " (pr-str v) " — it must be one "
-                  "of " (pr-str resolver-output-sensitivity-values) ": "
-                  ":rf.egress/inherit (default — inherit from sensitive :db "
-                  "inputs), :rf.egress/sensitive (force-mark the derived scope "
-                  "sensitive), :rf.egress/public (declassify).")
-             {:scope-id scope-id :rf.egress/output-sensitivity v
-              :valid    resolver-output-sensitivity-values}))))
+;; EP-0025 (rf2-71dr8t): the resource named-scope-resolver derived-sensitivity
+;; inheritance (EP-0016, rf2-fi6tda) was a sensitivity PROPAGATION surface — a
+;; resolver's derived scope inheriting its `:db` inputs' classification. EP-0025
+;; removes ALL sensitivity propagation (subs / flows / this resource-scope arm),
+;; so the `:rf.egress/output-sensitivity` declassification claim + its closed
+;; value set are GONE. The key is silently ignored if present (Spec 015 §No
+;; propagation, no taint: "the key is gone and silently ignored if present, NOT
+;; throwing"), never validated fail-closed. A resource is governed by its OWN
+;; projection-relative `:sensitive` / `:large` declarations.
 
 (defn- canonical-spec
   "Normalize a resolver registration argument into the canonical STORED
@@ -272,9 +240,9 @@
 
   - The CANONICAL map form `{:inputs {name [:db path]} :resolve (fn [inputs ctx]
     …)}` validates every declared input descriptor, requires a fn `:resolve`,
-    and stores `{:inputs <canonical> :resolve <fn> :whole-db? false
-    :output-sensitivity <enum> :doc …}`. Its `:resolve` first arg is ALWAYS the
-    resolved inputs map (the one stable Name-over-place meaning).
+    and stores `{:inputs <canonical> :resolve <fn> :whole-db? false :doc …}`.
+    Its `:resolve` first arg is ALWAYS the resolved inputs map (the one stable
+    Name-over-place meaning).
   - The bare-fn sugar `(fn [db ctx] …)` is the ONE documented explicit
     alternative. It lowers to the SAME canonical stored shape: a synthetic
     `:inputs {:db [:db []]}` (the root path), `:whole-db? true`, and the user
@@ -285,13 +253,11 @@
     whole db as its first arg (the deliberate, documented exception). Tooling
     reads `:whole-db?` to mark the cost on both axes (EP-0015 disposition 8).
 
-  Derived-sensitivity (EP-0016 wave, rf2-fi6tda.1): a resolver MAY declare
-  `:rf.egress/output-sensitivity` (the SAME closed enum subs/flows honour) to
-  classify its DERIVED scope — `:rf.egress/inherit` (default, propagate from
-  sensitive `:db` inputs), `:rf.egress/sensitive` (force-mark), or
-  `:rf.egress/public` (declassify). Validated fail-closed; stored verbatim as
-  `:output-sensitivity` so the consumption-side propagation pass
-  (`re-frame.resources.classification/resolver-derived-sensitive?`) reads it.
+  EP-0025 (rf2-71dr8t): there is NO `:rf.egress/output-sensitivity` claim — all
+  sensitivity propagation is removed. A `:rf.egress/output-sensitivity` key on a
+  resolver spec is silently ignored (NOT validated fail-closed); a resource's
+  classification rides its own projection-relative `:sensitive` / `:large`
+  declarations, not its scope resolver's input paths.
 
   Returns the canonical stored spec; throws a loud
   `:rf.error/invalid-resource-scope-spec` on a malformed argument."
@@ -299,11 +265,10 @@
   (cond
     ;; whole-db fn sugar — lower to an explicit whole-db input
     (fn? resolver)
-    {:inputs             {:db [:db []]}
-     :resolve            (fn [{:keys [db]} ctx] (resolver db ctx))
-     :whole-db?          true
-     :output-sensitivity :rf.egress/inherit
-     :doc                nil}
+    {:inputs    {:db [:db []]}
+     :resolve   (fn [{:keys [db]} ctx] (resolver db ctx))
+     :whole-db? true
+     :doc       nil}
 
     (map? resolver)
     (let [{:keys [inputs resolve doc]} resolver]
@@ -324,16 +289,14 @@
                       (pr-str inputs) ". `:inputs` is a map {name [:db path]}. "
                       "Per Spec 016 §The :inputs grammar.")
                  {:scope-id scope-id :inputs inputs})))
-      {:inputs             (reduce-kv
-                             (fn [acc input-name descriptor]
-                               (assoc acc input-name
-                                      (validate-input-descriptor! scope-id input-name descriptor)))
-                             {} (or inputs {}))
-       :resolve            resolve
-       :whole-db?          false
-       :output-sensitivity (coerce-resolver-output-sensitivity
-                             scope-id (:rf.egress/output-sensitivity resolver))
-       :doc                doc})
+      {:inputs    (reduce-kv
+                    (fn [acc input-name descriptor]
+                      (assoc acc input-name
+                             (validate-input-descriptor! scope-id input-name descriptor)))
+                    {} (or inputs {}))
+       :resolve   resolve
+       :whole-db? false
+       :doc       doc})
 
     :else
     (throw (registration-error
@@ -446,13 +409,12 @@
 (defn input-db-paths
   "Return the vector of CONCRETE app-db paths a resolver's declared `:inputs`
   read off the frame app-db — the `<rf-path>` of each `[:db <rf-path>]` source
-  (the only shipped source). This is the dependency graph the derived-
-  sensitivity propagation pass reads (EP-0016 wave, rf2-fi6tda.1): a path here
-  that overlaps a frame-sensitive declaration inherits sensitivity to the
-  derived scope. The whole-db fn sugar's synthetic `[:db []]` returns `[[]]`
-  (the root path overlaps every sensitive declaration — the documented whole-db
-  cost on the sensitivity axis). Pure; nil/empty `:inputs` → `[]`. Per Spec 015
-  §Derived sensitivity / Spec 016 §The `:inputs` grammar."
+  (the only shipped source). The whole-db fn sugar's synthetic `[:db []]`
+  returns `[[]]` (the root path). EP-0025 (rf2-71dr8t) removed the derived-
+  sensitivity propagation pass that read this dependency graph; the accessor
+  remains for tooling that surfaces a resolver's declared db reads (the
+  whole-db cost on the narrow-re-resolution axis). Pure; nil/empty `:inputs` →
+  `[]`. Per Spec 016 §The `:inputs` grammar."
   [inputs]
   (into []
         (keep (fn [[_input-name [_source rf-path]]] rf-path))
@@ -476,16 +438,17 @@
   "FAIL-CLOSED off-box egress classification for a `:rf.resource/scope-resolved`
   row's resolver `scope-id` (rf2-84l82t). A db-reading resolver MAY read a
   frame-sensitive path the off-box walk cannot prove safe (the row carries the
-  resolved VALUES, not the path provenance), so the conservative posture
-  mirrors `re-frame.resources.classification/resolver-derived-sensitive?`'s
-  fail-closed footing: the resolved `:input-values` / `:scope` are egress-
-  sensitive UNLESS the resolver explicitly DECLASSIFIES via
-  `:output-sensitivity :rf.egress/public` (the standing audit surface — the
-  resolver asserts its derived scope is safe to surface raw). A resolver that
-  is not registered (no spec to read) is sensitive (fail-closed). Pure."
-  [scope-id]
-  (let [spec (scope-resolver-meta scope-id)]
-    (not (= :rf.egress/public (:output-sensitivity spec)))))
+  resolved VALUES, not the path provenance), so the resolved `:input-values` /
+  `:scope` are UNCONDITIONALLY egress-sensitive: a resolver derives a tenant /
+  user / impersonation identity that must not ride an off-box wire raw.
+  EP-0025 (rf2-71dr8t) removed the `:rf.egress/output-sensitivity :rf.egress/
+  public` declassification escape hatch (it was the propagation enum), so the
+  off-box redaction is now always-on for any resolved-scope row — the trusted-
+  local `:include-sensitive?` opt-in at the epoch consumer is the only lift.
+  The `scope-id` arg is retained for the row-attribution signature the epoch
+  projector calls with; the result is constant `true`. Pure."
+  [_scope-id]
+  true)
 
 (defn project-scope-resolved-egress
   "Project a `:rf.resource/scope-resolved` trace row's `tags` for OFF-BOX

@@ -401,12 +401,22 @@
          :rf.cofx/requires [:rf.resource/generation-allocation :rf/time-ms]))
 
 ;; Public resource events (map payloads). Per Spec 016 §Events.
+;; rf2-v8x9n8 — every entry-mutating handler is wrapped with
+;; `resource-events/with-classification-lowering` so its durable `:rf.db/runtime`
+;; transition LOWERS each live entry's projection-relative `:sensitive` /
+;; `:large` classification into the per-frame elision registry under `:source
+;; :resource` (the EP-0025 standard model — the routing/machines lowering peer),
+;; instead of re-deriving it only at the family-private projectors. The
+;; reconciliation is idempotent + self-dropping, so the registry's resource-
+;; sourced set stays in step with `:entries` no matter which handler ran.
 (events/reg-event :rf.resource/ensure
                      generation-meta
-                     resource-events/ensure-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/ensure-handler))
 (events/reg-event :rf.resource/refetch
                      generation-meta
-                     resource-events/refetch-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/refetch-handler))
 ;; EP-0021 R2 — `:rf.resource/load-more` extends an infinite feed by one page.
 ;; It mints a generation (the same host-side monotone allocator, for stale
 ;; suppression — the work-id derives from it) and records the work-ledger
@@ -414,7 +424,8 @@
 ;; generation-allocation cofx + the time cofx exactly like ensure / refetch.
 (events/reg-event :rf.resource/load-more
                      generation-meta
-                     resource-events/load-more-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/load-more-handler))
 ;; EP-0021 R6 (rf2-byl7bk.3.3) — `:rf.resource.internal/refetch-page` re-fetches
 ;; ONE page of a multi-page refetch sweep (`:refetch-all-pages?` /
 ;; `:refetch-window`). Chained by `page-succeeded-handler` one leg at a time; it
@@ -424,21 +435,26 @@
 ;; load-more. User code MUST NOT dispatch it.
 (events/reg-event :rf.resource.internal/refetch-page
                      generation-meta
-                     resource-events/refetch-page-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/refetch-page-handler))
 ;; EP-0017 (rf2-601ife): `invalidate-tags` writes the durable `:invalidated-at`
 ;; fact from the event's causal `:rf/time-ms`, so it declares the time cofx.
 (events/reg-event :rf.resource/invalidate-tags
                      time-meta
-                     resource-events/invalidate-tags-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/invalidate-tags-handler))
 (events/reg-event :rf.resource/release-owner
                      framework-authority-meta
-                     resource-events/release-owner-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/release-owner-handler))
 (events/reg-event :rf.resource/clear-scope
                      framework-authority-meta
-                     resource-events/clear-scope-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/clear-scope-handler))
 (events/reg-event :rf.resource/remove
                      framework-authority-meta
-                     resource-events/remove-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/remove-handler))
 
 ;; Focus / reconnect revalidation events (rf2-vtblcq, Spec 016 §Stale and GC
 ;; scheduling / §Deferred slices). The host focus / online listeners
@@ -471,10 +487,12 @@
 ;; re-check. Each declares the time cofx so the fact is delivered flat.
 (events/reg-event :rf.resource.internal/succeeded
                      time-meta
-                     resource-events/succeeded-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/succeeded-handler))
 (events/reg-event :rf.resource.internal/failed
                      time-meta
-                     resource-events/failed-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/failed-handler))
 ;; EP-0021 R1/R2 — the infinite-feed PAGE reply handlers. DISTINCT from the
 ;; scalar succeeded / failed replies: a page success APPENDS / replaces-in-place
 ;; one page (`entry-replace-page`); a page failure is the THIRD error channel
@@ -484,19 +502,24 @@
 ;; each declares the time cofx. User code MUST NOT dispatch them.
 (events/reg-event :rf.resource.internal/page-succeeded
                      time-meta
-                     resource-events/page-succeeded-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/page-succeeded-handler))
 (events/reg-event :rf.resource.internal/page-failed
                      time-meta
-                     resource-events/page-failed-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/page-failed-handler))
 (events/reg-event :rf.resource.internal/aborted
                      time-meta
-                     resource-events/aborted-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/aborted-handler))
 (events/reg-event :rf.resource.internal/stale-fired
                      time-meta
-                     resource-events/stale-fired-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/stale-fired-handler))
 (events/reg-event :rf.resource.internal/gc-fired
                      framework-authority-meta
-                     resource-events/gc-fired-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/gc-fired-handler))
 ;; EP-0020 §Polling — an active-owner `:poll` timer fired. The handler
 ;; re-checks the live entry (present? owned? not hidden? not in-flight?) and
 ;; unconditionally refetches (cause `:poll`, never an owner) when polling
@@ -504,7 +527,8 @@
 ;; dispatches this; user code MUST NOT dispatch it directly.
 (events/reg-event :rf.resource.internal/poll-fired
                      framework-authority-meta
-                     resource-events/poll-fired-handler)
+                     (resource-events/with-classification-lowering
+                       resource-events/poll-fired-handler))
 (events/reg-event :rf.resource.internal/stale-suppressed
                      framework-authority-meta
                      resource-events/stale-suppressed-handler)

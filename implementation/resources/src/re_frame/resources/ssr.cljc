@@ -149,11 +149,11 @@
 ;; family-private elider.
 
 ;; The per-entry disposition (`:serialize` / `:redact` / `:omit`) is computed
-;; inside `project-entry` (`classification/whole-entry-disposition-for` over the
-;; resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim PLUS the
-;; named-scope-resolver derived-sensitivity inheritance arm — EP-0015 §6 / issue
-;; 11 + EP-0016 wave rf2-fi6tda.1; Spec 015 §Derived sensitivity). Sensitive wins
-;; over large (the redaction sentinel is the more conservative shape).
+;; inside `project-entry` (`classification/whole-entry-disposition` over the
+;; resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim — EP-0015
+;; §6 / issue 11). EP-0025 (rf2-71dr8t) removed the named-scope-resolver
+;; derived-sensitivity inheritance arm (no sensitivity propagation). Sensitive
+;; wins over large (the redaction sentinel is the more conservative shape).
 
 ;; ---- scoped-key privacy (Spec 016 clause 4, rf2-otms75) -------------------
 ;;
@@ -255,19 +255,21 @@
       [(redact-value scope) resource-id (redact-value params)])))
 
 (defn disposition+project-key
-  "Resolve a scoped key's resource OWNER spec, compute its frame-aware
-  whole-entry disposition, and project the key accordingly — the shared
+  "Resolve a scoped key's resource OWNER spec, compute its whole-entry
+  disposition, and project the key accordingly — the shared
   disposition+project-key pipeline (rf2-366u0g). Returns
   `[projected-key disposition spec]`:
 
     1. `spec`        ← `registry/resource-meta` of `scoped-key`'s resource-id;
-    2. `disposition` ← `classification/whole-entry-disposition-for spec frame-id`
-       (the coarse owner `:sensitive?` / `:large?` claim PLUS the named-scope-
-       resolver derived-sensitivity inheritance against the frame);
+    2. `disposition` ← `classification/whole-entry-disposition spec`
+       (the coarse owner `:sensitive?` / `:large?` root-prop claim). EP-0025
+       (rf2-71dr8t) removed the named-scope-resolver derived-sensitivity
+       inheritance arm, so the disposition no longer depends on `frame-id`;
     3. projected key ← `project-scoped-key scoped-key disposition spec`
        (`:redact` / `:omit` replace scope + params with opaque content-addressed
-       `{:rf/redacted <digest>}` tokens; `:serialize` projects per-slot
-       `:params-schema` marks — the resource-id always survives).
+       `{:rf/redacted <digest>}` tokens; `:serialize` projects the resource's
+       per-slot `:params` projection-relative declarations — the resource-id
+       always survives).
 
   The single home for the pipeline the SSR durable-egress projection
   (`project-entry`), the TOOL-egress algebra view (`tooling/project-key-for-
@@ -282,11 +284,13 @@
   `re-frame.resources.registry` already requires `classification`, so hosting
   it in `classification` would introduce a require cycle. `ssr` already
   requires both `classification` and `registry`, and the trace / tool egress
-  callers already require `ssr`."
-  [scoped-key frame-id]
+  callers already require `ssr`. The `frame-id` arg is retained for caller
+  signature stability (it no longer affects the disposition — EP-0025
+  rf2-71dr8t removed the derived-sensitivity inheritance arm)."
+  [scoped-key _frame-id]
   (let [resource-id (second scoped-key)
         spec        (registry/resource-meta resource-id)
-        disposition (classification/whole-entry-disposition-for spec frame-id)]
+        disposition (classification/whole-entry-disposition spec)]
     [(project-scoped-key scoped-key disposition spec) disposition spec]))
 
 (defn- project-entry
@@ -326,17 +330,16 @@
   (let [scoped-key  (:resource/key entry)
         resource-id (second scoped-key)
         ;; The shared disposition+project-key pipeline (rf2-366u0g) resolves the
-        ;; owner spec ONCE, computes the frame-aware whole-entry disposition, and
-        ;; projects the scoped key in one call:
+        ;; owner spec ONCE, computes the whole-entry disposition, and projects
+        ;; the scoped key in one call:
         ;;   - the spec carries BOTH the coarse root-prop disposition AND the
-        ;;     per-slot `:data-schema` marks (`project-data` layer (a) — EP-0015
-        ;;     §6), needed below for the `:serialize` data projection;
+        ;;     per-slot `:data`-rooted declaration marks (`project-data` layer
+        ;;     (a) — EP-0015 §6), needed below for the `:serialize` data
+        ;;     projection;
         ;;   - the disposition is the OWNER's coarse `:sensitive?` / `:large?`
-        ;;     claim PLUS the named-scope-resolver derived-sensitivity inheritance
-        ;;     arm (a `{:from-db <id>}` resolver reading a frame-sensitive `:db`
-        ;;     input upgrades to `:redact` even when the owner did not declare
-        ;;     `:sensitive?` — EP-0016 wave rf2-fi6tda.1; Spec 015 §Derived
-        ;;     sensitivity);
+        ;;     root-prop claim ALONE — EP-0025 (rf2-71dr8t) removed the
+        ;;     named-scope-resolver derived-sensitivity inheritance arm (no
+        ;;     sensitivity propagation);
         ;;   - `projected-key` is the in-entry `:resource/key` copy projected the
         ;;     SAME way as the wire MAP key (rf2-9e0tyq) — a `:redact` / `:omit`
         ;;     resource redacts its scope + params to opaque content-addressed

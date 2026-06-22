@@ -377,17 +377,17 @@
 ;; The projection reuses the SAME resource OWNER classification the SSR /
 ;; durable-egress path uses — never a tooling-private elider — through the
 ;; shared `ssr/disposition+project-key` pipeline (rf2-366u0g):
-;;   - `classification/whole-entry-disposition-for` (inside the shared helper)
-;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim PLUS the
-;;     named-scope-resolver derived-sensitivity inheritance against the frame
-;;     (so a `{:from-db}` scope reading a frame-sensitive `:db` input redacts
-;;     even when the owner did not declare `:sensitive?`);
+;;   - `classification/whole-entry-disposition` (inside the shared helper)
+;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim. EP-0025
+;;     (rf2-71dr8t) removed the named-scope-resolver derived-sensitivity
+;;     inheritance arm (no sensitivity propagation);
 ;;   - `ssr/project-scoped-key` (inside the shared helper) then projects the
 ;;     scoped key per that disposition — `:redact` / `:omit` replace scope +
 ;;     params with opaque content-addressed `{:rf/redacted <digest>}` tokens
 ;;     (distinct values stay distinct, so graph connectivity by projected key
-;;     is preserved), while `:serialize` applies the per-slot `:params-schema`
-;;     marks and otherwise rides verbatim (non-sensitive identity is preserved).
+;;     is preserved), while `:serialize` applies the resource's per-slot
+;;     `:params` projection-relative declarations and otherwise rides verbatim
+;;     (non-sensitive identity is preserved).
 ;; The resource-id (position 1 of the 3-tuple) always survives, so a tool still
 ;; sees WHICH resource each node names and edges still join nodes by the same
 ;; projected key.
@@ -449,9 +449,9 @@
   before it rides ANY identity position — the `:id`, the realized `[:scope …]`
   / `[:param …]` inputs, the `:output` runtime-path tail, the in-flight
   work-ledger record's `:resource/key`, and the host-transient handle address.
-  A `:sensitive?` / `:large?` / derived-sensitive resource therefore never
-  egresses its raw scope/params here (the value-path walk cannot reach them);
-  a plain resource rides verbatim."
+  A `:sensitive?` / `:large?` resource therefore never egresses its raw
+  scope/params here (the value-path walk cannot reach them); a plain resource
+  rides verbatim."
   [runtime-db scoped-key frame-id entry static-node]
   (let [[proj-key _disp]           (project-key-for-egress scoped-key frame-id)
         [proj-scope _ proj-params] proj-key
