@@ -252,6 +252,55 @@ All the test-support surfaces live in `re-frame.http.test-support` (the single h
 
 Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [014 §Schema reflection](../../spec/014-HTTPRequests.md#schema-reflection-optional-ergonomic).
 
+## Privacy and classification
+
+HTTP is the canonical privacy surface in any app: passwords ride request bodies, auth tokens ride request headers, PII rides response bodies. The framework keeps these off its own observability wire — traces, off-box records, SSR payloads — without you writing a `beforeSend` scrub. Four declaration surfaces cooperate, none of them a process-global mutation. The normative source is [014 §Privacy](../../spec/014-HTTPRequests.md#privacy); the model end-to-end is [keep secrets out of traces](../guide/how-to/keep-secrets-out-of-traces.md).
+
+| Surface | What it covers | Where declared |
+|---|---|---|
+| **Built-in header denylist** | A closed, **immutable** set of always-sensitive header names (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token`, …). Redacted in every `:rf.http/*` trace's `:headers` slot regardless of any `:sensitive?` flag; case-insensitive. No frame can remove a name. | framework default |
+| **Built-in query-param denylist** | A closed, **immutable** set of always-sensitive query-param names (`api_key`, `access_token`, `token`, `secret`, `password`, `session`, `signature`, …). The **value** is redacted inline in `:url` slots (`?api_key=:rf/redacted&page=2`); name + position preserved. A hit also stamps `:sensitive? true` on the event — the name is the signal. | framework default |
+| **Frame-local carriers** | App-specific sensitive header / query-param names, declared on the **frame**; they **union** onto the built-in defaults for traces emitted from that frame. | `reg-frame` `:sensitive {:http {:headers […] :query-params […]}}` |
+| **Per-request / per-call `:sensitive?`** | The coarse opt-in that redacts a single request's body / params / all URL param values wholesale. | the `:rf.http/managed` args map (`:sensitive?` at top level, or under `:request`) |
+
+```clojure
+;; frame-local carrier extensions (union onto the immutable built-ins)
+(rf/reg-frame :app/main
+  {:sensitive {:http {:headers      ["X-Honeycomb-Team"]
+                      :query-params ["shop_token"]}}})
+
+;; per-call opt-in for a single sensitive request
+(rf/reg-event :api/login
+  (fn [_ [_ creds]]
+    {:fx [[:rf.http/managed
+           {:request    {:method :post :url "/auth/login" :body creds}
+            :sensitive? true}]]}))
+```
+
+### Response-body classification — on the `:decode` schema
+
+The denylists and `:sensitive?` flag cover request carriers; the **response body** is a registration-owned transient payload, classified **per-slot via `:sensitive?` / `:large?` props on the request's `:decode` schema** (EP-0015 §5). The `:decode` schema is the owner's natural declaration of the body shape, so per-slot props are the *one* route — there is no second route to classify it. These props fire **independently of** the per-call `:sensitive?` flag.
+
+```clojure
+(rf/reg-event :auth/login
+  (fn [_ [_ creds]]
+    {:fx [[:rf.http/managed
+           {:request {:method :post :url "/auth/login" :body creds}
+            ;; [:token] redacts; [:user-id] rides verbatim
+            :decode  [:map
+                      [:token {:sensitive? true} :string]
+                      [:user-id :int]]
+            :on-success [:auth/logged-in]}]]}))
+```
+
+- **Per-slot.** A `:sensitive?` slot redacts to `:rf/redacted`; a `:large?` slot elides to the size marker; both → sensitive wins. A non-marked sibling rides verbatim. A root-level prop classifies the whole body (e.g. `[:string {:sensitive? true}]` for an opaque-token response).
+- **Off-box fail-closed.** Only an **introspectable** Malli schema (the raw EDN `[op props? …]` vector form) carries per-slot marks the walker can read. An **unschematized** body — the keyword decode modes (`:json` / `:text` / …), a custom decoder fn, a registry-keyword ref, or a compiled `m/schema` object — has an unknown shape, so it is **omitted entirely off-box** (fail-closed) rather than shipped raw.
+- **Raw error bodies are unconditionally omitted off-box.** A 4xx/5xx `:body` and a decode-failure `:body-text` are never decoded (status classification runs before decode), so they fail closed off-box irrespective of `:sensitive?` — error bodies frequently echo request context or tokens.
+
+!!! warning "Classification does not propagate — declare each surface a secret crosses"
+
+    A token in the response body (classified by the `:decode` schema) and the same token stored durably in `app-db` are **two** declarations on two surfaces. There is no propagation that carries one to the other. When `:on-success` writes the token into `app-db`, classify that durable path too — a `reg-event` returning `:sensitive [[:auth :token]]` alongside `:db` ([01 — Core §Standard events](01-core.md) and [keep secrets out of traces](../guide/how-to/keep-secrets-out-of-traces.md)). And never copy a secret into a sibling app-db path you have not classified (e.g. a JWT duplicated at `[:auth :user :token]`): the copy ships raw until *that* path is classified or the duplicate is dropped.
+
 ## Trace events emitted by `:rf.http/managed`
 
 | `:operation` | `:op-type` | When |
@@ -264,6 +313,8 @@ Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-even
 ## See also
 
 - [03 — Effects and interceptors](03-effects.md) — `:rf.http/managed` rowed in the standard fx table.
-- [08 — Schemas](08-schemas.md) — `:rf.http/decode-schemas` and the `:schema` metadata key.
+- [08 — Schemas](08-schemas.md) — `:rf.http/decode-schemas`, the `:schema` metadata key, and per-slot `:sensitive?` / `:large?` schema props.
 - [10 — Testing](10-testing.md) — patterns for combining HTTP stubs with `dispatch-sequence`.
-- [Spec 014 — HTTP Requests](../../spec/014-HTTPRequests.md) — the normative source.
+- [11 — Instrumentation](11-instrumentation.md) — `project-egress`, the wire-boundary walker, and the observability-sink surface.
+- [Keep secrets out of traces](../guide/how-to/keep-secrets-out-of-traces.md) — the full classification + projection model.
+- [Spec 014 — HTTP Requests](../../spec/014-HTTPRequests.md) — the normative source (incl. §Privacy).

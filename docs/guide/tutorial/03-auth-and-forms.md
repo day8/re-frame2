@@ -127,7 +127,13 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler — the p
     (let [user      (:user value)
           return-to (get-in db [:auth :return-to])]
       {:db (-> db
-               (assoc-in [:auth :user]  user)
+               ;; The JWT has ONE durable home: the classified [:auth :token]
+               ;; path (below). Store the user with :token stripped off, so the
+               ;; JWT is NOT duplicated into the UNCLASSIFIED [:auth :user :token]
+               ;; slot — a second copy there would ship raw to every off-box
+               ;; record (classification does not propagate). The view reads the
+               ;; user for identity, never the token.
+               (assoc-in [:auth :user]  (dissoc user :token))
                (assoc-in [:auth :token] (:token user))
                (update :auth dissoc :return-to)
                (update-in [:auth :login-form]
@@ -240,7 +246,11 @@ A login that evaporates on reload isn't really a session. You need three pieces:
 
 (rf/reg-event :auth/session-restored
   (fn [{:keys [db]} [_ {:keys [value]}]]
-    {:db (assoc-in db [:auth :user] (:user value))}))
+    ;; The token is already at the classified [:auth :token] path (folded in by
+    ;; :auth/initialise from the saved JWT). Store the restored user with :token
+    ;; stripped, so we don't re-introduce an unclassified copy at
+    ;; [:auth :user :token].
+    {:db (assoc-in db [:auth :user] (dissoc (:user value) :token))}))
 
 (rf/reg-event :auth/session-expired
   (fn [{:keys [db]} _]

@@ -251,6 +251,64 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 
 `elide-wire-value` is the low-level *value* walker. The public, record-level boundary primitive is **`project-egress`**: real egress surfaces (handled-event records, error records, epoch records, MCP snapshots, HTTP diagnostics) emit *records*, and `project-egress` projects a whole record under the owning frame's classification and a named `:rf.egress/*` profile — delegating to `elide-wire-value` for each tree-shaped slot. Sinks and tools call `project-egress`; they rarely call the walker directly. See [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md) for the full projection model and the closed `:rf.egress/*` profile enum.
 
+### `project-egress`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (project-egress record-or-value opts)
+  ```
+- **Description**: The public, record-level boundary primitive (EP-0015) — **the required step before any off-box sink**. Dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error`) to a per-kind projector, falling back to walking a kindless input as a tree-shaped value (the direct-read path); each tree-shaped slot is delegated to `elide-wire-value` against the frame's classification. `opts` carries `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and the advanced `:rf.size/*` overrides (which compose on top of the profile — the override wins). An unknown profile throws `:rf.error/unknown-egress-profile`. **Fail-closed**: a tree slot projects only when the frame is known — there is no `:rf/default` synthesis. To project a derived tree (rendered hiccup, a resolved `:effective-args` map, a snapshot body), wrap it in a `:rf.observe/derived-tree` record; `project-egress` path-walks each slot (a re-keyed value ships raw — the intended fail-open). Per Spec 015 §Projection.
+
+```clojure
+;; Verify what an off-box sink will receive before wiring it.
+(rf/project-egress
+  {:kind     :rf.observe/handled-event
+   :frame    :app/main
+   :event-id :auth/sign-in
+   :event    [:auth/sign-in {:password "hunter2"}]}
+  {:rf.egress/profile :rf.egress/off-box-observability})
+;; => {:kind :rf.observe/handled-event :frame :app/main
+;;     :event-id :auth/sign-in ...}   ;; no :event slot off-box
+```
+
+## Frame-owned observability sinks
+
+The normal production observability story (Spec 015 §Frame-owned observability sink policy). An app declares a sink under a frame's `:observability` config and registers the concrete sink fn against that sink id here. The runtime routes one handled-event record per processed event, and one error record per `:rf.error/*` site, through `project-egress` (under the frame's classification + the sink's egress profile) to the declared sinks. **Sinks consume already-projected records — there is no sink-local redaction.** The framework ships no Datadog / Sentry client (that is an app / integration-library concern); these two verbs are the registration seam.
+
+This is parallel to (and the production-normal home of) the advanced corpus-wide `register-listener!` / `register-event-listener!` / `register-error-listener!` surfaces above: the sink routing is frame-scoped and profile-projected, where the corpus-wide listeners are cross-frame and raw.
+
+### `register-observability-sink!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (register-observability-sink! sink-id f)
+  ```
+- **Description**: Register an observability sink fn `f` under the keyword `sink-id` — the id a frame's `:observability {:handled-events [{:sink <sink-id> :rf.egress/profile …}]}` entry names (EP-0015 §9). `f` receives a single **already-projected** record (a `:rf.observe/handled-event` or `:rf.observe/error`, projected under the owning frame's classification and the entry's egress profile); it does **no** sink-local redaction. Re-registering the same id replaces. Returns `sink-id`. **Always-on** — survives CLJS `:advanced` + `goog.DEBUG=false` (the frame `:observability` stream is the production observation stream).
+
+```clojure
+(rf/reg-frame :app/main
+  {:observability {:handled-events
+                   [{:sink :my-app.sinks/datadog
+                     :rf.egress/profile :rf.egress/off-box-observability}]}
+   :initial-events [[:auth/init]]})
+
+(rf/register-observability-sink! :my-app.sinks/datadog
+  (fn [projected-record]
+    ;; already projected — no sink-local redaction
+    (datadog/send projected-record)))
+```
+
+### `unregister-observability-sink!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unregister-observability-sink! sink-id) → nil
+  ```
+- **Description**: Drop the observability sink registered under `sink-id`. Returns nil.
+
 See [08 — Schemas §Data classification](08-schemas.md#data-classification) for the declaration side — durable `app-db` classification is event-owned (a `reg-event` returns the commit-plane `:sensitive` / `:large` effects alongside `:db`), and per-slot `:sensitive?` / `:large?` schema props own machine `:data` / resource / HTTP-body classification.
 
 ## Privacy predicate

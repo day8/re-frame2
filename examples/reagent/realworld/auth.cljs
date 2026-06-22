@@ -98,9 +98,20 @@
 ;; ============================================================================
 
 (rf/reg-event :auth/store-session
+  {:doc "Store the authenticated session. The JWT has ONE durable home — the
+         classified `[:auth :token]` path (EP-0025 commit-plane `:sensitive`
+         effect, declared by `:auth/classify-token` in core.cljs). The User
+         payload is stored at `[:auth :user]` with its `:token` field stripped
+         off (`dissoc`), so the JWT is NOT duplicated into the UNCLASSIFIED
+         `[:auth :user :token]` slot — a second durable copy there would ship
+         RAW to every off-box record (classification does not propagate; each
+         path is its own declaration). Views / subs read `:auth/user` for
+         identity (username, bio, image); none of them need the token, which
+         the bearer-auth interceptor reads from the classified `[:auth :token]`
+         path instead."}
   (fn [{:keys [db]} [_ user]]
     {:db (-> db
-        (assoc-in [:auth :user] user)
+        (assoc-in [:auth :user] (dissoc user :token))
         (assoc-in [:auth :token] (:token user)))}))
 
 (rf/reg-event :auth/clear-session
