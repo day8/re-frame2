@@ -46,12 +46,19 @@
             substrate carries the projector install, not the dev-only
             trace surface. A server-frame handler that throws still
             stamps :status 500 onto :rf/response."
+    ;; rf2-vw5h1r / rf2-anehs6: :load/article throws at RENDER time (a
+    ;; post-construction request dispatch against the live frame) — NOT as an
+    ;; :initial-events setup step. Construction-time :initial-events is now
+    ;; STRICT (EP-0027 §Failure, Mike-ruled (a)): a THROWN setup step tears
+    ;; the partial frame down and is the OUTER :on-error transport path (Spec
+    ;; 011 §810), NOT a projector-catches-it case. The projector covers errors
+    ;; INSIDE the render/cascade drain — exactly what a post-construction
+    ;; request dispatch models. :rf/server-init is a clean no-op setup step.
     (rf/reg-event :load/article
       (fn [_ _]
         (throw (ex-info "Database connection failed" {}))))
     (rf/reg-event :rf/server-init
-      (fn [_ _]
-        {:fx [[:dispatch [:load/article]]]}))
+      (fn [_ _] {}))
 
     (with-redefs [interop/debug-enabled? false]
       (let [f (frame/make-anon-frame-record!
@@ -59,6 +66,7 @@
                  :initial-events [[:rf/server-init]]
                  :ssr       {:public-error-id   :rf.ssr/default-error-projector
                              :dev-error-detail? false}})
+            _ (rf/dispatch-sync [:load/article] {:frame f})
             response (ssr/get-response f)]
         (is (= 500 (:status response))
             "Spec 011 §Server error projection — the default projector
