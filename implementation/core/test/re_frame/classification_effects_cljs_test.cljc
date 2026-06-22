@@ -191,38 +191,42 @@
             path; a path ALSO claimed by another source (e.g. a reg-flow output
             under :source :flow) stays classified — the clear must not silently
             un-redact a path another owner still considers sensitive (a privacy
-            fail-open). rf2-34jrb6."
+            fail-open). rf2-34jrb6 + rf2-p4spo4.
+
+            This exercises the REAL cross-event path with NO artificial
+            re-assertion of the flow mark: the flow claim is installed ONCE up
+            front, then a LATER, unrelated event does SET+CLEAR on the same
+            path. Because the SET is non-clobbering (rf2-p4spo4) the flow's
+            :source survives the SET, so the source-scoped clear refuses to
+            dissoc it. Manually re-installing the flow mark between the SET and
+            the CLEAR (the prior papering pattern) is GONE — a live reg-flow
+            does NOT re-fold between two unrelated events, so that re-assertion
+            masked the SET-clobber bug."
     ;; A flow (another source) declares [:user :token] sensitive in the SAME
     ;; per-frame elision registry slot the effects write. reg-flow lives in a
     ;; separate artefact, so simulate its registry write directly via the shared
     ;; swap-elision-slot! seam (the exact slot + shape reg-flow installs:
-    ;; {:source :flow :flow-id …}).
+    ;; {:source :flow :flow-id …}). Installed ONCE — it is never re-asserted.
     (elision/swap-elision-slot! :rf/default
       (fn [reg]
         (assoc-in reg [:sensitive-declarations [:user :token]]
                   {:source :flow :flow-id :token-watch})))
     (is (= :flow (:source (get (sensitive-decls) [:user :token])))
         "the flow-sourced declaration is standing in the registry")
-    ;; An effect ALSO classifies the same path — collapses to ONE registry entry
-    ;; per path, now stamped :source :effect (the SET is the later write).
+    ;; A LATER, unrelated event ALSO classifies the same path via an effect SET.
+    ;; The NON-CLOBBERING set must leave the flow's :source standing (the
+    ;; registry is one-entry-per-path-per-axis; presence is what egress needs).
     (rf/reg-event :effect-classify-token
       (fn [{:keys [db]} _]
         {:db (assoc-in db [:user :token] "Bearer secret-xyz")
          :sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-classify-token])
-    (is (= :effect (:source (get (sensitive-decls) [:user :token])))
-        "the same-path effect SET overwrote the entry to :source :effect")
-    ;; The effect now CLEARS the path. Source-scoped clear removes the effect's
-    ;; own contribution — but the path is STILL claimed by the flow, so it must
-    ;; remain classified and the value must stay REDACTED at egress.
-    ;; Re-install the flow declaration after the effect SET overwrote it (the
-    ;; collapse-to-one-entry means the flow's mark must be re-asserted; a live
-    ;; reg-flow would re-fold on its own lifecycle — here we model the standing
-    ;; flow claim).
-    (elision/swap-elision-slot! :rf/default
-      (fn [reg]
-        (assoc-in reg [:sensitive-declarations [:user :token]]
-                  {:source :flow :flow-id :token-watch})))
+    (is (= :flow (:source (get (sensitive-decls) [:user :token])))
+        "the same-path effect SET did NOT clobber the flow's :source (rf2-p4spo4)")
+    ;; A still-later event CLEARS the path. The source-scoped clear sees
+    ;; :source :flow (NOT :effect) and refuses to dissoc — the path stays
+    ;; classified and the value stays REDACTED. No flow mark is re-asserted
+    ;; between the SET and the CLEAR: this is the real operational sequence.
     (rf/reg-event :effect-clear-token
       (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-clear-token])
