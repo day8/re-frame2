@@ -176,105 +176,56 @@
       (is (some? (asm/resolve-descriptor gen :event :counter/inc))))))
 
 ;; ===========================================================================
-;; 1b. The EMPTY-`:images` path (`:images []`) runs the DEFAULT IMAGE — the
-;;     implicit whole-store projection (EP-0023 §Default Image Semantics,
-;;     rf2-32siq3.33), NOT the framework standard set alone. EP-0024
-;;     (rf2-tu2vr7): only an EXPLICIT `:images` key triggers image resolution —
-;;     an ABSENT `:images` is an ordinary configured frame on the shared
-;;     registrar (no generation), so the default-image path is keyed by `[]`.
-;;     Both the explicit-pool 2-arity and the bare live-store 1-arity are
-;;     covered; a cross-namespace collision in the default fails loud at
-;;     make-frame time.
+;; 1b. EP-0026 §Default Image (rf2-fsd822, ruled 2026-06-22): `:images []` is an
+;;     ERROR (`:rf.error/make-frame-bad-images`) — pass at least one image, or
+;;     OMIT `:images`. This REVERSES EP-0023/EP-0024, where `:images []` was the
+;;     default-image path.
+;;
+;;     The ruling ALSO says OMITTING `:images` (`make-frame {}`) should resolve
+;;     the DEFAULT image generation. That OMIT→default BOUNDARY WIRING is
+;;     DEFERRED to a follow-up (a design-level conflict with the Story player /
+;;     owned-frame lifecycle, which deliberately create image-LESS registrar-
+;;     backed frames, plus the consolidated test bundle's shared source store
+;;     carrying cross-app collisions a whole-store default projection fails on).
+;;     So for now an ABSENT `:images` still carries NO generation (the EP-0023/
+;;     EP-0024 ordinary configured frame). The assembly-layer default-image
+;;     mechanics are unchanged and covered by `image-assembly-default-cljs-test`.
 ;; ===========================================================================
 
-(deftest empty-images-runs-the-default-image-over-the-explicit-pool
-  (testing "make-frame with :images [] (and an explicit descriptor pool) runs the
-            DEFAULT image — the implicit selector over the WHOLE pool — so the
-            frame's generation INCLUDES a reg-*'d descriptor from the store, not
-            just the framework standards"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-    (let [frame (lf/make-frame {:images []} counter-pool)
-          gen   (lf/frame-generation frame)]
+(deftest empty-images-vector-is-an-error
+  (testing "EP-0026 §Default Image (ruled 2026-06-22): :images [] is an ERROR —
+            pass at least one image, or OMIT :images. This reverses EP-0023/
+            EP-0024, where :images [] projected the default."
+    (testing ":images [] fails loud with :rf.error/make-frame-bad-images"
+      (is (= :rf.error/make-frame-bad-images
+             (err-id #(lf/make-frame {:images []} counter-pool))))
+      (testing "and via the bare 1-arity too"
+        (is (= :rf.error/make-frame-bad-images
+               (err-id #(lf/make-frame {:images []}))))))
+    (testing "no frame is registered as a side effect of the rejected :images []"
+      (let [before (lf/live-frame-ids)]
+        (err-id #(lf/make-frame {:id :rejected/empty :images []} counter-pool))
+        (is (= before (lf/live-frame-ids))
+            "a rejected :images [] leaves the live-frame registry untouched")))
+    (testing "a NON-EMPTY :images vector is accepted and resolves a generation"
+      (let [frame (lf/make-frame {:images [(image/image {:id :only
+                                                         :registrations
+                                                         {:reg-event [[:x (fn [_ _] {})]]}})]}
+                                 counter-pool)]
+        (is (lf/frame-object? frame))
+        (is (some? (asm/resolve-descriptor (lf/frame-generation frame) :event :x)))))))
+
+(deftest absent-images-currently-carries-no-generation-omit-default-deferred
+  (testing "EP-0026 omit→default boundary wiring is DEFERRED (rf2-fsd822): an
+            ABSENT :images (make-frame {}) currently carries NO generation — the
+            EP-0023/EP-0024 ordinary configured frame on the shared registrar —
+            rather than resolving the default image. (Tracked as a follow-up
+            decision bead rf2-59orj0; the assembly-layer default mechanics are
+            already in place and exercised by image-assembly-default-cljs-test.)"
+    (let [frame (lf/make-frame {} counter-pool)]
       (is (lf/frame-object? frame))
-      (is (some? gen))
-      (testing "the whole-pool reg-* descriptors are projected (default image,
-                NOT standards-only)"
-        (is (some? (asm/resolve-descriptor gen :event :counter/inc))
-            "a reg-*'d descriptor from the source pool is in the default generation")
-        (is (= ::inc (:handler-fn (asm/resolve-descriptor gen :event :counter/inc))))
-        (is (some? (asm/resolve-descriptor gen :sub :counter/value))))
-      (testing "the framework standard is also unioned in (default = pool + standards)"
-        (is (some? (asm/resolve-descriptor gen :fx :rf.nav/push-url)))))))
-
-(deftest empty-images-vector-runs-default-but-absent-images-carries-no-generation
-  (testing "EP-0024 (rf2-tu2vr7): only an EXPLICIT :images key triggers image
-            resolution. :images [] is the default-image path (the implicit
-            whole-store selector ⇒ a generation), but an ABSENT :images key is an
-            ordinary configured frame on the shared registrar — NO generation"
-    (testing ":images [] resolves the whole-store default (a generation)"
-      (let [frame (lf/make-frame {:images []} counter-pool)
-            gen   (lf/frame-generation frame)]
-        (is (lf/frame-object? frame))
-        (is (some? (asm/resolve-descriptor gen :event :counter/inc))
-            "an empty :images vector projects the whole-store default, not standards-only")))
-    (testing "an ABSENT :images key carries NO generation (ordinary configured
-              frame — the resolution falls through to the shared registrar)"
-      (let [frame (lf/make-frame {} counter-pool)]
-        (is (lf/frame-object? frame))
-        (is (nil? (lf/frame-generation frame))
-            "no :images key ⇒ no image-loaded generation on the record")))))
-
-(deftest empty-images-default-cross-namespace-collision-fails-loud
-  (testing "a cross-namespace same-(kind, id) collision in the DEFAULT projection
-            makes make-frame FAIL LOUD (:rf.error/image-duplicate-id) — the
-            :images [] default does not guess and does not let load order win"
-    (let [colliding-pool
-          [(reg-desc "examples.todo.boot"    :event :boot/init ::todo-boot)
-           (reg-desc "examples.counter.boot" :event :boot/init ::counter-boot)]]
-      (is (= :rf.error/image-duplicate-id
-             (err-id #(lf/make-frame {:images []} colliding-pool))))
-      (testing "the collision fires regardless of pool order (no last-write-wins)"
-        (is (= :rf.error/image-duplicate-id
-               (err-id #(lf/make-frame {:images []} (vec (reverse colliding-pool))))))))))
-
-(deftest bare-make-frame-runs-the-default-image-over-the-live-store
-  (testing "the BARE 1-arity make-frame (no descriptor pool) resolves the DEFAULT
-            image against the LIVE source store, so a frame created with :images
-            [] runs every reg-*-authored registration in the store"
-    ;; Drive from a known-clean live store inside a snapshot/restore body so the
-    ;; default projection is deterministic; the fixture also restores the store.
-    (let [store-before @ss/kind->id->ns->descriptor]
-      (try
-        (reset! ss/kind->id->ns->descriptor {})
-        (asm/clear-generation-cache!)
-        (record! "shop.cart" :event :cart/add   ::cart-add)
-        (record! "shop.cart" :sub   :cart/items ::cart-items)
-        (let [frame (lf/make-frame {:images []})
-              gen   (lf/frame-generation frame)]
-          (is (lf/frame-object? frame))
-          (is (some? (asm/resolve-descriptor gen :event :cart/add))
-              "the bare make-frame default projection includes the live-store reg-*")
-          (is (= ::cart-add (:handler-fn (asm/resolve-descriptor gen :event :cart/add))))
-          (is (some? (asm/resolve-descriptor gen :sub :cart/items))))
-        (finally
-          (reset! ss/kind->id->ns->descriptor store-before)
-          (asm/clear-generation-cache!))))))
-
-(deftest bare-make-frame-default-live-store-collision-fails-loud
-  (testing "the BARE 1-arity make-frame fails loud (:rf.error/image-duplicate-id)
-            when the LIVE source store carries a cross-namespace same-(kind, id)
-            collision in the default projection"
-    (let [store-before @ss/kind->id->ns->descriptor]
-      (try
-        (reset! ss/kind->id->ns->descriptor {})
-        (asm/clear-generation-cache!)
-        (record! "examples.todo.boot"    :event :boot/init ::todo-boot)
-        (record! "examples.counter.boot" :event :boot/init ::counter-boot)
-        (is (= :rf.error/image-duplicate-id
-               (err-id #(lf/make-frame {:images []}))))
-        (finally
-          (reset! ss/kind->id->ns->descriptor store-before)
-          (asm/clear-generation-cache!))))))
+      (is (nil? (lf/frame-generation frame))
+          "absent :images ⇒ no image-loaded generation on the record (deferred)"))))
 
 ;; ===========================================================================
 ;; 2. :id registers an image-loaded record in the ONE `frames` registry

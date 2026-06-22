@@ -373,20 +373,34 @@
   opts)
 
 (defn- validate-images!
-  "Validate the `:images` opt is a VECTOR of image values (EP-0023 §Image
-  Composition / §Public API — `:images` is always a vector). A non-vector
-  `:images` (a bare image map, a seq, nil-when-required) throws
-  `:rf.error/make-frame-bad-images`, fail-loud. Returns the vector unchanged."
+  "Validate the `:images` opt is a NON-EMPTY VECTOR of image values (EP-0023
+  §Image Composition / §Public API — `:images` is always a vector; EP-0026
+  §Default Image — `:images []` is an error). A non-vector `:images` (a bare
+  image map, a seq) OR an EMPTY `:images []` throws
+  `:rf.error/make-frame-bad-images`, fail-loud. Returns the vector unchanged.
+
+  EP-0026 (ruled 2026-06-22) makes the EMPTY vector an ERROR: pass at least one
+  image, or OMIT `:images` for the default image. To create a frame with no app
+  registrations, pass a real empty image (`(rf/image {:id :test/empty})`). This
+  reverses the EP-0023/EP-0024 behavior where `:images []` projected the default
+  image — under EP-0026 the default is the OMIT path (`make-frame {}`), not the
+  empty-vector path."
   [images]
-  (when-not (vector? images)
+  (when-not (and (vector? images) (seq images))
     (error/throw-error!
       :rf.error/make-frame-bad-images
       'rf/make-frame
-      (str "rf/make-frame: :images must be a VECTOR of image values — got "
-           (pr-str images) ". `:images` is the only spelling and it is always a "
-           "vector; even a single image is supplied as a one-element vector, "
-           "e.g. :images [my-image].")
-      {:recovery :wrap-the-images-in-a-vector
+      (if (vector? images)
+        (str "rf/make-frame: :images [] is an ERROR (EP-0026 §Default Image) — "
+             "pass at least one image, or OMIT :images entirely for the default "
+             "image (the implicit selector over the whole source store). To create "
+             "a frame with no app registrations, pass a real empty image: "
+             ":images [(rf/image {:id :my/empty})].")
+        (str "rf/make-frame: :images must be a NON-EMPTY VECTOR of image values — "
+             "got " (pr-str images) ". `:images` is the only spelling and it is "
+             "always a vector; even a single image is supplied as a one-element "
+             "vector, e.g. :images [my-image]. Omit :images for the default image."))
+      {:recovery :supply-at-least-one-image-or-omit-images-for-the-default
        :extra    {:images images}}))
   images)
 
@@ -441,26 +455,25 @@
 ;; pool), same unconditional frame-boundary capability check.
 
 (defn- resolve-generation!
-  "Validate `images` (must be a vector — EP-0023 §Image Composition), assemble it
-  into ONE sealed generation (against the live source store when `descriptors` is
-  nil, else against the explicit pool — matching `assemble`'s two arities), and
-  run the FRAME-BOUNDARY capability check against `capabilities` (unconditional:
-  an absent map provides nothing, EP-0013 fail-loud parity). Returns the sealed
-  generation. The shared resolution `make-frame` and `reload-images!` both use,
-  so a reload resolves with byte-identical semantics to creation. Fail-loud on a
-  non-vector `:images`, an assembly error, or a missing capability.
+  "Validate `images` (must be a NON-EMPTY vector — EP-0026 §Default Image,
+  `:images []` is an error) and assemble it into ONE sealed generation (against
+  the live source store when `descriptors` is nil, else against the explicit
+  pool — matching `assemble`'s two arities), then run the FRAME-BOUNDARY
+  capability check against `capabilities` (unconditional: an absent map provides
+  nothing, EP-0013 fail-loud parity). Returns the sealed generation. The shared
+  resolution `make-frame` and `reload-images!` both use, so a reload resolves with
+  byte-identical semantics to creation. Fail-loud on a non-vector / EMPTY
+  `:images`, an assembly error, or a missing capability.
 
-  An ABSENT or EMPTY `:images` is the DEFAULT-IMAGE path (EP-0023 §Default Image
-  Semantics): nil `images` normalizes to `[]`, and `assemble` routes an empty
-  `:images` vector through `assemble-default` — the implicit selector over the
-  WHOLE source store (+ the framework standards), NOT the framework standards
-  alone. So a frame created with no explicit images runs every `reg-*`-authored
-  descriptor in the (live or supplied) source store, and a cross-namespace
-  same-`[kind id]` collision in that default projection FAILS LOUD here at
-  make-frame time (`:rf.error/image-duplicate-id`) exactly as an explicit
-  image's collision does — load order never silently decides the survivor."
+  Note: this is only called when `images` is PRESENT (make-frame) or supplied to
+  reload / reprojection — the OMIT-`:images` default-image boundary wiring is
+  deferred (see `make-frame`), so `images` here is always a real composition. A
+  reprojected default-image frame carries `[default-image]` (a non-empty marker
+  vector) on its `:rf.gen/images`, so reprojection still resolves cleanly. A
+  cross-namespace same-`[kind id]` collision in the resolved generation FAILS
+  LOUD (`:rf.error/image-duplicate-id`)."
   [images capabilities descriptors]
-  (let [images     (if (some? images) (validate-images! images) [])
+  (let [images     (validate-images! images)
         generation (if (nil? descriptors)
                      (asm/assemble images)
                      (asm/assemble images descriptors))]
@@ -487,16 +500,22 @@
   `:rf.error/make-frame-bad-opts`; the all-defaults frame is `(make-frame {})`).
   The IMAGE-SELECTION + value opts the constructor consumes:
 
-    :images        a VECTOR of image values (the ONLY spelling; always a vector,
-                   even for a single image). Resolved into ONE sealed image
-                   generation via `re-frame.image-assembly/assemble`; a
-                   non-vector `:images` fails loud
-                   (`:rf.error/make-frame-bad-images`). Optional — a frame with
-                   NO `:images` (absent or `[]`) carries no generation and runs
-                   on the shared registrar (an ordinary configured frame); a
-                   frame with `[]` runs the DEFAULT IMAGE (the implicit selector
-                   over the WHOLE source store), failing loud on a cross-namespace
-                   same-`[kind id]` collision (`:rf.error/image-duplicate-id`).
+    :images        a NON-EMPTY VECTOR of image values (the ONLY spelling; always
+                   a vector, even for a single image). Resolved into ONE sealed
+                   image generation via `re-frame.image-assembly/assemble`; a
+                   non-vector OR an EMPTY `:images []` fails loud
+                   (`:rf.error/make-frame-bad-images`). EP-0026 (ruled
+                   2026-06-22): `:images []` is an error — pass at least one
+                   image, or OMIT `:images`. OPTIONAL — an ABSENT `:images`
+                   currently carries NO generation (an ordinary configured frame
+                   on the shared registrar); the EP-0026 ruling that omitting
+                   `:images` should resolve the DEFAULT IMAGE is a DEFERRED
+                   boundary-wiring follow-up (a design-level conflict with the
+                   Story player / owned-frame lifecycle, which deliberately
+                   create image-less registrar-backed frames). A NON-EMPTY
+                   `:images` resolves the selected generation, failing loud on a
+                   cross-namespace same-`[kind id]` collision
+                   (`:rf.error/image-duplicate-id`).
     :id            the frame id (optional). When supplied, the frame is
                    registered under this id in the ONE `frames` registry;
                    re-`make-frame`-ing the same id is IDEMPOTENT REPLACEMENT —
@@ -564,9 +583,20 @@
          runnable-id (if (some? id) id (frame/anon-frame-id))
          ;; Resolve the generation FIRST so a bad `:images` / missing capability
          ;; fails loud BEFORE any record is created — a conflict leaves no
-         ;; half-created frame. An absent `:images` carries no generation (an
-         ;; ordinary configured frame); an explicit / empty `:images` resolves the
-         ;; (default or selected) generation.
+         ;; half-created frame.
+         ;;
+         ;; EP-0026 §Default Image (ruled 2026-06-22) ALSO says OMITTING `:images`
+         ;; (`make-frame {}`) should resolve the DEFAULT image generation. That
+         ;; OMIT→default BOUNDARY WIRING is DEFERRED (rf2-fsd822 surfaced a
+         ;; design-level conflict: the Story player and owned-frame lifecycle
+         ;; deliberately create image-LESS frames that resolve against the shared
+         ;; registrar — "absence-is-default" — and the consolidated test bundle's
+         ;; shared source store carries cross-app `[kind id]` collisions a
+         ;; whole-store default projection fails on). So for now an ABSENT `:images`
+         ;; still carries NO generation (the EP-0023/EP-0024 ordinary configured
+         ;; frame); a PRESENT `:images` must be a NON-EMPTY vector — `:images []`
+         ;; is an error (`validate-images!`) — and resolves the SELECTED generation.
+         ;; The OMIT→default boundary is tracked as follow-up bead rf2-59orj0.
          generation  (when (some? images)
                        (resolve-generation! images capabilities descriptors))
          ;; Everything outside the image-selection/value keys is record-config
@@ -580,8 +610,9 @@
          ;; through to reg-frame's fail-loud guard). We thread two reserved
          ;; construction inputs through the config:
          ;;   :rf.frame/generation   — the resolved generation (nil ⇒ ordinary
-         ;;                            configured frame; cleared on a re-make that
-         ;;                            drops `:images`). reg-frame seats it into
+         ;;                            configured frame when `:images` is absent;
+         ;;                            the EP-0026 omit→default boundary is a
+         ;;                            deferred follow-up). reg-frame seats it into
          ;;                            the `:generation` slot and strips it from
          ;;                            the stored config. Installed BEFORE the
          ;;                            `:initial-events` setup runs, so a setup
