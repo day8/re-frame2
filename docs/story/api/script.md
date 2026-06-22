@@ -93,7 +93,7 @@ The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:d
 
 ## Privacy posture
 
-`:rf.assert/*` records build their `:actual` / `:expected` / `:payload` / `:reason` slots through the wire-elision walker before landing in the result — no slot carries a raw secret for a sensitive path. Durable app-db classification is **frame-owned** (EP-0015): a variant declares its sensitive paths via the `:sensitive` slot on its body, and an assertion against such a path records `:rf/redacted`, not the raw value. The `:rf/redacted` sentinel is a first-class legal `:expected` value — author it directly to pin the redaction contract:
+`:rf.assert/*` records build their `:actual` / `:expected` / `:payload` / `:reason` slots through the wire-elision walker before landing in the result — no slot carries a raw secret for a sensitive path. Durable app-db classification is declared on the **variant body** and lowered into the frame's elision registry as commit-plane classification effects (EP-0025): a variant declares its sensitive paths via the `:sensitive` slot on its body, and an assertion against such a path records `:rf/redacted`, not the raw value. The `:rf/redacted` sentinel is a first-class legal `:expected` value — author it directly to pin the redaction contract:
 
 ```clojure
 (story/reg-variant :story.auth/login
@@ -102,7 +102,7 @@ The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:d
    :script    [[:dispatch-sync [:rf.assert/path-equals [:auth :token] :rf/redacted]]]})
 ```
 
-A passing assertion proves the observation surface saw the sentinel, not the secret. (There is no `add-marks` / `set-marks` mutation surface — classification is declared at frame creation; EP-0015 superseded the public post-creation model.)
+A passing assertion proves the observation surface saw the sentinel, not the secret. (There is no `add-marks` / `set-marks` mutation surface — classification is declared on the variant body and lowered through commit-plane effects; EP-0025 superseded the public post-creation model.)
 
 ## The recorder
 

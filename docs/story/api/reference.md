@@ -121,16 +121,16 @@ The canonical facade. Every user-callable surface lives here.
 | `recorder-state` | `(recorder-state)` → map | Read-only view of recorder state. |
 | `gen-play-snippet` | `(gen-play-snippet events opts)` → string | Render captured events as a `(reg-variant ...)` EDN snippet. |
 
-### Privacy — frame-owned classification
+### Privacy — variant-body classification
 
-Durable app-db classification is declared at frame creation, not via a post-creation mutation surface (EP-0015). A variant declares its sensitive / large paths on its body:
+Durable app-db classification is declared on the variant body and lowered into the frame's elision registry as commit-plane classification effects, not via a post-creation mutation surface (EP-0025). A variant declares its sensitive / large paths on its body:
 
 | Variant slot | Shape | Intuition |
 | --- | --- | --- |
-| `:sensitive` | `{:app-db [[path...] ...]}` | Frame-owned sensitive app-db paths — redact to `:rf/redacted` at every Story observation surface. Same owner model as `reg-frame`. |
-| `:large` | `{:app-db [[path...] ...]}` | Frame-owned large app-db paths — elide to `:rf/large {…}`. |
+| `:sensitive` | `{:app-db [[path...] ...]}` | Sensitive app-db paths — lowered as commit-plane `:sensitive` effects right after frame creation; redact to `:rf/redacted` at every Story observation surface. |
+| `:large` | `{:app-db [[path...] ...]}` | Large app-db paths — lowered as commit-plane `:large` effects; elide to `:rf/large {…}`. |
 
-> Story does **not** publish `add-marks` / `set-marks` — EP-0015 superseded that public post-creation path-mark mutation surface.
+> Story does **not** publish `add-marks` / `set-marks` — EP-0025 lowers classification through commit-plane effects and superseded that public post-creation path-mark mutation surface.
 
 ### Substrate registration
 

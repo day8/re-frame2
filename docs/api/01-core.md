@@ -128,16 +128,25 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-frame id metadata)
   ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame is also where **durable `app-db` data classification** lives (EP-0015): `:sensitive` / `:large` `:app-db` path maps, frame-local HTTP carrier names, and `:observability` sink policy are declared here and projected at every wire boundary. See [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame still owns the **frame-local HTTP carrier names** (`:sensitive {:http …}`) and the `:observability` sink policy (EP-0015). Durable `app-db` data classification, however, is **no longer a frame annotation** (EP-0025): a `reg-frame` config carrying `:sensitive {:app-db …}` / `:large {:app-db …}` now **fails loud at registration**. Classify durable `app-db` paths by returning the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events`. See [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
 - **Example**:
   ```clojure
   ;; User-defined fxs sit under a user-feature prefix per
   ;; spec/Conventions.md §Reserved namespaces — never under `:rf.<feature>/…`,
   ;; which is reserved for framework-owned surfaces.
+  ;;
+  ;; Durable app-db classification rides a commit-plane effect (EP-0025):
+  ;; a reg-event returns :sensitive / :large alongside :db, run at frame
+  ;; creation via :initial-events — NOT a frame annotation.
+  (rf/reg-event :app/init
+    (fn [{:keys [db]} _]
+      {:db        (assoc db :auth {})
+       :sensitive [[:auth :token]]}))   ;; classify before any value lands
+
   (rf/reg-frame :app/main
-    {:doc          "App demo frame."
-     :sensitive    {:app-db [[:auth :token]]}
-     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
+    {:doc            "App demo frame."
+     :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
+     :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
 - **In the wild**: [boot](https://github.com/day8/re-frame2/tree/main/examples/reagent/boot)
 
