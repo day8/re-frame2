@@ -343,13 +343,11 @@
   ;; `(rf/set-x!)` / `(rf/install-x!)` are `<x>` placeholders in the
   ;; config-shape syntax table, not real vars.
   "set-x!"       #{"docs/guide/24-config-and-safety.md"}
-  "install-x!"   #{"docs/guide/24-config-and-safety.md"}
-  ;; EP-0015 §3 (rf2-mngp4o): `add-marks` / `set-marks` removed from the
-  ;; public façade; the privacy chapter still teaches the superseded runtime
-  ;; path-marks API (flagged by a banner there) pending its EP-0015 item-12
-  ;; rewrite.
-  "add-marks"    #{"docs/guide/23-privacy-and-large-things.md"}
-  "set-marks"    #{"docs/guide/23-privacy-and-large-things.md"}}
+  "install-x!"   #{"docs/guide/24-config-and-safety.md"}}
+  ;; EP-0025: `add-marks` / `set-marks` (and the whole `re-frame.marks` ns) are
+  ;; removed. The privacy guide was rewritten to the commit-plane-effects model
+  ;; (docs/guide/how-to/keep-secrets-out-of-traces.md) and no longer names the
+  ;; old API in call position, so no allowlist entry is needed.
 
  ;; Human-doc API-reference call-position `(rf/<var>` / `(story/<var>`
  ;; references the manifest does not carry (rf2-vzupmg). The doc-api
@@ -488,12 +486,14 @@
   ;; registration surface) is no longer a `re-frame.core` façade export — it is
   ;; reached through `re-frame.machines/reg-machine*` (already classified
   ;; below). The `reg-machine` / `defmachine` MACROS stay on the façade.
-  ;; EP-0015 §3 + bead item 2 (rf2-mngp4o): the imperative `add-marks` /
-  ;; `set-marks` path-marks API is removed from the public `re-frame.core`
-  ;; façade — frame-owned `:sensitive` / `:large` classification +
-  ;; `project-egress` are the public boundary now. The underlying
-  ;; `re-frame.marks/{add-marks,set-marks}` fns remain internal/test
-  ;; helpers (not facade-published), so they carry no manifest row.
+  ;; EP-0015 §3 + bead item 2 (rf2-mngp4o), then EP-0025: the imperative
+  ;; `add-marks` / `set-marks` path-marks API AND the `re-frame.marks`
+  ;; namespace are removed. Durable app-db classification is now the four
+  ;; commit-plane effects (`:sensitive` / `:large` / `:clear-sensitive` /
+  ;; `:clear-large`, returned by a `reg-event` alongside `:db`) + `project-egress`;
+  ;; the marks projection substrate migrated into the marks-free
+  ;; `re-frame.classification` / `re-frame.elision` engine. Nothing here carries
+  ;; a manifest row.
   ["re-frame.core" "reg-flow"]            {:tier :advanced    :owner "013" :status "v1"}
   ["re-frame.core" "reg-route"]           {:tier :advanced    :owner "012" :status "v1"}
   ["re-frame.core" "reg-head"]            {:tier :advanced    :owner "011" :status "v1"}
@@ -1231,11 +1231,11 @@
   ["re-frame.story" "tags-without-axis"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "tags-default-excluded"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "tag->axis-index"]        {:tier :tooling :owner "007" :status "post-v1 lib"}
-  ;; rf2-bsk1d9 (EP-0015): Story no longer re-exports `add-marks` /
-  ;; `set-marks`. Frame-owned `:sensitive` / `:large` classification at
-  ;; frame creation is the public boundary; the public post-creation
-  ;; path-marks mutation surface is superseded (spec/015 §Supersession).
-  ;; Story published these only as duals of the (already-removed)
+  ;; rf2-bsk1d9 (EP-0015), then EP-0025: Story no longer re-exports `add-marks`
+  ;; / `set-marks`. Durable app-db classification is the four commit-plane
+  ;; classification effects (returned by a `reg-event` alongside `:db`); the
+  ;; imperative path-marks mutation surface AND the `re-frame.marks` namespace
+  ;; are removed. Story published these only as duals of the (already-removed)
   ;; `re-frame.core/{add-marks,set-marks}` façade vars — both rows are gone.
   ;; Canonical vocabulary values (tooling — read-only vocab).
   ["re-frame.story" "canonical-tags"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
