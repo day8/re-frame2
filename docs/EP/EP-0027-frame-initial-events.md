@@ -178,7 +178,9 @@ hand-written loop already gives:
 Each setup step is dispatched with light **construction provenance**, so the trace and
 tools can tell frame-init events apart from ordinary runtime events — the visibility this EP
 is partly motivated by. A setup-step dispatch carries `:source :frame-init` and its
-**step index**. Source-code coordinates come for free: the frame already auto-captures
+**step index** — both reach the `:rf.event/dispatched` trace (`:source` top-level, the
+0-based step index under `:tags :rf.frame/init-step-index`), so tools can navigate per
+setup step. Source-code coordinates come for free: the frame already auto-captures
 `:ns` / `:line` / `:file` at the `make-frame` / `reg-frame` call-site — which is where
 `:initial-events` is declared — so a setup event attributes back to its declaration via the
 frame. (Per-step source lines — a distinct line per element of the vector — are out of
