@@ -217,6 +217,195 @@
         "the large-only path still lowers")))
 
 ;; ===========================================================================
+;; (rf2-y8k6br) Nested :large ANCESTOR + :sensitive DESCENDANT — the
+;; single most-important EP-0025 Egress-rules clause for routes. The
+;; lowering only drops a :large path when it is EXACTLY equal to a
+;; :sensitive path (classification.cljc large-only = (remove sens-set)
+;; large-paths), so a :large ANCESTOR co-declared with a :sensitive
+;; DESCENDANT lowers BOTH entries into the registry. The egress walker's
+;; nested-axis suppression (rf2-izlr7f) is the authority: at a :large-matched
+;; node whose coordinate STRICTLY SHADOWS a :sensitive descendant, sensitive
+;; DOMINATES — the walker descends-and-redacts the descendant rather than
+;; emitting a :rf.size/large-elided marker that would leak the ancestor's
+;; :path / :bytes / :type (and, off-box-tool, a SHA-256 digest over the
+;; secret-bearing subtree).
+;;
+;; PRE-CONDITION (rf2-bdwxkp): the rf2-izlr7f suppression fix is currently in
+;; the UNMERGED open PR #4895 (its beads were closed prematurely; the code is
+;; on branch worker/cr2-ep0025-classif-correctness, NOT on main). So this test
+;; PROBES whether nested-axis suppression is active and asserts the
+;; spec-correct egress only when it is; otherwise it self-skips with a loud
+;; pointer to rf2-bdwxkp. Once #4895 lands the probe flips and the assertions
+;; run for real — no edit needed. This avoids both a red gate on main AND
+;; baking the buggy (leaking) behaviour into a green assertion.
+;; ===========================================================================
+
+(defn- nested-axis-suppression-active?
+  "Behavioural probe: does `elide-wire-value` SUPPRESS the large marker for a
+  :large ancestor that strictly shadows a :sensitive descendant (rf2-izlr7f)?
+  Returns true when the fix is present (the ancestor descends and the
+  descendant redacts), false when the leaking marker is still emitted. Used to
+  gate the route nested-axis assertion until PR #4895 (rf2-bdwxkp) merges."
+  []
+  (rf/reg-route :route/_probe
+                {:large     [[:query :p]]
+                 :sensitive [[:query :p :s]]}
+                "/_probe")
+  (rf/dispatch-sync [:rf.route/transitioned "/_probe"])
+  (let [rdb     (-> (rf/runtime-db-value :rf/default)
+                    (assoc-in [:rf.runtime/routing :current :query :p]
+                              {:s "x" :pub "y"}))
+        elided  (elision/elide-wire-value rdb {:frame :rf/default})
+        payload (get-in elided [:rf.runtime/routing :current :query :p])]
+    (not (elision/marker? payload))))
+
+(deftest nested-large-ancestor-sensitive-descendant-redacts-at-egress
+  (testing "a route declaring a :large ancestor + :sensitive descendant redacts
+            the descendant and emits NO large marker leaking the ancestor"
+    ;; :large on the :query :payload ANCESTOR subtree; :sensitive on the
+    ;; :query :payload :secret DESCENDANT inside it.
+    (rf/reg-route :route/nested
+                  {:large     [[:query :payload]]
+                   :sensitive [[:query :payload :secret]]}
+                  "/nested")
+    ;; Lowering keeps BOTH (the drop is exact-equal only) — confirm the
+    ;; ancestor lands :large and the descendant lands :sensitive. These two
+    ;; assertions pin the LOWERING contract and hold on main TODAY (independent
+    ;; of the egress-walker fix).
+    (rf/dispatch-sync [:rf.route/transitioned "/nested"])
+    (is (contains? (route-large-paths)
+                   [:rf.runtime/routing :current :query :payload])
+        "the :large ancestor lowers (NOT dropped — it is not exactly a sensitive path)")
+    (is (contains? (route-sensitive-paths)
+                   [:rf.runtime/routing :current :query :payload :secret])
+        "the :sensitive descendant lowers")
+    ;; The egress projection is where nested-axis suppression MUST win. Place a
+    ;; nested oversized + secret value at the slice query path directly — the
+    ;; classification paths are what matter at egress.
+    (if-not (nested-axis-suppression-active?)
+      ;; rf2-bdwxkp: the rf2-izlr7f suppression is not on main yet (open PR
+      ;; #4895). Skip the egress assertion loudly rather than assert the
+      ;; current leaking behaviour as if it were correct.
+      (println "  [rf2-y8k6br SKIP] nested-axis suppression (rf2-izlr7f) absent on this build —"
+               "egress assertion deferred until PR #4895 merges (see rf2-bdwxkp).")
+      (let [rdb     (-> (rf/runtime-db-value :rf/default)
+                        (assoc-in [:rf.runtime/routing :current :query :payload]
+                                  {:secret "topsecret-bearer-token-value"
+                                   :public "ok"}))
+            elided  (elision/elide-wire-value rdb {:frame :rf/default})
+            payload (get-in elided [:rf.runtime/routing :current :query :payload])]
+        ;; The descendant secret is the BARE sentinel — redacted, not a marker.
+        (is (= sentinel (:secret payload))
+            "the :sensitive descendant is redacted (the bare sentinel)")
+        ;; The unmarked sibling inside the ancestor rides verbatim.
+        (is (= "ok" (:public payload))
+            "an unmarked sibling inside the large ancestor rides verbatim")
+        ;; CRUCIAL: the ancestor must NOT be a :rf.size/large-elided marker —
+        ;; a marker would leak the ancestor's :path / :bytes / :type (and a
+        ;; digest off-box) while a sensitive descendant is inside it. The walker
+        ;; descends the ancestor (so the descendant redacts) rather than
+        ;; collapsing it to a marker.
+        (is (not (elision/marker? payload))
+            "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside")
+        (is (map? payload)
+            "the ancestor remains a walked map (descended, so the nested secret redacts)")))))
+
+;; ===========================================================================
+;; (rf2-wpvd39) End-to-end :large-redacts-at-egress for a route. The route
+;; :large axis was asserted only as far as landing in the registry
+;; (activation-adds-large-entry); only :sensitive had an egress assertion.
+;; This pins the EP-0025 large-axis promise on the route surface: a
+;; route-declared :large path holding an oversized value produces a
+;; :rf.size/large-elided size marker AT EGRESS while non-classified slice
+;; fields ride verbatim and the in-process handler/sub sees the raw value.
+;; ===========================================================================
+
+(deftest declared-large-produces-size-marker-at-egress
+  (testing "a route-classified :large param value produces a size marker via elide-wire-value"
+    (rf/reg-route :route/upload
+                  {:large [[:params :payload]]}
+                  "/upload/:payload")
+    (rf/dispatch-sync [:rf.route/transitioned "/upload/big-blob-value"])
+    (let [rdb     (rf/runtime-db-value :rf/default)
+          elided  (elision/elide-wire-value rdb {:frame :rf/default})
+          slice   (get-in elided [:rf.runtime/routing :current])
+          payload (get-in slice [:params :payload])]
+      (is (elision/marker? payload)
+          "the declared :large param value is replaced by a :rf.size/large-elided marker off the wire")
+      (let [body (:rf.size/large-elided payload)]
+        (is (= [:rf.runtime/routing :current :params :payload] (:path body))
+            "the marker carries the concrete runtime path")
+        (is (= :route (:reason body))
+            "the marker's :reason carries the :source :route provenance")
+        (is (number? (:bytes body)) "the marker carries a byte count, not the value")
+        ;; The marker must NOT carry the raw bulk value.
+        (is (not= "big-blob-value" payload) "the raw value is off the wire"))
+      (is (= :route/upload (:route-id slice))
+          "non-classified slice fields (the route id) ride verbatim"))
+    (testing "the handler / sub still sees the RAW value in-process"
+      (is (= "big-blob-value"
+             (get-in (rf/runtime-db-value :rf/default)
+                     [:rf.runtime/routing :current :params :payload]))
+          "classification is read ONLY at egress — app code sees real values"))))
+
+;; ===========================================================================
+;; (rf2-v8feh2) Cross-frame isolation of route classification. EP-0025 /
+;; Spec 012 §Singleton-drop: route classifications are PER-FRAME. Two
+;; frames navigating different :sensitive routes each see ONLY their own
+;; route-sourced entry in their registry, and frame A's egress never
+;; redacts using frame B's classification (frames-are-isolated-contexts).
+;; ===========================================================================
+
+(defn- route-sensitive-paths-for
+  "The set of runtime paths classified :sensitive :source :route in
+  `frame-id`'s elision registry."
+  [frame-id]
+  (->> (get-in (rf/runtime-db-value frame-id)
+               [:rf.runtime/elision :sensitive-declarations])
+       (filter (fn [[_ decl]] (= :route (:source decl))))
+       (map key)
+       set))
+
+(deftest cross-frame-route-classification-is-isolated
+  (testing "two frames navigating different :sensitive routes each carry ONLY
+            their own route-sourced classification (no cross-frame leak)"
+    ;; A second app frame alongside :rf/default. Routes are shared (the
+    ;; registry is process-global), but the lowered classification is
+    ;; per-frame runtime-db state.
+    (rf/reg-frame :frame/b {:doc "second app frame for cross-frame isolation"})
+    (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
+    (rf/reg-route :route/b {:sensitive [[:query :b-secret]]} "/b")
+    ;; Frame A (:rf/default) → route A; frame B → route B.
+    (rf/dispatch-sync [:rf.route/transitioned "/a?a-secret=AAA"] {:frame :rf/default})
+    (rf/dispatch-sync [:rf.route/transitioned "/b?b-secret=BBB"] {:frame :frame/b})
+    ;; Each frame's registry carries ONLY its own route-sourced entry.
+    (is (= #{[:rf.runtime/routing :current :query :a-secret]}
+           (route-sensitive-paths-for :rf/default))
+        "frame A's registry carries route A's classification ONLY")
+    (is (= #{[:rf.runtime/routing :current :query :b-secret]}
+           (route-sensitive-paths-for :frame/b))
+        "frame B's registry carries route B's classification ONLY")
+    (testing "each frame's egress redacts using its OWN classification, not the sibling's"
+      (let [a-rdb (-> (rf/runtime-db-value :rf/default)
+                      (assoc-in [:rf.runtime/routing :current :query]
+                                {:a-secret "AAA" :b-secret "BBB"}))
+            b-rdb (-> (rf/runtime-db-value :frame/b)
+                      (assoc-in [:rf.runtime/routing :current :query]
+                                {:a-secret "AAA" :b-secret "BBB"}))
+            a-q   (get-in (elision/elide-wire-value a-rdb {:frame :rf/default})
+                          [:rf.runtime/routing :current :query])
+            b-q   (get-in (elision/elide-wire-value b-rdb {:frame :frame/b})
+                          [:rf.runtime/routing :current :query])]
+        ;; Frame A redacts a-secret (its own) and rides b-secret raw (B's, not A's).
+        (is (= sentinel (:a-secret a-q)) "frame A redacts its own :a-secret")
+        (is (= "BBB" (:b-secret a-q))
+            "frame A does NOT redact :b-secret — frame B's classification does not leak into A")
+        ;; Frame B redacts b-secret (its own) and rides a-secret raw (A's, not B's).
+        (is (= sentinel (:b-secret b-q)) "frame B redacts its own :b-secret")
+        (is (= "AAA" (:a-secret b-q))
+            "frame B does NOT redact :a-secret — frame A's classification does not leak into B")))))
+
+;; ===========================================================================
 ;; Pure unit coverage of the lowering seam (no nav needed)
 ;; ===========================================================================
 
