@@ -634,17 +634,21 @@ The view-id attribute pairs with `data-rf2-source-coord` (`:rf/source-coord-attr
 
 > **Layer:** Runtime
 > **Owner:** [002-Frames §Effect resolution](002-Frames.md)
-> **Status:** v1-required (closed shape — `:db`, `:fx`, and the reserved framework-only `:rf.db/runtime`)
+> **Status:** v1-required (closed shape — `:db`, `:fx`, the reserved framework-only `:rf.db/runtime`, and the four EP-0025 commit-plane classification effects `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`)
 > **Conformance:** `spec/conformance/fixtures/effect-map-shape-*.edn` + `spec/conformance/fixtures/effect-handler-bad-return.edn` (the proactive fx shape-policing categories — Spec 009 §`:rf.error/effect-map-shape` cases a/b/c and §`:rf.error/effect-handler-bad-return`) + the host-side `re-frame.fx-test` / `re-frame.events-test` counterparts
 
-The return value of `reg-event` handlers. **Three keys: `:db`, `:fx`, and the reserved `:rf.db/runtime`.** `:db` is the app-db partition (the app-facing key); `:rf.db/runtime` is the runtime-db partition (the framework-only key the partition split adds — per [002 §Write authority is by convention](002-Frames.md#write-authority-is-by-convention)). Both are state effects; `:fx` carries everything else.
+The return value of `reg-event` handlers. **Seven keys: `:db`, `:fx`, the reserved `:rf.db/runtime`, and the four EP-0025 commit-plane classification effects `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`.** `:db` is the app-db partition (the app-facing key); `:rf.db/runtime` is the runtime-db partition (the framework-only key the partition split adds — per [002 §Write authority is by convention](002-Frames.md#write-authority-is-by-convention)). The four classification effects each carry a vector of [`:rf/path`](#rfpath-rfpath-template-the-path-algebra-ep-0012) vectors and are applied **WITH the `:db` write** at the commit step — a frame-state transform into the per-frame elision declaration registry, not routed through the `:fx` do-fx plane (per [002 §Commit-plane data-classification effects](002-Frames.md#commit-plane-data-classification-effects-ep-0025)). `:db` / `:rf.db/runtime` / the four classification effects are commit-plane state effects; `:fx` carries everything else.
 
 ```clojure
 (def EffectMap
   [:map {:closed true}
-   [:db            {:optional true} :any]                                ;; new app-db partition (replace)
-   [:rf.db/runtime {:optional true} :any]                               ;; new runtime-db partition (replace) — reserved, framework-authority only
-   [:fx            {:optional true} [:vector [:tuple :keyword :any]]]    ;; effects: [[fx-id args] ...]
+   [:db              {:optional true} :any]                              ;; new app-db partition (replace)
+   [:rf.db/runtime   {:optional true} :any]                             ;; new runtime-db partition (replace) — reserved, framework-authority only
+   [:fx              {:optional true} [:vector [:tuple :keyword :any]]]  ;; effects: [[fx-id args] ...]
+   [:sensitive       {:optional true} [:vector Path]]                   ;; EP-0025 commit-plane: classify app-db paths sensitive (redact at egress)
+   [:large           {:optional true} [:vector Path]]                   ;; EP-0025 commit-plane: classify app-db paths large (size marker at egress)
+   [:clear-sensitive {:optional true} [:vector Path]]                   ;; EP-0025 commit-plane: un-classify sensitive
+   [:clear-large     {:optional true} [:vector Path]]                   ;; EP-0025 commit-plane: un-classify large
    ])
 ```
 
@@ -662,7 +666,7 @@ Every effect — including dispatching another event, scheduling a delayed dispa
 
 The single-form rule lets the runtime walk one ordered list of effects, and fits the pattern's regularity-over-cleverness principle ([Principles.md §Regularity](Principles.md#regularity-over-cleverness)). Migrating from earlier re-frame versions: see [MIGRATION.md](../migration/from-re-frame-v1/README.md).
 
-Note the schema is **closed** — unlike most spec-internal shapes which are open maps. The effect map is a contract between handler and runtime; novel keys would be silently ignored, which is exactly the kind of footgun the closed shape rules out. The partition split widened the closed set from `#{:db :fx}` to `#{:db :rf.db/runtime :fx}`: `:rf.db/runtime` is the one new state-bearing top-level key, reserved for framework-authority writers; all other unknown top-level keys remain errors per the existing shape-policing contract.
+Note the schema is **closed** — unlike most spec-internal shapes which are open maps. The effect map is a contract between handler and runtime; novel keys would be silently ignored, which is exactly the kind of footgun the closed shape rules out. The partition split first widened the closed set from `#{:db :fx}` to `#{:db :rf.db/runtime :fx}` (`:rf.db/runtime` reserved for framework-authority writers); EP-0025 then widened it further to the seven-key set `#{:db :rf.db/runtime :fx :sensitive :large :clear-sensitive :clear-large}` — the four commit-plane classification effects join the set so `police-final-effects!` does not drop them as foreign top-level keys. All other unknown top-level keys remain errors per the existing shape-policing contract.
 
 **Normative ordering and atomicity.** Beyond the shape, the effect map carries a runtime-ordering contract that conformant implementations must produce: `:db` is the first side effect (when present, committed atomically before any `:fx` entry); `:fx` entries are processed in source order, serially (entry N's fx-handler returns before entry N+1's begins); subscriptions observe the post-`:db` state from the first `:fx` entry onwards; if an fx-handler throws, subsequent `:fx` entries continue to run and each error is traced as `:rf.error/fx-handler-exception`. See [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) for the full rules and rationale.
 
@@ -716,7 +720,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.sub` | Subscription family — `:rf.sub/create` (registration into the reactive graph, emitted at registration time — not first reference), `:rf.sub/run` (input changed; output recomputed), `:rf.sub/skip` (memo-hit; body did not re-run) | 009 |
 | `:rf.view` | View-substrate family — `:rf.view/render` (per-render marker), plus the `:rf.view/rendered` per-render cascade-attribution / per-view ACTION+REASON marker (carries `:rf.view/mount?`, `:rf.view/deref-subs`, and `:rf.view/render-args` — the latter elided as user data), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker. Per [Spec 004 §Render-tree primitives](004-Views.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
 | `:rf.fx` | Effect-substrate success-path / lifecycle family — `:rf.fx/do-fx` (the effects-resolution pass after the handler returns — folded in here from the former standalone `:event/do-fx` op-type), `:rf.fx/handled`, `:rf.fx/override-applied`. The universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
-| `:rf.cofx` | Coeffect-substrate success-path family — `:rf.cofx/run` (a coeffect supplier ran to success during context assembly; carries `:rf.cofx/id` + `:rf.cofx/value` (the PRODUCED value, redacted by marks) + `:rf.cofx/arg` (the requirement-arg of a parameterized `[id arg]` requirement, omitted otherwise) + `:rf.cofx/elapsed-ms`). The cofx skip / error paths ride the `:warning` / `:error` severity discriminators (`:rf.cofx/skipped-on-platform`; the EP-0017 cofx error family `:rf.error/unregistered-cofx` / `:rf.error/missing-required-cofx` / `:rf.error/cofx-value-invalid`). The slice-B generation step emits `:rf.cofx/generated` (reserved). | 002 / 009 |
+| `:rf.cofx` | Coeffect-substrate success-path family — `:rf.cofx/run` (a coeffect supplier ran to success during context assembly; carries `:rf.cofx/id` + `:rf.cofx/value` (the PRODUCED value, redacted per classification) + `:rf.cofx/arg` (the requirement-arg of a parameterized `[id arg]` requirement, omitted otherwise) + `:rf.cofx/elapsed-ms`). The cofx skip / error paths ride the `:warning` / `:error` severity discriminators (`:rf.cofx/skipped-on-platform`; the EP-0017 cofx error family `:rf.error/unregistered-cofx` / `:rf.error/missing-required-cofx` / `:rf.error/cofx-value-invalid`). The slice-B generation step emits `:rf.cofx/generated` (reserved). | 002 / 009 |
 
 **Family-level discriminators** (umbrella `:op-type` values whose per-emit-site `:operation` varies; consumers filter the whole family with one key):
 
@@ -3753,9 +3757,9 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
                                       ;; reactive `:rf.sub/run` trace tag. Present on reactive recompute
                                       ;; entries; nil on entries derived from the pure `compute-sub`
                                       ;; emit (which omits the attribution). The wire-value slots are
-                                      ;; redacted at the `marks/project-sub-tags` trace chokepoint
-                                      ;; (process-scoped marks, no reactive read), so they may be
-                                      ;; `:rf/redacted` for a sensitive sub (output propagated from a frame-declared sensitive app-db path or a sub-registration `:sensitive` mark).
+                                      ;; redacted at the `classification/project-sub-tags` trace chokepoint
+                                      ;; (process-scoped classification, no reactive read), so they may be
+                                      ;; `:rf/redacted` for a sensitive sub — via the sub registration's own declared `:sensitive` paths (no sub-output propagation, no frame-app-db inheritance), or fail-closed when the carried frame-id is nil.
                                       [:value-changed? {:optional true} [:maybe :boolean]]
                                       [:prev-value     {:optional true} :any]
                                       [:value          {:optional true} :any]
