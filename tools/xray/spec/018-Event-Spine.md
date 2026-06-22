@@ -1780,11 +1780,11 @@ Per [spec/015-Data-Classification §The ownership split](../../../spec/015-Data-
 
 1. **Commit-plane classification effects** (`reg-event` returning `:sensitive` / `:large` alongside `:db`) — durable app-db facts classified into the per-frame elision registry under `:source :effect`. This is the durable app-db classification path; the durable `:sensitive` / `:large {:app-db …}` frame annotation, schema-attached app-db classification, and the imperative `add-marks` / `set-marks` surface are all removed. (Frame-local `:sensitive {:http {…}}` HTTP carriers still ride `reg-frame`.)
 2. **Event handler** (`reg-event`) — `{:sensitive [paths]}` on the registration map (event-arg transient payloads).
-3. **Subscription** — output classification via `{:sensitive [paths]}` and the closed `:rf.egress/output-sensitivity` declassification claim (`:rf.egress/inherit` default · `:rf.egress/sensitive` force-mark · `:rf.egress/public` declassify). Sensitivity propagates from sensitive input paths unless declassified.
+3. **Subscription** — output classification via `{:sensitive [paths]}` declaring the sub's OWN sensitive output paths. (EP-0025 removed input→output propagation and the `:rf.egress/output-sensitivity` declassification claim — a derived output classifies itself directly.)
 4. **Effect** (`reg-fx`) — input marking on the fx-args.
 5. **Coeffect** (`reg-cofx`) — injection marking.
 6. **State machine** (`reg-machine`) — schema-first `:data` slot props (`:sensitive?` / `:large?` on the `:data-schema`; EP-0005 composition, not the frame path-map mechanism).
-7. **Flow** (`reg-flow`) — output marking + the same `:rf.egress/output-sensitivity` declassification claim subs honour.
+7. **Flow** (`reg-flow`) — output marking via the flow's own `:sensitive [paths]` / `:large [paths]`. (EP-0025 removed `:rf.egress/output-sensitivity` — no flow input→output propagation; classify the flow's own output directly.)
 8. **Resource / mutation** (`reg-resource` / `reg-mutation`) — durable runtime-subsystem state classified by per-slot `:sensitive?` / `:large?` props on the `:data-schema` / `:params-schema` (the shared EP-0005 schema mechanism).
 
 Schemas describe **shape**, not durable app-db egress policy: a `reg-app-schema` `{:sensitive? true}` slot prop is **not** a route into app-db classification (Spec 015 §Schemas describe shape). Per-slot schema props are the classification surface only for the owners whose natural declaration is a schema (machines, resources, HTTP bodies).
