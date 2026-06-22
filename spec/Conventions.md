@@ -539,7 +539,7 @@ The MCP servers (re-frame2-pair-mcp / story-mcp) consult the framework's wire-el
 
 | Indicator slot | Meaning | When present | Owner |
 |---|---|---|---|
-| `:dropped-sensitive` | Integer count of leaves the walker dropped because they matched `:sensitive? true` (Malli `:sensitive?` property or `(rf/sensitive-path? ...)` registration). | On every tool response that walked a tree-typed payload, when the count is non-zero. Omit when zero. | MCP servers (cross-server reserved) |
+| `:dropped-sensitive` | Integer count of leaves the walker dropped because they sat at a schema-declared `:sensitive? true` slot (Malli `:sensitive?` property). | On every tool response that walked a tree-typed payload, when the count is non-zero. Omit when zero. | MCP servers (cross-server reserved) |
 | `:elided-large` | Integer count of leaves the walker replaced with the `:rf.size/large-elided` marker because they sat at a schema-declared `:large? true` slot. | On every tool response that walked a tree-typed payload, when the count is non-zero. Omit when zero. | MCP servers (cross-server reserved) |
 
 **Unqualified, not namespaced.** These two slots are reserved as **unqualified keys** (`:dropped-sensitive`, `:elided-large`) — not under `:rf.size/*` or `:rf.mcp/*`. The rationale: they ride alongside tool-shaped payloads (`{:trace [...] :dropped-sensitive 3}`, `{:db {...} :elided-large 2}`) where the tool's own slot vocabulary is unqualified by convention; introducing a namespaced key here would split the response shape across two key conventions and burn agent-host pattern-match budget for no information gain. The wire **markers** at the leaf-substitution site stay namespaced (`:rf.size/large-elided`, `:rf/redacted`) — those are addressable values the agent re-fetches; these counts are scalar summaries on the envelope.
@@ -569,7 +569,7 @@ The bullet glyph (`●`) and the square-bracket delimiters are the canonical sha
 
 ## Privacy config-knob naming (on-box UI vs off-box wire egress)
 
-> Cross-reference: [Privacy.md §Config knobs](Privacy.md#config-knobs) — the cross-artefact inventory of every privacy surface (Spec 010 schema meta, Spec 014 HTTP denylists, Spec 015 path-marks, the epoch `:redact-fn`, the cross-MCP filters) plus the composition order from handler exit to off-box wire. This section pins the verb split; Privacy.md pins where each verb is consumed.
+> Cross-reference: [Privacy.md §Config knobs](Privacy.md#config-knobs) — the cross-artefact inventory of every privacy surface (Spec 010 schema meta, Spec 014 HTTP denylists, Spec 015 data classification, the epoch `:redact-fn`, the cross-MCP filters) plus the composition order from handler exit to off-box wire. This section pins the verb split; Privacy.md pins where each verb is consumed.
 
 Consumers of the `:sensitive?` filter (per [Spec 009 §"Privacy / sensitive data in traces"](009-Instrumentation.md#privacy--sensitive-data-in-traces)) expose a user-controllable knob that decides whether sensitive values pass through the consumer's surface. Two consumer classes exist, and they MUST use different verbs for the knob name — the verb encodes which trust boundary the user is crossing:
 

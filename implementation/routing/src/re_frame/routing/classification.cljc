@@ -7,9 +7,13 @@
 
   EP-0025 makes every runtime subsystem classify its own instance data
   PROJECTION-RELATIVE, applied per-instance at creation and dropped at
-  teardown, lowered into the per-frame elision registry
-  (`re-frame.elision/swap-elision-slot!`). The `reg-route` row of the
-  subsystem matrix:
+  teardown, lowered into the per-frame elision registry. The route arm is
+  a PURE-OVER-VALUE lowering (`apply-route-classification` / `lower-for-route`
+  below): given a base runtime-db value it returns the runtime-db with the
+  `[:rf.runtime/elision …]` registry replaced, which the router folds into the
+  atomic route-slice commit — it does NOT imperatively `swap!` a live slot (the
+  imperative `re-frame.elision/swap-elision-slot!` seam is the `:source :flow`
+  path, not the route path). The `reg-route` row of the subsystem matrix:
 
   | Projection root | Applied at | Dropped at | Generated key |
   |---|---|---|---|

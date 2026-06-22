@@ -399,9 +399,10 @@
   effect's own just-written entry). An empty/absent axis slot is pruned
   (dissoc'd) rather than left as `{}` (matching
   `write-elision-slot`). Assumes `effects` already passed
-  `validate-classification-effects!` (paths are valid concrete `:rf/path`s);
-  normalizes each to its canonical vector form here so the stored decl key
-  matches the wire walker's `(vec path)` lookup.
+  `classification-effect-defect` (the router's pure pre-commit check returned
+  nil, so the paths are valid concrete `:rf/path`s); normalizes each to its
+  canonical vector form here so the stored decl key matches the wire walker's
+  `(vec path)` lookup.
 
   Pre-commit FAIL-OPEN posture: a path classified here is value-independent —
   it redacts whatever later occupies the path, and is a harmless no-op over an

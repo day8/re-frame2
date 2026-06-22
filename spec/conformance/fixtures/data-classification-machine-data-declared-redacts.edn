@@ -1,4 +1,4 @@
-;; Conformance fixture: data-classification/machine-data-frame-declared-redacts
+;; Conformance fixture: data-classification/machine-data-declared-redacts
 ;;
 ;; Per Spec 015 §Subsystem projection-relative classification + the §Tests
 ;; fixture table, and Spec 005 §Privacy — redacting machine `:data` at trace
@@ -37,7 +37,7 @@
 ;; Capability `:data-classification/classification-effects` (claimed by both the
 ;; JVM and CLJS conformance corpus runners) + `:fsm/flat` + `:core/trace`.
 
-{:fixture/id           :data-classification/machine-data-frame-declared-redacts
+{:fixture/id           :data-classification/machine-data-declared-redacts
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :core/event-handler :core/trace
                          :data-classification/classification-effects}

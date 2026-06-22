@@ -95,10 +95,12 @@
   "Build a HandlerScope from a registrar slot's `meta` for a handler
   about to execute. `:call-site` and `:dispatch-id` are left nil for
   `with-handler-scope` to inherit from the parent. The `:sensitive?`
-  slot is fed by the router's schema-derived overlap calculation
-  (`:rf/sensitive?` on the scope-meta map) — the handler-meta
-  annotation has been removed; sensitivity is now path-marked at the
-  schema slot. Per Spec 009 §Handler-scope."
+  slot is fed by the router's classified sensitive-path overlap
+  calculation (`:rf/sensitive?` on the scope-meta map) — the per-frame
+  sensitive-declarations registry written by the EP-0025 commit-plane
+  classification effects, not a schema-attached slot prop and not a
+  frame annotation (both removed); the handler-meta `:sensitive?`
+  annotation is likewise gone. Per Spec 009 §Handler-scope."
   [kind id meta]
   (->HandlerScope (trigger-handler-from-meta kind id meta)
                   nil
@@ -305,7 +307,7 @@
 ;; spans both shapes. Subscription identity has no such dual-shape consumer:
 ;; the two spellings sit on opposite sides of ONE projection boundary
 ;; (`re-frame.epoch.capture/sub-run-row`, which reads the raw `:rf.sub/id` tag
-;; and writes the derived `:sub-id` key). Raw-side consumers (marks
+;; and writes the derived `:sub-id` key). Raw-side consumers (data
 ;; classification, the sub-run/dispose emit sites) read `:rf.sub/id` from
 ;; `:tags`; derived-side consumers (epoch state, Xray panels) read `:sub-id`
 ;; from already-projected rows; nothing reads both. A shared reader would have
@@ -427,16 +429,18 @@
     (deliver-tooling event)))
 
 (defn- hoist-projected-sensitive
-  "Hoist a marks-projection-stamped `[:tags :sensitive?]` up to the
-  envelope's TOP LEVEL (and strip it from `:tags`), mirroring the
+  "Hoist a classification-projection-stamped `[:tags :sensitive?]` up to
+  the envelope's TOP LEVEL (and strip it from `:tags`), mirroring the
   `build-event` posture.
 
   Why this is load-bearing (rf2-md2wn0 — privacy correctness): some
-  projection clauses decide sensitivity DURING marks projection rather
-  than at emit time, and stamp `[:tags :sensitive?]` there — e.g.
+  projection clauses decide sensitivity DURING the classification
+  projection rather than at emit time, and stamp `[:tags :sensitive?]`
+  there — e.g.
   `re-frame.classification/project-machine-error-tags` (a sensitive machine's
-  `:exception-data`) and `project-sub-tags` (a propagation-sensitive
-  sub output that fails closed on a nil frame). Marks projection runs
+  `:exception-data`) and `project-sub-tags` (a registration-classified
+  sub output, or one that fails closed on a nil frame — EP-0025 has no
+  sensitivity propagation). The classification projection runs
   AFTER `build-event`, so `compute-sensitive?` never saw that signal
   and the top-level `:sensitive?` flag is absent.
 
@@ -464,12 +468,12 @@
     event))
 
 (defn- maybe-project-marks
-  "Apply the data-classification marks projection if the marks
+  "Apply the data-classification projection if the classification
   artefact is loaded. Per Spec 015 §Implementation notes
   recommendation B: emit-time path-walk + sentinel substitution.
 
   The projection hook is published by `re-frame.classification` at ns-load;
-  when the marks artefact is absent the hook is unbound and this is
+  when the classification artefact is absent the hook is unbound and this is
   a no-op pass-through. Inside the existing `interop/debug-enabled?`
   gate (in `emit!`) so production builds DCE the hook lookup along
   with the rest of the trace emit.
@@ -497,12 +501,12 @@
   before allocation when the scope's `:no-emit?` slot is true.
 
   Per Spec 015 (data classification): after envelope assembly and
-  before delivery, the marks-projection hook walks `:tags` to
+  before delivery, the classification-projection hook walks `:tags` to
   substitute `:rf/redacted` and `:rf.size/large-elided` markers at
   paths declared sensitive / large by the in-scope handler's
   registration meta or the EP-0025 commit-plane `:sensitive` / `:large` effects. Gated by the same
   `interop/debug-enabled?` so production CLJS bundles DCE the entire
-  marks machinery.
+  classification machinery.
 
   Per Spec 009 §Emitting trace events and §Handler-scope."
   [op operation tags]
@@ -530,8 +534,8 @@
   short-circuit (symmetric with `emit!`). Per Spec 009 §Error contract
   and §Handler-scope.
 
-  Per Spec 015: the same marks-projection hook runs on error traces so
-  exception traces don't accidentally leak sensitive event-args /
+  Per Spec 015: the same classification-projection hook runs on error
+  traces so exception traces don't accidentally leak sensitive event-args /
   fx-args / cofx-values."
   [error-operation tags]
   (when interop/debug-enabled?
