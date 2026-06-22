@@ -3,217 +3,234 @@
 Status: proposal
 Type: standards-track
 
-> This EP proposes how re-frame2 should move its state-machine parity target
+> This EP proposes how re-frame2 should retarget its state-machine comparison
 > from XState v5 to the XState v6 alpha direction. If accepted, the normative
 > homes are `spec/005-StateMachines.md`, the machine implementation docs, and
-> the machine guide material under `docs/guide`. The proposal deliberately
-> classifies v6 changes into three groups: features re-frame2 should embrace,
-> features it might include after separate rulings, and JavaScript/XState
-> surfaces it should ignore.
+> the machine guide material under `docs/guide`. The proposal is not "copy
+> XState v6". It classifies each known v6 change into: things re-frame2 should
+> embrace, things re-frame2 might include later, and things re-frame2 should
+> ignore or reject.
 
 ## Abstract
 
-XState v6 is not a small v5 cleanup. The current alpha removes many helper
-creator APIs, makes functions and schemas more central, adds explicit timeout
-and choice-state primitives, and expands the JSON/workflow/persistence story.
+XState v6 alpha changes the shape of XState's machine API. It removes many v5
+helper creators, makes schemas more central, adds explicit timeouts and choice
+states, and leans harder into actor/workflow/persistence tooling.
 
-re-frame2 is already aligned with much of this direction because it prefers
-plain Clojure functions, effect data, and runtime-db snapshots over XState's v5
-helper-heavy style. This EP proposes adopting the v6 ideas that strengthen
-re-frame2's machine model, considering the ideas that may be useful but are not
-core, and rejecting surfaces that would make re-frame2 look like JavaScript
-XState rather than a Clojure/re-frame statechart system.
+re-frame2 should follow the useful direction, not the JavaScript runtime shape.
+The right translation is: keep machines declarative and inspectable, use plain
+functions at the guard/action boundary, express effects as returned data, and
+keep frame dispatch/runtime-db semantics instead of copying XState actor
+objects.
 
 ## Motivation
 
 EP-0005 and the current machine guide describe re-frame2 in terms of XState v5
-parity. That was useful when v5 was the stable reference point, but the v6 alpha
-direction changes the target:
+parity. That target is now stale. XState v6 alpha removes or redesigns several
+surfaces that v5 made prominent:
 
 - helper creators such as `assign`, `sendTo`, `raise`, `enqueueActions`, `and`,
-  `or`, `not`, and `stateIn` are removed or replaced;
-- `schemas` replaces the old `types: {} as ...` style;
-- `setup()` no longer owns action/guard/actor/delay implementations;
-- `interpret` is removed in favor of `createActor`;
-- state and invoke timeouts become first-class;
-- `choice` states are added;
-- JSON serialization/revival and durable async workflow steps receive more
-  attention.
+  `or`, `not`, and `stateIn`;
+- `types: {} as ...`, replaced by `schemas`;
+- `setup({ actions, guards, actors, delays })`, simplified away from
+  implementation registration;
+- `interpret`, replaced by `createActor`;
+- generic v5-style helper APIs around actions, guards, and actors.
 
-The risk is that "XState parity" becomes a stale phrase that points at v5
-surfaces XState itself is abandoning. The opportunity is that v6 moves closer to
-re-frame2's existing strengths: plain functions, data-first configuration,
-effect descriptions, and explicit runtime state.
+At the same time, v6 adds ideas that fit re-frame2 well:
+
+- explicit state and actor timeouts;
+- choice states;
+- internal-only events;
+- a broader schema vocabulary;
+- sharper actor startup/error ordering.
+
+The risk is adopting obsolete v5 parity work. The opportunity is to make the
+machine docs more honest: re-frame2 already agrees with v6 where v6 moves toward
+plain functions and simpler authoring, but re-frame2 should keep its own
+data-first, re-frame-native runtime model.
 
 ## Goals / Non-Goals
 
 Goals:
 
-- replace the current "XState v5 parity" framing with a v6-aware machine
-  roadmap;
-- list the known v6 alpha changes that affect re-frame2;
-- classify each change as "embrace", "might include", or "ignore";
-- give simple translations from XState terms to plausible re-frame2 syntax;
-- name the docs/spec surfaces that would change if the EP is accepted.
+- replace the current "XState v5 parity" framing with a v6-aware roadmap;
+- explain each important v6 concept in simple terms;
+- state how each concept should, might, or should not appear in re-frame2;
+- preserve a declarative FSM surface suitable for diagrams, tools, conformance,
+  model tests, and AI inspection;
+- identify the docs/spec surfaces that would change if this EP is accepted.
 
 Non-goals:
 
-- do not implement the features in this EP;
-- do not promise compatibility with every XState v6 alpha detail before v6
-  stabilizes;
+- do not implement these changes in this EP;
+- do not promise exact compatibility with an alpha XState release;
 - do not build a JavaScript compatibility layer for XState actor objects;
-- do not reopen unrelated machine decisions unless v6 directly pressures them;
-- do not preserve pre-alpha compatibility shims merely to keep old v5 parity
-  wording alive.
+- do not add a required schema dependency such as Malli to machine core;
+- do not add compatibility shims merely to keep old v5 wording alive.
 
 ## Relationships
 
 - **EP-0005** established machine `:data-schema` and recorded XState v5 parity.
-  This EP amends that framing. If accepted, EP-0005's schema validation
-  principle remains valuable, but the XState comparison target becomes v6 and
-  `:data-schema` may become part of a broader `:schemas` map.
-- **EP-0007** supplies the one-name-per-fact rule. This matters for whether
-  re-frame2 should add XState spellings such as `:invoke` beside existing
-  `:spawn`.
-- **EP-0010** and **EP-0011** define causal inputs and uniform async reply
-  envelopes. Those are the local foundations for any durable workflow-step
-  feature inspired by XState v6 `createAsyncLogic`.
-- **EP-0014** names the common derivation/process model behind subscriptions,
-  resources, flows, and machines. That model is relevant to any v6-inspired
-  `listen`/`subscribeTo` equivalent.
+  This EP amends that framing. EP-0005's validation idea remains useful, but the
+  target becomes the v6 direction and schema validation must remain optional.
+- **EP-0007** supplies one-name-per-fact. This EP applies it by rejecting a
+  public `:invoke` alias for native `:spawn`.
+- **EP-0010** and **EP-0011** define causal inputs and the uniform async reply
+  envelope. Those are the right substrate if durable workflow steps ever become
+  a re-frame2 feature.
+- **EP-0014** names the derivation/process model behind subscriptions,
+  resources, flows, and machines. It explains why listener-like work often
+  belongs outside the machine grammar.
 - **`spec/005-StateMachines.md`** is the primary normative home for accepted
   machine grammar and runtime semantics.
-- **`docs/guide/concepts/machines.md`** is the main human-facing guide material
-  that currently teaches the XState comparison.
+- **`docs/guide/concepts/machines.md`** is the main guide page that currently
+  teaches the XState comparison.
 
 Research basis:
 
-- XState `6.0.0-alpha.1` and `6.0.0-alpha.2` release notes;
-- the open XState v6 PR from `next` into `main`;
+- [XState `6.0.0-alpha.1` release notes](https://github.com/statelyai/xstate/releases/tag/xstate%406.0.0-alpha.1);
+- [XState `6.0.0-alpha.2` release notes](https://github.com/statelyai/xstate/releases/tag/xstate%406.0.0-alpha.2);
+- [the open XState v6 PR from `next` into `main`](https://github.com/statelyai/xstate/pull/5543);
 - source/tests at the alpha.2 commit (`172e4a8`);
 - npm dist-tags showing v6 on `alpha`, not `latest`;
-- public Stately docs still marked as XState v5 docs.
+- [public Stately docs still marked as XState v5 docs](https://stately.ai/docs).
 
 ## Specification
 
-At `proposal` status, this is not yet a shipped contract. The grouping below is
-the proposed decision surface for operator ruling.
+At `proposal` status, this is not a shipped contract. The grouping below is the
+proposed decision surface.
 
 ### Decision rule
 
-re-frame2 should adopt an XState v6 change when it strengthens the local model:
+re-frame2 should adopt a v6 idea when it strengthens the local model:
 
-- clearer machine grammar;
-- more inspectable data;
-- better replay/persistence behavior;
-- better tooling and docs;
-- fewer special helper APIs.
+- declarative machine topology;
+- clearer public grammar;
+- inspectable data;
+- deterministic event/effect semantics;
+- better tooling and docs.
 
-re-frame2 should not adopt an XState v6 surface merely because it exists in
-JavaScript. Parity means matching the statechart capability and the design
-direction, not copying every actor API shape.
+re-frame2 should reject a v6 surface when it mainly copies JavaScript runtime
+ergonomics, hides topology in code, or duplicates an existing re-frame2 concept.
 
 ## Group A: re-frame2 should embrace
 
-These changes fit re-frame2's direction and should be part of the v6 parity
-roadmap if the EP is accepted.
+These are proposed as the first v6 parity roadmap.
 
-### A1. Retarget the docs from XState v5 to XState v6
+### A1. Retarget docs from XState v5 to XState v6
 
-XState:
+XState concept:
 
-XState v6 removes many v5 helper APIs and resets the recommended authoring
-style. Public Stately docs are still v5, but the v6 alpha release notes and PR
-show a clear direction.
+XState v6 alpha changes the recommended shape of XState machines. It removes
+many v5 helper APIs and shifts the story toward plain functions, schemas, actor
+startup semantics, and explicit timeouts.
 
-re-frame2:
+re-frame2 expression:
 
-The machine guide should stop saying re-frame2 is chasing v5 as the live target.
-It should say re-frame2 is aligned with the v6 direction while v6 is alpha, and
-it should keep an explicit "not copied from XState" divergence list.
+The machine guide should stop saying v5 is the live parity target. It should say
+re-frame2 tracks the useful v6 direction while v6 is alpha, and then list the
+intentional divergences.
 
-Usefulness:
+Why useful:
 
-This prevents the project from implementing obsolete v5 parity features. It also
-turns re-frame2's current Clojure style into a strength rather than a divergence
-to apologize for.
+This avoids implementing v5 features that XState itself is leaving behind. It
+also makes re-frame2's current posture clearer: a machine is a re-frame event
+handler with data-first transition tables, not an XState actor object.
 
-### A2. Plain functions for transitions, guards, and actions
+### A2. Plain guard/action functions with declarative topology
 
-XState:
+XState concept:
 
-v6 makes transitions, actions, and guards plain inline functions. A transition
-or action can return updated context and use an enqueue helper for side effects.
+XState v6 lets transitions, actions, and guards be inline functions. In
+JavaScript this is an ergonomic simplification.
 
-re-frame2:
+re-frame2 expression:
 
-Guards and actions already use Clojure functions. The new decision is whether a
-transition entry itself can be a function:
+re-frame2 should embrace plain functions for guards and actions, but keep the
+transition topology declarative. Targets, candidate transitions, `:always`,
+`:after`, `:timeout`, and `:choice` remain machine data.
+
+Preferred shape:
 
 ```clojure
-{:states
- {:counting
-  {:on
-   {:inc (fn [{:keys [data]}]
-           {:data (update data :count inc)})
-    :finish (fn [{:keys [data]}]
-              (when (>= (:count data) 10)
-                {:target :done
-                 :fx [[:analytics/track {:event :finished}]]}))}}}}
+{:on
+ {:finish [{:guard :count-complete?
+            :target :done}
+           {:target :still-counting}]}
+ :guards
+ {:count-complete? (fn [{:keys [data]}]
+                     (>= (:count data) 10))}
+ :actions
+ {:record-finish (fn [{:keys [data]}]
+                   {:data (assoc data :finished? true)})}}
 ```
 
-The function returns the same kind of transition result a map transition would
-describe: `:target`, `:data`, `:fx`, `:raise`, and related machine-result keys.
-re-frame2 should not add an imperative JavaScript `enq` object for this; return
-maps and effect vectors are the local idiom.
+Why useful:
 
-Usefulness:
+This keeps edges visible to diagrams, model tests, conformance fixtures, and AI
+tools. Code still exists where it belongs: predicates and effects. The graph
+itself remains data.
 
-This closes the most visible v6 authoring gap while keeping the existing
-data-first transition grammar. It gives authors a compact form for "the event
-is mostly code" without inventing helper creators.
+Important boundary:
 
-### A3. A broader `:schemas` machine contract
+Fully function-valued transition entries are rejected in Group C. They hide the
+edge topology.
 
-XState:
+### A3. Broader `:schemas`, optional validation
 
-v6 replaces `types: {} as ...` with `schemas` for context, events, input,
-output, emitted events, tags, and meta. It can use Standard Schema-compatible
-JavaScript libraries or type-only declarations.
+XState concept:
 
-re-frame2:
+XState v6 replaces `types: {} as ...` with `schemas`. It can describe context,
+events, input, output, emitted events, tags, and meta.
 
-Use a Malli-shaped `:schemas` map rather than importing the JavaScript Standard
-Schema brand:
+re-frame2 expression:
+
+re-frame2 should add a machine-level `:schemas` section, but schema validation
+must remain optional. The machine core must not require Malli or JavaScript
+Standard Schema.
+
+Simple shape:
 
 ```clojure
 {:schemas
- {:data [:map [:count :int]]
-  :events {:counter/inc [:map]
-           :counter/set [:map [:value :int]]}
-  :input [:map [:initial-count :int]]
-  :output [:map [:count :int]]
-  :tags [:enum :busy :done]
-  :meta [:map]}}
+ {:data <schema>
+  :events {:counter/inc <schema>
+           :counter/set <schema>}
+  :output <schema>
+  :tags <schema>
+  :meta <schema>}}
 ```
 
-The open ruling is whether `:data-schema` becomes a shorthand for
-`[:schemas :data]` or is retired by a clean pre-alpha break.
+`<schema>` is intentionally abstract here. A Malli adapter can interpret Malli
+values. Another adapter can interpret another schema representation. A project
+with no schema adapter can still use the machine grammar without pulling in a
+heavy dependency.
 
-Usefulness:
+`[:schemas :input]` should be added only if the state-input maybe item is later
+accepted. `[:schemas :output]` describes the completion-event payload, not a new
+snapshot field; see A8.
 
-This preserves EP-0005's runtime validation strength while aligning the grammar
-with v6's broader type surface. It also gives tools a single place to discover
-machine data, event payloads, final output, tags, and metadata.
+Why useful:
+
+The useful v6 idea is the broader machine contract. Tools and optional
+validation can learn what a machine's data, events, completion payloads, tags,
+and meta look like from one place.
+
+Open spelling question:
+
+`:data-schema` can either become shorthand for `[:schemas :data]` or be retired
+by a clean pre-alpha break. That is an open issue for acceptance.
 
 ### A4. Explicit state and spawn timeouts
 
-XState:
+XState concept:
 
-v6 adds `timeout` and `onTimeout` at state and invoke level. It also accepts
-duration strings such as `10ms`, `5s`, and ISO durations such as `PT2M`.
+XState v6 adds `timeout` and `onTimeout` at state and invoke level. It also
+accepts readable duration strings such as `10ms`, `5s`, and ISO durations such
+as `PT2M`.
 
-re-frame2:
+re-frame2 expression:
 
 Add state-level `:timeout` / `:on-timeout` and spawn-level timeout semantics:
 
@@ -230,422 +247,304 @@ Add state-level `:timeout` / `:on-timeout` and spawn-level timeout semantics:
            :on-timeout {:target :timed-out}}}}}
 ```
 
-Existing `:after` remains the general delayed-transition primitive. `:timeout`
-is the named semantic form: it requires `:on-timeout`, is cancelled on state
-exit, and spawn timeout is cancelled when the child completes.
+Rules:
 
-Usefulness:
+- `:timeout` requires `:on-timeout`;
+- leaving the state cancels the state timeout;
+- child completion cancels the spawn timeout;
+- ordinary `:after` remains for general delayed transitions;
+- `:after` and `:timeout` may coexist because they express different intent.
 
-Timeouts are common in real workflows and are more legible when named directly
-instead of encoded as another anonymous `:after` transition. Duration strings
-also improve authoring ergonomics without weakening integer millisecond support.
+Why useful:
 
-### A5. First-class `:choice` states
+Timeout is a common workflow fact. `:timeout` says "this state or child must
+finish before this time" more clearly than encoding every timeout as a generic
+`:after` transition.
 
-XState:
+### A5. Declarative `:choice` states
 
-v6 adds `type: "choice"` states that immediately choose a target through a
-resolver function. A choice state cannot also behave like a normal state with
-entry/exit/on/after/invoke behavior.
+XState concept:
 
-re-frame2:
+XState v6 adds `type: "choice"` states. A choice state is an immediate routing
+node: enter it, choose a target, and leave.
 
-Add `:type :choice`:
+re-frame2 expression:
+
+Add `:type :choice`, but keep the routing declarative with guarded candidates:
 
 ```clojure
 {:states
- {:route
+ {:checking
   {:type :choice
-   :choice (fn [{:keys [data]}]
-             (if (:valid? data) :accepted :rejected))}}}
+   :choice [{:guard :valid?
+             :target :accepted}
+            {:target :rejected}]}}}
 ```
 
-The state can likely lower to existing always-transition machinery, but the
-grammar should validate the v6-style restrictions: a choice state must have a
-choice resolver and must not also declare normal state behavior.
+Rules:
 
-Usefulness:
+- a choice state must declare `:choice`;
+- `:choice` uses the same candidate semantics as normal transitions;
+- a choice state should not also declare ordinary waiting-state behavior such as
+  `:entry`, `:exit`, `:on`, `:after`, `:timeout`, or `:spawn`.
 
-This names an important modeling concept. `:always` can express the behavior,
-but `:choice` explains the intent to readers, tools, diagrams, and diagnostics.
+Why useful:
+
+`:always` can already express immediate routing, but `:choice` names the
+intent. It gives diagrams and tools a decision node and gives validation a
+clearer grammar.
 
 ### A6. `:internal-events`
 
-XState:
+XState concept:
 
-v6 has `internalEvents`: events that can be raised internally but are rejected
-when sent from outside the actor.
+XState v6 has `internalEvents`: events the machine may raise internally, but
+outside callers may not send.
 
-re-frame2:
+re-frame2 expression:
 
-Add a machine-level admission gate:
+Add a machine-level private event list:
 
 ```clojure
 {:internal-events #{:tick :retry/internal}
- :states ...}
-```
-
-If wildcard parity is accepted, use an explicit pattern form rather than making
-ordinary keywords magical:
-
-```clojure
-{:internal-events [:tick "change.*"]}
-```
-
-The check belongs at the external machine dispatch boundary. Internally raised
-events still run through the transition reducer.
-
-Usefulness:
-
-This protects private machine protocol events. It also clarifies the difference
-between public events a caller may dispatch and internal events produced by
-machine logic.
-
-### A7. Canonical serialization with explicit unserializable markers
-
-XState:
-
-v6 strengthens `serializeMachine`, `createMachineFromConfig`, JSON revival, and
-explicit markers for functions, schemas, and actor logic that cannot round-trip
-as plain JSON.
-
-re-frame2:
-
-Define a canonical serializable machine form. It may be EDN-first, but it should
-round-trip without silent drops and should mark non-portable values explicitly:
-
-```clojure
-{:actions {:save {:rf.machine/unserializable true
-                  :reason :function}}
- :states ...}
-```
-
-The exact marker key is open; the rule is not. A serializer must not pretend an
-anonymous function, schema object, or host function survived if it did not.
-
-Usefulness:
-
-This is critical for AI tools, machines-viz, snapshot review, generated docs,
-and possible XState JSON export. It also fits re-frame2's data-first posture.
-
-### A8. Spawn ordering, failure, and rehydration semantics
-
-XState:
-
-v6 changes actor startup ordering so child start belongs to the transition that
-creates the child. It routes synchronous child startup failure to the invoking
-state's error path. Alpha.2 also fixed invoke input/dynamic source so they see
-post-transition context when a transition both updates context and enters an
-invoking state.
-
-re-frame2:
-
-Verify and, if needed, specify these spawn rules:
-
-- a parent action's updated `:data` is visible to `:spawn :data` functions when
-  the same transition enters a spawn-bearing state;
-- child initialization/start failure can route to the parent's spawn error
-  transition rather than escaping as an unhandled exception;
-- restored active child snapshots restart consistently when the parent runtime
-  snapshot is restored.
-
-Usefulness:
-
-This is not cosmetic parity. It is transition-order correctness. Bugs here
-create confusing parent/child data races and brittle recovery behavior.
-
-### A9. Explicit final output, tags, and meta preservation
-
-XState:
-
-v6 schemas include `output`, `tags`, and `meta`; serialization preserves tags
-and output.
-
-re-frame2:
-
-If `:schemas` lands, include `:output`, `:tags`, and `:meta`. Final output
-should be a snapshot fact rather than only an implicit convention over `:data`:
-
-```clojure
-{:schemas {:output [:map [:user-id :uuid]]
-           :tags [:enum :loading :complete]
-           :meta [:map]}
  :states
- {:done {:type :final
-         :output (fn [{:keys [data]}]
-                   {:user-id (:user-id data)})}}}
+ {:waiting
+  {:entry {:raise :tick}
+   :on {:tick {:target :checking}}}}}
 ```
 
-Usefulness:
+Internal `:raise` may produce `:tick`. External dispatch should reject it:
 
-This helps spawned parent/child workflows, tools, final-state inspection, and
-serialization. It is small if built on existing final-state behavior.
+```clojure
+(rf/dispatch [:my-machine [:tick]])
+```
+
+Rules:
+
+- enforce this at the machine dispatch boundary;
+- internal raised events still run through normal transition selection;
+- wildcard patterns may be considered, but keywords should remain ordinary
+  values unless a pattern form is explicitly chosen.
+
+Why useful:
+
+This separates public machine API from private machine plumbing. Views, tests,
+and other handlers should not accidentally depend on events meant only for the
+machine's own run-to-completion logic.
+
+### A7. Spawn ordering, failure, and restore semantics
+
+XState concept:
+
+XState v6 tightened actor startup semantics. A child actor's input should see
+the parent's post-transition context when the transition both updates context
+and enters an invoking state. Child startup errors route through the invoking
+state's error path.
+
+re-frame2 expression:
+
+Specify and test the same ordering for `:spawn`:
+
+```clojure
+{:on {:load-user {:target :loading
+                  :action :store-user-id}}
+ :states
+ {:loading
+  {:spawn {:machine :fetch-user
+           :data (fn [{:keys [data]}]
+                   {:id (:user-id data)})
+           :on-error {:target :failed}}}}}
+```
+
+Rules:
+
+- `:spawn :data` sees parent `:data` after the transition action has run;
+- child startup/init failure can route to the parent's declared spawn error
+  path;
+- restored parent/child runtime snapshots should restart active children
+  consistently.
+
+Why useful:
+
+This is correctness, not ornament. Parent/child workflows become hard to reason
+about if child initialization sees stale parent data, or if child startup
+failure escapes around the parent's declared error handling.
+
+### A8. Final output as completion event payload
+
+XState concept:
+
+XState v6 treats machine output as a first-class schema/output concept.
+
+re-frame2 expression:
+
+Do not add XState-style `snapshot.output`. re-frame2 already has a better local
+model: final output is selected from the child machine's `:data` via
+`:output-key` and delivered to the parent as the `:on-done` completion event
+payload.
+
+```clojure
+;; child
+{:states
+ {:done {:final? true
+         :output-key :result}}}
+
+;; parent
+{:states
+ {:loading
+  {:spawn {:machine :fetch-user
+           :on-done {:target :loaded
+                     :action :store-user}}}}}
+```
+
+Conceptually:
+
+```clojure
+(get-in child-snapshot [:data :result])
+;; becomes the payload of the parent completion event / :on-done transition
+```
+
+Rules:
+
+- keep `:output-key` as the final state's data selector;
+- do not add a long-lived `:output` slot to the child snapshot;
+- if `:schemas` includes `:output`, it schemas the completion-event payload;
+- keep `:tags` and `:meta` as existing machine/state metadata concepts.
+
+Why useful:
+
+re-frame2 machines are event handlers. Completion is something that happens, so
+it should flow as an event. This keeps output aligned with the existing
+`:final?` / `:output-key` / `:on-done` contract.
 
 ## Group B: re-frame2 might include
 
-These v6 features may be useful, but they either need separate design pressure
-or fit a subsystem outside the core machine grammar.
+These are not rejected, but they need concrete use cases or a separate design
+surface before they should become core.
 
 ### B1. State input
 
-XState:
+XState concept:
 
-v6 can pass input to a state when it is entered, and snapshots can expose inputs
-by state node.
+XState v6 can pass input to a state when it is entered. That input is not the
+same thing as context. It is entry-specific data.
 
-re-frame2:
-
-Possible shape:
+Possible re-frame2 expression:
 
 ```clojure
-{:initial {:target :editing
-           :input {:source :new}}
+{:on
+ {:edit-existing {:target :editing
+                  :input {:mode :existing}}
+  :create-new    {:target :editing
+                  :input {:mode :new}}}
  :states
  {:editing
-  {:schemas {:input [:map [:source [:enum :new :existing]]]}
-   :entry :hydrate-editor}}}
+  {:entry :setup-editor}}}
 ```
 
-Usefulness:
+Why maybe:
 
-State input is different from durable `:data`: it describes why this state entry
-happened. That can be useful, but it adds another data channel and may overlap
-with event payloads, transition data, and parent spawn data. Include only if
-real examples show cleaner models.
+This can express "why this state was entered" without writing temporary routing
+facts into durable `:data`. But it adds another data channel alongside `:event`,
+`:data`, and spawn data. re-frame2 should include it only if real examples show
+that those existing channels make machines less clear.
 
-### B2. Actor trigger ergonomics
+If ever needed:
 
-XState:
+State input should be explicit on transition targets and available to entry
+actions through the normal context map. It should not silently persist as
+machine `:data`.
 
-v6 adds `actor.trigger.EVENT(payload)`, shorthand for sending a typed event.
+### B2. Durable workflow steps
 
-re-frame2:
+XState concept:
 
-Possible helper:
+XState v6 `createAsyncLogic` can persist completed async steps so a restored
+actor can skip work it already finished.
+
+Possible re-frame2 expression:
+
+This should not live inside the transition reducer. If accepted later, it should
+look like managed-effects or workflow work:
 
 ```clojure
-(rf/dispatch (rf/machine-event :counter :counter/inc {:by 1}))
+{:fx [[:rf.workflow/step
+       {:id :charge-card
+        :request charge-request
+        :on-success [:checkout/charged]
+        :on-error [:checkout/charge-failed]}]]}
 ```
 
-or:
+Why maybe:
 
-```clojure
-((rf/machine-trigger :counter) :counter/inc {:by 1})
-```
-
-Usefulness:
-
-This might reduce noisy event-vector construction in examples. It is not core
-parity because re-frame2 callers already have `rf/dispatch` and no actor object.
-
-### B3. Emitted events as a separate channel
-
-XState:
-
-v6 has `enq.emit` and `schemas.emitted`, separate from sending events to actors.
-
-re-frame2:
-
-Possibilities:
-
-- treat emitted events as trace/observability facts;
-- treat them as ordinary re-frame dispatch effects;
-- add a machine-local listener channel.
-
-Usefulness:
-
-A separate emit channel can be useful for instrumentation and parent/host
-integration, but it risks duplicating re-frame dispatch, traces, and managed
-effect replies. It should not be added until the consumer is clear.
-
-### B4. Durable async workflow steps
-
-XState:
-
-v6 `createAsyncLogic` can persist completed `enq.step` results so rehydration
-skips already-completed steps.
-
-re-frame2:
-
-This would likely live in managed effects or workflows rather than in the small
-machine reducer:
-
-```clojure
-{:fx [[:rf.workflow/step {:id :charge-card
-                          :request charge-request
-                          :on-success [:checkout/charged]}]]}
-```
-
-Usefulness:
-
-This is powerful for backend/workflow orchestration. It is probably not needed
-for ordinary frontend statechart parity, and it should build on EP-0010/0011
-causal/reply semantics if accepted.
-
-### B5. State-bound subscriptions/listeners
-
-XState:
-
-v6 adds `enq.listen` and `enq.subscribeTo` to subscribe to actors or atoms with
-automatic teardown.
-
-re-frame2:
-
-Possible local shape is a state-bound resource/listener declaration, not an
-imperative enqueue call:
-
-```clojure
-{:states
- {:watching
-  {:listen [{:source [:sub [:clock/tick]]
-             :on-value :clock/ticked}]}}}
-```
-
-Usefulness:
-
-This may help external resource lifecycles, but it overlaps with re-frame
-subscriptions, resources, flows, and component lifecycles. It belongs in a
-separate design if concrete pressure appears.
-
-### B6. Snapshot versioning and migration
-
-XState:
-
-v6 continues the push toward persisted snapshots and machine migration.
-
-re-frame2:
-
-Possible shape:
-
-```clojure
-{:version 3
- :migrate (fn [snapshot from-version]
-            ...)}
-```
-
-Usefulness:
-
-This is useful if re-frame2 promises long-lived persisted machine snapshots. If
-snapshots remain development/runtime artifacts for now, loud version mismatch
-may be enough.
-
-### B7. Full XState JSON import/export compatibility
-
-XState:
-
-v6's data-first support makes JSON machine configs more important.
-
-re-frame2:
-
-Canonical re-frame2 serialization should be embraced. Exact XState JSON import
-and export could be a tooling layer:
-
-```clojure
-(rf.machine.xstate/export machine)
-(rf.machine.xstate/import xstate-json {:actions actions
-                                       :guards guards})
-```
-
-Usefulness:
-
-This may help interoperability with Stately tools, but exact compatibility can
-distort the native machine grammar. It should be tooling-owned unless a strong
-product use case appears.
-
-### B8. Reusable state config fragments
-
-XState:
-
-v6 includes `createStateConfig(...)` for standalone typed state-node configs.
-
-re-frame2:
-
-A local equivalent could be plain data/functions or a helper that validates a
-state fragment before insertion:
-
-```clojure
-(def loading-state
-  (rf.machine/state-config
-    {:entry :start
-     :timeout "10s"
-     :on-timeout :failed}))
-```
-
-Usefulness:
-
-This can reduce repetition in large machines, but ordinary Clojure data
-composition may already be enough. Include only if validation/tooling benefits
-are real.
-
-### B9. Generic async-logic timeout
-
-XState:
-
-v6 includes timeout behavior for async logic, not only state/invoke timeout.
-
-re-frame2:
-
-Managed effects may eventually accept timeout policy directly:
-
-```clojure
-{:fx [[:http/get {:url "/api/user"
-                  :timeout "5s"
-                  :on-timeout [:user/load-timeout]}]]}
-```
-
-Usefulness:
-
-Useful, but not a machine-only feature. It belongs with managed effects and
-resources rather than EP-0029's core machine grammar.
+It is useful for long-running workflows where repeating a side effect is wrong,
+such as payment or backend orchestration. It is also a big surface: persistence,
+idempotency, retry, cancellation, and stale suppression. It should build on
+EP-0010/EP-0011 if it ever lands.
 
 ## Group C: re-frame2 should not include or should ignore
 
-These v6-adjacent surfaces should not be copied into re-frame2 core.
+These surfaces should not be part of re-frame2 machine core. Each item also
+states the re-frame2 alternative if an application needs a similar result.
 
-### C1. v5 helper creator compatibility
+### C1. Opaque function-valued transitions
 
-XState:
+XState concept:
+
+XState v6 permits transition logic to be written as inline functions.
+
+re-frame2 decision:
+
+Do not copy this for ordinary machines. It hides the graph in code.
+
+Use this instead:
+
+- declarative transition candidates for edges;
+- guard functions for predicates;
+- action functions for data/effect work;
+- `:choice` states for immediate routing.
+
+If ever needed:
+
+A future escape hatch would need to be explicitly named as opaque and
+tool-limiting. It should not be presented as normal parity.
+
+### C2. v5 helper creator compatibility
+
+XState concept:
 
 v6 removes helper creators such as `assign`, `raise`, `sendTo`, `sendParent`,
 `emit`, `log`, `cancel`, `spawnChild`, `stop`, `enqueueActions`, and guard
 creators such as `and`, `or`, `not`, and `stateIn`.
 
-re-frame2:
+re-frame2 decision:
 
-Do not add Clojure versions of those helpers. Use functions, return maps,
-effect vectors, named guards/actions, tags, and `:all-state`.
+Do not add Clojure versions of helpers XState is deleting.
 
-Reason:
+Use this instead:
 
-Adding helper APIs now would copy the part of v5 that v6 is deleting.
+- actions return `{:data ... :fx ...}`;
+- internal events use `:raise`;
+- guards are named functions;
+- cross-state questions use `:tags`, `:state`, or `:all-state`.
 
-### C2. JavaScript-style `setup()` implementation registries
+If ever needed:
 
-XState:
+Applications can define ordinary helper functions locally, but they should not
+be framework grammar.
 
-v6 simplifies `setup()` so it no longer registers action/guard/actor/delay
-implementations.
+### C3. Imperative `enq`
 
-re-frame2:
+XState concept:
 
-Do not introduce a `setup`-like registry layer. Keep machine-local `:guards`,
-`:actions`, and related implementation maps as the data/config mechanism.
+XState v6 action/transition functions use an enqueue helper such as
+`enq.raise`, `enq.sendTo`, or `enq.emit`.
 
-Reason:
+re-frame2 decision:
 
-The old v5 analogy is obsolete, and a new registry concept would duplicate
-ordinary Clojure maps and image/frame registration machinery.
+Do not add an imperative enqueue object.
 
-### C3. An imperative `enq` object
-
-XState:
-
-v6 action/transition functions use `enq.raise`, `enq.sendTo`, `enq.emit`, and
-similar calls for side effects.
-
-re-frame2:
-
-Do not add an imperative enqueue object. Use return values:
+Use this instead:
 
 ```clojure
 {:data updated-data
@@ -653,202 +552,419 @@ Do not add an imperative enqueue object. Use return values:
  :raise [[:machine/internal-event]]}
 ```
 
-Reason:
+If ever needed:
 
-Return maps are easier to inspect, test, serialize, trace, and replay in
-Clojure. They are also more consistent with re-frame event handlers.
+A local helper can build return maps, but the public machine contract should
+remain return-data, not command-object mutation.
 
-### C4. `interpret` or `Interpreter` compatibility
+### C4. JavaScript-style `setup()` registries
 
-XState:
+XState concept:
 
-v6 removes the deprecated `interpret` path in favor of `createActor`.
+XState v6 simplifies `setup()` so it no longer registers actions, guards,
+actors, or delays.
 
-re-frame2:
+re-frame2 decision:
+
+Do not introduce a setup-like registry layer.
+
+Use this instead:
+
+Keep machine-local maps such as `:guards` and `:actions`. Use normal Clojure
+values and the existing image/frame registration model for application
+behavior.
+
+If ever needed:
+
+Reusable registration bundles should be handled by image/frame composition, not
+a machine-specific `setup` clone.
+
+### C5. `interpret` / `Interpreter`
+
+XState concept:
+
+v6 removes the old `interpret` path in favor of `createActor`.
+
+re-frame2 decision:
 
 Do nothing. re-frame2 never had this API.
 
-Reason:
+Use this instead:
 
-There is no migration surface and no value in simulating removed JavaScript
-classes.
+Machines are event handlers. Start and communicate with them through the
+ordinary re-frame frame/event lifecycle.
 
-### C5. A public `:invoke` rename or stable alias for `:spawn`
+### C6. Actor trigger ergonomics
 
-XState:
+XState concept:
+
+XState v6 adds `actor.trigger.EVENT(payload)` as shorthand for sending events.
+
+re-frame2 decision:
+
+Do not add `rf/machine-trigger` or a machine-specific event constructor as
+framework API.
+
+Use this instead:
+
+```clojure
+(rf/dispatch [:counter [:inc {:by 1}]])
+```
+
+If ever needed:
+
+Tests or applications may define local helpers, but framework-level dispatch
+should have one public spelling.
+
+### C7. Separate emitted-events channel
+
+XState concept:
+
+XState v6 has `enq.emit` and `schemas.emitted`, separate from sending events to
+actors.
+
+re-frame2 decision:
+
+Do not add a machine-core `:emit` channel.
+
+Use this instead:
+
+- `:fx` dispatch effects for application behavior;
+- trace events for observability;
+- managed-effect replies for async completion;
+- `:on-done` / `:on-error` for child-machine completion.
+
+If ever needed:
+
+A future observability or domain-events design can define a channel with a real
+consumer. It should not be smuggled into machine parity.
+
+### C8. State-bound listener syntax
+
+XState concept:
+
+XState v6 adds `enq.listen` and `enq.subscribeTo` with automatic teardown.
+
+re-frame2 decision:
+
+Do not add machine-core `:listen` syntax.
+
+Use this instead:
+
+- views use `rf/subscribe`;
+- flows derive and write declared facts;
+- resources own async server-state lifecycles;
+- state `:entry` can start a managed effect and `:exit` can stop/cancel it;
+- a spawned child machine can own state-bound external work.
+
+If ever needed:
+
+Design it in resources, flows, or managed effects, where lifecycle-managed
+listening already belongs.
+
+### C9. Snapshot migration hooks
+
+XState concept:
+
+XState v6 leans into persisted snapshots and migration.
+
+re-frame2 decision:
+
+Do not add machine-level `:version` / `:migrate` hooks for v6 parity.
+
+Use this instead:
+
+Machine snapshots are runtime state. If an application persists machine-like
+state across releases, the application owns migration at that boundary.
+
+If ever needed:
+
+A future persistence EP can define a migration contract. It should not be part
+of machine core by default.
+
+### C10. Canonical serialization and unserializable markers
+
+XState concept:
+
+XState v6 strengthens machine serialization/revival and marks values that cannot
+round-trip as JSON.
+
+re-frame2 decision:
+
+Do not make canonical machine serialization or unserializable markers a v6
+parity goal.
+
+Use this instead:
+
+The machine grammar remains normal Clojure data plus functions. Tools can read
+the declarative parts directly.
+
+If ever needed:
+
+A tools-focused EP can define an export projection for diagrams or AI. That
+projection can decide how to report opaque values. It should not drive core
+machine semantics.
+
+### C11. Full XState JSON import/export compatibility
+
+XState concept:
+
+XState v6 makes data-first JSON machine configs more important.
+
+re-frame2 decision:
+
+Do not distort the native grammar to round-trip XState JSON.
+
+Use this instead:
+
+Keep re-frame2 syntax native: frame dispatch, event vectors, runtime-db
+snapshots, and `:spawn`.
+
+If ever needed:
+
+A boundary tool can translate a subset:
+
+```clojure
+(rf.machine.xstate/export machine)
+(rf.machine.xstate/import xstate-json {:guards guards
+                                       :actions actions})
+```
+
+That tool should be allowed to say "not representable" rather than weakening the
+native grammar.
+
+### C12. Reusable state config wrappers
+
+XState concept:
+
+XState v6 has `createStateConfig(...)` for standalone typed state configs.
+
+re-frame2 decision:
+
+Do not add an `rf.machine/state-config` wrapper.
+
+Use this instead:
+
+```clojure
+(defn loading-state [{:keys [success failed]}]
+  {:entry :start
+   :timeout "10s"
+   :on-timeout {:target failed}
+   :on {:success {:target success}
+        :failure {:target failed}}})
+
+{:states
+ {:loading (loading-state {:success :loaded
+                           :failed :failed})}}
+```
+
+If ever needed:
+
+Tooling can later attach metadata to ordinary Clojure values. A wrapper should
+not be added just because TypeScript benefits from one.
+
+### C13. Generic async operation timeout as machine parity
+
+XState concept:
+
+XState v6 includes async-logic timeout, not only state/invoke timeout.
+
+re-frame2 decision:
+
+Do not include generic async operation timeout in EP-0029.
+
+Use this instead:
+
+Use A4 for state/spawn timeout. If HTTP/resources/managed effects need
+request-level timeout, define it in those APIs.
+
+If ever needed:
+
+It might look like this, but it belongs outside machine parity:
+
+```clojure
+{:fx [[:http/get {:url "/api/user"
+                  :timeout "5s"
+                  :on-timeout [:user/load-timeout]}]]}
+```
+
+### C14. Public `:invoke` alias for `:spawn`
+
+XState concept:
 
 XState uses `invoke` for state-bound actors.
 
-re-frame2:
+re-frame2 decision:
 
-Keep `:spawn` / `:spawn-all` as the public spelling unless a later EP explicitly
-reopens that naming decision. An XState import/export tool may translate
-`invoke` at the boundary, but the native grammar should not carry both names.
+Keep `:spawn` / `:spawn-all` as the public spelling.
 
-Reason:
+Use this instead:
 
-EP-0007 argues against accepted synonyms. The current `:spawn` term reflects
-re-frame2's model: state-bound child machines in runtime-db, not generic actor
-logic with an XState mailbox.
+Use `:spawn` for a state-bound child machine. It names the re-frame2 model:
+state-bound child machines in runtime-db, not generic XState actor logic.
 
-### C6. JavaScript Standard Schema as a project dependency or brand
+If ever needed:
 
-XState:
+An XState import/export boundary may translate `invoke` to `:spawn`, but the
+native grammar should not carry both names.
 
-v6 schemas can use Standard Schema-compatible JavaScript libraries.
+### C15. JavaScript Standard Schema as a core concept
 
-re-frame2:
+XState concept:
 
-Do not import that brand into the Clojure API. Use Malli-shaped schemas or the
-project's existing schema conventions.
+XState v6 schemas can use Standard Schema-compatible JavaScript libraries.
 
-Reason:
+re-frame2 decision:
 
-The useful idea is the schema categories, not the JavaScript ecosystem marker.
+Do not import that brand or dependency into core.
 
-### C7. Full XState actor object semantics in core
+Use this instead:
 
-XState:
+Keep schema values abstract and validation optional. A Malli adapter may exist,
+but Malli must not be mandatory.
 
-v6 centers actors around `createActor`, concrete `Actor`, actor refs, triggers,
-mailboxes, emitted events, subscriptions, and actor logic creators.
+### C16. Full XState actor object semantics
 
-re-frame2:
+XState concept:
 
-Do not make core machines require actor objects. Keep the frame dispatch,
-runtime-db snapshot, and effect-reply model.
+XState v6 centers actors around `createActor`, concrete `Actor`, actor refs,
+mailboxes, trigger helpers, actor logic, and subscriptions.
 
-Reason:
+re-frame2 decision:
 
-Actor objects are the JavaScript runtime vehicle. re-frame2's runtime vehicle is
-the frame and event cascade. Copying the vehicle would obscure the local design.
+Do not make core machines require actor objects.
 
-### C8. Alpha-churn exactness
+Use this instead:
 
-XState:
+Use the frame, event cascade, runtime-db snapshots, effects, and managed-effect
+reply envelopes.
 
-v6 is alpha. The docs are still v5 and the release surface may change.
+If ever needed:
 
-re-frame2:
+Interop adapters can wrap re-frame2 machines for an external actor-like API, but
+the native model should stay re-frame-native.
 
-Do not chase every alpha patch as normative. Track stable direction, add tests
-for adopted semantics, and record differences clearly.
+### C17. Alpha-churn exactness
 
-Reason:
+XState concept:
 
-The point is a better re-frame2 machine model, not a moving-target clone.
+XState v6 is still alpha. Public Stately docs are still v5.
+
+re-frame2 decision:
+
+Do not chase every alpha patch as normative.
+
+Use this instead:
+
+Adopt stable design direction, write tests for semantics re-frame2 actually
+chooses, and keep divergence notes explicit.
 
 ## Proposed docs and spec impact
 
 If accepted, implementation should update:
 
-- `spec/005-StateMachines.md` for new grammar and semantics;
-- machine implementation docs/docstrings for transition-result and timeout
-  behavior;
+- `spec/005-StateMachines.md` for the accepted grammar and semantics;
+- machine implementation docs/docstrings for timeout, choice, internal-events,
+  schemas, and spawn-order behavior;
 - `docs/guide/concepts/machines.md` for the XState comparison;
-- machines-viz/tooling docs once serialization and `:choice` affect diagrams;
-- any conformance fixture capability names affected by new grammar.
+- conformance fixtures for choice states, internal events, timeout behavior,
+  spawn ordering, and completion payload schema behavior where applicable.
 
 The guide should teach three ideas:
 
-1. re-frame2 follows XState v6's plain-function, schema-aware direction;
-2. re-frame2 expresses side effects as data returned from handlers;
-3. re-frame2 intentionally keeps frame dispatch/runtime-db semantics instead of
-   copying XState actor objects.
+1. re-frame2 follows XState v6's simpler direction where it improves machines.
+2. re-frame2 keeps transition topology declarative.
+3. re-frame2 uses frame dispatch/runtime-db semantics instead of XState actor
+   objects.
 
 ## Rationale
 
-The embrace/maybe/ignore split keeps parity honest. Some v6 changes are plainly
-better machine design for re-frame2: `:schemas`, timeouts, `:choice`, internal
-events, serialization, and spawn ordering rules. Some are promising but belong
-elsewhere or need examples: durable workflow steps, emitted-event channels,
-state input, and listener lifecycles. Some are JavaScript implementation shapes
-or v5 leftovers that re-frame2 should not copy.
+The embrace/maybe/ignore split keeps parity honest. The useful v6 changes are
+not the JavaScript shapes. They are the concepts that make machines clearer:
+broader schemas, explicit timeouts, choice states, private internal events, and
+correct parent/child ordering.
 
-Function-valued transitions are the most important open authoring decision.
-They align with v6, but they should not replace data transition maps. The clean
-model is additive: data maps remain the ordinary inspectable form, and function
-entries exist for transitions whose behavior is naturally computed.
+Function-valued transitions are the important rejected temptation. They look
+like close v6 parity, but they move the graph into code. That is the wrong
+trade-off for re-frame2. re-frame2's advantage is that a machine can be read as
+data.
 
-The `:schemas` proposal intentionally keeps EP-0005's core win: machine data is
-declared and validated. v6 broadens the schema surface; re-frame2 should broaden
-the categories without giving up runtime Malli validation.
+The `:schemas` decision takes the useful v6 shape without importing a heavy
+dependency. A machine may declare schema facts. Whether those facts are
+validated, and by which adapter, is separate.
 
-The `:spawn` recommendation applies EP-0007. XState's `invoke` is understandable
-inside XState, but re-frame2 already gave the local state-bound child-machine
-relationship a name. Carrying both names would make docs and diagnostics worse.
+Final output stays event-shaped because re-frame2 machines are event handlers.
+The child final state selects a value from `:data`; the parent receives that
+value as the completion payload. A persistent `snapshot.output` field is not
+needed.
 
 ## Backwards Compatibility
 
 re-frame2 is pre-alpha, so accepted changes should be clean breaks rather than
 compatibility shims.
 
-Potential breaking changes:
+Potential breaking or clarifying changes:
 
-- `:data-schema` may move under `:schemas :data`;
-- transition grammar may add function-valued transition entries;
-- invalid choice-state/timeout/internal-event declarations should fail loudly;
-- docs and examples should stop using v5 helper terminology;
-- serialization may reject or mark machines that previously printed with silent
-  loss of functions or schemas.
+- `:data-schema` may move under `:schemas :data`, or remain only as a shorthand;
+- invalid `:timeout` without `:on-timeout` should fail loudly;
+- invalid choice-state declarations should fail loudly;
+- `:internal-events` should reject external dispatch of private events;
+- docs should stop teaching XState v5 helper terminology as the parity target;
+- no function-valued transition form should be added as an implied migration
+  target.
 
-If the operator rules that `:data-schema` should be retired, the implementation
-wave should migrate existing examples/specs/tests in one pass rather than keep a
-long-lived alias.
+Malli must not become mandatory. If an implementation currently assumes Malli
+for machine data validation, the v6 parity work should separate the schema
+declaration grammar from the optional validator adapter.
 
 ## Bead Plan / Reference Implementation
 
 This EP should not be implemented as one large bead. Suggested waves:
 
 1. **Docs alignment.** Rewrite machine guide/spec references from XState v5 to
-   v6-alpha direction. Record deliberate divergences.
-2. **Core grammar.** Add function-valued transition entries, `:schemas`,
-   `:timeout`/`:on-timeout`, `:type :choice`, and `:internal-events`, with
-   conformance tests.
-3. **Spawn correctness.** Add focused tests for post-transition data visibility,
-   child startup error routing, timeout cancellation on child completion, and
-   restored child restart behavior.
-4. **Serialization/tooling.** Define canonical machine serialization and
-   unserializable markers, then update machines-viz/export tooling.
-5. **Maybe bucket review.** File separate EPs or beads only for the maybe items
-   that receive operator approval.
+   the v6-alpha direction. Record deliberate divergences.
+2. **Schema grammar.** Add `:schemas` as a schema declaration surface without a
+   required validator dependency. Decide the `:data-schema` spelling issue.
+3. **Core machine grammar.** Add state/spawn `:timeout` / `:on-timeout`,
+   `:type :choice`, and `:internal-events`, with focused conformance tests.
+4. **Spawn correctness.** Add tests and spec text for post-transition parent
+   data visibility, child startup error routing, timeout cancellation on child
+   completion, and restored child restart behavior.
+5. **Completion output.** Clarify `:output-key` as the completion-event payload
+   selector and connect `:schemas :output` to that payload, not to a persistent
+   snapshot field.
+6. **Maybe bucket review.** File separate EPs or beads only if state input or
+   durable workflow steps receive concrete examples and operator approval.
 
 Guide-impact assessment:
 
 - `docs/guide/concepts/machines.md` changes immediately on acceptance.
-- Any machine tutorial that compares `context`, `assign`, `setup`, or actor
-  sending to re-frame2 should be revised.
-- Serialization and choice-state guide examples should land when those features
-  land, not before.
+- Tutorials comparing `context`, `assign`, `setup`, actor sending, or output
+  snapshots to re-frame2 should be revised.
+- Choice-state and timeout examples should land with those features.
 
 ## Open Issues
 
-1. **Function-valued transitions:** should they be accepted as first-class
-   transition entries, or should re-frame2 keep functions limited to guards and
-   actions?
-2. **Schema spelling:** should `:data-schema` remain as shorthand for
-   `:schemas :data`, or should pre-alpha re-frame2 make the clean break to
+1. **Schema spelling:** should `:data-schema` remain as shorthand for
+   `[:schemas :data]`, or should pre-alpha re-frame2 make the clean break to
    `:schemas` only?
-3. **State input:** is v6-style state input useful enough to justify a second
-   state-entry data channel?
-4. **Serialization target:** should canonical machine serialization be EDN-first
-   with optional JSON export, or should XState-compatible JSON be a first-class
-   goal?
-5. **Emitted events:** should re-frame2 add a separate machine emission channel,
-   or treat emissions as trace/dispatch effects?
-6. **Durable workflow steps:** is backend/workflow orchestration in scope for
-   the machine subsystem, or should it remain a managed-effects/resource concern?
-7. **Snapshot migration:** do persisted machine snapshots need a framework-level
-   `:version`/`:migrate` hook now, or is loud mismatch enough?
+2. **Validator adapter shape:** how should optional schema validators be plugged
+   in without making Malli mandatory?
+3. **Duration grammar:** should v1 accept only `"10ms"` / `"5s"` style strings,
+   or also ISO durations such as `"PT2M"`?
+4. **State input:** does a concrete real machine justify adding state-entry
+   input later?
+5. **Durable workflow steps:** does re-frame2 need workflow-step persistence in
+   managed effects, or is that outside the SPA-focused scope?
 
 ## Recommendation
 
-Accept EP-0029 in principle, with Group A as the implementation roadmap, Group B
-as explicitly undecided future work, and Group C rejected as non-native or stale
-parity.
+Accept EP-0029 as a v6-parity correction, not a cloning project.
 
-This gives re-frame2 a current XState reference point without turning it into an
-XState clone. The result should be a clearer Clojure machine grammar: plain
-functions where code is useful, data where inspection matters, schemas where
-tools need facts, and explicit divergences where re-frame2's runtime model is
-stronger.
+Group A should become the implementation roadmap. Group B should stay out of
+core until examples prove it. Group C should be explicitly rejected or delegated
+to existing re-frame2 mechanisms.
+
+The resulting model is smaller and clearer: declarative topology, plain
+guard/action functions, optional schema facts, explicit timeouts, choice nodes,
+private internal events, and re-frame-native parent/child completion.
