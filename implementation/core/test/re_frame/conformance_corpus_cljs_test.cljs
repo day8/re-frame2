@@ -638,18 +638,27 @@
   against the established frame scope. Mirror of the JVM runner.
 
   EP-0025: the imperative `add-marks` / `set-marks` API is REMOVED. These
-  fixture ops are a TEST-ONLY shorthand for installing frame app-db
-  classification (equivalent to the kept commit-plane `:sensitive` / `:large`
-  effects, `:source :effect`). `:add-marks` merges; `:set-marks` replaces ALL
-  prior effect-sourced declarations first. Each op-map carries exactly one of
-  `{:add-marks {path mark}}` / `{:set-marks {path mark}}`. Called AFTER
-  `reg-frame` and BEFORE `realise-flows!`."
+  fixture ops are a TEST-ONLY shorthand for installing / removing frame app-db
+  classification (equivalent to the four kept commit-plane effects, `:source
+  :effect`). `:add-marks` merges; `:set-marks` replaces ALL prior effect-sourced
+  declarations first; `:clear-marks` removes the named `{path mark}` entries on
+  their named axis ONLY (the other axis at the same path survives — the
+  commit-plane `:clear-sensitive` / `:clear-large` per-axis independence). Each
+  op-map carries exactly one of `{:add-marks {path mark}}` / `{:set-marks {path
+  mark}}` / `{:clear-marks {path mark}}`. Called AFTER `reg-frame` and BEFORE
+  `realise-flows!`."
   [fixture scope-frame]
   (letfn [(slot-for [mark]
             (case mark :sensitive :sensitive-declarations :large :declarations))
           (merge-marks [reg path->mark]
             (reduce-kv (fn [r path mark]
                          (assoc-in r [(slot-for mark) (vec path)] {:source :effect}))
+                       reg path->mark))
+          (clear-marks [reg path->mark]
+            (reduce-kv (fn [r path mark]
+                         (let [slot (slot-for mark)
+                               kept (dissoc (get r slot) (vec path))]
+                           (if (seq kept) (assoc r slot kept) (dissoc r slot))))
                        reg path->mark))
           (drop-effect-sourced [reg]
             (reduce (fn [r slot]
@@ -663,7 +672,9 @@
         (elision/swap-elision-slot! scope-frame #(merge-marks (or % {}) (:add-marks op)))
         (contains? op :set-marks)
         (elision/swap-elision-slot! scope-frame
-          #(merge-marks (drop-effect-sourced (or % {})) (:set-marks op)))))))
+          #(merge-marks (drop-effect-sourced (or % {})) (:set-marks op)))
+        (contains? op :clear-marks)
+        (elision/swap-elision-slot! scope-frame #(clear-marks (or % {}) (:clear-marks op)))))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]

@@ -1,0 +1,68 @@
+;; Conformance fixture: data-classification/clear-axis-independent
+;;
+;; Per Spec 015 §Durable app-db — the four commit-plane effects (§Two
+;; independent axes) and §Tests (the `clear-axis-independent.edn` row) — the
+;; EP-0025 commit-plane classification effects have TWO INDEPENDENT axes:
+;; `:clear-sensitive` removes a path from the sensitive axis without touching
+;; its `:large` classification, and `:clear-large` removes it from the large
+;; axis without touching its `:sensitive` classification. Clearing one axis
+;; never disturbs the other — ordinary per-axis set/unset symmetry (like
+;; `assoc`/`dissoc`), not a single coupled "classified?" bit.
+;;
+;; This fixture pins the axis-independence host-agnostically. The path
+;; `[:secret]` is classified BOTH `:sensitive` AND `:large`; then the LARGE
+;; axis is cleared (`:clear-marks {[:secret] :large}` — the harness shorthand
+;; for the commit-plane `:clear-large` effect, `:source :effect`). The
+;; surviving `:sensitive` classification still redacts `[:secret]` to
+;; `:rf/redacted` at trace egress — proving the `:clear-large` did NOT remove
+;; the independent `:sensitive` mark. (Sensitive-dominates is exercised by the
+;; sibling `sensitive-wins-over-large.edn`; this fixture isolates the CLEAR
+;; per-axis independence.)
+;;
+;; The OBSERVABLE seam is the t1 `:rf.event/db-pending` trace event (same emit
+;; + projection path as the sibling sensitive / large / wins fixtures): the
+;; full pending app-db is walked by `re-frame.elision/elide-wire-value`, and
+;; `[:secret]` redacts to the bare `:rf/redacted` sentinel — which by
+;; construction proves no large marker survived the set+clear (a marker map
+;; would fail the literal `=`). The committed app-db carries the RAW value.
+;;
+;; Harness note: `:fixture/app-marks` is an ORDERED vector — add sensitive, add
+;; large, clear large — installed into the elision registry under `:source
+;; :effect`. Capability `:data-classification/marks`.
+
+{:fixture/id           :data-classification/clear-axis-independent
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace
+                         :data-classification/marks}
+ :fixture/doc          "A path classified BOTH :sensitive AND :large, then :clear-large'd, still redacts as :rf/redacted in the t1 :rf.event/db-pending trace event — clearing the large axis leaves the independent sensitive classification standing (EP-0025 §Two independent axes). An unmarked sibling rides egress verbatim."
+
+ :fixture/registry
+ {:event {:dc/store {:doc "Writes a both-then-singly-classified secret + an unmarked sibling into app-db."}}}
+
+ :fixture/handlers
+ {:event {:dc/store [[:set [:secret] "xy"]
+                     [:set [:public] "ok"]]}}
+
+ ;; Ordered: classify [:secret] sensitive, classify it large, then CLEAR the
+ ;; large axis. The sensitive classification must survive the large-clear.
+ :fixture/app-marks
+ [{:add-marks   {[:secret] :sensitive}}
+  {:add-marks   {[:secret] :large}}
+  {:clear-marks {[:secret] :large}}]
+
+ :fixture/frame-config
+ {:initial-events [[:dc/store]]}
+
+ :fixture/dispatches
+ [[:dc/store]]
+
+ :fixture/expect
+ ;; The committed app-db is the RAW value — redaction is trace-egress only.
+ {:final-app-db {:secret "xy" :public "ok"}
+
+  ;; The load-bearing assertion: after :clear-large, [:secret] still redacts to
+  ;; the bare :rf/redacted sentinel (the surviving sensitive axis) — NOT a large
+  ;; marker, NOT the raw value. The unmarked sibling rides raw.
+  :trace-emissions
+  [{:operation :rf.event/db-pending
+    :tags      {:rf.event/db {:secret :rf/redacted :public "ok"}}}]}}
