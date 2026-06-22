@@ -393,6 +393,22 @@
       tags
       (assoc tags :rf.cofx/value (redact-by-classification (:rf.cofx/value tags) class)))))
 
+(defn- project-route-sub-slot
+  "rf2-mtzv5m — apply the routing-owned route-sub egress projector to a route
+  read sub's value `v`. Defers to the late-bound `:routing/project-route-sub-egress`
+  hook (routing publishes it; core stays decoupled — rf2-k682), which re-seeds
+  the wire walk at the route slice's runtime-db storage position so the route's
+  re-rooted `:sensitive` / `:large` decls match the bare slice the sub returns.
+  A no-op pass-through when the hook is unbound (routing artefact absent) or
+  `sub-id` is not a framework route read sub (the projector itself fail-opens on
+  a non-route id). `frame-id` seeds the walker's `:frame` opt so the per-frame
+  elision registry is reachable (the projector inherits `elide-wire-value`'s
+  fail-closed posture on a nil / unresolvable frame)."
+  [v sub-id frame-id]
+  (if-let [project (late-bind/get-fn :routing/project-route-sub-egress)]
+    (project sub-id v {:frame frame-id})
+    v))
+
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:rf.sub/id` carries the sub query keyword and
   `:rf.sub/value` carries the output. The reactive recompute also stamps a
@@ -403,6 +419,17 @@
   EP-0025: there is NO sub-output PROPAGATION — a sub does not inherit its
   input's sensitivity, and there is no whole-output `:sensitive? true` stamp from
   a propagation table. Only the registration's own declared paths redact.
+
+  rf2-mtzv5m — ROUTE READ SUBS are the one NARROW exception: the framework route
+  subs (`:rf/route` / `:rf.route/query` / `:rf.route/params`) are alternate
+  PROJECTIONS of the route-owned durable fact, so their value/prev-value are
+  ALSO run through the routing-owned egress projector (late-bound, decoupled),
+  which re-seeds the walk at `[:rf.runtime/routing :current …]` so the route's
+  re-rooted classification — which the SUB REGISTRATION does not carry — matches.
+  This is NOT generic propagation: only the route-owned read surfaces, and only
+  at egress (in-process `@(subscribe [:rf/route])` stays raw). The route
+  projection composes ON TOP of any registration classification (the route subs
+  declare none, so in practice the registration step is a no-op for them).
 
   EP-0002 (rf2-gjq3ow) — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
   so a sub trace with no carried frame is malformed; `:rf.sub/value` (and
@@ -416,14 +443,18 @@
       (cond-> (assoc tags :rf.sub/value privacy/redacted-sentinel :sensitive? true)
         has-prev? (assoc :rf.sub/prev-value privacy/redacted-sentinel))
 
-      (nil? class)
-      tags
-
       :else
-      (let [[sens large] (classification-paths class)
-            redacted (redact-with-paths (:rf.sub/value tags) sens large)]
-        (cond-> (assoc tags :rf.sub/value redacted)
-          has-prev? (assoc :rf.sub/prev-value (redact-with-paths (:rf.sub/prev-value tags) sens large))
+      ;; Registration classification (none for the route subs) first, then the
+      ;; route-sub egress projection — composed so both can apply. A non-route
+      ;; sub with no registration classification leaves `project-slot` an
+      ;; identity transform (the projector fail-opens on a non-route id), so
+      ;; `tags` rides through reference-preserved (the common case).
+      (let [[sens large]  (classification-paths class)
+            reg-redact    (fn [v] (if class (redact-with-paths v sens large) v))
+            project-slot  (fn [v] (project-route-sub-slot (reg-redact v) sub-id frame-id))]
+        (cond-> tags
+          true            (assoc :rf.sub/value (project-slot (:rf.sub/value tags)))
+          has-prev?       (assoc :rf.sub/prev-value (project-slot (:rf.sub/prev-value tags)))
           (:large? class) (assoc :large? true))))))
 
 (defn- frame-has-declarations?

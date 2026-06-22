@@ -150,14 +150,34 @@
         ;; gate-ON `:elision false` read STILL walks the slices (sensitive
         ;; redacts, large passes); only a full-raw opt-in (`:elision false`
         ;; AND `:include-sensitive true`) emits NO `elide-wire-value`.
+        ;; rf2-mtzv5m — the `:sub-cache` slice is `{query-v {:value v …}}`, so
+        ;; walking it WHOLE roots every sub value at the whole-slice root,
+        ;; where a route's re-rooted `[:rf.runtime/routing :current …]`
+        ;; classification can never match the bare route slice a route read
+        ;; sub returns. Walk PER ENTRY instead, threading each entry's
+        ;; `query-v` into `elide-wire-value` as `:query-v` so a framework route
+        ;; read sub (`:rf/route` / `:rf.route/query` / `:rf.route/params`)
+        ;; re-seeds at its storage position (the routing-owned seed table
+        ;; `elide-wire-value` consults) and a `:sensitive` route query / param
+        ;; redacts — mirroring `list-subscriptions :include-values` /
+        ;; `read-sub`. The `:app-db` slice has no per-sub structure, so it
+        ;; still walks whole.
         slice-walk-src    (str "(let ["
                                (if walk-slices?
                                  (str " opts (merge {:frame fid} " elision-opts-form ")"
                                       " f    (fn [v] (re-frame.core/elide-wire-value v opts))"
                                       " fmap (if (contains? fmap :app-db)"
                                       "        (update fmap :app-db f) fmap)"
-                                      " fmap (if (contains? fmap :sub-cache)"
-                                      "        (update fmap :sub-cache f) fmap)")
+                                      " fmap (if (and (contains? fmap :sub-cache) (map? (:sub-cache fmap)))"
+                                      "        (update fmap :sub-cache"
+                                      "          (fn [sc] (reduce-kv"
+                                      "            (fn [m qv entry]"
+                                      "              (assoc m qv"
+                                      "                (if (and (map? entry) (contains? entry :value))"
+                                      "                  (update entry :value"
+                                      "                    (fn [v] (re-frame.core/elide-wire-value v (assoc opts :query-v qv))))"
+                                      "                  entry)))"
+                                      "            {} sc))) fmap)")
                                  "")
                                (if project-epochs?
                                  (str " fmap (if (contains? fmap :epochs)"

@@ -59,6 +59,7 @@
             [re-frame.routing.on-match-error :as on-match-error]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
+            [re-frame.routing.sub-egress :as sub-egress]
             [re-frame.routing.subs :as routing-subs]
             [re-frame.routing.url-bound :as url-bound]
             [re-frame.routing.url-change :as url-change]
@@ -458,6 +459,23 @@
 (late-bind/set-fn! :routing/reset-url-claims!  reset-url-claims!)
 (late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
 (late-bind/set-fn! :routing/current-url        current-url)
+
+;; rf2-mtzv5m: route-sub egress projection. A route's projection-relative
+;; `:sensitive` / `:large` classification is lowered (re-rooted under
+;; `[:rf.runtime/routing :current …]`) into the per-frame elision registry at
+;; activation, but the BARE route slice the `:rf/route` / `:rf.route/query` /
+;; `:rf.route/params` subs return is walked at the WHOLE-VALUE root, so the
+;; re-rooted absolute decls never match and a classified query / param shipped
+;; RAW on the trace / off-box read surfaces. Publish the seed-path resolver +
+;; the projector so (a) the core wire walker re-seeds a route sub value at its
+;; runtime-db storage position (via `elide-wire-value`'s `:query-v` opt — the
+;; chokepoint the MCP read-sub / list-subscriptions / snapshot / Xray surfaces
+;; share) and (b) the trace `project-sub-tags` chokepoint redacts the
+;; `:rf.sub/run` `:rf.sub/value` / `:rf.sub/prev-value` slots. Core consults
+;; the hook keys with NO static `:require` on routing (rf2-k682); absent the
+;; artefact the hooks are unbound and there is no route slice to leak.
+(late-bind/set-fn! :routing/route-sub-egress-path    sub-egress/route-sub-seed-path)
+(late-bind/set-fn! :routing/project-route-sub-egress sub-egress/project-route-sub-egress)
 
 ;; rf2-1hncp2 + rf2-oosjmh: release the destroyed frame's host-side
 ;; transient routing caches — the scroll-position cache AND the nav-counter
