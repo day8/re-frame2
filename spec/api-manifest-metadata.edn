@@ -343,7 +343,21 @@
   ;; `(rf/set-x!)` / `(rf/install-x!)` are `<x>` placeholders in the
   ;; config-shape syntax table, not real vars.
   "set-x!"       #{"docs/guide/24-config-and-safety.md"}
-  "install-x!"   #{"docs/guide/24-config-and-safety.md"}}
+  "install-x!"   #{"docs/guide/24-config-and-safety.md"}
+  ;; EP-0026 (rf2-dlvmpc / rf2-ke7w5j): `frame-shadows` is the SPEC-AHEAD
+  ;; shadow-report accessor — the cross-image override report a frame exposes
+  ;; (`:rf.gen/shadows` + the `rf/frame-shadows` accessor). It is NOT a removed
+  ;; surface: it is the planned-but-unshipped read whose impl is bead
+  ;; rf2-ke7w5j (OPEN), so there is no live `re-frame.core` var to introspect
+  ;; and no honest manifest row yet — the same spec-ahead-of-impl posture as the
+  ;; `:api-md-known-unmanifested` entries. The Images concept page teaches it as
+  ;; the data the programmer reads to see what a later image overrode (the
+  ;; EP-0026 composition-resolves-by-image-order model that REPLACED the retired
+  ;; `:replace` / `:replace-standard` declared-winner keys). Allowlisted ONLY in
+  ;; that one teaching page; a `(rf/frame-shadows …)` anywhere else in the guide
+  ;; is RED. When rf2-ke7w5j ships the live var, the regenerated manifest carries
+  ;; it and this entry is deleted.
+  "frame-shadows" #{"docs/guide/concepts/images.md"}}
   ;; EP-0025: `add-marks` / `set-marks` (and the whole `re-frame.marks` ns) are
   ;; removed. The privacy guide was rewritten to the commit-plane-effects model
   ;; (docs/guide/how-to/keep-secrets-out-of-traces.md) and no longer names the
