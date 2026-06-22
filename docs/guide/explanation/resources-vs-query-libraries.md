@@ -8,9 +8,7 @@ The one sentence to carry through every row:
 
 If you want the design rationale rather than the comparison, read [Inside out: why views come last](inside-out.md) first; the choices below all fall out of that essay.
 
-!!! note "Resources are an optional artefact, and pre-alpha"
-
-    Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**: the read path, the mutation path, optimistic mutation rollback, active-owner polling, and infinite / load-more feeds have all landed. The remaining query-library features are *deliberately out of scope* for this HTTP-only phase — normalized/GraphQL caches and offline/cross-tab persistence — and each such row below names where that line sits. Nothing here is back-compat-frozen.
+> **Optional artefact, and pre-alpha.** Server state in re-frame2 is the optional `day8/re-frame2-resources` artefact, and it is **pre-alpha**: the read path, the mutation path, optimistic mutation rollback, active-owner polling, and infinite / load-more feeds have all landed. The remaining query-library features are *deliberately out of scope* for this HTTP-only phase — normalized/GraphQL caches and offline/cross-tab persistence — and each such row below names where that line sits. Nothing here is back-compat-frozen.
 
 ## How to read the status column
 
@@ -88,7 +86,7 @@ The query libraries can do scoped caching; nothing stops you putting the user id
 
 ## Owners and causes, not observers
 
-Query libraries have one idea — the **observer**: a mounted hook keeps a query alive, and an unmounted one lets it become GC-eligible. re-frame2 splits that single idea into two that never blur:
+Query libraries have one idea — the **observer**: a mounted hook keeps a query alive, and an unmounted one lets it become GC-eligible. That single idea is doing two jobs at once — deciding *liveness* (should this stay cached?) and standing in for *why a fetch happened* (a component appeared). re-frame2 splits it into two concepts that never blur:
 
 - An **owner** is a liveness lease. Routes own resources for as long as the route is active; machines own them for the actor's lifetime; an app can mint an explicit `[:lease …]` with a matching release. Owners decide GC eligibility and whether invalidation refetches now or just marks stale.
 - A **cause** is an explanation — "why did this fetch happen?" (route entry, click, invalidation, focus return). Causes change nothing about liveness; they exist so the trace can answer *why*.
@@ -208,10 +206,10 @@ These remain deliberately outside this HTTP-only phase. Do not let the rest of t
 
 A query library is the obvious default in React because it is the *only* server-state machinery on offer. In re-frame2 it is one tool among several, and not always the right one:
 
-!!! note "Simpler than a resource"
-
-    - **A handful of reads, no caching story.** A [managed HTTP request](../concepts/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
-    - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../concepts/machines.md), not a cached read.
+> **Simpler than a resource.** Two cases where reaching for the resources artefact is over-engineering:
+>
+> - **A handful of reads, no caching story.** A [managed HTTP request](../concepts/http.md) plus a small app-db slice is less machinery and entirely idiomatic.
+> - **Login and other commands.** Auth is a state machine driving a write — model it as a [machine](../concepts/machines.md), not a cached read.
 
 Reach for resources when cached server reads start multiplying and the per-read bookkeeping — scope, staleness, dedupe, invalidation, GC, SSR — is worth moving into the framework. [Where should this value live?](../where-state-lives.md) has the decision table.
 

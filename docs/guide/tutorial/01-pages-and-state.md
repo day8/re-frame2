@@ -73,6 +73,8 @@ Now look at the slice's shape. It isn't a bare vector of articles; it's a map th
 
 With canned data the slice is born `:loaded` and never moves, so this shape can look like overkill today. Here's why it's worth it anyway. Every real page eventually has to answer "what state is my data in?" — loading, loaded, or failed. Part 2 makes those states real, and if you start with the honest shape now you never have to retrofit it later.
 
+> **Coming from TanStack Query?** A `useQuery` result hands you `isLoading`, `isError`, `data`, and `error` so a component can branch on where the fetch is in its lifecycle. The `{:status :data :error}` slice is the same idea, written as plain data you own and store yourself rather than a library object handed back to you. The difference is that here the lifecycle lives in app-db where any sub can read it, any view can branch on it, and Xray can show it to you — there's no opaque cache off to the side.
+
 ??? note "The deeper story of the one-map design"
 
     The full rationale for keeping all state in a single map lives in [app-db: the one place](../concepts/app-db.md).
@@ -155,6 +157,8 @@ Three things are worth pointing out, because they trip people up at first:
 
 - **`reg-view` defines and registers in one move.** It defs the symbol, which is why `[article-preview {...}]` works as plain hiccup. It also injects `dispatch` (the verb that fires an event) and `subscribe` as lexical bindings, which is why `home-page` calls `subscribe` without an `rf/` prefix.
 - **`@` reads the current value.** `@(subscribe [:articles/data])` gives you the value right now, and it signs the view up to re-render when that value changes. That's the entire data-binding story — no dependency arrays, no manual wiring.
+
+    > **Coming from React hooks?** `@(subscribe …)` is doing the job of `useSelector` plus a `useMemo` dependency array, except the dependency tracking is automatic. You never list what a view depends on; the act of dereferencing the sub *is* the subscription. Read a sub and you're subscribed to it; read a different one next render and the wiring re-wires itself. There is no stale-closure footgun and no exhaustive-deps lint rule, because there are no deps to get wrong.
 - **`article-page` already reads the route.** `:rf.route/params` is a subscription like any other. It yields the current URL's captured params (here `{:slug "..."}`), and the page chains that into `:articles/by-slug`. The `if` handles a slug that matches the route pattern but names no actual article — that's a real URL someone can type, so it's a real branch your view owns.
 
 Those `rf/route-link`s point at a route id that doesn't exist yet. We add it next.

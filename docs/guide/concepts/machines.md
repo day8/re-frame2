@@ -275,16 +275,14 @@ The flat grammar above carries most machines. When a flow gets richer, the gramm
 
 **Don't reach for one when:** the "state" is just data (a counter, a list); there are only two stages (a `:loading?` boolean is fine); the lifecycle belongs to server data — fetching, caching, invalidation is what [resources](server-state.md) already manage, and hand-building that machine re-implements the framework; or you're enforcing a *sequence of operations* rather than a set of states — chained events handle the simple cases.
 
-**Reach for machines when named states are the load-bearing concept — not when named operations are.**
+**Reach for machines when named states are the load-bearing concept — not when named operations are.** [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md) puts a login machine to work in a real app, and [Server state: resources](server-state.md) covers the one lifecycle you should *not* hand-build as a machine — the framework already runs it for you.
 
 ---
 
-**You can now:**
+By the end of this page, you can:
 
-- spot a state machine hiding in scattered `cond` clauses, and say which three diseases the transition-table rewrite cures
+- spot a state machine hiding in scattered `cond` clauses, and name the three diseases the transition-table rewrite cures
 - register a machine (`reg-machine` — sugar over an event handler), dispatch into it, and read it with the `[:rf/machine <id>]` and `[:rf/machine-has-tag? <id> <tag>]` subscription vectors
 - map your XState v5 vocabulary onto re-frame2's five deltas
 - test transitions as pure function calls with `machine-transition`
-- recognise when you need hierarchy, parallel regions, history, or spawned actors — and where their contracts live
-
-**Onward:** [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md) puts a login machine to work in a real app · [Server state: resources](server-state.md) covers the lifecycle you should *not* hand-build as a machine.
+- recognise when you need hierarchy, parallel regions, history, or spawned actors — and know where their contracts live

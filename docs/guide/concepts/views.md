@@ -136,6 +136,8 @@ And the after, with the derivation pushed up into a [subscription](subscriptions
 
 Ask the "after" view what it does: all it does is walk the list and emit `<li>`s. That's a view that knows what it's for.
 
+> **What's the `^{:key (:id p)}` for?** Same as React's `key`. When you emit a *list* of elements, give each a stable identity so the substrate diffs by identity instead of position — insert or remove one item and only that item's DOM moves, not everything below it. Attach it as metadata on the element (`^{:key v} [:li ...]`) and key by something durable from the data, never the loop index. More on why this matters for big lists in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
+
 Here is why this pays. A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:products` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
 
 !!! warning "Compute-in-view is the most common way apps get slow"
@@ -186,4 +188,5 @@ So don't debug views. Inspect data. Follow the value upstream: the [subscription
 - name a view's only two openings — subscribe in, dispatch out — and explain why the round trip always goes through the cascade
 - read `reg-view` and `defn` views as the same component, and say exactly what the macro adds (a registry entry and frame-aware `dispatch`/`subscribe`)
 - push computation out of views into subscriptions, and spot the compute-in-view smell in review
+- key a dynamic list with stable `^{:key …}` metadata so the substrate diffs by identity, not position
 - avoid the imperative-listener trap, and say why the failure is loud instead of silent

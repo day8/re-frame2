@@ -1,10 +1,12 @@
 # How-to guides
 
-You've got a working app and one specific task in front of you. Each page here is a recipe for exactly that: it gives you the goal, then the steps, then the complete code, then the working result, in that order, so you never have to hold a half-built picture in your head. There's no theory in the way, because by now you don't need it.
+You've got a working app and one specific task in front of you. Each page here is a recipe for exactly that task — and nothing else. It gives you the goal, then the steps, then the complete code, then the working result, in that order, so you never have to hold a half-built picture in your head. There's no theory in the way, because by the time you're reaching for a recipe you don't need it sold to you again — you need it done.
 
-These recipes do assume you've already built something — the [quick start](../quickstart.md) is enough to get you there. They also assume you can read the loop at a glance: [the model](../concepts/index.md) covers that in a single page, and it's worth the few minutes because every recipe leans on the same six-step shape. Each one ends with links *down*: to the concept page for why it's built this way, and to the spec for when you need every option.
+These recipes assume you've already built something — the [quick start](../quickstart.md) is enough to get you there — and that you can read the loop at a glance: [the model](../concepts/index.md) covers that in a single page, and it's worth the few minutes, because every recipe leans on the same six-step shape. Each one ends with links *down*: to the concept page for *why* it's built this way, and to the spec for *every* option when you need them.
 
 > **Find the task, follow the recipe, link down for the contract.**
+
+> **Coming from a cookbook mindset?** Think of these the way you'd treat the "Recipes" section of a framework's docs — the [React](https://react.dev) "you might not need an effect", the Rails guide for "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. The option space lives in the spec links at the bottom of each page.
 
 ## Build it
 
@@ -17,6 +19,8 @@ These recipes do assume you've already built something — the [quick start](../
 | catch bad state and malformed events early | [Validate with schemas](validate-with-schemas.md) |
 
 ## Test it
+
+re-frame2's payoff at test time is that the interesting parts of your app are pure functions, so you can test them as functions — no browser, no DOM, no mocking framework standing between you and the assertion.
 
 | I want to… | Recipe |
 |---|---|
@@ -41,11 +45,13 @@ These recipes do assume you've already built something — the [quick start](../
 
 ## Can't find your task?
 
-A recipe answers "how do I do X." Some questions are a step before that — they're design decisions, and they live elsewhere:
+A recipe answers "how do I do X." Some questions sit a step *before* that — they're design decisions, not tasks, and a recipe is the wrong shape for them. Those live elsewhere:
 
-- Asking "where should this value live — db (your app's single state map), sub (a derived, cached read of that state), flow, resource, or machine?" That's a design decision, not a recipe, which is why it gets its own page: [Where should this value live?](../where-state-lives.md)
-- Your task spans several features, and you'd rather watch one app grow through them? The [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end.
+- Asking "where should this value live — db (your app's single state map), sub (a derived, cached read of that state), flow, resource, or machine?" That's a design decision, which is exactly why it gets its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
+- Your task spans several features, and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — same pieces as these recipes, assembled into one running app.
 - For everything else, [the reference map](../reference.md) indexes the complete surface.
+
+> **Why split recipes from design decisions?** Because they fail differently. A recipe you can follow wrong — you'll know, because the result won't match the page. A design decision you can follow *right* and still regret, six months later, when the value you parked in the wrong place is wired into forty subscriptions. Recipes are reversible; placement isn't. So the two get different pages, different shapes, and different amounts of your attention.
 
 ---
 
@@ -53,3 +59,4 @@ A recipe answers "how do I do X." Some questions are a step before that — they
 
 - go from "I want to X" to the right recipe without reading a concept chapter first
 - say what every recipe promises: goal, steps, working result, then links down for the why and the contract
+- tell a recipe (a how-do-I task) apart from a design decision (a where-should-this-live question), and reach for the right kind of page

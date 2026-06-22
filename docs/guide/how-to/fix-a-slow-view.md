@@ -57,9 +57,7 @@ The same misplacement happens one level up, and this trips people up. Computatio
 
 Now observe the fix. Dispatch the same event with the Views tab open, and the sub's drill shows it returning its cached value: the gate closed, and the sort never ran. Unrelated typing no longer wakes the feed at all.
 
-!!! note "When placement isn't enough"
-
-    Some work is genuinely huge even when ideally placed, like parsing megabytes or running a simulation step. No placement saves you there. Chunk it through a [state machine](../concepts/machines.md) or move it to a Web Worker.
+> **When placement isn't enough.** Some work is genuinely huge even when ideally placed — parsing megabytes, running a simulation step, diffing two trees. No side of the gate saves you there, because the cost is in the computation itself, not in how often it fires. Chunk it through a [state machine](../concepts/machines.md) or move it to a Web Worker. But this is rare: reach for it only after you've confirmed the work is correctly placed and *still* slow.
 
 ## 3 — Break up the re-render storm
 
@@ -133,9 +131,7 @@ The naive fix is to hoist the fn into an outer `let`, but that captures the moun
 
 `(favorite-cb slug)` returns the same object every render, so the prop is `=` and the receiver skips. On this plain button it buys nothing; the payoff comes when the prop feeds a chart, an editor, or a row with real depth, and the wiring is identical.
 
-!!! warning "Reach for this rung last"
-
-    Use the factory pattern with a measurement in hand, not "on spec" across every list in the app. Most lists never need it.
+> **Reach for this rung last.** Use the factory pattern with a measurement in hand, not "on spec" across every list in the app. It trades a little reading clarity for a saved re-render, and that trade only pays off when the saved re-render is expensive. Most lists never need it; a button is not a chart.
 
 > **Coming from re-frame v1?** This is v1's callback-factory-factory, unchanged — the prop-equality contract underneath didn't move.
 
@@ -165,16 +161,15 @@ performance.getEntriesByType('measure')
 
 The diagnosis reads the same as rung 1. One wide `rf:render:` or `rf:sub:` bar is misplaced work (rung 2); a cloud of identical narrow `rf:render:` bars per interaction is a storm (rung 3). For continuous telemetry, attach a `PerformanceObserver` and forward `rf:`-prefixed measures to your APM. Entry shapes, observer code, and the elision guarantees are in [spec 009 — Instrumentation](../../../spec/009-Instrumentation.md).
 
-!!! warning "Never profile the dev build"
+> **Never profile the dev build.** The dev build carries the whole trace surface, so the profile ends up measuring the measurement apparatus — you'll chase phantom costs that vanish in production. Build `:advanced` with the perf flag on, serve *that*, and profile that. The numbers you get are the numbers your users get.
 
-    The dev build carries the whole trace surface, so the profile ends up measuring the measurement apparatus. Build `:advanced` with the perf flag on, serve that, and profile that.
+## The ladder, in one breath
 
----
+Almost every slow view is the same mistake wearing a different costume: expensive work on the wrong side of the equality gate. The ladder just sorts the costumes by how cheaply you can spot them.
 
-**You can now:**
+1. **Observe.** Xray's Views tab names the shape — one wide row, or a cloud.
+2. **Move the work behind the gate.** Keep extractors tiny; do the thinking in a layer-2 sub; keep computation out of view bodies. This ends most hunts.
+3. **Break up the storm.** Hand each row an id and let it subscribe to its own slice — one change re-renders one row, on thin props with stable keys.
+4. **Reach for stable callbacks only with a measurement** — the factory pattern earns its keep when the receiving child is expensive, and not before.
 
-- read Xray's Views tab and name the shape of a slowdown — one wide row, or a cloud
-- spot work in front of the equality gate and move it behind — extractors tiny, thinking in layer 2, computation out of view bodies
-- reshape a list so one change re-renders one row, with thin props and stable keys
-- say when stable callbacks are worth the factory pattern — and when they're over-engineering
-- time a production build with the `rf:` User-Timing channel, without shipping the dev trace
+And when the dev build feels fine but production doesn't, the `rf:` User-Timing channel measures the real binary without shipping a byte of the dev trace. The framework owns the memoisation; your job is placement — and placement is the rare performance problem you can catch in code review instead of a profiler.

@@ -12,7 +12,7 @@ You'll need [routing](../concepts/routing.md) (`day8/re-frame2-routing`) and [ma
 
 Session state lives in two `app-db` paths. `[:auth :user]` holds the signed-in user, and it's `nil` when nobody's logged in. `[:auth :token]` holds the credential requests carry. The guard checks `:user`, the request decorator reads `:token`, and logout clears both. That's the whole slice.
 
-The token is a secret, so the slice ships with two protections. First, classify the path `[:auth :token]` `:sensitive` — by returning a classification effect from an init event the frame runs at creation (step 4 wires it up). A frame is an isolated runtime context with its own `app-db`; classifying the *path* means the raw token never leaves the box in traces, Xray captures, or SSR payloads, while your handlers keep seeing the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)). Second, give persistence exactly **one seam**: a single effect that writes on a truthy token and removes on `nil`, so login, logout, and your tests all hit the same edge rather than scattering localStorage calls everywhere.
+The token is a secret, so the slice ships with two protections. First, classify the path `[:auth :token]` as `:sensitive` — by returning a classification effect from an init event the frame runs at creation (step 4 wires it up). A frame is an isolated runtime context with its own `app-db`; classifying the *path* means the raw token never leaves the box in traces, Xray captures, or SSR payloads, while your handlers keep seeing the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)). Second, give persistence exactly **one seam**: a single effect that writes on a truthy token and removes on `nil`, so login, logout, and your tests all hit the same edge rather than scattering localStorage calls everywhere.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
@@ -30,13 +30,9 @@ The token is a secret, so the slice ships with two protections. First, classify 
 
 There are two honest caveats worth pausing on here, because this trips people up.
 
-!!! note "This effect is client-only"
+> **This effect is client-only.** Under SSR there's no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — on the server it simply isn't registered, and any `:auth.session/persist` row is a no-op rather than a crash.
 
-    Under SSR there's no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason.
-
-!!! warning "A localStorage token is readable by any script on your page"
-
-    If XSS is in your threat model, use the http-only cookie and drop this effect — the rest of the recipe stands unchanged.
+> **A localStorage token is readable by any script on your page.** If XSS is in your threat model, use the http-only cookie and drop this effect — the rest of the recipe stands unchanged. The token slice, the guard, and the teardown don't care *how* the credential was persisted; they only read it back from `app-db`.
 
 Reading the saved token *back* at boot is a world read — a [coeffect](../concepts/effects-and-coeffects.md), which is an input the framework gathers and hands to your handler so the handler itself stays pure. That part is wired end to end in [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md).
 
@@ -63,11 +59,11 @@ The form is exactly [Build a form](build-a-form.md) — same slice shape, same s
             [:dispatch [:auth/post-login-redirect]]]})))
 ```
 
-The failure handler is unchanged from the form recipe. Notice that login deliberately does **not** retry — one submission per click. A transient 5xx surfaces as an error and the user clicks again, which is the behaviour you want, because silently re-firing a credential submission is a good way to lock an account or double-charge a flow. Register is the same wiring with a different URL and draft.
+The failure handler is unchanged from the form recipe. Notice that login deliberately does **not** retry — one submission per click. A transient 5xx surfaces as an error and the user clicks again, which is the behaviour you want, because silently re-firing a credential submission is a good way to lock an account or double-charge a flow.
 
-!!! note "When the states start sharing transitions, reach for a machine"
+Register is the same wiring with a different URL and draft. The two flows are the same shape; only the endpoint and the initial draft change.
 
-    Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../concepts/machines.md) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/reagent/realworld/)).
+> **When the states start sharing transitions, reach for a machine.** Once login, register, and session restore start coordinating ("can't submit while restoring"), graduate to a five-state [machine](../concepts/machines.md) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/reagent/realworld/)). The tell is when an `if` over a `:status` keyword grows into a nest of "but only if not also…" conditions; that's a state machine wearing a trench coat.
 
 ## 3. Decorate requests once, at the frame seam
 
@@ -88,7 +84,7 @@ Don't thread the token through your request builders. Instead, one HTTP intercep
 
 This is the production shape, for three reasons worth spelling out. It reads `(:frame ctx)` — the frame the cascade actually runs under, never a hard-coded id — so it survives renamed and multi-frame mounts. It returns the ctx unchanged when there's no token, which is why login and public reads are untouched. And `Authorization` sits on the framework's built-in redaction denylist ([Spec 014 — privacy](../../../spec/014-HTTPRequests.md)), so the live request carries it while off-box traces never do.
 
-> **Coming from re-frame v1?** This used to be a wrapper fn around every `http-xhrio` map — and one forgotten call site meant one unauthenticated request. Here the frame seam is the single write site, so there's no call site to forget.
+> **Coming from re-frame v1?** This used to be a wrapper fn around every `http-xhrio` map — and one forgotten call site meant one unauthenticated request. Here the frame seam is the single write site, so there's no call site to forget. It's the same shift you make when you move from passing an `axios` config object everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
 
 ## 4. Guard the protected routes
 
@@ -139,9 +135,7 @@ Then comes the guard. There's one thing it absolutely must get right: **gate eve
 
 The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` stops the original handler, so the protected slice never commits and its `:on-match` loads never fire. The guard then dispatches the login navigation itself.
 
-!!! warning "Don't rewrite the event in place"
-
-    The runtime picks the handler from the *original* event id, so editing the event would run the wrong handler. Use skip-and-dispatch instead. And stash the target in `app-db`, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
+> **Don't rewrite the event in place.** The runtime picks the handler from the *original* event id, so editing the event would run the wrong handler. Use skip-and-dispatch instead. And stash the target in `app-db`, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
 
 Now wire it frame-wide — by reference. The guard is registered once under `:my-app/auth-guard`; the frame's `:interceptors` chain names that id, never the interceptor value. It short-circuits in a single `case` lookup for every non-navigation event, so the cost on ordinary traffic is negligible. The same frame's `:initial-events` runs the init event that classifies the token path — step 1's egress protection, in place before any off-box egress:
 
@@ -176,6 +170,8 @@ An auth guard's headline feature is returning the user to exactly where they wer
                          [:rf.route/navigate :app/home])]]})))
 ```
 
+> **Why read-and-clear, not just read?** A stash that lingers is a footgun: the user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consuming the stash in the same handler that reads it means the bounce target lives exactly as long as one login round-trip.
+
 ## 6. Logout is a teardown
 
 Logout has to clear three things: the session slice, the persisted token, *and* the departing user's cached server reads. Skip that last one and the next account sees the previous account's feed — which is the kind of bug you really don't want in an auth flow. With [resources](../concepts/server-state.md) — a resource being a managed, cached read of server state — that last part is one causal event, `:rf.resource/clear-scope`. There's one subtlety worth flagging, because the ordering matters: resolve the *old* scope from the coeffect `db` **before** you clear the auth slice. After the clear, the identity the scope derives from is gone.
@@ -194,6 +190,8 @@ Logout has to clear three things: the session slice, the persisted token, *and* 
 ```
 
 `clear-scope` removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, and suppresses late replies. Every other scope stays intact, and there's no hand-maintained list of keys to forget ([Spec 016 — Resources](../../../spec/016-Resources.md)). If you don't use resources, drop that one `:fx` row and the rest stands.
+
+> **Coming from TanStack Query?** This is `queryClient.clear()` with a scalpel instead of a sledgehammer. Rather than nuking the entire cache on logout, `clear-scope` evicts exactly the entries owned by the departing session's scope — derived from the *old* identity you captured before the clear — and leaves everything else (app-level config, public reads, a second logged-in frame) untouched.
 
 ## Observe it in Xray
 

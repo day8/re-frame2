@@ -56,9 +56,7 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
 
 Notice that `init!` created no frame. Nothing is implicit about which frame your root uses; you say so, once, at the root.
 
-!!! note "Three lanes meet at startup — keep them apart"
-
-    The two lines above are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, `current-adapter`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
+> **Three lanes meet at startup — keep them apart.** The two lines above are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, `current-adapter`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
 
 ## When you want more than one
 
@@ -125,9 +123,7 @@ So a bare `(rf/dispatch [:counter/inc])` works when — and only when — someth
 
 Why an error instead of a sensible default? Because a default would make distant code change meaning silently, which is the kind of bug that costs you a weekend.
 
-!!! warning "A default frame would hide cross-frame leaks"
-
-    Say a frameless dispatch fell through to "the" frame. Your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass). At that point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
+> **Why a default frame would be a trap.** Say a frameless dispatch fell through to "the" frame. Your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass). At that point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
 
 From outside any scope — a test, a tool, the REPL — you name the frame explicitly, and the explicit target always wins:
 
@@ -176,9 +172,7 @@ And there's one important case where you need none of this: scheduling from insi
 
 `:dispatch` and `:dispatch-later` effects are stamped with the in-flight frame before any timer or microtask boundary — zero ceremony. If the deferred work is just a dispatch, this is the shape.
 
-!!! note "When `frame-handle` is still needed inside an effect handler"
-
-    Reach for `frame-handle` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler. The effect system carries the frame for the dispatches *it* schedules, not for callbacks you register with the outside world.
+> **When `frame-handle` is still needed inside an effect handler.** Reach for `frame-handle` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler. The effect system carries the frame for the dispatches *it* schedules, not for callbacks you register with the outside world.
 
 This page is the canonical home of the capture pattern. When the [views](views.md) and [subscriptions](subscriptions.md) pages warn "don't dispatch bare from async callbacks," this is the full story they're pointing at.
 
@@ -186,9 +180,7 @@ This page is the canonical home of the capture pattern. When the [views](views.m
 
 A subscription — a derived, cached read over app-db — belongs to one frame. It computes from that frame's app-db and from other subscriptions *in that frame*, never from another frame's state. There is no "read frame B from a sub in frame A" affordance, and you must not build one by sneaking a cross-frame read into a sub's computation function. That's the anti-pattern, full stop.
 
-!!! warning "One cross-frame subscription breaks every per-frame guarantee"
-
-    The reasoning is the same as the carried rule's: isolation is only worth having if it's total. Story variants are reproducible because nothing outside a frame can influence them. SSR requests can run concurrently because no request can observe another. A test frame is hermetic because *nothing* reaches in. One cross-frame sub quietly breaks all three — frame A's derived values now change when frame B does, and every tool that reasons per-frame (the epoch ledger, time-travel, replay) is lying to you about A.
+> **One cross-frame subscription breaks every per-frame guarantee.** The reasoning is the same as the carried rule's: isolation is only worth having if it's total. Story variants are reproducible because nothing outside a frame can influence them. SSR requests can run concurrently because no request can observe another. A test frame is hermetic because *nothing* reaches in. One cross-frame sub quietly breaks all three — frame A's derived values now change when frame B does, and every tool that reasons per-frame (the epoch ledger, time-travel, replay) is lying to you about A.
 
 If you feel the need for one, you've answered the discriminator question wrongly: two things that need to share derived state are one frame. Restructure — don't reach across.
 

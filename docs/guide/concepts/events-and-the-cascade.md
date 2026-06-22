@@ -117,7 +117,7 @@ Here is the same load, written so the handler stays pure. An effect, here, is a 
             :on-success [:article/loaded]
             :on-failure [:article/load-failed]}]]}))
 
-;; The reply payload rides as the last event argument;
+;; The reply map rides as the last event argument. On success
 ;; :value is the decoded response body — here {:article {...}}.
 (rf/reg-event :article/loaded
   (fn [{:keys [db]} [_ {:keys [value]}]]
@@ -125,14 +125,15 @@ Here is the same load, written so the handler stays pure. An effect, here, is a 
              (assoc :article/loading? false)
              (assoc :article/current (:article value)))}))
 
+;; On failure :error is a map carrying a :kind that names what went wrong.
 (rf/reg-event :article/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
              (assoc :article/loading? false)
-             (assoc :article/load-error failure))}))
+             (assoc :article/load-error error))}))
 ```
 
-The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a managed HTTP request, on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` effect handler, and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
+The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a managed HTTP request, on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` effect handler, and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray. The runtime appends one uniform **reply map** as the event's last argument — `:value` carries the decoded body on success, `:error` carries a `{:kind …}` map on failure. Every managed async surface (HTTP, resources, route loaders, machine work) replies in that one shape, so you learn it once.
 
 Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a name instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 

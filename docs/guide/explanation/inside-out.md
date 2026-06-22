@@ -28,6 +28,8 @@ There is exactly one container of application state: **app-db** (your app's sing
 
 Notice what dissolves. There is no "lifting state up," because state was never down in the components in the first place — there is nothing to lift. A view is a render function over subscription values, and that is its entire job. It isn't causal. It doesn't fetch. It doesn't own anything. It's derived from state rather than being the home of state.
 
+> **Coming from Redux?** You already believe most of this. Redux moved state into one store and made reducers pure — re-frame2 keeps that and finishes the job. The difference is what happens *around* the store. In Redux, `useSelector`, `useDispatch`, and your data-fetching middleware still live inside the component, so the component is still where state, effects, and rendering meet. re-frame2 pulls every one of those out: subscriptions, effects, and the dispatch path all live outside the view, and the view is left with nothing to do but render. Redux got the store right and stopped at the component door; the inversion walks through it.
+
 > **Coming from re-frame v1?** This philosophy is unchanged from the original; what v2 adds is stated in [From re-frame v1](../25-from-re-frame-v1.md).
 
 ## Boring views are the point
@@ -42,9 +44,7 @@ Back to the epigraph. ClojureScript is plenty Turing complete, and inside a hand
 
 Why constrain it? Because a constrained execution model is far easier to reason about, and each layer of constraint removes something a reader — human or AI — would otherwise have to simulate. The app advances one discrete event at a time, so between events it sits in exactly one well-defined state. The pipeline's stages can't be skipped or reordered at runtime, so there's no hidden control flow to chase. Handlers and subscriptions are pure functions, so their behaviour is fixed by their arguments alone. And what gets *done* — effects, render trees, transitions — is described as data and interpreted by the runtime, which means you read behaviour instead of running it in your head.
 
-??? note "Where the constraints are stated normatively"
-
-    These constraints are written down with the full rationale in the framework's [Principles](../../../spec/Principles.md). Making the system legible to AI tooling is an explicit goal of the [project vision](../../../spec/000-Vision.md).
+> **Where the constraints are stated normatively.** These constraints are written down with the full rationale in the framework's [Principles](../../../spec/Principles.md). Making the system legible to AI tooling is an explicit goal of the [project vision](../../../spec/000-Vision.md).
 
 > Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed. — Dijkstra
 
@@ -54,9 +54,7 @@ Full power in the language, where you compute things. Minimum power in the archi
 
 Now the honest part, because it's only fair to put it plainly. A counter in plain React is `useState(5)` and two `onClick`s — six lines. The same counter in re-frame2 is about thirty: three event registrations, a subscription, namespaced ids, a seed dispatch.
 
-!!! note "If your whole app is a counter, use `useState`"
-
-    At counter scale the ceremony is pure overhead, and no framework essay should talk you out of the simpler tool. Godspeed.
+> **If your whole app is a counter, use `useState`.** At counter scale the ceremony is pure overhead, and no framework essay should talk you out of the simpler tool. Godspeed.
 
 The ceremony is a fixed cost per feature. The claim is that it amortises: the same shape that feels like bureaucracy at thirty lines is the only thing keeping you sane at thirty thousand. That claim needs to be specific to be believable, so here it is.
 
@@ -74,17 +72,13 @@ The inversion has a second dividend, and it's the one that compounds. Handlers d
 
 When effects only happen at one place, and they're data before they're deeds, a single bus can watch the entire application go by. Every event, every effect, every state change, on one wire. That wire is what makes time-travel debugging possible: scrub the app backwards, replay the exact cascade that broke, attach an AI pair-programmer to the *running* application. Every dev tool — the Xray inspector, scenario replay, the pair server — reads that same stream and tells a consistent story, because there is one stream. None of this is available to an architecture where anything can change anything from anywhere. You get the observability precisely because you gave up that freedom: less flexibility, more inspectability.
 
-!!! warning "Two honest limits on the wire"
-
-    The dev trace wire is production-elided — it compiles out of release builds entirely, and what you ship to users carries a separate, deliberately smaller observability channel. And revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
+> **Two honest limits on the wire.** The dev trace wire is production-elided — it compiles out of release builds entirely, and what you ship to users carries a separate, deliberately smaller observability channel. And revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
 
 [Observability: one wire, every tool](../concepts/observability.md) is the full tour.
 
 ## When not to use it
 
-!!! note "Pre-alpha, and there's a floor below which this doesn't pay"
-
-    re-frame2's contracts are still settling, and this guide says so wherever it matters. Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
+> **Pre-alpha, and there's a floor below which this doesn't pay.** re-frame2's contracts are still settling, and this guide says so wherever it matters. Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
 
 ---
 

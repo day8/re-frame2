@@ -199,12 +199,4 @@ During development the source store changes as you save files. A `reg-*` re-eval
 
 When you want to change a frame's image *composition* outright — swap one whole `:images` vector for another — that's a frame-targeted reload: it replaces the target frame's whole image composition and returns a diff (what was added, changed, removed, retained) so the runtime invalidates only what actually moved. Reloading one frame never drags a sibling that happened to share a generation along with it.
 
----
-
-**You can now:**
-
-- state the model — `image → frame → event stream` — and say which part holds behaviour (the image), which holds live state (the frame), and which is the program (the events),
-- explain the default image as the implicit projection over everything you've registered, and why a cross-namespace id collision now fails loud instead of clobbering,
-- build an explicit image with `rf/image` — `:include-ns` glob selection by source provenance, or inline `:registrations` — and supply it to a frame via `:images`,
-- reuse registration ids across images while keeping frame ids unique, and pick "same image, new frame" vs "new image" for tests, stories, multi-surface pages, and Xray,
-- override a registration explicitly with `:replace`, declare needed `:rf.image/requires` capabilities, and hot-reload a frame's image while preserving its memory.
+So the same boundary that lets two examples on one page each own `:counter/inc` is the boundary that survives a file save: the image is a *value*, the runtime can diff two of them, and a frame can trade one for another without forgetting what it has lived through. Behaviour is the image; state is the frame; the events are the program — and once those three are separate things, every shape on this page (two surfaces side by side, a tool inspecting its target, a test double, four versions of a counter) is the same single move dressed in different clothes: *different behaviour means a different image; same behaviour with a different history means the same image with a different frame.*

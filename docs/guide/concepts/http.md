@@ -1,5 +1,7 @@
 # HTTP: the managed request
 
+Sooner or later your app has to talk to a server, and the moment it does you inherit a small zoo of problems: errors, timeouts, retries, loading states, stale replies racing each other. This page introduces `:rf.http/managed`, the one effect that thinks about all of that for you. By the end you'll issue an HTTP request as plain data from a pure handler, and handle its reply as an ordinary event — with success and failure each named, and the search-box race cured for free.
+
 > **Who this is for.** You've read [effects and coeffects](effects-and-coeffects.md) and you're about to talk to a server. If you know RTK Query's `fetchBaseQuery` — the configured transport that sits *under* the cache — this page is re-frame2's version of that layer. Two things differ. The reply comes back as an **event**, never an awaited value. And a failure is one keyword from a fixed list, never whatever the exception stringified to. Caching and invalidation live one layer up, in [resources](server-state.md). This page is the transport they ride on.
 
 **The takeaway: a reply is an event, not a resumed stack frame.**
@@ -54,9 +56,7 @@ That's seven sins and a frame leak in three lines. The fix isn't more careful fe
 
 Almost everything here is optional, which means the common case stays short. The only required key is `:request` with a `:url`. `:method` defaults to `:get`. `:decode` defaults to `:auto`, which sniffs the Content-Type. There's a 30-second per-attempt timeout, and no retry unless you ask. The full key-by-key contract — body thunks, multipart, credentials, the keyword-interning cap for untrusted JSON — is [spec 014](../../../spec/014-HTTPRequests.md).
 
-!!! note "One-time setup"
-
-    Managed HTTP ships in its own artefact, `day8/re-frame2-http`, so apps that never issue a request build a bundle clean of it. Add the dep and require `re-frame.http.managed` once at app boot — that registers `:rf.http/managed` and family.
+> **One-time setup.** Managed HTTP ships in its own artefact, `day8/re-frame2-http`, so apps that never issue a request build a bundle clean of it. Add the dep and require `re-frame.http.managed` once at app boot — that registers `:rf.http/managed` and family.
 
 ## The reply is an event
 
@@ -85,9 +85,7 @@ The success payload is `{:kind :success :value <decoded>}`. The failure payload 
 
 Why an event and not a resumed call? Because [app-db — your app's single state map — is the sum of an event ledger](events-and-the-cascade.md), and the ledger must contain everything that ever influenced state. An awaited value slips in through the call stack and leaves no line in the ledger. A reply event lands in the ledger — traceable, serializable, replayable. [Continuations are data](../explanation/continuations-are-data.md) is the essay-length why.
 
-!!! note "Do, observe"
-
-    Run the request with Xray open: the issuing event row, the request issuance and any retries on the trace stream, then the reply arriving as an ordinary event row of its own — two ledger entries, one round trip.
+> **Do, observe.** Run the request with Xray open: the issuing event row, the request issuance and any retries on the trace stream, then the reply arriving as an ordinary event row of its own — two ledger entries, one round trip.
 
 ### The co-located form
 
@@ -149,9 +147,7 @@ Four rules finish the tour:
 - **Completion timestamps ride the reply.** A reply is a causal token. Facts like *when it completed* travel on it (`:completed-at`), and handlers derive durable timestamps from that carried data. The `:rf/time-ms` declaration above is this same rule, wearing HTTP's public payload shape.
 - **HTTP's `:on-success` / `:on-failure` / `:rf/reply` are public sugar over this envelope.** They're what you write on HTTP — `:rf.http/managed` does not accept a bare `:rf/reply-to`. But the general async model, shared by resources, mutations, machines, and routing, is the envelope. Each surface picks its own public spelling; the substrate underneath is one.
 
-??? note "For the categorically curious"
-
-    Effects *sequence but never bind*: a handler can ask for several effects in order (the `:fx` vector), but never "do this effect, *then* feed its result into the next expression" — that would be monadic binding, the awaited-value shape. The result comes back as the next event instead, and relocating a reply target is a pure data transform (the role `Cmd.map` plays in Elm's command algebra) — never a hidden callback.
+> **For the categorically curious.** Effects *sequence but never bind*: a handler can ask for several effects in order (the `:fx` vector), but never "do this effect, *then* feed its result into the next expression" — that would be monadic binding, the awaited-value shape. The result comes back as the next event instead, and relocating a reply target is a pure data transform (the role `Cmd.map` plays in Elm's command algebra) — never a hidden callback.
 
 ## Failures are a closed set — and status comes before decode
 
@@ -193,7 +189,7 @@ Managed HTTP is the right tool for a single request that gets a single reply. He
 - **The same server data read on several screens, with caching and invalidation** — that's a [resource](server-state.md), a declared, cached read of server state that rides this transport underneath. Declare it once. Hand-rolling `:loaded-at` freshness checks across features means you've outgrown raw requests.
 - **Streaming, WebSockets, SSE** — out of scope for the single-request/single-reply shape. There is no managed streaming surface yet; that's an honest gap, not a hidden feature.
 - **Wire-level weirdness** (custom transports, exotic binary protocols) — register your own fx; the escape hatch is always there.
-- **Testing** needs no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `-failure`, registered by requiring the sibling `re-frame.http.test-support` namespace) synthesize a reply with the exact envelope a live request produces — see [testing a full cascade](../how-to/test-a-cascade.md).
+- **Testing** needs no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`, registered by requiring the sibling `re-frame.http.test-support` namespace) synthesize a reply with the exact envelope a live request produces — see [testing a full cascade](../how-to/test-a-cascade.md).
 
 ---
 

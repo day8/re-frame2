@@ -32,7 +32,7 @@ Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:fee
 
 ## Register the write
 
-A mutation is the write-side counterpart of a resource. You register it with `reg-mutation`:
+A mutation is the write-side counterpart of a resource. Where a resource describes a *read* and how its result is cached, a mutation describes a *write* and what that write makes stale. You register it with `reg-mutation`:
 
 ```clojure
 ;; src/conduit/mutations.cljs
@@ -75,74 +75,70 @@ Three things do the work:
 
 Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
 
-!!! warning "The scope footgun — and the safe pattern"
+> **The scope footgun — and the safe pattern.** The single most common mutation bug is a **scope mismatch**: a write invalidates a tag in the *wrong* scope, so the invalidation matches no cache entry and the stale read is never refreshed. It is silent by construction — invalidating a tag that has no entry in *this* scope is a legitimate "nothing to do," so the runtime can't tell a true no-op from a miss by the match alone.
+>
+> The footgun looks like this. A mutation with **no `:scope`** defaults its execution scope to `:rf.scope/global` (writes are fail-open — a write leaks nothing, so global is a safe default). A **bare tag set** on `:invalidates` then inherits that resolved scope. So this:
+>
+> ```clojure
+> ;; ✗ WRONG — the feed lives in the SESSION scope, but this invalidates GLOBAL
+> (rf/reg-mutation :conduit/post-to-feed
+>   {:params-schema [:map …]
+>    :invalidates   (fn [_ _result] #{[:feed]})}   ;; resolves to :rf.scope/global
+>   (fn [_ _] {:request {:method :post :url (rh/full-url "/articles")}}))
+> ```
+>
+> quietly *misses* `:conduit/feed`, because that resource is `:scope {:from-db :conduit/session}` — its entries live under `[:rf.scope/session {:username …}]`, never under global. The feed stays stale.
+>
+> The fix is the per-scope descriptor form you already used above: name the scope each tag actually lives in.
+>
+> ```clojure
+> ;; ✓ RIGHT — name the session scope, via the same resolver the resource uses
+> :invalidates (fn [_ _result]
+>                [{:scope {:from-db :conduit/session} :tags #{[:feed]}}])
+> ```
+>
+> The same rule covers route- and tenant-scoped reads: **a write's invalidation scope must match the scope of the resources it breaks.** When a write touches both a global fact and a session fact, return one descriptor per scope (exactly as `:conduit/favorite` does above) — never a blanket `:cross-scope? true`, which is the audited multi-tenant escape, not the default.
+>
+> You don't have to spot this by eye. In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only (elided from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the trace stream or in Xray.
 
-    The single most common mutation bug is a **scope mismatch**: a write invalidates a tag in the *wrong* scope, so the invalidation matches no cache entry and the stale read is never refreshed. It is silent by construction — invalidating a tag that has no entry in *this* scope is a legitimate "nothing to do," so the runtime can't tell a true no-op from a miss by the match alone.
-
-    The footgun looks like this. A mutation with **no `:scope`** defaults its execution scope to `:rf.scope/global` (writes are fail-open — a write leaks nothing, so global is a safe default). A **bare tag set** on `:invalidates` then inherits that resolved scope. So this:
-
-    ```clojure
-    ;; ✗ WRONG — the feed lives in the SESSION scope, but this invalidates GLOBAL
-    (rf/reg-mutation :conduit/post-to-feed
-      {:params-schema [:map …]
-       :invalidates   (fn [_ _result] #{[:feed]})}   ;; resolves to :rf.scope/global
-      (fn [_ _] {:request {:method :post :url (rh/full-url "/articles")}}))
-    ```
-
-    quietly *misses* `:conduit/feed`, because that resource is `:scope {:from-db :conduit/session}` — its entries live under `[:rf.scope/session {:username …}]`, never under global. The feed stays stale.
-
-    The fix is the per-scope descriptor form you already used above: name the scope each tag actually lives in.
-
-    ```clojure
-    ;; ✓ RIGHT — name the session scope, via the same resolver the resource uses
-    :invalidates (fn [_ _result]
-                   [{:scope {:from-db :conduit/session} :tags #{[:feed]}}])
-    ```
-
-    The same rule covers route- and tenant-scoped reads: **a write's invalidation scope must match the scope of the resources it breaks.** When a write touches both a global fact and a session fact, return one descriptor per scope (exactly as `:conduit/favorite` does above) — never a blanket `:cross-scope? true`, which is the audited multi-tenant escape, not the default.
-
-    You don't have to spot this by eye. In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only (elided from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the trace stream or in Xray.
-
-!!! tip "Make it optimistic: the heart flips *before* the reply"
-
-    `:populates` runs on success — the heart flips the moment the server confirms. For a tiny, reversible change like a favorite, you usually want the flip *immediately on click*, then a revert if the write fails. That's an **optimistic mutation**, and it's a registration key, not a call-site dance.
-
-    Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:invalidates` says "these tags went *stale*," `:optimistic-tags` says "patch every entry carrying these tags, *now*, before the request":
-
-    ```clojure
-    (rf/reg-mutation :conduit/favorite
-      {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
-       :params-schema [:map [:slug :string]]
-       :scope         :rf.scope/global
-       ;; FORWARD: flip the heart + bump the count on every entry tagged
-       ;; [:article slug] — the detail, every list, the session feed — at once.
-       :optimistic-tags (fn [{:keys [slug]}]
-                          [{:scope :rf.scope/global
-                            :tags  #{[:article slug]}
-                            :patch (fn [data] (favorite-patch true slug data))}
-                           {:scope {:from-db :conduit/session}
-                            :tags  #{[:feed]}
-                            :patch (fn [data] (favorite-patch true slug data))}])
-       ;; COMMIT on :ok — the reply's authoritative Article overwrites the guess.
-       :populates     (fn [{:keys [slug]} result]
-                        {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
-                         result})
-       :invalidates   (fn [{:keys [slug]} _result]
-                        [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
-                         {:scope {:from-db :conduit/session} :tags #{[:feed]}}])
-       :on-conflict   :invalidate}
-      (fn [{:keys [slug]} _ctx]
-        {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
-         :decode  schema/ArticleResponse}))
-    ```
-
-    Three things make this safe, and none of them are your job:
-
-    - **The runtime records the inverse.** You write only the *forward* `:patch` (`favorite-patch` toggles the flag and steps the count, handling both the detail's `{:article …}` and a list's `{:articles […]}` shape). The runtime snapshots each touched entry's prior value, so a rollback restores exactly what was there — never a reconstruction that can drift from the forward patch.
-    - **The reply settles deterministically.** An `:ok` reply **commits** (the `:populates` seed overwrites the optimistic value with the server's exact count, then `:invalidates` reconciles the lists). An `:error` reply **rolls back** — the heart flips back everywhere, verbatim. No `:on-failure` handler, no `app-db` undo flag.
-    - **A contested rollback refetches, it doesn't clobber.** If a *concurrent* write moved a touched entry while yours was in flight, `:on-conflict :invalidate` (the default) marks that entry stale and lets the read path fetch the authoritative value, rather than restoring a now-stale snapshot. This is re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore — on a contested rollback, the read path is the recovery authority.
-
-    The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue. **Coming from TanStack/RTK/SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace ([`:rf.mutation/optimistic-applied`](../../../spec/016-Resources.md#optimistic-mutations) → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic surface lives in [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); `examples/reagent/realworld_resources/mutations.cljs` runs exactly this favorite.
+> **Make it optimistic: the heart flips *before* the reply.** `:populates` runs on success — the heart flips the moment the server confirms. For a tiny, reversible change like a favorite, you usually want the flip *immediately on click*, then a revert if the write fails. That's an **optimistic mutation**, and it's a registration key, not a call-site dance.
+>
+> Add `:optimistic-tags` — the tag-addressed twin of `:invalidates`. Where `:invalidates` says "these tags went *stale*," `:optimistic-tags` says "patch every entry carrying these tags, *now*, before the request":
+>
+> ```clojure
+> (rf/reg-mutation :conduit/favorite
+>   {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
+>    :params-schema [:map [:slug :string]]
+>    :scope         :rf.scope/global
+>    ;; FORWARD: flip the heart + bump the count on every entry tagged
+>    ;; [:article slug] — the detail, every list, the session feed — at once.
+>    :optimistic-tags (fn [{:keys [slug]}]
+>                       [{:scope :rf.scope/global
+>                         :tags  #{[:article slug]}
+>                         :patch (fn [data] (favorite-patch true slug data))}
+>                        {:scope {:from-db :conduit/session}
+>                         :tags  #{[:feed]}
+>                         :patch (fn [data] (favorite-patch true slug data))}])
+>    ;; COMMIT on :ok — the reply's authoritative Article overwrites the guess.
+>    :populates     (fn [{:keys [slug]} result]
+>                     {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
+>                      result})
+>    :invalidates   (fn [{:keys [slug]} _result]
+>                     [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}
+>                      {:scope {:from-db :conduit/session} :tags #{[:feed]}}])
+>    :on-conflict   :invalidate}
+>   (fn [{:keys [slug]} _ctx]
+>     {:request {:method :post :url (rh/full-url (str "/articles/" slug "/favorite"))}
+>      :decode  schema/ArticleResponse}))
+> ```
+>
+> Three things make this safe, and none of them are your job:
+>
+> - **The runtime records the inverse.** You write only the *forward* `:patch` (`favorite-patch` toggles the flag and steps the count, handling both the detail's `{:article …}` and a list's `{:articles […]}` shape). The runtime snapshots each touched entry's prior value, so a rollback restores exactly what was there — never a reconstruction that can drift from the forward patch.
+> - **The reply settles deterministically.** An `:ok` reply **commits** (the `:populates` seed overwrites the optimistic value with the server's exact count, then `:invalidates` reconciles the lists). An `:error` reply **rolls back** — the heart flips back everywhere, verbatim. No `:on-failure` handler, no `app-db` undo flag.
+> - **A contested rollback refetches, it doesn't clobber.** If a *concurrent* write moved a touched entry while yours was in flight, `:on-conflict :invalidate` (the default) marks that entry stale and lets the read path fetch the authoritative value, rather than restoring a now-stale snapshot. This is re-frame2's deliberate divergence from TanStack/SWR's unconditional context restore — on a contested rollback, the read path is the recovery authority.
+>
+> The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user already sees their change, so don't block the button — and optionally read the derived **`:optimistic?`** flag (`(:optimistic? fav)`, true while the optimistic value is showing and unconfirmed) for a subtle in-flight cue. **Coming from TanStack/RTK/SWR?** This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace ([`:rf.mutation/optimistic-applied`](../../../spec/016-Resources.md#optimistic-mutations) → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic surface lives in [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations); `examples/reagent/realworld_resources/mutations.cljs` runs exactly this favorite.
 
 ## Fire it, watch the instance
 
@@ -295,6 +291,8 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied repl
          :fx [[:dispatch [:rf.mutation/clear {:instance :editor/save}]]
               [:dispatch [:rf.route/navigate :conduit.article/show {:slug (:slug article)}]]]}))))
 ```
+
+That `{:keys [status value]}` is the reply map's public shape: `:status` tells you how the write settled, and `:value` carries the decoded result on `:ok`. (One spelling worth filing away: the *reply map* always names the decoded result `:value`, while the durable mutation *instance* stores the same thing under `:result` — a queryable status record, a different layer from the transient reply. You read `:value` in a continuation; you read `:result` off the instance sub.)
 
 Three rules make `:reply-to` trustworthy:
 
