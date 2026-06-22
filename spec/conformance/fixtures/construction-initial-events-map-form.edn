@@ -1,0 +1,47 @@
+;; Conformance fixture: construction/initial-events-map-form
+;; EP-0027 §Construction — a `:initial-events` step may be the MAP FORM
+;; `{:event <event-vec> :opts <dispatch-opts>}` (alongside the bare-vector form),
+;; and the step's `:opts` pass through to the ordinary `dispatch-sync` opt
+;; surface. A step's `:opts {:rf.cofx {:rf/time-ms <ms>}}` supplies the
+;; recordable-coeffect envelope EXACTLY as a runtime dispatch would; the
+;; consuming handler reads the framework `:rf.cofx` context key verbatim. This
+;; pins that the map form is a first-class step shape and that its `:opts` reach
+;; the handler verbatim — the setup step is an ordinary `dispatch-sync`, not an
+;; out-of-band channel.
+;;
+;; The handler reads `[:cofx-key :rf.cofx]` — the framework context key carrying
+;; the whole envelope recordable-coeffect map (an UNQUALIFIED keyword, so the
+;; corpus's `:cofx-key` auto-wiring does NOT treat it as a declarable supplier;
+;; it needs no `reg-cofx`). `ensure-cofx` preserves a caller-supplied
+;; `:rf/time-ms` verbatim, so the captured value is the literal the step's
+;; `:opts` supplied. A bare-vector seed step precedes it — the two step shapes
+;; compose in one config.
+
+{:fixture/id           :construction/initial-events-map-form
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame}
+ :fixture/doc          "Per EP-0027 §Construction: a :initial-events step may be the map form {:event … :opts …}; the step's :opts {:rf.cofx {:rf/time-ms …}} passes the recordable-coeffect envelope through the ordinary dispatch-sync opt surface, and the consuming handler reads the framework :rf.cofx context key verbatim. A bare-vector seed step precedes it — the two step shapes compose in one config."
+
+ :fixture/registry
+ {:event {:ctor/seed       {:doc "Replace app-db wholesale with the seed map (bare-vector step)."}
+          :ctor/stamp-cofx {:doc "Capture the step's :rf.cofx envelope into app-db (map-form step)."}}}
+
+ :fixture/handlers
+ {:event {:ctor/seed [[:set [] [:event-arg 1]]]
+          ;; [:cofx-key :rf.cofx] reads the framework envelope context key —
+          ;; proving the map step's :opts {:rf.cofx …} reached the handler via
+          ;; dispatch-sync. Reading a coeffect beyond :db/:event routes this
+          ;; through the event-fx shape (the full context is available).
+          :ctor/stamp-cofx [[:set [:captured-cofx] [:cofx-key :rf.cofx]]]}}
+
+ :fixture/frame-config
+ {:initial-events [[:ctor/seed {:n 0}]
+                   {:event [:ctor/stamp-cofx]
+                    :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}]}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; The seed step ran (bare-vector form), then the MAP-form step's :opts
+ ;; :rf.cofx envelope reached the handler and was captured into app-db.
+ {:final-app-db {:n 0 :captured-cofx {:rf/time-ms 1781078400123}}}}

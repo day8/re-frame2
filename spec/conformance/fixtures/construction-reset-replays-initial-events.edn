@@ -36,9 +36,15 @@
   :trace-emissions
   ;; Construction setup, two runtime incs, then the reset re-runs the recorded
   ;; setup (a fresh :ctor/seed + :ctor/inc) and re-emits :rf.frame/created.
+  ;; The reset path is a destroy + re-register of the durable construction
+  ;; config (EP-0027 §Reset), so it emits :rf.frame/created a SECOND time —
+  ;; pinned here so a regression that replayed the setup WITHOUT going through
+  ;; the construction engine (no frame-created re-emit) turns this fixture red.
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/seed}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}
+   {:operation :rf.frame/created   :tags {:frame :rf/default}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/seed}}
-   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}]}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}
+   {:operation :rf.frame/created   :tags {:frame :rf/default}}]}}
