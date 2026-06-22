@@ -456,11 +456,29 @@
       removed `:rf.error/bad-marks` row). It is therefore DROPPED from this
       allow-list, as `allow-list-stays-honest` requires the moment the row lands.
 
+  EP-0026 IMAGE-API SIMPLIFICATION (rf2-6ls85a — image-order resolution):
+    - `:rf.error/image-within-image-collision` — fired when a single image
+      resolves one `[kind id]` two ways (an inline entry colliding with a
+      `:select-ns`-selected registration, or two inline entries). EP-0026
+      §Layered Resolution: an image must resolve cleanly to one descriptor per
+      `[kind id]`; an override is always a LATER image.
+    - `:rf.error/image-duplicate-image-id` — fired when two images share an `:id`
+      within one `:images` composition (EP-0026 §Image Keys). The shadow report
+      identifies images by id, so a shared id is ambiguous.
+    Both are NEW assembly diagnostics introduced by the EP-0026 image-order
+    resolution. Their Spec 009 §Error event catalogue rows are authored by the
+    EP-0026 spec graduation (rf2-o2vfrc, which owns the hot-zone
+    `spec/009-Instrumentation.md`); held here transitionally until that row
+    lands. `allow-list-stays-honest` forces the co-edit (drop from here) the
+    moment rf2-o2vfrc catalogues them.
+
   `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
   emitted, forcing the co-edit so the list cannot rot into a silent blanket
   suppression."
   #{:rf.error/flow-cycle-extract-invariant
-    :rf.error/unknown-registry-kind})
+    :rf.error/unknown-registry-kind
+    :rf.error/image-within-image-collision
+    :rf.error/image-duplicate-image-id})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests

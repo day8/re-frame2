@@ -59,33 +59,35 @@
   source-store generation (+ standard generation), so it invalidates the instant
   any `reg-*` / `forget-*` / `clear-*` bumps the store.
 
+  ## Resolution is IMAGE-ORDER (EP-0026 §Layered Resolution)
+
+  EP-0026 simplifies the EP-0023 surface: composition resolves by explicit IMAGE
+  ORDER — **the later image in `:images` wins** — and an image must resolve
+  cleanly to ONE descriptor per `[kind id]`. So every override is BETWEEN images
+  (a later image SHADOWS an earlier one; the cross-image shadow is reported, not
+  failed — the shadow report is rf2-ke7w5j), and a WITHIN-image `[kind id]`
+  collision is an ERROR. The declared-`:replace`/`:replace-standard` winner model
+  is retired (its key rejection is rf2-dlvmpc).
+
   ## Validation is FAIL-LOUD (the central guarantee)
 
   Every validation failure throws via the central `re-frame.error/throw-error!`
-  with a DISTINCT `:rf.error/id`. The load-bearing rule (EP-0023 §Image
-  Composition): **order must NEVER silently decide which descriptor wins.** A
-  real `(kind, id)` collision among selected descriptors with no declared
-  replacement winner is an ERROR (`:rf.error/image-duplicate-id`), not a
-  last-write. The conditions detected here (the EP §Image Validation list):
+  with a DISTINCT `:rf.error/id`. The conditions detected here:
 
-      duplicate id (same [kind id], differing impl, no declared winner)
+      two images sharing an :id within one :images composition
+        -> :rf.error/image-duplicate-image-id
+      within one image, two SELECTED descriptors for one [kind id] (ambiguous)
         -> :rf.error/image-duplicate-id
+      within one image, an inline entry colliding with a selected one, or two
+        inline entries for one [kind id] (an override must be a LATER image)
+        -> :rf.error/image-within-image-collision
       unsupported registration kind in the image path
         -> :rf.error/image-unsupported-kind
       event references a missing interceptor / resource references a missing
         scope resolver ({:from-db <id>} naming an unselected :resource-scope)
         -> :rf.error/image-missing-reference
-      a :replace / :replace-standard declared for a key with no actual
-        collision (zero or exactly one selected descriptor — stale / typo /
-        an order override, NOT a collision resolution)
-        -> :rf.error/image-replacement-no-collision
-      a :replace / :replace-standard winner that resolves to zero or many
-        selected descriptors (a stale winner source, a typo, an ambiguous coord)
-        -> :rf.error/image-replacement-winner-unresolved
-      composed images declaring DIFFERENT winners for the same [kind id]
-        (a cross-image replacement conflict — order must not decide)
-        -> :rf.error/image-replacement-conflict
-      replacing a non-replaceable framework standard registration
+      a public app descriptor colliding with a framework STANDARD (a standard is
+        protected — not part of app layer order, no public opt-in)
         -> :rf.error/image-standard-replacement-forbidden
       an image-required capability the frame does not supply
         -> :rf.error/image-missing-capability
@@ -339,28 +341,13 @@
   [image]
   (boolean (:rf.image/default? image)))
 
-(defn select-for-images
-  "Run slice-.3's `image/select-descriptors` for EACH image value in `images`
-  against `descriptors` (the source-store pool), returning the concatenated
-  selected descriptors (registered glob-matches + each image's inline
-  descriptors). Order is image order then selector order; collision validation
-  (which makes order irrelevant to the WINNER) runs downstream. Any zero-match
-  `:include-ns` pattern fails loud inside `select-descriptors` (slice .3).
-
-  The DEFAULT image (`default-image?`) is the implicit whole-store selector
-  (EP-0023 §Default Image Semantics): it selects EVERY descriptor in
-  `descriptors` rather than running a glob, with no zero-match fail-loud (an
-  empty store is a valid empty default projection). Every other case routes
-  through the pure `:include-ns`/inline selector unchanged.
-
-  Pure — a function of the image values and the candidate pool."
-  [images descriptors]
-  (into []
-        (mapcat (fn [image]
-                  (if (default-image? image)
-                    descriptors
-                    (image/select-descriptors image descriptors))))
-        images))
+;; EP-0026 §Layered Resolution selects + resolves PER IMAGE (keeping the image
+;; association so a within-image collision is distinguished from a cross-image
+;; shadow), so there is no whole-composition flattening selector — see
+;; `select-and-lower-image` + `assemble*`. The default image (`default-image?`)
+;; selects EVERY descriptor in the pool (no glob, no zero-match fail-loud — an
+;; empty store is a valid empty default projection); every explicit image runs
+;; the pure `:select-ns` selector unchanged.
 
 ;; ---- inline-registration lowering (EP-0023 §Image Fragments) ---------------
 ;;
@@ -458,68 +445,16 @@
                       :coordinate (descriptor-coordinate d)}}))))
   descriptors)
 
-;; ---- replacement winner resolution (EP-0023 §Image Patching And Overrides —
-;;      the .5 seam; the detection + the simple winner rule live here) ---------
-
-(defn matches-coordinate?
-  "True when a selected `descriptor`'s source coordinate matches a declared
-  winner-source coordinate `winner` from a `:replace` / `:replace-standard`
-  map. The winner spelling (EP-0023):
-
-    {:ns \"checkout.story.http\"}                  a registered descriptor
-    {:image :checkout/story :inline [:reg-fx id]}  an inline descriptor
-    {:standard true}                               the framework standard
-
-  Matching is by the descriptor's `descriptor-coordinate`. SLICE .5 SEAM: this
-  is the single point richer winner-source matching plugs into; the first
-  version is exact coordinate equality. Pure."
-  [winner descriptor]
-  (= winner (descriptor-coordinate descriptor)))
-
-(defn resolve-replacement-winner
-  "Given the `colliding` descriptors for one `[kind id]` and a declared `winner`
-  source coordinate, return the single winning descriptor. FAIL-LOUD:
-
-    * a winner that matches ZERO selected descriptors, or MORE THAN ONE, throws
-      `:rf.error/image-replacement-winner-unresolved` (a stale winner source, a
-      typo, or an ambiguous coordinate — EP-0023 §Image Patching: \"the winner
-      source coordinate must identify exactly one selected descriptor\").
-
-  SLICE .5 SEAM: the deep replacement policy (conformance-profile proofs, etc.)
-  extends this; the structural guarantee — exactly one winner or an error — is
-  fixed here. Pure (modulo the throw)."
-  [image-id kind id colliding winner]
-  (let [winners (filterv #(matches-coordinate? winner %) colliding)]
-    (case (count winners)
-      1 (first winners)
-      0 (error/throw-error!
-          :rf.error/image-replacement-winner-unresolved
-          'rf/make-frame
-          (str "rf/image assembly: the replacement winner " (pr-str winner)
-               " declared for " (pr-str [kind id]) " identifies NO selected "
-               "descriptor — a stale winner source, a typo, or a namespace "
-               "that is no longer selected. Selected descriptor coordinates "
-               "for this id: " (pr-str (mapv descriptor-coordinate colliding)) ".")
-          {:recovery :fix-the-replacement-winner-source
-           :extra    {:image image-id
-                      :kind  kind :id id
-                      :winner winner
-                      :selected-coordinates (mapv descriptor-coordinate colliding)}})
-      (error/throw-error!
-        :rf.error/image-replacement-winner-unresolved
-        'rf/make-frame
-        (str "rf/image assembly: the replacement winner " (pr-str winner)
-             " declared for " (pr-str [kind id]) " is AMBIGUOUS — it matches "
-             (count winners) " selected descriptors, so it does not name one "
-             "exact survivor. Make the winner coordinate identify exactly one.")
-        {:recovery :make-the-winner-coordinate-unambiguous
-         :extra    {:image image-id
-                    :kind  kind :id id
-                    :winner winner
-                    :match-count (count winners)}}))))
-
 ;; ---- standard-replacement policy (EP-0023 §Image Patching: \":replace-standard\"
 ;;      — the .5 seam for invariant-coupled conformance) ------------------------
+;;
+;; EP-0026 §Framework Standard Registrations: a PUBLIC app image MUST NOT shadow
+;; a framework standard (the no-shadowing rule is enforced by
+;; `check-standard-collision!`). `standard-replaceable?` remains the predicate the
+;; framework standard OWNER's internal path reads (a public app-facing
+;; standard-replacement hook, if ever wanted, is a separate standards-track
+;; decision — EP-0026 does not add one). It is retained for the standard owner's
+;; internal define/revise path and conformance coverage.
 
 (defn standard-replaceable?
   "True when a framework `standard` descriptor MAY be replaced by an image.
@@ -544,105 +479,84 @@
 (defn- standard-descriptor?
   [d] (boolean (:standard d)))
 
-(defn resolve-collision
-  "Resolve the `colliding` descriptors for one `[kind id]` into the single
-  winning descriptor, honouring the image's declared `:replace` /
-  `:replace-standard` maps. This is the heart of the \"order never silently
-  decides a winner\" guarantee.
+(defn- inline-descriptor?
+  "True when a descriptor is an IMAGE-INLINE descriptor (carries
+  `:rf.provenance/inline`), as opposed to a namespace-selected (registered) or a
+  framework-standard one. Pure."
+  [d] (boolean (:rf.provenance/inline d)))
 
-  Cases (EP-0023 §Image Composition / §Image Patching And Overrides):
+(defn resolve-within-image
+  "Resolve the `colliding` descriptors for one `[kind id]` WITHIN A SINGLE IMAGE
+  into its single descriptor (EP-0026 §Layered Resolution). `colliding` is the
+  post-dedupe distinct set for the `[kind id]` in ONE image's selected + inline
+  descriptors. An image must resolve cleanly to ONE descriptor per `[kind id]`:
+  there is NO within-image winner rule, so any `[kind id]` that resolves two ways
+  is an ERROR. Image order is the only precedence — to override, put the winning
+  registration in a LATER image and compose.
 
-    * After dedupe, exactly ONE descriptor — no collision, it wins.
-    * A genuine collision (≥2 distinct registrations for the same `(kind, id)`)
-      with NO declared winner -> `:rf.error/image-duplicate-id` (NOT a
-      last-write; load order does not decide).
-    * A collision involving a framework STANDARD descriptor with no
-      `:replace-standard` winner -> `:rf.error/image-standard-replacement-forbidden`
-      (a standard must not be shadowed accidentally).
-    * A declared `:replace-standard` winner where the standard is NOT
-      replaceable per policy -> `:rf.error/image-standard-replacement-forbidden`.
-    * A declared `:replace` / `:replace-standard` winner that does not resolve
-      to exactly one selected descriptor -> `:rf.error/image-replacement-winner-unresolved`
-      (via `resolve-replacement-winner`).
+  Cases (EP-0026 §Layered Resolution):
 
-  `replace` / `replace-standard` are `{[kind id] winner-coordinate}` maps from
-  the image spec. Returns the winning descriptor. SLICE .5 deepens the winner
-  policy; the detection + the fail-loud structure are fixed here."
-  [image-id kind id colliding replace replace-standard]
-  (let [k+id            [kind id]
-        has-standard?   (some standard-descriptor? colliding)
-        std-winner      (get replace-standard k+id)
-        app-winner      (get replace k+id)]
-    (cond
-      ;; No real collision: one descriptor (post-dedupe) wins outright.
-      (= 1 (count colliding))
+    * exactly ONE descriptor — it wins outright (the ordinary case).
+    * two **selected** (registered) descriptors for the same `[kind id]`
+      (different source namespaces) — AMBIGUOUS; `:rf.error/image-duplicate-id`.
+      (The same registration selected twice — same source + impl — already
+      deduped, so this is two DISTINCT registrations; the ordinary same-source
+      hot-reload replacement of one namespace's own descriptor is not a
+      collision.)
+    * an **inline** entry colliding with a **selected** one, or two **inline**
+      entries — `:rf.error/image-within-image-collision`. To override a selected
+      registration, define the override in a LATER image; two inline definitions
+      of one `[kind id]` are malformed.
+
+  Returns the single winning descriptor. Pure (modulo the throw)."
+  [image-id kind id colliding]
+  (let [k+id [kind id]]
+    (if (= 1 (count colliding))
       (first colliding)
-
-      ;; A standard is in the collision. It can ONLY be replaced via
-      ;; :replace-standard, and only when policy allows.
-      has-standard?
-      (let [standard (first (filter standard-descriptor? colliding))]
-        (cond
-          (nil? std-winner)
+      (let [any-inline? (some inline-descriptor? colliding)]
+        (if any-inline?
+          ;; An inline entry resolving two ways: either inline-vs-selected (an
+          ;; override must be a LATER image) or two inline entries (malformed).
+          (let [all-inline? (every? inline-descriptor? colliding)]
+            (error/throw-error!
+              :rf.error/image-within-image-collision
+              'rf/make-frame
+              (str "rf/image assembly: id " (pr-str k+id) " resolves "
+                   (count colliding) " ways within image " (pr-str image-id)
+                   " — "
+                   (if all-inline?
+                     (str "TWO inline :registrations entries define it (malformed: "
+                          "an image must define each [kind id] at most once inline)")
+                     (str "an inline :registrations entry collides with a "
+                          ":select-ns-selected registration (an image may carry both "
+                          ":select-ns and :registrations, but they MUST be disjoint)"))
+                   ". An image must resolve cleanly to ONE descriptor per [kind id]; "
+                   "there is no within-image winner rule. To OVERRIDE a selected "
+                   "registration, define the winner in a LATER image and compose — "
+                   "the later image wins and the shadow is reported. "
+                   "Colliding source coordinates: "
+                   (pr-str (mapv descriptor-coordinate colliding)) ".")
+              {:recovery :move-the-override-to-a-later-image-or-deduplicate
+               :extra    {:image image-id :kind kind :id id
+                          :colliding-coordinates (mapv descriptor-coordinate colliding)}}))
+          ;; Two (or more) DISTINCT selected registrations for one [kind id]:
+          ;; ambiguous within this image — narrow :select-ns so only one is
+          ;; selected, or rename the duplicate id.
           (error/throw-error!
-            :rf.error/image-standard-replacement-forbidden
+            :rf.error/image-duplicate-id
             'rf/make-frame
-            (str "rf/image assembly: id " (pr-str k+id) " collides with a "
-                 "FRAMEWORK STANDARD registration. A standard registration must "
-                 "not be shadowed accidentally — declare an explicit "
-                 ":replace-standard winner for it, and the standard must be "
-                 "marked :rf.standard/replaceable?. Standard registrations are "
-                 "non-replaceable by default.")
-            {:recovery :declare-replace-standard-or-rename
+            (str "rf/image assembly: id " (pr-str k+id) " is selected from "
+                 (count colliding) " distinct source namespaces with different "
+                 "implementations within image " (pr-str image-id)
+                 " — image assembly will NOT let selection order decide which one a "
+                 "frame runs. Narrow the :select-ns selection so only one is "
+                 "selected, or rename the duplicate id. (To OVERRIDE one with the "
+                 "other deliberately, put the winner in a LATER image and compose.) "
+                 "Colliding source coordinates: "
+                 (pr-str (mapv descriptor-coordinate colliding)) ".")
+            {:recovery :narrow-the-selection-or-rename-the-id
              :extra    {:image image-id :kind kind :id id
-                        :standard-coordinate (descriptor-coordinate standard)
-                        :colliding-coordinates (mapv descriptor-coordinate colliding)}})
-
-          (not (standard-replaceable? standard))
-          (error/throw-error!
-            :rf.error/image-standard-replacement-forbidden
-            'rf/make-frame
-            (str "rf/image assembly: id " (pr-str k+id) " declares a "
-                 ":replace-standard winner, but the framework standard "
-                 "registration is NOT replaceable"
-                 (if (seq (:rf.standard/requires-conformance standard #{}))
-                   (str " — it is invariant-coupled (:rf.standard/requires-conformance "
-                        (pr-str (:rf.standard/requires-conformance standard))
-                        "), so it is not image-replaceable until a conformance "
-                        "profile proves the invariant is preserved")
-                   " (:rf.standard/replaceable? is false, the default)")
-                 ". Remove the :replace-standard declaration or rename the id.")
-            {:recovery :remove-replace-standard-or-rename
-             :extra    {:image image-id :kind kind :id id
-                        :standard-coordinate (descriptor-coordinate standard)
-                        :colliding-coordinates (mapv descriptor-coordinate colliding)
-                        :requires-conformance
-                        (:rf.standard/requires-conformance standard #{})}})
-
-          :else
-          (resolve-replacement-winner image-id kind id colliding std-winner)))
-
-      ;; Application-owned collision with a declared :replace winner.
-      (some? app-winner)
-      (resolve-replacement-winner image-id kind id colliding app-winner)
-
-      ;; A genuine application-owned collision with NO declared winner —
-      ;; the central fail-loud rule: order must NOT decide the survivor.
-      :else
-      (error/throw-error!
-        :rf.error/image-duplicate-id
-        'rf/make-frame
-        (str "rf/image assembly: id " (pr-str k+id) " is registered by "
-             (count colliding) " distinct sources with different implementations "
-             "and no declared replacement winner — image assembly will NOT let "
-             "load order decide which one a frame runs. Declare a :replace "
-             "winner naming the exact survivor, narrow the :include-ns "
-             "selector so only one is selected, or rename the duplicate id. "
-             "Colliding source coordinates: "
-             (pr-str (mapv descriptor-coordinate colliding)) ".")
-        {:recovery :declare-replace-winner-or-disambiguate
-         :extra    {:image image-id :kind kind :id id
-                    :colliding-coordinates (mapv descriptor-coordinate colliding)}}))))
+                        :colliding-coordinates (mapv descriptor-coordinate colliding)}}))))))
 
 (defn distinct-by-id
   "Group `descriptors` by `[kind id]` and dedupe same-registration descriptors
@@ -668,87 +582,74 @@
       {}
       by-id)))
 
-;; ---- replacement declares a REAL collision only (EP-0023 §Image Validation:
-;;      \"replace names a key with no actual collision -> image assembly error\";
-;;      §Image Patching: \"a replacement declaration for a non-colliding key is an
-;;      image assembly error\") — the .5 winner-policy: a declared winner is for a
-;;      REAL collision, NOT a silent order override ---------------------------
+;; ---- per-image resolution + image-order layering (EP-0026 §Layered
+;;      Resolution) — \"the later image in :images wins\" -----------------------
+;;
+;; EP-0026 replaces the EP-0023 declared-`:replace`/`:replace-standard` winner
+;; model with deterministic IMAGE-ORDER layering. Composition is ordered data:
+;; the later image in `:images` wins. Image order is the ONLY precedence, because
+;; an image must resolve cleanly to ONE descriptor per `[kind id]` (a within-image
+;; collision is an error — `resolve-within-image`). So every override is between
+;; images: a later image SHADOWS an earlier one (the cross-image shadow is
+;; reported, not failed — the shadow report is rf2-ke7w5j). The one cross-image
+;; collision that still fails is an app descriptor colliding with a framework
+;; STANDARD: standards are protected, not part of app layer order.
 
-(defn check-replacement-keys-collide!
-  "Throw `:rf.error/image-replacement-no-collision` for any `:replace` /
-  `:replace-standard` key `[kind id]` that does NOT name a GENUINE selected
-  collision in `distinct-by-id` (the post-dedupe `{[kind id] [descriptor …]}`
-  view). A replacement declaration asserts that a `(kind, id)` collision is
-  INTENTIONAL and names the survivor — so it is only legal where a real
-  collision exists (≥2 distinct registrations for that `(kind, id)`). Two
-  non-collision shapes fail loud here (EP-0023 §Image Patching And Overrides —
-  replacement is fail-loud, NOT a silent order override):
-
-    * the key names a `(kind, id)` with EXACTLY ONE selected descriptor — there
-      is nothing to replace; the declaration is stale or the winner is being
-      used to override selection, not resolve a collision;
-    * the key names a `(kind, id)` with ZERO selected descriptors — a typo or a
-      no-longer-selected id; there is no collision to resolve at all.
-
-  This is the `.5` winner-policy guarantee paired with
-  [[resolve-replacement-winner]]: that fn proves a DECLARED winner names exactly
-  one selected descriptor; THIS fn proves the KEY it is declared for is a real
-  collision. Together they make `:replace` / `:replace-standard` an exact
-  resolution of an intentional collision and never a back-door order override.
-  Runs BEFORE `build-resolver` so a bad declaration fails before any winner is
-  resolved. `replace` / `replace-standard` are `{[kind id] winner}` maps.
-  Returns nil."
-  [image-id distinct-by-id replace replace-standard]
-  (doseq [[which m] [[:replace replace] [:replace-standard replace-standard]]
-          [[kind id] winner] m
-          :let [colliding (get distinct-by-id [kind id] [])
-                n         (count colliding)]
-          :when (< n 2)]
-    (error/throw-error!
-      :rf.error/image-replacement-no-collision
-      'rf/make-frame
-      (str "rf/image assembly: the " which " declaration for " (pr-str [kind id])
-           " names a key with NO actual collision — it selects "
-           (case n 0 "ZERO" "exactly ONE")
-           " descriptor, so there is nothing to replace. A replacement winner "
-           "resolves a REAL `(kind, id)` collision (two or more distinct "
-           "registrations); it is NOT a silent order override. "
-           (case n
-             0 (str "No selected descriptor has id " (pr-str [kind id])
-                    " — fix the typo, select the namespace that registers it, "
-                    "or remove the stale declaration.")
-             (str "Only one descriptor (" (pr-str (descriptor-coordinate (first colliding)))
-                  ") is selected for " (pr-str [kind id])
-                  " — remove the replacement declaration (it overrides nothing) "
-                  "or select the colliding source you meant to replace.")))
-      {:recovery :remove-the-replacement-or-introduce-the-collision
-       :extra    {:image image-id
-                  :which which
-                  :kind  kind :id id
-                  :winner winner
-                  :selected-count n
-                  :selected-coordinates (mapv descriptor-coordinate colliding)}}))
-  nil)
-
-(defn build-resolver
-  "Project the selected `descriptors` (selected + standard) into the sealed
-  `{[kind id] descriptor}` resolver map. Groups by `[kind id]`, dedupes
-  same-registration descriptors, then resolves any genuine collision via
-  `resolve-collision` (honouring `replace` / `replace-standard`). The result is
-  id-disjoint by `(kind, id)` — EVERY collision either deduped, resolved by a
-  declared winner, or threw. FAIL-LOUD: no `[kind id]` resolves ambiguously.
-
-  Returns the resolver map. Order of `descriptors` does NOT affect the winner
-  (it only affects iteration); the winner is decided by dedupe + declared
-  replacement, never by position."
-  [image-id descriptors replace replace-standard]
+(defn resolve-image
+  "Resolve ONE image's selected + inline descriptors into its
+  `{[kind id] descriptor}` map (EP-0026 §Layered Resolution). Groups by
+  `[kind id]`, dedupes same-registration descriptors (the ordinary same-source
+  selection-overlap / hot-reload case), then FAILS LOUD via `resolve-within-image`
+  on any `[kind id]` that still resolves two ways within the image (two selected
+  → ambiguous; inline-vs-selected or two inline → within-image collision). The
+  result is id-disjoint by `[kind id]`. `image-id` names the image in diagnostics.
+  Pure (modulo the throw)."
+  [image-id descriptors]
   (reduce-kv
     (fn [resolver [kind id] distinct-ds]
       (assoc resolver [kind id]
-             (resolve-collision image-id kind id distinct-ds
-                                replace replace-standard)))
+             (resolve-within-image image-id kind id distinct-ds)))
     {}
     (distinct-by-id descriptors)))
+
+(defn check-standard-collision!
+  "FAIL LOUD when an APP descriptor (`app-resolver`'s `[kind id]`) collides with a
+  framework STANDARD's `[kind id]` (EP-0026 §Framework Standard Registrations).
+  Standards are protected: they are not part of ordinary app image layer order,
+  and a public app image MUST NOT shadow one — a standard encodes an execution
+  invariant, so shadowing it is a correctness violation, not an app policy
+  choice. `standard-resolver` is the `{[kind id] standard-descriptor}` base.
+  Returns `app-resolver`. Throws `:rf.error/image-standard-replacement-forbidden`."
+  [app-resolver standard-resolver]
+  (doseq [[k+id app-d] app-resolver
+          :when (contains? standard-resolver k+id)]
+    (let [[kind id] k+id]
+      (error/throw-error!
+        :rf.error/image-standard-replacement-forbidden
+        'rf/make-frame
+        (str "rf/image assembly: id " (pr-str k+id) " collides with a FRAMEWORK "
+             "STANDARD registration. A standard encodes an execution invariant and "
+             "is not an ordinary app extension point — a public app image must not "
+             "shadow it. Rename the app registration's id, or do not select the "
+             "namespace that defines it. App source coordinate: "
+             (pr-str (descriptor-coordinate app-d)) ".")
+        {:recovery :rename-the-app-id-or-deselect-it
+         :extra    {:kind kind :id id
+                    :standard-coordinate {:standard true}
+                    :app-coordinate (descriptor-coordinate app-d)}})))
+  app-resolver)
+
+(defn layer-image-resolvers
+  "Layer per-image `{[kind id] descriptor}` resolvers in IMAGE ORDER — the later
+  image WINS (EP-0026 §Layered Resolution). `image-resolvers` is a seq of the
+  per-image resolvers in `:images` order. A `[kind id]` present in more than one
+  image resolves to the LAST image's descriptor; every earlier definition is
+  shadowed (the cross-image shadow is reported by rf2-ke7w5j, never failed here).
+  Returns the layered `{[kind id] descriptor}` app resolver. Pure — `merge` is
+  left-to-right, so a later resolver's entry overwrites an earlier one, which is
+  exactly the later-image-wins rule."
+  [image-resolvers]
+  (reduce merge {} image-resolvers))
 
 ;; ---- reference validation (EP-0023 §Image Validation: \"event references
 ;;      missing interceptor / resource references missing scope resolver\") ----
@@ -918,106 +819,94 @@
   [images]
   (into #{} (mapcat #(:rf.image/requires % #{})) images))
 
-(defn- merge-replace-maps
-  "Merge the `which` (`:replace` / `:replace-standard`) maps across `images`
-  into one combined `{[kind id] winner}` map, FAILING LOUD on a cross-image
-  CONFLICT: two composed images declaring the SAME `[kind id]` with DIFFERENT
-  winner coordinates (EP-0023 §Image Composition — \"Order must not silently
-  decide which registration wins\"). A bare `(into {} (mapcat …))` would let the
-  later image's winner silently last-merge-win — exactly the order-decides-the-
-  survivor footgun the EP forbids at composition. Identical declarations across
-  images are IDEMPOTENT (no conflict): two images that name the same survivor for
-  the same key agree, so the merge keeps the one shared winner.
+(defn check-unique-image-ids!
+  "FAIL LOUD when two images share an `:id` within one `:images` composition
+  (EP-0026 §Image Keys). The shadow report (rf2-ke7w5j) identifies images by id,
+  so two images sharing an id in one composition is an error — the two ids could
+  not name exactly one image each. Anonymous images (no `:rf.image/id`) are
+  exempt: an absent id is not a shared id. Returns `images`. Throws
+  `:rf.error/image-duplicate-image-id`."
+  [images]
+  (let [ids  (keep :rf.image/id images)
+        dups (->> ids
+                  (frequencies)
+                  (keep (fn [[id n]] (when (> n 1) id)))
+                  (sort))]
+    (when (seq dups)
+      (error/throw-error!
+        :rf.error/image-duplicate-image-id
+        'rf/make-frame
+        (str "rf/image assembly: image id(s) " (pr-str (vec dups))
+             " appear more than once in one :images composition — image ids MUST "
+             "be unique per composition. The shadow report identifies images by "
+             "id, so two images sharing an id could not be told apart. Give each "
+             "image a distinct :id.")
+        {:recovery :give-each-image-a-distinct-id
+         :extra    {:duplicate-image-ids (vec dups)
+                    :image-ids           (vec ids)}})))
+  images)
 
-  `:rf.error/image-replacement-conflict` is the cross-IMAGE counterpart of
-  `:rf.error/image-replacement-winner-unresolved` (which polices a single
-  declaration against the selected descriptors): this polices two images
-  DISAGREEING about the survivor before resolution even begins. `image-id` is the
-  representative image id for diagnostics; the conflict ex-data enumerates the
-  exact disagreeing winners. Returns the merged `{[kind id] winner}` map. Pure
-  (modulo the throw)."
-  [image-id which images]
-  (reduce
-    (fn [merged image]
-      (reduce-kv
-        (fn [acc [kind id :as k+id] winner]
-          (if-let [existing (find acc k+id)]
-            (if (= (val existing) winner)
-              acc                                   ;; idempotent: same winner, no conflict
-              (error/throw-error!
-                :rf.error/image-replacement-conflict
-                'rf/make-frame
-                (str "rf/image assembly: composed images declare CONFLICTING "
-                     (pr-str which) " winners for " (pr-str k+id) " — "
-                     (pr-str (val existing)) " and " (pr-str winner)
-                     ". Image composition must NOT let order silently decide "
-                     "which replacement survives. Two composed images naming "
-                     "DIFFERENT winners for the same (kind, id) is a real "
-                     "conflict: reconcile them to one agreed winner coordinate, "
-                     "or drop the duplicate declaration. (Identical declarations "
-                     "across images are fine — they agree.)")
-                {:recovery :reconcile-the-conflicting-replacement-winners
-                 :extra    {:image  image-id
-                            :which  which
-                            :kind   kind :id id
-                            :winners [(val existing) winner]}}))
-            (assoc acc k+id winner)))
-        merged
-        (get image which {})))
-    {}
-    images))
-
-(defn- replace-maps
-  "Build the two combined `{[kind id] winner}` replacement maps across `images`
-  via `merge-replace-maps`, which FAILS LOUD on a cross-image conflict (two
-  composed images naming DIFFERENT winners for the same key) rather than
-  last-merge-winning — EP-0023 §Image Composition's \"order must not silently
-  decide\" applied to the composition's replacement maps. Identical declarations
-  across images are idempotent. Returns `[replace replace-standard]`."
-  [image-id images]
-  [(merge-replace-maps image-id :replace images)
-   (merge-replace-maps image-id :replace-standard images)])
+(defn- select-and-lower-image
+  "Select ONE image's descriptors from the candidate `descriptors` pool (via the
+  slice-.3 selector / the default-image whole-store selection) and lower its
+  inline `:impl` bodies into the runnable shape (EP-0023 §Image Fragments).
+  Returns the image's selected + inline descriptors. Pure."
+  [image descriptors]
+  (lower-inline-descriptors
+    (if (default-image? image)
+      descriptors
+      (image/select-descriptors image descriptors))))
 
 (defn- assemble*
-  "The PURE assembly pipeline: select → union standards → validate → seal.
-  Returns the sealed generation. `images` is already a normalized vector;
-  `descriptors` is the candidate pool. This is the function the cache wraps —
-  it has no cache awareness, so every cache MISS computes one full generation
-  here (the SSR re-seal the cache exists to avoid). Throws on every fail-loud
-  condition (a throwing input is NOT cached)."
+  "The PURE assembly pipeline (EP-0026 §Layered Resolution): unique-id check →
+  select + resolve PER IMAGE → layer in image order (later wins) over the
+  protected framework-standard base → validate → seal. Returns the sealed
+  generation. `images` is already a normalized vector; `descriptors` is the
+  candidate pool. This is the function the cache wraps — it has no cache
+  awareness, so every cache MISS computes one full generation here (the SSR
+  re-seal the cache exists to avoid). Throws on every fail-loud condition (a
+  throwing input is NOT cached)."
   [images descriptors]
-  (let [;; A representative image id for diagnostics (the first that carries
-        ;; one); collision/winner errors also name exact coordinates.
-        image-id (some :rf.image/id images)
-        ;; Lower every selected INLINE descriptor's `:impl` fn body into its
-        ;; runnable shape (`:handler-fn` + per-kind runtime slots) so the
-        ;; sealed resolver's inline entries route through dispatch / subscribe
-        ;; identically to a `:include-ns`-selected registered descriptor
-        ;; (EP-0023 §Image Fragments — "the same runtime descriptor shape").
-        ;; Registered / standard / metadata-only entries are
-        ;; unchanged; `:impl` + provenance are preserved for collision /
-        ;; replacement / dedupe (all unchanged downstream).
-        selected (lower-inline-descriptors (select-for-images images descriptors))
-        standard (standard-descriptors)
-        all-ds   (into (vec selected) standard)
-        [rep rep-std] (replace-maps image-id images)]
-    ;; (3) Fail loud on any unsupported descriptor kind before sealing.
-    (check-supported-kinds! image-id all-ds)
-    ;; (4) Fail loud on any :replace / :replace-standard declaration for a key
-    ;;     with no real collision — a replacement is for an intentional
-    ;;     collision, never a silent order override. Runs before resolution so
-    ;;     a stale/typo'd declaration fails before any winner is matched.
-    (check-replacement-keys-collide! image-id (distinct-by-id all-ds) rep rep-std)
-    (let [;; (5) Project into the sealed resolver — every collision resolved
-          ;;     by a declared winner or thrown (order never decides).
-          resolver (build-resolver image-id all-ds rep rep-std)]
-      ;; (6) Validate application interceptor references against the sealed set.
-      (check-references! image-id resolver)
-      ;; (7) Seal.
-      {:rf.gen/resolver resolver
-       :rf.gen/images   images
-       :rf.gen/requires (image-requires images)
-       :rf.gen/kinds    (into #{} (map first) (keys resolver))})))
+  ;; (1) Image ids MUST be unique within the composition (EP-0026 §Image Keys).
+  (check-unique-image-ids! images)
+  (let [;; (2) Select + lower PER IMAGE, keeping the image association so a
+        ;;     within-image collision (an error) is distinguished from a
+        ;;     cross-image shadow (later wins). The default image selects the
+        ;;     whole pool; every explicit image runs its :select-ns selection.
+        per-image     (mapv (fn [image]
+                              [image (select-and-lower-image image descriptors)])
+                            images)
+        standard      (standard-descriptors)
+        ;; (3) Fail loud on any unsupported descriptor kind before resolving
+        ;;     (selected + standard).
+        _ (check-supported-kinds! (some :rf.image/id images)
+                                  (into (vec (mapcat second per-image)) standard))
+        ;; (4) Resolve EACH image to its id-disjoint {[kind id] descriptor} map.
+        ;;     Within one image any [kind id] that resolves two ways FAILS LOUD
+        ;;     (resolve-within-image): two selected → ambiguous; inline-vs-selected
+        ;;     or two inline → within-image collision. There is no within-image
+        ;;     winner rule — to override, use a later image.
+        image-resolvers (mapv (fn [[image ds]]
+                                (resolve-image (:rf.image/id image) ds))
+                              per-image)
+        ;; (5) Layer the per-image resolvers in IMAGE ORDER — the later image
+        ;;     wins (the cross-image shadow is reported by rf2-ke7w5j, never
+        ;;     failed). The result is the composed APP resolver.
+        app-resolver  (layer-image-resolvers image-resolvers)
+        ;; (6) Framework standards are PROTECTED: an app [kind id] colliding with
+        ;;     a standard FAILS LOUD (standards are not in app layer order).
+        standard-resolver (into {} (map (fn [d] [(descriptor-kind+id d) d])) standard)
+        _ (check-standard-collision! app-resolver standard-resolver)
+        ;; (7) The sealed resolver is the protected standard base + the layered
+        ;;     app resolver (the app never overwrites a standard — guarded above).
+        resolver      (merge standard-resolver app-resolver)]
+    ;; (8) Validate application interceptor references against the sealed set.
+    (check-references! (some :rf.image/id images) resolver)
+    ;; (9) Seal.
+    {:rf.gen/resolver resolver
+     :rf.gen/images   images
+     :rf.gen/requires (image-requires images)
+     :rf.gen/kinds    (into #{} (map first) (keys resolver))}))
 
 ;; ===========================================================================
 ;; Resolved-generation cache (EP-0023 §Image — "The reference implementation
