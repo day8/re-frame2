@@ -639,7 +639,16 @@
            ;; that pin the ban use [:dispatch-sync event-vec] from their
            ;; fx body; the realise-fx-handler routes that pair here.
            :dispatch-sync! (fn [event frame-id]
-                             (rf/dispatch-sync event {:frame frame-id}))}
+                             (rf/dispatch-sync event {:frame frame-id}))
+           ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): reg-frame /
+           ;; reset-frame! invoked from an fx body (mid-cascade, *handler-scope*
+           ;; bound) trips the construction / reset guard. The
+           ;; [:reg-frame-capture …] / [:reset-frame-capture …] fx-body ops
+           ;; call these and capture the thrown :rf.error/id into app-db.
+           :reg-frame! (fn [frame-id config]
+                         (rf/reg-frame frame-id config))
+           :reset-frame! (fn [frame-id]
+                           (frame/reset-frame! frame-id))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]

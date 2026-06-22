@@ -1,0 +1,61 @@
+;; Conformance fixture: construction/in-handler-guard
+;; EP-0027 §Handler-time guard — constructing a frame (`reg-frame`) while an
+;; event-handler cascade is IN FLIGHT is rejected LOUD with
+;; `:rf.error/frame-construction-in-handler`, and NO half-registered child
+;; frame is left behind. Frame construction is a LIFECYCLE operation (views /
+;; top-level materialize frames), never a handler operation.
+;;
+;; The corpus pulls the guard host-agnostically: the `:ctor/trigger` handler
+;; emits ONE fx (`user.fx/make-frame`) whose body invokes `reg-frame` via the
+;; `:reg-frame-capture` op. The fx runs in the `do-fx` walk — still inside the
+;; router's `*handler-scope*` binding — so the guard fires. A user fx-handler
+;; throw is CAUGHT by `do-fx` (re-emitted as `:rf.error/fx-handler-exception`,
+;; NOT the guard's discriminator), so the op CAPTURES the thrown `:rf.error/id`
+;; and writes it into app-db at `[:guard-id]` — making the construction-guard
+;; discriminator a pure-data `:final-app-db` observable. (`:rf/no-error` would
+;; be written if the construction did NOT throw — a regression that re-enabled
+;; mid-cascade construction.)
+
+{:fixture/id           :construction/in-handler-guard
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame :core/fx}
+ :fixture/doc          "Per EP-0027 §Handler-time guard: reg-frame called while an event-handler cascade is in flight fails loud :rf.error/frame-construction-in-handler and leaves no half-registered child frame. The :ctor/trigger handler emits an fx whose body invokes reg-frame mid-cascade; the :reg-frame-capture op captures the thrown :rf.error/id into app-db (the guard throw is otherwise swallowed by do-fx as :rf.error/fx-handler-exception)."
+
+ :fixture/registry
+ {:event {:ctor/trigger {:doc "Outer event — emits an fx that tries to reg-frame a child mid-cascade."}}
+  :fx    {:user.fx/make-frame {:doc       "Naive fx that constructs a frame mid-cascade; the EP-0027 guard catches it."
+                               :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:ctor/trigger
+          ;; Commit a marker, then emit ONE fx whose body invokes reg-frame.
+          [[:set [:outer-ran?] true]
+           [:fx :user.fx/make-frame :child/in-handler]]}
+
+  :fx    {:user.fx/make-frame
+          ;; The fx body: invoke reg-frame for the child mid-cascade and capture
+          ;; the thrown :rf.error/id into the originating frame's app-db at
+          ;; [:guard-id]. The guard fires because the do-fx walk is still under
+          ;; *handler-scope*.
+          [[:reg-frame-capture [:guard-id]
+            :child/in-handler
+            {:initial-events [[:ctor/trigger]]}]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [[:ctor/trigger]]
+
+ :fixture/expect
+ ;; The load-bearing assertions, as pure data:
+ ;;   1. :outer-ran? true — the outer handler committed normally.
+ ;;   2. :guard-id captured :rf.error/frame-construction-in-handler — the
+ ;;      mid-cascade reg-frame failed loud with the dedicated discriminator
+ ;;      (NOT :rf/no-error, which would mean the guard was bypassed).
+ ;;   3. :final-app-db-absent pins that NO half-registered child frame leaked:
+ ;;      the child frame's app-db is checked at the runner level — here the
+ ;;      observable is purely the captured guard id; the child-frame absence is
+ ;;      pinned by the JVM/CLJS unit test (frame-construction-in-handler-fails-
+ ;;      loud), which asserts (frame/frame :child/in-handler) is nil.
+ {:final-app-db {:outer-ran? true
+                 :guard-id   :rf.error/frame-construction-in-handler}}}

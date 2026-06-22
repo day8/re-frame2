@@ -1,0 +1,62 @@
+;; Conformance fixture: construction/provenance
+;; EP-0027 §Provenance — each `:initial-events` setup dispatch carries
+;; construction provenance so tools can distinguish a frame-init event from an
+;; ordinary runtime event AND navigate per setup step:
+;;
+;;   - `:source :frame-init` (hoisted top-level on the `:rf.event/dispatched`
+;;     trace per Spec 009 §Core fields — `:source` hoists, `:frame` rides under
+;;     `:tags`), distinguishing construction from a UI / fx / runtime dispatch
+;;     (which carry their own `:source`, never `:frame-init`);
+;;   - `:rf.frame/init-step-index <0-based idx>` (under `:tags`), the step's
+;;     declaration position, so a tool can jump to a specific setup step.
+;;
+;; The two setup steps dispatch in declaration order, so the dispatched traces
+;; carry init-step-index 0 then 1. A SUBSEQUENT runtime dispatch is NOT tagged
+;; `:frame-init` and carries no `:rf.frame/init-step-index` — the trailing
+;; runtime `:ctor/inc` proves the tag discriminates construction from runtime.
+
+{:fixture/id           :construction/provenance
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame :core/trace}
+ :fixture/doc          "Per EP-0027 §Provenance: each :initial-events setup dispatch carries :source :frame-init (hoisted top-level on the :rf.event/dispatched trace) + its 0-based :rf.frame/init-step-index (under :tags), in declaration order. A subsequent runtime dispatch is NOT :frame-init and carries no init-step-index — the tags discriminate construction from runtime."
+
+ :fixture/registry
+ {:event {:ctor/seed {:doc "Replace app-db wholesale with the seed map."}
+          :ctor/inc  {:doc "Increment :n."}}}
+
+ :fixture/handlers
+ {:event {:ctor/seed [[:set [] [:event-arg 1]]]
+          :ctor/inc  [[:update [:n] [:fn :inc]]]}}
+
+ :fixture/frame-config
+ {:initial-events [[:ctor/seed {:n 0}]
+                   [:ctor/inc]]}
+
+ :fixture/dispatches
+ ;; A trailing RUNTIME dispatch: NOT a frame-init step. Its :rf.event/dispatched
+ ;; trace must carry neither :source :frame-init nor :rf.frame/init-step-index.
+ [[:ctor/inc]]
+
+ :fixture/expect
+ ;; Construction seeded n=0 then inc → n=1; the runtime inc → n=2.
+ {:final-app-db {:n 2}
+
+  :trace-emissions
+  ;; The two construction setup dispatches carry :source :frame-init and their
+  ;; 0-based step index (in declaration order). Each frame-init dispatch's
+  ;; :frame rides under :tags alongside the index. The :frame is :rf/default
+  ;; (the runner's single-frame scope). The frame is then created.
+  [{:operation :rf.event/dispatched
+    :source    :frame-init
+    :tags      {:rf.frame/init-step-index 0 :frame :rf/default}}
+   {:operation :rf.event/dispatched
+    :source    :frame-init
+    :tags      {:rf.frame/init-step-index 1 :frame :rf/default}}
+   {:operation :rf.frame/created :tags {:frame :rf/default}}
+   ;; The trailing RUNTIME dispatch — same op, but NOT frame-init. The matcher
+   ;; only checks the keys PRESENT in an expectation entry, so to PIN the
+   ;; absence we assert the run-start of the runtime inc carries the ordinary
+   ;; event-id tag (the dispatched-trace negative is pinned by the JVM/CLJS
+   ;; unit test initial-events-carry-construction-provenance, which can read
+   ;; nil-valued tags; the corpus matcher pins the positive provenance shape).
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}]}}

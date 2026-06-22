@@ -1,0 +1,77 @@
+;; Conformance fixture: construction/shape-validation
+;; EP-0027 §Strict shape — `reg-frame` PREFLIGHT-validates the `:initial-events`
+;; config BEFORE any step runs, failing loud with a stable `:rf.error/id`
+;; discriminator (Spec 009 §The thrown-error shape) and leaving NO frame
+;; registered. The four malformed shapes pin the discriminator taxonomy:
+;;
+;;   - a BARE top-level event vector (not wrapped as a vector OF steps)
+;;       → :rf.error/initial-events-bare-event
+;;   - a step that is neither an event vector nor a step-map (e.g. a number)
+;;       → :rf.error/initial-events-bad-step
+;;   - a step whose event is empty / not a vector (e.g. [] / a map with no :event)
+;;       → :rf.error/initial-events-bad-event
+;;   - a step-map whose :opts is malformed (a non-map, or carries a forbidden
+;;     caller :frame — :frame is forced to the constructed frame)
+;;       → :rf.error/initial-events-bad-opts
+;;
+;; A well-formed `:initial-events` config is the must-NOT-throw control. Mode-B
+;; `:reg-frame` call op — pure construction-registration assertion, mirror of
+;; the `:reg-machine` registration-error taxonomy fixtures. Each call's
+;; `:expect-error` names the `:rf.error/id` discriminator the construction must
+;; throw; the runner tears down any registered frame afterward.
+
+{:fixture/id           :construction/shape-validation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame}
+ :fixture/doc          "Per EP-0027 §Strict shape: reg-frame preflight-validates :initial-events and fails loud with the right :rf.error/id discriminator (bare-event / bad-step / bad-event / bad-opts), leaving no frame registered. A well-formed config is the must-not-throw control. Mode-B :reg-frame call op, mirror of the :reg-machine registration-error taxonomy."
+
+ :fixture/registry
+ {:event {:ctor/seed {:doc "Seed used by the well-formed control config."}}}
+
+ :fixture/handlers
+ {:event {:ctor/seed [[:set [] [:event-arg 1]]]}}
+
+ :fixture/dispatches []
+
+ :fixture/calls
+ [;; (1) A BARE top-level event vector — the value is the event vector itself,
+  ;; not a vector of steps. Rejected :rf.error/initial-events-bare-event.
+  {:call         :reg-frame
+   :frame-id     :ctor/bare
+   :config       {:initial-events [:ctor/seed {:n 0}]}
+   :expect-error :rf.error/initial-events-bare-event}
+
+  ;; (2) A step that is neither an event vector nor a step-map (a number) —
+  ;; rejected :rf.error/initial-events-bad-step.
+  {:call         :reg-frame
+   :frame-id     :ctor/bad-step
+   :config       {:initial-events [42]}
+   :expect-error :rf.error/initial-events-bad-step}
+
+  ;; (3) An empty step event vector — not a valid step event. Rejected
+  ;; :rf.error/initial-events-bad-event.
+  {:call         :reg-frame
+   :frame-id     :ctor/bad-event
+   :config       {:initial-events [[]]}
+   :expect-error :rf.error/initial-events-bad-event}
+
+  ;; (4) A step-map carrying a forbidden caller :frame in its :opts — :frame is
+  ;; forced to the constructed frame and may not be supplied. Rejected
+  ;; :rf.error/initial-events-bad-opts.
+  {:call         :reg-frame
+   :frame-id     :ctor/bad-opts
+   :config       {:initial-events [{:event [:ctor/seed {:n 0}]
+                                    :opts  {:frame :somewhere-else}}]}
+   :expect-error :rf.error/initial-events-bad-opts}
+
+  ;; (5) Control: a well-formed :initial-events config must register silently
+  ;; (no :expect-error) — proving the preflight rejects the MALFORMED shapes
+  ;; specifically, not all construction.
+  {:call     :reg-frame
+   :frame-id :ctor/ok
+   :config   {:initial-events [[:ctor/seed {:n 0}]]}}]
+
+ :fixture/expect
+ ;; The construction frames are all torn down by the call op; the runner's
+ ;; :rf/default frame is empty. The contract under test is the call results.
+ {:final-app-db {}}}
