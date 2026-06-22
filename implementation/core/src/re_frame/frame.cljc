@@ -1262,7 +1262,7 @@
 ;; throws and leaves no frame registered. The runner then dispatches each step
 ;; through the existing synchronous `dispatch-sync!` path — the same path the
 ;; loop used — draining each to a fixed point before the next, tagging each with
-;; `:source :rf.frame/init` + its step index (EP-0027 §Provenance).
+;; `:source :frame-init` + its step index (EP-0027 §Provenance).
 ;;
 ;; The guiding rule (EP-0027 §Scope note): `:initial-events` is NO MORE CAPABLE
 ;; than the loop it replaces. No replay tape, no snapshot, no atomic staging, no
@@ -1401,7 +1401,7 @@
 
   Each step is dispatched through `dispatch-sync!` (the same synchronous path the
   loop used), with the step's `:opts` merged under construction provenance:
-  `:source :rf.frame/init` and the step's `:step-index`, and `:frame` forced to
+  `:source :frame-init` and the step's `:step-index`, and `:frame` forced to
   `id` (the EP forbids a caller-supplied `:frame`). By the time this returns the
   synchronous setup has settled; asynchronous effects started by setup are NOT
   awaited (EP-0027 §Construction).
@@ -1433,7 +1433,7 @@
         (when-let [{:keys [event opts]} (first remaining)]
           (let [step-opts (assoc (merge base-opts opts)
                                  :frame      id
-                                 :source     :rf.frame/init
+                                 :source     :frame-init
                                  :step-index idx)]
             (try
               (dispatch-sync! event step-opts)
@@ -1559,7 +1559,7 @@
           ;; anymore — the frame `:sensitive` / `:large {:app-db …}` annotation
           ;; was removed in favour of the commit-plane classification effects
           ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`).
-          ;; A `:rf.frame/init` `:initial-events` step that classifies a path
+          ;; A `:frame-init` `:initial-events` step that classifies a path
           ;; runs (below) at frame creation, so any trace the init cascade emits
           ;; is still redacted. The frame's policy keys were already validated
           ;; above; nothing is written into the elision registry from here.
@@ -1601,7 +1601,7 @@
           ;; runtime tears down the partial frame inside the runner and rethrows.
           ;;
           ;; Each setup dispatch carries construction provenance: `:source
-          ;; :rf.frame/init` + its step index (added by the runner), plus the
+          ;; :frame-init` + its step index (added by the runner), plus the
           ;; `make-frame`/`reg-frame` call-site captured as `:rf.trace/call-site`
           ;; here so the click-to-source affordance jumps to the
           ;; `(rf/make-frame {… :initial-events […]})` declaration line. The
