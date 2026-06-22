@@ -20,7 +20,9 @@
   `clojure -M:test` runner both pick it up. Plain CLJC; no DOM dependency."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [clojure.string :as string]
             [re-frame.core :as rf]
+            [re-frame.classification :as classification]
             [re-frame.elision :as elision]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
@@ -189,6 +191,60 @@
       (is (redacted? (:secret out)) "the both-marked path is :rf/redacted")
       (is (not (large-marker? (:secret out)))
           "NO large marker is emitted — no path/size/digest can leak"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-izlr7f — NESTED-AXIS SUPPRESSION on the PATH walker
+;; (`classification/redact-with-paths` -> `walk-with-paths`). This walker
+;; handles event arg-maps, sub outputs, fx args, cofx values. A :large path
+;; containing a :sensitive descendant must descend-and-redact, never emit a
+;; size marker (Spec 015 §No-propagation L338, a normative MUST).
+;; ---------------------------------------------------------------------------
+
+(deftest path-walker-nested-large-over-sensitive-descendant-redacts
+  (testing "redact-with-paths: a :large [[:a]] subtree with a :sensitive
+            [[:a :b]] descendant REDACTS the descendant and emits NO large
+            marker over the subtree (rf2-izlr7f)"
+    (let [secret "PATH-WALKER-SECRET"
+          out    (classification/redact-with-paths
+                   {:a {:b secret :c "public"}}
+                   [[:a :b]]   ;; sensitive
+                   [[:a]])]    ;; large (ancestor)
+      (is (redacted? (get-in out [:a :b]))
+          "the sensitive descendant is redacted")
+      (is (not (large-marker? (get out :a)))
+          "NO large marker over the large subtree")
+      (is (= "public" (get-in out [:a :c]))
+          "the unmarked sibling rides verbatim")
+      (is (not (string/includes? (pr-str out) secret))
+          "the raw secret does not leak"))))
+
+(deftest path-walker-whole-value-large-over-sensitive-descendant-redacts
+  (testing "redact-with-paths: the whole-value :large [[]] case with a
+            :sensitive [[:b]] descendant descends-and-redacts (the common
+            sub :large? output + registration :sensitive path scenario the bead
+            names) — rf2-izlr7f"
+    (let [secret "WHOLE-VALUE-LARGE-SECRET"
+          out    (classification/redact-with-paths
+                   {:b secret :other "ok"}
+                   [[:b]]   ;; sensitive descendant
+                   [[]])]   ;; whole-value large
+      (is (redacted? (get out :b))
+          "the sensitive descendant under whole-value large is redacted")
+      (is (not (large-marker? out))
+          "NO whole-value large marker is emitted (it would carry the digest)")
+      (is (= "ok" (get out :other)) "the unmarked sibling rides verbatim")
+      (is (not (string/includes? (pr-str out) secret)) "the raw secret does not leak"))))
+
+(deftest path-walker-large-without-sensitive-descendant-still-marks
+  (testing "redact-with-paths: a :large path with NO sensitive descendant still
+            emits the marker (suppression gated on an actual descendant) —
+            rf2-izlr7f regression guard"
+    (let [out (classification/redact-with-paths
+                {:a {:b "x"}}
+                [[:elsewhere]]   ;; sensitive, NOT under [:a]
+                [[:a]])]         ;; large
+      (is (large-marker? (get out :a))
+          "a large path with no sensitive descendant still emits its marker"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Delegation to elide-wire-value — the walker, not a reimplemented walk.

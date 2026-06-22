@@ -1,0 +1,68 @@
+;; Conformance fixture: data-classification/nested-large-over-sensitive-redacts
+;;
+;; Per Spec 015 §No-propagation (L338) + EP-0025 §Egress-rules (a normative
+;; MUST): a `:large`-marked subtree that CONTAINS a `:sensitive` DESCENDANT
+;; REDACTS the descendant rather than showing a size preview. The
+;; `:rf.size/large-elided` marker a naive walker would emit at the large
+;; ancestor leaks `:bytes` / `:type` and (off-box, digests on) a SHA-256
+;; digest computed over a subtree that CONTAINS the secret — a brute-force
+;; oracle. Sensitive DOMINATES nested under large, just as it does at the same
+;; path (the sibling `sensitive-wins-over-large.edn` fixture).
+;;
+;; The OBSERVABLE seam is the t1 `:rf.event/db-pending` trace event (same emit
+;; + projection path as the sibling sensitive / large / sensitive-wins
+;; fixtures — projected through `re-frame.elision/elide-wire-value`). The
+;; large-marked ancestor `[:a]` descends to a PLAIN map; its `:sensitive`
+;; descendant `[:a :b]` elides to the bare `:rf/redacted` sentinel; the
+;; unmarked sibling `[:a :c]` rides egress verbatim. The assertion pins the
+;; EXACT projected `:rf.event/db` value, which by construction proves NO large
+;; marker leaked at `[:a]` (a `{:rf.size/large-elided …}` map would fail the
+;; literal `=`).
+;;
+;; Mirrors the unit-level
+;; `re-frame.elision-test/nested-axis-large-over-sensitive-redacts-not-marks`
+;; (schema-first walker) and
+;; `re-frame.projection-cljs-test/path-walker-nested-large-over-sensitive-
+;; descendant-redacts` (path walker) deftests, lifted to the host-agnostic
+;; corpus through the runtime's emit-time projection chokepoint. rf2-izlr7f.
+;;
+;; Harness note: `:fixture/app-marks` declares `[:a]` :large and `[:a :b]`
+;; :sensitive via two ordered `add-marks` ops. Capability
+;; `:data-classification/marks`.
+
+{:fixture/id           :data-classification/nested-large-over-sensitive-redacts
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace
+                         :data-classification/marks}
+ :fixture/doc          "A :large-marked subtree [:a] containing a :sensitive descendant [:a :b] REDACTS the descendant in place and emits NO :rf.size/large-elided marker (which would leak path / size / type / digest over the secret-containing subtree) at [:a] in the t1 :rf.event/db-pending trace event. The non-sensitive sibling [:a :c] rides egress verbatim. Sensitive dominates nested under large (Spec 015 §No-propagation, a normative MUST)."
+
+ :fixture/registry
+ {:event {:dc/store {:doc "Writes a large-marked subtree carrying a sensitive descendant + a plain sibling into app-db."}}}
+
+ :fixture/handlers
+ {:event {:dc/store [[:set [:a :b] "TOP-SECRET-TOKEN"]
+                     [:set [:a :c] "public"]]}}
+
+ ;; Declare [:a] :large (the ancestor subtree) and [:a :b] :sensitive (a
+ ;; strict descendant) — two ordered add-marks ops. The nested-axis
+ ;; suppression must fire regardless of declaration order.
+ :fixture/app-marks
+ [{:add-marks {[:a] :large}}
+  {:add-marks {[:a :b] :sensitive}}]
+
+ :fixture/frame-config
+ {:initial-events [[:dc/store]]}
+
+ :fixture/dispatches
+ [[:dc/store]]
+
+ :fixture/expect
+ ;; The committed app-db is the RAW value — redaction is trace-egress only.
+ {:final-app-db {:a {:b "TOP-SECRET-TOKEN" :c "public"}}
+
+  ;; The load-bearing assertion: the large ancestor [:a] is a PLAIN map (NOT a
+  ;; large marker), its sensitive descendant [:a :b] is the bare :rf/redacted
+  ;; sentinel, and the unmarked sibling [:a :c] rides raw.
+  :trace-emissions
+  [{:operation :rf.event/db-pending
+    :tags      {:rf.event/db {:a {:b :rf/redacted :c "public"}}}}]}}
