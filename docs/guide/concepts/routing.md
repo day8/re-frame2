@@ -190,7 +190,7 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 
 So a back-button press is, literally, a dispatch: popstate fires, `:rf.route/handle-url-change` runs, the slice updates, the views re-derive. And [time-travel](../how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never the source of truth, only a *print-out* of it.
 
-When you need to convert between a route and a URL by hand, the pure pair `(rf/route-url :app/article {:id "intro"})` and `(rf/match-url "/articles/intro")` translate between the two directions on both JVM and browser — so you never hand-concatenate a query string again.
+When you need to convert between a route and a URL by hand, the pure pair `(routing/route-url :app/article {:id "intro"})` and `(routing/match-url "/articles/intro")` — from `re-frame.routing`, since the URL codec lives in the routing artefact rather than on the `rf/` front porch — translate between the two directions on both JVM and browser, so you never hand-concatenate a query string again.
 
 ## The same handler runs on the server
 
