@@ -68,6 +68,7 @@
             [re-frame.source-store   :as ss]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
+            [re-frame.interop        :as interop]
             [re-frame.core           :as rf]
             [re-frame.std-interceptors    :as std]
             [re-frame.interceptor-registry :as icpt-reg]
@@ -729,41 +730,74 @@
             THAT frame's generation — explicit-image frames, not only
             default-image frames; a frame whose resolution is unchanged is left
             stale-free (untouched)"
-    (let [store-before @ss/kind->id->ns->descriptor
-          reg-before   @registrar/kind->id->metadata]
-      (try
-        (reset! ss/kind->id->ns->descriptor {})
-        (reset! registrar/kind->id->metadata {})
-        (asm/clear-generation-cache!)
-        (registrar/register! :event :counter/inc {:handler-fn ::v1 :ns "docs.counter.parity"})
-        (registrar/register! :event :other/x     {:handler-fn ::ox :ns "docs.other"})
-        ;; Two explicit-image frames over the LIVE store: one selects the
-        ;; parity ns, one selects the other ns.
-        (let [parity (lf/make-frame {:id :docs/parity
-                                     :images [(rf/image {:include-ns ["docs.counter.parity"]})]})
-              other  (lf/make-frame {:id :docs/other
-                                     :images [(rf/image {:include-ns ["docs.other"]})]})
-              other-gen-before (lf/frame-generation (lf/live-frame :docs/other))]
-          (is (= ::v1 (:handler-fn (asm/resolve-descriptor (lf/frame-generation parity)
-                                                          :event :counter/inc))))
-          ;; A re-eval of the parity ns (same ns → replaces its source slot).
-          (registrar/register! :event :counter/inc {:handler-fn ::v2 :ns "docs.counter.parity"})
-          (let [moved (lf/reproject-live-frames!)]
-            (testing "the parity frame moved (its selected ns changed)"
-              (is (contains? moved :docs/parity))
-              (is (= ::v2 (:handler-fn (asm/resolve-descriptor
-                                         (lf/frame-generation (lf/live-frame :docs/parity))
-                                         :event :counter/inc)))
-                  "no frame left stale — the parity frame runs the re-eval'd handler"))
-            (testing "the other frame did NOT move (its ns was unchanged)"
-              (is (not (contains? moved :docs/other)))
-              (is (identical? other-gen-before
-                              (lf/frame-generation (lf/live-frame :docs/other)))
-                  "an unchanged frame is left untouched — no spurious swap"))))
-        (finally
-          (reset! ss/kind->id->ns->descriptor store-before)
-          (reset! registrar/kind->id->metadata reg-before)
-          (asm/clear-generation-cache!))))))
+    ;; DETERMINISM (rf2-ssokdr): the auto-reprojection wiring
+    ;; (`live-frame/reproject-on-registration-change!`, installed once as a
+    ;; process-`defonce` `registrar/add-registration-hook!`) fires on EVERY
+    ;; `register!` — including the `reg-frame` inside each `make-frame` below.
+    ;; Once a live image-loaded frame exists, that hook MARKS the shared
+    ;; process-wide `pending-reprojection?` flag dirty and schedules a REAL
+    ;; deferred `interop/next-tick` flush (on the JVM: an async single-thread
+    ;; executor). That deferred flush RACES the explicit synchronous
+    ;; `reproject-live-frames!` this case asserts on: were a scheduled tick (this
+    ;; case's own, armed by the second `make-frame` while the first frame is
+    ;; already live, or one a prior case left in flight) to fire in the window
+    ;; AFTER the `register! ::v2` and BEFORE the explicit reproject, it would
+    ;; already swap the parity frame to ::v2 and DRAIN the dirty flag — so the
+    ;; explicit reproject would see the frame UNCHANGED and return `{}`, the
+    ;; observed intermittent `(not (contains? {} :docs/parity))` CI failure
+    ;; (PR #4895 run 27939575061). It PASSES in isolation only because the idle
+    ;; executor happens to fire the deferred flush AFTER the case completes.
+    ;;
+    ;; So redef `interop/next-tick` to a NO-OP for the whole case (body AND
+    ;; teardown): no async flush ever runs, the ONLY flush is the explicit
+    ;; synchronous `reproject-live-frames!` this case drives. The assertions are
+    ;; unchanged. This is the same `next-tick`-isolation every auto-reprojection
+    ;; case in `live-frame-reload-cljs-test` already uses (rf2-roou7s).
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      ;; Start from a clean slate: drain any reprojection a prior case left
+      ;; pending on the shared process-`defonce` flag (the hook survives across
+      ;; cases by design).
+      (lf/flush-pending-reprojection!)
+      (let [store-before @ss/kind->id->ns->descriptor
+            reg-before   @registrar/kind->id->metadata]
+        (try
+          (reset! ss/kind->id->ns->descriptor {})
+          (reset! registrar/kind->id->metadata {})
+          (asm/clear-generation-cache!)
+          (registrar/register! :event :counter/inc {:handler-fn ::v1 :ns "docs.counter.parity"})
+          (registrar/register! :event :other/x     {:handler-fn ::ox :ns "docs.other"})
+          ;; Two explicit-image frames over the LIVE store: one selects the
+          ;; parity ns, one selects the other ns.
+          (let [parity (lf/make-frame {:id :docs/parity
+                                       :images [(rf/image {:include-ns ["docs.counter.parity"]})]})
+                other  (lf/make-frame {:id :docs/other
+                                       :images [(rf/image {:include-ns ["docs.other"]})]})
+                other-gen-before (lf/frame-generation (lf/live-frame :docs/other))]
+            (is (= ::v1 (:handler-fn (asm/resolve-descriptor (lf/frame-generation parity)
+                                                            :event :counter/inc))))
+            ;; A re-eval of the parity ns (same ns → replaces its source slot).
+            (registrar/register! :event :counter/inc {:handler-fn ::v2 :ns "docs.counter.parity"})
+            (let [moved (lf/reproject-live-frames!)]
+              (testing "the parity frame moved (its selected ns changed)"
+                (is (contains? moved :docs/parity))
+                (is (= ::v2 (:handler-fn (asm/resolve-descriptor
+                                           (lf/frame-generation (lf/live-frame :docs/parity))
+                                           :event :counter/inc)))
+                    "no frame left stale — the parity frame runs the re-eval'd handler"))
+              (testing "the other frame did NOT move (its ns was unchanged)"
+                (is (not (contains? moved :docs/other)))
+                (is (identical? other-gen-before
+                                (lf/frame-generation (lf/live-frame :docs/other)))
+                    "an unchanged frame is left untouched — no spurious swap"))))
+          (finally
+            ;; Drain any residual pending reprojection the case's register!s
+            ;; armed, then restore the store/registrar — all still under the
+            ;; next-tick no-op so no stray real tick is left scheduled to fire
+            ;; mid-next-case (the same race, relocated to teardown).
+            (lf/flush-pending-reprojection!)
+            (reset! ss/kind->id->ns->descriptor store-before)
+            (reset! registrar/kind->id->metadata reg-before)
+            (asm/clear-generation-cache!)))))))
 
 (deftest s7-reload-of-unknown-frame-errors-cleanly
   (testing "EP-0023 §Public API: reload-images! targeting an id that names no
