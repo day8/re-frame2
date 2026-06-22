@@ -120,8 +120,9 @@ the payload goes through the runtime's safe-egress projection
 Do **not** tell a user this command drops the *raw* `app-db`, and do not
 present it as a way to copy a secret-bearing value off-box: a focused frame
 holding `{:auth {:token "secret"}}` (or any owner-classified sensitive
-value — a frame `:sensitive {:app-db}` path, a per-slot `:sensitive?` schema
-prop; per EP-0015) is redacted in the snapshot by default. Raw capture is
+path — a durable app-db path classified by the `:sensitive` commit-plane
+effect, a projection-relative `:sensitive` on a subsystem definition; per
+EP-0025) is redacted in the snapshot by default. Raw capture is
 only available through an explicit trusted-local opt-in consistent with the
 privacy vocabulary — the same `--allow-sensitive-reads` (default **OFF**)
 plus per-call `:include-sensitive true` posture the AI/MCP read surfaces use

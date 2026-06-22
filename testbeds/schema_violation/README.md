@@ -44,10 +44,11 @@ suffix). Consumers that want the registration anchor reach
 - No `:rf.schema/at-boundary` interceptor — that interceptor is for
   production-mode schema enforcement on untrusted-input handlers, not
   for the dev-mode validation surfaces this testbed exercises.
-- No `:sensitive?` slots in the schemas. The privacy/redaction surface
-  is exercised by the (Tier 3) `sensitive_dispatcher/` testbed; this
-  testbed keeps the values visible so consumers can assert the `:value`
-  tag carries the verbatim offending value.
+- No `:sensitive?` slots in the schemas. A `:sensitive?` slot prop would
+  redact the offending `:value` in this very trace (validation-failure-trace
+  redaction is the one schema-prop axis that survives EP-0025); this testbed
+  keeps the values visible so consumers can assert the `:value` tag carries
+  the verbatim offending value.
 
 ## Test scenarios from rf2-fe84r this surface enables
 

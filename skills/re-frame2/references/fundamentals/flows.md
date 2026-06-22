@@ -157,7 +157,7 @@ Flow evaluation happens **right after the event handler's interceptor chain — 
 
 ## Deeper material
 
-Per-frame topsort + cycle-detection contract, the partition-qualified input resolution (binary `[:rf.db/runtime …]` syntax), the atomicity failure semantics (a flow throw aborts the whole pre-install cascade across both partitions — no partial commit), the `:rf.flow/*` trace taxonomy, `:sensitive?` inheritance, frame-destroy teardown, and the v1-alpha-flows migration table: `SKILL-REDIRECT.md` → **EP — Flows (013)**, **EP — Instrumentation (009)**. The managed-external-effects umbrella `:rf.flow/*` belongs to: [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md).
+Per-frame topsort + cycle-detection contract, the partition-qualified input resolution (binary `[:rf.db/runtime …]` syntax), the atomicity failure semantics (a flow throw aborts the whole pre-install cascade across both partitions — no partial commit), the `:rf.flow/*` trace taxonomy, output-path classification (a flow classifies its **own** output via registration `:sensitive` / `:large` — there is **no** input → output inheritance; a flow reading a sensitive input does not auto-classify its output, so classify the output path), frame-destroy teardown, and the v1-alpha-flows migration table: `SKILL-REDIRECT.md` → **EP — Flows (013)**, **EP — Instrumentation (009)**. The managed-external-effects umbrella `:rf.flow/*` belongs to: [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md).
 
 ---
 

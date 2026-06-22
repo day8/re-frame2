@@ -26,7 +26,7 @@ Every public surface gets one row below. The API page gives signatures with intu
 | Flows | `reg-flow` — derived values materialised into app-db so handlers can read them | [05 — Flows](../api/05-flows.md) | [013-Flows](../../spec/013-Flows.md) |
 | Routing | `reg-route`, navigation events, the `:route` sub, blocking and not-found | [06 — Routing](../api/06-routing.md) | [012-Routing](../../spec/012-Routing.md) |
 | HTTP | `:rf.http/managed` — decode pipeline, retry, abort, the closed failure taxonomy | [07 — HTTP](../api/07-http.md) | [014-HTTPRequests](../../spec/014-HTTPRequests.md) |
-| Schemas and classification | `:schema` metadata, `reg-app-schema`, sensitive / large marks | [08 — Schemas](../api/08-schemas.md) | [010-Schemas](../../spec/010-Schemas.md), [015-Data-Classification](../../spec/015-Data-Classification.md) |
+| Schemas and classification | `:schema` metadata, `reg-app-schema`, the `:sensitive` / `:large` classification effects | [08 — Schemas](../api/08-schemas.md) | [010-Schemas](../../spec/010-Schemas.md), [015-Data-Classification](../../spec/015-Data-Classification.md) |
 | SSR | `render-to-string`, hydration, streaming boundaries | [09 — SSR](../api/09-ssr.md) | [011-SSR](../../spec/011-SSR.md) |
 | Testing | Fixtures, `dispatch-sequence`, `compute-sub`, the helper namespaces below | [10 — Testing](../api/10-testing.md) | [008-Testing](../../spec/008-Testing.md) |
 | Instrumentation | The dev trace bus, the always-on event / error emit substrates, the epoch buffer | [11 — Instrumentation](../api/11-instrumentation.md) | [009-Instrumentation](../../spec/009-Instrumentation.md), [Tool-Pair](../../spec/Tool-Pair.md) |

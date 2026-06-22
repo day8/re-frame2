@@ -12,7 +12,7 @@ You'll need [routing](../concepts/routing.md) (`day8/re-frame2-routing`) and [ma
 
 Session state lives in two `app-db` paths. `[:auth :user]` holds the signed-in user, and it's `nil` when nobody's logged in. `[:auth :token]` holds the credential requests carry. The guard checks `:user`, the request decorator reads `:token`, and logout clears both. That's the whole slice.
 
-The token is a secret, so the slice ships with two protections. First, declare the path `:sensitive` on the frame — a frame is an isolated runtime context with its own `app-db` — which step 4's `reg-frame` does for you. Once that's declared, the raw token never leaves the box in traces, Xray captures, or SSR payloads ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)). Second, give persistence exactly **one seam**: a single effect that writes on a truthy token and removes on `nil`, so login, logout, and your tests all hit the same edge rather than scattering localStorage calls everywhere.
+The token is a secret, so the slice ships with two protections. First, classify the path `[:auth :token]` `:sensitive` — by returning a classification effect from an init event the frame runs at creation (step 4 wires it up). A frame is an isolated runtime context with its own `app-db`; classifying the *path* means the raw token never leaves the box in traces, Xray captures, or SSR payloads, while your handlers keep seeing the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)). Second, give persistence exactly **one seam**: a single effect that writes on a truthy token and removes on `nil`, so login, logout, and your tests all hit the same edge rather than scattering localStorage calls everywhere.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
@@ -138,15 +138,22 @@ The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` stops the origina
 
     The runtime picks the handler from the *original* event id, so editing the event would run the wrong handler. Use skip-and-dispatch instead. And stash the target in `app-db`, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
 
-Now wire it frame-wide — by reference. The guard is registered once under `:my-app/auth-guard`; the frame's `:interceptors` chain names that id, never the interceptor value. It short-circuits in a single `case` lookup for every non-navigation event, so the cost on ordinary traffic is negligible:
+Now wire it frame-wide — by reference. The guard is registered once under `:my-app/auth-guard`; the frame's `:interceptors` chain names that id, never the interceptor value. It short-circuits in a single `case` lookup for every non-navigation event, so the cost on ordinary traffic is negligible. The same frame's `:initial-events` runs the init event that classifies the token path — step 1's egress protection, in place before any off-box egress:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/core.cljs
+;; The init event classifies the durable token path :sensitive via the
+;; commit-plane classification effect (EP-0025) — returned alongside :db.
+(rf/reg-event :auth/init
+  (fn [{:keys [db]} _]
+    {:db        (assoc db :auth {:user nil :token nil})
+     :sensitive [[:auth :token]]}))             ;; step 1's egress protection
+
 (rf/reg-frame :rf/default
-  {:doc          "The app frame."
-   :url-bound?   true                           ;; this frame owns the browser URL
-   :sensitive    {:app-db [[:auth :token]]}     ;; step 1's egress protection
-   :interceptors [:my-app/auth-guard]})         ;; reference the registered guard by id
+  {:doc            "The app frame."
+   :url-bound?     true                         ;; this frame owns the browser URL
+   :initial-events [[:auth/init]]               ;; classify [:auth :token] at creation
+   :interceptors   [:my-app/auth-guard]})       ;; reference the registered guard by id
 ```
 
 ## 5. Bounce back after login
@@ -193,7 +200,7 @@ Logout has to clear three things: the session slice, the persisted token, *and* 
 
 You can now:
 
-- hold a session as two `app-db` paths — one persistence seam, token declared `:sensitive`
+- hold a session as two `app-db` paths — one persistence seam, the token path classified `:sensitive` from an init event
 - wire login success into store-persist-redirect, with no retry it shouldn't have
 - stamp the auth header once, at the frame's HTTP seam, instead of per call site
 - guard all three navigation entry points, with a bounce-back that can't go stale

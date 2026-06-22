@@ -5,41 +5,45 @@
   the `:rf.size/large-elided` marker (per [spec/009 §Size elision in
   traces] / [API.md §`rf/elide-wire-value`]).
 
-  Path-D elision is schema-first: `:large?` on a Malli app-schema slot
-  is the declaration path. Unschema'd large values deliberately warn
-  but do not auto-elide.
+  Elision is classification-driven (EP-0025): the `:large` commit-plane
+  classification effect (a `reg-event` returns it alongside `:db`) is the
+  durable app-db declaration path. Unclassified large values deliberately
+  warn but do not auto-elide (fail-open).
 
   This surface exercises one warning-only control and three
-  schema-declared marker paths:
+  `:large`-classified marker paths:
 
-    Button A · Unschema'd large value (warning-only)
+    Button A · Unclassified large value (warning-only)
       — handler writes a 20 KiB string to `[:auto-large-value]`. The
         walker emits `:rf.warning/large-value-unschema'd` but leaves
-        the value inline because no schema declared the path.
+        the value inline because the path is not classified `:large`.
 
-    Button B · Schema-declared flat slot
+    Button B · Classified flat path
       — handler writes a small (200 byte) value to
         `[:declared-large-value]`. Elision fires regardless of size
-        because the registered app-schema marks the slot `:large?`.
+        because the boot event classified the path `:large`.
 
-    Button C · Second schema-declared flat slot
+    Button C · Second classified flat path
       — same outcome as Button B on `[:fx-declared-value]`; it keeps a
         second deterministic path for consumers that assert multiple
         marker rows.
 
-    Button D · Schema-driven (registered at boot)
-      — the surface registers a Malli app-schema with `:large? true`
-        on the `:schema-large-value` slot at boot. Any write to that
-        path triggers elision on emit. Button D writes a 200-byte
-        value to the schema-declared slot.
+    Button D · Classified nested path
+      — the boot event classifies `[:schema-bag :schema-large-value]`
+        `:large`. Any write to that path triggers elision on emit.
+        Button D writes a 200-byte value to it.
 
   This is NOT a tutorial. The bodies are minimal. The point is to
-  produce deterministic warning-only and schema-elided shapes a
+  produce deterministic warning-only and `:large`-elided shapes a
   consumer can assert against."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Loads the schemas artefact's late-bind hooks (rf2-p7va).
             [re-frame.schemas]
+            ;; Public reader for the per-frame elision registry (EP-0025):
+            ;; `re-frame.elision/declarations` returns the `:large` `:app-db`
+            ;; declarations the commit-plane effects recorded.
+            [re-frame.elision :as elision]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -49,8 +53,8 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; `pr-str` of this string exceeds the framework's warning threshold.
-;; Path-D schema-first elision leaves it inline and emits a warning so
-;; users can add `{:large? true}` to the app-schema slot.
+;; Button A leaves it inline and emits a warning so users can classify
+;; the path `:large` via the commit-plane effect (fail-open until then).
 
 (def kib-20-string
   ;; 20480 chars = 20 KiB. pr-str adds 2 quote chars; effective size
@@ -64,20 +68,21 @@
   (apply str (repeat 200 \Y)))
 
 ;; ----------------------------------------------------------------------------
-;; Malli app-schema with :large? on one slot — exercises the
-;; schema-driven nomination path
+;; Malli app-schema validating the nested slot's SHAPE — the `:large`
+;; classification rides the commit-plane effect, not this schema
 ;; ----------------------------------------------------------------------------
 
 (def SchemaLarge
-  ;; EP-0015 §8: schema describes SHAPE only. The `:large` egress
-  ;; classification for these slots is FRAME-owned (see `run` below).
+  ;; Spec 015: a schema describes SHAPE only and does NOT classify a durable
+  ;; app-db path. The `:large` egress classification for these paths rides the
+  ;; commit-plane classification effect the `::initialise` event returns (below).
   [:map
    [:schema-large-value [:maybe :string]]])
 
-;; EP-0002 (rf2-5q7um6): reg-app-schemas is context-required frame-local; a
-;; bare ns-load call raises :rf.error/no-frame-context. This testbed hosts on
-;; :rf/default, so name it explicitly. These schemas validate SHAPE; the
-;; `:large` egress markers ride the frame's classification (EP-0015 §8).
+;; EP-0002: reg-app-schemas is context-required frame-local; a bare ns-load
+;; call raises :rf.error/no-frame-context. This testbed hosts on :rf/default,
+;; so name it explicitly. These schemas validate SHAPE; the `:large` egress
+;; markers ride the EP-0025 commit-plane classification effect, NOT the schema.
 (with-frame :rf/default
   (rf/reg-app-schemas
     {[:declared-large-value] [:maybe :string]
@@ -111,24 +116,24 @@
              [:schema-bag :schema-large-value]]}))
 
 ;; ----------------------------------------------------------------------------
-;; Button A — unschema'd warning-only path
+;; Button A — unclassified warning-only path
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event ::write-auto-large
   (fn [{:keys [db]} _ev]
-    ;; HOT PATH — commits a 20 KiB value to an undeclared path. The
-    ;; schema-first walker warns about unschema'd large values but does
-    ;; not substitute a marker unless a schema declares the path.
+    ;; HOT PATH — commits a 20 KiB value to an unclassified path. The
+    ;; walker warns about unclassified large values but does not
+    ;; substitute a marker unless the path is classified `:large` (fail-open).
     {:db (-> db
              (assoc :auto-large-value kib-20-string)
              (update-in [:click-count :auto] inc))}))
 
 ;; ----------------------------------------------------------------------------
-;; Button B — schema-declared flat slot
+;; Button B — classified flat path
 ;; ----------------------------------------------------------------------------
 ;;
-;; The schema marks `[:declared-large-value]` as `:large? true`; the
-;; small payload proves declaration, not byte size, drives elision.
+;; The boot event classified `[:declared-large-value]` `:large`; the
+;; small payload proves classification, not byte size, drives elision.
 
 (rf/reg-event ::write-declared-large
   (fn [{:keys [db]} _ev]
@@ -137,7 +142,7 @@
              (update-in [:click-count :declared] inc))}))
 
 ;; ----------------------------------------------------------------------------
-;; Button C — second schema-declared flat slot
+;; Button C — second classified flat path
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event ::write-fx-declared-large
@@ -152,10 +157,10 @@
 
 (rf/reg-event ::write-schema-large
   (fn [{:keys [db]} _ev]
-    ;; HOT PATH — writes a small payload to a path the FRAME declares
-    ;; `:large` (EP-0015 §8). The runtime seeded
+    ;; HOT PATH — writes a small payload to a path the boot event classified
+    ;; `:large` (EP-0025 commit-plane effect). The runtime recorded
     ;; [:rf.runtime/elision :declarations [:schema-bag :schema-large-value]]
-    ;; with :source :frame at `reg-frame` time (see `run`). Elision fires
+    ;; with :source :effect at commit (see `::initialise`). Elision fires
     ;; on this path regardless of value size.
     {:db (-> db
              (assoc-in [:schema-bag :schema-large-value] chars-200-string)
@@ -182,11 +187,14 @@
 (rf/reg-sub :fx-count      (fn [db _] (get-in db [:click-count :fx])))
 (rf/reg-sub :schema-count  (fn [db _] (get-in db [:click-count :schema])))
 
-;; Read the elision-declarations slot directly so the view shows the
-;; registrar's view of what's been nominated. A spec asserts this
-;; reads the same shape as `(re-frame.elision/declarations frame-id)`.
+;; Surface the per-frame elision registry's `:large` `:app-db` declarations so
+;; the view shows what's been classified. The registry lives in runtime-db at
+;; `[:rf.runtime/elision :declarations]` (NOT app-db), so this reads it through
+;; the public `re-frame.elision/declarations` reader for the frame rather than
+;; through app-db. (A debug-introspection convenience; the load-bearing assert
+;; is the wire-marker on the trace.)
 (rf/reg-sub :elision-decls
-  (fn [db _] (get-in db [:rf/elision :declarations])))
+  (fn [db _] (elision/declarations :rf/default)))
 
 (reg-view buttons []
   (let [auto-len       @(subscribe [:auto-len])
@@ -201,7 +209,7 @@
     [:div {:data-testid "large-dispatcher"
            :style       {:font-family "sans-serif" :padding "1em"}}
      [:h1 "large-dispatcher testbed"]
-     [:p "Four nomination paths for the wire-boundary elision walker.
+     [:p "Four paths for the wire-boundary elision walker.
           Each click commits a value to a path whose elision is
           governed by a different mechanism — the trace surface and
           the MCP wire should substitute "
@@ -214,13 +222,13 @@
        "A · unschema'd large warning"]
       [:button {:data-testid "write-declared"
                 :on-click    #(dispatch [::write-declared-large])}
-       "B · schema-declared flat slot"]
+       "B · classified flat path"]
       [:button {:data-testid "write-fx-declared"
                 :on-click    #(dispatch [::write-fx-declared-large])}
-       "C · second schema-declared flat slot"]
+       "C · second classified flat path"]
       [:button {:data-testid "write-schema"
                 :on-click    #(dispatch [::write-schema-large])}
-       "D · schema-driven (:large? on Malli slot)"]
+       "D · classified nested path (:large effect)"]
       [:button {:data-testid "reset"
                 :on-click    #(dispatch [::reset])}
        "Reset"]]
@@ -233,7 +241,7 @@
       "fx-len="       [:span {:data-testid "fx-len"}       fx-len]
       "  (= 200 — small payload, fx-declared elides anyway)"        "\n"
       "schema-len="   [:span {:data-testid "schema-len"}   schema-len]
-      "  (= 200 — small payload, schema-declared elides anyway)"    "\n\n"
+      "  (= 200 — small payload, classified path elides anyway)"    "\n\n"
       "click-count="
       [:span "auto="   [:span {:data-testid "auto-count"}   auto-count]
              " declared=" [:span {:data-testid "declared-count"} declared-count]

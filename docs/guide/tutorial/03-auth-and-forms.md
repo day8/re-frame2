@@ -227,7 +227,11 @@ A login that evaporates on reload isn't really a session. You need three pieces:
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn [{:keys [db auth.session/token]} _]
-    (cond-> {:db (assoc db :auth {:user nil :token token})}
+    (cond-> {:db        (assoc db :auth {:user nil :token token})
+             ;; Classify the durable token path sensitive (EP-0025 commit-plane
+             ;; effect) — returned alongside :db, so it's in force before any
+             ;; off-box egress. The JWT renders as :rf/redacted everywhere.
+             :sensitive [[:auth :token]]}
       token (assoc :fx [[:rf.http/managed
                          {:request    {:method :get :url (str api "/user")}
                           :decode     :json
@@ -258,19 +262,19 @@ Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/req
                       (str "Token " token)))))
 ```
 
-Wire it at boot, and add one more frame line. Mark the token path sensitive so the raw JWT never reaches traces or any off-box record — it renders as redacted instead.
+Wire it at boot. The token path is already classified sensitive by `:auth/initialise` above (the `:sensitive` effect it returns alongside `:db`), so the raw JWT never reaches traces or any off-box record — it renders as redacted instead.
 
 !!! warning "Keep the JWT out of traces"
 
-    Mark the token path `:sensitive` so the raw JWT never appears in traces or any off-box record; it renders as redacted. Check Xray's App-db tab after signing in to confirm, and see [keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) for the full surface.
+    `:auth/initialise` classifies the token path `:sensitive` (the commit-plane effect), so the raw JWT never appears in traces or any off-box record; it renders as redacted. Check Xray's App-db tab after signing in to confirm, and see [keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) for the full surface.
 
 ```clojure
 ;; core.cljs — additions to Part 1's boot
 (rf/reg-frame :rf/default
   {:doc          "The Conduit app frame."
    :url-bound?   true
-   :sensitive    {:app-db [[:auth :token]]}   ;; the JWT never appears in traces
    :interceptors [:conduit/auth-guard]})      ;; reference the guard registered in the next section
+                                              ;; :auth/initialise (below) classifies [:auth :token]
 
 (rf/with-frame :rf/default
   (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth})
@@ -361,7 +365,7 @@ An honest closing note. This part hand-rolled the `:status` transitions, and at 
 
 - Build any form as a seven-key slice with one error-visibility rule — no forms library.
 - Submit over `:rf.http/managed` and sort the reply: structured validation into `:errors`, transport failure into `:submit-error`.
-- Store a session token, keep it out of traces with `:sensitive`, persist it via an fx, restore it at boot with a declared coeffect.
+- Store a session token, keep it out of traces by classifying its path `:sensitive` from the init event, persist it via an fx, restore it at boot with a declared coeffect.
 - Attach the token to every request with one frame-wide HTTP interceptor.
 - Protect routes with a guard that gates all three navigation entry points and bounces users back after sign-in.
 - Tear the session down with one logout event.

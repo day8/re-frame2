@@ -139,18 +139,19 @@ Owner classifies / framework projects / sinks consume. Classification keys are *
 
 | Surface | Shape |
 |---|---|
-| frame `:sensitive` / `:large` | `(reg-frame id {:sensitive {:app-db [[…]] :http {:headers […] :query-params […]}} :large {:app-db [[…]]}})` — durable app-db + frame-local HTTP carrier classification |
+| durable app-db classification effects | `{:db … :sensitive [[:auth :token]] :large [[:docs :csv]] :clear-sensitive [[…]] :clear-large [[…]]}` — returned by a handler alongside `:db`, applied at commit; the durable app-db route (NOT a frame annotation). Value-independent; malformed → fail-loud pre-commit |
+| frame `:sensitive {:http …}` + `:observability` | `(reg-frame id {:sensitive {:http {:headers […] :query-params […]}} :observability {…}})` — frame-local HTTP carrier names + production sink policy. (The frame has NO `:app-db` classification block — that's the effects above.) |
 | frame `:observability` | `{:handled-events [{:sink <id> :rf.egress/profile :rf.egress/off-box-observability :opts {…}}] :errors [...]}` — production sink policy (fail-closed, frame-scoped) |
 | registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event`/`reg-sub`/`reg-fx`/`reg-flow` — transient-payload paths; `[[]]` = whole shape |
-| schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` Malli prop — machine `:data-schema`, resource `:data-schema`/`:params-schema`, HTTP `:decode` (owner-local schema'd data only; NOT app-db) |
-| `:rf.egress/output-sensitivity` | `:rf.egress/inherit` (default) \| `:rf.egress/sensitive` \| `:rf.egress/public` — derived-output declassification on a `reg-sub`/`reg-flow`; `:public` is an audited claim (Xray enumerates) |
+| subsystem `:sensitive` / `:large` | `(reg-machine id {:sensitive [[:data :token]] …})` / `(reg-resource id {:sensitive [[:data :ssn]] …})` — projection-relative durable classification, lowered per instance (the machine/resource snapshot-egress route) |
+| schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` Malli prop — HTTP `:decode` body (transient) + validation-FAILURE-trace redaction only. NOT a route for durable app-db OR machine `:data` snapshot egress |
 | `rf/project-egress` | `(record-or-value opts)` — record-level boundary primitive; `opts` `{:rf.egress/profile <closed six-member enum> :frame … :path […]}`. Required before any off-box sink; fail-closed when no frame known |
 | `rf/elide-wire-value` | `(value opts)` — low-level tree-shaped-value walker `project-egress` delegates to; advanced `:rf.size/include-sensitive?` / `:include-large?` / `:include-digests?` overrides |
 | `rf/register-observability-sink!` | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction) |
 | `rf/projected-record` | `(record)` — dev-only projected epoch/observation record read |
 | `rf/register-event-listener!` / `rf/register-error-listener!` (+ `unregister-*`) | advanced low-level listener registries beneath frame `:observability` |
 
-Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. **Retired (removed from the public façade, EP-0015):** `add-marks` / `set-marks` → frame `:sensitive {:app-db …}`; `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` → frame `:sensitive {:http …}`.
+Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. Classification is **fail-open** (an unclassified path ships raw; no propagation/taint). **Retired (removed):** `add-marks` / `set-marks` and the frame `:sensitive {:app-db …}` annotation → the `:sensitive` classification effect (alongside `:db`); `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` → frame `:sensitive {:http …}` + the effect's `reg-fx` declaration; `:rf.egress/output-sensitivity` (propagation/declassification) → classify the output path directly.
 
 ## Trace and epoch — `day8/re-frame2-epoch`
 

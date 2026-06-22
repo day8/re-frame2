@@ -169,24 +169,31 @@ A machine's `:data` slot is its *context* in xstate terms — the value it carri
 
 It is spelled `:data-schema`, not the bare `:schema` every other `reg-*` kind uses, because the machine spec is the *only* registration surface where the validated value has a visible sibling key — `:data` and `:data-schema` sit side by side, so the key says exactly what it validates at the point of greatest ambiguity. The schema governs the user-domain `:data` only: the snapshot's `:state` is validated structurally at registration (an unknown transition target fails with `:rf.error/machine-unresolved-target`), and the reserved `:rf/*` snapshot slots are framework-owned.
 
-**What it buys you — three things:**
+**What it buys you — two things (and a third surface declares snapshot redaction):**
 
 1. **Validation.** In dev builds (`re-frame.interop/debug-enabled?` is `true`) the runtime validates `:data` against the schema at every macrostep-commit boundary, at bootstrap, and at spawn time. A violation emits `:rf.error/schema-validation-failure` with `:where :machine-data` and rolls back the whole cascade (the same lifecycle position and rollback the `:where :app-db` check uses). Under `:advanced` + `goog.DEBUG=false` the validation site DCEs to a no-op — dev-only by default; for production validation at a system boundary (e.g. an SSR-hydrate that restores a machine snapshot from the wire) reach for the `:rf.schema/at-boundary` interceptor on that specific event.
 
 2. **Declared context shape.** With a `:data-schema` present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState v5's typed context (which Stately's inspector renders as a `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial initial map can mislead. Declaring the schema turns that one-sample guess into a reliable, reader-trustable contract.
 
-3. **`:sensitive?` redaction.** A `:sensitive?` (or `:large?`) Malli property on a `:data` slot — `[:token {:sensitive? true} [:maybe :string]]` above — marks that slot for redaction at trace / wire egress, so the value does not leak raw into a transition trace, an inspector snapshot, or the epoch wire. At registration the `:data-schema`'s marked slots are extracted, rooted under `[:data …]` to match the snapshot shape, and honoured in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` egress (the `:before` / `:after` / `:snapshot` slots). This is the **schema-owned** row of the EP-0015 three-owner model: machine `:data` is owner-local schema'd data, so the per-slot Malli prop *is* the owner declaring its egress policy — and it is the one and only route for machine `:data` (unchanged by EP-0015; EP-0005 schema-first surface stands). Durable *app-db* sensitivity, by contrast, is **frame-owned** (`reg-frame` `:sensitive {:app-db …}`), not a schema prop — see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md).
+> **The `:data-schema` `:sensitive?` prop does NOT redact snapshot egress.** A `:sensitive?` / `:large?` Malli prop on a `:data` slot drives **only** the schema's own *validation-failure-trace* redaction — when a `:rf.error/schema-validation-failure` record ships, the marked slot is redacted in *that record*. It does **not** redact `:data` in the `:before` / `:after` / `:snapshot` slots of a normal transition trace. Durable machine `:data` snapshot redaction is declared on the machine definition (below).
+
+### Redacting `:data` at snapshot egress — the machine declaration
+
+Durable machine `:data` classification travels with the **machine definition**, declared as top-level `:sensitive` / `:large` keys on the `reg-machine` spec, **projection-relative to one actor snapshot's `:data`**:
 
 ```clojure
-;; Per-slot redaction via the :data-schema property (above) — redact :token only:
 (rf/reg-machine :session/auth
-  {:initial     :anon
+  {:sensitive   [[:data :token]]        ;; redacts :token in every actor's snapshot egress
+   :large       [[:data :avatar]]
+   :initial     :anon
    :data        {:retries 0 :token nil}
-   :data-schema AuthData            ;; [:map [:retries :int] [:token {:sensitive? true} [:maybe :string]]]
+   :data-schema AuthData                ;; still VALIDATES :data (and drives validation-FAILURE-trace redaction)
    :states      {...}})
 ```
 
-**There is no whole-machine redaction key on `reg-machine`.** `reg-machine` (and `reg-machine*`) accept `(machine-id machine-map)` or the metadata-bearing `(machine-id opts machine-map)` arity (the `opts` registration-metadata map is the canonical Spec 001 MIDDLE slot, carrying the event-vector `:schema`) — but there is no top-level `:sensitive` / `:large` / `:sensitive?` key on the spec map nor in `opts`. (Per EP-0015 disposition 12 the schema-first machine surface is deliberate — co-located props are structurally immune to the rename-drift a sibling path map would carry — so machines do **not** grow a top-level `:sensitive` map the way frames did.) The framework-wide handler-metadata `:sensitive?` annotation that once stamped a whole cascade has been removed (sensitivity is owner-classified). To redact a machine's `:data`, mark each sensitive slot in the `:data-schema` (the precise, supported, and only surface for machine `:data`).
+The runtime **lowers** each declared path per spawned actor instance at spawn / first-boot — re-rooting `[:data :token]` to the instance's absolute snapshot path in the per-frame elision registry — and **drops** it on destroy (by any cause). So a `:spawn`-generated `<type>#n` is classified with **zero per-instance author code**, exactly as XState v5 carries `context` shape on the machine definition and applies it per actor. The marked slot renders as `:rf/redacted` (sensitive) or the `:rf.size/large-elided` marker (large) in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` egress (the `:before` / `:after` / `:snapshot` slots) before the event crosses the trace bus / epoch-capture / AI-MCP boundary. A malformed declaration is rejected fail-loud at registration with `:rf.error/invalid-machine-classification`.
+
+`reg-machine` (and `reg-machine*`) accept `(machine-id machine-map)` or the metadata-bearing `(machine-id opts machine-map)` arity (the `opts` registration-metadata map is the canonical Spec 001 MIDDLE slot, carrying the event-vector `:schema`). The `:sensitive` / `:large` declaration is a **top-level key on the machine spec map** — projection-relative, value-independent, per-instance. The framework-wide handler-metadata `:sensitive?` annotation that once stamped a whole cascade has been removed (classification is path-based, owner-declared). Classification is **fail-open**: a `:data` slot you do not declare ships raw; there is no propagation, so a secret a guard copies into another slot ships raw until you declare *that* slot. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) for the full model.
 
 A machine with **no** `:data-schema` is unchanged: its `:data` is free-form and unvalidated, and a viz infers (and badges as inferred) its context shape.
 
