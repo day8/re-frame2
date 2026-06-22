@@ -535,11 +535,22 @@
   partitions, absent reserved keys, empty registries, absent before-images)."
   ([app-db runtime-db] (current-state-sections app-db runtime-db no-diff))
   ([app-db runtime-db before]
-   (let [app-db        (or app-db {})
-         runtime-db    (or runtime-db {})
+   (let [;; Egress fail-closed (rf2-cra0nq): when the section model is fed a
+         ;; value the local-render seam redacted WHOLE (an unreachable /
+         ;; nil observed frame ⇒ the `:rf/redacted` sentinel, NOT a map),
+         ;; there is no decomposable structure — treat it as the empty
+         ;; partition rather than iterate the scalar sentinel (which would
+         ;; throw). Mirrors the existing nil-safety; a whole-redacted value
+         ;; carries no user-domain content to show.
+         demap         (fn [v] (if (map? v) v {}))
+         app-db        (demap (or app-db {}))
+         runtime-db    (demap (or runtime-db {}))
          diff?         (and (some? before) (not= no-diff before))
-         app-before    (if diff? (or (:app before) {}) no-diff)
-         runtime-before (if diff? (or (:runtime before) {}) no-diff)
+         ;; A whole-redacted pre-image (rf2-cra0nq) is likewise non-map —
+         ;; `demap` it so the diff-mode user-domain / runtime walks see an
+         ;; empty pre-image (everything reads `:added`) rather than throw.
+         app-before    (if diff? (demap (or (:app before) {})) no-diff)
+         runtime-before (if diff? (demap (or (:runtime before) {})) no-diff)
          before-area   (fn [area-id]
                          (if diff?
                            (let [path (get runtime-areas area-id)

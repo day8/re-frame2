@@ -690,9 +690,19 @@ the picker / focus selects). The contract — the shared seam
   and the inline `← was X` annotation never reconstructs the redacted
   content.
 - **Fail-closed.** An unreachable observed frame (nil / destroyed /
-  never-registered) projects WITHOUT a `:frame` opt so the underlying
-  `elide-wire-value` walker takes its frameless redact-whole branch —
-  redacting the entire value rather than shipping it raw under no policy.
+  never-registered) is stamped with a **non-nil dead-frame sentinel** as the
+  `:frame` opt — an id that can never resolve to a live frame — so the
+  underlying `elide-wire-value` walker takes its **unresolvable-frame**
+  redact-whole branch, redacting the entire value rather than shipping it raw
+  under no policy. The sentinel is stamped, **not** omitted: an absent / nil
+  `:frame` opt would let the walker fall through to the **ambient**
+  dynamically-bound frame (`frame/resolve-current-frame`) and ship
+  value-bearing fields RAW under that borrowed frame's (possibly empty)
+  policy — the exact ambient-borrow leak this seam abolishes (rf2-cra0nq,
+  mirroring the off-box derivation-graph fix rf2-udkj69). Under the
+  `:rf.egress/local-raw` opt-in (explicit `:rf.size/include-sensitive? true`)
+  the walker ships the value raw even under the sentinel — the operator has
+  deliberately waived redaction.
 
 Revealing sensitive values is **not** a process-global toggle. Per
 [Spec 015 §Cross-tool visibility grain](../../../spec/015-Data-Classification.md#cross-tool-visibility-grain)

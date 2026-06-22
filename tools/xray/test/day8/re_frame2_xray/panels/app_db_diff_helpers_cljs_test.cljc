@@ -266,6 +266,28 @@
       (is (= {:counter 5 :user {:name "ada"}} (:top model))
           ":top is the user-domain app-db (runtime-db is the areas' source)"))))
 
+(deftest current-state-sections-tolerates-whole-redacted-value
+  (testing "rf2-cra0nq — when the local-render egress redacts the WHOLE value
+            (an unreachable / nil observed frame fails closed to the
+            `:rf/redacted` sentinel, a scalar — NOT a map), the section model
+            treats it as the empty partition rather than iterating the scalar
+            (which would throw). The model is still a non-nil, well-formed
+            section map with an empty TOP + no areas"
+    (let [model (h/current-state-sections :rf/redacted :rf/redacted)]
+      (is (some? model) "a whole-redacted value yields a non-nil model")
+      (is (= {} (:top model))
+          "a whole-redacted app-db has no decomposable user-domain content")
+      (is (= [] (:areas model))
+          "a whole-redacted runtime-db contributes no reserved areas")))
+  (testing "diff mode tolerates a whole-redacted pre-image too — the redacted
+            before-image is treated as empty (everything reads :added), never
+            throws"
+    (let [model (h/current-state-sections {:counter 1} {}
+                                          {:app :rf/redacted :runtime :rf/redacted})]
+      (is (some? model))
+      (is (= {:counter 1} (:top model))
+          "a present value still decomposes; only the redacted pre-image is empties"))))
+
 (deftest current-state-sections-enumerates-only-populated-areas
   (testing "rf2-jcdvo — :areas contains ONLY populated runtime
             subsystems (read from runtime-db); empty / absent subsystems
