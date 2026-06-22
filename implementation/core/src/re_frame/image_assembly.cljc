@@ -20,10 +20,14 @@
 
       {:rf.gen/resolver  {[kind id] descriptor, …}   ;; the sealed [kind id] map
        :rf.gen/images    [<normalized image value> …]
-       :rf.gen/kinds     #{kind …}}                   ;; kinds present, for tools
+       :rf.gen/kinds     #{kind …}                    ;; kinds present, for tools
+       :rf.gen/shadows   [{:registration [kind id]    ;; the cross-image shadow
+                           :image        <defined-in> ;; report (EP-0026, rf2-ke7w5j)
+                           :shadowed-by  <winner>} …]}
 
   (EP-0026, rf2-dlvmpc, retired `:rf.gen/requires` with the image-capability
-  feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j.)
+  feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j — a flat list, one
+  entry per cross-image shadow, naming the loser image + the FINAL winner.)
 
   `:rf.gen/resolver` is the heart: a map from a `[kind id]` pair to exactly ONE
   descriptor. After selection + declared replacements the map is id-disjoint by
@@ -638,6 +642,86 @@
   [image-resolvers]
   (reduce merge {} image-resolvers))
 
+;; ---- the cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) ----
+;;
+;; When a later image shadows an earlier image's registration, composition
+;; RECORDS it. EP-0026 §Shadow Report fixes the entry at EXACTLY three keys —
+;; nothing else (no winner descriptor, image index, tier, source namespace, or
+;; scope tag):
+;;
+;;   {:registration [kind id]   ;; the shadowed registration's [kind id]
+;;    :image        <defined-in>;; the image id the LOSER was defined in
+;;    :shadowed-by  <winner>}   ;; the image id of the FINAL live winner
+;;
+;; Every shadow is CROSS-IMAGE — it names two DISTINCT images — because within
+;; one image a `[kind id]` collision is an ERROR rather than a resolved winner
+;; (resolve-within-image). There is no within-image case and no scope tag.
+;;
+;; CHAINS report the FINAL winner per loser (EP-0026 §Shadow Report). For one
+;; `[kind id]` defined in `[base override-a override-b]` (image order), the LAST
+;; image (`override-b`) is the live winner; BOTH earlier definitions are losers,
+;; and EACH is `:shadowed-by override-b` — the immediate predecessor is never
+;; named, so an assertion never has to walk a chain. Two earlier images both
+;; shadowed by the same later one is TWO entries.
+;;
+;; Images are named by their composition-unique id (check-unique-image-ids!), so
+;; the two ids name exactly one image each. The standard base is NOT part of app
+;; layer order and never appears here (an app shadowing a standard fails loud —
+;; check-standard-collision!).
+
+(defn shadow-report
+  "Build the cross-image SHADOW REPORT for an ordered seq of per-image
+  `[image-id resolver]` pairs (EP-0026 §Shadow Report, rf2-ke7w5j). Each
+  `resolver` is one image's id-disjoint `{[kind id] descriptor}` map; the pairs
+  are in `:images` ORDER (later wins). For every `[kind id]` defined in MORE
+  THAN ONE image, the LAST image is the live winner and every EARLIER image is a
+  loser; the report carries one flat entry per loser:
+
+    {:registration [kind id] :image <loser-image-id> :shadowed-by <winner-image-id>}
+
+  CHAINS name the FINAL winner for every loser (not the immediate predecessor),
+  so an assertion never walks a chain. A `[kind id]` defined in exactly one image
+  contributes no entry. Entries are ordered by registration `[kind id]` then by
+  the loser's image position, for a stable, deterministic report. Pure — a
+  function of the ordered per-image resolvers only.
+
+  Only CROSS-IMAGE shadows appear (a within-image collision is an error, not a
+  resolved winner — resolve-within-image), so there is no within-image case and
+  no scope tag. The protected framework-standard base is not part of app layer
+  order and never appears (an app shadowing a standard fails loud)."
+  [image-id+resolvers]
+  ;; For each [kind id], collect the ORDERED vector of image-ids that define it
+  ;; (image order). A [kind id] in >1 image is a shadow chain: the LAST id is the
+  ;; winner; every earlier id is a loser shadowed by that final winner.
+  (let [;; image-id -> position in :images order (the loser-ordering tie-break).
+        image-pos  (into {}
+                         (map-indexed (fn [i [image-id _]] [image-id i]))
+                         image-id+resolvers)
+        defined-in (reduce
+                     (fn [acc [image-id resolver]]
+                       (reduce-kv
+                         (fn [m k+id _descriptor]
+                           (update m k+id (fnil conj []) image-id))
+                         acc
+                         resolver))
+                     {}
+                     image-id+resolvers)]
+    (->> defined-in
+         (filter (fn [[_k+id image-ids]] (> (count image-ids) 1)))
+         (mapcat (fn [[k+id image-ids]]
+                   (let [winner (peek image-ids)]
+                     (for [loser (pop image-ids)]
+                       {:registration k+id
+                        :image        loser
+                        :shadowed-by  winner}))))
+         ;; Deterministic order: by registration [kind id] (printed form, so the
+         ;; [kind id] tuples sort portably across the JVM and JS), then by the
+         ;; loser's image position. The report is unordered data — this only makes
+         ;; it stable for diffs + tests.
+         (sort-by (juxt #(pr-str (:registration %))
+                        #(get image-pos (:image %))))
+         (vec))))
+
 ;; ---- reference validation (EP-0023 §Image Validation: \"event references
 ;;      missing interceptor / resource references missing scope resolver\") ----
 
@@ -860,6 +944,14 @@
         ;;     wins (the cross-image shadow is reported by rf2-ke7w5j, never
         ;;     failed). The result is the composed APP resolver.
         app-resolver  (layer-image-resolvers image-resolvers)
+        ;; (5b) Build the cross-image SHADOW REPORT from the ordered per-image
+        ;;      resolvers (EP-0026 §Shadow Report, rf2-ke7w5j): one flat entry
+        ;;      per shadowed [kind id], naming the loser image + the FINAL winner.
+        ;;      Pairs image ids with their resolvers in :images order.
+        shadows       (shadow-report (map (fn [image resolver]
+                                            [(:rf.image/id image) resolver])
+                                          images
+                                          image-resolvers))
         ;; (6) Framework standards are PROTECTED: an app [kind id] colliding with
         ;;     a standard FAILS LOUD (standards are not in app layer order).
         standard-resolver (into {} (map (fn [d] [(descriptor-kind+id d) d])) standard)
@@ -872,7 +964,8 @@
     ;; (9) Seal.
     {:rf.gen/resolver resolver
      :rf.gen/images   images
-     :rf.gen/kinds    (into #{} (map first) (keys resolver))}))
+     :rf.gen/kinds    (into #{} (map first) (keys resolver))
+     :rf.gen/shadows  shadows}))
 
 ;; ===========================================================================
 ;; Resolved-generation cache (EP-0023 §Image — "The reference implementation
@@ -1175,3 +1268,13 @@
   "The set of kinds present in a sealed `generation`'s resolver. Tools use this."
   [generation]
   (:rf.gen/kinds generation))
+
+(defn generation-shadows
+  "The cross-image SHADOW REPORT carried on a sealed `generation` (EP-0026
+  §Shadow Report, rf2-ke7w5j) — the flat `[{:registration [kind id] :image
+  <defined-in> :shadowed-by <winner>}]` list, one entry per cross-image shadow,
+  naming the loser image + the FINAL winner. An empty vector when no later image
+  shadowed an earlier one (the common deliberate-no-override case). The public
+  `rf/frame-shadows` accessor + the `reload-images!` report read this. Pure."
+  [generation]
+  (:rf.gen/shadows generation))

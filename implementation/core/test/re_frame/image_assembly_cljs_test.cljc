@@ -396,6 +396,91 @@
       (is (= [:dup] (:duplicate-image-ids d))))))
 
 ;; ===========================================================================
+;; 9b. Cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) — a flat
+;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]
+;;     list on :rf.gen/shadows; chains name the FINAL winner per loser.
+;; ===========================================================================
+
+(deftest no-cross-image-shadow-empty-report
+  (testing "a single image, or composed images with disjoint [kind id]s, carries
+            an EMPTY :rf.gen/shadows report (nothing was overridden)"
+    (let [pool  [(reg-desc "a.core" :fx :a/post ::a)
+                 (reg-desc "b.core" :fx :b/post ::b)]
+          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})]
+      (testing "single image — no shadows"
+        (is (= [] (asm/generation-shadows (asm/assemble [img-a] pool)))))
+      (testing "composed images with no shared [kind id] — no shadows"
+        (is (= [] (asm/generation-shadows (asm/assemble [img-a img-b] pool))))))))
+
+(deftest shadow-report-shape-one-entry-per-override
+  (testing "one later image overriding one earlier registration produces ONE flat
+            entry — exactly :registration / :image / :shadowed-by, nothing else"
+    (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
+          app   (image/image {:id :app/main :select-ns {:include ["checkout.core"]}})
+          dbls  (image/image {:id :test/doubles
+                              :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
+          gen   (asm/assemble [app dbls] pool)
+          report (asm/generation-shadows gen)]
+      (is (= [{:registration [:fx :checkout.http/post]
+               :image        :app/main
+               :shadowed-by  :test/doubles}]
+             report)
+          "the shadow report names the loser image + the winner image — EP-0026 shape")
+      (testing "each entry carries EXACTLY the three keys (no scope tag, no
+                winner/loser descriptors)"
+        (is (= #{:registration :image :shadowed-by}
+               (set (keys (first report)))))))))
+
+(deftest shadow-report-final-winner-chain
+  (testing "a chain [base override-a override-b] reports the FINAL winner for EVERY
+            loser — base and override-a are BOTH :shadowed-by override-b, not the
+            immediate predecessor (EP-0026 §Shadow Report)"
+    (let [base  (image/image {:id :base
+                              :registrations {:reg-fx [[:checkout.http/post {} ::base]]}})
+          ov-a  (image/image {:id :ov/a
+                              :registrations {:reg-fx [[:checkout.http/post {} ::a]]}})
+          ov-b  (image/image {:id :ov/b
+                              :registrations {:reg-fx [[:checkout.http/post {} ::b]]}})
+          gen   (asm/assemble [base ov-a ov-b] [])
+          report (asm/generation-shadows gen)]
+      (testing "the live winner is the last image"
+        (is (= ::b (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))))
+      (testing "TWO loser entries, each naming the FINAL winner :ov/b"
+        (is (= [{:registration [:fx :checkout.http/post] :image :base  :shadowed-by :ov/b}
+                {:registration [:fx :checkout.http/post] :image :ov/a  :shadowed-by :ov/b}]
+               report))))))
+
+(deftest shadow-report-two-losers-of-the-same-winner
+  (testing "if two earlier images are both shadowed by the same later one for
+            DIFFERENT [kind id]s, that is two entries (one per shadowed registration)"
+    (let [pool  [(reg-desc "a.core" :fx  :pay/post ::a-pay)
+                 (reg-desc "b.core" :sub :pay/total ::b-total)]
+          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})
+          dbls  (image/image {:id :test/doubles
+                              :registrations {:reg-fx  [[:pay/post {} ::stub-post]]
+                                              :reg-sub [[:pay/total (fn [_ _] 0)]]}})
+          report (asm/generation-shadows (asm/assemble [img-a img-b dbls] pool))]
+      (is (= [{:registration [:fx :pay/post]   :image :img/a :shadowed-by :test/doubles}
+              {:registration [:sub :pay/total] :image :img/b :shadowed-by :test/doubles}]
+             report)))))
+
+(deftest cross-image-shadow-does-not-fail-and-is-reported
+  (testing "a cross-image shadow RESOLVES (later wins) AND is recorded in the
+            report — it never fails assembly (EP-0026 Acceptance Bar 2)"
+    (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
+                 (reg-desc "b.core" :fx :checkout.http/post ::b)]
+          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})
+          gen   (asm/assemble [img-a img-b] pool)]    ;; must not throw
+      (is (= ::b (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post))))
+      (is (= [{:registration [:fx :checkout.http/post]
+               :image        :img/a
+               :shadowed-by  :img/b}]
+             (asm/generation-shadows gen))))))
+
+;; ===========================================================================
 ;; 10. Resource → resource-scope resolver reference validation (rf2-32siq3.25)
 ;;     A :resource descriptor whose spec's :scope is {:from-db <id>} references a
 ;;     :resource-scope resolver that MUST be selected into the generation.

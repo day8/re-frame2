@@ -223,6 +223,62 @@
       (is (= (lf/frame-generation green-obj)      (rf/frame-generation green-obj))))))
 
 ;; ===========================================================================
+;; 3b. frame-shadows — the public cross-image SHADOW REPORT accessor (EP-0026
+;;     §Shadow Report, rf2-ke7w5j). Returns the flat [{:registration [kind id]
+;;     :image <defined-in> :shadowed-by <winner>}] list a frame's composition
+;;     resolved.
+;; ===========================================================================
+
+;; An override image composed AFTER blue-img: it re-defines blue's
+;; [:event :counter/inc] inline, so the composition shadows it (later wins).
+(def ^:private blue-override
+  (image/image {:id :blue/override
+                :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}}))
+
+(deftest frame-shadows-returns-the-report
+  (testing "rf/frame-shadows returns the cross-image SHADOW REPORT for the frame's
+            composition — one flat entry per override, naming the loser image + the
+            FINAL winner (rf2-ke7w5j)"
+    (let [_frame (rf/make-frame {:id :blue/main :images [blue-img blue-override]} blue-pool)]
+      (is (= [{:registration [:event :counter/inc]
+               :image        :blue/img
+               :shadowed-by  :blue/override}]
+             (rf/frame-shadows :blue/main))
+          "the override image shadowed blue's selected :counter/inc — reported by id")
+      (testing "the live winner is the override image's descriptor"
+        (let [m (rf/handler-meta {:frame :blue/main :kind :event :id :counter/inc})]
+          (is (not= ::blue-inc (:handler-fn m))
+              "blue's selected handler was shadowed by the later inline override"))))))
+
+(deftest frame-shadows-empty-when-no-override
+  (testing "a frame with no cross-image override returns an EMPTY report — the
+            common case (nothing was shadowed); reads via a direct frame OBJECT too"
+    (let [_named (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
+          obj    (rf/make-frame {:images [green-img]} green-pool)]
+      (is (= [] (rf/frame-shadows :blue/main))
+          "no override image ⇒ empty shadow report")
+      ;; A no-id frame value resolves through its own generation.
+      (is (= [] (rf/frame-shadows obj))
+          "frame-shadows accepts a direct frame value, like frame-generation"))))
+
+(deftest frame-shadows-matches-the-generation-shadows
+  (testing "rf/frame-shadows is the :rf.gen/shadows the frame's sealed generation
+            carries — the public accessor reads the same data"
+    (let [_frame (rf/make-frame {:id :blue/main :images [blue-img blue-override]} blue-pool)
+          gen    (rf/frame-generation :blue/main)]
+      (is (= (:rf.gen/shadows gen) (rf/frame-shadows :blue/main)))
+      (is (contains? gen :rf.gen/shadows)
+          "the sealed generation carries the :rf.gen/shadows report key"))))
+
+(deftest frame-shadows-fails-loud-on-unresolvable-target
+  (testing "rf/frame-shadows fails loud (:rf.error/frame-no-generation) when the
+            target names no live frame — the same contract as rf/frame-generation"
+    (is (= :rf.error/frame-no-generation
+           (err-id #(rf/frame-shadows :nope/missing))))
+    (is (= :rf.error/frame-no-generation
+           (err-id #(rf/frame-shadows "not-a-frame"))))))
+
+;; ===========================================================================
 ;; 4. FAIL-LOUD — both ruled cases
 ;; ===========================================================================
 

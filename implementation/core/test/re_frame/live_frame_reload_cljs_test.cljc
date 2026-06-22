@@ -215,6 +215,24 @@
       (is (contains? (:changed diff) [:event :counter/inc])
           ":counter/inc survives with a different impl → changed"))))
 
+(deftest reload-report-carries-the-shadow-report
+  (testing "the reload report carries :rf.reload/shadows — the NEW generation's
+            cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j)"
+    (let [override (image/image {:id :counter/override
+                                 :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}})
+          frame    (lf/make-frame {:id :counter/main :images [img]} pool-v1)
+          ;; Reload to a composition where a later override image shadows img's
+          ;; selected :counter/inc.
+          report   (lf/reload-images! :counter/main {:images [img override]} pool-v1)]
+      (testing "the pre-reload composition had no shadows; post-reload one entry"
+        (is (= [{:registration [:event :counter/inc]
+                 :image        :counter/img
+                 :shadowed-by  :counter/override}]
+               (:rf.reload/shadows report))))
+      (testing "it mirrors the new generation's :rf.gen/shadows"
+        (is (= (:rf.reload/shadows report)
+               (lf/frame-shadows :counter/main)))))))
+
 ;; ===========================================================================
 ;; 4. Reload is FRAME-TARGETED — it does not move a sibling frame
 ;; ===========================================================================
