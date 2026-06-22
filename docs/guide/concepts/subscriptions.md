@@ -79,11 +79,11 @@ When app-db changes, the layer-1 extractors re-run. They read app-db, so every c
 
 That makes layer 1 a **circuit breaker** for everything behind it. Change `:feed/tag-filter` and the `:articles/all` extractor re-runs, sees its slice is `=` to last time, and shuts the gate — so the sort in `:articles/by-date` never executes. The same gate sits at every node. A layer-2 sub that recomputes but produces an `=` result stops propagation to *its* dependents too. You wrote zero `memo` and zero dependency arrays; you declared what each sub reads and got memoisation at every node for free. It works in reverse, too: a no-op write — a handler that assocs a key to the value it already has — produces an app-db that is `=` to the old one, so *nothing* recomputes anywhere. You cannot cause a render storm by writing state that didn't change.
 
+> **Why this matters.** In Reselect you carry the discipline yourself: a selector memoises on *reference* identity, so the moment a reducer returns a freshly-allocated array that's element-wise identical to the old one, every downstream selector and component recomputes anyway. The fix is to never allocate unless something changed — a rule you must hold in your head at every reducer. re-frame2 compares by value (`=`), so that whole category of "I accidentally busted the memo" bug doesn't exist. Equal values are equal, however they were allocated.
+
 One practical rule falls out of all this, and it's the one to carry away:
 
-!!! warning "Keep extractors tiny — put the work in layer 2"
-
-    Extractors run on every app-db change. They're the circuit breakers, so they must fire to decide whether to propagate, which means an extractor must be cheap: a `get`, a `get-in`, nothing more. Put a `sort-by` inside an extractor and that sort runs on every keystroke in every unrelated form — you've placed expensive work *before* the gate instead of behind it. Move it into a `:<-` sub and it runs only when the extracted slice actually changes. Same code, dramatically less work. And when a view is mysteriously slow, "is there computation in a layer-1 sub?" is the first question [Find and fix a slow view](../how-to/fix-a-slow-view.md) asks.
+> **Keep extractors tiny — put the work in layer 2.** Extractors run on every app-db change. They're the circuit breakers, so they must fire to decide whether to propagate, which means an extractor must be cheap: a `get`, a `get-in`, nothing more. Put a `sort-by` inside an extractor and that sort runs on every keystroke in every unrelated form — you've placed expensive work *before* the gate instead of behind it. Move it into a `:<-` sub and it runs only when the extracted slice actually changes. Same code, dramatically less work. And when a view is mysteriously slow, "is there computation in a layer-1 sub?" is the first question [Find and fix a slow view](../how-to/fix-a-slow-view.md) asks.
 
 The gate scales further than you'd guess. The [Cells spreadsheet example](../../../examples/reagent/seven_guis/cells/) derives 2,600 mounted cell values from one shared input sub. The `=` check on each result means only cells whose displayed value genuinely changed re-render: correct propagation with no hand-maintained dependency edges at all.
 
@@ -158,9 +158,7 @@ The input function answers *what does this sub depend on?* Here, three subscript
 
 A few things keep this form predictable. The first one trips people up, so it leads:
 
-!!! warning "The input function returns query vectors — plain data — never live subscriptions"
-
-    It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape errors loudly rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
+> **Gotcha.** The input function returns query vectors — plain data — never live subscriptions. It must be pure over the query vector: no deref of app-db, no `subscribe`, no dispatch, no IO. The runtime does the subscribing. And a single input is still a *vector of one query vector* — `[[:item/by-id id]]`, not `[:item/by-id id]`. The scalar shape is rejected because `[:x :y]` is ambiguous: one query with an argument, or two inputs? A wrong shape errors loudly rather than guessing; the full return grammar and error ids live in the [API reference](../../../spec/API.md#reg-sub-input-production-modes).
 
 The other two are gentler:
 
@@ -184,12 +182,12 @@ The choice between the two forms is sharp: **use `:<-` for static inputs; reach 
 
 Subscriptions are view-facing and pull-based: a node exists in the cache only while some view is watching it. That boundary is what tells you when to reach for something else.
 
-!!! note "Reach past a subscription when…"
-
-    - **An event handler needs the derived value.** Handlers don't subscribe — that's what [flows](flows.md) are for: derived values handlers can read. (`rf/subscribe-once` exists for a one-shot read, but if you reach for it routinely, the value wants to be a flow.)
-    - **The value comes from a server.** Subscriptions never fetch — computation functions are pure, no IO. Server-owned data belongs to [resources](server-state.md); subscriptions derive *over* the cached resource state.
-    - **The value crosses frames.** A subscription must not reach into another [frame](frames.md)'s state; frames are isolated worlds by design.
-    - **Unsure where a value belongs at all?** [Where should this value live?](../where-state-lives.md) sorts a value into a sub, flow, resource, or machine with four questions.
+> **Reach past a subscription when…**
+>
+> - **An event handler needs the derived value.** Handlers don't subscribe — that's what [flows](flows.md) are for: derived values handlers can read. (`rf/subscribe-once` exists for a one-shot read, but if you reach for it routinely, the value wants to be a flow.)
+> - **The value comes from a server.** Subscriptions never fetch — computation functions are pure, no IO. Server-owned data belongs to [resources](server-state.md); subscriptions derive *over* the cached resource state.
+> - **The value crosses frames.** A subscription must not reach into another [frame](frames.md)'s state; frames are isolated worlds by design.
+> - **Unsure where a value belongs at all?** [Where should this value live?](../where-state-lives.md) sorts a value into a sub, flow, resource, or machine with four questions.
 
 Subscriptions are also one face of a larger family — flows, resources, route facts, and machine selectors all live on one derivation graph; [One graph: derivations and their algebra views](../derivations-and-algebra-views.md) is the essay-length tour.
 

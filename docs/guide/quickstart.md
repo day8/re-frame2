@@ -46,9 +46,9 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 
 A few words on the moving parts. An **event** is a plain-data message describing something that happened — here, `[:counter/inc]`. To **dispatch** is to drop that message onto the queue. A **handler** is the pure function that receives it and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do"* — for the counter there's nothing else, so it's just `:db`, but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature. The **app-db** is your app's single state map, the one place all state lives. A **subscription** is a named, derived read of that state, and a **view** is a component that renders from subscriptions and dispatches events back.
 
-Notice the two little `inc-value` / `dec-value` functions above the events. The pure state transition lives in a plain `(fn [db] …)` — "events are pure functions of state" stated literally — and the handler is the thin wrapper that hands it `:db` and wraps the result as `{:db …}`. You don't have to factor it out for something this small, but it's a habit worth forming early: the bare function is trivially testable (`(inc-value {:counter/value 5})` → `{:counter/value 6}`, no runtime), and the handler stays one obvious line.
+Notice the two little `inc-value` / `dec-value` functions above the events. The pure state transition lives in a plain `(fn [db] …)` — "events are pure functions of state" stated literally — and the handler is the thin wrapper that hands it `:db` and wraps the result as `{:db …}`. You don't have to factor it out for something this small, but it's a habit worth forming early: the bare function is trivially testable (`(inc-value {:counter/value 5})` → `{:counter/value 6}`, no runtime, no mocks, no `render`), and the handler stays one obvious line. This is the seam re-frame2 keeps coming back to — pure data transformation in the middle, the messy outside world held at arm's length on either side.
 
-Now click a button and watch what happens. The loop you just ran is this: **a view dispatches an event → a pure handler computes the next state → the subscription delivers the change back to the view.** That one-way loop is the whole framework. Everything else in this guide just refines it.
+Now click a button and watch what happens. The loop you just ran is this: **a view dispatches an event → a pure handler computes the next state → the subscription delivers the change back to the view.** That one-way loop is the whole framework. Everything else in this guide just refines it — adds effects to the handler's output, adds layers to the subscription graph, adds isolation around the whole loop — but it never changes the loop's shape.
 
 **Try it.** Here's that same counter, running live in your browser — click the buttons, or edit the code and watch it re-render. (Live cells use plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`, because the in-browser environment is functions-only; the shape is otherwise identical to the version above.)
 
@@ -91,7 +91,7 @@ Now click a button and watch what happens. The loop you just ran is this: **a vi
 
 ## Beat 2 — derive, don't store
 
-Suppose you want to show whether the count is odd or even. The tempting move is to store a flag in app-db and keep it updated. Don't — because odd-or-even isn't a new fact, it's a consequence of one you already have. Derive it instead:
+Suppose you want to show whether the count is odd or even. The tempting move is to store a flag in app-db and keep it updated alongside the value. Don't — because odd-or-even isn't a *new* fact, it's a *consequence* of one you already have. Two copies of the same truth is two chances to disagree. Derive it instead:
 
 ```clojure
 (rf/reg-sub :counter/parity
@@ -106,7 +106,9 @@ And read it in the view's `:span`:
        " is " (name @(subscribe [:counter/parity]))]
 ```
 
-The `:<-` line declares the input, which means `:counter/parity` reads the *other subscription* rather than reaching into app-db. You've built a two-node spreadsheet: `:counter/value` is a cell, `:counter/parity` is a formula over it. Because the framework now knows that dependency, parity recomputes only when the value changes, and a view watching parity re-renders only when parity actually flips. That's the rule that keeps things fast as an app grows: app-db stores facts, subscriptions derive conclusions.
+The `:<-` line declares the input, which means `:counter/parity` reads the *other subscription* rather than reaching into app-db. You've built a two-node spreadsheet: `:counter/value` is a cell, `:counter/parity` is a formula over it. Because the framework now knows that dependency, parity recomputes only when the value changes, and a view watching parity re-renders only when parity actually *flips* — clicking from 2 to 4 changes the value but not the parity, and the parity view stays put. That's the rule that keeps things fast as an app grows: app-db stores facts, subscriptions derive conclusions.
+
+> **Coming from React?** This is `useMemo` / Reselect, except you never pass a dependency array and never wire the selectors together by hand. The `:<-` *is* the dependency edge, declared once at registration; the framework caches each node and invalidates downstream only along edges that actually changed. Derived state that can't drift out of sync with its source, for free — which is the bug `useMemo` exists to paper over and `:<-` makes structurally impossible.
 
 ## Beat 3 — "last clicked", and where time comes from
 
@@ -135,13 +137,15 @@ And at the bottom of the view:
 
 One thing changed, and it's worth naming what *didn't*. The handler is still a `reg-event` — same registration, same `(fn [coeffects event] {:db …})` shape. All we added is a line of metadata: `:rf.cofx/requires [:rf/time-ms]`. That's the payoff of one event form — needing the world is adding a key to a map, not converting to a different registration. The first argument, the `{:keys [db]}` you've been destructuring all along, is the **coeffects** map: the bundle of outside-world facts a handler is allowed to know, like the current time or a random seed. `:db` and `:event` are always there; everything else is declared. Delivery is declared-only, so once we ask for `:rf/time-ms` it arrives flat in that map, already read at the instant the click entered the system and frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out byte-for-byte identical. Notice the recorded fact is the raw milliseconds — formatting with `.toLocaleTimeString` lives in the view, because pretty-printing is presentation, not state.
 
+> **Why this matters.** The trick is that the impurity hasn't vanished — *something* still has to call the clock. re-frame2 just moves that read to the one place where it can be captured: the dispatch boundary, before the handler runs. The handler downstream sees only a value that was handed to it, so it stays a pure function of its inputs — and because the value was recorded on the way in, "what time was it?" has a permanent, replayable answer. That's the same instinct behind functional effect systems: don't ban side effects, *push them to the edge* and make the core a function. `:rf.cofx/requires` is how you ask the edge for a fact without becoming the edge yourself.
+
 > **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee. (And there's no `reg-event-db`/`reg-event-fx` fork to navigate any more — `reg-event` is the one form, with `:db` returned in the effects map.)
 
 ## Beat 4 — open the inspector: your app has a history
 
 Open Xray, the dev inspector that ships with the dev build. Click `+` a few times. Every click shows up as a **row**: the event, the app-db before and after, and the recorded `:rf/time-ms` you just wired in. This is the payoff — instead of reconstructing what happened from scattered `console.log` calls, you read it straight off a ledger.
 
-Now restore an older row. The counter returns to that exact moment — value, parity, last-clicked, all of it. This isn't a trick bolted on for the demo. It falls directly out of the three rules you've been following: state changes only through events, handlers are pure, and world facts arrive recorded. You earned time travel by construction.
+Now restore an older row. The counter returns to that exact moment — value, parity, last-clicked, all of it. This isn't a trick bolted on for the demo. It falls directly out of the three rules you've been following: state changes only through events, handlers are pure, and world facts arrive recorded. Given those three, the history *is* a list of `(event, recorded-facts)` pairs, and re-running any prefix of that list reconstructs the exact app-db — there's nothing else for state to depend on. You earned time travel by construction.
 
 ## Running it locally
 
@@ -167,7 +171,9 @@ The snippets above are the whole app *except* for boot. Boot is the one place yo
                [counter/counter-app]]))
 ```
 
-A **frame** is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](concepts/images.md); by default that's the one implicit image projected from everything you've registered, so you don't name it. `frame-provider-existing` scopes the mounted views to the already-registered frame, so every `subscribe` and `dispatch` inside resolves there. This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)).
+Four lines, and each names exactly one decision. `init!` installs the **adapter** — the shim that teaches the framework how *this* rendering library (Reagent here; UIx and Helix are the other shipped options) turns subscriptions into re-renders. `reg-frame` creates the **frame** this app runs in. `with-frame` pins that frame for the boot dispatch, so the seed lands in the right app-db before the first paint. And `frame-provider-existing` scopes the mounted views to that already-registered frame, so every `subscribe` and `dispatch` inside resolves there.
+
+A **frame** is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](concepts/images.md); by default that's the one implicit image projected from everything you've registered, so you don't name it. This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)) — at which point the payoff lands: because your views were never bound to a global store, the same `counter-app` mounts into a second frame with a second, independent app-db, no changes.
 
 ---
 

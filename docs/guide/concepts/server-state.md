@@ -18,9 +18,7 @@ The cache itself lives in the framework-owned *runtime partition* of frame state
 
 > **Coming from re-frame v1?** You hand-built this: an event fires the HTTP effect, writes a `{:status :data :error}` slice into app-db, and a sub reads it back. Resources keep that causal shape — reads are subs, fetches are events — and move the per-read bookkeeping into the framework.
 
-!!! note "Resources are optional — don't reach for them on day one"
-
-    Resources are an optional artefact (`day8/re-frame2-resources`, required once at boot as `re-frame.resources`). An app with one or two reads is perfectly fine with [a managed HTTP request](http.md) and a small app-db slice, and that's the simpler choice. Reach for resources when cached server reads start multiplying; [Where should this value live?](../where-state-lives.md) has the decision table.
+> **Resources are optional — don't reach for them on day one.** Resources are an optional artefact (`day8/re-frame2-resources`, required once at boot as `re-frame.resources`). An app with one or two reads is perfectly fine with [a managed HTTP request](http.md) and a small app-db slice, and that's the simpler choice. Reach for resources when cached server reads start multiplying; [Where should this value live?](../where-state-lives.md) has the decision table.
 
 ## A resource is a sub you read and a cause you fire
 
@@ -78,9 +76,7 @@ Those three steps are three different jobs, and the surface is much easier to ho
 
 `reg-resource` records a handler in the registrar — exactly like `reg-event` or `reg-sub` records one. It does **not** fetch anything and it does **not** read any cache; it only teaches the runtime *how* to. The cache only fills when a cause fires, and a view only sees it through a subscription. So "I registered the resource but my view is empty" almost always means a cause hasn't fired yet, not that registration failed.
 
-!!! note "`resource-state` and `mutation-state` are tool/test projections, not a second app-read API"
-
-    You'll also find direct functions — `(rf/resource-state {:resource … :scope … :params … :frame …})`, `(rf/resources {:frame …})`, `(rf/mutation-state {:instance … :frame …})`. These project the *same* runtime state the `[:rf.resource/*]` subscriptions read, but as a one-shot, non-reactive snapshot at an explicit frame. They exist for tools (Xray), unit tests, and SSR serialization — places with no reactive subscription context. **In a view, always project through a subscription**: a `resource-state` call won't re-render when the data changes, so reaching for it in UI is reading the right value through the wrong lane.
+> **`resource-state` and `mutation-state` are tool/test projections, not a second app-read API.** You'll also find direct functions — `(rf/resource-state {:resource … :scope … :params … :frame …})`, `(rf/resources {:frame …})`, `(rf/mutation-state {:instance … :frame …})`. These project the *same* runtime state the `[:rf.resource/*]` subscriptions read, but as a one-shot, non-reactive snapshot at an explicit frame. They exist for tools (Xray), unit tests, and SSR serialization — places with no reactive subscription context. **In a view, always project through a subscription:** a `resource-state` call won't re-render when the data changes, so reaching for it in UI is reading the right value through the wrong lane.
 
 ## Routes declare what a page needs
 
@@ -282,13 +278,13 @@ On the server, each request renders in its own frame, which matters because a pr
 
 ## When resources are the wrong tool
 
-!!! note "Reach for something simpler in these cases"
+Resources earn their keep when cached server reads multiply. When they don't, reach for something simpler:
 
-    - **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
-    - **Login and other commands.** Auth is a state machine driving a write — don't contort it into a cached read.
-    - **GraphQL.** The transport is HTTP-only for now; GraphQL is a planned later phase.
+- **A handful of reads, no caching story.** A [managed HTTP request](http.md) plus a small app-db slice is less machinery and entirely idiomatic.
+- **Login and other commands.** Auth is a state machine driving a write — don't contort it into a cached read.
+- **GraphQL.** The transport is HTTP-only for now; GraphQL is a planned later phase.
 
-A mutation *can* now flip the UI immediately and reconcile when the server replies: an **optimistic mutation** patches the cache before the request is sent and commits, rolls back, or reconciles on settle. That's a property of the mutation, not a reason to avoid resources — see [Optimistic writes commit, roll back, or reconcile](#optimistic-writes-commit-roll-back-or-reconcile) below.
+> **Don't avoid resources just because a write needs to feel instant.** A mutation *can* flip the UI immediately and reconcile when the server replies: an **optimistic mutation** patches the cache before the request is sent and commits, rolls back, or reconciles on settle. That's a property of the mutation — see [Optimistic writes commit, roll back, or reconcile](#optimistic-writes-commit-roll-back-or-reconcile) above — not a reason to keep server state out of the cache.
 
 ---
 

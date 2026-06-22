@@ -110,9 +110,7 @@ Two dispatch options do the work that the literal coeffects map did back in step
 
 There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registry. `reg-event` and its siblings register into a process-global registrar — one table shared across the whole test run.
 
-!!! warning "Same id, last load wins"
-
-    If two test namespaces register different handlers under the same id, the later load silently wins. That's how you get the classic horror: every test passes alone, the suite fails together, and the failure moves around as test order changes. It's maddening to chase, so guard against it before it bites.
+> **Gotcha — same id, last load wins.** If two test namespaces register different handlers under the same id, the later load silently wins. That's how you get the classic flake-hunt horror: every test passes alone, the suite fails together, and the failure jumps around as test order changes. It's maddening to chase, so guard against it before it bites.
 
 If your tests — or helpers they load — register anything themselves, bracket each test with a registrar snapshot/restore so the registry is put back the way it was:
 

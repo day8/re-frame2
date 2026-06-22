@@ -59,9 +59,7 @@ One small distinction matters everywhere in re-frame2, so meet it here. A key th
 
 A bare `get` can't tell them apart, and the framework preserves the difference wherever it matters. Did the server send `null`, or send nothing? Is this form field cleared, or never touched? Those are different questions, and the answers shouldn't collapse into one.
 
-!!! note "When `nil` does mean 'not set'"
-
-    A few surfaces deliberately treat `nil` as "not set" — routing drops a `nil` query parameter from the URL, for example. But that is always a declared, local policy, never a silent erasure. Where the distinction matters, it survives.
+> **When `nil` *does* mean "not set."** A few surfaces deliberately treat `nil` as "not set" — routing drops a `nil` query parameter from the URL, for example. But that is always a declared, local policy, never a silent erasure. Where the distinction matters, it survives.
 
 ## Paths, in five lines
 
@@ -84,9 +82,7 @@ So it doesn't live in app-db at all. A frame holds **two partitions**:
 
 Why a separate partition instead of a reserved key in one map? Because a single map invites a footgun.
 
-!!! warning "Why the partition is structural, not a convention"
-
-    In a single map, a handler returning a fresh `{:user ...}` would silently wipe a machine snapshot living beside it. With two partitions, a `:db` effect replaces *only* app-db, and an ordinary event handler never even holds runtime-db — so it cannot clobber it by accident. The boundary is structural, not a rule you have to remember.
+> **Why the partition is structural, not a convention.** In a single map, a handler returning a fresh `{:user ...}` would silently wipe a machine snapshot living beside it. With two partitions, a `:db` effect replaces *only* app-db, and an ordinary event handler never even holds runtime-db — so it cannot clobber it by accident. The boundary is structural, not a rule you have to remember.
 
 The doctrine for the framework's partition is **read, don't write**. You read a managed slice through subscriptions, and you influence it by dispatching — handing off — the events its process understands. You never write it directly, because the process that put it there is what keeps it correct:
 
@@ -126,9 +122,7 @@ Call these **state surgery**. They don't run a handler, fire no effects, and car
 - **Tooling.** [Xray](observability.md) time-travel and the pair MCP rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
 - **Framework internals.** Restore, SSR hydration, and frame reset replace whole partitions — privileged runtime code, never your handlers.
 
-!!! warning "Never reach for state surgery in application code"
-
-    These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the epoch ledger has no cascade to show, schema validation never runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop. The surgery lane exists so tools and tests can set up or rewind state *around* your app, not so your app can mutate itself behind its own back.
+> **Never reach for state surgery in application code.** These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the epoch ledger has no cascade to show, schema validation never runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop. The surgery lane exists so tools and tests can set up or rewind state *around* your app, not so your app can mutate itself behind its own back.
 
 The contrast is the point. The front door is auditable because every change is an event with a cause; surgery is powerful because it answers to no cause — which is exactly why it belongs to the test harness and the debugger, not the application. Reach for it only when you are *operating on* a frame from outside (a fixture, a tool, the REPL), never when you are *writing* the app that runs inside one. The normative catalogue of these surfaces — what each replaces, and the full-frame-vs-partition split — is [Frames §Frame-state value accessors and mutators](../../../spec/002-Frames.md#frame-state-value-accessors-and-mutators).
 

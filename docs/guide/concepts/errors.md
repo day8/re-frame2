@@ -40,9 +40,7 @@ Three fields do the heavy lifting, and once you know them you've learned most of
 
 Two more slots turn a debugging session into a click. `:rf.trace/trigger-handler` carries the file and line where the failing handler was *registered*, and `:rf.trace/call-site` carries the line of the `dispatch` that triggered the cascade. Tools render both as jump-to-source links. Everything else rides under `:tags`, with one fixed, schema-checked payload shape per category, so a consumer always knows what's in the envelope.
 
-!!! note "The dossier is a development surface"
-
-    Production builds eliminate the trace machinery. Not disable — *eliminate*: the code is compiled out of the release bundle. Errors that must reach a monitor in production travel a separate always-on channel carrying a tight, privacy-projected record. The channel map is in [observability](observability.md); wiring Sentry to it is [a how-to](../how-to/report-errors-in-production.md).
+> **The dossier is a development surface.** Production builds *eliminate* the trace machinery — not disable it, eliminate it: the code is compiled out of the release bundle, dossiers and all. Errors that must still reach a monitor in production travel a separate always-on channel carrying a tight, privacy-projected record. The channel map is in [observability](observability.md); wiring Sentry to it is [a how-to](../how-to/report-errors-in-production.md).
 
 ## A catalogue you consult, not memorise
 
@@ -115,9 +113,7 @@ The runtime catches it and emits `:rf.error/handler-exception` with `:recovery :
     {:db (update-in db [:cart :items] (fnil conj []) item)}))
 ```
 
-!!! note "Do, observe"
-
-    Make a handler throw on purpose in dev with Xray open. The error lands *inside the cascade that produced it*. The dispatch that caused it sits right above. The category and recovery read off the error row. One click lands on the handler's registration site. Nothing about the failure is out-of-band.
+> **Do this once, then you'll trust it.** Make a handler throw on purpose in dev with Xray open. The error lands *inside the cascade that produced it*. The dispatch that caused it sits right above. The category and recovery read straight off the error row. One click lands on the handler's registration site. Nothing about the failure is out-of-band — and that's the whole pitch.
 
 ### A missing fx is not a missing cofx
 

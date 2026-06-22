@@ -143,9 +143,7 @@ Matching is by the full reference, so a parameterized entry is named in full —
 
 Here's the rule from the top of the page, made precise. The chain is part of the *step function* — the pure fold that replay, time-travel, and deterministic tests re-run against recorded inputs. This is where it pays to be disciplined.
 
-!!! warning "Don't do work directly in an interceptor body"
-
-    Work performed directly in an interceptor body re-fires on every replay. It also escapes every seam: `:fx-overrides` redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. So the sanctioned pattern is **contribute, don't perform** — append effect rows and let the interpreter execute them.
+> **Don't do work directly in an interceptor body.** Work performed directly in an interceptor body re-fires on every replay. It also escapes every seam: `:fx-overrides` redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. So the sanctioned pattern is **contribute, don't perform** — append effect rows and let the interpreter execute them.
 
 ```clojure
 ;; ❌ performs — re-fires on replay, invisible to :fx-overrides and the trace
@@ -241,9 +239,7 @@ One registered interceptor, plus which chains reference it: that's the entire un
 
 Every slot runs guarded, and two rules govern how throws compose.
 
-!!! warning "Write your `:after` to survive error paths"
-
-    A throw in a `:before` (or in the handler) skips the remaining `:before` stages and the handler — nothing runs against a half-built context. But the `:after` pass always runs, in full, even after a `:before` failure. That's exactly why cleanup belongs in `:after`, and why your `:after` should be written to run on error paths, not just happy ones.
+> **Write your `:after` to survive error paths.** A throw in a `:before` (or in the handler) skips the remaining `:before` stages and the handler — nothing runs against a half-built context. But the `:after` pass always runs, in full, even after a `:before` failure. That's exactly why cleanup belongs in `:after`, and why your `:after` should be written to run on error paths, not just happy ones.
 
 Errors collect on the context. A throw anywhere means the event installs nothing: `app-db` unchanged, no `:fx` fired. The error surface emits one event per chain, attributed to the true culprit — `:rf.error/interceptor-exception` carries the failing interceptor's `:id` and phase, distinct from a handler or coeffect failure. The error pages those feed are covered in [errors](errors.md); the normative chain-execution contract is in [the frames spec](../../../spec/002-Frames.md).
 

@@ -24,9 +24,7 @@ A **derivation** computes a fact from declared inputs with a pure function. A **
 
 That's the whole vocabulary. The five source forms you actually write — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — each **lower** to this one shape, called the node's **algebra view**.
 
-!!! note "You never write the algebra view"
-
-    There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote, and that's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write.
+> **You never write the algebra view.** There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote, and that's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write; the algebra view is what a tool reads.
 
 ## The keystone: one function, two policies
 
@@ -101,6 +99,8 @@ When a subscription's inputs come from an input function, the static graph can't
 
 This is the **don't-execute rule**: static inspection never runs your input, param, or scope functions. It reads declarations only, which is what makes a static graph safe to compute anywhere — tests, docs, an editor — with no side effects and no runtime assumptions. A `:parametric` edge set contributes no static edges; the realized ones appear only in the live graph, observed from the running app.
 
+> **Why two modes.** Think of `EXPLAIN` on a parameterized SQL query versus the actual rows a given parameter binding returns. The static graph is the query plan — derived from declarations, runnable offline, the same for every parameter. The live graph is the result for a *concrete* binding — one node per realized query vector, edges and all. A `:parametric` node is the framework refusing to guess at plan time what only a real binding can answer.
+
 ## Processes: nodes with state and a lifecycle
 
 A resource (a fact whose authoritative value lives on a server, with a local cached copy) is the first **process**. One `reg-resource` declaration ([Server state: resources](concepts/server-state.md)) lowers to *more than one* node: a process node for the cache entry, plus its read selectors (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts work.
@@ -124,9 +124,9 @@ A resource (a fact whose authoritative value lives on a server, with a local cac
 
 The view makes a split explicit that folklore usually muddles. **`:storage` always names the local home** — here, the runtime-db cache entry. **`:authority` names whose fact it really is** — an external server. This trips people up: "remote" is never a storage class. Locally you always hold a representation, and the graph says exactly where.
 
-!!! note "Where the non-serializable leftovers go"
+> **Coming from TanStack Query?** Your query cache is exactly this split, just unnamed. The server is the `:authority`; the `queryCache` is the local `:storage`; `isLoading` / `data` / `error` are read selectors over one cache entry; and the staleness/refetch policy is the entry's `:evaluation`. re-frame2 writes those four facts down as fields instead of leaving them implicit in a hook's behaviour, which is the whole reason a tool can draw a resource the same way it draws a subscription.
 
-    An in-flight request handle or a timer can't be serialized into durable state, so they're classed `:host-transient`: outside durable frame state, torn down at their lifecycle boundary.
+> **Where the non-serializable leftovers go.** An in-flight request handle or a timer can't be serialized into durable state, so they're classed `:host-transient`: outside durable frame state, torn down at their lifecycle boundary. They never become the *only* copy of a fact — replay and restore depend on the durable `:runtime-db` entry, not the live socket.
 
 A machine (a stateful node whose next value depends on its current one) is the algebra's canonical process — the surface that motivates the `:process` superkind at all. Its snapshot is durable runtime-db state, written only by its own transitions. Its `:inputs` are the event ids its transition table listens for, its `:evaluation` is `:on-transition` (plus `:scheduled` if it declares an `:after` delay), and its *selectors* — how views (your UI functions that render from subscriptions) consume it — are ordinary subscriptions:
 
@@ -172,9 +172,7 @@ Third, **the whole-value law**: every derivation must be correct as a function t
 
 To see one live, open Xray on a running app. The panel that draws the dependency graph renders exactly this assembled view — one node per algebra view, one arrow per edge record — even though the mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot. [Debug with Xray](how-to/debug-with-xray.md) shows the workflow.
 
-!!! note "No public graph-accessor yet (pre-alpha)"
-
-    The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
+> **No public graph-accessor yet (pre-alpha).** The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
 
 ## The rule worth carrying
 

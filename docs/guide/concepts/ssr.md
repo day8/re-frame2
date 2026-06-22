@@ -1,18 +1,18 @@
 # Server-side rendering
 
-You want server-rendered HTML on the wire before any JavaScript loads, so crawlers and link unfurlers can read it and the first paint shows up fast. Then it hydrates into the live app without a flash — and all that without maintaining a separate server copy of your app. re-frame2 gets you there by running the same handlers (the functions that respond to events), the same subscriptions (the queries that read state), and the same views (the functions that return your markup) on the JVM against a per-request frame — one isolated instance of your app. The output is a string instead of a DOM. **There's one app. It runs twice.**
+You want real HTML on the wire before a single byte of JavaScript loads — so crawlers and link unfurlers can read it, and the first paint lands fast. Then you want it to hydrate into the live app without a flash, and you want all of that *without* maintaining a second, server-flavoured copy of your application. That last clause is where most stacks quietly buckle. re-frame2 gets you there by running the same handlers (the functions that respond to events), the same subscriptions (the queries that read state), and the same views (the functions that return your markup) on the JVM, against a per-request frame — one isolated instance of your app. The only difference is the output: a string instead of a DOM. **There's one app. It runs twice.**
 
 > **Coming from Next.js or Remix?** You keep the capabilities — first-paint HTML, loaders, form actions, React-18-style streaming. There's no separate server layer to learn. A "loader" is your ordinary event handlers running in a per-request [frame](frames.md). Streaming is one hiccup marker, not a component API.
 
 ## Why the same code runs on a JVM
 
-SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, effects (the side-effecting actions a handler asks for) firing during render. re-frame2 avoids all three, but not for SSR's sake. The framework committed to these three properties for testing, replay, and observability. SSR just falls out of them:
+SSR is hard in most stacks because the app is entangled with the browser: `window`, `document`, effects (the side-effecting actions a handler asks for) firing in the middle of render. re-frame2 avoids all three — but, and this is the interesting part, *not for SSR's sake*. The framework committed to these properties for testing, replay, and observability long before anyone asked it to render on a server. SSR just falls out of them, the way a free dessert falls out of ordering the prix fixe:
 
 - **Event handlers are pure.** An event is a "something happened" message; its handler is `(state, event) → effects`. No `window`, no lifecycle. A JVM runs them fine.
 - **Subscriptions are pure.** State in, value out.
 - **The render-tree is data.** Hiccup is nested vectors and maps, and `rf/render-to-string` is a pure function from hiccup to an HTML string — no React, no DOM, no JS runtime.
 
-So none of these properties were added *for* SSR. They're the constraints the rest of the framework already lives by, which means SSR costs nothing extra to enable. The SSR surface ships as its own artefact (`day8/re-frame2-ssr`, plus `day8/re-frame2-ssr-ring` for the Ring host adapter), so apps that never render server-side carry none of it in their bundle. The full contract lives in [Spec 011 — SSR & Hydration](../../../spec/011-SSR.md).
+So none of these three were bolted on *for* SSR. They're the constraints the rest of the framework already lives by, which means turning SSR on costs you nothing structurally new to learn. The surface ships as its own artefact (`day8/re-frame2-ssr`, plus `day8/re-frame2-ssr-ring` for the Ring host adapter), so apps that never render server-side carry not one byte of it in their client bundle. The full contract lives in [Spec 011 — SSR & Hydration](../../../spec/011-SSR.md).
 
 ## A request, start to finish
 
@@ -24,7 +24,7 @@ So none of these properties were added *for* SSR. They're the constraints the re
 6. The client boots, dispatches `:rf/hydrate` with that payload, and renders. Its first render matches the server's HTML, so the existing DOM is adopted, not replaced.
 7. The per-request frame is destroyed (in a `finally` — every exit path).
 
-Steps 2–4 run the handlers, subs, and views you already wrote, so there's no "server code" to keep in sync. The per-request frame is exactly the frame from [Frames: isolated worlds](frames.md). A hundred concurrent requests are a hundred isolated app-dbs (each frame's single state map) that cannot see each other.
+Steps 2–4 run the handlers, subs, and views you already wrote, so there's no separate "server code" to keep in sync with the client. The per-request frame is *exactly* the frame from [Frames: isolated worlds](frames.md) — nothing special, no SSR-only variant. And because each request gets its own, a hundred concurrent requests are a hundred isolated app-dbs (each frame's single state map) that cannot see, race, or corrupt one another. The thing that made [frames](frames.md) good for testing N apps in one process is the same thing that makes them safe under server load.
 
 ## The server side, wired
 
@@ -45,7 +45,7 @@ The Ring adapter ships one handler constructor, and it owns the whole lifecycle:
 
 `:initial-events` here is the `ssr-handler`'s own request-init opt — the same [EP-0027](../../EP/EP-0027-frame-initial-events.md) setup vector you write on a frame, accepted either as a vector of events or as a `(fn [request] -> initial-events-vector)` that derives the setup from the Ring request. The adapter lowers it verbatim into the per-request frame's `:initial-events` for you.
 
-`:payload` is a security boundary, and it fails closed. A vector is an allowlist of top-level app-db keys; everything else stays on the server, *including keys you add next year*. Forget to set `:payload` and you get a loud error at boot (`:rf.error/ssr-missing-payload-policy`), not a quiet leak on the first request — the framework would rather stop you than surprise you. Shipping the whole app-db takes the explicit keyword `:rf.ssr.payload/whole-app-db`. A denylist was rejected on purpose, because it would silently leak every new server-only key the moment you introduce one.
+`:payload` is a security boundary, and — this is the important word — it **fails closed**. A vector is an allowlist of top-level app-db keys; everything else stays on the server, *including keys you haven't written yet*. Add a `:secrets/api-token` to app-db next year and forget to update the allowlist, and the worst that happens is it doesn't reach the client. Forget to set `:payload` at all, and you get a loud error at boot (`:rf.error/ssr-missing-payload-policy`) — not a quiet leak on the first request. The framework would rather stop you cold than surprise you in production. If you genuinely want to ship the whole app-db, you say so out loud with the explicit keyword `:rf.ssr.payload/whole-app-db`. A *denylist* ("ship everything except these") was considered and rejected on purpose: it leaks every new server-only key the instant you introduce one, which is exactly the bug an allowlist exists to prevent.
 
 Handlers read the request the way they read any outside fact — through a declared coeffect, which is the framework's name for an input a handler pulls in rather than receives in the event:
 
@@ -100,9 +100,9 @@ Server state declared as a [resource](server-state.md) (a value the framework fe
 
 ## When the renders disagree
 
-Sometimes the client's first render *doesn't* match the server's HTML. That's the classic SSR bug, and elsewhere it produces a flash and a shrug. The usual causes are mundane: a date rendered in two timezones, state the server set but the client didn't read, an unordered map serialising in two orders.
+Sometimes the client's first render *doesn't* match the server's HTML. This is the classic SSR bug — and in most stacks it produces a content flash, a console warning nobody reads, and a collective shrug. The causes are almost always mundane: a date rendered in two timezones, a bit of state the server set but the client never read, an unordered map that happens to serialise in two different orders.
 
-re-frame2 makes it detectable. The server embeds a structural hash of its render-tree; the client computes the same hash on its first render and compares. On disagreement, a structured trace event fires:
+re-frame2 refuses to shrug. The server embeds a structural hash of its render-tree; the client computes the same hash on its own first render and compares the two. On disagreement, a structured trace event fires — telling you not just *that* it diverged but *where*:
 
 ```clojure
 {:operation :rf.ssr/hydration-mismatch
@@ -120,7 +120,7 @@ The default recovery is **warn and replace**: log it, render the client's view, 
 
 ## `:platforms` — one handler, gated per runtime
 
-A real init flow mixes work that's fine on the server (HTTP) with work that's meaningless there (writing `localStorage`). You don't branch in handler bodies for this. Instead, effects declare where they run:
+A real init flow mixes work that's fine on the server (fetching over HTTP) with work that's meaningless there (writing `localStorage`, which the JVM has never heard of). In a Next.js app you'd reach for `typeof window === 'undefined'` checks scattered through your code. Here you don't branch in handler bodies at all. Instead, the effect itself declares where it's allowed to run:
 
 ```clojure
 ;; Adapted from examples/reagent/ssr/core.cljc
@@ -156,7 +156,7 @@ Two more surfaces round out the response — recognise them, don't memorise them
 
 ## Streaming: `:rf/suspense-boundary`
 
-This is the advanced slice, and the analogue of React 18 streaming / Next.js `loading.js`. The idea is to ship a usable shell on the first byte, then stream slow regions as their data resolves. In re-frame2 it's one declarative hiccup marker:
+This is the advanced slice — the direct analogue of React 18 streaming and Next.js's `loading.js`. The idea is the same: don't make the whole page wait on its slowest query. Ship a usable shell on the first byte, with skeletons where the slow regions will be, then stream each region in as its data resolves. In React that's a `<Suspense>` boundary with a `fallback`. In re-frame2 it's one declarative hiccup marker that should look familiar:
 
 ```clojure
 ;; Adapted from examples/reagent/ssr_streaming/core.cljc
@@ -172,7 +172,9 @@ This is the advanced slice, and the analogue of React 18 streaming / Next.js `lo
      [:dashboard/card :signups]]]])
 ```
 
-The streaming walker emits the shell with each `:fallback` in place and flushes it immediately. Each boundary's subtree then renders and streams in as its own chunk, and that chunk carries a per-subtree app-db delta, so subscriptions in that region see the right state as it lands. The final chunk is the canonical full payload: the deltas are a speed prop, the final `:rf/hydrate` is the correctness lock. If one boundary's render throws, *that card* keeps its fallback (with a `:rf.ssr/suspense-boundary-failed` trace) and the rest of the page streams on — a flaky comments service no longer 500s the whole page.
+The streaming walker emits the shell with each `:fallback` in place and flushes it immediately — that's your first byte. Each boundary's subtree then renders and streams in as its own chunk, and that chunk carries a per-subtree app-db delta, so the subscriptions in that region see the right state the moment they land. The final chunk is the canonical full payload, and this is the safety net: the deltas are a *speed* prop, the final `:rf/hydrate` is the *correctness* lock. If the speculative deltas and the canonical payload ever disagree, the payload wins, every time.
+
+Failure isolation comes for free with the boundaries. If one boundary's render throws, *that card* keeps its fallback (with a `:rf.ssr/suspense-boundary-failed` trace) and the rest of the page streams on. A flaky comments service stops being able to 500 your entire page — the blast radius is exactly one boundary.
 
 The wiring mirrors what you've already seen, with streaming counterparts: `stream-handler` (from `re-frame.ssr.ring.streaming`) in place of `ssr-handler`, and an opt-in client install (`ssr/streaming-install!`, same carried `:frame`) that swaps fallbacks for resolved chunks as they arrive.
 
@@ -189,7 +191,7 @@ Two compositions of these primitives are common enough to have canonical write-u
 
 ## What you give up
 
-The constraints are real, so here they are plainly:
+SSR isn't free of rules, and pretending otherwise would just move the surprise downstream. So here are the constraints, plainly:
 
 - **Views must be deterministic given the state.** A view that reads `(js/Date.)` renders differently on each side. Put time in app-db at init.
 - **Views must have no render-time side effects.** The render-tree is a function of state. Anything else *is* a hydration mismatch waiting for the detector.

@@ -2,7 +2,7 @@
 
 This page is the whole mental model. Every other page in this guide — every concept page, every how-to, every tutorial step — is a zoom-in on one piece of it. So it's worth reading once now, slowly, and coming back whenever something downstream starts to feel mysterious.
 
-If you know Redux, you already have the skeleton: one store, one-way data flow, `dispatch → reducer → store → selector → render`. re-frame2 keeps that loop and changes two things. First, side effects are **data the handler returns**, not middleware you bolt on. Second, the loop **runs to completion** before anything re-renders. And if you don't know Redux, don't worry — the loop is small enough to hold in your head, which is rather the whole point.
+If you know Redux, you already have the skeleton: one store, one-way data flow, `dispatch → reducer → store → selector → render`. re-frame2 keeps that loop and changes two things. First, side effects are **data the handler returns**, not middleware you bolt on — no thunks, no sagas, no observables to wire up. Second, the loop **runs to completion** before anything re-renders, so the screen never flickers through a half-finished update. And if you don't know Redux, don't worry — the loop is small enough to hold in your head, which is rather the whole point.
 
 If you quote one sentence from this guide, quote this one:
 
@@ -29,7 +29,7 @@ flowchart LR
 
 1. **Event dispatched.** `(rf/dispatch [:counter/inc])` — dispatch puts the event vector on the runtime's queue and returns immediately. Nothing has run yet, and the click handler's job is already over.
 2. **Handler runs.** The runtime pops the event off the queue and runs its registered handler, a pure function: same inputs, same output, no I/O.
-3. **Effects produced.** The handler *returns a description* of everything that should happen, as data — `{:db <new-state> :fx [[effect-id args] ...]}` — and performs none of it itself. (An **effect** is just one of those data entries: a request for the world to do something.)
+3. **Effects produced.** The handler *returns a description* of everything that should happen, as data — `{:db <new-state> :fx [[effect-id args] ...]}` — and performs none of it itself. (An **effect** is just one of those data entries: a request for the world to do something. Returning a `[:rf.http/managed …]` entry no more fires an HTTP request than returning the string `"rm -rf /"` deletes your disk — it's just a value until something downstream chooses to run it.)
 4. **Effects executed.** The runtime walks that description and actually does the work. The app-db swap happens **inside this domino**: `:db` is itself an effect, applied as one atomic swap, so no half-updated state is ever visible. Then any other effects fire — the HTTP request, the navigation, the storage write.
 5. **Subscriptions recompute.** app-db changed, so the derivations watching the changed parts re-run. If a subscription's value comes out the same, propagation stops right there, and nothing downstream of it re-renders.
 6. **Views re-render.** Views that deref a changed subscription re-run, and the DOM is patched to match.

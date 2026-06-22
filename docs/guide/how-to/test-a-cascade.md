@@ -107,7 +107,7 @@ Delivery is declared-only — the clock included. A handler receives exactly the
 
 ### Answer the HTTP: canned replies by method + URL
 
-`with-managed-request-stubs` (from `re-frame.http.test-support`) takes a route map of `[method url]` → reply. For the body's extent, it answers every `:rf.http/managed` description that matches. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point is that the synthesised reply is the same canonical envelope a live request produces, and it rides the same dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
+`with-managed-request-stubs` (re-exported on `re-frame.core` from `re-frame.http.test-support`) takes a route map of `[method url]` → reply. For the duration of its body it answers every `:rf.http/managed` description that matches a route. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point is that the synthesised reply is the same canonical envelope a live request produces, and it rides the same dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
 
 > **Coming from MSW?** The route map is your request-handler table — minus the service worker, because the request is intercepted as data before anything touches a network stack.
 
@@ -126,11 +126,9 @@ The stub table is sugar over a more general seam. A per-dispatch `:fx-overrides`
       (is (= "/api/users/login" (get-in @sent [:request :url]))))))
 ```
 
-This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword.
+This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword (the framework-shipped success stub, the value form `with-managed-request-stubs` ultimately routes to).
 
-!!! note "Frames isolate `app-db`, not registrations"
-
-    Handlers live in a process-global registry. If your tests register handlers in their bodies (rather than requiring app namespaces), add `(use-fixtures :each (ts/make-reset-runtime-fixture))` — from `re-frame.test-support` — once per file, so one test's registrations can't leak into the next.
+> **Frames isolate `app-db`, not registrations.** A fresh frame gets its own state and its own queue, but handlers live in a *process-global* registry — registering `:session/login` registers it for everyone. If your tests `(rf/reg-event ...)` in their bodies rather than requiring app namespaces, add `(use-fixtures :each (ts/make-reset-runtime-fixture))` — from `re-frame.test-support` — once per file, so one test's registrations can't leak into the next. Requiring `my-app.session` (as the tests above do) sidesteps the issue entirely: those registrations are stable for the whole run.
 
 ## Replay a bug as a regression test
 

@@ -136,9 +136,7 @@ Here's a counter whose count must never go below zero — live. The rule appears
 
 Click `-` down to `0` and keep clicking: nothing happens, because the `pos?` guard stands. Now simulate the bug the schema exists to catch. **Delete the guard** — replace `(if (pos? n) (-> db …) db)` with just the `(-> db …)` threading — re-evaluate, and click `-` past zero. The handler writes `-1`, and `[:int {:min 0}]` rejects it. The browser console shows the `:rf.error/schema-validation-failure`, and the count on screen stays `0`: the write was rolled back, so app-db never held the bad value. Put the guard back when you're done.
 
-!!! warning "The rollback is a debugging aid, not app behaviour"
-
-    Validation — rollback included — is compiled out of production builds. In production, that unguarded handler happily ships `-1`. So the handler keeps its real guard, always; the schema's job is to catch the day the guard gets deleted, refactored wrong, or bypassed by some *other* handler writing the same slice — in dev, the moment it happens, instead of in a bug report six weeks later.
+> **Gotcha — the rollback is a debugging aid, not app behaviour.** Validation, rollback included, is compiled out of production builds. In production, that unguarded handler happily ships `-1`. So the handler keeps its real guard, *always*; the schema's job is to catch the day the guard gets deleted, refactored wrong, or bypassed by some *other* handler writing the same slice — in dev, the moment it happens, instead of in a bug report six weeks later.
 
 ## In production, the checks vanish
 

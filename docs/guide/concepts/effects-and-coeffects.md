@@ -4,9 +4,9 @@ Say your handler (the function that runs when an event fires) needs the current 
 
 If you know Redux, the output half will feel familiar. Effects play the role that middleware and sagas play: side-effects pulled out of reducers. The difference is that here the handler returns a plain *description*, and one runtime interpreter executes it — there's no middleware stack to compose.
 
-The input half follows one rule: a handler reads only what was recorded, never the live world. That rule compresses to one sentence, and this whole page unpacks it.
+The input half follows one rule: a handler reads only what was recorded, never the live world. That rule is the whole page, compressed to a sentence — and the rest of the page just unpacks it.
 
-> **Durable state folds facts, never reads.**
+> **Durable state folds facts, never reads.** A handler computes the next value of your state by folding in facts that were recorded *with* the event — the db, the event vector, the stamped clock — and nothing else. The moment a handler reaches past those into the live world (the wall clock, a random source, the URL bar), the record stops being a faithful account of what happened, and replay stops working.
 
 ## The way out: effects are descriptions
 
@@ -17,7 +17,7 @@ A `reg-event` handler returns a map with two top-level keys — the entire gramm
 | Key | Meaning |
 |---|---|
 | `:db` | Replace `app-db` with this value. |
-| `:fx` | A vector of `[fx-id args]` pairs. *Every* other effect — a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself — rides in here. |
+| `:fx` | A vector of `[fx-id args]` rows — each row names a registered effect by id and hands it one argument. *Every* other effect — a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself — rides in here. |
 
 ```clojure
 (rf/reg-event :counter/save
@@ -149,7 +149,9 @@ The third shape is **provided**: `{:recordable? true :provided? true}` registers
 
     Recordable values are copied into every recording, fixture, and exported trace. So crypto-grade randomness, tokens, nonces, and key material must not ride `:rf.cofx`. See [keeping secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
-One more rule, no exceptions: a cofx supplier must return its value **synchronously**. If the world can only answer asynchronously — a fetch, a socket round-trip — it was never a coeffect. It's a managed effect whose completion comes back as a reply *event* ([HTTP](http.md) is the worked example, and [continuations are data](../explanation/continuations-are-data.md) is the why).
+One more rule, no exceptions: a cofx supplier must return its value **synchronously**. A coeffect is assembled into the handler's input map *before* the handler runs, so a value that isn't ready yet simply has nowhere to go. If the world can only answer asynchronously — a fetch, a socket round-trip — it was never a coeffect. It's a managed effect whose completion comes back as a reply *event* ([HTTP](http.md) is the worked example, and [continuations are data](../explanation/continuations-are-data.md) is the why).
+
+> **Coming from TanStack Query?** That's the same boundary by another name. A synchronous coeffect is a fact already in hand at dispatch time — like a value you read straight out of the query cache. An async read (a fetch that might be pending) can't be a coeffect for the same reason it can't be read inline in a React render: it isn't a value yet. It becomes one when it resolves — and in re-frame2 that resolution arrives as a reply event, not as a coeffect.
 
 ## Fresh ids: the minting ladder
 

@@ -4,13 +4,15 @@ You're adding a form — a login, a signup, a settings panel, an editor. What yo
 
 > **Coming from React Hook Form or Formik?** re-frame2 ships no form library — no `<Form>`, no `register()`, no `useForm`. A form is a *convention* built from the same events, subs, and schemas as everything else: state lives in `app-db` (every keystroke is an inspectable event), the "validation resolver" is the Malli schema that guards the slice, and errors are subs. The reference card is [Pattern-Forms](../../../spec/Pattern-Forms.md).
 
-One rule carries the whole page, and everything else is just plumbing around it:
+Here's the thing about forms: they look trivial and turn out to be one of the buggier corners of any UI. When does an error appear — on the first keystroke, on blur, on submit? Where do *server* validation failures show up versus client ones? What makes the submit button live? Get these wrong and you ship a form that yells "required!" at a user who hasn't typed a single character. So before any code, one rule carries the whole page, and everything else is just plumbing around it:
 
 > **A field's errors show when the field is touched OR a submit was attempted — one rule, one one-way latch, encoded in exactly one sub.**
 
 The running example is a login form, and it lives at `[:auth :login]`. A form slice always lives under its feature's key, which keeps the whole feature's state in one inspectable place.
 
 ## 1. Create the slice — seven keys
+
+A form's entire state is one map. Seed it with an `:initialise` event so the shape is explicit and the form is resettable by re-running this one handler:
 
 ```clojure
 (def login-defaults {:email "" :password ""})
@@ -27,7 +29,9 @@ The running example is a login form, and it lives at `[:auth :login]`. A form sl
                     :submit-error      nil})}))  ;; transport failure (network down, timeout)
 ```
 
-Each key earns its place — drop one and the user notices. Three of them carry nuance the comments alone can't. `:submitted` turns the fuzzy question "is this form dirty?" into a plain value comparison. `:errors` holds renderable validation outcomes, whichever validator produced them. And `:submit-error` is deliberately kept separate, because it's for failures that aren't about any single field — the network being down, say, rather than a bad email address.
+Each key earns its place — drop one and the user notices. Three of them carry nuance the comments alone can't. `:submitted` turns the fuzzy question "is this form dirty?" into a plain value comparison: dirty just means "draft differs from the last durable snapshot." `:errors` holds renderable validation outcomes, whichever validator produced them. And `:submit-error` is deliberately kept separate, because it's for failures that aren't about any single field — the network being down, say, rather than a bad email address.
+
+> **Why two error slots and not one?** It's tempting to dump every failure into `:errors` and be done. But field errors and transport errors render in completely different places — one sits under an input, the other is a banner that says "couldn't reach the server, try again." Conflating them means the view has to *guess* which kind it's holding. Two slots, two render sites, zero guessing. We'll lean on this split hard in step 2.
 
 Now bind two schemas, one for the slice's shape and one for the value you're actually collecting. (A schema is a data description of a valid shape; here it guards what may be written into app-db.)
 
@@ -51,9 +55,13 @@ Now bind two schemas, one for the slice's shape and one for the value you're act
 (rf/reg-app-schema [:auth :login :draft] {:schema LoginForm})
 ```
 
-With those bound, a `:status` outside the enum, or a malformed draft, now fails at write time instead of surfacing as a confusing render later. That early failure is worth a lot when you're debugging. ([Validate with schemas](validate-with-schemas.md) covers the vocabulary.)
+Two schemas, because they answer two different questions. `FormSlice` describes the *machinery* — the status enum, the touched set, the errors map. `LoginForm` describes the *payload* — what a valid email and password look like. They evolve independently: you change `LoginForm` when the business rules change, and you'll basically never touch `FormSlice`.
+
+With those bound, a `:status` outside the enum, or a malformed draft, now fails at write time instead of surfacing as a confusing render three components deep. That early failure is worth a lot when you're debugging — a schema violation points at the *handler that wrote the bad value*, not the view that tripped over it later. ([Validate with schemas](validate-with-schemas.md) covers the vocabulary.)
 
 ## 2. Register the seven events
+
+Everything that can happen to a form is one of seven events. That's not arbitrary minimalism — it's the full lifecycle, and naming each step means every transition is a discrete, inspectable row in the trace rather than a tangle of `setState` calls:
 
 | Event | Job |
 |---|---|
@@ -65,7 +73,7 @@ With those bound, a `:status` outside the enum, or a malformed draft, now fails 
 | `:form.login/submit-error` | Route structured rejections to `:errors`, transport failures to `:submit-error`. |
 | `:form.login/reset` | Re-dispatch `:initialise`. |
 
-The keystroke handler does both of its jobs in one atomic step — it updates the draft and marks the field touched together, so the two never drift apart. (A handler is the function that runs in response to an event.)
+The keystroke handler does both of its jobs in one atomic step — it updates the draft and marks the field touched together, so the two never drift apart. (A handler is the function that runs in response to an event; here it's pure — `db` in, `{:db db'}` out.)
 
 ```clojure
 (rf/reg-event :form.login/edit-field
@@ -87,7 +95,7 @@ The keystroke handler does both of its jobs in one atomic step — it updates th
   (fn [_ _] {:fx [[:dispatch [:form.login/initialise]]]}))
 ```
 
-Validation itself is a pure function. The convention fixes only the *result* shape — `{<field> ["msg" ...]}`, with `:_form` for cross-field complaints — and leaves the validator up to you. With Malli, `humanize` produces that shape directly, so the glue is tiny:
+Validation itself is a pure function. The convention fixes only the *result* shape — `{<field> ["msg" ...]}`, with `:_form` for cross-field complaints — and leaves the validator up to you. With Malli, `humanize` produces exactly that shape, so the glue is tiny:
 
 ```clojure
 ;; requires: [malli.core :as m] [malli.error :as me]
@@ -96,6 +104,8 @@ Validation itself is a pure function. The convention fixes only the *result* sha
   [schema value]
   (or (some-> (m/explain schema value) me/humanize) {}))
 ```
+
+> **Coming from React Hook Form?** This `validate` fn *is* your `resolver` — same job (value in, errors out), but it's an ordinary pure function you can call from a REPL or a unit test with no React, no DOM, no mounting. The form slice doesn't care that it happens to wrap Malli; swap in a regex check or a hand-rolled function and nothing downstream changes.
 
 Submit validates and latches. Only when the draft is clean does it fire the request through [managed HTTP](../concepts/http.md) — an effect that performs the network call for you and dispatches a result event when it returns. (An effect is a description of a side-effect the framework runs on your behalf, which keeps your handler pure and easy to test.)
 
@@ -120,6 +130,8 @@ Submit validates and latches. Only when the draft is clean does it fire the requ
         {:db (assoc-in db' [:auth :login :errors] errors)}))))
 ```
 
+Read the latch line carefully: `:submit-attempted?` flips to `true` on the way into *both* branches, valid or not. That's the whole trick behind the visibility rule in step 3 — the moment the user first presses submit, every invalid field is allowed to speak, whether or not they ever visited it.
+
 When the call succeeds, the reply arrives as the event's last argument, shaped `{:kind :success :value <decoded body>}`:
 
 ```clojure
@@ -135,13 +147,13 @@ When the call succeeds, the reply arrives as the event's last argument, shaped `
              (assoc-in [:auth :user]             (dissoc (:user value) :token)))}))
 ```
 
+Snapshotting `:draft` into `:submitted` here is what makes `:dirty?` work later: from this moment on, "dirty" means "edited since the server last accepted it," which is exactly what a Save button wants to know.
+
 ### The validation-vs-transport split
 
-The failure handler has to sort two genuinely different kinds of failure, and this is the second load-bearing rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.** The failure reply is shaped `{:kind :failure :failure {...}}`. A 4xx carries the raw response text under `:body`, because decoding is skipped on a non-2xx response — so parsing the server's validation body is one line of glue.
+The failure handler has to sort two genuinely different kinds of failure, and this is the second load-bearing rule: **structured server rejections land in `:errors`, rendered by the same subs and markup as client-side validation; transport failures land in `:submit-error` as one opaque "couldn't reach the server" value.** The failure reply is shaped `{:kind :failure :failure {...}}`, and the inner failure map carries a `:kind` drawn from the closed `:rf.http/*` category set — `:rf.http/http-4xx`, `:rf.http/transport`, `:rf.http/timeout`, and so on. A 4xx carries the raw response text under `:body`, because managed HTTP skips decoding on a non-2xx response — so parsing the server's validation body is one line of glue.
 
-!!! note "Why the 4xx body is raw text"
-
-    On a non-2xx response, managed HTTP skips decoding and hands you the raw text under `:body`. That's why `server-field-errors` below parses the JSON by hand instead of reading a decoded map — it's expected, not a workaround.
+> **Why the 4xx body is raw text.** On a non-2xx response, managed HTTP classifies by status *before* it decodes anything, then hands you the body untouched under `:body`. That's why `server-field-errors` below parses the JSON by hand instead of reading a decoded map — it's the documented contract, not a workaround. (The flip side: a JSON endpoint that returns an HTML 404 from a load balancer surfaces cleanly as `:rf.http/http-4xx` with the HTML at `:body`, not as a baffling decode failure.)
 
 ```clojure
 (defn server-field-errors
@@ -162,14 +174,14 @@ The failure handler has to sort two genuinely different kinds of failure, and th
              (not errors) (assoc-in [:auth :login :submit-error] failure))})))
 ```
 
-The payoff is that the view never learns which validator complained. Client schema and server rejection flow through one code path, so the markup that renders an error doesn't care where the error came from.
+The payoff is that the view never learns which validator complained. Client schema and server rejection flow through one code path, so the markup that renders an error doesn't care where the error came from. A 422 saying `{:email ["already in use"]}` paints under the email input with the exact same `[:p.error ...]` that client validation uses — the server is just a second validator that happens to live across the network.
 
 ## 3. Encode the visibility rule in one sub
 
-This rule kills the two classic failure modes. The first is every field shouting "required!" on the very first paint, before the user has done anything. The second is a dead submit button whose invalid, untouched fields never explain *why* they're invalid. A subscription — a read-only, cached view onto app-db that re-runs only when its inputs change — is where the fix lives:
+This rule kills the two classic failure modes. The first is every field shouting "required!" on the very first paint, before the user has done anything — the form that greets you with a wall of red. The second is its mirror image: a dead submit button whose invalid, untouched fields never explain *why* it's dead. A subscription — a read-only, cached view onto app-db that re-runs only when its inputs change — is where the fix lives, in one place:
 
 - **Per-field errors** show when the field is in `:touched` **or** `:submit-attempted?` is true. Before the first submit, only fields the user actually visited may complain; after it, everything invalid speaks up. The latch never unflips.
-- **Form-level errors** (`:errors :_form` — "invalid credentials", "passwords don't match") show whenever they exist. No gates.
+- **Form-level errors** (`:errors :_form` — "invalid credentials", "passwords don't match") show whenever they exist. No gates — if a form-level error is present, it's relevant.
 
 ```clojure
 (rf/reg-sub :form.login (fn [db _] (get-in db [:auth :login])))
@@ -190,6 +202,8 @@ This rule kills the two classic failure modes. The first is every field shouting
     (and (empty? errors) (not= status :submitting))))
 ```
 
+The condition `(or submit-attempted? (contains? touched field))` is the entire visibility rule, written once. Every input in the view reads through `:field-error`, so they all obey the same rule for free — there is no way for two fields to disagree about when to show an error, because there's no second copy of the logic to drift.
+
 Now add the thin one-liners the rest of the app reads. `:dirty?` compares the draft against `:submitted` when it's non-nil, and falls back to the defaults otherwise:
 
 ```clojure
@@ -202,7 +216,7 @@ Now add the thin one-liners the rest of the app reads. `:dirty?` compares the dr
     (not= draft (or submitted login-defaults))))
 ```
 
-The visibility rule lives in `:field-error` and nowhere else, which means it can't drift between fields, between forms, or between teammates.
+The visibility rule lives in `:field-error` and nowhere else, which means it can't drift between fields, between forms, or between teammates who each "fix" it slightly differently. That's the deeper point of putting it in a sub: it's not just tidy, it's *unforkable*.
 
 ## 4. Write the view — which is almost nothing
 
@@ -236,7 +250,11 @@ A view is the function that renders UI from subscriptions. `reg-view` injects fr
      (when transport [:p.error "Couldn't reach the server. Try again."])]))
 ```
 
-Notice what's *not* here: no visibility logic, no can-submit logic, no validator. It all lives in subs and handlers, where it's testable in isolation. To watch it work, open Xray, type a few characters, and submit once. Each keystroke is its own `:form.login/edit-field` event row, and `:submit-attempted?` flips in app-db the first time you submit. **The latch is data, not component state — which is exactly why it's debuggable.**
+Notice what's *not* here: no visibility logic, no can-submit logic, no validator, no error-routing. The view subscribes to answers and dispatches events — it's a thin projection of state, not a place where decisions happen. Every input is the same three-line shape: bind `:value` from the draft, dispatch `edit-field` on change, dispatch `blur-field` on blur. Add a third field by copy-pasting one of these and changing the keyword.
+
+> **Coming from controlled inputs in React?** This is exactly a controlled component — `:value` flows down from state, `:on-change` flows the keystroke back up — except the "up" is a dispatched event, not a local `setState`. The win: that keystroke is now a durable, inspectable row in the trace, and the input's value lives in app-db where the rest of your app (and your tooling) can see it.
+
+To watch it work, open Xray, type a few characters, and submit once. Each keystroke is its own `:form.login/edit-field` event row, and `:submit-attempted?` visibly flips in app-db the first time you submit — at which point any untouched-but-invalid field lights up. **The latch is data, not component state — which is exactly why it's debuggable.** You can scrub back to before the submit and watch the red appear, right there in the timeline.
 
 ## 5. Audit it — the five-minute conformance check
 
@@ -255,15 +273,15 @@ Want a worked audit target? Read RealWorld's [auth.cljs](../../../examples/reage
 
 ## When a form slice is wrong
 
-Not everything that takes input is a form, and reaching for the slice when you don't need it just adds ceremony. The test is **intent to commit**: a moment between "user finished editing" and "system accepts the result", with validation at that moment. No such moment, no form slice.
+Not everything that takes input is a form, and reaching for the slice when you don't need it just adds ceremony. The test is **intent to commit**: is there a distinct moment between "user finished editing" and "system accepts the result", with validation at that moment? If yes, you want the slice. If there's no such moment, the seven-key apparatus is dead weight.
 
-!!! note "When this recipe is overkill"
+> **When this recipe is overkill.** Three input shapes that look form-ish but aren't:
+>
+> - **A live filter.** A search box that filters as you type has no submit and no errors. It's one key in the feature's slice and one keystroke handler — no draft, no status, no latch.
+> - **A single toggle or stepper.** Giving one checkbox a `:draft`, `:status`, and `:errors` is theatre. Just write the value on change and move on.
+> - **One button.** A "favorite" posts a request and updates on reply — a plain event, or a mutation ([invalidate after a mutation](invalidate-after-a-mutation.md)). (A mutation is a managed server write that knows which cached reads to refresh afterwards.)
 
-    - **A live filter.** A search box that filters as you type has no submit and no errors. It's one key in the feature's slice and one keystroke handler.
-    - **A single toggle or stepper.** Giving one checkbox a `:draft`, `:status`, and `:errors` is theatre. Just write the value.
-    - **One button.** A "favorite" posts a request and updates on reply — a plain event, or a mutation ([invalidate after a mutation](invalidate-after-a-mutation.md)). (A mutation is a managed server write that knows which cached reads to refresh afterwards.)
-
-Two variations are worth naming. A **multi-step wizard** keeps this exact slice and puts a [state machine](../concepts/machines.md) on top for step transitions. And under [**SSR**](../concepts/ssr.md) the same slice powers a no-JS `method="POST"` form: the server validates with the same schema and re-renders errors into the same slice, while the client's `:on-submit` is purely additive ([Pattern-FormAction](../../../spec/Pattern-FormAction.md) is the server-POST recipe).
+Two variations are worth naming. A **multi-step wizard** keeps this exact slice and puts a [state machine](../concepts/machines.md) on top for step transitions — the machine owns "which step," the slice owns "what's typed," and they don't fight over the boundary. And under [**SSR**](../concepts/ssr.md) the same slice powers a no-JS `method="POST"` form: the server validates with the same schema and re-renders errors into the same slice, while the client's `:on-submit` is purely additive — progressive enhancement falls out for free ([Pattern-FormAction](../../../spec/Pattern-FormAction.md) is the server-POST recipe).
 
 ---
 
