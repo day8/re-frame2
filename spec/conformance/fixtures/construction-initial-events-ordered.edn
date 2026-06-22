@@ -1,0 +1,42 @@
+;; Conformance fixture: construction/initial-events-ordered
+;; EP-0027 §Construction — a frame's :initial-events drain SYNCHRONOUSLY, in
+;; declaration order, each settling before the next, BEFORE the constructor
+;; returns. By the time the frame is observable its app-db is fully settled.
+;; The seed step (whole-db replace) runs first, then two increments and a
+;; trailing marker write — the final app-db pins the strict ordering.
+
+{:fixture/id           :construction/initial-events-ordered
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame :core/trace}
+ :fixture/doc          "Per EP-0027 §Construction: ordered :initial-events run synchronously, in declaration order, each draining before the next, before the constructor returns. The two :ctor/inc steps land after the seed; the trailing :ctor/mark runs last."
+
+ :fixture/registry
+ {:event {:ctor/seed {:doc "Replace app-db wholesale with the seed map."}
+          :ctor/inc  {:doc "Increment :n (implicit-zero start)."}
+          :ctor/mark {:doc "Write a marker last to prove tail ordering."}}}
+
+ :fixture/handlers
+ {:event {:ctor/seed [[:set [] [:event-arg 1]]]
+          :ctor/inc  [[:update [:n] [:fn :inc]]]
+          :ctor/mark [[:set [:marker] :done]]}}
+
+ :fixture/frame-config
+ {:initial-events [[:ctor/seed {:n 0 :log []}]
+                   [:ctor/inc]
+                   [:ctor/inc]
+                   [:ctor/mark]]}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; n=2 (seed 0, then two incs), :marker landed last, :log untouched by the
+ ;; wholesale seed — the construction cascade fully settled before observation.
+ {:final-app-db {:n 2 :marker :done :log []}
+
+  :trace-emissions
+  ;; The three setup dispatches run in order, then the frame is created.
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/seed}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/inc}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/mark}}
+   {:operation :rf.frame/created   :tags {:frame :rf/default}}]}}

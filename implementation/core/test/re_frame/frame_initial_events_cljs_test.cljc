@@ -22,7 +22,11 @@
     * TEARDOWN — a setup step that THROWS at runtime tears down the partial frame
       (no live half-frame is left) and the error names the `:step-index`;
     * the HANDLER-TIME guard — constructing a frame inside an event handler fails
-      `:rf.error/frame-construction-in-handler`.
+      `:rf.error/frame-construction-in-handler`. The guard keys on
+      `trace/*handler-scope*` being bound, which the router holds across the
+      DIRECT handler body, the `:fx` `:dispatch` re-entry, AND any queued nested
+      dispatch — so construction is forbidden on ALL THREE mid-cascade routes
+      (rf2-4rgu6o pins the `:fx` + nested-dispatch routes, not just the body).
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
   message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -469,4 +473,74 @@
       (is (= :rf.error/frame-construction-in-handler @caught)
           "a reg-frame inside a handler fails loud")
       (is (nil? (frame/frame :child/in-handler))
+          "no half-registered child frame is left behind"))))
+
+(deftest frame-construction-in-fx-dispatch-re-entry-fails-loud
+  (testing "rf2-4rgu6o: EP-0027 forbids construction on the :fx /
+            nested-dispatch re-entry path too — not just the direct handler
+            BODY. A handler that returns {:fx [[:dispatch [:fx/makes-frame]]]}
+            re-enters the cascade to run :fx/makes-frame; the router keeps
+            *handler-scope* bound across the :fx-driven nested dispatch, so a
+            reg-frame inside :fx/makes-frame must STILL fail loud
+            :rf.error/frame-construction-in-handler. This is the load-bearing
+            case the body-only test (above) does NOT cover: a regression that
+            unbound *handler-scope* around :fx processing / queued nested
+            dispatch would leave THIS path silently allowed (mid-cascade
+            construction re-enabled) while the body-path test stayed green."
+    (reg-test-events!)
+    (let [caught (atom ::not-run)]
+      ;; The nested event that tries to construct a frame. It runs from the
+      ;; queued :dispatch re-entry, NOT directly in the originating handler's
+      ;; body — yet it is still inside the same in-flight cascade.
+      (rf/reg-event :fx/makes-frame
+        (fn [{:keys [db]} _]
+          (reset! caught
+                  (err-id #(rf/reg-frame :child/via-fx
+                             {:initial-events [[:test/set-db {:n 0}]]})))
+          {:db db}))
+      ;; The originating handler emits the construction attempt via :fx
+      ;; :dispatch (the EXPLICITLY forbidden EP-0027 route), so the child
+      ;; reg-frame runs on the queued nested-dispatch re-entry path.
+      (rf/reg-event :handler/fx-makes-frame
+        (fn [{:keys [db]} _]
+          {:db db :fx [[:dispatch [:fx/makes-frame]]]}))
+      (rf/reg-frame :parent/fx {:initial-events [[:test/set-db {}]]})
+      (rf/dispatch-sync [:handler/fx-makes-frame] {:frame :parent/fx})
+      (is (= :rf.error/frame-construction-in-handler @caught)
+          "a reg-frame on the :fx /nested-dispatch re-entry path fails loud —
+           the guard keys on *handler-scope*, which the router keeps bound
+           across :fx-driven nested dispatch (the body-only test would not
+           catch a regression here)")
+      (is (nil? (frame/frame :child/via-fx))
+          "no half-registered child frame is left behind"))))
+
+(deftest frame-construction-in-nested-dispatch-fails-loud
+  (testing "rf2-4rgu6o: a frame constructed inside a NESTED dispatch (a handler
+            that dispatches another event which constructs) must fail loud
+            :rf.error/frame-construction-in-handler. Distinct from the :fx
+            route above: here the parent handler itself emits a [:dispatch …]
+            effect that queues the constructing event for mid-cascade re-entry.
+            Both routes share the same *handler-scope*-keyed guard; pinning
+            both documents that ANY mid-cascade construction (body, :fx, queued
+            nested dispatch) is rejected, so a regression that unbinds the scope
+            marker around queued re-entry turns this RED."
+    (reg-test-events!)
+    (let [caught (atom ::not-run)]
+      ;; The nested event constructs a frame. It runs from the parent handler's
+      ;; queued :dispatch, mid-cascade.
+      (rf/reg-event :nested/makes-frame
+        (fn [{:keys [db]} _]
+          (reset! caught
+                  (err-id #(rf/reg-frame :child/via-nested
+                             {:initial-events [[:test/set-db {:n 0}]]})))
+          {:db db}))
+      ;; The parent handler queues the nested dispatch via the :dispatch effect.
+      (rf/reg-event :nested/parent
+        (fn [{:keys [db]} _]
+          {:db db :fx [[:dispatch [:nested/makes-frame]]]}))
+      (rf/reg-frame :parent/nested {:initial-events [[:test/set-db {}]]})
+      (rf/dispatch-sync [:nested/parent] {:frame :parent/nested})
+      (is (= :rf.error/frame-construction-in-handler @caught)
+          "a reg-frame inside a nested mid-cascade dispatch fails loud")
+      (is (nil? (frame/frame :child/via-nested))
           "no half-registered child frame is left behind"))))

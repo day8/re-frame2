@@ -1074,6 +1074,36 @@
                          "    expected: no error (well-formed machine)\n"
                          "    thrown:   " (ex-message thrown)))}))
 
+    ;; EP-0027 construction-engine registration call (rf2-kmk9z4). Pins the
+    ;; CONSTRUCTION fail-loud discriminators (Spec 009 §The thrown-error shape)
+    ;; against the live `reg-frame`. `:config` is the frame-config passed to
+    ;; `reg-frame`; `:expect-error <:rf.error/id>` ⇒ the construction must
+    ;; throw an ex-info whose `:rf.error/id` ex-data slot equals the id (the
+    ;; `:on-create` / `:initial-db` RETIREMENT ids); absent `:expect-error` ⇒
+    ;; a well-formed config that must NOT throw. The frame is destroyed
+    ;; afterward (best-effort) so a control doesn't leak into final-app-db.
+    ;; Mirror of the JVM runner + the `:reg-machine` Mode-B convention.
+    :reg-frame
+    (let [frame-id   (or (:frame-id call) :rf.test/construction)
+          want-error (:expect-error call)
+          thrown     (try (rf/reg-frame frame-id (:config call)) nil
+                          (catch :default e e))
+          _          (try (rf/destroy-frame! frame-id) (catch :default _ nil))]
+      (if want-error
+        (let [got-id (:rf.error/id (ex-data thrown))
+              ok?    (= want-error got-id)]
+          {:passed? ok?
+           :detail  (when-not ok?
+                      (str "reg-frame\n"
+                           "    expected error :rf.error/id: " want-error "\n"
+                           "    actual   error :rf.error/id: " got-id "\n"
+                           "    thrown:                       " (some-> thrown ex-message)))})
+        {:passed? (nil? thrown)
+         :detail  (when (some? thrown)
+                    (str "reg-frame\n"
+                         "    expected: no error (well-formed config)\n"
+                         "    thrown:   " (ex-message thrown)))}))
+
     ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops. Mirror
     ;; of the JVM runner: a fixture pins the FROZEN byte-contract
     ;; (`canonical-bytes`) so an encoder rewrite that changed the bytes
@@ -1379,6 +1409,14 @@
             ;; Mirrors the JVM runner.
             (contains? ev :destroy-frame)
             (rf/destroy-frame! (:destroy-frame ev))
+
+            ;; Harness re-construction step `{:reset-frame <frame-id>}` per
+            ;; Spec 002 §reset-frame! + EP-0027 §Reset (rf2-kmk9z4) — re-run
+            ;; the named frame's recorded `:initial-events` against the
+            ;; current handlers (a destroy + re-register; no snapshot).
+            ;; Mirror of the JVM runner.
+            (contains? ev :reset-frame)
+            (frame/reset-frame! (:reset-frame ev))
 
             ;; Harness re-registration step `{:reg-sub <sub-id> :body
             ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a). Mirror

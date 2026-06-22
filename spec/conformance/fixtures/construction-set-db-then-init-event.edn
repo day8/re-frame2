@@ -1,0 +1,42 @@
+;; Conformance fixture: construction/set-db-then-init-event
+;; EP-0027 §:rf/set-db + §Construction — the framework-standard [:rf/set-db {…}]
+;; event seeds app-db as the FIRST :initial-events step; a FOLLOW-UP init event
+;; in the same construction cascade observes the seeded db (the steps drain in
+;; order, each settling before the next). This pins that :rf/set-db composes as
+;; an ordinary setup step AND that a later step reads what the seed wrote — the
+;; seed is not a separate out-of-band channel.
+
+{:fixture/id           :construction/set-db-then-init-event
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/frame :core/trace}
+ :fixture/doc          "Per EP-0027 §:rf/set-db + §Construction: [:rf/set-db {…}] seeds app-db as the first setup step, then a follow-up init event in the same cascade reads the seeded db. The framework-standard :rf/set-db is re-seeded by init!, so the fixture uses it directly."
+
+ :fixture/registry
+ ;; :rf/set-db is the FRAMEWORK-STANDARD seeding event (re-seeded by init!) — no
+ ;; fixture handler is declared for it; the runner relies on the real one. The
+ ;; follow-up init event reads the seeded value the seed wrote.
+ {:event {:ctor/bump-seeded
+          {:doc "Increment the seeded :n — proves the follow-up step sees the seed."}}}
+
+ :fixture/handlers
+ {:event {:ctor/bump-seeded
+          ;; (update-in db [:n] inc) — :update reads the CURRENT (seeded) :n, so
+          ;; a non-21 result would mean the follow-up did NOT see the seed.
+          [[:update [:n] [:fn :inc]]]}}
+
+ :fixture/frame-config
+ {:initial-events [[:rf/set-db {:n 21 :who :seed}]
+                   [:ctor/bump-seeded]]}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; The seed wrote {:n 21 :who :seed}; the follow-up step incremented the seeded
+ ;; :n to 22 — proving the second step observed the first step's seeded db (a
+ ;; follow-up that started from an empty db would land on 1, not 22).
+ {:final-app-db {:n 22 :who :seed}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/set-db}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :ctor/bump-seeded}}
+   {:operation :rf.frame/created   :tags {:frame :rf/default}}]}}
