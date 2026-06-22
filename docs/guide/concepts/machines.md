@@ -121,6 +121,8 @@ Registering the table is one line, and this is where people sometimes brace for 
 
 A machine **is** an event handler. It's a `reg-event` whose body interprets the transition table: look up the snapshot, compute the transition, write it back, return the action's effects (the effects being the data describing what should happen in the world — the HTTP call, the storage write). Every event reaches it through the same `dispatch` — the call that sends an event into the system — and the same [cascade](events-and-the-cascade.md) as everything else. There's no actor object and no second messaging system, which is the point: one mechanism, used everywhere. (`reg-machine` is a macro that also stamps dev-only source coordinates so tools can jump from a diagram arrow to your code; production builds elide them.)
 
+> **`reg-machine` vs `reg-machine*`.** This splits exactly like Clojure's `fn` / `fn*`. The `reg-machine` **macro** is what you reach for in source — it walks the literal spec at compile time and co-locates source coordinates onto every guard, action, and transition so a tool can jump from a diagram arrow back to the line of code. `reg-machine*` is the plain **function** underneath, for the cases a macro can't serve — a REPL session, a code-gen pipeline that builds specs at runtime, a conformance harness loading machines from EDN. The macro lives on the `rf/` facade; the plain fn stays in its home namespace as `re-frame.machines/reg-machine*`. There's also `defmachine`, a `def`-shaped macro for the "define the spec as a Var, register it elsewhere" pattern — `(rf/defmachine login-flow {…})` then `(rf/reg-machine :auth.login/flow login-flow)` — which stamps source at the *definition* site so a value-registered machine keeps its tool legibility.
+
 Dispatching routes through the machine's id, wrapping an inner event vector:
 
 ```clojure
@@ -199,7 +201,11 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 ## Guards, actions, tags, `:after` — the recognition kit
 
-**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure what they need. A guard returns a boolean. An action returns `{:data ...}` (merged into the data slot), `:fx` (effects), both, or `nil` — the same contract as a `reg-event` return. Each slot takes one fn or one keyword reference into the machine's own `:guards` / `:actions` map. There's deliberately no `{:and ...}` combinator DSL — compound logic is a named function instead, because the *name* is what a visualiser or an AI reads on the transition arrow.
+**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure what they need. A guard returns a boolean. An action returns `{:data ...}` (merged into the data slot — last write wins per key; an explicit `nil` *sets* the key to `nil` rather than removing it), `:fx` (effects), both, or `nil` — the same contract as a `reg-event` return. Each slot takes one fn or one keyword reference into the machine's own `:guards` / `:actions` map. There's deliberately no `{:and ...}` combinator DSL — compound logic is a named function instead, because the *name* is what a visualiser or an AI reads on the transition arrow.
+
+> **A machine sees only its own `:data`.** Strict encapsulation is locked: actions and guards get `{:state :data :event :meta}` and **never `app-db`**. That's what lets a machine's whole state ride the frame and roll back with it. Returning `:db` from an action is a hard error (`:rf.error/machine-action-wrote-db`, the `:db` key dropped) — to touch a sibling slice, dispatch a named event: `{:fx [[:dispatch [:drawer/apply-radius id radius]]]}`. The reach is forced to be a traced, reusable event rather than a quiet write into someone else's data.
+
+> **Fail-loud, not silent.** Reference a `:guard`/`:action` keyword the machine's `:guards`/`:actions` map doesn't define and registration throws (`:rf.error/machine-unresolved-guard` / `…-unresolved-action`); a `:target` naming a state that isn't in `:states` is `:rf.error/machine-unresolved-target`. These are caught at `reg-machine` time, not on the unlucky dispatch that first hits the bad arrow. The one thing that is *not* an error is an event the current state has no transition for — that's a deliberate **silent no-op** (it emits a benign `:rf.machine.event/unhandled-no-op` trace), matching XState. And if you forget to require the machines artefact at boot, `reg-machine` throws `:rf.error/machines-artefact-missing` pointing you at the one-time setup above.
 
 **Facts from the world are declared, not grabbed.** This one trips people up. A guard or action that needs the time (or a random draw) must not call `(js/Date.now)`, because that buries nondeterminism where replay can't reach it — and replay is what makes time-travel and SSR hydration work. Instead, declare the fact on a *named* entry and destructure it from the context map:
 
@@ -230,6 +236,120 @@ Add a fifth busy state later and it's one `:tags` entry on the new node — zero
 ```
 
 That one key replaces the `setTimeout`-plus-cancel-flag pattern that sits behind most reconnect/timeout/debounce bugs. Full grammar in [Spec 005 §Delayed `:after` transitions](../../../spec/005-StateMachines.md#delayed-after-transitions).
+
+**`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the macrostep commits. It's the in-machine equivalent of XState's `raise` — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). `:raise` is a reserved fx-id, alongside two more the machine runtime recognises inside an action's `:fx`: `[:rf.machine/spawn <spawn-spec>]` and `[:rf.machine/destroy <actor-id>]`, the actor-lifecycle pair behind the `:spawn` sugar below. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own registered effects — flows to the ordinary effects machinery untouched:
+
+```clojure
+:actions
+{:advance
+ (fn [{data :data}]
+   {:data {:step (inc (:step data))}
+    :fx   [[:raise [:check-complete]]]})}      ;; re-enters THIS machine, pre-commit
+```
+
+## Self-transitions: internal by default, external on demand
+
+Look again at the turnstile. Pushing while `:locked` is a *self-transition* — `{:push {:target :locked :action :count-push}}` — and the push counter climbs even though the state never changes. That works because re-frame2 follows XState v5's (and the v6 direction's) **internal-by-default** rule, which trips up anyone who learned XState v4 or SCXML, where targeted self-transitions re-enter by default. There are three shapes worth keeping straight, because they behave differently:
+
+- **Targetless — a true internal no-op.** *Omit `:target` entirely.* The transition's `:action` runs; `:exit` and `:entry` do **not**; `:after` timers are not restarted; `:spawn` children are not torn down; any active descendant states are left exactly as they are. This is how you mutate `:data` without disturbing anything else — `{:on {:typed {:action :record-keystroke}}}`.
+- **Explicit target on the active path, no `:reenter?`.** Name yourself (`:target :same-state`, or your own state keyword), or an ancestor. Your *own* `:exit` / `:entry` still don't fire — but if you're a compound state, targeting yourself **re-resolves your descendants**: the active children below you exit and your `:initial` chain re-descends. So this is *not* a no-op for a compound; it resets the subtree to its initial child. (Reach for the targetless form when you want descendants preserved.)
+- **External — `:reenter? true`.** Add `:reenter? true` to the target and the state is genuinely **exited and re-entered**: `:exit` runs, then the transition's `:action`, then `:entry`. On a compound, the whole subtree restarts — `:after` timers reset to zero, `:spawn` children tear down and respawn. This is XState's `reenter: true`, spelled with a Clojure `?`.
+
+```clojure
+:polling
+{:entry :start-fetch                                    ;; kicks off a request
+ :after {30000 {:target :polling :reenter? true}}        ;; every 30s: re-enter → :start-fetch fires again
+ :on    {:got-data {:action :merge}                       ;; arrives mid-window: internal, no re-fetch
+         :stop     :idle}}
+```
+
+Here the `:after` self-transition is **external** (`:reenter? true`), so re-entering `:polling` re-runs `:start-fetch` and rearms the 30-second timer — a self-rescheduling poll in two keys. The `:got-data` transition is **internal** (no target), so a reply landing mid-window merges into `:data` without resetting the clock. Picking internal vs external per transition is exactly the control this rule buys you.
+
+> **Gotcha — the v4/SCXML muscle memory.** If you trained on XState v4 or hand-wrote SCXML, you expect a targeted self-transition to re-enter. re-frame2 (like XState v5+) does **not**. A self-target that you *meant* to re-fire `:entry` on needs `:reenter? true`; without it, only the transition `:action` runs. Full mechanics, including ancestor restarts and the one `:always` restriction (an eventless `:always` may never self-target), are in [Spec 005 §Self-transitions](../../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter).
+
+## Wildcard transitions: handle a whole class of events
+
+Sometimes a state should react to *any* event in a family, not enumerate each one. `:on` resolves **three tiers**, most-specific first, and you can register a handler at any tier:
+
+1. the **exact** event id — `:mouse/down`;
+2. the **namespace wildcard** `:ns/*` — `:mouse/*` matches every event in the `mouse` namespace (`:mouse/down`, `:mouse/up`, `:mouse/move`) and *only* those (it won't catch `:keyboard/down`);
+3. the **total wildcard** `:*` — matches anything.
+
+```clojure
+:tracking
+{:on {:mouse/down {:action :begin-drag}    ;; exact wins for :mouse/down
+      :mouse/*    {:action :note-move}      ;; any other :mouse/… event
+      :*          {:action :log-unknown}}}  ;; anything else
+```
+
+The namespace tier is re-frame2's idiom for XState v5's prefix descriptor (`mouse.*`) — same behaviour (one prefix level between exact and catch-all), expressed on the keyword's `/` boundary instead of a dotted string. A bare, non-namespaced id like `:go` has no `:ns/*` tier; only its exact key or `:*` can catch it.
+
+One subtlety worth knowing: a guard-**blocked** exact match falls through to the coarser tiers (it wasn't *handled*), but a deliberate **forbidden block** — `{:on {:E {}}}` or `{:on {:E nil}}` — is itself a handler that *consumes* the event and stops the search. That distinction is how a child state opts out of an event its parent would otherwise handle. Full precedence rules in [Spec 005 §Wildcard transitions](../../../spec/005-StateMachines.md#wildcard-transitions).
+
+## Final states: when a machine is *done*
+
+The login flow above parks in `:authed` and `:locked-out` forever — ordinary leaf states with no outgoing transitions, which is right when the machine *persists* (a view keeps reading the snapshot). But some machines genuinely *finish*: a spawned per-request protocol machine completes and should report back. For those, a leaf declares **`:final? true`**, and entering it **terminates the machine** — the runtime auto-destroys it.
+
+> **Gotcha — final means final.** A `:final? true` leaf auto-destroys *even a top-level singleton machine*. If you want a state the machine rests in indefinitely (like `:authed`), use an ordinary leaf and **omit `:final?`** — exactly what the login flow does. `:final?` is for "this run is over," not "this is the last screen."
+
+The payoff is composition. A spawned child names a result key with `:output-key`; its parent's `:spawn` declares `:on-done`, which fires the moment the child finishes and receives that value as `:result`:
+
+```clojure
+;; Child — a one-shot auth handshake that reports its token, then ends.
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :data    {}
+   :states
+   {:running {:on {:server-ok {:target :done
+                               :action (fn [{data :data ev :event}]
+                                         {:data (assoc data :token (second ev))})}}}
+    :done    {:final?     true
+              :output-key :token}}})       ;; report :data's :token back to the parent
+
+;; Parent — :on-done reads the child's result and folds it into its own :data.
+(rf/reg-machine :login
+  {:initial :idle
+   :states
+   {:idle           {:on {:submit :authenticating}}
+    :authenticating {:spawn {:machine-id :auth-flow
+                             :on-done    (fn [{data :data result :result}]
+                                           (assoc data :token result))}
+                     :on    {:auth/cancelled :idle}}
+    :authenticated  {}}})
+```
+
+When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to the parent's `:on-done` as `result`, then tears the child down — no stale id left behind. A `:final?` leaf can also be flagged `:error? true` (a designated *error* terminal); if the parent's `:spawn` declares an `:on-error` transition, a failing child routes there instead. Full grammar, the singleton-symmetry rule, and the `[:rf.machine/done …]` signal that lets a *compound* state advance on its substates finishing are in [Spec 005 §Final states](../../../spec/005-StateMachines.md#final-states-final--on-done--output-key).
+
+## Validating a machine's `:data`
+
+A machine's `:data` is just a map, and a typo there (`:cirles` for `:circles`) is the same silent rot any app-db shape is prone to. So a machine spec may declare a top-level **`:data-schema`** — a Malli schema (the same machinery [reg-event](../../../spec/010-Schemas.md) and subscriptions use) that validates the `:data` slot. It sits right next to the `:data` it guards, which is why it's named for what it validates:
+
+```clojure
+(rf/reg-machine :drawer/editor
+  {:initial     :idle
+   :data        {:circles [] :undo [] :redo []}
+   :data-schema DrawerData                         ;; validates :data at every transition
+   :guards      {...}
+   :actions     {...}
+   :states      {...}})
+```
+
+The check runs at the macrostep commit — once per transition, regardless of how many actions fired — plus at bootstrap and at spawn time. A violation emits a structured `:rf.error/schema-validation-failure` with `:where :machine-data` and **rolls the whole transition back**, so an invalid `:data` never reaches runtime-db. Like every schema in re-frame2, it's dev-only by default: the validation site is `debug-enabled?`-gated and DCEs to nothing under `:advanced` production builds. This is exactly the runtime guarantee XState's typed context *can't* give you — TypeScript's types are erased before the machine ever runs.
+
+To *also* validate the inbound event vector, use the three-argument `reg-machine` arity, where the middle `opts` map carries an event `:schema` (the ordinary `:where :event` boundary that runs before the handler):
+
+```clojure
+(rf/reg-machine :auth.login/flow
+  {:schema AuthLoginEvent}                  ;; validates the OUTER [:auth.login/flow [...]] event
+  {:initial     :idle
+   :data-schema AuthLoginData               ;; validates the machine's :data
+   :data        {:attempts 0 :error nil}
+   :states      {...}})
+```
+
+> **Heads up — `:data-schema` is on the move (EP-0029).** re-frame2 tracks the XState v6 direction, which replaces v5's `types` with a broader `schemas` section. The current shipped key is `:data-schema` (everything above is live today); a later EP-0029 wave relocates it to `[:schemas :data]` as a clean pre-alpha break. Write `:data-schema` now; the relocation is a mechanical rename when it lands.
+
+> **Fail-loud guard.** Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `:data-schema`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
 
 ## Testing: transitions are pure function calls
 
@@ -284,7 +404,10 @@ The flat grammar above carries most machines. When a flow gets richer, the gramm
 By the end of this page, you can:
 
 - spot a state machine hiding in scattered `cond` clauses, and name the three diseases the transition-table rewrite cures
-- register a machine (`reg-machine` — sugar over an event handler), dispatch into it, and read it with the `[:rf/machine <id>]` and `[:rf/machine-has-tag? <id> <tag>]` subscription vectors
+- register a machine (`reg-machine` — sugar over an event handler; `reg-machine*` / `defmachine` for the non-literal cases), dispatch into it, and read it with the `[:rf/machine <id>]` and `[:rf/machine-has-tag? <id> <tag>]` subscription vectors
+- write guards, actions, tags, `:after` timers, `:raise` self-events, internal vs external (`:reenter?`) self-transitions, and `:ns/*` / `:*` wildcard transitions — and validate `:data` with `:data-schema`
+- finish a machine with `:final?` / `:output-key` and notify its parent via `:spawn`'s `:on-done`
 - map your XState vocabulary onto re-frame2's five deltas, and name the three deliberate divergences (declarative topology, runtime-db snapshots, event-shaped completion)
 - test transitions as pure function calls with `machine-transition`
+- recognise the framework's fail-loud errors (unresolved guard/action/target, `:db` from an action, missing artefact) versus the deliberate silent no-op for an unhandled event
 - recognise when you need hierarchy, parallel regions, history, or spawned actors — and know where their contracts live

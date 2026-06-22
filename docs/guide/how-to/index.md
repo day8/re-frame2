@@ -8,7 +8,11 @@ These recipes assume you've already built something — the [quick start](../qui
 
 > **Coming from a cookbook mindset?** Think of these the way you'd treat the "Recipes" section of a framework's docs — the [React](https://react.dev) "you might not need an effect", the Rails guide for "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. The option space lives in the spec links at the bottom of each page.
 
+The recipes are grouped by where they sit in the life of an app — **build it**, then **test it**, then, when something's off, **debug it**, and finally **ship it** to production. You don't read them in order; you drop into the one group that matches what's in front of you right now. Each recipe is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
+
 ## Build it
+
+This is where most of your time goes: turning a feature request into the loop's six dominoes. Each recipe takes one common feature — a form, a paginated feed, a write that has to refresh the right reads — and shows the complete slice: the events, the subs, the effects, and the view, with nothing left as an exercise.
 
 | I want to… | Recipe |
 |---|---|
@@ -20,7 +24,7 @@ These recipes assume you've already built something — the [quick start](../qui
 
 ## Test it
 
-re-frame2's payoff at test time is that the interesting parts of your app are pure functions, so you can test them as functions — no browser, no DOM, no mocking framework standing between you and the assertion.
+re-frame2's payoff at test time is that the interesting parts of your app are pure functions, so you can test them as functions — no browser, no DOM, no mocking framework standing between you and the assertion. The two recipes here climb one rung at a time: first the smallest unit (a single handler), then the whole cascade (state, effects, and the events one dispatch fans out into).
 
 | I want to… | Recipe |
 |---|---|
@@ -29,10 +33,14 @@ re-frame2's payoff at test time is that the interesting parts of your app are pu
 
 ## Debug it
 
+When the app does something you didn't ask for, you don't reach for `println` — you read the one wire every event already crosses. These recipes are how: replaying *why* a change happened, and tracking down a view that recomputes more than it should.
+
 | I want to… | Recipe |
 |---|---|
 | see exactly why the app just did that | [Debug with Xray](debug-with-xray.md) |
 | find the view that re-renders too much, and stop it | [Find and fix a slow view](fix-a-slow-view.md) |
+
+> **Want to poke at the running app instead of reading a trace after the fact?** Several of these tasks have a *live* counterpart: you can attach to a running frame, read its app-db, dispatch events, and hot-swap a handler from your editor through the [Tool-Pair contract](../../../spec/Tool-Pair.md). That's pairing against a live runtime rather than following a recipe — the recipes here cover the after-the-fact read; the live path is its own surface.
 
 ## Ship it
 

@@ -60,14 +60,33 @@ These are the broad shapes of breakage. The skill identifies and resolves them; 
 **You must establish a root frame.** This is the change most likely to bite a v1 codebase, and [chapter 18](concepts/frames.md) is the full story. A frame is the isolated runtime context an operation runs under — it carries which app-db instance you're talking to. v1 gave you an ambient global `app-db` that every bare `dispatch` (the call that sends an event) and `subscribe` resolved against. v2 does **not**. Frame identity is carried, not found: an operation reads its frame from the scope it runs under, and the runtime never synthesises one from absence. So a v1 app that calls `(rf/dispatch [:boot])` at top level with no frame established now fails loudly with `:rf.error/no-frame-context`. The fix is one line of ceremony at your root: register a frame and scope your tree to it with `frame-provider-existing`. A migration may choose `:rf/default` as that frame's explicit id, since it reads familiarly. You still register and provide it — the framework will not infer it for you:
 
 ```clojure
-(rf/reg-frame :app/main {:initial-events [[:boot]]})        ;; or :rf/default if you prefer the familiar name
+(rf/reg-frame :app/main {:initial-events [[:rf/set-db {}]   ;; seed app-db (frames always start {})
+                                          [:boot]]})        ;; then your boot event(s), in order
+                                                            ;; (or name the frame :rf/default if you prefer)
 
 (rdc/render root
   [rf/frame-provider-existing {:frame :app/main}
    [app-root]])
 ```
 
+> **No `:initial-db` key — and that's deliberate (EP-0027).** A v1 reflex is to reach for an `:initial-db` / `:db` config key to seed initial state. v2 doesn't have one. **Every frame starts with `app-db = {}`**, and seeding it is *itself an event*: make `[:rf/set-db {…}]` the first step of `:initial-events` (it's a built-in handler). The `:initial-events` vector is dispatched synchronously, in order, right after the frame is created — so a v1 `(reg-event-db :initialise-db (fn [_ _] default-db))` plus an `app/main` mount becomes one `[:rf/set-db default-db]` step, or your existing initialise event listed after the seed. The payoff is that "events are the unit of state change" holds with no exceptions: initial state is built by the same dispatch pipeline that handles every later change, which is exactly why time-travel can rewind *to* the initial state. (v1's `:on-create` callback hook is likewise gone — setup is events, not a callback.)
+
 Inside that tree, every bare `dispatch` / `subscribe` you already wrote works unchanged. The frame rides along ambiently. Only rootless calls need attention: async callbacks that lost their scope, and top-level boot code with no provider. Those are exactly the wrong-frame footguns v1 used to swallow silently. The migration skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit `frame-handle` capture.
+
+That capture is one line, and it's worth seeing concretely because it's the most common Type B fix in a real codebase. `(rf/frame-handle)` snapshots the *current* frame and hands back a small bundle — `{:frame :dispatch :dispatch-sync :subscribe}` — whose `dispatch` always targets the frame it captured, even after the render scope that produced it has unwound. So you grab the handle while the scope is still live (during render, or inside an event handler), close over it, and call its `:dispatch` from the callback:
+
+```clojure
+;; WRONG in v2 — the bare dispatch fires after the scope unwound → :rf.error/no-frame-context
+(defn poll! []
+  (js/setTimeout #(rf/dispatch [:tick]) 1000))
+
+;; RIGHT — capture the handle while the scope is live, dispatch through it later
+(defn poll! []
+  (let [{:keys [dispatch]} (rf/frame-handle)]      ;; snapshot now, on the current frame
+    (js/setTimeout #(dispatch [:tick]) 1000)))      ;; the callback targets the captured frame
+```
+
+You can also pass `(rf/frame-handle frame-id)` to capture a *named* frame rather than the ambient one. Read its app-db with `(rf/app-db-value (:frame h))` — the handle carries operations, not state.
 
 > **Coming from React Context?** `frame-provider-existing` is a context provider, and the "no-frame-context" error is the exact analogue of calling a hook outside its provider and getting `undefined` back from `useContext` — except v2 throws instead of silently handing you a stale default. The one wrinkle React people already know: context doesn't cross an async boundary on its own. A `setTimeout` callback in React loses nothing because closures capture, but a re-frame2 callback that fires *after* its render scope unwound needs to have captured a `frame-handle` while the scope was live. Same lesson, louder failure.
 
@@ -148,7 +167,19 @@ A v1 codebase that registered its own `:http` fx — or leaned on `re-frame-http
 1. Add the `day8/re-frame2-http` artefact and require it from the namespaces that issue requests.
 2. Replace `[:http {:url ... :on-success ... :on-error ...}]` with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move *inside* `:request`.
 3. Rename `:on-error` → `:on-failure`. The reply payload appends as the last argument; destructure `{:keys [value]}` for success, `{:keys [failure]}` for failure.
-4. Adopt the closed `:rf.http/*` failure category set — code that branched on `(:status err)` becomes branching on `(:kind failure)`.
+4. Adopt the closed `:rf.http/*` failure category set — code that branched on `(:status err)` becomes branching on the failure's `:kind`. There are exactly **eight** categories, and they fall into two groups. Five are *retryable* (a re-issue can plausibly change the outcome): `:rf.http/transport` (network / DNS / connection-reset), `:rf.http/cors`, `:rf.http/timeout` (the slow-loris cutoff fired), `:rf.http/http-4xx`, and `:rf.http/http-5xx`. Three are *non-retryable by construction*: `:rf.http/aborted` (the request was cancelled or superseded — abort always wins), `:rf.http/decode-failure` (a 2xx whose body failed schema validation / JSON parse / your decode fn threw), and `:rf.http/accept-failure` (your `:accept` normaliser projected a structurally-valid 200 to a domain `{:failure …}`). Putting a non-retryable category in `:retry :on` fails loud at the dispatch site with `:rf.error/http-bad-retry-on` — the runtime refuses to carry a retry policy that can never fire. A v1 status-code `cond` becomes a `case` over these named kinds:
+
+```clojure
+(rf/reg-event :article/load-error
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (assoc-in db [:article :error]
+           (case (:kind failure)
+             :rf.http/timeout        "The server took too long — try again."
+             :rf.http/http-4xx       "That article doesn't exist."
+             :rf.http/http-5xx       "Something broke on our end."
+             :rf.http/decode-failure "The server sent something we couldn't read."
+             "Couldn't load the article."))}))   ;; closed set → a total case with one default
+```
 
 The skill applies 1–4 unprompted and stops at an optional step 5 (collapsing per-call success handlers into default reply addressing) for review. This is more than a rename because `:rf.http/managed` is a managed effect: it owns retries, aborts, double-submit suppression, the slow-loris timeout from [chapter 24](how-to/configure-dev-and-prod.md), and the eight-category failure taxonomy. Migrating onto it deletes a pile of hand-rolled request-lifecycle code that the framework now does correctly for you.
 
@@ -185,7 +216,16 @@ You reach past that only when v2 gives you a shape v1 didn't have. The public co
 
 > **Build isolated contexts from images.** A frame built from `:images` runs exactly the registrations those images select — its own sealed registration set, validated for collisions and capability requirements at assembly. Two frames can hold different handlers for the same id without collision, which makes a frame the natural unit for a hermetic test or a parallel frame on the same page. You target a frame by its id — the public address is always the frame id, never an enclosing substrate.
 
-> **Gotcha — don't select the same id twice.** One accident to avoid the day you compose images: do **not** select the same id both through `reg-*` sugar (the global registrations) and an inline image registration that resolves into the same frame. Image assembly catches it as a same-id collision and fails loudly rather than silently merging ([chapter 21](concepts/app-db.md)) — so pick one source per id, or declare an explicit `:replace`.
+> **Gotcha — don't select the same id twice in one image.** One accident to avoid the day you compose images: within a *single* `rf/image`, `:select-ns` and `:registrations` must be **disjoint** — a `[kind id]` may not be both selected from a namespace and defined inline in the same image. Image assembly catches it and fails loudly rather than silently merging. The way to *override* a registration is not a `:replace` key (that key was retired in EP-0026, and `rf/image` rejects it with `:rf.error/invalid-image`). Instead, put the winning registration in a **later** image and compose: later image wins. The override is not silent — composition records every shadowing in a report you can read with the public `rf/frame-shadows` accessor (each entry names the registration, the image that originally defined it, and the image that shadowed it), so you can assert in a test that the override you intended is the override that happened.
+
+```clojure
+(def base    (rf/image {:id :app/base   :select-ns {:include ["app.*"]}}))
+(def testing (rf/image {:id :app/doubles :registrations {:reg-cofx [[:clock (fn [] 0)]]}}))
+
+(let [frame (rf/make-frame {:images [base testing]})]   ;; later image wins
+  (rf/frame-shadows frame))
+;; => [{:registration [:cofx :clock], :defined-in :app/base, :shadowed-by :app/doubles}]
+```
 
 ## The devtools moved house
 

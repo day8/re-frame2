@@ -31,6 +31,8 @@ When the click handler returns, **nothing has happened yet**. No state changed. 
 
 This is the first load-bearing idea, and it's the one that trips people up coming from imperative event handlers: an event is a declaration of what happened, not an instruction packet. The button doesn't know how the counter works or what effects might fire. It records the fact "the user asked to increment" and walks away. The handler, registered elsewhere under that id, decides what the fact means. And because events are inert data, you can log them, assert on them in tests, replay them into a fresh app, and view them in an inspector. The rest of this page leans on all four.
 
+> **The canonical shape.** Best practice is `[<id>]` for a trivial event, `[<id> <scalar>]` for one argument, and `[<id> {<k> <v>}]` when you have several — a single map payload rather than positional args. The runtime still *tolerates* variadic `[<id> a b c]` for migration and convenience, but the linter nudges new code toward the map form, because a named map is easier to read, grow, and destructure than a positional tail. (The full rationale lives in [Conventions §Canonical event-vector shape](../../../spec/Conventions.md#canonical-event-vector-shape-best-practice).)
+
 ## One click, in slow motion
 
 [The model](index.md) names the six dominoes that every event knocks over. Here we watch one click fall through all of them. The setup is the counter from the [quick start](../quickstart.md): app-db is `{:counter/value 5}`, the screen shows `[-] 5 [+]`, and the user clicks `+`.
@@ -137,14 +139,60 @@ The handler still returns nothing but a Clojure map: strings, keywords, vectors.
 
 Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a name instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
+The `:rf.http/managed` effect takes a single args map. Beyond the four keys above, the slots you'll reach for most often are:
+
+| Key | Default | What it does |
+|---|---|---|
+| `:request` | — | The request itself: `:method`, `:url`, and optionally `:headers`, `:body`, `:query-params`. |
+| `:decode` | `:auto` | How to parse the 2xx body: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Leaving it off (`:auto` sniffs the content-type) is normal, supported, stable usage. |
+| `:on-success` | the originating event id | Where the success reply dispatches. |
+| `:on-failure` | the originating event id | Where the failure reply dispatches. `nil` swallows the failure silently. |
+
+The full reference card — every slot, its default, and which failure category a bad value classifies into — lives in [Spec 014 §The args map](../../../spec/014-HTTPRequests.md#the-args-map).
+
+> **The co-located form.** If a request and its reply genuinely belong together, you can *omit* `:on-success` / `:on-failure`. Then the reply routes back to the originating event id, with the payload merged under an `:rf/reply` key, and one handler branches on `(:rf/reply event)` to play both roles. Two explicit targets is the recommended default — it makes the failure path impossible to overlook — but the co-located form is there when the split would only scatter related code.
+
 Two notes before moving on:
 
 - **The first argument is the coeffects map** — a coeffect being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
 - **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: describe, don't do.
 
+> **An optional middle slot.** `reg-event` takes an optional metadata map between the id and the handler — `(rf/reg-event :id {:doc "..." :interceptors [audit-trace]} (fn [cofx ev] ...))`. It carries reflection metadata (`:doc`, `:schema`, `:tags`, …) and the reserved `:interceptors` key: a vector of registered interceptors (analytics, validation, logging) that wrap the handler. Two things to know. First, the chain *must* live under `:interceptors` — a bare interceptor or a loose positional vector in that slot is a loud registration error (`:rf.error/reg-event-bare-interceptor` / `:rf.error/reg-event-bad-interceptors`), because the runtime refuses to let a chain hide in a slot it reads as metadata. Second, you author interceptors with [`reg-interceptor`](../../../spec/001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and reference them by id — they're the home for the cross-cutting "wrap every handler" work that, in Redux, you'd write as middleware.
+
 > **Coming from Redux?** The `:fx` vector is where thunks, sagas, and middleware used to live — except the handler stays a pure function returning data, and the "middleware" is the runtime's effect interpreter.
 
 For real server data you will usually reach one level higher than raw HTTP — [resources](server-state.md) manage the request, caching, and staleness for you — but the mechanism underneath is exactly this fx.
+
+## The shape of an effect map
+
+The handler's return value is a small, **closed** map: app handlers populate exactly two keys.
+
+- **`:db`** — the next app-db value. Omit it and app-db is left untouched (a handler that only fires async effects legitimately returns `{:fx [...]}` with no `:db`).
+- **`:fx`** — a vector of `[effect-id args]` rows, run in source order after the `:db` commit.
+
+That's the whole vocabulary an app handler returns. (There is a third, reserved key — `:rf.db/runtime` — but it's the framework's, for runtime-extension authority; ordinary handlers never emit it.) Anything that isn't a `:db` swap is an `:fx` row, and the runtime ships a handful of standard effect-ids you'll use constantly:
+
+| `:fx` row | What it does |
+|---|---|
+| `[:dispatch [:event-id ...]]` | Queue a follow-up event. It drains as part of this same cascade (more below). |
+| `[:dispatch-later {:ms 250 :event [:event-id ...]}]` | Queue an event after a delay. The timer is scheduled as an effect; delivery is a fresh dispatch. |
+| `[:rf.http/managed {...}]` | The managed HTTP request from the last section. |
+| `[:rf.nav/push-url "/articles/how-it-works"]` | Push a URL onto the history stack (routing). |
+
+And you register your own with `reg-fx` — that's the topic of [Effects and coeffects](effects-and-coeffects.md), which also explains why `:db` is "just another effect" the framework happens to register for you.
+
+> **The fx is always `[id args]`.** Even a no-arg effect is a two-element row — `[[:my-fx nil]]` — never a bare `[:my-fx]`. One uniform shape means the runtime never has to guess whether the second element is an argument or another effect.
+
+### Ordering and atomicity — what you can rely on
+
+When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold, and you can build on them:
+
+1. **`:db` commits first, atomically.** The whole swap lands in one step, before any `:fx` row runs. No observer — no subscription, no concurrent reader — ever sees a half-written app-db.
+2. **`:fx` rows run in source order.** `[a 1]` before `[b 2]` before `[c 3]`. The order you wrote them is the order they fire.
+3. **Each row runs to (synchronous) completion before the next.** No interleaving. *Async* work a row kicks off — an outbound request, a `dispatch-later` timer — isn't awaited; "complete" means the effect handler returned.
+4. **Effects see the post-`:db` state.** Because `:db` committed first, a `[:dispatch [:react-to-new-state]]` row dispatches an event whose handler reads the *new* app-db. This is the legitimate way to chain: write state, then dispatch the event that builds on it.
+
+> **Gotcha — an effect throwing does NOT halt the others.** If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; lift the dependent step into a `:dispatch` chain so it observes the result via the queue. (Full contract: [002 §`:fx` ordering and atomicity guarantees](../../../spec/002-Frames.md#fx-ordering-and-atomicity-guarantees).)
 
 ## The ledger
 
@@ -179,7 +227,33 @@ Two precise details, both visible in Xray:
 
 Strictly, the drain is per **frame** — an isolated world with its own app-db and its own queue, and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
 
-> **Coming from re-frame v1?** There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite).
+> **Coming from re-frame v1?** There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}` or an after-render effect, which lets one paint land before the next event runs.
+
+### When the cascade won't stop
+
+Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite cascade would spin the drain forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain exceeds it, the runtime stops with a loud, machine-readable error:
+
+```clojure
+{:reason :drain-depth-exceeded :frame :main :event [:the-event-that-tripped-it] :depth 100}
+```
+
+The important part is what survives. Atomicity in re-frame2 is per **event**, not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent. (The exact halt contract: [002 §Run-to-completion §Rules](../../../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics).)
+
+> **The bound is per-frame and tunable.** Test and story frames set a tighter `:drain-depth` (so a runaway cascade fails fast rather than spinning to the production limit); you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
+
+### Dispatching from outside the cascade
+
+One more entry point completes the picture. Inside a handler, you never call `dispatch` directly — you return `:fx [[:dispatch ...]]` and let the runtime queue it. But *outside* any handler — at app startup, in a test, at the REPL — there's nothing to return effects to. That's what **`dispatch-sync`** is for:
+
+```clojure
+;; App bootstrap, or a test fixture: run the cascade to completion, synchronously.
+(rf/dispatch-sync [:app/initialise])
+;; By the time this line returns, the whole cascade has settled.
+```
+
+`dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling it for the next microtask and returning immediately. That's exactly what you want when the next line of a test needs to assert on the settled state, or when boot code must finish initialising before rendering begins.
+
+> **Gotcha — `dispatch-sync` is an *outside* call only.** Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the cascade is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
 
 The trade is the framework's signature move, made for the third time on this page. Give up a little flexibility (interleaved renders, inline effects, ambient reads) and get back inspectability: a recorded, replayable, coherent history.
 

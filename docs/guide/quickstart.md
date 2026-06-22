@@ -46,9 +46,13 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
 
 A few words on the moving parts. An **event** is a plain-data message describing something that happened — here, `[:counter/inc]`. To **dispatch** is to drop that message onto the queue. A **handler** is the pure function that receives it and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do"* — for the counter there's nothing else, so it's just `:db`, but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature. The **app-db** is your app's single state map, the one place all state lives. A **subscription** is a named, derived read of that state, and a **view** is a component that renders from subscriptions and dispatches events back.
 
+That returned map is the handler's **effects map**, and its keys are a small, closed set: for application handlers, just `:db` (replace app-db) and `:fx` (an ordered vector of further effects to run — dispatch another event, fire an HTTP request, write to local storage). Anything else in that set is reserved for the framework. Returning a key the framework doesn't recognise is a loud error rather than a silent no-op — there's no "I'll quietly ignore the typo" mode. (`:fx` is the subject of [Effects and coeffects](concepts/effects-and-coeffects.md); for the counter, `:db` alone is the whole story.)
+
 Notice the two little `inc-value` / `dec-value` functions above the events. The pure state transition lives in a plain `(fn [db] …)` — "events are pure functions of state" stated literally — and the handler is the thin wrapper that hands it `:db` and wraps the result as `{:db …}`. You don't have to factor it out for something this small, but it's a habit worth forming early: the bare function is trivially testable (`(inc-value {:counter/value 5})` → `{:counter/value 6}`, no runtime, no mocks, no `render`), and the handler stays one obvious line. This is the seam re-frame2 keeps coming back to — pure data transformation in the middle, the messy outside world held at arm's length on either side.
 
 Now click a button and watch what happens. The loop you just ran is this: **a view dispatches an event → a pure handler computes the next state → the subscription delivers the change back to the view.** That one-way loop is the whole framework. Everything else in this guide just refines it — adds effects to the handler's output, adds layers to the subscription graph, adds isolation around the whole loop — but it never changes the loop's shape.
+
+> **`dispatch` vs `dispatch-sync`.** `dispatch` is the one you almost always want: it *queues* the event and returns immediately, so the handler runs on the next tick of the event loop. That asynchrony is deliberate — it keeps a click handler from blocking the browser and lets the framework batch a burst of dispatches into one render. `dispatch-sync` runs the handler *right now*, before it returns, and you reach for it in exactly two places: seeding app-db before the very first paint (so the first render has state to read), and inside tests (so the assertion can run on the next line). Default to `dispatch`; use `dispatch-sync` only at those boundaries.
 
 **Try it.** Here's that same counter, running live in your browser — click the buttons, or edit the code and watch it re-render. (Live cells use plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`, because the in-browser environment is functions-only; the shape is otherwise identical to the version above.)
 
@@ -108,7 +112,15 @@ And read it in the view's `:span`:
 
 The `:<-` line declares the input, which means `:counter/parity` reads the *other subscription* rather than reaching into app-db. You've built a two-node spreadsheet: `:counter/value` is a cell, `:counter/parity` is a formula over it. Because the framework now knows that dependency, parity recomputes only when the value changes, and a view watching parity re-renders only when parity actually *flips* — clicking from 2 to 4 changes the value but not the parity, and the parity view stays put. That's the rule that keeps things fast as an app grows: app-db stores facts, subscriptions derive conclusions.
 
+You've now met two of the three ways `reg-sub` produces its inputs, and it's worth naming all three so the shape is in your hands:
+
+- **App-db reader** — `(reg-sub id (fn [db query-v] …))`. No upstream subscriptions; the computation reads app-db directly. This is `:counter/value` — a *layer-1* subscription, the leaves of the graph that touch the raw state.
+- **Static inputs** — `(reg-sub id :<- [:a] :<- [:b] (fn [[a b] query-v] …))`. One or more `:<-` lines name input subscriptions known at registration; the computation receives their values, never app-db. This is `:counter/parity`. Chain as many `:<-` lines as you need — the computation fn receives the inputs in order (a single input arrives bare, multiple arrive as a vector to destructure).
+- **Parametric inputs** — `(reg-sub id (fn [query-v] [[:item (second query-v)]]) (fn [item query-v] …))`. When *which* subscription you depend on is computed from the query vector itself — `[:counter/by-id 7]` reading item 7 — an **input-fn** (the optional first function) maps the outer `query-v` to the vector of input query-vectors. You won't need this for the counter; reach for it the day a subscription is parameterised.
+
 > **Coming from React?** This is `useMemo` / Reselect, except you never pass a dependency array and never wire the selectors together by hand. The `:<-` *is* the dependency edge, declared once at registration; the framework caches each node and invalidates downstream only along edges that actually changed. Derived state that can't drift out of sync with its source, for free — which is the bug `useMemo` exists to paper over and `:<-` makes structurally impossible.
+
+> **Gotcha — subscribe to something that isn't registered, and you'll know.** `@(subscribe [:counter/typo])` doesn't silently hand back `nil`; an unregistered query id is a loud error. The same goes for `dispatch` — drop an event whose id has no handler and the framework tells you, rather than swallowing the click. This is the framework's standing posture: fail loud at the boundary, never paper over a typo with a quiet `nil`. The full catalogue of these errors and how to read them lives in [Errors](concepts/errors.md).
 
 ## Beat 3 — "last clicked", and where time comes from
 
@@ -135,17 +147,27 @@ And at the bottom of the view:
   [:p "last clicked " (.toLocaleTimeString (js/Date. t))])
 ```
 
-One thing changed, and it's worth naming what *didn't*. The handler is still a `reg-event` — same registration, same `(fn [coeffects event] {:db …})` shape. All we added is a line of metadata: `:rf.cofx/requires [:rf/time-ms]`. That's the payoff of one event form — needing the world is adding a key to a map, not converting to a different registration. The first argument, the `{:keys [db]}` you've been destructuring all along, is the **coeffects** map: the bundle of outside-world facts a handler is allowed to know, like the current time or a random seed. `:db` and `:event` are always there; everything else is declared. Delivery is declared-only, so once we ask for `:rf/time-ms` it arrives flat in that map, already read at the instant the click entered the system and frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out byte-for-byte identical. Notice the recorded fact is the raw milliseconds — formatting with `.toLocaleTimeString` lives in the view, because pretty-printing is presentation, not state.
+One thing changed, and it's worth naming what *didn't*. The handler is still a `reg-event` — same registration, same `(fn [coeffects event] {:db …})` shape. All we added is a line of metadata: `:rf.cofx/requires [:rf/time-ms]`. That's the payoff of one event form — needing the world is adding a key to a map, not converting to a different registration. (That metadata map is also where `:doc` lives — a one-line docstring tools and the inspector surface — so a fuller registration reads `{:doc "Increment, stamping the click time." :rf.cofx/requires [:rf/time-ms]}`.)
+
+The first argument, the `{:keys [db]}` you've been destructuring all along, is the **coeffects** map: the bundle of outside-world facts a handler is allowed to know, like the current time or a random seed. `:db` and `:event` are always there; everything else is declared. Delivery is declared-only, so once we ask for `:rf/time-ms` it arrives flat in that map, already read at the instant the click entered the system and frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out byte-for-byte identical. Notice the recorded fact is the raw milliseconds — formatting with `.toLocaleTimeString` lives in the view, because pretty-printing is presentation, not state.
+
+`:rf/time-ms` is the framework's *one built-in* coeffect — the wall-clock epoch milliseconds, stamped as the event is enqueued. Other world facts (a random seed, a generated id, the browser's URL) follow the same recorded-coeffect pattern but are registered by their subsystem or your own app; [Effects and coeffects](concepts/effects-and-coeffects.md) is the full tour, including how you register your own with `reg-cofx`.
+
+> **Supplying the time yourself.** Because `:rf/time-ms` rides the dispatch envelope, you can *hand it over* instead of letting the framework read the clock: `(dispatch [:counter/inc] {:rf.cofx {:rf/time-ms 1781078400123}})`. The framework fills `:rf/time-ms` only when you omit it and never overwrites a value you supplied — which is exactly how tests pin time to a fixed instant and how replay fixtures re-present the recorded one. (The `opts` map on `dispatch` / `dispatch-sync` carries a handful of other keys too — `:frame` to route to a specific frame, `:fx-overrides` and `:interceptor-overrides` for tests, `:trace-id` / `:source` for tooling — but `:rf.cofx` is the one you'll meet first.)
 
 > **Why this matters.** The trick is that the impurity hasn't vanished — *something* still has to call the clock. re-frame2 just moves that read to the one place where it can be captured: the dispatch boundary, before the handler runs. The handler downstream sees only a value that was handed to it, so it stays a pure function of its inputs — and because the value was recorded on the way in, "what time was it?" has a permanent, replayable answer. That's the same instinct behind functional effect systems: don't ban side effects, *push them to the edge* and make the core a function. `:rf.cofx/requires` is how you ask the edge for a fact without becoming the edge yourself.
 
-> **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee. (And there's no `reg-event-db`/`reg-event-fx` fork to navigate any more — `reg-event` is the one form, with `:db` returned in the effects map.)
+> **Gotcha — declare what you read.** Delivery is declared-only, so `:rf/time-ms` shows up in the coeffects map *only* because the handler asked for it. Read `(:rf/time-ms cofx)` without the `:rf.cofx/requires` line and you'll get `nil` — the fact wasn't delivered. And declaring a coeffect that nothing registered (a typo like `:rf/time-msc`) is a loud error, not a silent miss: the framework distinguishes "you required a fact that doesn't exist" (`:rf.error/unregistered-cofx`) from "a registered fact wasn't supplied" (`:rf.error/missing-required-cofx`), so a typo'd requirement dies early and obviously.
+
+> **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee. (And there's no `reg-event-db`/`reg-event-fx` fork to navigate any more — `reg-event` is the one form, with `:db` returned in the effects map. The old names aren't soft-deprecated either; a stale `reg-event-db` call raises a loud error that names `reg-event` and shows the two-line conversion.)
 
 ## Beat 4 — open the inspector: your app has a history
 
 Open Xray, the dev inspector that ships with the dev build. Click `+` a few times. Every click shows up as a **row**: the event, the app-db before and after, and the recorded `:rf/time-ms` you just wired in. This is the payoff — instead of reconstructing what happened from scattered `console.log` calls, you read it straight off a ledger.
 
 Now restore an older row. The counter returns to that exact moment — value, parity, last-clicked, all of it. This isn't a trick bolted on for the demo. It falls directly out of the three rules you've been following: state changes only through events, handlers are pure, and world facts arrive recorded. Given those three, the history *is* a list of `(event, recorded-facts)` pairs, and re-running any prefix of that list reconstructs the exact app-db — there's nothing else for state to depend on. You earned time travel by construction.
+
+> **The replay-safety contract, in one breath.** Drop any one of the three rules and the ledger lies. Mutate state outside an event (reach past `dispatch` and `assoc!` something directly) and a row's "after" no longer follows from its "before". Let a handler read the clock instead of declaring it and replay re-rolls the value. Both are the kinds of impurity the framework's fail-loud posture is built to surface — which is why "derive, don't store" and "declare your world facts" aren't style advice, they're what makes the inspector *true*.
 
 ## Running it locally
 
@@ -163,23 +185,28 @@ The snippets above are the whole app *except* for boot. Boot is the one place yo
 
 (defn run []
   (rf/init! reagent-adapter/adapter)              ; install the Reagent adapter
-  (rf/reg-frame :rf/default {:doc "Counter app."}) ; the frame this app runs in
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:counter/initialise]))     ; seed before first render
+  (rf/reg-frame :rf/default                        ; the frame this app runs in,
+    {:doc "Counter app."                           ; seeded by its initial events
+     :initial-events [[:counter/initialise]]})
   (rdc/render root
               [rf/frame-provider-existing {:frame :rf/default}
                [counter/counter-app]]))
 ```
 
-Four lines, and each names exactly one decision. `init!` installs the **adapter** — the shim that teaches the framework how *this* rendering library (Reagent here; UIx and Helix are the other shipped options) turns subscriptions into re-renders. `reg-frame` creates the **frame** this app runs in. `with-frame` pins that frame for the boot dispatch, so the seed lands in the right app-db before the first paint. And `frame-provider-existing` scopes the mounted views to that already-registered frame, so every `subscribe` and `dispatch` inside resolves there.
+Three lines, and each names exactly one decision. `init!` installs the **adapter** — the shim that teaches the framework how *this* rendering library (Reagent here; UIx and Helix are the other shipped options) turns subscriptions into re-renders. `reg-frame` creates the **frame** this app runs in, *and seeds it*: `:initial-events` is an ordered vector of setup events dispatched synchronously into the fresh frame, drained to settled state before `reg-frame` returns — so app-db holds `{:counter/value 0}` before the first paint, with no separate seed dispatch to remember. And `frame-provider-existing` scopes the mounted views to that already-registered frame, so every `subscribe` and `dispatch` inside resolves there.
+
+> **Where did `:initial-db` go?** A frame always starts with `app-db = {}`; there is no `:db` (or `:initial-db`, or `:on-create`) config key. Seeding is *itself an event* — that's the whole reason the seed goes through `:initial-events` rather than a magic config slot. It keeps "events are the unit of state change" honest: the initial state is built by the very same dispatch pipeline that handles every later change, so it shows up in the inspector ledger like any other event. (Need to set app-db wholesale rather than from a handler? The framework's `[:rf/set-db {…}]` event does exactly that as a first step.) If you genuinely need to dispatch into the frame *after* boot — a REPL poke, a test — `with-frame` pins the frame for a body of `dispatch` / `dispatch-sync` calls, and `frame-handle` hands you a callable bundle of a frame's ops to carry across async.
 
 A **frame** is one isolated world — its own app-db and subscription state, sealed off from any other frame. The registrations it runs come from an [image](concepts/images.md); by default that's the one implicit image projected from everything you've registered, so you don't name it. This app has one app, one frame, and you'll rarely think about frames again until the day you want two ([Frames](concepts/frames.md)) — at which point the payoff lands: because your views were never bound to a global store, the same `counter-app` mounts into a second frame with a second, independent app-db, no changes.
+
+> **`frame-provider` vs `frame-provider-existing`.** We used `frame-provider-existing` because *we* created the frame at top level with `reg-frame`, and the component's only job is to *scope* that existing frame into the React tree (it creates and destroys nothing). Its sibling `frame-provider` is the UI-owned form: hand it `{:id :session :initial-events [[:rf/set-db {}]]}` and *it* creates the frame on mount and destroys it on unmount — the right tool when a frame's lifetime is tied to a component being on screen (a modal, a per-tab session) rather than to the whole app. Same scoping power; the difference is who owns the frame's birth and death.
 
 ---
 
 **You can now:**
 
-- change state with events and pure handlers (`reg-event`, returning `{:db …}`)
-- derive values instead of storing them (`reg-sub`, `:<-`)
+- change state with events and pure handlers (`reg-event`, returning `{:db …}` / `:fx`)
+- derive values instead of storing them (`reg-sub` and its three input modes, `:<-`)
 - record a world fact the replay-safe way (`:rf.cofx/requires [:rf/time-ms]`)
+- seed and scope a frame at boot (`init!`, `reg-frame` with `:initial-events`, `frame-provider-existing`)
 - read your app's history in Xray and travel in it

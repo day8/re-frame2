@@ -56,6 +56,30 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
 
 Notice that `init!` created no frame. Nothing is implicit about which frame your root uses; you say so, once, at the root.
 
+### What `reg-frame` accepts
+
+`reg-frame` is the front-porch named path: it creates a frame record, registers it under the keyword, runs the setup events synchronously, and returns the keyword (the family-wide `reg-*` return convention). It mirrors the other registrations — a keyword plus a metadata map:
+
+```clojure
+(rf/reg-frame :todo
+  {:doc            "The todo app frame."          ;; like all reg-*
+   :initial-events [[:rf/set-db {:items []}]       ;; ordered setup steps, dispatched synchronously after creation
+                    [:todo/restore-session]]
+   :on-destroy     [:todo/cleanup]                 ;; single event dispatched before teardown
+   :fx-overrides   {:my-app/http http-stub-fn}     ;; per-frame fx replacements (test doubles)
+   :interceptors   [:my-app/recorder]              ;; interceptor REFS prepended to every event in this frame
+   :drain-depth    100                             ;; run-to-completion drain depth limit
+   :preset         :test})                         ;; capability bundle — :default / :test / :story / :devtool
+```
+
+Two keys carry the weight day to day. **`:initial-events`** is an *ordered vector of setup steps* — each step a bare event vector (`[:todo/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:todo/add "milk"] :opts {…}}`). Each step is dispatched synchronously and drained to fixed point before the next, so by the time `reg-frame` returns, the whole setup cascade has settled. **`:on-destroy`** is a *single* event fired once, just before teardown.
+
+> **There is no `:db` key — and that's deliberate.** A frame's `app-db` always starts as `{}`. State arrives the only way state ever arrives: through an event. To seed initial data, make `[:rf/set-db {…}]` the first `:initial-events` step (`:rf/set-db` is the framework's "replace app-db with this map" event). Keeping initialisation on the dispatch path means the same pipeline that handles every later state change also builds the first one — one mechanism, no special "initial state" channel that drifts from the rest of your app.
+
+A few keys are worth knowing exist even if you reach for them rarely: `:fx-overrides` swaps registered effect handlers by id (the test-double mechanism — stub `:my-app/http` so a frame never hits the network); `:interceptors` prepends interceptor *refs* (registered ids, never inline interceptor values) to every event in the frame — "global within this frame"; `:drain-depth` caps the run-to-completion drain; `:preset` expands into a named bundle (`:test`, `:story`, `:devtool`) so a frame's *intent* is visible at the call site and machine-readable from `(rf/frame-meta :todo)`. The full grammar — including the production-observability `:observability` sink policy — is [the `reg-frame` reference in 002](../../../spec/002-Frames.md).
+
+> **Malformed config fails loud, at registration, before anything mutates.** Hand `reg-frame` a key it doesn't recognise, a `:sensitive` / `:large` key (those moved to handler effects under EP-0025 — see [data classification](../../../spec/015-Data-Classification.md)), or a malformed `:observability` entry, and registration throws `:rf.error/bad-frame-classification` — before any setup event runs, so you never get a half-registered frame. The same goes for a top-level shape mistake in `:initial-events`: `{:initial-events [:todo/init]}` (a bare event, not a *vector of* steps) is rejected with a diagnostic that names the fix — wrap it as `[[:todo/init]]`.
+
 > **Three lanes meet at startup — keep them apart.** The two lines above are the *whole* app-author boot lane: **install the substrate with `init!`, then create your frame(s) explicitly.** Two other lanes sit nearby but are not your concern as an app author. **Frame startup** is what each frame does as it comes alive — the `:initial-events`, which seed app-db or kick a boot sequence ([Pattern — Boot](../../../spec/Pattern-Boot.md)). **Adapter-author internals** — `install-adapter!`, `destroy-adapter!`, `current-adapter`, and the adapter-spec map — sit one layer *below* `init!`; you reach for them only when writing a substrate adapter, never for ordinary boot. The full three-lane breakdown is the [Lifecycle API chapter](../../api/13-lifecycle.md).
 
 ## When you want more than one
@@ -106,6 +130,29 @@ Notice what isn't there: no pane id threaded through the view, no atom per pane,
 
 Borderline case? This is where people hesitate, so here's the single question to ask: would these two things ever sensibly share a piece of state? If yes, they are two views over slices of *one* frame's app-db — components on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter, and that "no" is the signal.
 
+### Two providers: who owns the frame's life?
+
+The split pane above used `frame-provider-existing` — and the name is precise. It **scopes** an *already-registered* frame into a React subtree; it creates nothing and destroys nothing. You registered `:pane/left` with `reg-frame` at boot, and the provider just establishes its scope for descendants. Pass it a `:frame` keyword and nothing else — a lifecycle option (`:images`, `:initial-events`) fails loud, because this provider doesn't own a lifecycle.
+
+Its sibling, `frame-provider`, **owns** one. It creates the frame when the component mounts and destroys it when the component unmounts — the React tree's lifecycle *is* the frame's lifecycle. You give it the frame's recipe inline rather than a pre-registered id:
+
+```clojure
+;; A component that owns its frame's lifetime. Mount creates the frame
+;; (and runs :initial-events); unmount destroys it. No boot-time reg-frame,
+;; no manual teardown — the React tree does both.
+(rf/reg-view counter-widget [label]
+  [rf/frame-provider {:images         [counter-image]
+                      :initial-events [[:rf/set-db {:n 0}]]}
+   [counter-panel label]])
+```
+
+So the choice is just "who controls when this frame lives and dies?"
+
+- **`frame-provider-existing`** — *you* control the lifetime (you `reg-frame` it, you `destroy-frame!` it, or it lives for the whole program). The provider only scopes. This is the split-pane shape above and the normal root-of-app shape.
+- **`frame-provider`** — *the component* controls the lifetime. Mount creates, unmount destroys. Reach for it when a frame should exist exactly as long as a piece of UI is on screen — a modal that wants its own throwaway world, a dynamically-added widget, a devcard.
+
+> **Re-mounting `frame-provider` under the same id is idempotent.** If a `frame-provider` carries an `:id` and the component re-mounts (a hot reload, a Story re-evaluation, a key change), the existing frame's durable state is *preserved*, not blown away — re-mount updates config and refreshes the image without resetting `app-db`. That's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
+
 ## Frame identity is carried, not found
 
 Now the rule underneath all of this, the one that makes isolation trustworthy:
@@ -125,12 +172,14 @@ Why an error instead of a sensible default? Because a default would make distant
 
 > **Why a default frame would be a trap.** Say a frameless dispatch fell through to "the" frame. Your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass). At that point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
 
-From outside any scope — a test, a tool, the REPL — you name the frame explicitly, and the explicit target always wins:
+From outside any scope — a test, a tool, the REPL — you name the frame explicitly, and the explicit target always wins. The explicit form is the *same* `dispatch` / `subscribe` you already use, with a `{:frame …}` opts map as the second argument:
 
 ```clojure
-(rf/dispatch [::inc] {:frame :pane/left})   ;; explicit target
-(rf/subscribe :pane/left [:n])              ;; frame-id-first arity
+(rf/dispatch   [::inc] {:frame :pane/left})    ;; explicit target
+@(rf/subscribe [:n]    {:frame :pane/left})    ;; same, for a read
 ```
+
+There is no `dispatch-to` / `subscribe-to` sugar — the two-argument opts form is the one mechanism, and `{:frame …}` always beats whatever scope (or absence of scope) surrounds the call. It's also the right shape from non-Reagent contexts: server-side rendering, headless JVM tests, and tooling agents all address frames this way.
 
 The complete resolution contract — every rule, the full error payload, the frame-metadata grammar — is [the frames spec](../../../spec/002-Frames.md).
 
@@ -184,6 +233,41 @@ A subscription — a derived, cached read over app-db — belongs to one frame. 
 
 If you feel the need for one, you've answered the discriminator question wrongly: two things that need to share derived state are one frame. Restructure — don't reach across.
 
+## Ending and resetting a frame
+
+Most frames live for the whole program and you never tear them down — `frame-provider` handles unmount for the UI-owned ones, and SSR/test harnesses tear theirs down for you. But three verbs cover the lifetime explicitly, and you'll meet them in tests and tools:
+
+```clojure
+(rf/destroy-frame! :pane/left)   ;; remove it from the registry; run teardown
+(rf/reset-frame!   :pane/left)   ;; reset to "just created" — re-runs :initial-events
+```
+
+**`destroy-frame!`** drops the frame from the registry, disposes its sub-cache (so nothing leaks reactive listeners), stops its router, and — if you declared one — fires its `:on-destroy` event first. It accepts the frame id or the frame value. After destruction, a dispatch or subscribe still aimed at that frame doesn't throw — it **recovers**: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record is emitted on the always-on error stream. Recovery rather than a throw is deliberate: the runtime can't tell a benign teardown/hot-reload *race* from a real use-after-destroy bug, so it stays race-safe while still surfacing the diagnostic where your error monitor will see it.
+
+**`reset-frame!`** is "I want this back to how it started." It's equivalent to a destroy followed by a fresh `reg-frame` with the same config: `app-db` resets to `{}`, the sub-cache and router queue clear, and the recorded `:initial-events` re-run synchronously. Tests use it between cases; Story "reset" buttons use it. (For an `app-db`-only reset that *keeps* live runtime state, there's a lighter `reset-app-db!` — but `reset-frame!` is the whole-world one.)
+
+> **Frames are created from views and top level, never from a handler.** Constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on: a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-cascade frame-creation path.
+
+### Scoping a frame in a test or at the REPL
+
+A test or REPL session is *outside* any provider, so there's no ambient scope — but you don't want to thread `{:frame …}` onto every line. Two macros establish a scope for a block, mirroring the two providers:
+
+```clojure
+;; Pin to an EXISTING frame for the block (creates / destroys nothing):
+(rf/with-frame :todo
+  (rf/dispatch-sync [:todo/add "milk"])
+  @(rf/subscribe [:items]))
+
+;; CREATE a frame, use it, and destroy it on exit (success or throw):
+(rf/with-new-frame [f (rf/make-frame {:images [todo-image]})]
+  (rf/dispatch-sync [:todo/add "milk"])
+  (is (= 1 (count (:items (rf/app-db-value f))))))
+```
+
+`with-frame` is the lexical counterpart of `frame-provider-existing` (scope only); `with-new-frame` is the counterpart of `frame-provider` (it *owns* the lifetime — guaranteed teardown on block exit). Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. Note `dispatch-sync` rather than `dispatch`: from outside a running cascade it runs the event to completion *before returning*, which is what a test wants to assert against. (Calling `dispatch-sync` from *inside* a handler is an error — `:rf.error/dispatch-sync-in-handler` — because the cascade is already running synchronously; the in-handler shape is `:fx [[:dispatch …]]`.)
+
+> **The scope macros are synchronous-only — like the dynamic binding underneath them.** `with-frame` establishes the frame via a dynamic var, which evaporates the instant control crosses an async boundary. An async callback created inside a `with-frame` body that fires *after* the body returns is back in frameless territory — and `with-new-frame` has already destroyed its frame by then. That's the same async cliff as everywhere else on this page; the same fix applies — capture a `frame-handle` (or pass an explicit `{:frame …}`) before the boundary.
+
 ## What frames are not
 
 - **Not component-local state.** A frame carries a full app-db, queue, and sub cache; it is heavyweight by design. A dropdown's open flag or a form's draft text goes in the current frame's app-db like always — see [Where should this value live?](../where-state-lives.md).
@@ -195,7 +279,9 @@ If you feel the need for one, you've answered the discriminator question wrongly
 **You can now:**
 
 - say what a frame owns (app-db, event queue, sub cache) and what it doesn't (the registrations — those live in the frame's [image](images.md), one shared image by default),
-- register one frame and establish it at your root, and explain why `init!` doesn't do it for you,
-- mount one app N times — split panes, Story canvases, SSR requests, test fixtures — with `reg-frame` + `frame-provider`, nothing shared,
+- register one frame with `reg-frame` (and reach for `:initial-events`, `:on-destroy`, `:fx-overrides`, `:preset` when you need them — seeding state with `[:rf/set-db {…}]`, never a `:db` key), establish it at your root, and explain why `init!` doesn't do it for you,
+- mount one app N times — split panes, Story canvases, SSR requests, test fixtures — nothing shared, choosing `frame-provider-existing` (scope an existing frame) or `frame-provider` (own a frame's lifetime, create-on-mount / destroy-on-unmount),
+- target a frame explicitly with the `{:frame …}` opts arg on `dispatch` / `subscribe`, and tear one down or reset it with `destroy-frame!` / `reset-frame!` — knowing a dispatch to a destroyed frame *recovers* and emits `:rf.error/frame-destroyed`,
+- scope a frame in a test or at the REPL with `with-frame` (existing) or `with-new-frame` (create-use-destroy), using `dispatch-sync` to drive cascades to completion,
 - read `:rf.error/no-frame-context` as "this callback lost its frame" and fix it with `frame-handle` — or with `:fx` when the work starts in a handler,
 - state the hard rule: subscriptions never reach across frames; things that share state are one frame.
