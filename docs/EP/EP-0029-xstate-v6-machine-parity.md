@@ -8,8 +8,8 @@ Type: standards-track
 > homes are `spec/005-StateMachines.md`, the machine implementation docs, and
 > the machine guide material under `docs/guide`. The proposal is not "copy
 > XState v6". It classifies each known v6 change into: things re-frame2 should
-> embrace, things re-frame2 might include later, and things re-frame2 should
-> ignore or reject.
+> embrace, things to leave for later consideration but probably not, and things
+> re-frame2 should ignore or reject.
 
 ## Abstract
 
@@ -217,10 +217,11 @@ The useful v6 idea is the broader machine contract. Tools and optional
 validation can learn what a machine's data, events, completion payloads, tags,
 and meta look like from one place.
 
-Open spelling question:
+Spelling (ruled):
 
-`:data-schema` can either become shorthand for `[:schemas :data]` or be retired
-by a clean pre-alpha break. That is an open issue for acceptance.
+`:data-schema` is retired by a clean pre-alpha break; the machine data-context
+schema is declared at `[:schemas :data]`. There is no `:data-schema` shorthand.
+See Resolved Decisions and the surgical retirement plan (rf2-f9nvu9).
 
 ### A4. Explicit state and spawn timeouts
 
@@ -417,10 +418,12 @@ re-frame2 machines are event handlers. Completion is something that happens, so
 it should flow as an event. This keeps output aligned with the existing
 `:final?` / `:output-key` / `:on-done` contract.
 
-## Group B: re-frame2 might include
+## For Later Consideration - but Probably not
 
-These are not rejected, but they need concrete use cases or a separate design
-surface before they should become core.
+These are not outright rejected, but they need a concrete, proven use case or a
+separate design surface before they should become core — and the current
+expectation is that they will not. Leave them out until real examples force the
+question.
 
 ### B1. State input
 
@@ -905,7 +908,7 @@ compatibility shims.
 
 Potential breaking or clarifying changes:
 
-- `:data-schema` may move under `:schemas :data`, or remain only as a shorthand;
+- `:data-schema` is retired; the machine data schema is declared at `[:schemas :data]` (clean break, no shorthand) — see Retirement And Removal (rf2-f9nvu9);
 - invalid `:timeout` without `:on-timeout` should fail loudly;
 - invalid choice-state declarations should fail loudly;
 - `:internal-events` should reject external dispatch of private events;
@@ -917,37 +920,137 @@ Malli must not become mandatory. If an implementation currently assumes Malli
 for machine data validation, the v6 parity work should separate the schema
 declaration grammar from the optional validator adapter.
 
+## Retirement And Removal
+
+The v6 retarget removes more than it adds. These removals must land with the
+implementation, and each is tracked by a bead.
+
+1. **Retire machine `:data-schema` → `[:schemas :data]` (surgical).** Remove the
+   EP-0005 machine-level `:data-schema` key and its handling; the machine
+   data-context schema declaration moves under `[:schemas :data]`. **Be careful:**
+   the `:data-schema` spelling is reused by unrelated subsystems (resources /
+   classification / SSR); retire ONLY the `reg-machine` key, not those. Surfaces:
+   `implementation/machines` (registration, classification, tooling), the machine
+   schema tests, `spec/005-StateMachines.md`, machines-viz, the `reg-machine`
+   skill, examples, and the EP-0005 cross-reference. Tracked: **rf2-f9nvu9**.
+
+2. **Retire XState v5 parity terminology.** Remove "v5 is the live parity target"
+   wording and v5 helper-creator terminology, and reframe the machine docs to the
+   v6 direction with explicit divergences (A1). Surfaces:
+   `spec/005-StateMachines.md`, `docs/guide/concepts/machines.md`, the
+   `reg-machine` skill, the Xray Machine-Inspector spec, machines-viz, and the
+   EP-0005 framing note. Tracked: **rf2-ntg9z1**.
+
+3. **Decouple mandatory Malli.** Machine core must not require Malli or JavaScript
+   Standard Schema (Non-Goals). Machine source references Malli today; audit
+   whether machine-data validation hard-requires it and, if so, separate the
+   `:schemas` declaration grammar from an optional validator adapter. Tracked:
+   **rf2-49zxkc**.
+
+**Vocabulary landmine (do not trip).** `:actor/spawn` is a *retired* conformance
+capability id and must not be revived; any spawn/invoke capability-id work targets
+`:actor/declarative-spawn`, never `:actor/spawn`. (The separate `:actor/invoke` →
+declarative-spawn capability rename is an EP-0007 nit tracked as rf2-9z4mle.) C14
+already keeps `:spawn` as the sole public spelling, so this EP adds no alias — but
+the retirement sweep must not re-open the retired id.
+
 ## Bead Plan / Reference Implementation
 
-This EP should not be implemented as one large bead. Suggested waves:
+This EP should not be implemented as one large bead. It decomposes into ordered
+waves plus two standing review beads. Each wave is gated on EP-0029 acceptance and
+should land as focused PRs (run the touched-artefact slice gates locally; let CI
+run the full matrix).
 
-1. **Docs alignment.** Rewrite machine guide/spec references from XState v5 to
-   the v6-alpha direction. Record deliberate divergences.
-2. **Schema grammar.** Add `:schemas` as a schema declaration surface without a
-   required validator dependency. Decide the `:data-schema` spelling issue.
-3. **Core machine grammar.** Add state/spawn `:timeout` / `:on-timeout`,
-   `:type :choice`, and `:internal-events`, with focused conformance tests.
-4. **Spawn correctness.** Add tests and spec text for post-transition parent
-   data visibility, child startup error routing, timeout cancellation on child
-   completion, and restored child restart behavior.
-5. **Completion output.** Clarify `:output-key` as the completion-event payload
-   selector and connect `:schemas :output` to that payload, not to a persistent
-   snapshot field.
-6. **Maybe bucket review.** File separate EPs or beads only if state input or
-   durable workflow steps receive concrete examples and operator approval.
+### Wave 1 — Docs alignment (rf2-ntg9z1)
+
+- Rewrite `docs/guide/concepts/machines.md` so the XState comparison tracks the
+  v6-alpha direction, not v5; keep a short, explicit "where re-frame2 diverges"
+  list (function-valued transitions rejected, frame/runtime-db instead of actor
+  objects, event-shaped completion).
+- Update `spec/005-StateMachines.md`, the `reg-machine` skill, the Xray
+  Machine-Inspector spec, and machines-viz to stop teaching v5-helper terminology
+  as the parity target.
+- Add the EP-0005 framing note that v5 parity is superseded by EP-0029's v6
+  direction (EP-0005's `:data` validation idea survives; its v5 framing does not).
+- No machine behaviour changes in this wave — it is wording + divergence records.
+
+### Wave 2 — Schema grammar + `:data-schema` retirement (rf2-f9nvu9)
+
+- Add the machine-level `:schemas` map (`:data`, `:events`, `:output`, `:tags`,
+  `:meta`) as a *declaration* surface; `<schema>` values stay abstract.
+- Retire the EP-0005 `:data-schema` key (surgical — see Retirement And Removal):
+  move the machine data-context schema to `[:schemas :data]`; update the machine
+  registration parser, machine classification, machines-viz, tests, spec, the
+  `reg-machine` skill, and examples; leave the unrelated resources / classification
+  / SSR `:data-schema` spellings untouched.
+- Decouple the optional validator (rf2-49zxkc): separate the `:schemas` declaration
+  from any validator adapter so machine core requires neither Malli nor JS Standard
+  Schema. A Malli adapter may interpret Malli values; absence of an adapter is
+  legal.
+- Connect `[:schemas :output]` to the completion-event payload (A8), not a
+  persistent snapshot field.
+- Fail loud on unknown `:schemas` sub-keys, and on `[:schemas :input]` unless/until
+  state input (B1, "For Later Consideration") is accepted.
+
+### Wave 3 — Core machine grammar (timeout / choice / internal-events)
+
+- State-level `:timeout` + `:on-timeout` and spawn-level timeout (A4): `:timeout`
+  requires `:on-timeout`; leaving the state cancels the state timeout; child
+  completion cancels the spawn timeout; `:after` and `:timeout` coexist. Decide the
+  duration grammar (Open Issue 3: `"10ms"`/`"5s"` only, vs also ISO `"PT2M"`).
+- `:type :choice` states (A5): a choice state must declare `:choice` and must not
+  also declare `:entry`/`:exit`/`:on`/`:after`/`:timeout`/`:spawn`; `:choice`
+  reuses normal candidate semantics.
+- `:internal-events` (A6): enforce the public/private split at the machine dispatch
+  boundary — an internal `:raise` may produce them; external dispatch of a private
+  event is rejected; internal raised events still run normal transition selection.
+- Focused conformance fixtures for each, plus the fail-loud cases listed in
+  Backwards Compatibility.
+
+### Wave 4 — Spawn correctness (A7)
+
+- Spec text + tests for: `:spawn :data` seeing parent `:data` *after* the
+  transition action runs; child startup/init failure routing to the parent's
+  declared `:on-error` spawn path; spawn-timeout cancellation on child completion;
+  and restored parent/child snapshots restarting active children consistently.
+- This is correctness, not ornament, and is the wave most likely to surface latent
+  ordering bugs — it carries the heaviest test budget.
+
+### Wave 5 — Completion output (A8)
+
+- Clarify `:output-key` as the final state's `:data` selector and the source of the
+  parent `:on-done` completion-event payload; confirm no long-lived `:output`
+  snapshot slot is added; wire `[:schemas :output]` to that payload.
+
+### Wave 6 — "For Later Consideration" gate
+
+- Do NOT implement state input (B1) or durable workflow steps (B2). File separate
+  EPs/beads only if a concrete real machine forces the question and the operator
+  approves (Open Issues 4 and 5). The default disposition is "probably not".
+
+### Standing review beads
+
+Every PR associated with EP-0029 gets two independent review passes before it is
+considered done:
+
+- **Correctness** — semantics match the ruled grammar, no regressions, fail-loud
+  where specified. Tracked: **rf2-e2c04t**.
+- **Completeness** — all in-scope Group A items and ruled retirements are covered;
+  spec + guide + skills + conformance + machines-viz/Xray are updated together; no
+  half-implemented surfaces; divergence notes present. Tracked: **rf2-wz4pmv**.
 
 Guide-impact assessment:
 
-- `docs/guide/concepts/machines.md` changes immediately on acceptance.
+- `docs/guide/concepts/machines.md` changes immediately on acceptance (Wave 1).
 - Tutorials comparing `context`, `assign`, `setup`, actor sending, or output
   snapshots to re-frame2 should be revised.
-- Choice-state and timeout examples should land with those features.
+- Choice-state and timeout examples should land with those features (Wave 3).
 
 ## Open Issues
 
-1. **Schema spelling:** should `:data-schema` remain as shorthand for
-   `[:schemas :data]`, or should pre-alpha re-frame2 make the clean break to
-   `:schemas` only?
+1. **Schema spelling — RESOLVED** (see Resolved Decisions): `:data-schema` is
+   retired; the machine data schema is `[:schemas :data]` (clean pre-alpha break,
+   no shorthand).
 2. **Validator adapter shape:** how should optional schema validators be plugged
    in without making Malli mandatory?
 3. **Duration grammar:** should v1 accept only `"10ms"` / `"5s"` style strings,
@@ -957,13 +1060,23 @@ Guide-impact assessment:
 5. **Durable workflow steps:** does re-frame2 need workflow-step persistence in
    managed effects, or is that outside the SPA-focused scope?
 
+## Resolved Decisions
+
+- **Schema spelling (Open Issue 1) — ruled.** `:data-schema` is retired by a clean
+  pre-alpha break. The machine data-context schema is declared at
+  `[:schemas :data]`; there is no `:data-schema` shorthand. The retirement is
+  **surgical**: the `:data-schema` spelling is reused by unrelated subsystems
+  (resources / classification / SSR), and those MUST NOT be touched. See Retirement
+  And Removal. Tracked: **rf2-f9nvu9**.
+
 ## Recommendation
 
 Accept EP-0029 as a v6-parity correction, not a cloning project.
 
-Group A should become the implementation roadmap. Group B should stay out of
-core until examples prove it. Group C should be explicitly rejected or delegated
-to existing re-frame2 mechanisms.
+Group A should become the implementation roadmap. The "For Later Consideration -
+but Probably not" items should stay out of core unless real examples force them.
+Group C should be explicitly rejected or delegated to existing re-frame2
+mechanisms.
 
 The resulting model is smaller and clearer: declarative topology, plain
 guard/action functions, optional schema facts, explicit timeouts, choice nodes,
