@@ -1,6 +1,6 @@
 # EP-0029: XState v6 Machine Parity
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
 > This EP proposes how re-frame2 should retarget its state-machine comparison
@@ -98,8 +98,9 @@ Research basis:
 
 ## Specification
 
-At `proposal` status, this is not a shipped contract. The grouping below is the
-proposed decision surface.
+EP-0029 is **accepted** (operator-ruled 2026-06-23). The grouping below is the
+ruled decision surface; the implementation lands across the waves in the Bead
+Plan, each gated on this acceptance.
 
 ### Decision rule
 
