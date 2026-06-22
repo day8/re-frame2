@@ -490,3 +490,60 @@
              :data      {}
              :states    {:idle {}}}))
         "a non-vector :sensitive axis is rejected at registration")))
+
+;; ---- (5) SOURCE-SCOPED teardown (rf2-7bsyza) ------------------------------
+;; The machine destroy drop must be source-scoped, like the effect clear
+;; (`re-frame.elision/apply-classification-effects`) and the route lowering
+;; (`re-frame.routing.classification/without-route-sourced`). Spec 015 L149
+;; permits an app to ADDITIONALLY classify a subsystem absolute snapshot path
+;; from a handler effect (`:source :effect`). If a machine teardown blanket-
+;; dissoc'd the path it would un-redact the app's still-standing classification
+;; — a privacy fail-open. The drop must remove only the machine's OWN
+;; `:source :machine` contribution.
+
+(deftest machine-destroy-is-source-scoped-does-not-un-redact-app-effect-claim
+  (testing "rf2-7bsyza — when an app ALSO classifies a machine's absolute
+            snapshot path via a handler effect (:source :effect), destroying
+            the actor drops only the machine's own :source :machine entry; the
+            app's :source :effect claim SURVIVES and the value stays REDACTED
+            at egress (no fail-open)."
+    (let [mid       :rf.machine-redaction/coupled-singleton
+          abs-token [:rf.runtime/machines :snapshots mid :data :token]]
+      (rf/reg-machine mid
+        {:sensitive [[:data :token]]
+         :initial   :anon
+         :data      {:token nil :retries 0}
+         :states    {:anon {:on {:login :authed}} :authed {}}})
+      ;; The APP additionally classifies the SAME absolute snapshot path from a
+      ;; handler effect — Spec 015 L149 explicitly permits this. It lands first
+      ;; under :source :effect.
+      (rf/reg-event :rf.machine-redaction/app-classify-token
+        (fn [{:keys [db]} _]
+          {:db db :sensitive [abs-token]}))
+      (rf/dispatch-sync [:rf.machine-redaction/app-classify-token])
+      (is (= :effect (get-in (snapshot-elision-reg)
+                             [:sensitive-declarations abs-token :source]))
+          "precondition: the app's :source :effect classification is standing")
+      ;; Booting the singleton lowers the machine declaration at the SAME path.
+      ;; The machine SET must NOT clobber the app's :source :effect claim.
+      (rf/dispatch-sync [mid [:rf.machine/noop]])
+      (is (= :effect (get-in (snapshot-elision-reg)
+                             [:sensitive-declarations abs-token :source]))
+          "the machine SET did NOT clobber the app's :source :effect claim")
+      ;; Destroy the actor. The DROP must be source-scoped — it must NOT remove
+      ;; the app's :source :effect entry.
+      (rf/reg-event :rf.machine-redaction/destroy-coupled
+        (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
+      (rf/dispatch-sync [:rf.machine-redaction/destroy-coupled])
+      (let [reg (snapshot-elision-reg)]
+        (is (contains? (:sensitive-declarations reg) abs-token)
+            "the path is STILL classified after destroy — the app's claim survives")
+        (is (= :effect (get-in reg [:sensitive-declarations abs-token :source]))
+            "the surviving entry is the app's :source :effect, not the machine's"))
+      ;; And egress still redacts — the fail-open is sealed.
+      (let [out  (classification/project-trace-event (machine-transition-event mid))
+            tags (:tags out)]
+        (is (= :rf/redacted (get-in tags [:after :data :token]))
+            "the value stays REDACTED at egress — the teardown did not un-redact it")
+        (is (not (.contains (pr-str out) "secret-jwt"))
+            "no secret leaks through the post-destroy egress")))))

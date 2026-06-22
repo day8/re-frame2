@@ -166,9 +166,21 @@
   (`{:sensitive [paths] :large [paths]}`) on a base elision-registry value
   `reg`. SET writes `{:source :machine}` at each axis slot
   (`:sensitive-declarations` / `:declarations` — the SAME slots the four
-  commit-plane effects and `reg-flow` outputs populate); DROP
-  dissocs exactly the named absolute paths (other-sourced entries survive).
-  An emptied axis slot is pruned. Returns the new registry value."
+  commit-plane effects and `reg-flow` outputs populate) WITHOUT clobbering a
+  foreign-source standing entry (the registry is one-entry-per-path-per-axis;
+  an app-effect / flow / route claim on the SAME absolute path is left
+  standing — same posture as the commit-plane SET, rf2-p4spo4); DROP is
+  SOURCE-SCOPED — it dissocs a named absolute path ONLY when its standing entry
+  is the machine's own (`:source :machine`). A path ALSO claimed by another
+  source (Spec 015 L149 explicitly permits an app to additionally classify a
+  subsystem absolute path from a handler effect, `:source :effect`) is LEFT
+  INTACT, so an actor teardown never silently un-redacts a path another owner
+  still classifies (a privacy fail-open). Mirrors the effect clear
+  (`re-frame.elision/apply-classification-effects`, source-scoped) and the
+  route lowering (`re-frame.routing.classification/without-route-sourced`,
+  which filters `:source :route`) — the sibling subsystems' source-scoped
+  drops (rf2-7bsyza). An emptied axis slot is pruned. Returns the new registry
+  value."
   [reg actor-id decls set?]
   (reduce
     (fn [reg [axis slot]]
@@ -178,8 +190,22 @@
           (let [abs (map #(absolute-snapshot-path actor-id %) paths)
                 cur (get reg slot)
                 updated (if set?
-                          (reduce (fn [m p] (assoc m p {:source :machine})) (or cur {}) abs)
-                          (apply dissoc (or cur {}) abs))]
+                          (reduce (fn [m p]
+                                    ;; Do NOT overwrite a foreign-source entry —
+                                    ;; only write the machine claim into a free
+                                    ;; or already-machine-owned slot.
+                                    (let [src (:source (get m p))]
+                                      (if (or (nil? src) (= :machine src))
+                                        (assoc m p {:source :machine})
+                                        m)))
+                                  (or cur {}) abs)
+                          ;; SOURCE-SCOPED drop: remove a path only when its
+                          ;; standing entry is the machine's own.
+                          (reduce (fn [m p]
+                                    (if (= :machine (:source (get m p)))
+                                      (dissoc m p)
+                                      m))
+                                  (or cur {}) abs))]
             (if (seq updated)
               (assoc reg slot updated)
               (dissoc reg slot))))))
