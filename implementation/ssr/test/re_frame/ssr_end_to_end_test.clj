@@ -727,22 +727,31 @@
               "default projector returns the canonical 404 mapping per Spec 011"))))))
 
 (deftest ssr-default-error-projector-handler-exception
-  (testing "a handler that throws → default projector → 500"
+  (testing "a handler that throws at RENDER time → default projector → 500"
+    ;; rf2-vw5h1r / rf2-anehs6: the throwing dispatch is a RENDER-TIME
+    ;; request dispatch against a live frame — NOT an :initial-events setup
+    ;; step. Construction-time :initial-events is now STRICT (EP-0027
+    ;; §Failure, Mike-ruled (a)): a THROWN setup step tears the partial frame
+    ;; down and is the OUTER :on-error transport path (Spec 011 §810), NOT a
+    ;; projector-catches-it case. The error projector covers errors INSIDE
+    ;; the render/cascade drain — exactly what a post-construction request
+    ;; dispatch models. So :rf/server-init is a clean no-op setup step; the
+    ;; throwing :load/article fires afterward, in the projector's domain.
     (rf/reg-event :load/article
       (fn [_ _]
         (throw (ex-info "Database connection failed: SECRET_TOKEN=xyz" {}))))
     (rf/reg-event :rf/server-init
-      (fn [_ _]
-        {:fx [[:dispatch [:load/article]]]}))
+      (fn [_ _] {}))
 
     (let [project-error  ssr/project-error
           traces         (atom [])
-          _              (rf/register-listener! :trace ::he (fn [ev] (swap! traces conj ev)))
           f              (frame/make-anon-frame-record!
                            {:platform :server
                             :initial-events [[:rf/server-init]]
                             :ssr {:public-error-id   :rf.ssr/default-error-projector
                                   :dev-error-detail? false}})
+          _              (rf/register-listener! :trace ::he (fn [ev] (swap! traces conj ev)))
+          _              (rf/dispatch-sync [:load/article] {:frame f})
           _              (rf/unregister-listener! :trace ::he)
           err            (some #(when (= :rf.error/handler-exception (:operation %)) %)
                                @traces)]
@@ -1349,13 +1358,19 @@
     (rf/reg-event :throw-from-handler
       (fn [_ _] (throw (ex-info "post-redirect failure" {}))))
 
+    ;; rf2-vw5h1r / rf2-anehs6: :redirect-then-error is a RENDER-TIME request
+    ;; dispatch against a live frame, NOT an :initial-events setup step. The
+    ;; in-band handler-exception (from [:dispatch [:throw-from-handler]]) is
+    ;; the projector's drain-time domain; were this a construction setup step,
+    ;; the now-STRICT :initial-events teardown (EP-0027 §Failure) would tear
+    ;; the frame down and raise :rf.error/initial-events-step-failed instead.
     (let [traces (atom [])
-          _      (rf/register-listener! :trace ::rpe (fn [ev] (swap! traces conj ev)))
           f      (frame/make-anon-frame-record!
                    {:platform  :server
-                    :initial-events [[:redirect-then-error]]
                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                 :dev-error-detail? false}})
+          _      (rf/register-listener! :trace ::rpe (fn [ev] (swap! traces conj ev)))
+          _      (rf/dispatch-sync [:redirect-then-error] {:frame f})
           _      (rf/unregister-listener! :trace ::rpe)
           resp   (get-response f)]
       ;; The handler-exception fired (drain-time trace).
