@@ -153,8 +153,20 @@
                    "                         f    (fn [v] (re-frame.core/elide-wire-value v opts))"
                    "                         fmap (if (contains? fmap :app-db)"
                    "                                (update fmap :app-db f) fmap)"
-                   "                         fmap (if (contains? fmap :sub-cache)"
-                   "                                (update fmap :sub-cache f) fmap)")
+                   ;; rf2-mtzv5m: the :sub-cache slice is walked PER ENTRY,
+                   ;; threading each entry's query-v as :query-v so a route
+                   ;; read sub re-seeds at its storage position (mirror of the
+                   ;; production slice-walk-src in tools/snapshot.cljs).
+                   "                         fmap (if (and (contains? fmap :sub-cache) (map? (:sub-cache fmap)))"
+                   "                                (update fmap :sub-cache"
+                   "                                  (fn [sc] (reduce-kv"
+                   "                                    (fn [m qv entry]"
+                   "                                      (assoc m qv"
+                   "                                        (if (and (map? entry) (contains? entry :value))"
+                   "                                          (update entry :value"
+                   "                                            (fn [v] (re-frame.core/elide-wire-value v (assoc opts :query-v qv))))"
+                   "                                          entry)))"
+                   "                                    {} sc))) fmap)")
               "")
             (if redact-runtime-db?
               (str "                         fmap (if (contains? fmap :machines)"

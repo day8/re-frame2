@@ -235,10 +235,19 @@
   runtime `current-frame` call) so the walker resolves the right
   `[:rf.runtime/elision]` runtime-db registry; `elision-opts` is the rendered
   `elision-opts-edn` map threading the `--allow-sensitive-reads` gate
-  through `:rf.size/include-sensitive?`."
+  through `:rf.size/include-sensitive?`.
+
+  rf2-mtzv5m — the entry's `:query-v` is threaded into the walker as the
+  `:query-v` opt so a framework route read sub (`:rf/route` /
+  `:rf.route/query` / `:rf.route/params`) re-seeds the walk at its
+  `[:rf.runtime/routing :current …]` storage position (via the routing-owned
+  seed table `elide-wire-value` consults), redacting a `:sensitive` route
+  query / param that would otherwise ride RAW (the route classification is
+  re-rooted ABSOLUTE in the registry; the bare slice the sub returns would
+  never match a whole-value-rooted walk)."
   [frame-edn elision-opts]
   (str "(fn [entry]"
        "  (if (contains? entry :value)"
-       "    (let [opts (merge {:frame " frame-edn "} " elision-opts ")]"
+       "    (let [opts (merge {:frame " frame-edn " :query-v (:query-v entry)} " elision-opts ")]"
        "      (update entry :value (fn [v] (re-frame.core/elide-wire-value v opts))))"
        "    entry))"))

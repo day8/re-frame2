@@ -27,12 +27,15 @@
   (the handler / pending-nav sub / continue-cancel resume need it), only the
   EGRESS copy (trace bus / Xray / MCP / log / epoch) is projected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.classification :as classification]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
             [re-frame.routing :as routing]
             [re-frame.routing.egress :as egress]
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.routing.scroll :as scroll]
+            [re-frame.routing.sub-egress :as sub-egress]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
 
@@ -355,3 +358,201 @@
     (is (nil? (get-in (rf/runtime-db-value :rf/default)
                       [:rf.runtime/routing :pending-navigation]))
         "continue cleared the pending slot (resume completed from the raw value)")))
+
+;; ===========================================================================
+;; rf2-mtzv5m — route classification applied at :rf/route SUB-EGRESS surfaces.
+;;
+;; A route declares projection-relative `:sensitive` / `:large` paths; at
+;; activation they re-root ABSOLUTE under `[:rf.runtime/routing :current …]`
+;; in the per-frame elision registry. But the `:rf/route` sub returns the BARE
+;; slice (`{:route-id :params :query …}`), so a whole-value-rooted egress walk
+;; of the sub value never matched the re-rooted decls — a `:sensitive` query /
+;; param shipped RAW on the trace bus / Pair MCP / Xray wire, contradicting
+;; Spec 012 §Lowering and re-rooting. The fix is a routing-owned / late-bound
+;; route-sub egress projector with a sub-id → runtime-path SEED TABLE
+;; (`re-frame.routing.sub-egress`) that re-seeds the egress walk at the slice's
+;; storage position — the direct-read sibling of the SSR #4896 fix.
+;;
+;; The invariant under test: a `:sensitive [[:query :token]]` route redacts in
+;; BOTH the `:rf.sub/run` trace (`re-frame.classification/project-trace-event`)
+;; AND the Pair MCP `read-sub` path (`elide-wire-value` with `:query-v`), while
+;; in-process `@(rf/subscribe [:rf/route])` stays RAW. `:rf.route/query` /
+;; `:rf.route/params` (whose bare values also carry no route seed) are covered
+;; too, plus the `list-subscriptions :include-values` / `snapshot :sub-cache`
+;; re-seeding shape.
+;; ===========================================================================
+
+(defn- nav-to-sensitive-oauth!
+  "Register + navigate to a :sensitive [[:query :token]] / :large
+  [[:query :payload]] oauth route so the route classification lowers into
+  :rf/default's elision registry and the slice publishes. The :query schema
+  promotes the keys to keyword slots (undeclared query keys stay strings)."
+  []
+  (rf/reg-route :route/oauth
+                {:sensitive [[:query :token]]
+                 :large     [[:query :payload]]
+                 :query     [:map [:token :string] [:payload :string]]}
+                "/oauth")
+  (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123&payload=blobdata"]))
+
+(defn- route-slice
+  "The raw current route slice from :rf/default's runtime-db — exactly what the
+  `:rf/route` sub returns in-process."
+  []
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+
+;; ---- the seed table (the projector's data) --------------------------------
+
+(deftest seed-table-covers-the-route-read-subs
+  (testing "the three route read subs map to their runtime-db storage positions"
+    (is (= [:rf.runtime/routing :current]          (sub-egress/route-sub-seed-path :rf/route)))
+    (is (= [:rf.runtime/routing :current :query]   (sub-egress/route-sub-seed-path :rf.route/query)))
+    (is (= [:rf.runtime/routing :current :params]  (sub-egress/route-sub-seed-path :rf.route/params))))
+  (testing "a non-route sub-id resolves nil (NARROW — no generic propagation)"
+    (is (nil? (sub-egress/route-sub-seed-path :some-app/sub)))
+    (is (nil? (sub-egress/route-sub-seed-path :rf.route/id)))
+    (is (nil? (sub-egress/route-sub-seed-path nil)))))
+
+;; ---- the :rf.sub/run TRACE egress (the dev-trace / Xray wire) --------------
+
+(defn- project-sub-run-trace
+  "Run a synthetic `:rf.sub/run` trace event for `sub-id` carrying `value`
+  through the framework trace chokepoint `re-frame.classification/project-trace-event`
+  — the SINGLE site `re-frame.trace/build-event` consults before delivery to
+  every trace listener (the dev-trace bus, Xray, the epoch assembler). Returns
+  the projected `:rf.sub/value`."
+  [sub-id value]
+  (-> (classification/project-trace-event
+        {:operation :rf.sub/run
+         :tags      {:rf.sub/id sub-id :rf.sub/value value :frame :rf/default}})
+      :tags
+      :rf.sub/value))
+
+(deftest sub-run-trace-redacts-route-sensitive-query
+  (testing "rf2-mtzv5m: the :rf.sub/run trace of [:rf/route] redacts the
+            :sensitive query value and elides the :large one — the bare slice
+            value is re-seeded at [:rf.runtime/routing :current]"
+    (nav-to-sensitive-oauth!)
+    (let [projected (project-sub-run-trace :rf/route (route-slice))]
+      (is (= privacy/redacted-sentinel (get-in projected [:query :token]))
+          "the :sensitive [:query :token] redacts on the :rf.sub/run trace")
+      (is (elision/marker? (get-in projected [:query :payload]))
+          "the :large [:query :payload] elides to the size marker on the trace")
+      (is (= :route/oauth (:route-id projected))
+          "non-classified slice fields ride verbatim"))))
+
+(deftest sub-run-trace-redacts-rf-route-query-and-params-subs
+  (testing "rf2-mtzv5m: :rf.route/query (the bare :query map) redacts at egress —
+            its value carries no route seed without the projector"
+    (rf/reg-route :route/oauth
+                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                  "/oauth")
+    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (let [query-map (get-in (route-slice) [:query])
+          projected (project-sub-run-trace :rf.route/query query-map)]
+      (is (= privacy/redacted-sentinel (:token projected))
+          ":rf.route/query value redacts the :token at egress")))
+  (testing "rf2-mtzv5m: :rf.route/params (the bare :params map) redacts at egress"
+    (rf/reg-route :route/upload
+                  {:sensitive [[:params :secret]]}
+                  "/upload/:secret")
+    (rf/dispatch-sync [:rf.route/transitioned "/upload/topsecret"])
+    (let [params-map (get-in (route-slice) [:params])
+          projected  (project-sub-run-trace :rf.route/params params-map)]
+      (is (= privacy/redacted-sentinel (:secret projected))
+          ":rf.route/params value redacts the :secret at egress"))))
+
+;; ---- the Pair MCP read-sub / direct-read egress (elide-wire-value) ---------
+;;
+;; The Pair MCP `read-sub` / `list-subscriptions :include-values` /
+;; `snapshot :sub-cache` / Xray surfaces all route a route sub's value through
+;; `re-frame.core/elide-wire-value` server-side, naming the sub via `:query-v`.
+;; This pins THAT path: the bare slice walked with `{:query-v [:rf/route]
+;; :frame …}` redacts the :sensitive query, while the same call WITHOUT
+;; `:query-v` (a non-route value) leaves it raw — proving the re-seed is the
+;; mechanism.
+
+(deftest read-sub-elide-wire-value-redacts-route-sub-via-query-v
+  (testing "rf2-mtzv5m: elide-wire-value with :query-v [:rf/route] re-seeds at
+            the slice storage position and redacts the :sensitive query value
+            (the Pair MCP read-sub server-side call shape)"
+    (nav-to-sensitive-oauth!)
+    (let [slice   (route-slice)
+          elided  (rf/elide-wire-value slice {:query-v [:rf/route] :frame :rf/default})]
+      (is (= privacy/redacted-sentinel (get-in elided [:query :token]))
+          "the route :sensitive query value redacts on the read-sub wire")
+      (is (= :route/oauth (:route-id elided))
+          "non-classified slice fields ride verbatim")))
+  (testing "rf2-mtzv5m: WITHOUT :query-v the bare slice ships raw (the whole-value
+            root never matches the re-rooted decl) — confirms the re-seed is
+            load-bearing, and that NON-route values are untouched"
+    (nav-to-sensitive-oauth!)
+    (let [slice  (route-slice)
+          elided (rf/elide-wire-value slice {:frame :rf/default})]
+      (is (= "secret123" (get-in elided [:query :token]))
+          "no :query-v ⇒ no route re-seed ⇒ the bare slice walks at the root and rides raw"))))
+
+(deftest read-sub-elide-wire-value-redacts-query-and-params-subs
+  (testing "rf2-mtzv5m: :rf.route/query / :rf.route/params re-seed via :query-v"
+    (rf/reg-route :route/oauth
+                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                  "/oauth")
+    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (let [query-map (get-in (route-slice) [:query])
+          elided    (rf/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})]
+      (is (= privacy/redacted-sentinel (:token elided))
+          ":rf.route/query value redacts via the :query-v re-seed"))
+    (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
+    (rf/dispatch-sync [:rf.route/transitioned "/upload/topsecret"])
+    (let [params-map (get-in (route-slice) [:params])
+          elided     (rf/elide-wire-value params-map {:query-v [:rf.route/params] :frame :rf/default})]
+      (is (= privacy/redacted-sentinel (:secret elided))
+          ":rf.route/params value redacts via the :query-v re-seed"))))
+
+;; ---- the IN-PROCESS read stays RAW (the NARROW invariant) ------------------
+
+(deftest in-process-route-read-stays-raw
+  (testing "rf2-mtzv5m: classification is read ONLY at egress — the in-process
+            durable slice (what @(rf/subscribe [:rf/route]) returns) keeps the
+            RAW :token / :payload so the handler / views / app subs see real
+            values"
+    (nav-to-sensitive-oauth!)
+    (let [slice (route-slice)]
+      (is (= "secret123" (get-in slice [:query :token]))
+          "the in-process :token is RAW (subs / views need it)")
+      (is (= "blobdata" (get-in slice [:query :payload]))
+          "the in-process :large :payload is RAW in-process"))
+    (testing "and the route-sub egress projector itself is a no-op on a non-route sub"
+      (is (= {:query {:token "x"}}
+             (sub-egress/project-route-sub-egress :some-app/sub {:query {:token "x"}}
+                                                  {:frame :rf/default}))
+          "NARROW: a non-route sub value rides verbatim (no generic propagation)"))))
+
+;; ---- the snapshot :sub-cache per-entry re-seed shape -----------------------
+;;
+;; The Pair MCP snapshot :sub-cache slice is `{query-v {:value v …}}`; the fix
+;; walks it PER ENTRY threading each entry's query-v. This pins the per-entry
+;; semantics directly against the projector (the MCP eval-form-string shape is
+;; gated by the JS-side egress-elision tests).
+
+(deftest snapshot-sub-cache-per-entry-reseed-redacts-route-entry
+  (testing "rf2-mtzv5m: a :sub-cache entry keyed by [:rf/route] redacts its
+            :value's :sensitive query when walked per-entry with its query-v,
+            while a non-route entry rides raw"
+    (nav-to-sensitive-oauth!)
+    (let [sub-cache {[:rf/route]      {:value (route-slice) :ref-count 1}
+                     [:some-app/data] {:value {:query {:token "not-a-route"}} :ref-count 1}}
+          ;; Mirror the snapshot tool's per-entry walk: for each entry, run
+          ;; :value through elide-wire-value with :query-v = the entry's key.
+          walked    (reduce-kv
+                      (fn [m qv entry]
+                        (assoc m qv
+                               (update entry :value
+                                       #(rf/elide-wire-value % {:query-v qv :frame :rf/default}))))
+                      {} sub-cache)]
+      (is (= privacy/redacted-sentinel
+             (get-in walked [[:rf/route] :value :query :token]))
+          "the [:rf/route] sub-cache entry's :sensitive query redacts per-entry")
+      (is (= "not-a-route"
+             (get-in walked [[:some-app/data] :value :query :token]))
+          "a non-route sub-cache entry rides raw (NARROW — only route subs re-seed)"))))

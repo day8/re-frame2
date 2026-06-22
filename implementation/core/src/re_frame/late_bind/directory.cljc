@@ -492,6 +492,14 @@
    {:key         :routing/route-sub-fn
     :producer-ns 're-frame.routing
     :description "Subscription fn returning the currently-matched route."}
+   {:key         :routing/route-sub-egress-path
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-mtzv5m"
+    :description "Resolve a framework route read sub-id (`:rf/route` / `:rf.route/query` / `:rf.route/params`) to the runtime-db storage position its sub value projects onto (`[:rf.runtime/routing :current …]`), or nil for a non-route sub. Consumed by `re-frame.elision/elide-wire-value`'s `:query-v` opt so the direct-read off-box egress surfaces (Pair MCP read-sub / list-subscriptions :include-values / snapshot :sub-cache / Xray) re-seed the walk at the slice's storage position — letting the per-frame elision registry's re-rooted absolute route decls (`:source :route`, lowered at activation) match the bare slice the sub returns. Core stays decoupled from routing (rf2-k682); absent the artefact the hook is unbound and a route sub value walks at the whole-value root (no route slice to leak)."}
+   {:key         :routing/project-route-sub-egress
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-mtzv5m"
+    :description "Project a route read sub's value for egress — `(fn [sub-id value opts]) -> projected-value` — applying the route's projection-relative `:sensitive` / `:large` classification (re-rooted under `[:rf.runtime/routing :current …]` into the per-frame elision registry at activation) by re-seeding `elide-wire-value` at the slice's runtime-db storage position. A no-op pass-through for a non-route sub (NARROW: no generic sub-output propagation). Consumed by the trace chokepoint `re-frame.classification/project-sub-tags` for the `:rf.sub/run` `:rf.sub/value` / `:rf.sub/prev-value` slots; the off-box direct-read surfaces reach the same re-seeding via the `:routing/route-sub-egress-path` hook through `elide-wire-value`'s `:query-v` opt. The direct-read sibling of the SSR `re-frame.ssr.payload-policy/project-routing-egress` fix (rf2-4xut98). Absent the routing artefact the hook is unbound."}
    {:key         :routing/route-link
     :producer-ns 're-frame.routing
     :description "Reagent / SSR `[rf/route-link ...]` view component renderer."}

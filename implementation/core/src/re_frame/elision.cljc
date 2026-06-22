@@ -1030,7 +1030,25 @@
   value asks for it on purpose."
   ([v] (elide-wire-value v nil))
   ([v opts]
-   (let [frame-id   (or (:frame opts) (frame/resolve-current-frame))
+   (let [;; rf2-mtzv5m — route-sub egress re-seeding. A direct-read off-box
+         ;; surface (Pair MCP read-sub / list-subscriptions :include-values /
+         ;; snapshot :sub-cache / Xray) walks a route read sub's BARE value but
+         ;; the route's classification is re-rooted ABSOLUTE under
+         ;; `[:rf.runtime/routing :current …]` in the registry. When the caller
+         ;; names the sub via `:query-v`, consult the routing-owned seed table
+         ;; (late-bound — core stays decoupled from routing, rf2-k682) and
+         ;; OVERLAY the slice's runtime-db storage position as `:path` so the
+         ;; candidate declaration-coordinate set starts where the re-rooted
+         ;; decls live (mirroring the SSR `project-routing-egress` offset). A
+         ;; non-route sub-id resolves nil and `opts` is untouched.
+         opts       (if-let [qv (:query-v opts)]
+                      (if-let [seed-fn (late-bind/get-fn :routing/route-sub-egress-path)]
+                        (if-let [seed (seed-fn (when (sequential? qv) (first qv)))]
+                          (assoc opts :path seed)
+                          opts)
+                        opts)
+                      opts)
+         frame-id   (or (:frame opts) (frame/resolve-current-frame))
          ;; A frame-id alone is not policy-bearing — it must resolve to a
          ;; LIVE frame. `frame/frame` returns nil for an unknown /
          ;; never-registered / destroyed id, so an explicit `:frame` opt or
