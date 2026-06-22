@@ -718,23 +718,34 @@
   against the established frame scope.
 
   EP-0025: the imperative `add-marks` / `set-marks` API is REMOVED. These
-  fixture ops are a TEST-ONLY shorthand for installing frame app-db
-  classification — equivalent to the kept commit-plane `:sensitive` / `:large`
-  effects (`:source :effect`). The harness installs each `{path mark}` directly
-  into the frame's durable elision registry. `:add-marks` merges (additive);
-  `:set-marks` replaces ALL prior effect-sourced declarations on the frame first
-  (frame-sourced survive), so the `set-marks-replaces-not-merges` semantics hold.
+  fixture ops are a TEST-ONLY shorthand for installing / removing frame app-db
+  classification — equivalent to the four kept commit-plane effects
+  (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, `:source
+  :effect`). The harness installs / removes each `{path mark}` directly into the
+  frame's durable elision registry. `:add-marks` merges (additive); `:set-marks`
+  replaces ALL prior effect-sourced declarations on the frame first
+  (frame-sourced survive), so the `set-marks-replaces-not-merges` semantics hold;
+  `:clear-marks` removes exactly the named `{path mark}` entries on their named
+  axis ONLY (the OTHER axis at the same path survives — the commit-plane
+  `:clear-sensitive` / `:clear-large` per-axis independence).
 
   `:fixture/app-marks` is an ORDERED vector of op-maps; each carries exactly one
-  of `{:add-marks {path mark}}` / `{:set-marks {path mark}}`. `path` is a
-  `get-in`-shaped vector; `mark` is `:sensitive` or `:large`. Called AFTER
-  `reg-frame` (the elision slot exists) and BEFORE `realise-flows!`."
+  of `{:add-marks {path mark}}` / `{:set-marks {path mark}}` / `{:clear-marks
+  {path mark}}`. `path` is a `get-in`-shaped vector; `mark` is `:sensitive` or
+  `:large`. Called AFTER `reg-frame` (the elision slot exists) and BEFORE
+  `realise-flows!`."
   [fixture scope-frame]
   (letfn [(slot-for [mark]
             (case mark :sensitive :sensitive-declarations :large :declarations))
           (merge-marks [reg path->mark]
             (reduce-kv (fn [r path mark]
                          (assoc-in r [(slot-for mark) (vec path)] {:source :effect}))
+                       reg path->mark))
+          (clear-marks [reg path->mark]
+            (reduce-kv (fn [r path mark]
+                         (let [slot (slot-for mark)
+                               kept (dissoc (get r slot) (vec path))]
+                           (if (seq kept) (assoc r slot kept) (dissoc r slot))))
                        reg path->mark))
           (drop-effect-sourced [reg]
             (reduce (fn [r slot]
@@ -748,7 +759,9 @@
         (elision/swap-elision-slot! scope-frame #(merge-marks (or % {}) (:add-marks op)))
         (contains? op :set-marks)
         (elision/swap-elision-slot! scope-frame
-          #(merge-marks (drop-effect-sourced (or % {})) (:set-marks op)))))))
+          #(merge-marks (drop-effect-sourced (or % {})) (:set-marks op)))
+        (contains? op :clear-marks)
+        (elision/swap-elision-slot! scope-frame #(clear-marks (or % {}) (:clear-marks op)))))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]

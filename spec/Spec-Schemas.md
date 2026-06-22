@@ -327,14 +327,14 @@ The metadata map accepted by `reg-sub`. The `:<-` chain is **not** a metadata-ma
    [:map
     [:rf/inputs    {:optional true} [:vector [:vector :any]]]                ;; runtime-stamped: the resolved :<- chain as a vector of query-vectors
     [:rf/layer     {:optional true} [:enum :layer-1 :layer-2+]]              ;; runtime-stamped: derived from :rf/inputs at registration time
-    [:rf.egress/output-sensitivity {:optional true}                         ;; derived-output declassification claim (EP-0015 issue 9); absent ⇒ :rf.egress/inherit
-     [:enum :rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
+    [:sensitive    {:optional true} [:vector [:vector :any]]]                ;; registration-owned sub-OUTPUT sensitive sub-paths ([[]] = whole); EP-0025 transient classification
+    [:large        {:optional true} [:vector [:vector :any]]]                ;; registration-owned sub-OUTPUT large sub-paths ([[]] = whole)
     ]])
 ```
 
 `:rf/inputs` and `:rf/layer` are stamped by the runtime at registration time from the `:<-` positional args — user code MUST NOT set them.
 
-`:rf.egress/output-sensitivity` is the optional derived-output declassification claim (EP-0015 issue 9; [015 §Derived sensitivity](015-Data-Classification.md#derived-sensitivity)) — a closed enum `:rf.egress/inherit` (default, absent ⇒ inherit sensitivity from inputs) / `:rf.egress/sensitive` (force-mark the output sensitive) / `:rf.egress/public` (declassify — surface unredacted despite sensitive inputs). It is the SOLE derived-output sensitivity surface: the boolean `:sensitive?` declassify/force spelling is rejected at registration (`:sensitive` already names a path collection at this layer). An unknown value throws `:rf.error/bad-marks` (fail-closed). The same key + enum is accepted on the `reg-flow` registration map. Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:rf/inputs` back to project the `:<-` graph.
+`:sensitive` / `:large` are the registration-owned classification of the sub's **own output** sub-paths ([015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification)) — each a vector of `:rf/path` vectors into the output shape (`[[]]` marks the whole output); a malformed value is rejected at registration with `:rf.error/bad-classification`. **EP-0025 removed derived-output sensitivity propagation**: a sub no longer inherits its inputs' classification, and there is no `:rf.egress/output-sensitivity` declassification claim (a sensitive derived value is just a classified output path — classify it). Static topology queries (`sub-topology`, per [006](006-ReactiveSubstrate.md)) read `:rf/inputs` back to project the `:<-` graph.
 
 #### `:rf/fx-meta`
 
@@ -459,15 +459,12 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
     [:inputs       [:vector [:vector :any]]]                                 ;; required: vector of app-db paths; positional args to :derive
     [:derive       fn?]                                                      ;; required: pure fn (in-1, ..., in-n) → output
     [:output-path  [:vector :any]]                                           ;; required: app-db path to write output to
-    [:rf.egress/output-sensitivity {:optional true}                         ;; derived-output declassification claim (EP-0015 issue 9); absent ⇒ :rf.egress/inherit
-     [:enum :rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
-    [:sensitive    {:optional true} [:vector [:vector :any]]]                ;; per-output-path sensitive sub-slots ([[]] = whole)
-    [:large        {:optional true} [:vector [:vector :any]]]                ;; per-output-path large sub-slots ([[]] = whole)
-    [:large?       {:optional true} :boolean]                                ;; whole-output size override (size has no declassification analogue)
+    [:sensitive    {:optional true} [:vector [:vector :any]]]                ;; registration-owned flow-OUTPUT sensitive sub-paths ([[]] = whole); EP-0025 transient classification
+    [:large        {:optional true} [:vector [:vector :any]]]                ;; registration-owned flow-OUTPUT large sub-paths ([[]] = whole)
     ]])
 ```
 
-`:id`, `:inputs`, `:derive`, `:output-path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `:rf.egress/output-sensitivity` is the derived-output declassification claim (EP-0015 issue 9; same closed enum as [`SubMeta`](#rfsub-meta)) — the SOLE derived-output sensitivity surface; the boolean `:sensitive?` declassify/force spelling is rejected at registration with `:rf.error/flow-bad-marks`, and an unknown enum value throws the same key (fail-closed). The `[:id :keyword]` constraint is enforced at the API boundary — `reg-flow` rejects a present-but-non-keyword `:id` rather than normalising it later, so the `:flow-id` trace/error slot never carries an arbitrary id shape. `reg-flow` rejects malformed maps with one of six distinct error keys — `:rf.error/flow-missing-id` (`:id` absent), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path`, and `:rf.error/flow-bad-marks` (a malformed output data-classification key — a non-vector `:sensitive` / `:large` or a non-vector subpath entry, the rejected boolean `:sensitive?` spelling, a non-boolean `:large?`, or an unknown `:rf.egress/output-sensitivity` enum value; flow output marks are a fail-closed safety surface, so a malformed mark is a loud rejection rather than a silent drop) — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md). The flow-specific `:rf.error/flow-bad-marks` discriminator is **distinct from** the marks/subs surface's `:rf.error/bad-marks` (used by `add-marks` / `set-marks` and `reg-sub` mark validation, per [`SubMeta`](#rfsub-meta) above) — the two surfaces carry separate keys so conformance / error-catalogue consumers can route a reg-flow mark fault apart from a marks-table fault.
+`:id`, `:inputs`, `:derive`, `:output-path` are **required** at registration time; the base `:rf/registration-metadata` keys (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`) compose additively. `:sensitive` / `:large` classify the flow's **own output** sub-paths (the same EP-0025 registration-owned transient classification as [`SubMeta`](#rfsub-meta)) — each a vector of `:rf/path` vectors into the output shape (`[[]]` marks the whole output). **EP-0025 removed flow output-sensitivity propagation**: a flow no longer inherits its inputs' classification, and the `:rf.egress/output-sensitivity` declassification key + its enum (and the whole-output `:large?` boolean) are gone — a sensitive flow output is just a classified output path. The `[:id :keyword]` constraint is enforced at the API boundary — `reg-flow` rejects a present-but-non-keyword `:id` rather than normalising it later, so the `:flow-id` trace/error slot never carries an arbitrary id shape. `reg-flow` rejects malformed maps with one of six distinct error keys — `:rf.error/flow-missing-id` (`:id` absent), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path`, and `:rf.error/flow-bad-marks` (a malformed output data-classification key — a non-vector `:sensitive` / `:large` or a subpath entry that is not a vector of EP-0012 path segments; flow output classification is a fail-closed safety surface, so a malformed declaration is a loud rejection rather than a silent drop) — surfaced via [009 §Error contract](009-Instrumentation.md#error-contract); see also [013 §The registration shape](013-Flows.md). The flow-specific `:rf.error/flow-bad-marks` discriminator is **distinct from** the registration / commit-plane classification surface's `:rf.error/bad-classification` (reg-* `:sensitive` / `:large` metadata) and `:rf.error/classification-effect-shape` (the durable-app-db commit-plane effects) — the surfaces carry separate keys so conformance / error-catalogue consumers can route a reg-flow classification fault apart.
 
 #### `:rf/app-schema-meta`
 
@@ -2422,31 +2419,34 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:pending-navigation     {:optional true} :rf/pending-navigation]])
 
 (def ElisionDeclaration
-  ;; EP-0015 §8: the declaration source is FRAME-owned (`:frame`, from a
-  ;; `reg-frame` `:large {:app-db …}` classification) or imperative marks
-  ;; (`:marks`, from `add-marks` / `set-marks`). Schemas are NOT a source —
-  ;; schema-attached `:large?` slot props no longer feed this registry.
+  ;; EP-0025: the LARGE-axis declaration source — `:effect` (a commit-plane
+  ;; `:large` effect a handler returns with its `:db` write), `:machine` /
+  ;; `:resource` / `:route` (a subsystem projection-relative declaration
+  ;; lowered per instance), or `:flow` (a flow output declaration). The
+  ;; removed pre-EP-0025 sources (`:frame` annotation, imperative `:marks`,
+  ;; `:schema` slot props) are NOT a source for durable app-db classification.
   [:map
-   [:large?  {:optional true} :boolean]
    [:hint    {:optional true} [:maybe :string]]
-   [:source  [:enum :frame :marks]]])
+   [:source  [:enum :effect :machine :resource :route :flow]]])
 
 (def SensitiveDeclaration
-  ;; EP-0015 §8: source is `:frame` (`reg-frame` `:sensitive {:app-db …}`)
-  ;; or `:marks` (`add-marks` / `set-marks`); NOT `:schema`.
+  ;; EP-0025: the SENSITIVE-axis sibling — the SAME source enum as
+  ;; ElisionDeclaration (`:effect` / `:machine` / `:resource` / `:route` /
+  ;; `:flow`); the two axes are independent and cleared independently.
   [:map
-   [:sensitive? {:optional true} :boolean]
    [:hint       {:optional true} [:maybe :string]]
-   [:source     [:enum :frame :marks]]])
+   [:source     [:enum :effect :machine :resource :route :flow]]])
 
 (def Elision
   ;; The wire-elision declaration registry. Consulted by `rf/elide-wire-value`
-  ;; at every wire-boundary emit. The nomination path is FRAME-owned durable
-  ;; classification (`reg-frame` `:sensitive` / `:large {:app-db …}`, EP-0015
-  ;; §3 / §8) plus the imperative `add-marks` / `set-marks` surface —
-  ;; un-declared slots fire :rf.warning/large-value-unschema'd but are NOT
-  ;; elided. Schema-attached `:sensitive?` / `:large?` slot props do NOT feed
-  ;; this registry (schemas describe shape, not durable app-db egress policy).
+  ;; at every wire-boundary emit, and by the record projector. EP-0025: the
+  ;; nomination path is the four commit-plane data-classification effects
+  ;; (durable app-db, `:source :effect`), subsystem projection-relative
+  ;; declarations (lowered per instance), and flow outputs — the sources UNION
+  ;; at egress lookup. Un-declared over-threshold slots fire
+  ;; :rf.warning/large-value-unschema'd; the size backstop auto-elides them.
+  ;; Schema-attached `:sensitive?` / `:large?` slot props do NOT feed this
+  ;; registry (schemas describe shape, not durable app-db egress policy).
   [:map
    [:declarations           {:optional true} [:map-of [:vector :any] ElisionDeclaration]]
    [:sensitive-declarations {:optional true} [:map-of [:vector :any] SensitiveDeclaration]]])
@@ -2491,7 +2491,7 @@ A frame owns two durable partitions held as one physical frame-state container (
 
 - **`:rf.runtime/machines`** — owned by [005-StateMachines.md](005-StateMachines.md). Each machine's snapshot lives at `[:rf.runtime/machines :snapshots <machine-id>]`; the system-id reverse index lives at `[:rf.runtime/machines :system-ids]`; the declarative-spawn / spawn-all registry lives at `[:rf.runtime/machines :spawned]`; the hand-emitted-spawn fallback counter lives at `[:rf.runtime/machines :spawn-counter]` (declarative `:spawn`'s counter is snapshot-internal, not here). The runtime composes the `:snapshots` schema additively from registered machines' declared `:data` shapes.
 - **`:rf.runtime/routing`** — owned by [012-Routing.md](012-Routing.md). The live route slice (`{:route-id :params :query :transition :error :fragment :nav-token}`) lives at `[:rf.runtime/routing :current]`; the pending-navigation slot at `[:rf.runtime/routing :pending-navigation]`. The monotonic nav-token / pending-nav **counters** are **NOT** here — they are host-side transient caches held outside the frame value so an epoch restore cannot rewind + recycle a token ([012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). The route `:resources` blocking slot (`{<nav-token> #{<scoped-resource-key> …}}`, the set of blocking route resources keeping the transition `:loading` per nav-token) lives at `[:rf.runtime/routing :resource-blocking]` — a cross-feature sibling written by the [Resources artefact](016-Resources.md) (Spec 016 §Route integration) via the late-bound `:routing/on-route-entry` plan, read by routing's settle handler through the late-bound `:routing/route-blocking?` predicate; absent in a routing-only app (the keys are only written when a route declares blocking `:resources`). The saved scroll-position LRU is **not** here — it is a host-side transient cache ([012 §Scroll restoration](012-Routing.md#scroll-restoration)).
-- **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced from **frame-owned classification** (`reg-frame` `:sensitive` / `:large {:app-db …}`, EP-0015 §3 / §8) plus the imperative `add-marks` / `set-marks` surface — **not** from app-db schema slot props (EP-0015 §8: schemas describe shape, not durable app-db egress policy). The declaration *records* are runtime bookkeeping and live in runtime-db.
+- **`:rf.runtime/elision`** — owned by [009-Instrumentation.md](009-Instrumentation.md). The size-elision declaration registry lives at `[:rf.runtime/elision :declarations]`; the privacy sibling at `[:rf.runtime/elision :sensitive-declarations]`. The declarations are sourced (EP-0025) from the **four commit-plane data-classification effects** (durable app-db, `:source :effect`), **subsystem projection-relative declarations** (`reg-machine` / `reg-resource` / `reg-mutation` / `reg-route`, lowered per instance), and **flow outputs** (`:source :flow`) — the sources union at egress lookup. They are **not** sourced from a frame `:sensitive {:app-db …}` annotation, an imperative `add-marks` / `set-marks` API, or app-db schema slot props (all removed by EP-0025: schemas describe shape, not durable app-db egress policy). The declaration *records* are runtime bookkeeping and live in runtime-db.
 - **`:rf.runtime/ssr`** — owned by [011-SSR.md](011-SSR.md). Server-supplied hydration metadata lives at `[:rf.runtime/ssr :hydration]` (`:server-hash` consumed by `verify-hydration!`, `:version` consumed by `:rf.ssr/check-version`).
 
 **Per-frame isolation** is automatic — each frame owns its own runtime-db; the same machine id, route id, or elision path can exist in multiple frames without collision.
@@ -3036,7 +3036,7 @@ The wire shape `rf/elide-wire-value` substitutes for an elided large value. Cata
    [:path    [:vector :any]]                                                ;; absolute path inside the slice's root value
    [:bytes   :int]                                                          ;; pr-str byte count
    [:type    [:enum :map :vector :set :scalar :string]]                     ;; top-level shape of the elided value
-   [:reason  [:enum :frame :marks]]                                         ;; provenance — frame-owned classification (EP-0015 §8) or imperative add-marks/set-marks
+   [:reason  [:enum :effect :machine :resource :route :flow]]               ;; provenance — the :source of the elision-registry declaration (EP-0025): :effect (commit-plane :large effect) / :machine / :resource / :route (subsystem decl) / :flow (flow output)
    [:hint    [:maybe :string]]                                              ;; verbatim from the declaration's :hint slot
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]                   ;; fetch-handle: [:rf.elision/at <path>]
    [:digest  {:optional true} :string]])                                    ;; sha256:<hex>; only when :rf.size/include-digests? true
@@ -3582,42 +3582,37 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
     ;; Frame-owned durable data classification (EP-0015 §3 + §9; the model
     ;; is normative in [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)).
-    ;; Installed atomically before the `:initial-events` setup runs; sensitive wins over large;
-    ;; malformed paths / unknown keys / non-string carriers fail loudly at
+    ;; EP-0025: `:sensitive` is now an HTTP-CARRIERS-ONLY frame block — the
+    ;; durable `:app-db` path classification moved to the four commit-plane
+    ;; effects (a `reg-frame` `:sensitive {:app-db …}` is REJECTED fail-loud),
+    ;; and `:large` is NO LONGER a frame key. Validated through the frame
+    ;; `validate!` seam; a malformed carrier / an `:app-db` key fails loudly at
     ;; registration (`:rf.error/bad-frame-classification`).
     [:sensitive    {:optional true} FrameSensitiveClassification]
-    [:large        {:optional true} FrameLargeClassification]
     [:observability {:optional true} FrameObservability]
     ]])
 
-;; --- the frame-owned classification sub-shapes (EP-0015 §3 + §9) ---
+;; --- the surviving frame-owned classification sub-shapes (EP-0025) ---
 
-;; `:app-db` entries are `:rf/path` values (EP-0012; `[]` marks the whole
-;; app-db). `:http` carrier names are frame-local extensions to the
-;; immutable built-in HTTP carrier denylist — strings (header / query-param
-;; names are strings on the wire). `:http` is closed to `:headers` /
-;; `:query-params`.
+;; `:sensitive` survives ONLY for its `:http` carrier block (EP-0025): the
+;; frame-local extension to the immutable built-in HTTP carrier denylist —
+;; strings (header / query-param names are strings on the wire). `:http` is
+;; closed to `:headers` / `:query-params`. There is NO `:app-db` key (durable
+;; app-db classification is the commit-plane `:sensitive` / `:large` effects),
+;; and there is no frame `:large` key.
 (def FrameSensitiveClassification
   [:map
-   [:app-db {:optional true} [:vector Path]]                               ;; Path = :rf/path
    [:http   {:optional true}
     [:map
      [:headers      {:optional true} [:vector :string]]
      [:query-params {:optional true} [:vector :string]]]]])
 
-(def FrameLargeClassification
-  [:map
-   [:app-db {:optional true} [:vector Path]]])                             ;; Path = :rf/path
-
-;; The closed six-member `:rf.egress/profile` enum (EP-0015 §10, issue 3;
-;; normative in [015 §Projection profiles](015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)).
-;; The names are RENAMED for axis consistency (`local-redacted` / `local-raw`
-;; replacing the EP's earlier on-box-hidden-sensitive / trusted-local-raw
-;; spellings) and are PROVISIONAL until each profile is exercised by a real
-;; consumer surface (the graduation gate). Additions require a recorded
-;; ruling. Each profile resolves to a `:rf.size/*` opt-set (the §10
-;; default-behaviour table); an explicit `:rf.size/*` boolean COMPOSES on
-;; top (the override wins).
+;; The closed six-member `:rf.egress/profile` enum (normative in
+;; [015 §Projection profiles](015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)).
+;; Additions require a recorded ruling. Each profile resolves to a `:rf.size/*`
+;; opt-set FLOOR (the §Projection-profiles default-behaviour table); an explicit
+;; `:rf.size/*` boolean OVERLAYS on top (the override wins). An unknown profile
+;; is rejected fail-closed (`:rf.error/unknown-egress-profile`).
 (def EgressProfile
   [:enum
    :rf.egress/off-box-observability                                        ;; hosted monitoring; redact sensitive, elide large, omit digests
@@ -3643,7 +3638,7 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
    [:errors         {:optional true} [:vector FrameSinkEntry]]])
 ```
 
-`Path` is the `:rf/path` schema (a vector of segments; see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). The three classification keys appear on the *input* `reg-frame` metadata map and on the `frame-meta` readback verbatim — they are durable frame config. The `:sensitive :app-db` / `:large :app-db` paths are additionally lowered into the durable elision registry (`[:rf.runtime/elision …]`) under `:source :frame` at registration, where they union with the imperative marks-sourced (`add-marks` / `set-marks`) declarations. Schema slot props are **not** a source (EP-0015 §8).
+`Path` is the `:rf/path` schema (a vector of segments; see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). EP-0025: `:sensitive` survives on the frame **only** as the HTTP-carrier extension block + the `:observability` sink policy; both appear on the *input* `reg-frame` metadata map and on the `frame-meta` readback verbatim. **Durable app-db classification is NOT a frame annotation** — it rides the four commit-plane `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` effects (a handler returns them with its `:db` write; lowered into `[:rf.runtime/elision …]` under `:source :effect`); a `reg-frame` `:sensitive {:app-db …}` is rejected fail-loud, and there is no frame `:large` key. Subsystem instance data is lowered projection-relative under its own `:source`; schema slot props are **not** a source (EP-0025).
 
 ### `:rf/realm` (runtime realm, EP-0013)
 
