@@ -29,7 +29,11 @@
     4. **`:rf.egress/local-raw` opt-in** — the per-(tool,frame) trusted-local
        grain reveals the sensitive slot (an explicit operator act).
     5. **fail-closed** — an unreachable observed frame redacts the WHOLE value
-       under the redacted default rather than ship it raw.
+       under the redacted default rather than ship it raw; the unreachable /
+       nil frame is stamped with a NON-NIL dead-frame sentinel (not omitted),
+       and (5b) a nil / unreachable observed frame still redacts EVEN WHEN an
+       ambient frame is dynamically bound — it must NOT borrow that ambient
+       frame's policy and leak the secret (rf2-cra0nq, mirroring rf2-udkj69).
     6. **end-to-end** — the App-DB Diff section model sub
        (`:rf.xray/app-db-state`) redacts a sensitive app-db slot, so what the
        panel hands the edn-inspector is already projected."
@@ -158,13 +162,63 @@
   (testing "a nil observed frame likewise fails closed"
     (is (= :rf/redacted (local-render/local-render-value app-db-value nil))))
   (testing "the live frame is carried as the :frame opt; an unreachable one is
-            omitted so the walker fails closed"
+            stamped with a NON-NIL dead-frame sentinel (NOT omitted / nil) so
+            the walker takes its unresolvable-frame fail-closed branch rather
+            than fall through to the ambient frame (rf2-cra0nq)"
     (is (= secure-frame (:frame (local-render/local-render-opts secure-frame))))
-    (is (not (contains? (local-render/local-render-opts :app/does-not-exist) :frame)))
+    (let [unreachable-opts (local-render/local-render-opts :app/does-not-exist)
+          nil-opts         (local-render/local-render-opts nil)]
+      (is (contains? unreachable-opts :frame)
+          "an unreachable frame MUST still stamp :frame (a sentinel), never omit it")
+      (is (some? (:frame unreachable-opts))
+          "the stamped :frame is NON-NIL — a nil/absent :frame borrows the ambient frame")
+      (is (not= :app/does-not-exist (:frame unreachable-opts))
+          "the stamped :frame is a sentinel, not the unreachable id itself")
+      (is (contains? nil-opts :frame)
+          "a nil frame-id MUST stamp the sentinel, not leave :frame nil/absent")
+      (is (some? (:frame nil-opts))
+          "the nil-frame :frame opt is the NON-NIL sentinel"))
     (is (= :rf.egress/local-redacted
            (:rf.egress/profile (local-render/local-render-opts secure-frame))))
     (is (true? (:rf.size/include-large? (local-render/local-render-opts secure-frame)))
         "the keep-large overlay is always present")))
+
+;; ---------------------------------------------------------------------------
+;; 5b. THE AMBIENT-BORROW ARM — fail-closed EVEN WHEN an ambient frame is bound
+;;     (rf2-cra0nq, mirroring the off-box derivation-graph fix rf2-udkj69).
+;;
+;; The §5 arm runs under the fixture's `:ambient-frame nil`, so the absent-:frame
+;; path resolves NO frame and trivially fails closed — it never exercised the
+;; ambient-BORROW leak. Here we dynamically bind an ambient frame (`:app/plain`,
+;; which declares NO sensitive policy, so a borrow WOULD ship the token RAW) and
+;; assert a nil / unreachable observed frame still redacts the whole value rather
+;; than borrow `:app/plain`'s empty policy and leak the secret.
+;; ---------------------------------------------------------------------------
+
+(deftest local-render-fails-closed-under-bound-ambient-frame
+  (rf/with-frame plain-frame
+    (is (some? (frame/resolve-current-frame))
+        "PRECONDITION — an ambient frame IS dynamically bound, so an absent /
+         nil :frame opt WOULD resolve it (the borrow this arm forbids)")
+    (testing "a NIL observed frame redacts the whole value, NOT shipping it raw
+              under the borrowed ambient :app/plain (empty) policy (rf2-cra0nq)"
+      (let [rendered (local-render/local-render-value app-db-value nil)]
+        (is (= :rf/redacted rendered)
+            "nil frame ⇒ whole-value redact, never the borrowed-ambient identity walk")
+        (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
+            "the session token must NOT ride through under the borrowed ambient frame")))
+    (testing "an UNREACHABLE observed frame likewise redacts under a bound ambient"
+      (is (= :rf/redacted
+             (local-render/local-render-value app-db-value :app/does-not-exist))
+          "destroyed / never-registered frame fails closed, never borrows ambient"))
+    (testing "the LOCAL-RAW opt-in still ships raw even with the sentinel — the
+              operator has explicitly waived redaction (the opt-out branch precedes
+              the fail-closed redact); the sentinel never over-redacts a deliberate
+              raw request"
+      (is (= "secret-session-jwt-abc123"
+             (get-in (local-render/local-render-value app-db-value nil true)
+                     [:auth :token]))
+          ":rf.egress/local-raw includes-sensitive? ⇒ identity walk even frameless"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. end-to-end — the App-DB Diff section-model derivation redacts a sensitive

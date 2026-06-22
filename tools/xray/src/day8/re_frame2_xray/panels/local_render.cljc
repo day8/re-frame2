@@ -53,17 +53,24 @@
 
   ## Fail-closed (the silent-leak this seam abolishes)
 
-  `rf/project-egress` delegates to `rf/elide-wire-value`, which treats a
-  carried `:frame` opt as a KNOWN frame even when that id names no LIVE
-  frame — applying an empty (identity) policy that would ship the value
-  RAW under no policy. The local-render default must not do that. So this
-  seam first checks the named frame is LIVE (`rf/frame-ids`); when it is
-  not (nil id, a destroyed / never-registered frame), it projects WITHOUT a
-  `:frame` opt so the underlying walker takes its own frameless fail-closed
-  branch and redacts the whole value to `:rf/redacted` rather than borrow
-  another frame's marks. (Under `:rf.egress/local-raw`'s explicit
+  `rf/project-egress` delegates to `rf/elide-wire-value`, which resolves its
+  governing frame as `(or (:frame opts) (frame/resolve-current-frame))` — so
+  a nil `:frame` opt (or no `:frame` at all) falls through to the AMBIENT
+  dynamically-bound frame, applying THAT frame's (possibly empty) policy and
+  shipping value-bearing fields RAW under a borrowed scope. The local-render
+  default must not do that. So this seam first checks the named frame is LIVE
+  (`rf/frame-ids`); when it is not (nil id, a destroyed / never-registered
+  frame), it stamps a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id
+  that can never resolve to a live frame — so the underlying walker takes its
+  UNRESOLVABLE-FRAME fail-closed branch (`frame/frame` returns nil for it)
+  and redacts the whole value to `:rf/redacted` rather than borrow the
+  ambient frame's marks. Stamping the sentinel (NOT omitting `:frame`) is the
+  point: an absent / nil `:frame` opt is exactly the ambient-borrow path this
+  seam abolishes (rf2-cra0nq, mirroring the off-box derivation-graph fix
+  rf2-udkj69). (Under `:rf.egress/local-raw`'s explicit
   `:rf.size/include-sensitive? true` opt-out the walker ships the value
-  raw even frameless — the operator has explicitly asked for it.)
+  raw even under the dead-frame sentinel — the operator has explicitly asked
+  for it; the opt-out branch precedes the fail-closed redact.)
 
   ## The edn-inspector renders the sentinels natively
 
@@ -96,6 +103,25 @@
   explicit operator act, never a process-global toggle."
   :rf.egress/local-raw)
 
+(def ^:private dead-frame-sentinel
+  "A frame id that can NEVER resolve to a live frame, stamped as the `:frame`
+  opt to FAIL CLOSED a nil / unreachable egress frame WITHOUT borrowing the
+  ambient scope.
+
+  `rf/elide-wire-value` resolves its governing frame as `(or (:frame opts)
+  (frame/resolve-current-frame))` — so a nil `:frame` opt (or no `:frame` at
+  all) falls through to the AMBIENT dynamically-bound frame, applying that
+  frame's (possibly empty) policy and shipping value-bearing fields RAW. An
+  unreachable but NON-nil `:frame` opt instead takes the unresolvable-frame
+  fail-closed branch (`frame/frame` returns nil ⇒ whole value redacted to
+  `:rf/redacted`, unless the caller explicitly waived sensitive redaction).
+  We therefore stamp this sentinel as the `:frame` opt when no live governing
+  frame is known, so the walker fails closed on its own dead-frame branch
+  rather than resolving an ambient frame. The keyword is namespaced into this
+  panel so it can never collide with a real frame id. Mirrors the off-box
+  derivation-graph fix (rf2-udkj69); applied to local-render by rf2-cra0nq."
+  ::no-egress-frame)
+
 (defn local-render-profile
   "Resolve the egress profile a local panel render should project under,
   given the per-(tool,frame) `raw?` grain. `true` ⇒ the trusted-local
@@ -110,10 +136,17 @@
 
   - **profile** — `local-render-profile` resolves the named boundary from
     the per-(tool,frame) `raw?` grain (default `:rf.egress/local-redacted`).
-  - **`:frame frame-id`** — only when the frame is LIVE (`rf/frame-ids`).
-    A nil / unreachable frame is OMITTED so the underlying walker fails
-    closed (redacts the whole value) rather than borrow another frame's
-    policy.
+  - **`:frame`** — ALWAYS stamped: the named `frame-id` when it is LIVE
+    (`rf/frame-ids`); otherwise (nil id, a destroyed / never-registered
+    frame) the `dead-frame-sentinel`. We must NOT omit / leave `:frame` nil
+    for an unreachable frame: an absent / nil `:frame` opt lets the walker
+    fall through to the AMBIENT dynamically-bound frame
+    (`frame/resolve-current-frame`) and ship value-bearing fields RAW under
+    that borrowed frame's policy — the exact ambient-borrow leak this seam
+    abolishes (rf2-cra0nq, mirroring rf2-udkj69). The sentinel is a non-nil
+    id that resolves to no live frame, so the walker takes its
+    unresolvable-frame fail-closed branch (redact the whole value) rather
+    than borrow another frame's policy.
   - **`:rf.size/include-large? true`** — the on-box 'keep large' override
     (EP-0015 §10: `local-redacted` *suppresses sensitive display*; the
     local operator IS entitled to large values — Xray's own size-bounding
@@ -127,10 +160,19 @@
   over the runtime frame registry."
   ([frame-id] (local-render-opts frame-id false))
   ([frame-id raw?]
-   (cond-> {:rf.egress/profile      (local-render-profile raw?)
-            :rf.size/include-large? true}
-     (and (some? frame-id) (contains? (rf/frame-ids) frame-id))
-     (assoc :frame frame-id))))
+   ;; A reachable (live) frame governs egress under its own policy; a nil /
+   ;; unreachable frame stamps the dead-frame sentinel as the `:frame` opt so
+   ;; `rf/elide-wire-value` takes its unresolvable-frame FAIL-CLOSED branch
+   ;; (whole value ⇒ `:rf/redacted`). We must NOT leave the `:frame` opt
+   ;; absent / nil here: that frameless path lets the walker fall through to
+   ;; the AMBIENT dynamically-bound frame (`frame/resolve-current-frame`) and
+   ;; ship value-bearing fields RAW under that frame's policy — the exact
+   ;; ambient-borrow leak this seam abolishes (rf2-cra0nq, mirroring
+   ;; rf2-udkj69).
+   (let [reachable? (and (some? frame-id) (contains? (rf/frame-ids) frame-id))]
+     {:rf.egress/profile      (local-render-profile raw?)
+      :rf.size/include-large? true
+      :frame                  (if reachable? frame-id dead-frame-sentinel)})))
 
 ;; ---------------------------------------------------------------------------
 ;; The projection seam.
