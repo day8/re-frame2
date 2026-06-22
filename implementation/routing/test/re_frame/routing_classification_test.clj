@@ -288,7 +288,15 @@
       ;; current leaking behaviour as if it were correct.
       (println "  [rf2-y8k6br SKIP] nested-axis suppression (rf2-izlr7f) absent on this build —"
                "egress assertion deferred until PR #4895 merges (see rf2-bdwxkp).")
-      (let [rdb     (-> (rf/runtime-db-value :rf/default)
+      ;; rf2-b43y3o: the probe above navigated to :route/_probe (a route is a
+      ;; SINGLETON current-route, so the probe nav REPLACED :route/nested's
+      ;; :source :route classification with :route/_probe's). Re-navigate to
+      ;; :route/nested so the egress assertion runs against THIS route's
+      ;; classification rather than the probe's leftover — without this the
+      ;; slice carries :route/_probe's [:query :p] decls and the [:query
+      ;; :payload] value ships raw (the false-positive leak the gate hid).
+      (let [_       (rf/dispatch-sync [:rf.route/transitioned "/nested"])
+            rdb     (-> (rf/runtime-db-value :rf/default)
                         (assoc-in [:rf.runtime/routing :current :query :payload]
                                   {:secret "topsecret-bearer-token-value"
                                    :public "ok"}))
