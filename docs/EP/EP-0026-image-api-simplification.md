@@ -1,6 +1,6 @@
 # EP-0026: Image API Simplification
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
 > This EP simplifies the EP-0023 image surface. It keeps the narrowed scope:
@@ -10,6 +10,13 @@ Type: standards-track
 > the normative home is primarily `spec/Conventions.md` (the `:rf.image/*`
 > reserved-key grammar), with `spec/002-Frames.md` and `spec/API.md` updated to
 > match.
+>
+> **Accepted 2026-06-22 (Mike-ruled).** Implementation is tracked under beads
+> rf2-o2vfrc (spec graduation — Conventions / 002-Frames / API), rf2-6ls85a
+> (`:select-ns` + image-order resolution), rf2-ke7w5j (shadow report), rf2-dlvmpc
+> (retirements + surgical capability removal), rf2-fsd822 (inline grammar +
+> default image), and rf2-qp8qi8 (conformance). The EP moves to `final` once the
+> spec graduation and implementation land.
 
 ## Abstract
 
@@ -286,11 +293,11 @@ For the reference implementation:
 - default image hot-reload behavior remains the ordinary same-source replacement
   case, not general last-writer-wins.
 
-This is a behavior change to call out plainly: under this EP, omitting `:images`
-(e.g. `make-frame {}`) resolves the **default image generation**, where a
-configured frame might previously have run without resolving a generation at all.
-The magnitude is real, the change may well be correct, and acceptance MUST cover
-the omit-`:images` default path explicitly (see Acceptance Bar / Open Questions).
+This is a behavior change to call out plainly, and it is **ruled** (2026-06-22): a
+missing `:images` — `make-frame {}` — resolves the **default image generation**,
+where a configured frame might previously have run without resolving a generation
+at all. The magnitude is real; acceptance MUST cover the omit-`:images` default
+path explicitly (see Acceptance Bar).
 
 `:images []` is an error: pass at least one image, or omit `:images` for the
 default. To create a frame with no app registrations, pass a real empty image:
@@ -677,18 +684,16 @@ This EP should not graduate until:
 
 ## Open Questions
 
-Several design points are settled (see Resolved Decisions). These remain genuinely
-open:
+The design is settled (see Resolved Decisions). The two remaining items are
+**implementation detail, left to the implementing agents** — they do not gate
+acceptance and are pinned during the implementation slice, not by an operator
+ruling:
 
-1. What exact error ids should the new diagnostics use?
+1. The exact `:rf.error/*` ids for the new diagnostics.
 2. The exact per-kind inline metadata grammar pinned against the live lowering —
    e.g. which `:reg-event` metadata is legal inline (`:interceptors`,
    `:rf.cofx/requires`, event-arg schema, classification), and the precise
    `:reg-cofx` grade encoding.
-3. Confirm the omit-`:images` default-frame path against the current
-   implementation: today a generation resolves only when `:images` is present, so
-   `make-frame {}` resolving the default image generation is a behavior change to
-   bless (and acceptance-cover) or restrict.
 
 ## Resolved Decisions
 
@@ -704,3 +709,5 @@ Settled during design:
 - **Capability scope** — only the three image-capability keys are removed; other
   "capability" vocabulary is untouched.
 - **`rf/image`** — stays a plain function, never a macro.
+- **Default image (Open Issue 3)** — a missing `:images` (`make-frame {}`) means
+  the default image generation (ruled 2026-06-22).
