@@ -351,6 +351,32 @@
   "add-marks"    #{"docs/guide/23-privacy-and-large-things.md"}
   "set-marks"    #{"docs/guide/23-privacy-and-large-things.md"}}
 
+ ;; Human-doc API-reference call-position `(rf/<var>` / `(story/<var>`
+ ;; references the manifest does not carry (rf2-vzupmg). The doc-api
+ ;; projection check (re-frame.api-manifest.doc-api-check) scans the three
+ ;; human-facing API-reference trees the keystone + existing projection
+ ;; checks left uncovered — spec/Privacy.md + docs/api/** + docs/story/api/**
+ ;; — and goes RED on a call-position reference to a renamed / removed /
+ ;; never-manifested public surface.
+ ;;
+ ;; Same FILE-SCOPED shape as :doc-guide-known-unmanifested-scoped: each entry
+ ;; maps a removed name to the set of repo-relative file paths where a
+ ;; call-position mention is approved (a removal/tombstone register naming the
+ ;; old API as the left-hand side of old→new migration guidance). A
+ ;; call-position reference to the name OUTSIDE those files is RED (it leaked
+ ;; into live reference prose).
+ ;;
+ ;; EMPTY TODAY. docs/api/15-removed.md — the tombstone register — names
+ ;; removed surfaces as bare back-ticked identifiers (`add-marks`,
+ ;; `reg-sub-raw`, `path`), NOT as call-position `(rf/<var>` forms, so the
+ ;; call-position scope already excludes them with no allowlist entry needed.
+ ;; The `path` / `unwrap` removed value constructors (EP-0022) were corrected
+ ;; in the live docs/api/03-effects.md chapter to the canonical
+ ;; `[:rf.interceptor/path …]` reference + map-payload destructuring model in
+ ;; the same change (the gate doing its job), rather than allowlisted.
+ :doc-api-known-unmanifested-scoped
+ {}
+
  ;; --------------------------------------------------------------------------
  ;; JVM-introspected classification — keyed ["namespace" "var"].
  ;; --------------------------------------------------------------------------
