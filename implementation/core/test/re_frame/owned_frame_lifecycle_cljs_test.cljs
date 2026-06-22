@@ -45,6 +45,41 @@
       (is (= {:count 1} (rf/app-db-value :owned/beta))
           "re-acquire preserved durable state (idempotent replacement, not reset)"))))
 
+(deftest acquire-setup-throw-rethrows-and-leaves-no-frame
+  (testing "rf2-83fwld: an owned-provider acquire whose :initial-events step
+            THROWS out of dispatch-sync rethrows out of acquire-owned-frame! AND
+            leaves NO frame registered (the EP frame-provider acceptance
+            criterion: a setup throw destroys the just-created frame, then
+            rethrows). Transitively: acquire -> make-frame -> reg-frame ->
+            run-setup-events! tears down the partial frame and rethrows
+            :rf.error/initial-events-step-failed, which propagates through
+            acquire (the cancel-pending-destroy! after make-frame never runs)."
+    ;; A step that requires an UNREGISTERED cofx: cofx resolution throws OUT of
+    ;; dispatch-sync (:rf.error/unregistered-cofx via throw-error!), so this is
+    ;; the EP's "throws at runtime" case — run-setup-events! tears down the
+    ;; partial frame and rethrows :rf.error/initial-events-step-failed. (A
+    ;; HANDLER-BODY throw — e.g. a [:rf/set-db <bad>] bad-arg — is instead
+    ;; TRACED-and-RECOVERED by dispatch-sync and leaves the frame alive, so it is
+    ;; NOT the rethrow trigger; mirror frame_initial_events' :test/needs-missing-
+    ;; cofx, the framework-stable throw-out-of-dispatch-sync trigger.)
+    (rf/reg-event :owned/needs-missing-cofx
+      {:rf.cofx/requires [:owned/unregistered-cofx]}
+      (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
+    (let [thrown (atom nil)]
+      (try
+        (owned-frame/acquire-owned-frame!
+          {:id :owned/boom
+           :initial-events [[:rf/set-db {:seeded true}]
+                            [:owned/needs-missing-cofx]]})
+        (catch :default e (reset! thrown e)))
+      (is (some? @thrown)
+          "the setup throw RETHROWS out of acquire-owned-frame! (not swallowed)")
+      (is (= :rf.error/initial-events-step-failed
+             (:rf.error/id (ex-data @thrown)))
+          "the rethrown error is the setup-step failure naming the throwing step")
+      (is (nil? (frame/frame :owned/boom))
+          "no half-created frame is left registered — the partial frame was torn down"))))
+
 ;; ---- deferred + cancellable destroy (StrictMode tolerance) ----------------
 ;;
 ;; The registry ALGEBRA is tested synchronously here: release schedules a
