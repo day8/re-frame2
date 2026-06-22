@@ -850,11 +850,32 @@
   "Select ONE image's descriptors from the candidate `descriptors` pool (via the
   slice-.3 selector / the default-image whole-store selection) and lower its
   inline `:impl` bodies into the runnable shape (EP-0023 §Image Fragments).
-  Returns the image's selected + inline descriptors. Pure."
+  Returns the image's selected + inline descriptors. Pure modulo the late-bind
+  lowering + the framework-standard registry read (for the default-image filter).
+
+  DEFAULT-IMAGE STANDARD-SHADOW FILTER (EP-0026 §Default Image — \"the default
+  image selects all ordinary namespace-authored registrations … and includes
+  framework standards\"): the framework dual-registers some standards (e.g.
+  `:rf/set-db`, EP-0027) into the regular registrar/source store too, so the
+  registrar-direct (non-generation) resolution path can find them. Those
+  source-store shadows are NOT ordinary app registrations — they are the
+  framework standard's own copy. The default image's WHOLE-STORE selection must
+  drop any descriptor whose `[kind id]` is a framework standard: the standard is
+  unioned in separately (and protected), so projecting its registrar-shadow as
+  an app descriptor would make the default frame fail
+  `check-standard-collision!` against the very standard it shadows. An EXPLICIT
+  `:select-ns` image is unaffected — it selects by provenance namespace, and a
+  standard's registrar shadow carries no `:rf.provenance/ns`, so it is never
+  glob-selectable anyway."
   [image descriptors]
   (lower-inline-descriptors
     (if (default-image? image)
-      descriptors
+      (let [standard-keys (into #{}
+                                (map descriptor-kind+id)
+                                (standard-descriptors))]
+        (into []
+              (remove #(contains? standard-keys (descriptor-kind+id %)))
+              descriptors))
       (image/select-descriptors image descriptors))))
 
 (defn- assemble*

@@ -399,15 +399,27 @@
     (testing "inline descriptors carry NO :rf.provenance/ns (not glob-selectable)"
       (is (not (contains? (by-id :counter/inc) :rf.provenance/ns))))))
 
-(deftest inline-metadata-only-entry
-  (testing "a [id metadata] tuple lowers without an :impl"
-    (let [v (image/image {:id :m
-                          :registrations {:reg-fx [[:my/fx {:doc "meta only"}]]}})
-          d (first (:rf.image/inline v))]
-      (is (= :fx (:kind d)))
-      (is (= :my/fx (:id d)))
-      (is (not (contains? d :impl)))
-      (is (= {:doc "meta only"} (:metadata d))))))
+;; EP-0026 §Inline Registration Grammar — the EP-0023 metadata-only [id metadata]
+;; tuple is RETIRED (fsd822). A 2-tuple's second slot is the handler BODY, not
+;; metadata; for the four supported inline kinds the body is a FUNCTION, so a map
+;; in the body slot is unambiguously the retired metadata-only form and fails
+;; loud. To attach metadata, use the 3-tuple [id metadata body].
+(deftest inline-metadata-only-entry-rejected
+  (testing "a [id metadata-map] 2-tuple (the retired metadata-only form) throws
+            :rf.error/invalid-image"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image {:id :m
+                                        :registrations {:reg-fx [[:my/fx {:doc "meta only"}]]}}))))
+  (testing "the diagnostic names the image, section, and offending metadata-only entry"
+    (let [entry [:my/fx {:doc "meta only"}]
+          data  (try (image/image {:id :m :registrations {:reg-fx [entry]}})
+                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                       (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= :m (:image data)))
+      (is (= :reg-fx (:section data)))
+      (is (= entry (:entry data))))))
 
 (deftest inline-rejects-unknown-section-and-malformed-entry
   (testing "unknown inline section key throws :rf.error/invalid-image"
@@ -419,14 +431,15 @@
                           #"\[:rf\.error/invalid-image\]"
                           (image/image {:registrations {:reg-event [:not-a-tuple]}})))))
 
-;; rf2-32siq3.18 — inline tuple ARITY is exact. EP-0023 §Image Fragments admits
-;; only [id metadata body] (handler) and [id metadata] (metadata-only). [id],
-;; [], non-vectors, and 4+-tuples fail loud at rf/image rather than being
-;; coerced (a [id] silently treated as nil-metadata, a [id meta body extra]
-;; silently dropping the extra slot).
+;; EP-0026 §Inline Registration Grammar (fsd822) — inline tuple ARITY is exact:
+;; [id body] (metadata defaults to {}) and [id metadata body] (explicit
+;; metadata). EVERY inline registration carries a body. [id], [], non-vectors,
+;; and 4+-tuples fail loud at rf/image rather than being coerced. The EP-0023
+;; metadata-only [id metadata] form is retired (see
+;; inline-metadata-only-entry-rejected).
 
 (deftest inline-accepts-exactly-two-and-three-tuples
-  (testing "a 3-tuple [id metadata body] is accepted (handler)"
+  (testing "a 3-tuple [id metadata body] is accepted (explicit metadata)"
     (let [body (fn [_ _] {})
           v    (image/image {:id :i
                              :registrations {:reg-event [[:counter/inc {:doc "x"} body]]}})
@@ -434,12 +447,14 @@
       (is (= :counter/inc (:id d)))
       (is (= body (:impl d)))
       (is (= {:doc "x"} (:metadata d)))))
-  (testing "a 2-tuple [id metadata] is accepted (metadata-only)"
-    (let [v (image/image {:id :i :registrations {:reg-fx [[:my/fx {:doc "y"}]]}})
-          d (first (:rf.image/inline v))]
+  (testing "a 2-tuple [id body] is accepted (metadata defaults to {} / omitted)"
+    (let [body (fn [_] nil)
+          v    (image/image {:id :i :registrations {:reg-fx [[:my/fx body]]}})
+          d    (first (:rf.image/inline v))]
       (is (= :my/fx (:id d)))
-      (is (not (contains? d :impl)))
-      (is (= {:doc "y"} (:metadata d))))))
+      (is (= body (:impl d)))
+      (is (not (contains? d :metadata))
+          "an omitted metadata map is not stamped onto the descriptor"))))
 
 (deftest inline-rejects-too-short-tuple
   (testing "a 1-tuple [id] (no metadata slot) throws :rf.error/invalid-image"

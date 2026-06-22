@@ -253,18 +253,23 @@
          (match-segments? (collapse-double-stars (split-segments pattern))
                           (split-segments ns-str)))))
 
-;; ---- inline descriptors (EP-0023 §Image Fragments) ------------------------
+;; ---- inline descriptors (EP-0026 §Inline Registration Grammar) -------------
 ;;
 ;; Inline `:registrations` are registrar-keyed sections that mirror the public
-;; `reg-*` names. Each section's entries are call-shaped tuples:
+;; `reg-*` names. EP-0026 fixes the outer tuple shape at:
 ;;
-;;   [id metadata body]   ;; handler entry
-;;   [id metadata]        ;; metadata-only entry
+;;   [id body]            ;; metadata defaults to {}
+;;   [id metadata body]   ;; explicit metadata map
+;;
+;; The metadata map is OPTIONAL and normalizes to `{}`. A 2-tuple's second slot
+;; is the BODY, not metadata — every inline entry carries a body. METADATA-ONLY
+;; `[id metadata]` entries are INVALID (EP-0026 deliberately reverses EP-0023,
+;; which permitted a metadata-only tuple); they fail loud at `rf/image`.
 ;;
 ;; Inline descriptors do NOT enter the provenance source store and are NOT
 ;; selected by `:include-ns`. They are selected because their containing image
 ;; value was supplied. They still need a descriptor source coordinate so errors
-;; and replacements can name them (EP-0023):
+;; and replacements can name them:
 ;;
 ;;   {:kind :event
 ;;    :id :counter/inc
@@ -277,71 +282,107 @@
 
 (def ^:private reg-section->kind
   "The inline `:registrations` section keys (the public `reg-*` spellings)
-  mapped to their Spec 001 registry kind. Adding a registry kind that an inline
-  image section can carry is a one-row addition here, kept in lockstep with the
-  closed `re-frame.registrar/kinds` set."
-  {:reg-event          :event
-   :reg-sub            :sub
-   :reg-fx             :fx
-   :reg-cofx           :cofx
-   :reg-interceptor    :interceptor
-   :reg-view           :view
-   :reg-frame          :frame
-   :reg-route          :route
-   :reg-head           :head
-   :reg-error-projector :error-projector
-   :reg-flow           :flow
-   :reg-resource       :resource
-   :reg-mutation       :mutation
-   :reg-resource-scope :resource-scope})
+  mapped to their Spec 001 registry kind. EP-0026 §Inline Registration Grammar
+  NARROWS the inline grammar to EXACTLY the four kinds with a concrete inline
+  parser + a published late-bind lowering hook (`re-frame.events` / `.subs` /
+  `.fx` / `.cofx`'s `:image/lower-inline-<kind>`):
+
+    :reg-event → :event
+    :reg-sub   → :sub  (the layer-1 db-reader form ONLY)
+    :reg-fx    → :fx
+    :reg-cofx  → :cofx
+
+  Every OTHER kind (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`,
+  `:reg-head`, `:reg-error-projector`, `:reg-flow`, `:reg-resource`,
+  `:reg-mutation`, `:reg-resource-scope`) remains namespace-authored until its
+  owning spec defines an inline lowering — an inline section for one fails loud
+  with the unsupported-inline-kind diagnostic (`registrations->inline-descriptors`).
+  Adding a kind here is a deliberate act: it MUST come with a published
+  `:image/lower-inline-<kind>` hook, a body parser, metadata/body
+  disambiguation, a provenance shape, and conformance coverage (EP-0026)."
+  {:reg-event :event
+   :reg-sub   :sub
+   :reg-fx    :fx
+   :reg-cofx  :cofx})
 
 (defn- inline-entry->descriptor
   "Lower one inline registrar-section entry into an inline descriptor. `entry`
-  is a call-shaped tuple `[id metadata body]` (handler) or `[id metadata]`
-  (metadata-only). `image-id` is the containing image's `:id` (nil for an
-  anonymous image — valid for local tests/examples that do not participate in
-  replacement, EP-0023). Pure.
+  is a call-shaped tuple `[id body]` (metadata defaults to `{}`) or
+  `[id metadata body]` (explicit metadata). `image-id` is the containing image's
+  `:id` (nil for an anonymous image — valid for local tests/examples that do not
+  participate in composition). Pure.
 
   Stamps the inline source coordinate (`:rf.provenance/image` + the
   `:rf.provenance/inline [section id]` pair) so an inline descriptor has a
-  stable name for errors and replacement winners. The body (when present) is
-  carried under `:impl`; the metadata under `:metadata` (omitted when empty).
+  stable name for errors and cross-image shadows. The body is ALWAYS carried
+  under `:impl`; the metadata under `:metadata` (omitted when empty).
 
-  The arity is EXACT: an inline entry MUST be a 3-tuple `[id metadata body]`
-  (handler) or a 2-tuple `[id metadata]` (metadata-only) — EP-0023 §Image
-  Fragments admits only those two shapes. A 1-tuple `[id]` (no metadata slot)
-  and a 4+-tuple `[id metadata body extra…]` (a trailing slot that would be
-  silently ignored) both fail loud rather than be coerced — a malformed
-  registration entry is a typo or a stale call shape, not a metadata-only
-  entry with `nil` metadata or an entry with an extra argument the framework
-  drops."
+  The arity is EXACT (EP-0026 §Inline Registration Grammar): an inline entry
+  MUST be a 2-tuple `[id body]` or a 3-tuple `[id metadata body]` — every inline
+  registration carries a body. A 1-tuple `[id]`, an empty tuple `[]`, and a
+  4+-tuple `[id metadata body extra…]` fail loud rather than be coerced.
+
+  METADATA-ONLY `[id metadata]` is INVALID: a 2-tuple's second slot is the BODY,
+  not metadata. EP-0026 deliberately reverses EP-0023 (which admitted a
+  metadata-only tuple) — a registration with no body is not a registration. To
+  attach metadata, use the 3-tuple `[id metadata body]`. The retired
+  metadata-only form is caught FAIL-LOUD: for the four supported inline kinds the
+  body is a HANDLER FUNCTION, never a map, so a 2-tuple whose body slot is a MAP
+  is exactly the retired `[id metadata]` shape — it is rejected rather than
+  silently lowered with the metadata map as the handler `:impl`."
   [image-id section kind entry]
   (when-not (and (vector? entry) (<= 2 (count entry) 3))
     (error/throw-error!
       :rf.error/invalid-image
       'rf/image
-      (str "rf/image: inline " section " entry must be a [id metadata body] "
-           "(handler) or [id metadata] (metadata-only) tuple — got " (pr-str entry)
+      (str "rf/image: inline " section " entry must be a [id body] or "
+           "[id metadata body] tuple (EP-0026 — every inline registration carries "
+           "a body; a metadata-only [id metadata] is INVALID) — got " (pr-str entry)
            " (" (if (vector? entry) (str "arity " (count entry)) "not a vector")
            ").")
-      {:recovery :use-a-call-shaped-tuple
+      {:recovery :use-an-id-body-or-id-metadata-body-tuple
        :extra    {:image image-id :section section :entry entry}}))
   (let [id       (nth entry 0)
-        metadata (nth entry 1 nil)
-        has-body (= 3 (count entry))
-        body     (when has-body (nth entry 2))]
-    (cond-> {:kind                kind
-             :id                  id
+        has-meta (= 3 (count entry))
+        metadata (when has-meta (nth entry 1))
+        body     (if has-meta (nth entry 2) (nth entry 1))]
+    ;; FAIL-LOUD on the retired metadata-only form: a 2-tuple whose body slot is
+    ;; a MAP is the EP-0023 `[id metadata]` shape EP-0026 retires. The four
+    ;; supported inline kinds all take a handler FUNCTION body, never a map, so a
+    ;; map in the body slot is unambiguously the retired metadata-only tuple (to
+    ;; attach metadata, use the 3-tuple `[id metadata body]`).
+    (when (and (not has-meta) (map? body))
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: inline " section " entry " (pr-str entry)
+             " is a metadata-only [id metadata] tuple — INVALID under EP-0026. A "
+             "2-tuple's second slot is the handler BODY (a function), not metadata; "
+             "a registration with no body is not a registration. To attach metadata "
+             "use the 3-tuple [id metadata body].")
+        {:recovery :use-an-id-body-or-id-metadata-body-tuple
+         :extra    {:image image-id :section section :entry entry}}))
+    (cond-> {:kind                 kind
+             :id                   id
+             :impl                 body
              :rf.provenance/inline [section id]}
-      image-id        (assoc :rf.provenance/image image-id)
-      has-body        (assoc :impl body)
-      (seq metadata)  (assoc :metadata metadata))))
+      image-id       (assoc :rf.provenance/image image-id)
+      (seq metadata) (assoc :metadata metadata))))
 
 (defn- registrations->inline-descriptors
-  "Lower an image's `:registrations` map (`{:reg-event [[id meta body] …] …}`)
-  into a vector of inline descriptors, stamped with the image id. Pure. Throws
-  `:rf.error/invalid-image` on an unknown section key (fail loud rather than
-  silently drop an entry)."
+  "Lower an image's `:registrations` map (`{:reg-event [[id body] …] …}`) into a
+  vector of inline descriptors, stamped with the image id. Pure. Throws
+  `:rf.error/invalid-image` on an UNSUPPORTED inline kind (EP-0026 §Inline
+  Registration Grammar — fail loud rather than silently drop an entry).
+
+  EP-0026 standardizes inline grammar for EXACTLY four kinds — `:reg-event`,
+  `:reg-sub`, `:reg-fx`, `:reg-cofx` — the kinds with a concrete inline parser
+  and a published late-bind lowering hook (`reg-section->kind`). Every other
+  registration kind (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`,
+  `:reg-head`, `:reg-error-projector`, `:reg-flow`, `:reg-resource`,
+  `:reg-mutation`, `:reg-resource-scope`) — and any typo'd section key — fails
+  loud with the unsupported-inline-kind diagnostic: those kinds remain
+  namespace-authored until their owning spec defines inline lowering."
   [image-id registrations]
   (into []
         (mapcat
@@ -351,10 +392,18 @@
                 (error/throw-error!
                   :rf.error/invalid-image
                   'rf/image
-                  (str "rf/image: unknown inline registrations section " section
-                       " — use a reg-* section key (:reg-event, :reg-sub, …).")
-                  {:recovery :correct-the-section-key
-                   :extra    {:image image-id :unknown-section section}}))
+                  (str "rf/image: unsupported inline registrations section "
+                       (pr-str section) " — EP-0026 standardizes inline grammar "
+                       "for ONLY the four kinds :reg-event, :reg-sub, :reg-fx, and "
+                       ":reg-cofx. Every other kind (interceptors, views, frames, "
+                       "routes, heads, error-projectors, flows, resources, "
+                       "mutations, resource-scopes) stays namespace-authored until "
+                       "its owning spec defines an inline lowering — author it with "
+                       "a reg-* form in a selected namespace instead.")
+                  {:recovery :use-a-supported-inline-section-or-author-it-in-a-namespace
+                   :extra    {:image            image-id
+                              :unsupported-section section
+                              :supported-sections (vec (sort (keys reg-section->kind)))}}))
               (map #(inline-entry->descriptor image-id section kind %) entries))))
         registrations))
 
@@ -474,12 +523,17 @@
     [include exclude]))
 
 (def ^:private valid-kinds
-  "The closed registry-kind set a `:replace` / `:replace-standard` key may name,
-  derived from `reg-section->kind`'s values so it stays in lockstep with the
-  closed `re-frame.registrar/kinds` set without coupling this pure ns to the
-  registrar (which would pull `interop` and friends onto this otherwise
-  `re-frame.error`-only slice)."
-  (set (vals reg-section->kind)))
+  "The closed registry-kind set a `:replace` / `:replace-standard` key may name
+  (the full Spec 001 registry taxonomy). DECOUPLED from `reg-section->kind`: a
+  replacement key may name ANY registry kind, NOT only the four EP-0026 narrowed
+  inline kinds — so this set spans the whole taxonomy, mirroring
+  `re-frame.registrar/kinds` without coupling this pure ns to the registrar
+  (which would pull `interop` and friends onto this otherwise
+  `re-frame.error`-only slice). (`:replace` / `:replace-standard` are retired by
+  rf2-dlvmpc; this stays the full set until then so the inline-grammar narrowing
+  does not leak into replacement-key validation.)"
+  #{:event :sub :fx :cofx :interceptor :view :frame :route :head
+    :error-projector :flow :resource :mutation :resource-scope})
 
 (defn- valid-winner-coordinate?
   "True when `coord` is a structurally well-formed replacement winner SOURCE
