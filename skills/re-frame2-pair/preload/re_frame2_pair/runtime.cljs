@@ -2343,42 +2343,68 @@
     (when (seq picks) picks)))
 
 (defn- redact-sensitive-event-vector
-  "Egress guard for the cascade-summary `:event-vector` slot.
+  "Egress guard for the cascade-summary `:event-vector` slot — the
+  fail-closed projection the framework's `projected-record` applies to a
+  record's `:trigger-event` slot (rf2-nm611o,
+  `epoch/tool_pair.cljc` §`elide-trigger-event-slot`), reproduced here
+  because the cascade-summary rides OUTSIDE the wire-path projection.
 
   The `:event-vector` slot copies the epoch's RAW `:trigger-event` — the
-  original dispatch vector, e.g. `[:auth/login {:password \"hunter2\"}]`.
-  When the source epoch is declared sensitive (`:rf.epoch/sensitive?
-  true`) that raw payload MUST NOT cross the off-box egress boundary
-  under the default privacy posture: `cascade-summary` is the ONE place
-  the trigger-event leaves the runtime verbatim, and the consuming MCP
-  tools (`restore-epoch` passes the runtime map through verbatim;
+  original dispatch vector, e.g. `[:auth/login {:password \"hunter2\"}]`
+  or `[:login \"topsecret\"]`. The event ARGS are registration-owned
+  transient payloads (Spec 015 §151 §Registration-owned transient
+  classification) — the SAME class as the `:effects` `:args` slot — NOT
+  rooted at the frame's app-db, so the app-db-path classification walker
+  cannot prove ANY of them safe. A secret carried IN the event vector
+  therefore rides off-box verbatim regardless of whether the epoch is
+  declared `:rf.epoch/sensitive?`: the old guard keyed redaction to the
+  `:rf.epoch/sensitive?` rollup ALONE, so a NON-declared trigger-event
+  (`[:login \"topsecret\"]` with no declared-sensitive db slot) leaked
+  the password off-box (rf2-6klf02). `cascade-summary` is the ONE place
+  the trigger-event leaves the runtime, and the consuming MCP tools
+  (`restore-epoch` passes the runtime map through verbatim;
   `dispatch-dry-run` deliberately does NOT walk `:cascade-summary`,
   treating it as a counts-only projection) trust this projection to be
-  already-safe. The wire-path elision walker scrubs dispatch-dry-run's
-  `:db-state-after-simulation` / `:would-fire-effects`, but the
-  cascade-summary `:event-vector` rides outside that walk — so this guard
-  redacts it here, otherwise a restore / dry-run of a sensitive historical
-  epoch would ship the raw event payload even under
-  `--allow-sensitive-reads` OFF.
+  already-safe.
 
-  Fail-closed: when the epoch is sensitive AND the raw-state gate is OFF
-  (the published-build default — the MCP server flips it to OFF the
-  moment a state-emitting tool first fires unless the operator launched
-  with `--allow-sensitive-reads`), the slot redacts to the `:rf/redacted`
-  sentinel — the SAME sentinel the wire-path `elide-wire-value` walker
-  substitutes for a declared-sensitive slot. The redaction is keyed to
-  the epoch-level `:rf.epoch/sensitive?` rollup rather than per-value
-  elision because the trigger-event is not addressed by an app-db path
-  the `[:rf.runtime/elision]` registry (in runtime-db) can classify — its
-  sensitivity is a property of the epoch, not of a declared-sensitive db slot.
+  Fail-closed (gate OFF — the published-build default; the MCP server
+  flips `raw-state-config` to OFF the moment a state-emitting tool first
+  fires unless the operator launched with `--allow-sensitive-reads`):
+  the head `<event-id>` keyword (a non-payload summary — the SAME value
+  the record carries in its `:event-id` slot) is RETAINED while every
+  positional / map arg is replaced with the `:rf/redacted` sentinel, so
+  `[:login \"topsecret\"]` egresses as `[:login :rf/redacted]` and
+  `[:auth/login {:password p}]` as `[:auth/login :rf/redacted]`. A
+  consumer still sees WHICH event ran, never its args. This matches
+  `elide-trigger-event-slot` exactly — the fail-close fires on EVERY
+  epoch (sensitive or not), because the args are unprovable regardless.
+  A degenerate non-vector / empty slot (or a value a `:redact-fn` already
+  scalarised) redacts wholesale to `:rf/redacted` — nothing safe to
+  expose.
 
   Raw only on opt-in: when the gate is ON the operator deliberately
-  asked for raw reads, so the verbatim trigger-event rides through. A
-  non-sensitive epoch is never redacted regardless of the gate."
+  asked for raw reads (the cascade-summary's equivalent of the
+  `:include-event-args? true` trusted-local opt), so the verbatim
+  trigger-event rides through.
+
+  `sensitive?` is the epoch's `:rf.epoch/sensitive?` rollup — retained in
+  the signature because callers thread it, but the args fail closed
+  whether or not it is set (it governs only the cascade-summary's
+  `:sensitive?` annotation slot, not this redaction). Idempotent: a
+  second pass over an already-projected `[<id> :rf/redacted …]`
+  re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
+  Nil-preserving."
   [trigger-event sensitive?]
-  (if (and sensitive? (not (:allow-raw-state? @raw-state-config)))
-    :rf/redacted
-    trigger-event))
+  (cond
+    ;; Gate ON ⇒ the operator opted into raw reads; ship verbatim.
+    (:allow-raw-state? @raw-state-config) trigger-event
+    (nil? trigger-event)                  trigger-event
+    ;; The canonical shape: retain the head event-id, fail-close the args.
+    (and (vector? trigger-event) (seq trigger-event))
+    (into [(first trigger-event)]
+          (repeat (dec (count trigger-event)) :rf/redacted))
+    ;; Degenerate non-vector / empty slot — nothing safe to expose.
+    :else :rf/redacted))
 
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape
@@ -2411,10 +2437,14 @@
                :subs-recomputed (count (or sub-runs []))
                :renders         (count (or renders []))}
         event-id      (assoc :event-id event-id)
-        ;; The raw trigger-event is redacted to `:rf/redacted` when the
-        ;; epoch is sensitive and the raw-state gate is OFF (fail-closed
-        ;; default) — see `redact-sensitive-event-vector`. Raw only on
-        ;; opt-in.
+        ;; The trigger-event's ARGS fail closed off-box under the OFF
+        ;; gate (head event-id retained, args → `:rf/redacted`) for EVERY
+        ;; epoch — the event args are registration-owned transient
+        ;; payloads the app-db classification walker cannot prove safe,
+        ;; so a secret carried IN the vector redacts whether or not the
+        ;; epoch is declared sensitive (rf2-nm611o / rf2-6klf02). Raw only
+        ;; on the operator's `--allow-sensitive-reads` opt-in. See
+        ;; `redact-sensitive-event-vector`.
         trigger-event (assoc :event-vector
                              (redact-sensitive-event-vector trigger-event sensitive?))
         transitions   (assoc :machine-transitions transitions)

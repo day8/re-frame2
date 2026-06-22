@@ -436,6 +436,58 @@
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))
 
+(deftest trace-include-sensitive-string-false-stays-false-no-leak
+  ;; rf2-66ippe — the include-sensitive arg MUST parse through the
+  ;; safe `args/parse-bool-arg`, not a raw `(boolean (wire/arg …))`
+  ;; coercion. Over the JSON-MCP wire the value can arrive as the STRING
+  ;; "false", which is TRUTHY in CLJS — a bare `boolean` would coerce a
+  ;; caller's explicit decline to TRUE under --allow-sensitive-reads,
+  ;; threading `:include-sensitive? true` into projected-record and
+  ;; lifting the app-db sensitive axis the operator just declined. The
+  ;; fix: "false" stays false ⇒ the projection runs (epoch still routes
+  ;; through projected-record) but WITHOUT the sensitive opt — sensitive
+  ;; app-db leaves stay :rf/redacted.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
+            (fn []
+              ;; Gate ON so the per-call arg is consulted at all.
+              (raw-state/set-allow-raw-state! true)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :trace true
+                                           :include-sensitive "false"})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (str/includes? form "dispatch-and-collect"))
+                     (is (str/includes? form "projected-record")
+                         "the epoch STILL routes through projected-record (never a raw bypass)")
+                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                         "the off-box-tool boundary is named")
+                     (is (not (str/includes? form ":include-sensitive? true"))
+                         "string \"false\" stays FALSE — the sensitive axis is NOT lifted (rf2-66ippe: no raw boolean fail-open)"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
+(deftest trace-include-sensitive-string-true-lifts-axis
+  ;; The positive control: the genuine truthy STRING "true" DOES thread
+  ;; the sensitive opt — `parse-bool-arg` reads it as true. Pins that the
+  ;; safe parse isn't over-strict (it still honours the documented
+  ;; string-true accept shape, the same one dispatch-dry-run honours).
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
+            (fn []
+              (raw-state/set-allow-raw-state! true)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :trace true
+                                           :include-sensitive "true"})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (str/includes? form ":include-sensitive? true")
+                         "string \"true\" lifts the app-db sensitive axis (accept-shape parity)"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
 (deftest sync-mode-does-not-project
   ;; The default sync consequence (dispatch-consequence!) carries no raw
   ;; app-db — it returns :db-changed? / :changed-paths / :effects-fired,
@@ -1113,6 +1165,109 @@
                    (let [edn (read-result-text r)]
                      (is (= :rf.error/dispatch-await-render-timeout (:reason edn)))
                      (is (= 60 (:timeout-ms edn))))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-6klf02 — the :await-render + :trace path MUST project the epoch
+;; off-box, exactly as the non-await :trace / :settle path does. Under
+;; await-render an explicit :trace still resolves to dispatch-and-collect
+;; (the RAW :epoch); the render-settle Promise wraps the runtime call, and
+;; that wrap previously emitted the BARE runtime call — so the raw epoch
+;; shipped off-box un-projected (the leak). The fix routes the await-render
+;; result through `projected-record` (egress/project-dispatch-result-src)
+;; INSIDE the settle form, the same redaction the non-await path applies.
+;; ---------------------------------------------------------------------------
+
+(deftest await-render-trace-projects-epoch-off-box-when-gate-off
+  ;; THE leak. Gate OFF (the published default) + :await-render :trace ⇒
+  ;; the await wrap form MUST route the dispatch-and-collect :epoch through
+  ;; the framework's off-box projection before it crosses the wire. Before
+  ;; the fix the wrap form was the bare `(rt/dispatch-and-collect …)` call
+  ;; with NO projection — the raw db-before/db-after/trigger-event shipped
+  ;; off-box.
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* wrap-form* :read-count* read-count*
+             :pending-polls 0
+             :resolved {:ok? true :epoch-id 9 :frame :rf/default :settled? true
+                        :epoch {:frame :rf/default}}}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]"
+                                           :await-render true :trace true})))
+          (.then (fn [_]
+                   (let [form @wrap-form*]
+                     (is (string? form))
+                     (is (str/includes? form "dispatch-and-collect")
+                         "await-render :trace still routes to the raw-epoch dispatch-and-collect")
+                     (is (str/includes? form "re-frame.core/projected-record")
+                         "gate OFF ⇒ the await-render :epoch routes through projected-record (rf2-6klf02)")
+                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
+                         "the await-render epoch projects under the off-box-tool boundary")
+                     (is (str/includes? form "re-frame.interop/after-render")
+                         "the render-settle flush is intact — projection composes with the settle")
+                     (is (str/includes? form ":settled? true")
+                         "the settle form still merges :settled? true (over the projected envelope)"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
+(deftest await-render-trace-include-sensitive-routes-through-projection
+  ;; Gate ON + :include-sensitive true on the await-render :trace path does
+  ;; NOT bypass the projection — it threads `{:include-sensitive? true}`
+  ;; INTO projected-record (app-db sensitive axis only), exactly like the
+  ;; non-await path. fx-args / runtime-db stay fail-closed.
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* wrap-form* :read-count* read-count*
+             :pending-polls 0
+             :resolved {:ok? true :epoch-id 9 :frame :rf/default :settled? true
+                        :epoch {:frame :rf/default}}}
+            (fn []
+              (raw-state/set-allow-raw-state! true)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]"
+                                           :await-render true :trace true
+                                           :include-sensitive true})))
+          (.then (fn [_]
+                   (let [form @wrap-form*]
+                     (is (str/includes? form "projected-record")
+                         "include-sensitive STILL projects — never a raw bypass on the await path")
+                     (is (str/includes? form ":include-sensitive? true")
+                         "the app-db sensitive axis is threaded INTO the projection")
+                     (is (not (str/includes? form ":include-fx-args?"))
+                         "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+                     (is (not (str/includes? form ":include-runtime-db?"))
+                         "runtime-db axis is NOT lifted by include-sensitive (orthogonal)"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
+(deftest await-render-plain-does-not-project
+  ;; The control: a plain :await-render (no :trace) routes to
+  ;; dispatch-consequence!, which carries no raw app-db — so its wrap form
+  ;; must NOT wrap the call in projected-record (the projection is for the
+  ;; epoch-bearing :trace path only).
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)]
+      (-> (with-staged-mailbox-eval!
+            {:wrap-form* wrap-form* :read-count* read-count*
+             :pending-polls 0
+             :resolved {:ok? true :epoch-id 9 :frame :rf/default :settled? true}}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :await-render true})))
+          (.then (fn [_]
+                   (let [form @wrap-form*]
+                     (is (str/includes? form "dispatch-consequence!")
+                         "plain await-render forces the sync consequence surface")
+                     (is (not (str/includes? form "projected-record"))
+                         "the consequence carries no raw app-db — no projection wrap"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

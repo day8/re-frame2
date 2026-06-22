@@ -15,14 +15,23 @@
 ;;;; the raw event payload (auth tokens, passwords, …) even under
 ;;;; `--allow-sensitive-reads` OFF.
 ;;;;
-;;;; THE MECHANISM: `redact-sensitive-event-vector` redacts the slot to
-;;;; `:rf/redacted` when the source epoch is `:rf.epoch/sensitive? true`
-;;;; AND the runtime raw-state gate is OFF (the published-build default —
-;;;; the MCP server signals `configure-raw-state! {:allow-raw-state?
-;;;; false}` before restore-epoch / dispatch-dry-run build the summary).
-;;;; Fail-closed: gate OFF redacts; gate ON (operator opted in via
-;;;; `--allow-sensitive-reads`) ships the raw vector. A non-sensitive
-;;;; epoch is never redacted.
+;;;; THE MECHANISM (rf2-nm611o / rf2-6klf02): `redact-sensitive-event-vector`
+;;;; FAILS CLOSED on the trigger-event ARGS — the SAME projection the
+;;;; framework's `projected-record` applies to a record's `:trigger-event`
+;;;; slot (`epoch/tool_pair.cljc` §`elide-trigger-event-slot`). The event
+;;;; args are registration-owned transient payloads the app-db
+;;;; classification walker cannot prove safe, so under the OFF gate (the
+;;;; published-build default — the MCP server signals `configure-raw-state!
+;;;; {:allow-raw-state? false}` before restore-epoch / dispatch-dry-run
+;;;; build the summary) the head event-id is RETAINED while every arg is
+;;;; replaced with `:rf/redacted`: `[:login "topsecret"]` egresses as
+;;;; `[:login :rf/redacted]`. The fail-close fires on EVERY epoch —
+;;;; sensitive or NOT — because a secret carried IN the dispatch vector is
+;;;; unprovable regardless of whether the epoch is declared
+;;;; `:rf.epoch/sensitive?` (the old guard keyed redaction to the rollup
+;;;; alone, so a non-declared trigger-event leaked — rf2-6klf02). Gate ON
+;;;; (operator opted in via `--allow-sensitive-reads`) ships the raw
+;;;; vector. A degenerate non-vector / empty slot redacts wholesale.
 ;;;;
 ;;;; Why a parallel implementation lives here:
 ;;;;
@@ -61,13 +70,21 @@
 (def ^:private raw-state-config (atom {:allow-raw-state? true}))
 
 (defn- redact-sensitive-event-vector
-  "Mirror of the egress guard. Redacts the raw trigger-event to
-  `:rf/redacted` when the epoch is sensitive AND the raw-state gate is
-  OFF (fail-closed). Raw only on opt-in; non-sensitive never redacts."
+  "Mirror of the egress guard (rf2-nm611o fail-closed shape). Under the
+  OFF gate the head event-id is RETAINED while every arg is replaced with
+  `:rf/redacted` — for EVERY epoch, sensitive or not (the args are
+  registration-owned transient payloads the classification walker cannot
+  prove safe). Gate ON ships the raw vector (operator opt-in). A
+  degenerate non-vector / empty / nil slot redacts wholesale / passes
+  through nil."
   [trigger-event sensitive?]
-  (if (and sensitive? (not (:allow-raw-state? @raw-state-config)))
-    :rf/redacted
-    trigger-event))
+  (cond
+    (:allow-raw-state? @raw-state-config) trigger-event
+    (nil? trigger-event)                  trigger-event
+    (and (vector? trigger-event) (seq trigger-event))
+    (into [(first trigger-event)]
+          (repeat (dec (count trigger-event)) :rf/redacted))
+    :else :rf/redacted))
 
 (defn- db-diff-summary
   [db-before db-after]
@@ -144,8 +161,10 @@
    :db-after  {:auth {:user "ada"}}
    :effects   [{:fx-id :http}]})
 
-;; A NON-sensitive epoch — an ordinary cart-add. The trigger-event is
-;; safe to surface verbatim regardless of the gate.
+;; A NON-sensitive epoch — an ordinary cart-add carrying NO secret. The
+;; head + args are safe; under gate OFF the args still fail closed (the
+;; walker can't prove ANY trigger-event arg safe), so the projected shape
+;; keeps the head and redacts the (innocuous) arg. Gate ON rides verbatim.
 (def benign-cart-epoch
   {:epoch-id 7
    :event-id :cart/add
@@ -153,6 +172,22 @@
    :frame :rf/default
    :db-before {:cart {}}
    :db-after  {:cart {:items 1}}
+   :effects   []})
+
+;; rf2-6klf02 — a NON-declared sensitive epoch whose trigger-event carries
+;; a secret POSITIONALLY in the dispatch vector. The framework did NOT
+;; stamp `:rf.epoch/sensitive?` (no declared-sensitive db slot matched —
+;; the secret lives only in the event args, which the app-db classification
+;; walker cannot see). The old guard, keyed to the `:rf.epoch/sensitive?`
+;; rollup alone, shipped this raw off-box — the leak this bead closes.
+(def undeclared-secret-login-epoch
+  {:epoch-id 99
+   :event-id :login
+   :trigger-event [:login "topsecret"]
+   :frame :rf/default
+   ;; NB: NO :rf.epoch/sensitive? — the secret is non-declared.
+   :db-before {}
+   :db-after  {:auth {:ok true}}
    :effects   []})
 
 ;; ---------------------------------------------------------------------------
@@ -170,20 +205,39 @@
 
 (deftest sensitive-event-vector-redacted-by-default-in-cascade-summary
   ;; THE bug. Gate OFF (the published-build default once the MCP server
-  ;; signals it) — the sensitive trigger-event MUST redact, not leak.
+  ;; signals it) — the sensitive trigger-event MUST fail closed, not leak.
+  ;; rf2-nm611o shape: head event-id retained, every arg :rf/redacted.
   (with-gate false
     (fn []
       (let [summary (cascade-summary sensitive-login-epoch)]
         (testing "the raw password never appears on the wire"
-          (is (= :rf/redacted (:event-vector summary))
-              ":event-vector redacts to :rf/redacted for a sensitive epoch under gate OFF")
+          (is (= [:auth/login :rf/redacted] (:event-vector summary))
+              ":event-vector fails closed — head retained, arg redacted (gate OFF)")
           (is (not= [:auth/login {:username "ada" :password "hunter2"}]
                     (:event-vector summary))
               "the raw trigger-event MUST NOT ride the wire")
           (is (not (clojure.string/includes? (pr-str summary) "hunter2"))
-              "the password literal appears NOWHERE in the projected summary"))
+              "the password literal appears NOWHERE in the projected summary")
+          (is (not (clojure.string/includes? (pr-str summary) "ada"))
+              "the username literal also appears nowhere — every arg redacts"))
         (testing "the sensitivity is still annotated for the consumer"
           (is (true? (:sensitive? summary))))))))
+
+(deftest undeclared-secret-event-vector-fails-closed-in-cascade-summary
+  ;; rf2-6klf02 — THE leak this bead closes. An epoch NOT stamped
+  ;; `:rf.epoch/sensitive?` whose trigger-event carries a secret in its
+  ;; args MUST still fail closed off-box: the old guard keyed redaction to
+  ;; the rollup alone, so a non-declared trigger-event shipped the secret
+  ;; raw. The args are unprovable regardless of the epoch's sensitivity.
+  (with-gate false
+    (fn []
+      (let [summary (cascade-summary undeclared-secret-login-epoch)]
+        (is (= [:login :rf/redacted] (:event-vector summary))
+            ":event-vector fails closed even for a NON-declared-sensitive epoch")
+        (is (not (clojure.string/includes? (pr-str summary) "topsecret"))
+            "the non-declared positional secret appears NOWHERE on the wire")
+        (is (nil? (:sensitive? summary))
+            "the epoch was not declared sensitive — no :sensitive? annotation, yet args still redact")))))
 
 (deftest sensitive-event-vector-redacted-by-default-in-restore-cascade-summary
   ;; restore-epoch's projection — same gate, same redaction. RED before
@@ -193,8 +247,8 @@
     (fn []
       (let [extras  (restore-cascade-summary sensitive-login-epoch)
             summary (:cascade-summary extras)]
-        (is (= :rf/redacted (:event-vector summary))
-            "restore-epoch's :event-vector redacts for a sensitive target epoch under gate OFF")
+        (is (= [:auth/login :rf/redacted] (:event-vector summary))
+            "restore-epoch's :event-vector fails closed (head retained, arg redacted) under gate OFF")
         (is (true? (:sensitive? summary))
             "restore-cascade-summary annotates :sensitive? true")
         (is (not (clojure.string/includes? (pr-str extras) "hunter2"))
@@ -204,17 +258,25 @@
 ;; Negative guards — the redaction must NOT over-fire.
 ;; ---------------------------------------------------------------------------
 
-(deftest benign-event-vector-rides-verbatim-regardless-of-gate
-  ;; A non-sensitive epoch's trigger-event is safe — it must ride
-  ;; verbatim whether the gate is ON or OFF.
-  (doseq [gate [true false]]
-    (with-gate gate
-      (fn []
-        (let [summary (cascade-summary benign-cart-epoch)]
-          (is (= [:cart/add {:sku "x"}] (:event-vector summary))
-              (str "benign :event-vector rides verbatim (gate=" gate ")"))
-          (is (nil? (:sensitive? summary))
-              "a non-sensitive epoch carries no :sensitive? slot"))))))
+(deftest benign-event-vector-rides-verbatim-on-opt-in-fails-closed-by-default
+  ;; A non-sensitive epoch's trigger-event args are STILL unprovable, so
+  ;; under gate OFF they fail closed (head retained) — the fail-close is
+  ;; uniform across sensitive and non-sensitive epochs. Gate ON (operator
+  ;; opted in) rides the full vector verbatim.
+  (with-gate false
+    (fn []
+      (let [summary (cascade-summary benign-cart-epoch)]
+        (is (= [:cart/add :rf/redacted] (:event-vector summary))
+            "gate OFF fails closed even for a benign epoch — head retained, arg redacted")
+        (is (nil? (:sensitive? summary))
+            "a non-sensitive epoch carries no :sensitive? slot"))))
+  (with-gate true
+    (fn []
+      (let [summary (cascade-summary benign-cart-epoch)]
+        (is (= [:cart/add {:sku "x"}] (:event-vector summary))
+            "gate ON rides the benign :event-vector verbatim (operator opted in)")
+        (is (nil? (:sensitive? summary))
+            "a non-sensitive epoch carries no :sensitive? slot")))))
 
 (deftest sensitive-event-vector-rides-verbatim-on-explicit-opt-in
   ;; Gate ON (operator launched with --allow-sensitive-reads) — the raw
