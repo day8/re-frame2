@@ -326,7 +326,7 @@ At route activation the projection-relative paths are **re-rooted** under `[:rf.
 
 #### Singleton drop (no leak across a route change)
 
-Because a route is a singleton, activation **replaces** the prior route's `:source :route` entries: a route change drops the leaving route's classification, and a navigation to a route that declares none (including `:rf.route/not-found`) clears the route-sourced entries entirely. Other sources in the registry (`:source :frame` from [`reg-frame` classification](002-Frames.md), `:source :marks`, `:source :effect`) survive untouched and union at egress-lookup time. Frame teardown drops the whole runtime-db elision slot with the frame, so no separate teardown is needed.
+Because a route is a singleton, activation **replaces** the prior route's `:source :route` entries: a route change drops the leaving route's classification, and a navigation to a route that declares none (including `:rf.route/not-found`) clears the route-sourced entries entirely. Other sources in the registry (`:source :effect` from the [commit-plane classification effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects), `:source :flow`, `:source :machine`) survive untouched and union at egress-lookup time. Frame teardown drops the whole runtime-db elision slot with the frame, so no separate teardown is needed.
 
 #### Sensitive wins over large
 

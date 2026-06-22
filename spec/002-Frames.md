@@ -549,9 +549,7 @@ This section is the **canonical grammar** for `reg-frame` metadata. Subsequent s
    :drain-depth  100                            ;; depth limit for run-to-completion drain
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
    :rf.trace/cascades-retained 200              ;; per-frame trace-ring cascade count (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only); 
-   :sensitive    {:app-db [[:auth :token]]      ;; frame-owned durable data classification per [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification)
-                  :http   {:headers ["X-Honeycomb-Team"]}}
-   :large        {:app-db [[:documents :csv-upload]]}
+   :sensitive    {:http {:headers ["X-Honeycomb-Team"]}} ;; frame-local HTTP carrier names ONLY (EP-0025: no :app-db block — durable app-db classification is the commit-plane effects, per [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects))
    :observability {:errors [{:sink :my-app.sinks/sentry}]} ;; frame-owned sink policy per [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)
    :ns :line :file})                            ;; auto-supplied
 ```

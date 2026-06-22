@@ -282,7 +282,7 @@ Inside the schema value passed to `reg-app-schema`, individual slots may carry p
 
 ### `:large?` — schema-driven size-elision nomination
 
-Slots marked `:large? true` declare, on a schema, that the value at the slot is **large** — a structural fact about the data's shape, for use by the owner-local size-elision classifiers that consume a schema (catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)). Per **EP-0015 §8 (Schemas Describe Shape, Not Public Egress Policy)** — normative in [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification) — a `reg-app-schema` `{:large? true}` slot prop is **NOT** a route into the frame's durable app-db egress registry: durable app-db classification is **frame-owned** (`(rf/reg-frame :app/main {:large {:app-db [[:user :uploaded-pdf]]}})`, installed under `:source :frame`), and the `rf/elide-wire-value` wire-boundary walker consults that frame-owned registry only. Schemas describe shape and validation; frames own durable public egress.
+Slots marked `:large? true` declare, on a schema, that the value at the slot is **large** — a structural fact about the data's shape, for use by the owner-local size-elision classifiers that consume a schema (catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces)). Per **EP-0025 (Schemas Describe Shape, Not Durable App-db Egress Policy)** — normative in [015 §What is removed and what is kept](015-Data-Classification.md#what-is-removed-and-what-is-kept) — a `reg-app-schema` `{:large? true}` slot prop is **NOT** a route into the durable app-db egress registry: durable app-db classification rides the **four commit-plane classification effects** (a `reg-event` returns `:large` / `:sensitive` alongside `:db`, installed under `:source :effect`), and the `rf/elide-wire-value` wire-boundary walker consults that registry only. Schemas describe shape and validation; the commit-plane effects own durable public egress.
 
 The walker that extracts a schema's `:large?` paths — `re-frame.schemas/extract-large-paths-from-schema`, published through the late-bind hook table as `:schemas/extract-large-paths-from-schema` so `re-frame.core` reaches it without statically requiring the schemas artefact — has exactly **two** live consumers:
 
@@ -302,10 +302,13 @@ The walker that extracts a schema's `:large?` paths — `re-frame.schemas/extrac
 ;;                           :source :schema
 ;;                           :hint   "Upload preview blob"}}
 ;;
-;; This does NOT populate the frame's durable app-db elision registry
-;; (EP-0015 §8 — that registry is frame-owned, `:source :frame`). To
-;; size-elide an app-db path on the wire, declare it on the FRAME:
-;;   (rf/reg-frame :app/main {:large {:app-db [[:user :uploaded-pdf]]}})
+;; This does NOT populate the durable app-db elision registry (EP-0025 —
+;; that registry is fed by the four commit-plane classification effects,
+;; `:source :effect`). To size-elide an app-db path on the wire, return the
+;; `:large` effect from a handler alongside its `:db` write:
+;;   (rf/reg-event-fx :user/load-pdf
+;;     (fn [_ [_ pdf]] {:db (assoc-in db [:user :uploaded-pdf] pdf)
+;;                      :large [[:user :uploaded-pdf]]}))
 ```
 
 The `:large?` flag may live in two structural positions inside the schema:
