@@ -119,6 +119,17 @@
   for its `:http` carrier block; `:large` is no longer a frame key."
   #{:sensitive :observability})
 
+(def ^:const retired-frame-keys
+  "Retired top-level `reg-frame` classification keys that no longer name a
+  frame annotation and FAIL LOUD on sight (EP-0025 clean break). A config
+  carrying any of these is rejected before frame registration mutates state —
+  the symmetric guard to the `:sensitive {:app-db …}` rejection (a retired
+  `:sensitive` SUB-key) for the retired top-level `:large` frame key. Durable
+  app-db classification is now the commit-plane effects (`re-frame.elision`),
+  so a frame carrying `:large {:app-db …}` is a removed-annotation footgun,
+  not inert config — fail it loud, exactly like `:sensitive {:app-db …}`."
+  #{:large})
+
 ;; ---- fail-loud error shape ----------------------------------------------
 
 (defn- classification-error
@@ -269,6 +280,36 @@
 ;; records through the sinks is the EP-0015 observability slice. An unknown
 ;; top-level `:observability` key fails loudly.
 
+;; ---- retired top-level frame key rejection (EP-0025 clean break) ---------
+;;
+;; The durable app-db `:large {:app-db …}` annotation was REMOVED with the
+;; rest of the frame egress-policy annotation (EP-0025 §What is removed) — a
+;; frame is not app-db's definition site. `:sensitive {:app-db …}` already
+;; fails loud (a retired SUB-key, caught by `validate-sensitive-block-keys!`);
+;; `:large` is a retired TOP-LEVEL key, so it needs its own symmetric guard —
+;; otherwise a frame carrying `:large {:app-db …}` registers and silently
+;; installs nothing, a removed-annotation footgun. Reject it fail-loud, with
+;; the same `:rf.error/bad-frame-classification` shape the `:sensitive`
+;; rejection raises.
+
+(defn- reject-retired-frame-keys!
+  "Fail loud on any retired top-level `reg-frame` classification key
+  (`retired-frame-keys`, currently `:large`). Mirrors the
+  `:sensitive {:app-db …}` rejection: `:rf.error/bad-frame-classification`,
+  thrown before frame registration mutates state, naming the offending key.
+  No-op when `config` carries no retired key (the common case)."
+  [frame-id config]
+  (doseq [k retired-frame-keys
+          :when (contains? config k)]
+    (throw (classification-error
+             frame-id
+             (str "retired frame key " k " — durable app-db classification is "
+                  "no longer a frame annotation (EP-0025). Declare it from an "
+                  "event handler via the `:sensitive` / `:large` commit-plane "
+                  "effects (alongside `:db`); a frame is not app-db's "
+                  "definition site.")
+             {:bad-key k :bad-value (get config k)}))))
+
 (def ^:private observability-keys #{:handled-events :errors})
 
 (defn- validate-sink-entry!
@@ -359,17 +400,25 @@
   EP-0025: there is no durable app-db classification install here anymore —
   the frame `:sensitive` / `:large {:app-db …}` annotation was removed in
   favour of the commit-plane classification effects. The retired `:app-db`
-  key inside `:sensitive` (and the whole `:large` frame key) now fail loud
-  through the closed-grammar key checks. HTTP carriers and `:observability`
-  ride the frame's `:config` verbatim for the HTTP / observability slices to
-  consume — nothing is installed into the elision registry from here.
+  key inside `:sensitive` (a retired SUB-key) and the retired top-level
+  `:large` frame key BOTH fail loud — `:sensitive {:app-db …}` through the
+  closed-grammar key check, `:large` through the symmetric retired-key
+  rejection. HTTP carriers and `:observability` ride the frame's `:config`
+  verbatim for the HTTP / observability slices to consume — nothing is
+  installed into the elision registry from here.
 
-  No-op when `config` carries no policy key (the common case)."
+  No-op when `config` carries no policy key and no retired frame key (the
+  common case)."
   [frame-id config]
+  ;; Retired top-level frame keys (`:large`) fail loud independently of the
+  ;; surviving-policy trigger — `:large` is not in `classification-keys`, so a
+  ;; config carrying ONLY `:large` would otherwise never reach validation.
+  (reject-retired-frame-keys! frame-id config)
   (when (some #(contains? config %) classification-keys)
     (let [sensitive     (:sensitive config)
           observability (:observability config)]
-      ;; Grammar: `:sensitive` is an HTTP-carriers-only block (closed key set).
+      ;; Grammar: `:sensitive` is an HTTP-carriers-only block (closed key set);
+      ;; a retired `:app-db` SUB-key fails loud here.
       (validate-sensitive-block-keys! frame-id sensitive)
       ;; HTTP carriers (shape only — non-string names fail loudly).
       (validate-http-block! frame-id (:http sensitive))

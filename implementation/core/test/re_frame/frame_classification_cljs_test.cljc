@@ -61,17 +61,25 @@
     (is (nil? (frame/frame :app/retired-sens))
         "the retired annotation threw before any frame state mutated")))
 
-(deftest retired-large-frame-key-installs-no-classification
-  (testing "EP-0025: `:large` is no longer a frame classification key — it
-            installs NO durable app-db classification (the commit-plane
-            `:large` effect owns that now). A lone `:large` frame key rides
-            `:config` as inert data, exactly like any unrecognized config key,
-            and is NOT a route into the elision registry."
-    (rf/reg-frame :app/retired-large
-      {:large {:app-db [[:documents :csv-upload]]}})
-    (is (some? (frame/frame :app/retired-large)) "the frame registered")
-    (is (empty? (elision/declarations :app/retired-large))
-        "no large declaration was installed from the inert :large frame key")
+(deftest retired-large-frame-key-fails-loud
+  (testing "EP-0025: the retired top-level `:large {:app-db …}` frame
+            annotation fails loud at reg-frame — durable app-db classification
+            moved to the commit-plane classification effects, so `:large` is
+            no longer a frame key. This is the SYMMETRIC guard to the
+            `:sensitive {:app-db …}` rejection: a frame carrying `:large` must
+            not silently register and install nothing (a removed-annotation
+            footgun)."
+    (let [data (bad-classification-ex
+                 #(rf/reg-frame :app/retired-large
+                    {:large {:app-db [[:documents :csv-upload]]}}))]
+      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
+      (is (= :large (:bad-key data))
+          "the retired top-level :large key is the offending slot"))
+    ;; The frame must NOT have been registered (fail-loud is transactional).
+    (is (nil? (frame/frame :app/retired-large))
+        "the retired annotation threw before any frame state mutated")
+    ;; And nothing leaked into the elision registry.
+    (is (empty? (elision/declarations :app/retired-large)))
     (is (empty? (elision/sensitive-declarations :app/retired-large)))))
 
 ;; ---------------------------------------------------------------------------

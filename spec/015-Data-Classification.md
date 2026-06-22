@@ -83,7 +83,7 @@ Semantics — these are the **commit-plane** half of [002 §Commit-plane data-cl
 
 The classification lands in the per-frame **elision registry** in runtime-db at `[:rf.runtime/elision …]` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)): the sensitive axis under `:sensitive-declarations`, the large axis under `:declarations`, each path mapped to a `{:source …}` record. The four effects write `:source :effect`; the registry is read at egress by both the path walker and the record projector. Locating the registry in runtime-db (not app-db) means a classification **walks back atomically with the frame** on a revert, per [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility).
 
-> **There is no frame `:sensitive {:app-db …}` annotation, and no schema-prop route to durable app-db classification.** A `reg-frame` `:sensitive` key carrying an `:app-db` block is **rejected fail-loud** (declare it from a handler's commit-plane effects); a `reg-app-schema` slot's `:sensitive?` / `:large?` props do **not** classify a durable app-db path (see [§What is removed](#what-is-removed-and-what-is-kept) and [§Schemas describe shape](#schemas-describe-shape-not-durable-app-db-egress-policy)).
+> **There is no frame `:sensitive {:app-db …}` / `:large {:app-db …}` annotation, and no schema-prop route to durable app-db classification.** A `reg-frame` `:sensitive` key carrying an `:app-db` block and a top-level `:large` frame key are both **rejected fail-loud** (declare durable classification from a handler's commit-plane effects); a `reg-app-schema` slot's `:sensitive?` / `:large?` props do **not** classify a durable app-db path (see [§What is removed](#what-is-removed-and-what-is-kept) and [§Schemas describe shape](#schemas-describe-shape-not-durable-app-db-egress-policy)).
 
 ## Registration-owned transient classification
 
@@ -388,7 +388,7 @@ Projection exists to stop *accidental* leaks at every framework-mediated observa
 
 **Removed by EP-0025** (this Spec does not describe these as live mechanisms):
 
-- the **frame `:sensitive` / `:large {:app-db …}` durable annotation** — durable app-db classification is the four commit-plane effects (a `reg-frame` `:sensitive` carrying an `:app-db` block is rejected fail-loud; `:large` is no longer a frame key);
+- the **frame `:sensitive` / `:large {:app-db …}` durable annotation** — durable app-db classification is the four commit-plane effects (a `reg-frame` `:sensitive` carrying an `:app-db` block **and** a top-level `:large` frame key are BOTH rejected fail-loud with `:rf.error/bad-frame-classification` — `:large` is no longer a frame key, and a config carrying it does not silently register);
 - the **durable-state Malli schema-prop classification route** + its schema→registry bridge (schemas validate + drive validation-failure-trace redaction only; durable classification is effects / subsystem declarations);
 - the **imperative marks API** — `add-marks` / `set-marks` / `clear-app-db-marks!`, the `marks.cljc` namespace, and the `:source :marks` feed (gone; the load-bearing projection substrate is migrated into the marks-free elision engine);
 - **all sensitivity propagation** — input → output inheritance through subs *and* flows, and the `:rf.egress/output-sensitivity` declassification claim + its value set;
