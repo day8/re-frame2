@@ -755,6 +755,34 @@
   [decl-paths sensitive-tbl]
   (boolean (some #(contains? sensitive-tbl %) decl-paths)))
 
+(defn- strict-prefix?
+  "True when declaration-coordinate path `a` is a STRICT prefix of `b` — `b`
+  is `a` extended by at least one further segment. Both are full declaration
+  coordinates in the SAME space (`:large` and `:sensitive` decls share it),
+  so a strict-prefix test answers \"is `b` a descendant slot under `a`?\"."
+  [a b]
+  (let [na (count a)]
+    (and (> (count b) na)
+         (= a (subvec b 0 na)))))
+
+(defn- large-keys-shadowing-sensitive
+  "The subset of `:large` declaration keys that have a `:sensitive` declaration
+  strictly BELOW them — a `:large`-marked subtree that contains a `:sensitive`
+  descendant. Per Spec 015 §No-propagation (L338) + EP-0025 §Egress-rules
+  (a normative MUST): such a subtree REDACTS rather than showing a size preview
+  (the `:rf.size/large-elided` marker leaks `:bytes` / `:type` and — off-box,
+  digests on — a SHA-256 digest computed over a subtree that contains the
+  secret, a brute-force oracle). The walker uses this set to look ahead at a
+  large-matched node: if the matched large coordinate shadows a sensitive
+  descendant, sensitive DOMINATES and the walker descends-and-redacts instead
+  of emitting the marker. Pure function of the two declaration tables; computed
+  once per walk and carried in `ctx`."
+  [large-tbl sensitive-tbl]
+  (let [s-keys (keys sensitive-tbl)]
+    (into #{}
+          (filter (fn [lk] (some #(strict-prefix? lk %) s-keys)))
+          (keys large-tbl))))
+
 ;; The wire walker's traversal state is the pair `[path decl-paths]` — the
 ;; concrete runtime path (drives marker `:path` / `:handle` + the unschema'd-
 ;; large warning) and the forked candidate declaration-coordinate set (drives
@@ -773,6 +801,7 @@
   [ctx]
   (let [large-tbl     (:large ctx)
         sensitive-tbl (:sensitive ctx)
+        shadow-set    (:large-shadows-s ctx)
         decl-prefixes (:decl-prefixes ctx)
         include-lg?   (:include-large? ctx)
         include-s?    (:include-sensitive? ctx)
@@ -785,6 +814,26 @@
          (cond
            (and sensitive? (not include-s?))
            privacy/redacted-sentinel
+
+           ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a `:large`-matched node
+           ;; whose matched large coordinate shadows a `:sensitive` descendant
+           ;; must NOT emit the size marker — sensitive DOMINATES. Fall through
+           ;; to `walk-recur` so the walker descends and redacts the sensitive
+           ;; descendant in place (Spec 015 §No-propagation L338, a normative
+           ;; MUST). Emitting the marker here would leak `:bytes` / `:type` and
+           ;; (off-box, digests on) a SHA-256 digest over a subtree that
+           ;; contains the secret — a brute-force oracle. Gated on
+           ;; `(not include-s?)`: the suppression exists to let the sensitive
+           ;; descendant redact on descent, so it only applies when sensitive
+           ;; redaction is in force (a caller that opted OUT of sensitive
+           ;; redaction has waived it; the large axis is then orthogonal). Only
+           ;; fires when a sensitive descendant actually exists under a large
+           ;; match, so the ordinary same-path / no-nesting large case is
+           ;; unchanged.
+           (and large-decl (not include-lg?) (not include-s?)
+                (seq shadow-set)
+                (some #(contains? shadow-set %) decl-paths))
+           walk-recur
 
            (and large-decl (not include-lg?))
            (if (marker? v)
@@ -847,6 +896,11 @@
         ctx       {:frame-id           frame-id
                    :large              large
                    :sensitive          sensitive
+                   ;; The subset of `:large` keys that shadow a `:sensitive`
+                   ;; descendant — drives the nested-axis suppression look-ahead
+                   ;; (Spec 015 §No-propagation L338, a normative MUST). Empty in
+                   ;; the common case (no nested classification).
+                   :large-shadows-s    (large-keys-shadowing-sensitive large sensitive)
                    ;; Prefix set of every declared path — bounds the forked
                    ;; candidate decl-path set as the walker descends maps.
                    ;; Empty when nothing is declared ⇒ the fork

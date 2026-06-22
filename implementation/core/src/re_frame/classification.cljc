@@ -210,10 +210,31 @@
   [v path]
   (elision/->marker v path {:reason :classification}))
 
+(defn- strict-prefix?
+  "True when path `a` is a STRICT prefix of `b` — `b` is `a` extended by at
+  least one further segment (so `b` is a descendant slot under `a`)."
+  [a b]
+  (let [na (count a)]
+    (and (> (count b) na)
+         (= a (subvec b 0 na)))))
+
+(defn- large-shadows-sensitive?
+  "True when the large-marked path `p` has ANY sensitive path strictly below it
+  in `sensitive-set` — a `:large`-marked subtree containing a `:sensitive`
+  descendant. Per Spec 015 §No-propagation (L338, a normative MUST) such a
+  subtree REDACTS (descend + redact the descendant) rather than emitting a
+  size-preview marker that would leak `:bytes` / `:type` (and, off-box with
+  digests on, a SHA-256 digest computed over a subtree that contains the
+  secret — a brute-force oracle)."
+  [p sensitive-set]
+  (boolean (some #(strict-prefix? p %) sensitive-set)))
+
 (defn- walk-with-paths
   "Walk `v` and substitute sentinels at the declared paths. Paths in
   `sensitive-paths` and `large-paths` are rooted at `v`. Sensitive wins over
-  large at the same path.
+  large at the same path; a large-marked subtree containing a sensitive
+  descendant descends-and-redacts rather than emitting a size marker
+  (nested-axis suppression — rf2-izlr7f).
 
   No-op early-exit: when both path sets are empty, returns `v` unchanged.
   Shares the map/vec/set/seq recursion skeleton with the schema-first elision
@@ -228,6 +249,13 @@
         {:decide  (fn [path v]
                     (cond
                       (contains? sensitive-set path) privacy/redacted-sentinel
+                      ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a large-marked
+                      ;; node that shadows a sensitive descendant descends so
+                      ;; the descendant redacts in place — no size marker.
+                      (and (contains? large-set path)
+                           (large-shadows-sensitive? path sensitive-set))
+                      elision/walk-recur
+
                       (contains? large-set path)     (large-marker v path)
                       :else                          elision/walk-recur))
          :map-key (fn [path k] (conj path k))

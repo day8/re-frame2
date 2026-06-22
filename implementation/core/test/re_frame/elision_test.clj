@@ -333,6 +333,73 @@
   (is (= {:source :effect}
          (get (elision/declarations) [:root :a :b :c]))))
 
+;; rf2-izlr7f — NESTED-AXIS SUPPRESSION (the highest-priority EP-0025 egress
+;; review finding). A `:large`-marked subtree containing a `:sensitive`
+;; DESCENDANT must REDACT, not emit a size/digest marker (Spec 015
+;; §No-propagation L338 + EP-0025 §Egress-rules — a normative MUST). Before the
+;; fix both walkers emitted the `:large` marker the moment the node matched
+;; `:large`, leaking `:bytes` / `:type` and (digests on) a SHA-256 digest
+;; computed over the subtree CONTAINING the secret — a brute-force oracle.
+
+(deftest nested-axis-large-over-sensitive-redacts-not-marks
+  (testing "a :large [[:a]] subtree with a :sensitive [[:a :b]] descendant
+            REDACTS the descendant and emits NO large marker / digest over it
+            (rf2-izlr7f) — the off-box-tool floor with digests ON is the
+            verified leak scenario"
+    (install-class! [[:a :b]] [[:a]])
+    (let [secret "TOP-SECRET-TOKEN-do-not-egress"
+          input  {:a {:b secret :c "public"}}
+          ;; The off-box-tool floor: digests ON, sensitive redaction in force
+          ;; (NOT opted out). This is the exact opts that triggered the leak.
+          out    (rf/elide-wire-value input {:rf.size/include-digests? true})]
+      ;; The sensitive descendant is REDACTED in place …
+      (is (= :rf/redacted (get-in out [:a :b]))
+          "the :sensitive descendant under the :large subtree is redacted")
+      ;; … and NO large marker (which would carry :bytes / :type / :digest)
+      ;; is emitted for the large-marked subtree.
+      (is (not (elision/marker? (get out :a)))
+          "NO :rf.size/large-elided marker is emitted over the large subtree")
+      (is (map? (get out :a))
+          "the large node descended to a plain map (walk-recur), not a marker")
+      ;; The non-sensitive sibling rides through verbatim (precision).
+      (is (= "public" (get-in out [:a :c]))
+          "the unmarked sibling rides egress verbatim")
+      ;; The load-bearing privacy assertion: NEITHER the raw secret NOR a digest
+      ;; over the secret-containing subtree appears anywhere in the wire output.
+      (is (not (.contains (pr-str out) secret))
+          "the raw secret does not leak")
+      (is (not (.contains (pr-str out) "sha256"))
+          "NO SHA-256 digest (a brute-force oracle over the secret) leaks")
+      (is (not (.contains (pr-str out) ":bytes"))
+          "NO :bytes length marker leaks"))))
+
+(deftest nested-axis-whole-value-large-over-sensitive-descendant-redacts
+  (testing "the whole-value :large [[]] case with a :sensitive [[:b]] descendant
+            also descends-and-redacts (the root large match shadows the
+            descendant) — rf2-izlr7f"
+    (install-class! [[:b]] [[]])
+    (let [secret "ROOT-LEVEL-SECRET"
+          out    (rf/elide-wire-value {:b secret :other "ok"}
+                                      {:rf.size/include-digests? true})]
+      (is (= :rf/redacted (get out :b))
+          "the sensitive descendant under the whole-value large mark is redacted")
+      (is (not (elision/marker? out))
+          "no whole-value large marker is emitted")
+      (is (= "ok" (get out :other)) "the unmarked sibling rides verbatim")
+      (is (not (.contains (pr-str out) secret)) "the raw secret does not leak")
+      (is (not (.contains (pr-str out) "sha256")) "no digest leaks"))))
+
+(deftest nested-axis-large-without-sensitive-descendant-still-marks
+  (testing "the ordinary large case is UNCHANGED: a :large subtree with NO
+            sensitive descendant still emits the size marker (the suppression
+            is gated on an actual sensitive descendant) — rf2-izlr7f regression
+            guard"
+    (install-class! [[:other :token]] [[:a]])
+    (let [out (rf/elide-wire-value {:a {:b "x" :c "y"}}
+                                   {:rf.size/include-digests? true})]
+      (is (elision/marker? (get out :a))
+          "a large subtree with no sensitive descendant still emits its marker"))))
+
 (deftest clear-large-effect-removes-declaration
   ;; EP-0025: the commit-plane classification effects are additive per axis;
   ;; a path is un-classified by the `:clear-large` effect (the set/unset
