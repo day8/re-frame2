@@ -28,6 +28,7 @@
   node under `:states`, recursing through `:states` maps; used by the
   top-level dispatch."
   (:require [re-frame.error :as error]
+            [re-frame.machines.choice :as choice]
             [re-frame.machines.grammar :as grammar]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.timeout :as timeout]))
@@ -1217,7 +1218,27 @@
   ;; `:final?` state carrying a `:timeout` is rejected as it would be for an
   ;; `:after`, and the desugared form is exactly what the runtime drives.
   (timeout/validate-timeouts! machine)
-  (let [machine (timeout/desugar-timeouts machine)]
+  ;; EP-0029 A5 — validate the `:type :choice` / `:choice` grammar on the
+  ;; RAW spec (before BOTH desugars) so diagnostics name the `:type :choice`
+  ;; / `:choice` keys the author wrote AND a choice state that also declares
+  ;; a reserved key (incl. `:timeout`) is caught with that key still present.
+  ;; The path-aware walker yields the declaring node's absolute path so a
+  ;; self-targeting candidate is resolved.
+  (doseq [[path n] (walk-state-nodes-with-path machine)]
+    (choice/validate-node-choice! path (peek path) n))
+  ;; A parallel region ROOT (a region body) may itself be a `:type :choice`
+  ;; node only in a degenerate sense; the walker above does not yield region
+  ;; roots, so validate them here for completeness (rejected via the same
+  ;; reserved-key / shape rules — a region root carries `:states`, a
+  ;; reserved key, so a `:type :choice` region root fails loud).
+  (when (parallel/parallel? machine)
+    (doseq [[rn body] (:regions machine)]
+      (choice/validate-node-choice! [rn] rn body)))
+  ;; DESUGAR both named-intent grammars onto their underlying mechanisms
+  ;; (`:timeout` → `:after`, `:choice` → `:always`) so every subsequent
+  ;; structural validator (transition targets, self-loop, after delays) and
+  ;; the runtime see the lowered form.
+  (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
   (validate-history! machine)
   (validate-parallel! machine)
   ;; The machine-level `:schemas` map (EP-0029 A3) — closed sub-key set; an

@@ -809,10 +809,12 @@
   parse back (alongside `:spawn-all`, `:tags`, action/guard bodies, and
   source-coord metadata)."
   [machine-spec]
-  ;; EP-0029 A4 — lower `:timeout` / `:on-timeout` to `:after` before
-  ;; export so a timeout surfaces as a `delayed` SCXML `<transition>` (the
-  ;; runtime drives the same lowered `:after` form). Idempotent + nil-safe.
-  (let [machine-spec (g/desugar-timeouts machine-spec)]
+  ;; EP-0029 — lower the named-intent grammars before export: `:timeout` /
+  ;; `:on-timeout` → `:after` (A4, surfaces as a `delayed` SCXML
+  ;; `<transition>`) and `:type :choice` / `:choice` → `:always` (A5,
+  ;; surfaces the candidate `<transition>`s). The runtime drives the same
+  ;; lowered forms. Idempotent + nil-safe.
+  (let [machine-spec (g/desugar-grammar machine-spec)]
   (cond
     (= :parallel (:type machine-spec))
     (let [{:keys [regions]} machine-spec]

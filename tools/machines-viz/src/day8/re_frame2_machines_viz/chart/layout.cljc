@@ -1310,10 +1310,12 @@
   the frame around its children. An empty graph (nil definition) is left
   unwrapped."
   [definition]
-  ;; EP-0029 A4 — lower `:timeout` / `:on-timeout` to `:after` before
-  ;; projecting so a timeout renders as the clock-glyph `:after` edge (the
-  ;; runtime drives the same lowered form). Idempotent + nil-safe.
-  (let [definition (g/desugar-timeouts definition)
+  ;; EP-0029 — lower the named-intent grammars before projecting: `:timeout`
+  ;; / `:on-timeout` → `:after` (A4, renders as the clock-glyph `:after`
+  ;; edge) and `:type :choice` / `:choice` → `:always` (A5, renders the
+  ;; candidate edges). The runtime drives the same lowered forms. Idempotent
+  ;; + nil-safe.
+  (let [definition (g/desugar-grammar definition)
         graph (cond
                 (nil? definition)
                 {:nodes [] :edges [] :initial-path nil}

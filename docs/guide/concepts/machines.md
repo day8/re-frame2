@@ -158,7 +158,7 @@ XState's behaviour is the reference re-frame2 matches; the *expression* is re-fr
 
 The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and the internal-by-default self-transitions (re-frame2's `:reenter? true` is XState's `reenter: true`). An XState author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
 
-> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. Some v6-direction features that motivate new grammar have landed (the broader `:schemas` map and explicit `:timeout` / `:on-timeout` — see [§Guards, actions, tags, `:after`](#guards-actions-tags-after--the-recognition-kit)); others (`:choice` states, `:internal-events`) land in later re-frame2 work.
+> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. Some v6-direction features that motivate new grammar have landed (the broader `:schemas` map, explicit `:timeout` / `:on-timeout`, and `:type :choice` transient states — see [§Guards, actions, tags, `:after`](#guards-actions-tags-after--the-recognition-kit)); `:internal-events` lands in later re-frame2 work.
 
 > **Coming from re-frame v1?** Machines don't exist there — the keyword-in-app-db + `cond` pattern above *is* the v1 shape this replaces. Nothing to unlearn; see [From re-frame v1](../25-from-re-frame-v1.md).
 
@@ -249,6 +249,16 @@ That one key replaces the `setTimeout`-plus-cancel-flag pattern that sits behind
 ```
 
 A duration is a positive-integer count of milliseconds (`5000`) **or** an ISO-8601 duration string (`"PT5S"`, `"PT2M"`, `"PT1H30M"`). re-frame2 deliberately **rejects** XState's `"5s"` / `"10ms"` readable shorthand — a bad duration fails loud at `reg-machine` time. `:timeout` requires `:on-timeout` (and vice-versa). Full grammar in [Spec 005 §`:timeout` / `:on-timeout`](../../../spec/005-StateMachines.md#timeout--on-timeout-state--spawn).
+
+**`:type :choice` is a decision node.** A choice state is a *transient* routing node: enter it and it resolves immediately — within the same step, no event needed — to the first guarded candidate whose `:guard` passes. It's `:always`'s decision pattern with a name, so diagrams and tools render an explicit fork:
+
+```clojure
+:checking {:type   :choice
+           :choice [{:guard :valid? :target :accepted}
+                    {:target :rejected}]}   ;; unguarded final = the default / else branch
+```
+
+The `:choice` value is a **declarative candidate array** — re-frame2 keeps the routing as *data*, deliberately **rejecting** XState v6's `choice`-*function* form (a function may never be the edge). A choice state only routes: it must include an unguarded default candidate (so it always resolves) and must not declare ordinary state keys (`:entry` / `:on` / `:after` / `:timeout` / `:spawn` / …) — both fail loud at `reg-machine` time. Under the hood `:choice` lowers onto `:always`. Full grammar in [Spec 005 §`:type :choice`](../../../spec/005-StateMachines.md#type-choice-transient--choice-states).
 
 **`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the macrostep commits. It's the in-machine equivalent of XState's `raise` — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). `:raise` is a reserved fx-id, alongside two more the machine runtime recognises inside an action's `:fx`: `[:rf.machine/spawn <spawn-spec>]` and `[:rf.machine/destroy <actor-id>]`, the actor-lifecycle pair behind the `:spawn` sugar below. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own registered effects — flows to the ordinary effects machinery untouched:
 

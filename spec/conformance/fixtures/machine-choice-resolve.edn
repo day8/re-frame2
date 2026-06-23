@@ -1,0 +1,87 @@
+;; Conformance fixture: machine/choice-resolve
+;;
+;; EP-0029 A5 — a :type :choice transient / choice state. A choice state is a
+;; DISTINCT authoring concept that LOWERS onto the existing :always
+;; eventless-transition mechanism: the runtime desugars
+;; {:type :choice :choice [{:guard … :target …} {:target …}]} into
+;; {:always [{:guard … :target …} {:target …}]} (dropping :type / :choice),
+;; and the whole :always machinery (the leaf→root candidate walk, the
+;; first-guard-pass select, the macrostep microstep loop) drives it.
+;;
+;; This fixture pins the routing end-to-end via the :machine-transition op
+;; (which passes the RAW definition straight to machine-transition, where the
+;; desugar runs): a :go transition into the choice state resolves IMMEDIATELY
+;; within the SAME macrostep to the first guard-passing candidate — no event
+;; needed. The transient :checking state is never externally observed (one
+;; microstep; the external next-snapshot is the candidate target).
+;;
+;; DIVERGENCE pinned elsewhere (machine-reg-error-choice.edn): the :choice
+;; value is a DECLARATIVE candidate ARRAY — a function-valued :choice is
+;; REJECTED at registration (operator-ruled A2 / C1).
+;;
+;; Per [005 §`:type :choice` (transient / choice states)]
+;; (../../005-StateMachines.md#type-choice-transient--choice-states) and
+;; [docs/EP/EP-0029 §A5].
+
+{:fixture/id           :machine/choice-resolve
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/choice}
+ :fixture/doc          "A :type :choice transient state with guarded candidates + an unguarded default. Entering it (via a :go transition) desugars the :choice onto :always and resolves IMMEDIATELY within the same macrostep to the first guard-passing candidate (no event needed) — the guard-pass case routes to :accepted, the all-guards-fail case falls through to the default :rejected. The transient state is never externally observed (one microstep)."
+
+ :fixture/registry
+ {:machine-guard
+  {:choice/valid? {:doc "True when (:ok? data) equals true."}}}
+
+ :fixture/handlers
+ {:machine-guard
+  {:choice/valid? [[:fn := [:get [:ok?]] true]]}}
+
+ :fixture/calls
+ [;; (1) Guard passes — the choice state routes to the first candidate.
+  ;; :go transitions :idle → :checking; :checking is a :type :choice state, so
+  ;; on entry the desugared :always resolves the first guard-passing candidate
+  ;; (:valid? is true) in one microstep, landing externally at :accepted.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:ok? true}
+                  :guards  {:valid? :choice/valid?}
+                  :states
+                  {:idle     {:on {:go :checking}}
+                   :checking {:type   :choice
+                              :choice [{:guard :valid? :target :accepted}
+                                       {:target :rejected}]}
+                   :accepted {}
+                   :rejected {}}}
+   :snapshot     {:state :idle :data {:ok? true}}
+   :event        [:go]
+   :expect-next-snapshot {:state :accepted :data {:ok? true}}
+   :expect-effects       []
+   :expect-microsteps    1
+   :expect-trace
+   [{:operation :rf.machine.microstep/transition
+     :tags      {:from :checking :to :accepted :microstep-index 0}}
+    {:operation :rf.machine/transition
+     :tags      {:from :idle :to :accepted :microsteps 1}}]}
+
+  ;; (2) Every guard fails — the unguarded DEFAULT candidate is taken.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:ok? false}
+                  :guards  {:valid? :choice/valid?}
+                  :states
+                  {:idle     {:on {:go :checking}}
+                   :checking {:type   :choice
+                              :choice [{:guard :valid? :target :accepted}
+                                       {:target :rejected}]}
+                   :accepted {}
+                   :rejected {}}}
+   :snapshot     {:state :idle :data {:ok? false}}
+   :event        [:go]
+   :expect-next-snapshot {:state :rejected :data {:ok? false}}
+   :expect-effects       []
+   :expect-microsteps    1
+   :expect-trace
+   [{:operation :rf.machine.microstep/transition
+     :tags      {:from :checking :to :rejected :microstep-index 0}}
+    {:operation :rf.machine/transition
+     :tags      {:from :idle :to :rejected :microsteps 1}}]}]}
