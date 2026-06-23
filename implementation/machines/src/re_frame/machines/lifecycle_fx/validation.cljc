@@ -30,6 +30,7 @@
   (:require [re-frame.error :as error]
             [re-frame.machines.choice :as choice]
             [re-frame.machines.grammar :as grammar]
+            [re-frame.machines.internal-events :as internal-events]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.timeout :as timeout]))
 
@@ -1234,6 +1235,13 @@
   (when (parallel/parallel? machine)
     (doseq [[rn body] (:regions machine)]
       (choice/validate-node-choice! [rn] rn body)))
+  ;; EP-0029 A6 — validate the `:internal-events` declaration on the RAW
+  ;; spec: it must be a SET of keywords (the re-frame2 set-form divergence
+  ;; from XState's array), and no declared internal event may ALSO be a
+  ;; public `:on` transition key anywhere in the machine (the public /
+  ;; private split). Neither named-intent desugar touches `:internal-events`,
+  ;; so the raw spec is the right basis.
+  (internal-events/validate-internal-events! machine)
   ;; DESUGAR both named-intent grammars onto their underlying mechanisms
   ;; (`:timeout` → `:after`, `:choice` → `:always`) so every subsequent
   ;; structural validator (transition targets, self-loop, after delays) and

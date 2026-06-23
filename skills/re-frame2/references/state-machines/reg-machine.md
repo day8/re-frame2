@@ -33,6 +33,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **state / actor timeouts** (`timeout` / `onTimeout`) | `:timeout <ms-or-ISO-8601>` + `:on-timeout <transition>` on a state, or on a `:spawn` spec | Convergence on the concept (a named deadline that lowers onto `:after`). **Divergence:** the duration is integer-ms **or** an ISO-8601 string (`"PT5S"`); the XState `"5s"`/`"10ms"` readable shorthand is **rejected**. |
 | **choice / transient states** (`type: 'choice'`) | `:type :choice` + `:choice [{:guard ... :target ...} ... {:target <default>}]` on a state | Convergence on the concept (an immediate decision node that resolves on entry to the first guard-passing candidate; lowers onto `:always`). **Divergence:** the routing is a declarative candidate **array**, NOT XState's `choice`-*function* (a function may never be the edge). A choice state must include an unguarded default candidate and only routes (no `:entry` / `:on` / `:after` / `:timeout` / `:spawn` / …). |
 | **`raise` (self-event)** | `:raise` inside an action's `:fx` | **Divergence:** sugar for atomic self-dispatch — there is no per-actor mailbox to insert in front of. |
+| **internal events** (v6 `internalEvents`) | top-level `:internal-events #{:tick …}` (a **set** of event-ids) | Convergence on the concept (private events the machine raises + handles itself; an external dispatch of one is refused at the machine dispatch boundary, while an internal `:raise` of it is handled normally). **Divergence:** the declaration is a Clojure **set** (`#{:tick}`), NOT XState's array — membership is the natural shape, order irrelevant, duplicates impossible. A reserved framework event (e.g. the synthetic creation marker) cannot be declared internal. |
 | **`sendTo` / `sender` (reply to a request)** | include the reply event in the request vector | **Divergence:** no new API; the event vector carries its own reply target. |
 | **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `(subscribe [:rf/machine <id>])`. |
 | **`setup({actors, guards, actions})`** | per-machine `:guards` / `:actions` maps in the spec | **Divergence:** machine-scoped (not globally registered) — each machine has its own guard/action namespace, validated at registration; cross-machine reuse is via plain Clojure vars. |
@@ -97,7 +98,27 @@ The basic (non-parallel, non-hierarchical) form:
 (rf/dispatch [:my/feature [:start]])
 ```
 
-The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see §Declaring a `[:schemas :data]` schema), `:guards` and `:actions` (named lookup tables), `:states` (the transition table). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
+The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see §Declaring a `[:schemas :data]` schema), `:guards` and `:actions` (named lookup tables), `:states` (the transition table), and the optional `:internal-events` set (see §Private `:internal-events`). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
+
+## Private `:internal-events`
+
+Declare the events a machine raises and handles **only itself** in a top-level `:internal-events` **set** — machine plumbing that is *not* part of the public event surface. An external dispatch of one (from a view, a test, or another handler) is **refused** at the machine dispatch boundary; an internal `:raise` of it is handled normally.
+
+```clojure
+(def gate
+  {:initial :waiting
+   :internal-events #{:tick}                          ;; private — only the machine raises it
+   :actions {:arm (fn [_] {:fx [[:raise [:tick]]]})}  ;; raise it internally…
+   :states
+   {:waiting {:on {:go {:target :armed :action :arm}}}
+    :armed   {:on {:tick {:target :checking}}}         ;; …and handle it with an ordinary :on clause
+    :checking {}}})
+
+(rf/dispatch [:my/gate [:go]])    ;; runs :arm → raises :tick → drives :armed → :checking
+(rf/dispatch [:my/gate [:tick]])  ;; REFUSED at the boundary — no transition, an error trace fires
+```
+
+The `:on {:tick …}` clause is **how** the machine handles the raised event — that is the expected shape, not a collision. `:internal-events` only adds the external-dispatch refusal. Two registration rules fail loud: `:internal-events` must be a **set** of keywords (a vector — XState's array form — is rejected), and no member may be a reserved framework event (e.g. the synthetic creation marker).
 
 ## State-node shape
 

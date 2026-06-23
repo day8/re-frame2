@@ -1,0 +1,72 @@
+;; Conformance fixture: machine/internal-event-boundary
+;;
+;; EP-0029 A6 — the public / private :internal-events DISPATCH BOUNDARY. An
+;; internal event is machine plumbing (raised + handled within the machine's
+;; own run-to-completion logic); it is NOT part of the machine's public event
+;; surface. The boundary is enforced at the MACHINE DISPATCH BOUNDARY: an
+;; EXTERNAL dispatch of a declared internal event is REFUSED — the handler
+;; emits :rf.error/machine-internal-event-external-dispatch and short-circuits
+;; with NO state change (a benign no-op, the committed snapshot untouched).
+;;
+;; An internal :raise of the SAME event drains inside the macrostep's FIFO
+;; internal-event queue and NEVER re-enters via reg-event dispatch, so it is
+;; handled normally — the boundary refuses only the OUTSIDE caller. (That
+;; raise-is-handled path is pinned by the JVM / CLJS unit suites, which can
+;; declare an action that returns {:fx [[:raise [:tick]]]} — a fn-valued
+;; action is not EDN-expressible here.)
+;;
+;; This Mode-A fixture pins the REFUSAL end-to-end: the machine is booted to
+;; :waiting (a public event), then an external dispatch of the private :tick
+;; is refused — the machine stays at :waiting and the error trace fires.
+;;
+;; Per [005 §Public / private `:internal-events`]
+;; (../../005-StateMachines.md#public--private-internal-events) and
+;; [docs/EP/EP-0029 §A6].
+
+{:fixture/id           :machine/internal-event-boundary
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/internal-events :fsm/flat :core/event-handler :core/error}
+ :fixture/doc          "The public / private :internal-events dispatch boundary: an EXTERNAL dispatch of a declared internal event (:tick, declared in :internal-events) is REFUSED at the machine dispatch boundary — the machine stays at :waiting (no transition, no snapshot commit) and :rf.error/machine-internal-event-external-dispatch fires. A public event (:go) on the same machine transitions normally."
+
+ :fixture/registry
+ {:event {:test/m {:doc "Machine-as-event-handler with a private :internal-event."}}
+  :machine
+  {:test/m {:initial :waiting
+            :internal-events #{:tick}
+            :data    {}
+            :states  {:waiting {:on {:go   {:target :ready}
+                                     ;; :tick is handled internally (the
+                                     ;; raised-event path) — but an EXTERNAL
+                                     ;; dispatch of it is refused at the
+                                     ;; boundary BEFORE this clause is reached.
+                                     :tick {:target :checking}}}
+                      :ready    {}
+                      :checking {}}}}}
+
+ :fixture/handlers {}
+
+ ;; Boot the machine to :waiting via the reserved creation marker, then
+ ;; dispatch the PRIVATE :tick from outside — it is refused.
+ :fixture/frame-config {:initial-events [[:test/m [:rf.machine/start]]]}
+
+ :fixture/dispatches
+ [[:test/m [:tick]]]
+
+ :fixture/expect
+ ;; The machine remains at :waiting — the external :tick drove no transition.
+ {:final-app-db {}
+
+  :trace-emissions
+  [;; The boundary refuses the external private event with the named error.
+   {:operation :rf.error/machine-internal-event-external-dispatch
+    :op-type   :error
+    :tags      {:actor-id :test/m
+                :event-id :tick
+                :event    [:tick]}
+    :recovery  :no-recovery}]
+
+  ;; The refusal is a per-handler no-op (the committed snapshot is untouched),
+  ;; not a drain-halt — the drain emptied its queue, so the epoch outcome is
+  ;; :ok (symmetric with cross-spec/machine-action-throws).
+  :epoch-records
+  [{:frame :rf/default :record {:outcome :ok :event-id :test/m}}]}}
