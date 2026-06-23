@@ -72,11 +72,11 @@
   \"vector\"}`) even with no live snapshot in hand. This is deliberately
   the SHAPE, not the live values — the live runtime `:data` overlay
   stays a separate diagnostic (per the bead). Returns nil when the
-  definition declares neither a `:data-schema` nor a map `:data` (so the
+  definition declares neither a `[:schemas :data]` schema nor a map `:data` (so the
   panel stays hidden).
 
   Declared over inferred (rf2-3q4k5b): when the machine declares a
-  `:data-schema`, the shape is read AUTHORITATIVELY off the schema; otherwise
+  `[:schemas :data]` schema, the shape is read AUTHORITATIVELY off the schema; otherwise
   it is INFERRED from one sample of the initial `:data`. The provenance is
   reported by `static-context-inferred?` (drives the chart's
   `:context-band-inferred?` badge gate). Delegates to the machines-viz
@@ -90,7 +90,7 @@
   "rf2-3q4k5b (EP-0005) — true when `static-context-shape` for this definition
   is INFERRED from one sample of `:data` (rf2-5tz9p's caveat applies — the
   chart shows the `inferred from :data` badge); false when it is AUTHORITATIVE
-  from a declared `:data-schema` (the chart drops the inferred badge and shows
+  from a declared `[:schemas :data]` schema (the chart drops the inferred badge and shows
   a `declared` badge). Feeds the chart's `:context-band-inferred?` prop.
 
   Defaults to true when there is no shape at all, so a host that threads it
@@ -290,11 +290,11 @@
          :guard-blocked-edge-ids guard-blocked-ids
          ;; rf2-vcnvj — surface the STATIC context shape (keys + type
          ;; captions) so the root Context chrome renders on the blank-state
-         ;; topology. nil when the machine declares neither a `:data-schema`
-         ;; nor a map `:data` (panel stays hidden).
+         ;; topology. nil when the machine declares neither a `[:schemas :data]`
+         ;; schema nor a map `:data` (panel stays hidden).
          :context-band           (static-context-shape definition)
          ;; rf2-3q4k5b (EP-0005) — declared over inferred. False when the
-         ;; shape came from a declared `:data-schema` (authoritative — the
+         ;; shape came from a declared `[:schemas :data]` schema (authoritative — the
          ;; chart drops the `inferred from :data` badge); true when inferred
          ;; from one sample of `:data` (rf2-5tz9p's badge stays). The chart's
          ;; prop already defaults true, but threading it explicitly keeps the

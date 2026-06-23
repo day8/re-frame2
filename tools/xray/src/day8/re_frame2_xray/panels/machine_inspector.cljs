@@ -52,7 +52,7 @@
             ;; keep the panel's `:data` display honest, route each live
             ;; snapshot through the SAME `project-trace-event` chokepoint
             ;; the trace stream uses, so a `:sensitive?` / `:large?`
-            ;; `:data-schema` slot lands as `:rf/redacted` / the size
+            ;; `[:schemas :data]` slot lands as `:rf/redacted` / the size
             ;; marker before any panel surface reads it — never raw.
             [re-frame.classification :as classification]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
@@ -69,7 +69,7 @@
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
             ;; rf2-kq8nac (EP-0005) — the declared-over-inferred static
             ;; Context-shape projection. The focused-event chart surfaces
-            ;; the machine's declared `:data-schema` Context shape (keys +
+            ;; the machine's declared `[:schemas :data]` Context shape (keys +
             ;; type captions) authoritatively, falling back to the
             ;; one-sample inference when no schema is declared — the SAME
             ;; `static-context-shape` / `static-context-inferred?` the
@@ -175,7 +175,7 @@
 ;; snapshot-egress redactor the `re-frame.classification` trace projection (that
 ;; runs at trace-emit, on the trace stream — not on a direct frame-db
 ;; read). A machine declaring a `:sensitive?` / `:large?` slot in its
-;; `:data-schema` (EP-0005 / rf2-w46fpt) has those slots redacted in
+;; `[:schemas :data]` schema (EP-0005 / rf2-w46fpt) has those slots redacted in
 ;; EVERY transition / snapshot trace, but a raw frame-db read would still
 ;; surface them. `redact-live-snapshots` routes each `{:state :data}`
 ;; snapshot through the SAME `project-trace-event` chokepoint as a
@@ -403,7 +403,7 @@
            ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
            ;; Context shape (keys + type captions) in the focused-event
            ;; chart's root Context band, with the declared-vs-inferred
-           ;; indicator. When the machine declares a `:data-schema` the
+           ;; indicator. When the machine declares a `[:schemas :data]` schema the
            ;; shape is read off the schema and `:context-band-inferred?`
            ;; is FALSE (the chart drops the `inferred from :data` badge and
            ;; shows `declared` — consistent with the Static Topology view

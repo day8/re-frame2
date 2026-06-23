@@ -1783,7 +1783,7 @@ Per [spec/015-Data-Classification §The ownership split](../../../spec/015-Data-
 3. **Subscription** — output classification via `{:sensitive [paths]}` declaring the sub's OWN sensitive output paths. (EP-0025 removed input→output propagation and the `:rf.egress/output-sensitivity` declassification claim — a derived output classifies itself directly.)
 4. **Effect** (`reg-fx`) — input marking on the fx-args.
 5. **Coeffect** (`reg-cofx`) — injection marking.
-6. **State machine** (`reg-machine`) — schema-first `:data` slot props (`:sensitive?` / `:large?` on the `:data-schema`; EP-0005 composition, not the frame path-map mechanism).
+6. **State machine** (`reg-machine`) — schema-first `:data` slot props (`:sensitive?` / `:large?` on the `[:schemas :data]` schema; EP-0005 composition retargeted by EP-0029 A3, not the frame path-map mechanism).
 7. **Flow** (`reg-flow`) — output marking via the flow's own `:sensitive [paths]` / `:large [paths]`. (EP-0025 removed `:rf.egress/output-sensitivity` — no flow input→output propagation; classify the flow's own output directly.)
 8. **Resource / mutation** (`reg-resource` / `reg-mutation`) — durable runtime-subsystem state classified by per-slot `:sensitive?` / `:large?` props on the `:data-schema` / `:params-schema` (the shared EP-0005 schema mechanism).
 

@@ -19,7 +19,9 @@
   local tools default `:rf.egress/local-redacted`; raw requires an
   explicit trusted-local opt-in. EP-0015 issue 12 / Spec 015 §Machine
   `:data`: machine `:data` sensitivity is **schema-first** — per-slot
-  `:sensitive?` / `:large?` props on the machine's `:data-schema`.
+  `:sensitive?` / `:large?` props on the machine's `[:schemas :data]`
+  schema (the EP-0029 A3 clean-break home for what EP-0005 called
+  `:data-schema`).
 
   ## What this does
 
@@ -44,7 +46,7 @@
   production surface; it only fires for a host feeding live values.")
 
 ;; ---------------------------------------------------------------------------
-;; Classification extraction from a :data-schema (plain-data walk)
+;; Classification extraction from a [:schemas :data] schema (plain-data walk)
 
 (def ^:private map-unwrap-heads
   "Malli wrapper heads whose first contained schema carries the real map —
