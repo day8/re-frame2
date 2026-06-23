@@ -44,6 +44,7 @@
   (:require [clojure.set :as set]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
+            [re-frame.machines.timeout :as timeout]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
@@ -1303,14 +1304,22 @@
   lifecycle handler emits the machine-scoped error trace and rolls back —
   the guard throw is never demoted to a lower-priority candidate."
   [machine snapshot event]
-  (try
-    (if (parallel? machine)
-      (parallel-machine-transition machine snapshot event)
-      (transition/machine-transition-single machine snapshot event))
-    (catch #?(:clj Throwable :cljs :default) e
-      (if (transition/guard-threw-signal? e)
-        (result/fail (transition/guard-threw->fail-info e))
-        (throw e)))))
+  ;; Desugar `:timeout` / `:on-timeout` (EP-0029 A4) into the equivalent
+  ;; `:after` entries BEFORE the engine sees the spec — `:timeout` is a
+  ;; distinct authoring concept that LOWERS onto the existing `:after`
+  ;; timer mechanism. Idempotent, so a spec already desugared at
+  ;; registration is unaffected; this seam also covers the conformance
+  ;; `:machine-transition` op, which passes the RAW (pre-registration)
+  ;; definition straight here.
+  (let [machine (timeout/desugar-timeouts machine)]
+    (try
+      (if (parallel? machine)
+        (parallel-machine-transition machine snapshot event)
+        (transition/machine-transition-single machine snapshot event))
+      (catch #?(:clj Throwable :cljs :default) e
+        (if (transition/guard-threw-signal? e)
+          (result/fail (transition/guard-threw->fail-info e))
+          (throw e))))))
 
 ;; ---- birth-time `:always` + raise settle ----------------------------------
 ;;
@@ -1462,12 +1471,17 @@
   boundary — the second pure-engine entry point alongside
   `machine-transition` — and converted to a `result/fail`."
   [machine initial-snapshot]
-  (try
-    (apply-initial-entry-cascade* machine initial-snapshot)
-    (catch #?(:clj Throwable :cljs :default) e
-      (if (transition/guard-threw-signal? e)
-        (result/fail (transition/guard-threw->fail-info e))
-        (throw e)))))
+  ;; Desugar `:timeout` / `:on-timeout` (EP-0029 A4) so an INITIAL state's
+  ;; timeout arms at birth via the same `:after`-schedule fx the cascade
+  ;; emits. Idempotent — a spec already desugared at registration is
+  ;; unaffected. Mirrors the desugar at the `machine-transition` entry.
+  (let [machine (timeout/desugar-timeouts machine)]
+    (try
+      (apply-initial-entry-cascade* machine initial-snapshot)
+      (catch #?(:clj Throwable :cljs :default) e
+        (if (transition/guard-threw-signal? e)
+          (result/fail (transition/guard-threw->fail-info e))
+          (throw e))))))
 
 (defn- apply-initial-entry-cascade*
   "Inner body of `apply-initial-entry-cascade` — wrapped by it for the

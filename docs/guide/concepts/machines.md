@@ -158,7 +158,7 @@ XState's behaviour is the reference re-frame2 matches; the *expression* is re-fr
 
 The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and the internal-by-default self-transitions (re-frame2's `:reenter? true` is XState's `reenter: true`). An XState author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
 
-> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. The v6-direction features that motivate new grammar (broader `:schemas`, explicit `:timeout`, `:choice` states, `:internal-events`) land in later re-frame2 work; this page teaches the model, not those not-yet-shipped slots.
+> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. Some v6-direction features that motivate new grammar have landed (the broader `:schemas` map and explicit `:timeout` / `:on-timeout` — see [§Guards, actions, tags, `:after`](#guards-actions-tags-after--the-recognition-kit)); others (`:choice` states, `:internal-events`) land in later re-frame2 work.
 
 > **Coming from re-frame v1?** Machines don't exist there — the keyword-in-app-db + `cond` pattern above *is* the v1 shape this replaces. Nothing to unlearn; see [From re-frame v1](../25-from-re-frame-v1.md).
 
@@ -236,6 +236,19 @@ Add a fifth busy state later and it's one `:tags` entry on the new node — zero
 ```
 
 That one key replaces the `setTimeout`-plus-cancel-flag pattern that sits behind most reconnect/timeout/debounce bugs. Full grammar in [Spec 005 §Delayed `:after` transitions](../../../spec/005-StateMachines.md#delayed-after-transitions).
+
+**`:timeout` / `:on-timeout` names a deadline.** Where `:after` is the general timer table, `:timeout` is the named-intent spelling of "this state — or its spawned child — must finish before this time." It pairs a duration with an `:on-timeout` transition, and it lowers onto the very same `:after` timer (one mechanism, distinct intent — the two coexist on a node):
+
+```clojure
+:waiting {:timeout    "PT5S"                       ;; ISO-8601 — fire after 5 seconds
+          :on-timeout {:target :timed-out}}
+
+:loading {:spawn {:machine-id :fetch-user
+                  :timeout    "PT10S"              ;; bound the child's whole lifetime
+                  :on-timeout {:target :timed-out}}}
+```
+
+A duration is a positive-integer count of milliseconds (`5000`) **or** an ISO-8601 duration string (`"PT5S"`, `"PT2M"`, `"PT1H30M"`). re-frame2 deliberately **rejects** XState's `"5s"` / `"10ms"` readable shorthand — a bad duration fails loud at `reg-machine` time. `:timeout` requires `:on-timeout` (and vice-versa). Full grammar in [Spec 005 §`:timeout` / `:on-timeout`](../../../spec/005-StateMachines.md#timeout--on-timeout-state--spawn).
 
 **`:raise` loops an event back into this machine.** An action can return `:fx [[:raise [:some-event …]]]` to fire an event *at its own machine*, atomically, before the macrostep commits. It's the in-machine equivalent of XState's `raise` — useful when one transition's outcome should immediately drive another (a wizard step that completes and re-asks "is the whole form done?"). `:raise` is a reserved fx-id, alongside two more the machine runtime recognises inside an action's `:fx`: `[:rf.machine/spawn <spawn-spec>]` and `[:rf.machine/destroy <actor-id>]`, the actor-lifecycle pair behind the `:spawn` sugar below. Everything else in `:fx` — `:dispatch`, `:rf.http/managed`, your own registered effects — flows to the ordinary effects machinery untouched:
 

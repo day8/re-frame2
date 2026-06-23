@@ -1,0 +1,81 @@
+;; Conformance fixture: machine/timeout-state-fire
+;;
+;; EP-0029 A4 — a state-level :timeout / :on-timeout. A :timeout is a
+;; DISTINCT authoring concept that LOWERS onto the existing :after timer
+;; mechanism: the runtime desugars {:timeout "PT5S" :on-timeout {:target …}}
+;; into {:after {5000 {:target …}}} (the resolved ms), and the whole :after
+;; machinery (scheduling, per-decl-path epoch, cancel-on-exit) drives it.
+;;
+;; This fixture pins the lowering end-to-end via the :machine-transition op
+;; (which passes the RAW definition straight to machine-transition, where
+;; the desugar runs): entering the :timeout-bearing state emits the SAME
+;; :rf.machine/after-schedule fx a literal :after would (keyed by the
+;; resolved 5000 ms, NOT the "PT5S" string), and the synthetic
+;; timer-elapsed event at 5000 fires the :on-timeout transition.
+;;
+;; DIVERGENCE pinned elsewhere (machine-reg-error-timeout.edn): the duration
+;; grammar is integer-ms OR ISO-8601 only — the XState "5s"/"10ms" shorthand
+;; is REJECTED at registration (operator-ruled).
+;;
+;; Per [005 §`:timeout` / `:on-timeout` (delayed transitions)]
+;; (../../005-StateMachines.md#timeout--on-timeout-state--spawn) and
+;; [docs/EP/EP-0029 §A4].
+
+{:fixture/id           :machine/timeout-state-fire
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/timeout}
+ :fixture/doc          "A state declares :timeout \"PT5S\" + :on-timeout {:target :timed-out}. Entering the state desugars the timeout onto :after and emits the :rf.machine/after-schedule fx keyed by the resolved 5000 ms; the synthetic timer-elapsed event at 5000 fires the :on-timeout transition to :timed-out."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; Step 1: :go transitions :idle → :waiting; the :timeout "PT5S" desugars
+  ;; to an :after {5000 …} entry, so entry emits the after-schedule fx keyed
+  ;; by the RESOLVED 5000 ms (not the "PT5S" string) with epoch 1.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states
+                  {:idle    {:on {:go :waiting}}
+                   :waiting {:timeout    "PT5S"
+                             :on-timeout {:target :timed-out}}
+                   :timed-out {}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:go]
+   :expect-next-snapshot {:state :waiting :data {:rf/after-epoch {[:waiting] 1}}}
+   :expect-effects [[:rf.machine/after-schedule
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:waiting]
+                      :state        :waiting
+                      :delay-key    5000
+                      :epoch        1
+                      :server?      false}]]
+   :expect-trace
+   [{:operation :rf.machine.timer/scheduled
+     :tags      {:state :waiting :delay 5000 :epoch 1 :delay-source :literal}}
+    {:operation :rf.machine/transition
+     :tags      {:from :idle :to :waiting}}]}
+
+  ;; Step 2: the synthetic timer-elapsed event at the resolved 5000 ms fires
+  ;; the :on-timeout transition; the snapshot lands at :timed-out; the
+  ;; :waiting node's per-path epoch advances to 2 (it was exited).
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states
+                  {:idle    {:on {:go :waiting}}
+                   :waiting {:timeout    "PT5S"
+                             :on-timeout {:target :timed-out}}
+                   :timed-out {}}}
+   :snapshot     {:state :waiting :data {:rf/after-epoch {[:waiting] 1}}}
+   :event        [::after-elapsed 5000 1 [:waiting]]
+   :expect-next-snapshot {:state :timed-out :data {:rf/after-epoch {[:waiting] 2}}}
+   :expect-effects [[:rf.machine/after-cancel
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:waiting]}]]
+   :expect-trace
+   [{:operation :rf.machine.timer/fired
+     :tags      {:state :waiting :delay 5000 :epoch 1 :fired? true}}
+    {:operation :rf.machine/transition
+     :tags      {:from :waiting :to :timed-out}}]}]}

@@ -809,6 +809,10 @@
   parse back (alongside `:spawn-all`, `:tags`, action/guard bodies, and
   source-coord metadata)."
   [machine-spec]
+  ;; EP-0029 A4 — lower `:timeout` / `:on-timeout` to `:after` before
+  ;; export so a timeout surfaces as a `delayed` SCXML `<transition>` (the
+  ;; runtime drives the same lowered `:after` form). Idempotent + nil-safe.
+  (let [machine-spec (g/desugar-timeouts machine-spec)]
   (cond
     (= :parallel (:type machine-spec))
     (let [{:keys [regions]} machine-spec]
@@ -838,7 +842,7 @@
            "those shapes.")
       {:recovery :supply-a-valid-machine-spec
        ;; rf2-8nzxib — value-FREE; never the raw spec.
-       :extra    {:spec-summary (spec-summary machine-spec)}})))
+       :extra    {:spec-summary (spec-summary machine-spec)}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; XML parse — minimal regex-based reader for the SCXML subset we

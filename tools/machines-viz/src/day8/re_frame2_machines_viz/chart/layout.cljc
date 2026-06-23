@@ -1310,7 +1310,11 @@
   the frame around its children. An empty graph (nil definition) is left
   unwrapped."
   [definition]
-  (let [graph (cond
+  ;; EP-0029 A4 — lower `:timeout` / `:on-timeout` to `:after` before
+  ;; projecting so a timeout renders as the clock-glyph `:after` edge (the
+  ;; runtime drives the same lowered form). Idempotent + nil-safe.
+  (let [definition (g/desugar-timeouts definition)
+        graph (cond
                 (nil? definition)
                 {:nodes [] :edges [] :initial-path nil}
 

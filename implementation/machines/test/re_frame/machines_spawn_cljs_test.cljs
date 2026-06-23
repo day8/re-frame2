@@ -252,27 +252,31 @@
             "child machine snapshot torn down by the standard exit cascade"))
       (trace-tooling/unregister-listener! ::ato))))
 
-;; ---- :timeout-ms on :spawn / :spawn-all is rejected -------------------
+;; ---- the legacy :timeout-ms slot stays removed ------------------------
+;;
+;; EP-0029 A4 ADDS first-class spawn-level :timeout / :on-timeout grammar
+;; (covered by machines_timeout_cljs_test.cljs). The PRE-EP draft
+;; :timeout-ms slot was never shipped and stays removed; a bare :on-timeout
+;; (no :timeout) is now the A4 pairing error, NOT the legacy slot error.
 
 (deftest machine-spawn-timeout-ms-removed-cljs
-  (testing ":timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
+  (testing "legacy :timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :running}}
                          :running {:spawn {:machine-id :stub
-                                            :timeout-ms 1000
-                                            :on-timeout [:never]}}}}]
+                                            :timeout-ms 1000}}}}]
       (is (thrown-with-msg? js/Error
                             #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad-invoke bad)))))
-  (testing ":on-timeout alone on :spawn is also rejected"
+  (testing ":on-timeout alone on :spawn is the A4 pairing error"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :running}}
                          :running {:spawn {:machine-id :stub
                                             :on-timeout [:never]}}}}]
       (is (thrown-with-msg? js/Error
-                            #"spawn-timeout-ms-removed"
+                            #"machine-on-timeout-without-timeout"
                             (rf/reg-machine :rmv/bad-on-to bad)))))
-  (testing ":timeout-ms on :spawn-all is rejected"
+  (testing "legacy :timeout-ms on :spawn-all is rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :h}}
                          :h    {:spawn-all
@@ -282,8 +286,7 @@
                                  :on-child-done    :done
                                  :on-child-error   :failed
                                  :on-all-complete  [:done!]
-                                 :timeout-ms       5000
-                                 :on-timeout       [:to]}}}}]
+                                 :timeout-ms       5000}}}}]
       (is (thrown-with-msg? js/Error
                             #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad-invoke-all bad))))))

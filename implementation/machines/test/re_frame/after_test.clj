@@ -11,8 +11,10 @@
       the per-machine :rf/after-epoch counter.
     - No-invoke variant: a state with :after but no :spawn is a pure
       timed-transition state.
-    - :timeout-ms / :on-timeout on :spawn / :spawn-all is rejected;
-      registration throws :rf.error/spawn-timeout-ms-removed.
+    - The legacy :timeout-ms slot on :spawn / :spawn-all stays removed;
+      registration throws :rf.error/spawn-timeout-ms-removed. (The
+      first-class EP-0029 A4 :timeout / :on-timeout grammar — which
+      desugars onto :after — is covered by timeout_test.clj.)
 
   These JVM tests dispatch the synthetic
   [:rf.machine.timer/after-elapsed delay-key epoch decl-path] event
@@ -35,28 +37,34 @@
 (def ^:private frame-db mtest/runtime-db)
 (def ^:private snapshot mtest/snapshot)
 
-;; ---- registration-time rejection of :timeout-ms ---------------------------
+;; ---- registration-time handling of the legacy :timeout-ms slot -------------
+;;
+;; EP-0029 A4 ADDS first-class spawn-level :timeout / :on-timeout grammar
+;; (see timeout_test.clj for that). The PRE-EP draft :timeout-ms slot was
+;; never shipped and stays removed — `:timeout-ms` on :spawn / :spawn-all
+;; throws :rf.error/spawn-timeout-ms-removed. A bare :on-timeout (no
+;; :timeout) is now the A4 pairing error, NOT the legacy slot error.
 
 (deftest spawn-timeout-ms-rejected
-  (testing ":timeout-ms on :spawn fails registration"
+  (testing "legacy :timeout-ms on :spawn fails registration"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :r}}
                          :r    {:spawn {:machine-id :stub
-                                         :timeout-ms 1000
-                                         :on-timeout [:never]}}}}]
+                                         :timeout-ms 1000}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad bad))
-          "registration emits the migration error category")))
-  (testing ":on-timeout alone on :spawn is also rejected"
+          "registration emits the removed-slot error category")))
+  (testing ":on-timeout alone on :spawn is the A4 pairing error"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :r}}
                          :r    {:spawn {:machine-id :stub
                                          :on-timeout [:never]}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad2 bad)))))
-  (testing ":timeout-ms on :spawn-all is rejected"
+                            #"machine-on-timeout-without-timeout"
+                            (rf/reg-machine :rmv/bad2 bad))
+          "a spawn :on-timeout with no :timeout fails per EP-0029 A4")))
+  (testing "legacy :timeout-ms on :spawn-all is rejected"
     (let [bad {:initial :idle
                :states  {:idle {:on {:go :h}}
                          :h    {:spawn-all
@@ -65,8 +73,7 @@
                                  :on-child-done   :done
                                  :on-child-error  :failed
                                  :on-all-complete [:done!]
-                                 :timeout-ms      5000
-                                 :on-timeout      [:to]}}}}]
+                                 :timeout-ms      5000}}}}]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"spawn-timeout-ms-removed"
                             (rf/reg-machine :rmv/bad3 bad))))))
