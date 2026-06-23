@@ -571,3 +571,137 @@
           "a re-keyed secret in a second named slot ships raw")
       (is (= [:a :b] (:source-chain out))
           "a NON-named author-prose slot is left untouched"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vl0jur — derived-tree FAILS CLOSED on NO LIVE FRAME.
+;;
+;; Mike ruled 2026-06-23: (a) FAIL CLOSED for no-live-frame derived trees while
+;; PRESERVING the EP-0025 fail-open for re-keyed values UNDER a live governing
+;; frame. The four-case rule:
+;;   1. live frame + declared path             -> redact/elide by path;
+;;   2. live frame + re-keyed/undeclared pos    -> raw (EP-0025 fail-open, KEEP);
+;;   3. NO live frame (nil/unknown/destroyed)
+;;      + no explicit raw opt-in                -> FAIL CLOSED (:rf/redacted);
+;;   4. explicit trusted-local raw opt-in       -> raw (KEEP).
+;;
+;; The earlier carve-out shipped the WHOLE tree RAW on no live frame, which
+;; contradicted the low-level walker (`elide-wire-value` fails closed), Spec 015
+;; §Direct reads, and the generic project-egress no-frame fixture. Cases 1 + 2
+;; are pinned by the deftests above (a LIVE `mk-frame!` is in effect there);
+;; these pin case 3 across nil / unknown / destroyed frames in BOTH the
+;; single-tree and `:slot-keys` forms, and case 4 (the opt-out still ships raw).
+;; ---------------------------------------------------------------------------
+
+(deftest derived-tree-nil-frame-fails-closed
+  (testing "case 3 — a derived-tree record with a NIL :frame and no opt-out
+            FAILS CLOSED: the whole single tree redacts to :rf/redacted (not
+            shipped raw; the rf2-vl0jur carve-out is retired)"
+    ;; Rebind the ambient frame AWAY so the record's nil :frame is genuinely
+    ;; frameless (no ambient scope leaks in).
+    (binding [frame/*current-frame* nil]
+      (let [tree (derived-tree-with-token "super-secret-token")
+            out  (rf/project-egress
+                   {:kind  :rf.observe/derived-tree
+                    :frame nil
+                    :tree  tree}
+                   {:rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? out)
+            "a nil-frame derived tree fails closed to :rf/redacted")
+        ;; Confirm-by-revert: the old carve-out returned `tree`, which leaks the
+        ;; token. The new behaviour must NOT be that raw tree.
+        (is (not= tree out)
+            "the whole raw tree is NOT shipped (the pre-fix leak)")
+        (is (not (string/includes? (pr-str out) "super-secret-token"))
+            "the re-keyed secret does not leak off-box")))))
+
+(deftest derived-tree-unknown-frame-fails-closed
+  (testing "case 3 — a derived-tree record naming an UNKNOWN (never-registered)
+            frame fails closed to :rf/redacted; an unresolvable :frame is not a
+            policy-bearing frame (same posture as elide-wire-value)"
+    (binding [frame/*current-frame* nil]
+      (let [tree (derived-tree-with-token "super-secret-token")
+            out  (rf/project-egress
+                   {:kind  :rf.observe/derived-tree
+                    :frame :proj/never-registered
+                    :tree  tree}
+                   {:rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? out)
+            "an unknown-frame derived tree fails closed to :rf/redacted")
+        (is (not= tree out) "the raw tree is NOT shipped")
+        (is (not (string/includes? (pr-str out) "super-secret-token"))
+            "the re-keyed secret does not leak")))))
+
+(deftest derived-tree-destroyed-frame-fails-closed
+  (testing "case 3 — a derived-tree record naming a DESTROYED frame fails closed:
+            a frame that was live at capture but has since been torn down is no
+            longer policy-bearing, so its tree must redact whole, not ship raw"
+    (mk-frame! :proj/derived-destroyed)
+    ;; Destroy the frame so its registry is unreachable — the capture-then-
+    ;; teardown race the carve-out used to leak through.
+    (rf/destroy-frame! :proj/derived-destroyed)
+    (binding [frame/*current-frame* nil]
+      (let [tree (derived-tree-with-token "super-secret-token")
+            out  (rf/project-egress
+                   {:kind  :rf.observe/derived-tree
+                    :frame :proj/derived-destroyed
+                    :tree  tree}
+                   {:rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? out)
+            "a destroyed-frame derived tree fails closed to :rf/redacted")
+        (is (not= tree out) "the raw tree is NOT shipped")
+        (is (not (string/includes? (pr-str out) "super-secret-token"))
+            "the re-keyed secret does not leak")))))
+
+(deftest derived-tree-slot-keys-no-live-frame-fails-closed
+  (testing "case 3 — the MULTI-SLOT (:slot-keys) form also fails closed on no
+            live frame: each NAMED slot redacts whole to :rf/redacted, while a
+            NON-named slot (never walked) is left untouched"
+    (binding [frame/*current-frame* nil]
+      (let [explain {:effective-args {:headers {:auth "super-secret-token"}}
+                     :network        ["GET" "super-secret-token"]
+                     :source-chain   [:a :b]}   ;; author prose — NOT a named slot
+            out     (rf/project-egress
+                      {:kind      :rf.observe/derived-tree
+                       :frame     nil
+                       :tree      explain
+                       :slot-keys [:effective-args :network]}
+                      {:rf.egress/profile :rf.egress/off-box-tool})]
+        (is (redacted? (:effective-args out))
+            "a named slot fails closed to :rf/redacted under no live frame")
+        (is (redacted? (:network out))
+            "a second named slot also fails closed")
+        ;; Confirm-by-revert: pre-fix each named slot rode raw.
+        (is (not= {:headers {:auth "super-secret-token"}} (:effective-args out))
+            "the named slot is NOT shipped raw (the pre-fix leak)")
+        (is (= [:a :b] (:source-chain out))
+            "a NON-named author-prose slot is left untouched (never walked)")
+        (is (not (string/includes? (pr-str (select-keys out [:effective-args :network]))
+                                   "super-secret-token"))
+            "no re-keyed secret leaks out of a walked named slot")))))
+
+(deftest derived-tree-no-live-frame-local-raw-opt-out-still-raw
+  (testing "case 4 — the explicit trusted-local raw opt-out still ships a
+            FRAMELESS derived tree raw: :rf.egress/local-raw (and the bare
+            :rf.size/include-sensitive? true override) is the ONE deliberate way
+            to cross a frameless tree raw, preserving the EP-0025 opt-in"
+    (binding [frame/*current-frame* nil]
+      (let [tree (derived-tree-with-token "super-secret-token")]
+        ;; local-raw profile (resolves :rf.size/include-sensitive? true).
+        (let [out (rf/project-egress
+                    {:kind  :rf.observe/derived-tree
+                     :frame nil
+                     :tree  tree}
+                    {:rf.egress/profile :rf.egress/local-raw})]
+          (is (= tree out)
+              "local-raw ships the frameless tree verbatim (the operator raw read)")
+          (is (= "super-secret-token" (get-in out [1 1 :value]))
+              "the token rides raw under the explicit opt-out"))
+        ;; The advanced raw-flags path: a bare :rf.size/include-sensitive? true
+        ;; with NO profile is the same deliberate opt-out.
+        (let [out (rf/project-egress
+                    {:kind  :rf.observe/derived-tree
+                     :frame nil
+                     :tree  tree}
+                    {:rf.size/include-sensitive? true})]
+          (is (= tree out)
+              "an explicit include-sensitive? true also ships the frameless tree raw"))))))

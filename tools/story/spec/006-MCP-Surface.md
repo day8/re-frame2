@@ -104,6 +104,26 @@ data, so the egress classifies each payload as runtime/captured VALUE
   `:html` — is NOT covered and ships **RAW (INTENDED FAIL-OPEN)**. A
   consumer that needs a value redacted in a derived tree must classify its
   app-db PATH so the value lands AT that path before it is re-surfaced.
+  **The fail-open is scoped to a LIVE governing variant frame. At the
+  framework boundary, a derived-tree with NO live frame FAILS CLOSED**
+  (rf2-vl0jur, ruled by Mike 2026-06-23): `re-frame.core/project-egress`
+  redacts the WHOLE payload to `:rf/redacted` rather than ship it raw off-box
+  — the earlier carve-out that shipped the raw tree on a non-live frame was
+  retired. The live-state tools (`run-variant` / `preview-variant` /
+  `read-failures` / `explain-variant`) always hold a live variant frame, so
+  they redact-by-path / fail-closed accordingly.
+  **Two surfaces — `record-as-variant` (global captured events) and
+  `read-a11y-violations` (browser-panel axe-core nodes) — scrub against a
+  routinely NON-LIVE variant frame, and their payloads are inherently
+  RE-KEYED** (event vectors, DOM `:html`): a path-scrub is a no-op for them
+  even under a live frame, so failing the whole payload closed would destroy
+  the tool without closing a real leak. The permanent option for these
+  non-live re-keyed scrubs (require a live frame / structured refusal /
+  explicit local-raw) is a genuine design fork filed for the maintainer
+  (rf2-vl0jur step iv); the **interim** is an explicit, bead-tracked non-live
+  branch that returns the re-keyed payload raw (loud, not the retired silent
+  carve-out). The `--allow-sensitive-reads` + per-call `:include-sensitive`
+  opt-in is the deliberate way to cross any payload raw.
   This path-projection covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion records
   (`preview-variant` / `run-variant` / `read-failures`),
