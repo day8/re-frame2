@@ -209,6 +209,7 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | `:spawn` | per-state | declarative spawn-on-entry / destroy-on-exit child actor — sugar that desugars at registration time per [§Declarative `:spawn`](#declarative-spawn) |
 | `:spawn-all` | per-state | declarative **spawn-and-join** of N parallel child actors (sugar over N `:spawn`s plus a join condition) — see [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all) |
 | `:type :choice` + `:choice` | per-state | a **transient / choice** state (EP-0029 A5): a routing node that resolves immediately on entry to the first guard-passing candidate — sugar over `:always`, see [§`:type :choice` (transient / choice states)](#type-choice-transient--choice-states) |
+| `:internal-events` | top-level | optional — a **set** of keyword event-ids the machine raises + handles privately (EP-0029 A6). An external dispatch of one is refused at the machine dispatch boundary; an internal `:raise` of it is handled normally — see [§Public / private `:internal-events`](#public--private-internal-events) |
 | transition shape | per-event | `{:target :guard :action :meta}` |
 | multiple-candidate transitions | per-event | vector of guarded specs, first-match-wins |
 | self-transitions | per-event | omit `:target` or a self/ancestor `:target` (internal, default); add `:reenter? true` for external (exit+re-enter) |
@@ -2012,6 +2013,53 @@ The desugared `:always` candidates' targets flow through the **same** target-res
 ```
 
 Dispatching `[:my-machine [:submit]]` enters `:checking`, which resolves **immediately** within the same macrostep: if `:valid?` passes the machine settles at `:accepted`, otherwise it falls through to the default `:rejected`. External observers never see `:checking` — it is a transient routing node, exactly the property `:choice` exists to provide. A choice state may also be the machine's **initial** state, in which case it resolves on birth (the initial macrostep's eventless settle).
+
+## Public / private `:internal-events`
+
+An **internal event** is an event the machine **raises and handles entirely within its own run-to-completion logic** — machine plumbing that is *not* part of the machine's public event surface. Views, tests, and other handlers must not be able to drive the machine by dispatching one. EP-0029 A6 adds a machine-level declaration for them:
+
+```clojure
+{:internal-events #{:tick :retry/internal}
+ :states
+ {:waiting
+  {:entry {:raise :tick}              ;; raised internally on entry…
+   :on    {:tick {:target :checking}}}}}   ;; …and handled by an ordinary :on clause
+```
+
+An internal `:raise` (`[:raise [:tick]]` from an `:entry` / `:exit` / transition action) may **produce** `:tick`; the raised event re-enters the macrostep's internal-event queue and runs **normal transition selection** against the `:on` map (per [§Order with `:raise`](#order-with-raise)). The `:on {:tick …}` clause is **how** the machine handles the raised event — that is the expected shape, *not* a collision. What `:internal-events` **adds** over a plain `:on` clause is the public / private **boundary**: the same name, dispatched from **outside**, is refused.
+
+### DIVERGENCE from XState — a Clojure set, NOT an array
+
+XState v6's `internalEvents` is an **array**. re-frame2 declares them as a Clojure **set** — `:internal-events #{:tick}` — a re-frame2 idiom: a set is the natural membership collection (the runtime boundary check is one `contains?`), order is irrelevant, and a duplicate is structurally impossible. This is alpha-drift-confirmed against XState v6 alpha.3 (no grammar drift vs the EP basis). Behavioural parity (a private event surface) without API-mimicry (the JavaScript array form).
+
+### The boundary is enforced at the machine dispatch boundary
+
+The visibility rule is enforced at the **machine dispatch boundary** — the handler entry, where an event arrives via `reg-event` dispatch (`(rf/dispatch [:my-machine [:tick]])`). An internal `:raise` is drained **inside** the macrostep through the FIFO internal-event queue (per [§Drain semantics](#drain-semantics)); it **never** re-enters via `reg-event` dispatch. So the only events reaching the handler entry are **external** dispatches — and a routed inner event whose head is a declared internal event is **refused** there: the handler emits `:rf.error/machine-internal-event-external-dispatch` and short-circuits with **no state change** (atomic — the committed snapshot is untouched, exactly the benign no-op shape an [unhandled event](#transition-resolution--deepest-wins-with-parent-fallthrough) takes). A self-raised internal event handled within the machine's own plumbing is unaffected; only the outside caller is refused. The refusal is a per-handler no-op (not a drain-halt), so the surrounding epoch outcome stays `:ok`.
+
+This separates the **public** machine API from **private** machine plumbing: other code cannot accidentally depend on events meant only for the machine's own run-to-completion logic.
+
+### Registration validation (fail-loud)
+
+`make-machine-handler` validates the declaration at registration so a misdeclaration is caught **before** the runtime ever drives the machine:
+
+- **`:internal-events` must be a set of keywords** — a **vector** (the rejected XState array form), a non-set collection, or a set with a non-keyword member fails with `:rf.error/machine-bad-internal-events`.
+- **No declared internal event may be a reserved `:rf/*` framework event** — the synthetic creation marker `:rf.machine/start`, the `:rf.machine/done` completion signal, `:rf.machine.timer/after-elapsed`, the `:rf.machine.spawn/*` family, etc. Those are framework-owned **public** lifecycle traffic threaded through the standard dispatch pipeline (per [§Reserved synthetic events](#reserved-synthetic-events) and [Conventions §The single-root reserved set](Conventions.md#the-single-root-reserved-set)); a framework event can never be a machine's private event (`:rf.error/machine-internal-event-reserved`).
+
+Note that declaring `:tick` internal **and** handling it via `:on {:tick …}` is the *expected* shape (the example above), not a collision — an `:on` clause is the handler for the raised event; `:internal-events` only adds the external-dispatch refusal.
+
+### Worked example
+
+```clojure
+{:initial :waiting
+ :internal-events #{:tick}
+ :actions {:arm (fn [_] {:fx [[:raise [:tick]]]})}   ;; raise the private event…
+ :states
+ {:waiting {:on {:go {:target :armed :action :arm}}}
+  :armed   {:on {:tick {:target :checking}}}          ;; …handled internally → :checking
+  :checking {}}}
+```
+
+Dispatching `[:my-machine [:go]]` runs `:arm`, which **raises** `:tick`; the raised event drains inside the macrostep and drives `:armed → :checking`. But dispatching `[:my-machine [:tick]]` directly — from a view or a test — is **refused** at the boundary: the machine does not transition, and `:rf.error/machine-internal-event-external-dispatch` fires. The private event is reachable only by the machine itself.
 
 ## State tags
 

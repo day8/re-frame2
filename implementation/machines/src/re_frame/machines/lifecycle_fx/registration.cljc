@@ -27,6 +27,7 @@
             [re-frame.frame :as frame]
             [re-frame.machines.classification :as classification]
             [re-frame.machines.cofx-attach :as cofx-attach]
+            [re-frame.machines.internal-events :as internal-events]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
@@ -718,6 +719,43 @@
         {:rf.db/runtime new-runtime-db
          :fx            merged-fx}))))
 
+(defn- reject-internal-event-external-dispatch
+  "The public / private `:internal-events` BOUNDARY (EP-0029 A6), checked at
+  the machine dispatch boundary. If the routed `inner-event` names a
+  declared INTERNAL event of `machine`, this is an EXTERNAL dispatch of a
+  private event — reject it: emit `:rf.error/machine-internal-event-external-dispatch`
+  and return the benign no-op effect-map `{}` (NO state change — the
+  committed snapshot is untouched, atomic, exactly the shape an unhandled
+  event takes). Returns nil when the event is NOT a rejected internal
+  dispatch, so the caller proceeds with normal handling.
+
+  An internal `:raise` is drained INSIDE the macrostep through the FIFO
+  internal-event queue and never re-enters via `reg-event` dispatch, so this
+  boundary never refuses a self-raised event — only an outside caller's
+  `rf/dispatch`. The reserved `:rf.machine/start` creation marker is
+  framework lifecycle traffic, not a user internal event, so it is never an
+  internal-event key (a user cannot declare a reserved `:rf/*` name as an
+  internal event); the `internal-event-external?` membership check naturally
+  excludes it."
+  [machine machine-id frame-id inner-event]
+  (when (internal-events/internal-event-external? machine inner-event)
+    (trace/emit-error! :rf.error/machine-internal-event-external-dispatch
+                       {;; The LIVE actor instance address that received the
+                        ;; rejected external dispatch (the running INSTANCE —
+                        ;; a singleton's registration id, or a spawned actor's
+                        ;; `<type>#<n>` id). Reserved `:machine-id` names the
+                        ;; registered TYPE only.
+                        :actor-id   machine-id
+                        :event      inner-event
+                        :event-id   (first inner-event)
+                        :frame      frame-id
+                        ;; Registration is fine; the FIX is to not dispatch a
+                        ;; private event from outside — raise it internally
+                        ;; via `:raise`, or expose a public `:on` clause.
+                        :recovery   :no-recovery})
+    ;; Benign no-op: no snapshot write reaches runtime-db.
+    {}))
+
 (defn make-machine-handler
   "Returns a function suitable for registration with `reg-event`.
 
@@ -831,6 +869,17 @@
                           (:machine-id ctx) (:inner-event ctx))]
         (if intercepted
           intercepted
+          ;; EP-0029 A6 — the public / private `:internal-events` BOUNDARY.
+          ;; If the routed inner event names a declared INTERNAL event, this
+          ;; is an EXTERNAL dispatch of a private event: reject it (emit
+          ;; `:rf.error/machine-internal-event-external-dispatch`, no-op `{}`
+          ;; — no snapshot write). An internal `:raise` drains inside the
+          ;; macrostep's FIFO queue and never reaches here, so a self-raised
+          ;; event is unaffected. Checked BEFORE boot/step so a private event
+          ;; can neither create the machine nor drive a transition.
+          (or
+            (reject-internal-event-external-dispatch
+              (:machine ctx) (:machine-id ctx) (:frame-id ctx) (:inner-event ctx))
           ;; Ensure the BIRTH initial-entry
           ;; ensure-set onto the in-flight `:rf.cofx` record BEFORE `maybe-boot`
           ;; runs the bootstrap cascade (which fires the initial-state `:entry`
@@ -939,7 +988,7 @@
                       ;; same-call bootstrap's entry cascade prepends the
                       ;; event-driven cascade on the `:rf.machine/transition`
                       ;; trace.
-                      (commit-or-finalize ctx step-result boot-result))))))))))))))
+                      (commit-or-finalize ctx step-result boot-result)))))))))))))))
 
 ;; ---- [:schemas :data] is validation-only; classification is machine-owned --
 ;;

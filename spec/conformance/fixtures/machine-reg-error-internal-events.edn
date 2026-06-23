@@ -1,0 +1,93 @@
+;; Conformance fixture: machine/reg-error-internal-events
+;;
+;; EP-0029 A6 — the registration-error taxonomy for the public / private
+;; :internal-events grammar (Spec 009 §The thrown-error shape). Mode-B
+;; :reg-machine calls pin each fail-loud discriminator; controls pin the
+;; well-formed cases that must NOT throw.
+;;
+;; NOTE — these are :reg-machine Mode-B calls: the host validates the RAW
+;; :definition (no :fixture/handlers realisation, per
+;; spec/conformance/README.md §The :reg-machine op). The :internal-events
+;; checks (the SET-of-keywords shape, the reserved-:rf/* rejection) are
+;; orthogonal to guard / action resolution and fire BEFORE the guard-ref
+;; check, so the structural-taxonomy fixtures need no guard / action refs.
+;;
+;; DIVERGENCE (operator-ruled, alpha-drift-confirmed vs xstate v6 alpha.3):
+;; re-frame2's :internal-events is a Clojure SET form (#{:tick}) — NOT
+;; XState's ARRAY. A VECTOR :internal-events is the rejected array form.
+;; A declared internal event must be a NON-reserved keyword — a reserved
+;; :rf/* framework event (the synthetic creation marker, the completion
+;; signal, the timer event, the spawn kick-off) is inherently public and
+;; cannot be made private.
+;;
+;; NOTE — declaring an internal event AND handling it via :on {:tick …} is
+;; the EXPECTED shape (the EP example), NOT a collision: an :on clause is
+;; how the machine HANDLES the raised event; :internal-events only adds the
+;; external-dispatch refusal. The boundary refusal itself (an external
+;; dispatch of a private event) is a dispatch-time behaviour pinned by the
+;; Mode-A machine-internal-event-boundary fixture, not a registration error.
+;;
+;; Per [005 §Public / private `:internal-events`]
+;; (../../005-StateMachines.md#public--private-internal-events) and
+;; [docs/EP/EP-0029 §A6] + [docs/EP/EP-0029 §Backwards Compatibility].
+
+{:fixture/id           :machine/reg-error-internal-events
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/internal-events :fsm/registration-validation}
+ :fixture/doc          "The :internal-events registration-error taxonomy: :internal-events must be a SET of keywords (a VECTOR — the rejected XState array form — / a non-keyword member / a non-set fails :rf.error/machine-bad-internal-events); a reserved :rf/* framework event declared internal fails :rf.error/machine-internal-event-reserved. Controls: a well-formed internal-events SET registers cleanly, AND declaring :tick internal while handling it via :on {:tick …} (the EP example) is NOT a collision."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; (1) Well-formed :internal-events SET, the event handled via an :on
+  ;; clause (the EP example shape) — registers cleanly (control).
+  {:call       :reg-machine
+   :definition {:initial :waiting
+                :internal-events #{:tick}
+                :states {:waiting {:on {:tick {:target :checking}}}
+                         :checking {}}}}
+
+  ;; (2) A bare well-formed :internal-events SET with no :on handler —
+  ;; still legal (a machine may declare a private event it raises but
+  ;; routes elsewhere) (control).
+  {:call       :reg-machine
+   :definition {:initial :a
+                :internal-events #{:tick :retry/internal}
+                :states {:a {}}}}
+
+  ;; (3) A VECTOR :internal-events — the REJECTED XState array form.
+  {:call         :reg-machine
+   :definition   {:initial :a
+                  :internal-events [:tick]
+                  :states {:a {}}}
+   :expect-error :rf.error/machine-bad-internal-events}
+
+  ;; (4) A SET with a non-keyword member — malformed.
+  {:call         :reg-machine
+   :definition   {:initial :a
+                  :internal-events #{:tick "tock"}
+                  :states {:a {}}}
+   :expect-error :rf.error/machine-bad-internal-events}
+
+  ;; (5) A non-set, non-vector :internal-events (a bare keyword) — malformed.
+  {:call         :reg-machine
+   :definition   {:initial :a
+                  :internal-events :tick
+                  :states {:a {}}}
+   :expect-error :rf.error/machine-bad-internal-events}
+
+  ;; (6) A reserved :rf/* framework event declared internal — rejected
+  ;; (the synthetic creation marker cannot be made private).
+  {:call         :reg-machine
+   :definition   {:initial :a
+                  :internal-events #{:rf.machine/start}
+                  :states {:a {}}}
+   :expect-error :rf.error/machine-internal-event-reserved}
+
+  ;; (7) A reserved member alongside a legal one — still rejected.
+  {:call         :reg-machine
+   :definition   {:initial :a
+                  :internal-events #{:tick :rf.machine.spawn/spawned}
+                  :states {:a {}}}
+   :expect-error :rf.error/machine-internal-event-reserved}]}

@@ -158,7 +158,7 @@ XState's behaviour is the reference re-frame2 matches; the *expression* is re-fr
 
 The matches go deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and the internal-by-default self-transitions (re-frame2's `:reenter? true` is XState's `reenter: true`). An XState author ports their intuitions directly. The full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
 
-> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. Some v6-direction features that motivate new grammar have landed (the broader `:schemas` map, explicit `:timeout` / `:on-timeout`, and `:type :choice` transient states — see [§Guards, actions, tags, `:after`](#guards-actions-tags-after--the-recognition-kit)); `:internal-events` lands in later re-frame2 work.
+> **Where re-frame2 diverges on purpose.** re-frame2 tracks the v6 *direction*, not a JavaScript runtime. Three divergences are worth holding in mind: (1) **function-valued transitions are rejected** — guards and actions are functions, but the transition *topology* (targets, `:always`, `:after`) stays declarative data so diagrams, tools, and AI can read the graph; (2) **frame dispatch + runtime-db snapshots instead of actor objects** — no `createActor`, no actor refs, no mailboxes; (3) **completion is event-shaped** — a child's final-state output flows to the parent's `:on-done` callback as `result`, not a long-lived `snapshot.output` slot. Some v6-direction features that motivate new grammar have landed (the broader `:schemas` map, explicit `:timeout` / `:on-timeout`, `:type :choice` transient states, and private `:internal-events` — see [§Guards, actions, tags, `:after`](#guards-actions-tags-after--the-recognition-kit)).
 
 > **Coming from re-frame v1?** Machines don't exist there — the keyword-in-app-db + `cond` pattern above *is* the v1 shape this replaces. Nothing to unlearn; see [From re-frame v1](../25-from-re-frame-v1.md).
 
@@ -269,6 +269,19 @@ The `:choice` value is a **declarative candidate array** — re-frame2 keeps the
    {:data {:step (inc (:step data))}
     :fx   [[:raise [:check-complete]]]})}      ;; re-enters THIS machine, pre-commit
 ```
+
+**`:internal-events` makes an event private.** Some events are machine *plumbing* — the wizard's `:check-complete` above is for the machine to raise at itself, not for a view or a test to dispatch. Declare those in a top-level `:internal-events` **set** and re-frame2 enforces the line: an internal `:raise` of one is handled normally, but an *external* dispatch of it is **refused** at the machine's dispatch boundary (the machine doesn't transition; a `:rf.error/machine-internal-event-external-dispatch` trace fires). It's XState v6's `internalEvents`, spelled as a Clojure set — `#{:check-complete}` — because membership is what you're declaring, not order. The event is still *handled* by an ordinary `:on` clause; `:internal-events` only adds the refusal:
+
+```clojure
+{:internal-events #{:tick}                          ;; private — only the machine raises it
+ :states
+ {:armed {:entry (fn [_] {:fx [[:raise [:tick]]]})  ;; raised internally…
+          :on    {:tick {:target :checking}}}        ;; …and handled here
+  :checking {}}}
+;; (rf/dispatch [:my/gate [:tick]]) from outside is refused — no transition.
+```
+
+Two rules fail loud at `reg-machine` time: `:internal-events` must be a *set* of keywords (a vector — XState's array form — is rejected), and no member may be a reserved framework event. Full grammar in [Spec 005 §Public / private `:internal-events`](../../../spec/005-StateMachines.md#public--private-internal-events).
 
 ## Self-transitions: internal by default, external on demand
 
