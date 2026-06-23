@@ -1,0 +1,47 @@
+;; Conformance fixture: data-classification/derived-tree-fails-closed-no-frame
+;;
+;; Per Spec 015 §project-egress (the `:rf.observe/derived-tree` note) +
+;; §Direct reads and fail-closed frame resolution, and EP-0025 / rf2-vl0jur
+;; (ruled by Mike 2026-06-23): a `:rf.observe/derived-tree` record projected with
+;; NO live governing frame FAILS CLOSED. The EP-0025 fail-open is scoped to a
+;; re-keyed VALUE under a LIVE frame; an unresolvable / absent frame is the same
+;; silent-leak risk every direct read carries off-box, so the whole tree redacts
+;; to `:rf/redacted` rather than ship raw. This pins the rf2-vl0jur reconciliation
+;; so a future port cannot re-absorb the retired raw-tree carve-out (a derived
+;; tree must never ship raw on no live frame — it would leak any re-keyed secret
+;; copied into the tree off-box).
+;;
+;; The four-case rule the framework upholds:
+;;   1. live frame + declared path             -> redact/elide by path;
+;;   2. live frame + re-keyed/undeclared pos    -> raw (EP-0025 fail-open);
+;;   3. NO live frame + no explicit raw opt-in  -> FAIL CLOSED (:rf/redacted);  <-- pinned here
+;;   4. explicit trusted-local raw opt-in       -> raw.
+;;
+;; Mode-B pure-call (`:project-egress`) with NO `:frame` key: the runner runs the
+;; projection with `*current-frame*` bound to nil, so the call site is genuinely
+;; frameless. The record carries `:frame nil`, so `project-egress`'s frame-seed
+;; finds nothing and the derived-tree projector delegates to `elide-wire-value`'s
+;; fail-closed path. The off-box-tool profile floors `:rf.size/include-sensitive?
+;; false`, so the whole tree fails closed.
+;;
+;; Mirrors the unit-level `re-frame.projection-cljs-test/derived-tree-nil-frame-
+;; fails-closed` (+ the unknown/destroyed/slot-keys siblings), lifted to the
+;; host-agnostic corpus.
+
+{:fixture/id           :data-classification/derived-tree-fails-closed-no-frame
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/doc          "project-egress of a :rf.observe/derived-tree record with NO live frame fails closed — the whole tree redacts to :rf/redacted (rf2-vl0jur; the EP-0025 fail-open is scoped to a re-keyed value under a LIVE frame, not an unresolvable frame; the raw-tree carve-out is retired)."
+
+ :fixture/calls
+ ;; NO :frame key — the runner projects with *current-frame* bound to nil, so
+ ;; this is genuinely frameless. A derived-tree record whose own :frame is nil
+ ;; seeds no governing frame, so the whole tree fails closed.
+ [{:call              :project-egress
+   :rf.egress/profile :rf.egress/off-box-tool
+   :value             {:kind  :rf.observe/derived-tree
+                       :frame nil
+                       :tree  [:form
+                               [:input {:type "password" :value "super-secret-token"}]
+                               [:span "public label"]]}
+   :expect            :rf/redacted}]}

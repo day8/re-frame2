@@ -8,21 +8,42 @@
   derived-tree projection below) before the value crosses the wire
   egress.
 
-  ## EP-0025 fail-open posture (value-match removed)
+  ## EP-0025 fail-open posture (value-match removed) — fail-CLOSED on no live frame
 
   EP-0025 REMOVED value-match (taint-by-equality) redaction of re-keyed
   copies (§\"What is removed\": value-match is propagation/taint by another
   name, which a hygiene helper does not earn). Both the path-based `:app-db`
-  egress AND the derived-tree projection are now PATH-BASED ONLY. A value at
-  a CLASSIFIED app-db path redacts in the `:app-db` slice AND in any derived
-  slot WHERE the value still occupies that path (a slot whose shape mirrors
-  the app-db, e.g. an `:effective-args {:token …}` slice with `[:token]`
-  classified, or a `:db-seed` that mirrors app-db). A value RE-KEYED to a
-  position the classification path cannot reach (a token copied into rendered
-  hiccup at `[1 :value]`, into a `:network` reply, into a captured-event
-  payload) is NOT covered and ships RAW — INTENDED FAIL-OPEN (hygiene, not a
-  guarantee). A consumer that needs a value redacted in a derived tree must
-  classify its app-db PATH so the value lands AT that path.
+  egress AND the derived-tree projection are now PATH-BASED ONLY. Under a LIVE
+  variant frame, a value at a CLASSIFIED app-db path redacts in the `:app-db`
+  slice AND in any derived slot WHERE the value still occupies that path (a slot
+  whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` slice
+  with `[:token]` classified, or a `:db-seed` that mirrors app-db). A value
+  RE-KEYED to a position the classification path cannot reach (a token copied
+  into rendered hiccup at `[1 :value]`, into a `:network` reply, into a
+  captured-event payload) is NOT covered and ships RAW — INTENDED FAIL-OPEN
+  (hygiene, not a guarantee). A consumer that needs a value redacted in a
+  derived tree must classify its app-db PATH so the value lands AT that path.
+
+  The fail-open is scoped to a LIVE variant frame. At the FRAMEWORK boundary
+  (`re-frame.core/project-egress`), a derived-tree with NO live frame now FAILS
+  CLOSED (rf2-vl0jur, ruled 2026-06-23): the whole tree redacts to `:rf/redacted`
+  rather than ship raw — the earlier carve-out that shipped the raw tree on a
+  non-live frame was retired. `scrub-rendered` (the LIVE-state tools'
+  `:rendered-hiccup` / `:snapshot` / `:effective-args`) and the live arm of
+  `scrub-frame-value` therefore redact-or-fail-closed by frame liveness.
+
+  TWO story-mcp surfaces scrub against a routinely NON-LIVE variant frame —
+  `record-as-variant` (global captured events) and `read-a11y-violations`
+  (browser-panel axe-core nodes). Their payloads are inherently RE-KEYED (event
+  vectors, DOM `:html`), so a path-scrub is a no-op for them even under a live
+  frame. Routing them through the now-fail-closed boundary would redact the
+  WHOLE payload and destroy the tool — without closing any leak a live frame
+  would have closed. Choosing the permanent option (require a live frame /
+  structured refusal / explicit local-raw) is a GENUINE design fork, so per
+  rf2-vl0jur step iv it is filed for Mike's ruling and NOT guessed: the INTERIM
+  is an EXPLICIT (not silent), bead-tracked non-live branch in
+  `scrub-frame-value` that returns the re-keyed payload raw. See
+  `scrub-frame-value` for the full fork write-up.
 
   In story-mcp the two surfaces that ship live-state reads are
   `preview-variant` / `run-variant` (which return the variant frame's
@@ -255,10 +276,16 @@
   Short-circuits, mirroring `elide-app-db`:
 
     - `include? true` returns `tree` unchanged (the opt-out escape hatch —
-      covers BOTH axes, matching the `:rf.egress/local-raw` floor).
-    - A nil `tree` or non-live frame returns `tree` (the framework helper runs
-      the walk ONLY against a live frame; a derived-tree walk must never fail
-      CLOSED to a whole-tree sentinel)."
+      covers BOTH axes, matching the `:rf.egress/local-raw` floor; this is the
+      ONE deliberate way to ship a frameless tree raw off-box).
+    - A nil `tree` returns `tree` (nothing to walk).
+    - A NON-LIVE variant frame (nil / unknown / destroyed) FAILS CLOSED
+      (rf2-vl0jur, ruled 2026-06-23): `project-egress` redacts the whole tree to
+      `:rf/redacted` rather than ship it raw. A missing variant frame must NOT
+      silently become raw off-box — the EP-0025 fail-open is scoped to a re-keyed
+      VALUE under a LIVE governing frame, never to an unresolvable frame. A
+      consumer that needs the raw tree off a non-live frame opts in via
+      `include?` (the `--allow-sensitive-reads` escape hatch)."
   [tree app-db variant-id include?]
   (if include?
     tree
@@ -333,13 +360,25 @@
 ;;
 ;; Those tools route their value-bearing slots through the SAME PATH-based
 ;; derived-tree projection `scrub-rendered` applies to the live derived
-;; trees (rf2-12f2q), keyed to the variant frame's classification. EP-0025
-;; FAIL-OPEN: a value that occupies a classified path WITHIN the slot redacts;
-;; a value re-keyed to a non-matching position (a captured-event payload, a
-;; `:network` reply) ships RAW. The wire-elision contract in
-;; `tools/story/spec/006-MCP-Surface.md` is now "every Story-MCP payload is
-;; PATH-projected; re-keyed copies are fail-open" — see that spec for the
-;; EP-0025 graduation.
+;; trees (rf2-12f2q), keyed to the variant frame's classification. Under a LIVE
+;; variant frame, EP-0025 FAIL-OPEN: a value that occupies a classified path
+;; WITHIN the slot redacts; a value re-keyed to a non-matching position (a
+;; captured-event payload, a `:network` reply) ships RAW.
+;;
+;; rf2-vl0jur retired the framework's derived-tree carve-out: a derived-tree
+;; with NO live frame now FAILS CLOSED at the `project-egress` boundary (the
+;; whole tree redacts to `:rf/redacted`). For these two surfaces the variant
+;; frame is routinely NON-LIVE and the payload is inherently RE-KEYED, so
+;; failing closed would redact the whole payload and break the tool without
+;; closing a real leak. Picking the permanent option (require a live frame /
+;; structured refusal / explicit local-raw) is a GENUINE design fork; per
+;; rf2-vl0jur step iv it is filed for Mike, NOT guessed. The INTERIM is an
+;; EXPLICIT, bead-tracked non-live branch in `scrub-frame-value` (raw payload,
+;; loud — not the silent carve-out). The wire-elision contract in
+;; `tools/story/spec/006-MCP-Surface.md` reflects this: a live frame
+;; path-projects (re-keyed copies fail-open); a non-live frame fails closed at
+;; the framework boundary, with the two re-keyed non-live surfaces an explicit
+;; pending fork.
 ;;
 ;; INTENTIONALLY-PUBLIC (NOT scrubbed): the docs-discovery surfaces that
 ;; return author-published STATIC registration prose — `get-story` /
@@ -357,19 +396,58 @@
 ;; own published fixture data. See `tools/story/spec/006-MCP-Surface.md`
 ;; §Wire-elision boundary for the single-sourced classification.
 
+(defn- variant-frame-live?
+  "True when `variant-id` names a registered, non-destroyed frame (the
+  framework's frame-liveness predicate, `re-frame.core/frame-ids`). The
+  derived-tree projection redacts by PATH only against a LIVE frame's
+  classification; a non-live frame is the rf2-vl0jur fail-closed boundary."
+  [variant-id]
+  (contains? (rf/frame-ids) variant-id))
+
 (defn scrub-frame-value
   "PATH-redact a non-live, value-bearing payload `tree` keyed to variant
   `variant-id`'s frame, before wire egress (rf2-12f2q). Reads the frame's live
   `:app-db` itself (via `re-frame.core/app-db-value`) — the non-live handlers do
   not already hold it — to seed the projection's `:source-db`.
 
-  Thin wrapper over `scrub-rendered`: same PATH-based projection through
+  ## LIVE variant frame — PATH-projected (the common Category-A path)
+
+  When `variant-id`'s frame IS live (`run-variant` / `preview-variant` /
+  `explain-variant` allocated it; the panel recorded against it), this is a thin
+  wrapper over `scrub-rendered`: the same PATH-based projection through
   `re-frame.core/project-egress` (the `:rf.observe/derived-tree` boundary).
-  EP-0025 FAIL-OPEN — a value at a classified path WITHIN `tree` redacts; a
-  value re-keyed to a non-matching position ships RAW. The only difference from
-  `scrub-rendered` is that this reads the source app-db rather than receiving
-  it — when the frame has not been allocated (`app-db-value` ⇒ nil) the
-  framework helper's non-live-frame short-circuit returns the payload unwalked.
+  EP-0025 FAIL-OPEN under a live frame — a value at a classified path WITHIN
+  `tree` redacts; a value re-keyed to a non-matching position ships RAW.
+
+  ## NON-LIVE variant frame — an OPEN design fork (rf2-vl0jur step iv → rf2-jwggld)
+
+  `record-as-variant` records the GLOBAL event stream and `read-a11y-violations`
+  reads the in-browser panel's stored axe-core nodes — NEITHER allocates the
+  target variant frame, so `variant-id`'s frame is routinely NON-LIVE here.
+  Their payloads are also inherently RE-KEYED (event vectors, DOM `:html`): a
+  path-scrub is a NO-OP for them EVEN under a live frame (EP-0025 fail-open), so
+  the value ships raw under a live frame regardless.
+
+  The rf2-vl0jur core fix made the framework `project-egress` FAIL CLOSED on a
+  non-live frame (correct for an app-db-shaped tree that COULD path-redact under
+  a live frame). But routing these inherently-re-keyed non-live payloads through
+  that boundary would redact the WHOLE captured-events / violations payload to
+  `:rf/redacted` — destroying the tool's primary function (a snippet built from
+  `:rf/redacted` is meaningless), NOT closing any real leak the live-frame case
+  would have closed. Mike ruled (rf2-vl0jur step iv) that the RIGHT option per
+  scrub must be chosen from {require a live variant frame | structured refusal |
+  explicit local-raw profile}, and to STOP + report a genuine fork rather than
+  guess. This IS a genuine fork (allocate-a-frame-for-recording changes the
+  tool's semantics; a refusal breaks the common case; a blanket local-raw
+  over-permits), so it is filed for Mike's ruling and NOT guessed here.
+
+  INTERIM (explicit, NOT silent — bead rf2-jwggld tracks the ruling): a NON-LIVE
+  variant frame returns the payload RAW, exactly as before the carve-out
+  retirement, so `record-as-variant` / `read-a11y-violations` keep working. This
+  is loud — gated behind an explicit `variant-frame-live?` branch and documented
+  here — pending Mike's choice of the permanent option. It does NOT reintroduce
+  the framework carve-out (the framework boundary stays fail-closed); it is a
+  story-mcp-local interim for two inherently-re-keyed non-live surfaces.
 
   `include?` is the same `--allow-sensitive-reads` + per-call
   `:include-sensitive` opt-out the live tools honour — when true the raw
@@ -378,7 +456,13 @@
   (cond
     include?    tree
     (nil? tree) tree
-    :else       (scrub-rendered tree (rf/app-db-value variant-id) variant-id include?)))
+    ;; LIVE frame ⇒ PATH-project through the (now fail-closed) framework
+    ;; boundary; a live frame redacts by path / fail-opens a re-keyed value.
+    (variant-frame-live? variant-id)
+    (scrub-rendered tree (rf/app-db-value variant-id) variant-id include?)
+    ;; NON-LIVE frame ⇒ the open fork (rf2-vl0jur step iv). Return raw as the
+    ;; EXPLICIT, bead-tracked interim — see the docstring. NOT silent.
+    :else       tree))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress indicator counts (rf2-koq5m).

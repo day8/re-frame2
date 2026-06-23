@@ -75,7 +75,6 @@
   subsequent frame-policy walk (a redacted leaf is inert)."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
-            [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -358,21 +357,41 @@
 ;; which a HYGIENE helper does not earn. So `:rf.observe/derived-tree` is now a
 ;; PATH-BASED projection: each tree slot is walked through `elide-wire-value`
 ;; against the frame's classification registry (frame- / EP-0025-effect- /
-;; flow-sourced declarations, unioned). A value re-keyed off its app-db path is
-;; NOT covered and ships RAW — INTENDED FAIL-OPEN. The off-box tool consumers
-;; (Story-MCP, re-frame2-pair) keep PROJECTING the record (it stays the one
-;; boundary they name), but the projection no longer guarantees re-keyed values
-;; are redacted; a consumer that needs that must classify the app-db PATH.
+;; flow-sourced declarations, unioned). A value re-keyed off its app-db path —
+;; UNDER A LIVE GOVERNING FRAME — is NOT covered and ships RAW: INTENDED
+;; FAIL-OPEN (the hygiene bargain). The off-box tool consumers (Story-MCP,
+;; re-frame2-pair) keep PROJECTING the record (it stays the one boundary they
+;; name); the projection does not guarantee a re-keyed value is redacted under a
+;; live frame — a consumer that needs that must classify the app-db PATH.
+;;
+;; The four-case rule (rf2-vl0jur, ruled by Mike 2026-06-23):
+;;   1. live frame + declared path             -> redact/elide by path.
+;;   2. live frame + re-keyed/undeclared pos    -> raw (the EP-0025 fail-open).
+;;   3. NO live frame (nil/unknown/destroyed)
+;;      + no explicit raw opt-in                -> FAIL CLOSED (:rf/redacted).
+;;   4. explicit trusted-local raw opt-in
+;;      (:rf.egress/local-raw /
+;;       :rf.size/include-sensitive? true)      -> raw.
+;;
+;; Case 3 is the rf2-vl0jur reconciliation: an earlier carve-out shipped the
+;; WHOLE derived tree RAW when the frame was unresolvable / not live, on the
+;; reasoning that fail-closed would turn the tree into the `:rf/redacted`
+;; sentinel. But that contradicted the low-level walker (`elide-wire-value`
+;; FAILS CLOSED on no live frame — elision.cljc §Frameless / unresolvable-frame
+;; egress FAILS CLOSED), Spec 015 §Direct reads (a frameless projection must
+;; fail closed, never synthesise `:rf/default`), and the generic project-egress
+;; no-frame fixture. Off-box, a missing governing frame meaning "ship raw" is
+;; exactly the silent leak fail-closed exists to prevent. EP-0025 fail-open is
+;; about a re-keyed VALUE under a KNOWN frame (case 2), NOT about an
+;; unresolvable frame. So the no-live-frame path now DELEGATES to the shared
+;; `elide-wire-value` fail-closed path; the trusted-local opt-out (case 4) is
+;; the one deliberate way to ship a frameless tree raw.
 ;;
 ;; The record carries:
 ;;   :tree       the derived value (the SINGLE-TREE form), OR a map whose
 ;;               named `:slot-keys` are walked (the MULTI-SLOT form);
 ;;   :slot-keys  nil/empty ⇒ `:tree` IS the derived tree; a seq ⇒ `:tree` is a
 ;;               map and each present key's value is walked.
-;;
-;; Profile-aware: under `:rf.egress/local-raw` (or an explicit
-;; `:rf.size/include-sensitive? true`) the tree passes through verbatim — the
-;; trusted-local operator's deliberate raw read.
 
 (defn- project-derived-tree
   "Project a `:rf.observe/derived-tree` record (EP-0025 B4, rf2-ojp8pi). The
@@ -384,44 +403,56 @@
   re-surfaces a frame's app-db-sensitive value at a NON-app-db position the
   PATH-based walker cannot reach (a token copied out of `[:auth :token]` into
   rendered hiccup at `[1 :value]`). EP-0025 §\"What is removed\" disclaims
-  value-match as propagation/taint by another name. So this projection is now
+  value-match as propagation/taint by another name. So this projection is
   PATH-BASED: each tree slot is walked through `elide-wire-value` against the
-  frame's classification. For a re-keyed value this is a NO-OP — the value ships
-  RAW (FAIL-OPEN). This is INTENDED: hygiene, not a guarantee. A consumer that
-  needs a value redacted in a derived tree must classify its app-db PATH; a
-  re-keyed copy is not covered.
+  frame's classification.
+
+  Four-case rule (rf2-vl0jur, ruled 2026-06-23):
+
+    1. live frame + declared path  -> redact / elide by path.
+    2. live frame + a re-keyed / undeclared position -> the path walk is a
+       NO-OP, so the value ships RAW (the EP-0025 fail-open: hygiene, not a
+       guarantee; classify the app-db PATH to cover a re-keyed value).
+    3. NO live frame (nil / unknown / destroyed) and no explicit raw opt-in ->
+       FAIL CLOSED: the value is redacted whole to `:rf/redacted`. This
+       DELEGATES to the same `elide-wire-value` fail-closed path the generic
+       app-db / direct-read egress uses — a missing governing frame off-box is a
+       silent-leak risk, not a hygiene case. (Earlier this shipped the raw tree;
+       rf2-vl0jur reconciled it with Spec 015 §Direct reads.)
+    4. explicit trusted-local raw opt-in (`:rf.egress/local-raw` /
+       `:rf.size/include-sensitive? true`) -> the tree passes through verbatim
+       (the deliberate operator raw read; this is the ONE way to ship a
+       frameless tree raw).
 
   `:slot-keys` nil/empty ⇒ `:tree` IS the derived tree and is walked whole; a
-  seq ⇒ `:tree` is a map and each present key's value is walked.
-
-  Profile-aware opt-out: under `:rf.egress/local-raw` / explicit
-  `:rf.size/include-sensitive? true` the tree passes through verbatim."
+  seq ⇒ `:tree` is a map and each present key's value is walked. The walk is the
+  SHARED `elide-wire-value` — the single mechanism that decides cases 1/2/3/4 by
+  frame liveness + the opt-out, so the derived-tree path can never drift from
+  the generic egress posture."
   [record frame-id elision-opts]
-  (let [tree        (:tree record)
-        ;; A derived tree's positions are NON-app-db, so the path walk is
-        ;; FAIL-OPEN by nature (a re-keyed value ships raw). It must therefore
-        ;; never fail CLOSED: `elide-wire-value` redacts a whole value to the
-        ;; `:rf/redacted` sentinel when the frame is unresolvable / not live —
-        ;; correct for an app-db slot, WRONG for a derived tree (it would turn
-        ;; the whole tree into a sentinel keyword). So the derived-tree walk
-        ;; runs ONLY against a LIVE frame; otherwise the tree ships as-is.
-        live-frame? (and (some? frame-id) (some? (frame/frame frame-id)))]
-    (if (or (true? (:rf.size/include-sensitive? elision-opts))
-            (not live-frame?))
-      ;; Trusted-local opt-out, OR no live frame to apply path classification
-      ;; against ⇒ the tree passes through (fail-open hygiene).
-      tree
-      (let [wire-opts (assoc (dissoc elision-opts :path) :frame frame-id)
-            walk      (fn [v] (elision/elide-wire-value v wire-opts))
-            slot-keys (:slot-keys record)]
-        (if (empty? slot-keys)
-          (walk tree)
-          (reduce (fn [m k]
-                    (if (and (associative? m) (contains? m k))
-                      (update m k walk)
-                      m))
-                  tree
-                  slot-keys))))))
+  (let [tree      (:tree record)
+        ;; Delegate the WHOLE decision to `elide-wire-value`: it applies the
+        ;; live-frame path walk (cases 1 + 2), fails closed on no live frame
+        ;; (case 3), and honours the `:rf.size/include-sensitive? true` opt-out
+        ;; (case 4 — an identity walk against the no-frame policy). `:path` is
+        ;; dropped (a derived tree is walked whole / per named slot, not at an
+        ;; app-db offset) and `:frame` set to the seeded owning frame.
+        wire-opts (assoc (dissoc elision-opts :path) :frame frame-id)
+        walk      (fn [v] (elision/elide-wire-value v wire-opts))
+        slot-keys (:slot-keys record)]
+    (if (empty? slot-keys)
+      ;; SINGLE-TREE form: walk the whole tree. Under no live frame +
+      ;; no opt-out the walker returns `:rf/redacted` for the entire tree.
+      (walk tree)
+      ;; MULTI-SLOT form: walk each present named slot. Under no live frame +
+      ;; no opt-out each walked slot fails closed to `:rf/redacted`; a
+      ;; non-named slot is left untouched (it never entered an egress walk).
+      (reduce (fn [m k]
+                (if (and (associative? m) (contains? m k))
+                  (update m k walk)
+                  m))
+              tree
+              slot-keys))))
 
 ;; ---- dispatch ------------------------------------------------------------
 
@@ -465,11 +496,16 @@
   and is PATH-walked through `elide-wire-value` against the frame's
   classification registry (frame- / EP-0025-commit-plane-effect- / flow-sourced
   declarations, unioned at lookup). EP-0025 §\"What is removed\" removed the
-  VALUE-match (taint) redaction of values re-keyed off their app-db path: such a
-  re-keyed copy is NOT covered and ships RAW (intended FAIL-OPEN — hygiene, not
-  a guarantee; classify the app-db PATH to cover a re-keyed value). Under
-  `:rf.egress/local-raw` (or explicit `:rf.size/include-sensitive? true`) the
-  tree passes through verbatim.
+  VALUE-match (taint) redaction of values re-keyed off their app-db path: under
+  a LIVE governing frame such a re-keyed copy is NOT covered and ships RAW
+  (intended FAIL-OPEN — hygiene, not a guarantee; classify the app-db PATH to
+  cover a re-keyed value). With NO live frame (nil / unknown / destroyed) and no
+  raw opt-out the derived tree FAILS CLOSED to `:rf/redacted` — the same
+  fail-closed posture every direct-read / app-db egress uses (rf2-vl0jur; the
+  fail-open is about a re-keyed VALUE under a known frame, not an unresolvable
+  frame). Under `:rf.egress/local-raw` (or explicit
+  `:rf.size/include-sensitive? true`) the tree passes through verbatim — the one
+  deliberate way to ship a frameless tree raw.
 
   `opts` is a map:
 
