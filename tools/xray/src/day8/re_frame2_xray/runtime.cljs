@@ -428,7 +428,7 @@
 
   When a TRUSTED-LOCAL caller opts in (`:include-runtime-db? true`) the
   value still routes through `egress-value` so any `:sensitive?` / `:large?`
-  slots inside the runtime-db value (e.g. a `:sensitive?` `:data-schema`
+  slots inside the runtime-db value (e.g. a `:sensitive?` `[:schemas :data]`
   slot on a machine snapshot) are elided per their own declarations — the
   partition opt-in lifts the runtime-db redaction, NOT the per-slot privacy
   / size posture. `:include-sensitive?` / `:include-large?` carry through to
@@ -841,7 +841,7 @@
   opts in to the live runtime-db diagnostics with `:include-runtime-db?
   true`; the snapshot then routes through `egress-value` against its
   absolute runtime-db-partition path so any per-slot `:sensitive?` /
-  `:large?` declarations (e.g. a `:sensitive?` `:data-schema` slot) still
+  `:large?` declarations (e.g. a `:sensitive?` `[:schemas :data]` slot) still
   elide. `:spec` is a static REGISTRY value (not runtime-db state), so it
   egresses through `egress-value` (subject to its own sensitive / large
   elision) regardless of the runtime-db opt-in."

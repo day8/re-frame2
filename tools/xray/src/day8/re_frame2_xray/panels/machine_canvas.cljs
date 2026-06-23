@@ -244,8 +244,9 @@
                           (default true). True → the Context band's shape is
                           INFERRED from one sample of `:data` (the `inferred
                           from :data` badge, rf2-5tz9p). False → the shape is
-                          AUTHORITATIVE from a declared `:data-schema` (badge
-                          dropped, `declared` shown). Forwarded verbatim to
+                          AUTHORITATIVE from a declared `[:schemas :data]`
+                          schema (badge dropped, `declared` shown). Forwarded
+                          verbatim to
                           `mv-chart/MachineChart`.
     :fired-edge-ids     — rf2-qeemm (G3). A SET of canonical machines-viz
                           edge-ids that fired THIS epoch (resolved by the
@@ -341,7 +342,7 @@
       :context-band    context-band
       ;; rf2-3q4k5b (EP-0005) — declared-over-inferred provenance for the
       ;; Context band badge. Forwarded so the Static topology path can mark a
-      ;; `:data-schema`-declared shape AUTHORITATIVE (false → no inferred
+      ;; `[:schemas :data]`-declared shape AUTHORITATIVE (false → no inferred
       ;; badge). Defaults true (rf2-5tz9p's inferred-by-default posture).
       :context-band-inferred? context-band-inferred?
       :from-highlight  from-highlight
