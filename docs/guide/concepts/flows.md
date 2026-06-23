@@ -1,6 +1,6 @@
 # Flows: derived values your handlers can read
 
-You already know one way to derive a value: a [subscription](subscriptions.md) — a query that computes something from app-db (your app's single state map) and hands it to a view. Keep that as your reflex; most derived values are subscriptions.
+You already know one way to derive a value: a [subscription](subscriptions.md) — a named, pure derivation that computes something from app-db (your app's single state map) and hands it to a view. Keep that as your reflex; most derived values are subscriptions.
 
 But there's a catch in *where* a subscription keeps its answer. It lives in a view-facing cache — a place built for views to read on the way to rendering, and only views. An event handler — the pure function that runs when an event is dispatched and returns the next app-db — can't reach into that cache. Neither can a schema, another derivation, or anything else that wants the answer as plain data rather than as something a view will render.
 
@@ -44,7 +44,7 @@ The flow also skips recomputing when its inputs didn't actually change value —
 - **Handlers can now read it.** Any event handler can ask `(:counter/parity db)` as plain data. With the sub version that answer was stranded in the view-cache — visible to views, invisible to handlers. A handler always sees the output as of the last completed event; if the handler itself changes an input, the recompute happens right after it, inside that same event's single commit.
 - **You never write the output path.** You keep writing `:counter/value` through ordinary handlers. The runtime is the sole author of `[:counter/parity]`.
 
-> **From re-frame v1.** A flow is `on-changes` grown up: the same compute-on-input-change semantics, but registered against the runtime instead of wired into specific events' interceptor chains. That re-registration is what makes a flow toggleable at runtime — see [Toggling a derivation at runtime](#toggling-a-derivation-at-runtime). The old `[:rf.runtime/…]` bare-path scheme for runtime state never existed for flows; runtime inputs use `[:rf.db/runtime …]` (below).
+> **From re-frame v1.** A flow takes `on-changes` further: the same compute-on-input-change semantics, but registered against the runtime instead of wired into specific events' interceptor chains. That re-registration is what makes a flow toggleable at runtime — see [Toggling a derivation at runtime](#toggling-a-derivation-at-runtime). The old `[:rf.runtime/…]` bare-path scheme for runtime state never existed for flows; runtime inputs use `[:rf.db/runtime …]` (below).
 
 > **For JavaScript developers.** If you've used a *materialised view* in SQL, a flow is exactly that — with the staleness problem already solved. In a database you'd `CREATE MATERIALIZED VIEW total AS SELECT sum(...)` and then sweat over *when to refresh it* — a cron job, a trigger, `REFRESH MATERIALIZED VIEW`. A flow's refresh trigger is built in: it re-runs precisely when its declared inputs change, as part of the very same write that changed them. No refresh schedule, no chance of reading a stale row.
 
@@ -141,7 +141,7 @@ A typical app has *dozens* of subscriptions and *one to a handful* of flows. Ten
 
 ## Deriving from route or machine state
 
-Most flows read app-db with bare paths. But a flow's `:inputs` can also reach into **runtime-db** — the frame's *other* partition, where the framework keeps route state and machine snapshots. Lead a path with `:rf.db/runtime` and it reads runtime-db instead of app-db; the framework strips that marker before the lookup. This lets you materialise an app-db fact *from* the URL or *from* a machine's current state:
+Most flows read app-db with bare paths. But a flow's `:inputs` can also reach into **runtime-db** — the frame's *other* partition, where the framework keeps route state and machine snapshots (the full story is in [app-db](app-db.md)). Lead a path with `:rf.db/runtime` and it reads runtime-db instead of app-db; the framework strips that marker before the lookup. This lets you materialise an app-db fact *from* the URL or *from* a machine's current state:
 
 ```clojure
 (rf/reg-flow
@@ -169,11 +169,11 @@ A flow is a producer, and producers can have bugs. The optional `:schema` key de
    :schema  [:int {:min 0}]})        ;; the output must be a non-negative integer
 ```
 
-This is **observational, not a rollback** — and that distinction matters. A `:schema` violation does *not* throw and does *not* unwind the write. The flow computed a value successfully; it just failed its declared shape. So the value *is* written, the cascade proceeds normally, and the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event — carrying the flow id, the `:output-path`, the offending value, and Malli's explanation. It is there to surface a producer bug early, not to repair state.
+This is **observational, not a rollback** — and that distinction matters. A `:schema` violation does *not* throw and does *not* unwind the write. The flow computed a value successfully; it just failed its declared shape. So the value *is* written, the commit proceeds normally, and the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event — carrying the flow id, the `:output-path`, the offending value, and Malli's explanation. It is there to surface a producer bug early, not to repair state.
 
-> **Why not roll back?** Recall that flows may read each other's outputs, so a single event can set off a small cascade of recomputes before it commits — re-frame2 calls that one settling pass a **drain**. By the time a schema violation could be observed, a downstream flow in the same drain may already have read the offending value as its own input. Retroactively yanking the write back would leave the half-settled state inconsistent — so the framework reports the bug rather than corrupting the cascade. Contrast this gentle, non-fatal check with a `:derive` function that *throws*, which aborts the entire event — see [What happens when a derive throws](#what-happens-when-a-derive-throws).
+> **Why not roll back?** Recall that flows may read each other's outputs, so a single event can set off a small chain of recomputes before it commits — re-frame2 calls that one settling pass a **drain**. By the time a schema violation could be observed, a downstream flow in the same drain may already have read the offending value as its own input. Retroactively yanking the write back would leave the half-settled state inconsistent — so the framework reports the bug rather than corrupting the drain. Contrast this gentle, non-fatal check with a `:derive` function that *throws*, which aborts the entire event — see [What happens when a derive throws](#what-happens-when-a-derive-throws).
 
-Like the rest of the validation surface, this is dev-only: it sits behind the framework's debug gate and is compile-time eliminated from production builds. It also leans on the [schemas](../how-to/validate-with-schemas.md) artefact — if your app doesn't include schemas (or registers no validator), the check soft-passes and costs nothing.
+Like the rest of the validation surface, this is dev-only: it sits behind the framework's debug gate and is elided from production builds. It also leans on the [schemas](../how-to/validate-with-schemas.md) artefact — if your app doesn't include schemas (or registers no validator), the check soft-passes and costs nothing.
 
 ## Classifying a flow's output
 

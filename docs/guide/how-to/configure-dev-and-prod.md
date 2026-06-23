@@ -2,7 +2,7 @@
 
 You're about to ship, and you want to know two things: what's actually in your production bundle, and which knobs you need to touch. For that second question the answer is *almost none*, because the defaults are already correct. **This page is the pre-ship pass.** We'll build it up one piece at a time: first the single flag that makes a build "production", then how to gate your *own* dev code so it disappears alongside the framework's, then the JVM/SSR variant, then the dev knobs, and finally the always-on guardrails.
 
-> **For JavaScript developers.** If you've shipped React, you know `NODE_ENV=production` — the build where the bundler strips out dev warnings. re-frame2's flag is the same idea with a bigger reach. ClojureScript ships its production builds through Google's *Closure compiler* in `:advanced` mode — an aggressive optimiser that, among other things, deletes code it can prove will never run. ClojureScript also has a standard `goog.DEBUG` flag, and when you set it off, the Closure compiler doesn't just *skip* re-frame2's dev surface at runtime — it dead-code-eliminates it from the bundle entirely: schema validation, the trace stream, epoch history, all gone. Zero cost, rather than a cost you've cleverly avoided.
+> **For JavaScript developers.** If you've shipped React, you know `NODE_ENV=production` — the build where the bundler strips out dev warnings. re-frame2's flag is the same idea with a bigger reach. ClojureScript ships its production builds through Google's *Closure compiler* in `:advanced` mode — an aggressive optimiser that, among other things, deletes code it can prove will never run (this pass is called *dead-code elimination*, or DCE). ClojureScript also has a standard `goog.DEBUG` flag, and when you set it off, the Closure compiler doesn't just *skip* re-frame2's dev surface at runtime — it *elides* it from the bundle entirely: schema validation, the trace stream, epoch history, all gone. Zero cost, rather than a cost you've cleverly avoided.
 
 ## 1. Production is one flag
 
@@ -21,7 +21,7 @@ Under that `:advanced` build with `goog.DEBUG=false`, the framework's *surfaces*
 
 **Elided — gone from the bundle, zero cost:**
 
-- **Schema validation** — every `:schema` check on events (the messages your app dispatches), subscriptions (your read-side queries over state), fx (effects — the side-effecting work an event asks for, like an HTTP call), cofx (coeffects — the bits of the outside world an event reads, like the clock), and `app-db` (your app's single state map) compiles out. Schemas stay *registered* so tooling can still introspect them; they are simply never *checked*. ([Validate with schemas](validate-with-schemas.md))
+- **Schema validation** — every `:schema` check on events (the inert data vectors your app dispatches), subscriptions (the named, cached derivations of state your views read), fx (effects — the side-effecting work an event asks for, returned as data and run by the runtime), cofx (coeffects — the declared inputs the framework injects into a handler, like the clock), and `app-db` (your app's single state map) elides. Schemas stay *registered* so tooling can still introspect them; they are simply never *checked*. ([Validate with schemas](validate-with-schemas.md))
 - **The trace stream** — the `:trace` listener stream and the per-frame trace rings; nothing emits, no listener ever fires.
 - **Epoch history** — the per-frame time-travel ring; nothing records, so there is nothing to rewind.
 - **Dev tooling attachment points** — Xray and the pair server consume the trace surface; their artefacts must not be on a release build's classpath.
@@ -36,7 +36,7 @@ Under that `:advanced` build with `goog.DEBUG=false`, the framework's *surfaces*
 
 > **From re-frame v1.** There is no separate tracing dependency and no `10x` preload-and-`closure-define` dance: dev builds trace by default with zero config, and production elision rides the `goog.DEBUG=false` you were already setting. The single flag does the whole job.
 
-> **Going deeper.** Why is this *elimination* and not a runtime `if`? The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` — a constant the Closure compiler can fold. In `:advanced` mode with `goog.DEBUG=false` the predicate folds to the literal `false`, every guarded body becomes provably unreachable, and dead-code elimination removes it along with everything only *it* referenced. The "three piles" above aren't a policy the runtime enforces; they're a consequence of which code is reachable once one constant is pinned. That's why the cost isn't "small" — it's structurally *absent*, and the elision probe (`npm run test:elision`) asserts the strings simply aren't in the bundle.
+> **Going deeper.** Why is this *elision* and not a runtime `if`? The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` — a constant the Closure compiler can fold. In `:advanced` mode with `goog.DEBUG=false` the predicate folds to the literal `false`, every guarded body becomes provably unreachable, and DCE removes it along with everything only *it* referenced. The "three piles" above aren't a policy the runtime enforces; they're a consequence of which code is reachable once one constant is pinned. That's why the cost isn't "small" — it's structurally *absent*, and the elision probe (`npm run test:elision`) asserts the strings simply aren't in the bundle.
 
 ## 2. Gate your own dev-only code
 
@@ -68,13 +68,13 @@ Two spellings; pick whichever fits your deployment:
 
 The flag is read **once**, at namespace load, so set it before `re-frame.interop` loads — i.e. as a real process-level setting, not something you `System/setProperty` after the app has booted. With it off, every JVM-side dev surface drops to the same no-op floor that Closure DCE gives a `:advanced` + `goog.DEBUG=false` browser build: no trace rings, no epoch history retaining user input. The always-on event/error streams and the SSR error projector — the piece that turns a server-render failure into a safe, public-facing error page — keep firing; they exist precisely for this posture.
 
-> **Going deeper.** The browser path eliminates code; the JVM path can't (no Closure pass), so it reads `re-frame.debug` *once* into a plain `def` at namespace load and branches on that constant for the process lifetime. Reading once is deliberate: a per-call check would be a hot-path tax, and a value that can change mid-run would make "is tracing on?" ambiguous. The contract is the same on both substrates — *gated off ⇒ no retention of user input* — only the mechanism differs: DCE on CLJS, a load-time constant on the JVM ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
+> **Going deeper.** The browser path elides code; the JVM path can't (no Closure pass), so it reads `re-frame.debug` *once* into a plain `def` at namespace load and branches on that constant for the process lifetime. Reading once is deliberate: a per-call check would be a hot-path tax, and a value that can change mid-run would make "is tracing on?" ambiguous. The contract is the same on both substrates — *gated off ⇒ no retention of user input* — only the mechanism differs: DCE on CLJS, a load-time constant on the JVM ([Security.md §Production gates](../../../spec/Security.md#production-gates)).
 
 ## 4. The dev knobs: three buckets, one rule
 
 Now the dev-side configuration. It lives in exactly three places, sorted by how long the configured thing lives, with one rule on top: **one option, one bucket.** Nothing is settable in two places, so there's never a question of where a setting "really" comes from.
 
-One term in the table below: a *frame* is one isolated app instance — its own `app-db`, its own handlers.
+One term in the table below: a *frame* is one isolated, running instance of your app — its own `app-db`, event queue, and subscription cache. (Frames isolate *state*, not registrations; see [Frames](../concepts/frames.md).)
 
 | Lifetime | Surface | What lives there |
 |---|---|---|

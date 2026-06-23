@@ -173,7 +173,7 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 
 > **Idempotent re-mount is safe.** Re-mounting a `frame-provider` under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state. `make-frame` is idempotent replacement and the destroy-on-unmount is deferred and cancelled by a re-acquire. You don't have to special-case dev tooling.
 
-> **From re-frame v1.** Frames always start with `app-db = {}` — there's no `:db` config key, and the old `:initial-db` / `:on-create` keys are retired. Seeding initial state is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step: setup is now ordinary events through the ordinary dispatch pipeline. See [Frames](../concepts/frames.md) for the full init surface.
+> **From re-frame v1.** Frames always start with `app-db = {}` — there's no `:db` config key, and the old `:initial-db` / `:on-create` keys are retired. Seeding initial state is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step: setup is now ordinary events through ordinary dispatch. See [Frames](../concepts/frames.md) for the full init surface.
 
 ## Step 6 — Helix is the same moves, different notation
 

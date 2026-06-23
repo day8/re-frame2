@@ -45,7 +45,7 @@ Here's the example that makes the whole idea click — a cart total, expressed t
 | When it recomputes | when something reads it | after each event, in that event's commit |
 | Who keeps it alive | a subscription-cache entry | the frame |
 
-The subscription stores nothing and recomputes on demand. The [flow](concepts/flows.md) stores its answer into app-db (your app's single state map) and recomputes after each event. The math is identical; the *policy over the graph* is what differs.
+The subscription stores nothing and recomputes on demand. The [flow](concepts/flows.md) stores its answer into app-db (your app's single immutable state map) and recomputes after each event. The math is identical; the *policy over the graph* is what differs.
 
 That's the entire reason the algebra exists. Hold onto this one sentence and the rest of the page is just extending it across the other homes:
 
@@ -67,7 +67,7 @@ Every declared fact in re-frame2 — subscription, flow, resource read, route fa
 
 The cart keystone, in this vocabulary: the subscription is `:ephemeral` / `:on-demand` / cache-entry; the flow is `:app-db` / `:after-event` / frame. Same `:inputs`, same math — three policy fields differ.
 
-The four `:storage` classes are just the four places a value can sit, and you'll meet each one in context below: **`:ephemeral`** — nowhere durable, recomputed on demand (a subscription); **`:app-db`** — in your app's state map (a flow); **`:runtime-db`** — in the framework-managed state map beside app-db, where route and machine state and the local copies of server data live; and **`:host-transient`** — outside durable state entirely, for things that can't be serialized like an in-flight request handle or a timer. For now just register that the column has four values; the resource and machine sections give each one a home.
+The four `:storage` classes are just the four places a value can sit, and you'll meet each one in context below: **`:ephemeral`** — nowhere durable, recomputed on demand (a subscription); **`:app-db`** — in your app's state map (a flow); **`:runtime-db`** — in the framework-owned partition beside app-db (paths under `:rf.db/runtime`), where route and machine state and the local copies of server data live; and **`:host-transient`** — outside durable state entirely, for things that can't be serialized like an in-flight request handle or a timer. For now just register that the column has four values; the resource and machine sections give each one a home.
 
 That's the whole vocabulary. The five source forms you actually write — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — each **lower** to this one shape, called the node's **algebra view**. ("Lower" is borrowed from compilers: a higher-level form you wrote is translated down into a simpler, uniform shape a machine can reason about — here, the five questions above.)
 
@@ -184,26 +184,26 @@ A machine is the algebra's canonical process — a stateful node whose *next* va
 The view, side by side with one of its selectors:
 
 ```clojure
-;; STATIC ALGEBRA VIEW of (rf/reg-machine :upload/main {…})
-{:id          :upload/main
+;; STATIC ALGEBRA VIEW of (rf/reg-machine :checkout/main {…})
+{:id          :checkout/main
  :kind        :process
  :refinement  :machine-process
- :inputs      [[:event :upload/start]        ;; the :on event keys across the state tree
-               [:event :upload/succeeded]
-               [:event :upload/failed]]
+ :inputs      [[:event :checkout/submit]      ;; the :on event keys across the state tree
+               [:event :checkout/succeeded]
+               [:event :checkout/failed]]
  :storage     :runtime-db
  :evaluation  #{:on-transition}              ;; + :scheduled if it has :after; + :on-reply if it spawns
  :lifecycle   :machine-instance}
 
 ;; A selector — how a view reads the machine — is an ordinary subscription.
-(rf/reg-sub :upload/progress
-  :<- [:rf/machine :upload/main]
+(rf/reg-sub :checkout/progress
+  :<- [:rf/machine :checkout/main]
   (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
 ```
 
 A machine's `:inputs` are the event ids its transition table listens for — every `:on` key across the whole state tree (flat, compound, hierarchical, and parallel regions), de-duplicated. (The framework's own reserved triggers — `:rf.machine/*`, the `:*` wildcard — are plumbing, not declared edges.) Its `:evaluation` is a *set*: always `:on-transition` (a transition is the only thing that advances a snapshot), plus `:scheduled` when the machine declares any `:after` delayed transition, plus `:on-reply` when it spawns child actors.
 
-That `:upload/progress` selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads — so machines never become a second subscription system. The selector's target is *precise*: the graph mines the machine ids it reads from its static `[:rf/machine …]` inputs, so in a multi-machine app each `:selector` edge runs from exactly the machine the selector names, never the cross product of every machine against every selector ([State machines](concepts/machines.md)).
+That `:checkout/progress` selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads — so machines never become a second subscription system. The selector's target is *precise*: the graph mines the machine ids it reads from its static `[:rf/machine …]` inputs, so in a multi-machine app each `:selector` edge runs from exactly the machine the selector names, never the cross product of every machine against every selector ([State machines](concepts/machines.md)).
 
 > **Going deeper — spawned actors in the live graph.** The static graph reports one node per registered machine *type*. But a spawned actor has no per-instance registration — its liveness *is* the presence of its snapshot in runtime-db. So the live graph reports one node per *concrete* snapshot, resolving each instance's type from the snapshot's reserved type discriminator and surfacing its current `:state`. This is the machine version of the parametric/realized split you saw for subscriptions: the static graph knows the *types* you registered, the live graph knows the *instances* actually running.
 

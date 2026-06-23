@@ -20,9 +20,9 @@ re-frame2 ships no forms library and no auth plugin on purpose — you'll see wh
 
 ## The form slice: one shape, seven keys
 
-Start with the simplest working thing: a *slice* — a form's own little corner of app-db (your app's single state map) — and an event that seeds it clean. Every form in the app lives at one app-db path with this one standard shape.
+Start with the simplest working thing: a *slice* — a form's own little corner of app-db (your app's single immutable state map) — and an event that seeds it clean. Every form in the app lives at one app-db path with this one standard shape.
 
-Here's the event that seeds it. An *event* in re-frame2 is just a named thing-that-happened that your app reacts to; this one, `:auth.login-form/initialise`, builds the empty form slice, and it doubles as its own documentation:
+Here's the event that seeds it. An *event* in re-frame2 is just an inert data vector — a fact that something happened — that your app reacts to; this one, `:auth.login-form/initialise`, builds the empty form slice, and it doubles as its own documentation:
 
 ```clojure
 (rf/reg-event :auth.login-form/initialise
@@ -76,7 +76,7 @@ The full seven-event convention adds `blur-field` (the per-field "you left this 
 
 ### Two convenience subs
 
-Two derived reads earn their keep on almost every form:
+Two subscriptions earn their keep on almost every form:
 
 ```clojure
 ;; can-submit? — no outstanding errors AND not mid-flight. Drive the button's :disabled with it.
@@ -100,7 +100,7 @@ Two classic form failures. First, every field screams "required!" before you've 
 
 > A field's error is visible when the field is in `:touched`, **or** after the first submit attempt. Form-level errors (`:_form`) are visible whenever they exist.
 
-The rule lives in one place, a subscription — a derived, read-only view of app-db that recomputes when its inputs change:
+The rule lives in one place, a subscription — a named, cached, read-only derivation of app-db that recomputes only when its inputs change:
 
 ```clojure
 (rf/reg-sub :auth.login-form/slice
@@ -181,7 +181,7 @@ A few of the args-map slots are doing real work here, and a couple more are wort
 
 ## The two endings: token in, errors back
 
-The submit produced one of two outcomes. Each gets its own handler — a handler being the plain function that runs when an event fires — and each is single-purpose.
+The submit produced one of two outcomes. Each gets its own event handler — the plain function that runs in response to a dispatched event — and each is single-purpose.
 
 ### Success: store the session, send the user on
 
@@ -250,7 +250,7 @@ The reason this reads cleanly is the framework's classification order. On a 4xx 
 
 ## The login page
 
-The rules already live in subs and handlers, which means the view — the function that turns app-db into UI — is the thinnest layer. Read, render, dispatch:
+The rules already live in subs and handlers, which means the view — the pure function from subscription values to UI — is the thinnest layer. Read, render, dispatch:
 
 ```clojure
 (reg-view login-page []
@@ -308,13 +308,14 @@ localStorage is the outside world, so it sits behind an **effect** — a descrip
 
 ### The read — a coeffect
 
-The read happens at boot. Reading the world is a **coeffect** — the mirror image of an effect: a fact from outside, delivered *into* a handler. Register a supplier for the fact, and the boot handler declares that it requires it. The value then arrives flat in the handler's first argument, beside `:db`:
+The read happens at boot. Reading the world is a **coeffect** — the mirror image of an effect: a declared fact from outside, delivered *into* a handler. The token is a *provided* coeffect: the boot boundary reads localStorage once and **stamps** the value onto the boot dispatch (you'll see that stamp in the boot wiring below), so the registration declares the fact for docs, schema, and ownership — there's no generator that re-reads the world on its own:
 
 ```clojure
 (rf/reg-cofx :auth.session/token
-  {:doc "The saved JWT (or nil), read from localStorage."}
-  (fn []
-    (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))))
+  {:recordable? true
+   :provided?   true
+   :doc "The saved JWT (or nil). Read once at the boot boundary and stamped onto
+         the boot dispatch — never read ambiently by a handler."})
 
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
@@ -344,11 +345,11 @@ The read happens at boot. Reading the world is a **coeffect** — the mirror ima
      :fx [[:auth.session/persist {:token nil}]]}))
 ```
 
-Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
+Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` (wall-clock epoch ms, the one built-in coeffect, itself a *provided* fact stamped at enqueue) rides every dispatch, but a handler must declare it to read it. Declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event`, so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`, stamping the saved token onto that dispatch (the boot wiring below shows exactly how).
 
 > **Coming from re-frame v1?** The `inject-cofx` interceptor is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs. No interceptor to thread, no order to get right: the dependency is data on the registration, and the runtime reads it.
 
-> **Going deeper — ambient vs recordable coeffects.** This token read registers as an *ambient* coeffect (the default grade), meaning it's re-read live, never recorded, and tests stub it by re-registering the supplier. Ambient is safe here only because the read runs once at boot, before any epoch you'd replay. A fact folded into durable state *mid-session* would instead register `:recordable? true`, so a time-travel replay re-presents the *recorded* value rather than re-reading the world — the difference between "re-observe reality now" and "reconstruct the reality that was observed then." Picking the grade is choosing whether the fact is part of the replayable history or outside it.
+> **Going deeper — provided/recordable vs ambient coeffects.** The token folds into durable state, so it registers `:recordable? true`: a time-travel replay re-presents the *recorded* value rather than re-reading the world — the difference between "re-observe reality now" and "reconstruct the reality that was observed then." And because the value is stamped by the boot boundary rather than generated by the supplier, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (and so a typo'd requirement is distinguishable from a missing value). The other grade is *ambient* (the default): re-read live, never recorded, for facts that never feed durable state — a display preference, say. Picking the grade is choosing whether the fact is part of the replayable history or outside it; [Effects and coeffects](../concepts/effects-and-coeffects.md) is the full treatment.
 
 > **Two failure paths at boot, not one.** `:auth/initialise` fires the `/user` request *only when a token was found* (the `cond->`), so a fresh visitor never makes the call. When a token exists but the server rejects it, `:on-failure` routes to `:auth/session-expired`, which clears `:user`/`:token` and wipes the saved JWT — the stored credential was stale, and now the app knows it. A network blip during restore lands on the same handler; if you'd rather distinguish "token rejected" (a real 401 — clear it) from "couldn't reach the server" (transient — keep the token and retry later), branch on the failure's `:kind` exactly as the login handler does.
 
@@ -399,13 +400,19 @@ The point is that classifying the app-db path does *not* by itself redact the re
    :interceptors [:conduit/auth-guard]})       ;; reference the guard registered in the next section
                                                ;; :auth/initialise (above) classifies [:auth :token]
 
+(defn- saved-token []
+  (some-> (.-localStorage js/globalThis) (.getItem "jwtToken")))
+
 (rf/with-frame :rf/default
   (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth})
   (rf/dispatch-sync [:app/initialise])
-  (rf/dispatch-sync [:auth/initialise]))
+  ;; The boot boundary reads localStorage and STAMPS the token onto the dispatch —
+  ;; that's what "provided" means: the value rides the envelope, not a generator.
+  (rf/dispatch-sync [:auth/initialise]
+                    {:rf.cofx {:auth.session/token (saved-token)}}))
 ```
 
-> **`:interceptors` takes ids, not interceptor values.** The frame chain *references* `:conduit/auth-guard` — the id you registered the guard under (next section) — exactly the way an event's chain references interceptor ids. You register the named thing once; the frame names it. `dispatch-sync` runs the boot events synchronously so the token (and its classification) are committed before the first render, not a tick later.
+> **`:interceptors` takes ids, not interceptor values.** The frame chain *references* `:conduit/auth-guard` — the id you registered the guard under (next section) — exactly the way an event's chain references interceptor ids. You register the named thing once; the frame names it. `dispatch-sync` runs the boot events synchronously so the token (and its classification) are committed before the first render, not a tick later. The `{:rf.cofx {…}}` map is the boundary stamping the declared fact: the same surface the Part 5 tests use to supply `:auth.session/token`, only here it carries the real localStorage read instead of a fixture.
 
 ## The guard
 

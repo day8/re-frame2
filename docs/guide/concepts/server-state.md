@@ -14,7 +14,7 @@ Every SPA answers the same five questions, usually privately and re-decided per 
 
 A **resource** — a named server read you register once — turns those private answers into declared data: a cache scope, a params schema, a request, and a staleness policy, all in one place. The runtime then owns everything between the declaration and the pixels.
 
-That cache lives in the framework-owned *runtime partition* of frame state — the slice of a [frame](frames.md) (one running instance of your app) that the framework manages on your behalf. It is deliberately **not** your [app-db](app-db.md) (your app's single state map), so an ordinary event handler can't accidentally wipe it. You read it through subscriptions and change it only through events.
+That cache lives in **runtime-db** — the framework-owned partition (at the projection path `:rf.db/runtime`) that sits beside your [app-db](app-db.md) inside a [frame](frames.md) (one running instance of your app). The resource cache is one runtime-db subsystem, addressed `:rf.runtime/resources`; [app-db](app-db.md) introduces the two partitions in full. It is deliberately **not** your app-db (your app's single state map), so an ordinary event handler can't accidentally wipe it. You read it through subscriptions and change it only through events.
 
 > **Coming from re-frame v1.** You hand-built this: an event fires the HTTP effect, writes a `{:status :data :error}` slice into app-db, and a sub reads it back. Resources keep that causal shape — reads are subs, fetches are events — and move the per-read bookkeeping into the framework.
 
@@ -62,7 +62,7 @@ The cleanest cause is the page itself, because a page already knows what data it
 
 On entry, the runtime ensures the resource with the route as its **owner** — the thing keeping the cache entry alive. On leave, or on a superseding navigation, it releases it. `:blocking? true` holds the route transition until that read settles (which also gives server-side rendering a natural wait point); a non-blocking resource fetches in the background instead.
 
-Navigate to an article page with Xray (re-frame2's in-browser inspector) open and you can watch the whole loop: the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
+Navigate to an article page with Xray (the dev inspector) open and you can watch the whole cascade: the route-entry event row shows the ensure it caused, and the Resources panel shows the entry move from `:idle` through `:loading` to `:loaded`. Visit the same article a second time and you get a cache hit — no network row at all.
 
 > **Coming from TanStack Query?** Difference one of three: **views never fetch.** With `useQuery`, the component fetches on mount. Here a *route entry or event* causes the fetch; the view only reads. That separation is what lets the same view render on the server, in a test, or after a cache hit with no network at all — the render never has a side effect hiding in it.
 
@@ -477,7 +477,7 @@ Resources lean hard on the loud-failure ethos: the dangerous mistakes are *unrep
 | `:rf.error/resource-invalidate-scope-required` | at `:rf.resource/invalidate-tags` | A bare invalidate with no scope. Name the scope, or opt into the audited `:cross-scope? true`. The fail-closed floor — never silently global. |
 | `:rf.error/invalid-mutation-spec` | at `reg-mutation` | The mutation twin of the resource spec error (e.g. `:request` in the metadata map). |
 
-And the **dev-only warnings** (DCE'd from production) that catch the *resolvable-but-wrong* footguns — the ones fail-closed can't catch because a scope *did* resolve, just to the wrong place:
+And the **dev-only warnings** (elided from production) that catch the *resolvable-but-wrong* footguns — the ones fail-closed can't catch because a scope *did* resolve, just to the wrong place:
 
 - **`:rf.warning/resource-sub-scope-mismatch`** — a subscription resolved a perfectly valid scope key that has *no owner*, while a *different* scope key for the same resource *is* active. Almost always: your view's `:scope` doesn't match the route/event that ensured the data. You'll see a permanent skeleton; the warning names the active scope you probably meant.
 - **`:rf.warning/mutation-scope-mismatch`** — the write-side twin: a mutation's `:invalidates` matched zero entries in its scope while the same tags match an entry in *another* scope. Your write succeeded but the cached read it should have refreshed didn't, because the scopes don't line up.

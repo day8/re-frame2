@@ -1,8 +1,8 @@
 # Validate with schemas
 
-Picture a handler — the function that runs in response to an event — writing the wrong shape into your state: `"loading"`, the string, where `:loading`, the keyword, belongs. The bug is silent. It lands in app-db (your app's single state map), rides downstream into a subscription, and surfaces three screens later as a blank panel with no clue who wrote the bad value.
+Picture an event handler — the function a `reg-event` runs when its event fires — writing the wrong shape into your state: `"loading"`, the string, where `:loading`, the keyword, belongs. The bug is silent. It lands in app-db (your app's single state map), rides downstream into a subscription, and surfaces three screens later as a blank panel with no clue who wrote the bad value.
 
-A schema turns that silent corruption into a loud, named, instant failure. You describe the shape of a slice once, register it, and from then on the runtime checks every write against it. When a write doesn't conform, you get the handler's name, the offending value, and the exact path it landed on — at the moment it happens, not six weeks later in a bug report. And it costs production nothing: validation is **dev-only by default** and compiles out entirely from a release build.
+A schema turns that silent corruption into a loud, named, instant failure. You describe the shape of a slice once, register it, and from then on the runtime checks every write against it. When a write doesn't conform, you get the handler's name, the offending value, and the exact path it landed on — at the moment it happens, not six weeks later in a bug report. And it costs production nothing: validation is **dev-only by default** and is elided entirely from a release build.
 
 This page builds up from the simplest useful thing — a schema on one app-db path — and adds one idea at a time: schemas on events, the handful of shapes you'll actually write, the other surfaces you can validate, how to read a failure, and how to decide when a schema is even worth writing.
 
@@ -30,7 +30,7 @@ Before we read what that does, two pieces of that snippet are new and worth nami
 
 The schema itself — `AuthSlice` — is just a **vector of plain data**: `[:map [:user ...] [:token ...]]`, no builder chain, no class to instantiate. That's [Malli](https://github.com/metosin/malli), the default schema language; we'll learn its handful of shapes in a moment.
 
-And the registration runs inside `with-frame`. A [frame](../concepts/frames.md) is one isolated instance of your app's state and machinery — app-db plus its registered handlers — and schemas register *per frame*, so the registration has to name which one. `:rf/default` is the frame your app boots into, and `with-frame` is the same wrapper your boot dispatches already run in, so this isn't new ceremony — it's where registration code lives.
+And the registration runs inside `with-frame`. A [frame](../concepts/frames.md) is one isolated running instance of your app, and schemas register *per frame*, so the registration has to name which one. `:rf/default` is the frame your app boots into, and `with-frame` is the same wrapper your boot dispatches already run in, so this isn't new ceremony — it's where registration code lives.
 
 Now, what the registration buys you. From this point on, after every event handler runs, the runtime validates whatever the new app-db holds at `[:auth]` *before* installing it. If a write doesn't conform, three things happen at once: the runtime emits a structured error (`:rf.error/schema-validation-failure`), the bad write **never lands** — app-db keeps its pre-event value — and the dispatch is treated as failed. So you debug a named handler and a printed value, not a half-corrupted app-db three screens away.
 
@@ -40,65 +40,65 @@ Now, what the registration buys you. From this point on, after every event handl
 
 ## Watch one catch a bug
 
-Theory's cheap; here's a schema doing its job — live. This counter's count must never go below zero. The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell runs in the playground's frame, so no `with-frame` is needed. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
+Theory's cheap; here's a schema doing its job — live. In RealWorld, an article's favorite count must never go below zero (you can't un-favorite past nobody). The rule appears **twice**, on purpose. The handler *guards* (`pos?` — real behaviour that ships to production). The schema *declares* (`[:int {:min 0}]` — the dev tripwire). The cell runs in the playground's frame, so no `with-frame` is needed. Click in and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then drive it with the buttons.
 
-The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/counter]` slice — that's the app-db schema from the last section. (Each `reg-event` *also* carries a small `{:schema [:cat ...]}` map describing its event vector; ignore those for now — they're event schemas, and we cover them a few sections down.)
+The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/article]` slice — that's the app-db schema from the last section. (Each `reg-event` *also* carries a small `{:schema [:cat ...]}` map describing its event vector; ignore those for now — they're event schemas, and we cover them a few sections down.)
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-;; The slice's shape: a non-negative count, and a history of the same.
-(rf/reg-app-schema [:howto.schema/counter]
+;; The slice's shape: a non-negative favorite count, and a favorited? flag.
+(rf/reg-app-schema [:howto.schema/article]
   {:schema [:map
-            [:count   [:int {:min 0}]]
-            [:history [:vector [:int {:min 0}]]]]})
+            [:favorites-count [:int {:min 0}]]
+            [:favorited?      :boolean]]})
 
 (rf/reg-event :howto.schema/initialise
   {:schema [:cat [:= :howto.schema/initialise]]}
-  (fn [{:keys [db]} _] {:db (assoc db :howto.schema/counter {:count 3 :history [3]})}))
+  (fn [{:keys [db]} _] {:db (assoc db :howto.schema/article {:favorites-count 3 :favorited? false})}))
 
-(rf/reg-event :howto.schema/inc
-  {:schema [:cat [:= :howto.schema/inc]]}
+(rf/reg-event :howto.schema/favorite
+  {:schema [:cat [:= :howto.schema/favorite]]}
   (fn [{:keys [db]} _]
-    (let [n (inc (get-in db [:howto.schema/counter :count]))]
+    (let [n (inc (get-in db [:howto.schema/article :favorites-count]))]
       {:db (-> db
-               (assoc-in  [:howto.schema/counter :count] n)
-               (update-in [:howto.schema/counter :history] conj n))})))
+               (assoc-in [:howto.schema/article :favorites-count] n)
+               (assoc-in [:howto.schema/article :favorited?] true))})))
 
 ;; The handler OWNS the never-below-zero rule — this guard ships to production.
-(rf/reg-event :howto.schema/dec
-  {:schema [:cat [:= :howto.schema/dec]]}
+(rf/reg-event :howto.schema/unfavorite
+  {:schema [:cat [:= :howto.schema/unfavorite]]}
   (fn [{:keys [db]} _]
-    (let [n (get-in db [:howto.schema/counter :count])]
+    (let [n (get-in db [:howto.schema/article :favorites-count])]
       {:db (if (pos? n)
              (-> db
-                 (assoc-in  [:howto.schema/counter :count] (dec n))
-                 (update-in [:howto.schema/counter :history] conj (dec n)))
+                 (assoc-in [:howto.schema/article :favorites-count] (dec n))
+                 (assoc-in [:howto.schema/article :favorited?] false))
              db)})))
 
-(rf/reg-sub :howto.schema/count
-  (fn [db _] (get-in db [:howto.schema/counter :count])))
+(rf/reg-sub :howto.schema/favorites-count
+  (fn [db _] (get-in db [:howto.schema/article :favorites-count])))
 
-(rf/reg-sub :howto.schema/history
-  (fn [db _] (get-in db [:howto.schema/counter :history])))
+(rf/reg-sub :howto.schema/favorited?
+  (fn [db _] (get-in db [:howto.schema/article :favorited?])))
 
-(defn schema-counter []
+(defn favorite-button []
   [:div
-   [:button {:on-click #(rf/dispatch [:howto.schema/dec])} "-"]
+   [:button {:on-click #(rf/dispatch [:howto.schema/unfavorite])} "♥ unfavorite"]
    [:span {:style {:margin "0 1em" :font-size "1.4em"}}
-    @(rf/subscribe [:howto.schema/count])]
-   [:button {:on-click #(rf/dispatch [:howto.schema/inc])} "+"]
+    @(rf/subscribe [:howto.schema/favorites-count])]
+   [:button {:on-click #(rf/dispatch [:howto.schema/favorite])} "♥ favorite"]
    [:div {:style {:margin-top "0.75em" :color "#666" :font-size "0.85em"}}
-    "history: " (str @(rf/subscribe [:howto.schema/history]))]])
+    "favorited?: " (str @(rf/subscribe [:howto.schema/favorited?]))]])
 
 (rf/dispatch-sync [:howto.schema/initialise])
-[schema-counter]
+[favorite-button]
 ```
 
-Click `-` down to `0` and keep clicking: nothing happens, because the `pos?` guard stands. Now simulate the bug the schema exists to catch. **Delete the guard** — replace `(if (pos? n) (-> db …) db)` with just the `(-> db …)` threading — re-evaluate, and click `-` past zero. The handler writes `-1`, and `[:int {:min 0}]` rejects it. The browser console shows the `:rf.error/schema-validation-failure`, and the count on screen stays `0`: the write was rolled back, so app-db never held the bad value. Put the guard back when you're done.
+Click `unfavorite` down to `0` and keep clicking: nothing happens, because the `pos?` guard stands. Now simulate the bug the schema exists to catch. **Delete the guard** — replace `(if (pos? n) (-> db …) db)` with just the `(-> db …)` threading — re-evaluate, and click `unfavorite` past zero. The handler writes `-1`, and `[:int {:min 0}]` rejects it. The browser console shows the `:rf.error/schema-validation-failure`, and the count on screen stays `0`: the write was rolled back, so app-db never held the bad value. Put the guard back when you're done.
 
-> **Gotcha — the rollback is a debugging aid, not app behaviour.** Validation, rollback included, is compiled out of production builds. In production, that unguarded handler happily ships `-1`. So the handler keeps its real guard, *always*; the schema's job is to catch the day the guard gets deleted, refactored wrong, or bypassed by some *other* handler writing the same slice — in dev, the moment it happens.
+> **Gotcha — the rollback is a debugging aid, not app behaviour.** Validation, rollback included, is elided from production builds. In production, that unguarded handler happily ships `-1`. So the handler keeps its real guard, *always*; the schema's job is to catch the day the guard gets deleted, refactored wrong, or bypassed by some *other* handler writing the same slice — in dev, the moment it happens.
 
 ## The shapes you'll actually write
 
@@ -263,7 +263,7 @@ A validation failure ships the failing value verbatim — that's what makes it d
 
 ## In production, the checks vanish
 
-Dev builds check every registered schema at every validation point. That's the whole idea, and the cost is fine for dev. Production builds eliminate every validation site **at compile time** — under an `:advanced` build with `goog.DEBUG` set false ([Configure dev and production builds](configure-dev-and-prod.md) shows the flags), the compiler removes the validator calls, the error strings, the redaction code, all of it, from the bundle. Not skipped — *absent*. So write schemas freely; there's no hot-path bill. They stay *registered*, so tools and agents can still introspect them; they're just never *checked*. (The recordable-coeffect check from earlier is the lone exception — it's a real production guard.)
+Dev builds check every registered schema at every validation point. That's the whole idea, and the cost is fine for dev. Production builds **elide** every validation site at compile time — under an `:advanced` build with `goog.DEBUG` set false ([Configure dev and production builds](configure-dev-and-prod.md) shows the flags), the compiler removes the validator calls, the error strings, the redaction code, all of it, from the bundle. Not skipped — *absent*. So write schemas freely; there's no hot-path bill. They stay *registered*, so tools and agents can still introspect them; they're just never *checked*. (The recordable-coeffect check from earlier is the lone exception — it's a real production guard.)
 
 One place else does want production validation: untrusted data crossing a system boundary — an HTTP response, a websocket message, a `postMessage` payload. For those handlers, add the framework's boundary [interceptor](../concepts/interceptors.md) to the event's chain — an interceptor is a named step that wraps a handler — and it forces the handler's own `:schema` check to run regardless of the build flags. You add it by its id, `:rf.schema/at-boundary`, the same way you'd add any other interceptor:
 

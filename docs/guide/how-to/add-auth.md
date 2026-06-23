@@ -23,7 +23,7 @@ Start with the smallest possible thing: where does session state live? Two `app-
 
 The guard checks `:user`, the request decorator reads `:token`, and logout clears both. Everything else on this page reads from or writes to these two paths.
 
-These two paths live in `app-db` — your application's single state map. To be precise, each *frame* has its own `app-db`: a **frame** is an isolated runtime context (think one mounted app instance) with its own state, and most apps run a single one. That per-frame isolation is what lets a second logged-in tab coexist with this one without their tokens crossing wires — a property that comes up again in the request decorator and the route guard below.
+These two paths live in `app-db` — your app's single state map. To be precise, each [frame](../concepts/frames.md) has its own `app-db`: a frame is one isolated, running instance of your app (think one mounted app instance), and most apps run a single one. That per-frame isolation is what lets a second logged-in tab coexist with this one without their tokens crossing wires — a property that comes up again in the request decorator and the route guard below.
 
 ### Persist the token through one seam
 
@@ -55,19 +55,39 @@ Persisting is half the seam; reading the value *back* when the app reboots is th
 
 But there's a rule in the way: an event handler in re-frame2 must be a *pure function* — same inputs, same outputs, no reaching out to the world — because that's what lets the framework replay, test, and trace it. Reading `localStorage` *is* reaching out to the world, so a handler can't do it directly.
 
-The escape hatch is a [coeffect](../concepts/effects-and-coeffects.md): an input the framework reads from the world on the handler's behalf and hands in alongside `db`. You register a supplier with `reg-cofx`, and any handler that wants the saved token declares `:rf.cofx/requires`; the runtime fetches the value *before* the handler runs and passes it in, so the handler itself stays pure.
+The escape hatch is a [coeffect](../concepts/effects-and-coeffects.md): a declared input the framework hands into a handler beside `db`. Any handler that wants the saved token declares `:rf.cofx/requires`; the runtime supplies the value *before* the handler runs, so the handler itself stays pure.
+
+The saved token gets folded into durable `[:auth :token]`, so it can't enter as an *ambient* read (re-run live on replay) — replay or epoch-restore would re-read whatever `localStorage` holds *then*, not the token recorded with the boot. A fact that feeds durable state must arrive as **recorded data**. So register `:auth.session/token` as a **recordable, provided** coeffect: it carries no supplier function — its value is stamped onto the boot dispatch by the host boundary (the same shape as the framework's built-in `:rf/time-ms` clock), recorded once, and re-presented verbatim under replay.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
+;; Recordable + provided: no generator — the value is stamped onto the boot
+;; dispatch by the host (see "Read the host once at the boundary" below).
 (rf/reg-cofx :auth.session/token
-  {:doc "The saved JWT (or nil), read from localStorage."}
-  (fn []
-    (some-> (.-localStorage js/globalThis) (.getItem "auth-token"))))
+  {:recordable? true
+   :provided?   true
+   :doc "The saved JWT (or nil); stamped onto the boot dispatch from localStorage."})
 ```
 
-The init event in step 4 will declare this coeffect and fold the saved token into the slice. That's all "stay logged in across reloads" takes — the supplier reads the world, the handler asks for it by name.
+The init event in step 4 declares this coeffect and folds the saved token into the slice. That's all "stay logged in across reloads" takes — the host reads the world once, the value rides the boot dispatch, and the handler asks for it by name.
 
-> **Going deeper — ambient vs. recordable coeffects.** This token read registers as an *ambient* coeffect — re-read live, never written into the epoch tape. That's safe precisely because it runs *once at boot*, before any epoch you'd replay. A fact you fold into durable state mid-session would instead want `:recordable? true`, so replay re-presents the recorded value rather than re-reading the world. Tests stub the boot read by re-registering the supplier (see [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md)).
+### Read the host once at the boundary
+
+A provided coeffect needs an owner to stamp its value. For session restore that owner is your boot code: read `localStorage` *once*, at the host boundary, and hand the value to the init dispatch on the `:rf.cofx` envelope. The handler never touches `localStorage`; it reads the recorded fact flat.
+
+```clojure
+;; Adapted from examples/reagent/realworld/core.cljs — the host read happens
+;; ONCE here, at the boundary; its value rides the boot dispatch as a recordable
+;; coeffect, so replay / epoch-restore re-presents the captured token verbatim.
+(defn read-jwt-from-storage []
+  (some-> (.-localStorage js/globalThis) (.getItem "auth-token")))
+
+(rf/with-frame :rf/default
+  (rf/dispatch-sync [:auth/init]
+                    {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
+```
+
+> **Going deeper — why recordable, not ambient.** Coeffects come in two grades, and the choice is decided by whether a *durable* write depends on the value — that's the [effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable) home's full treatment. The session token folds into durable `[:auth :token]`, so it must be **recordable** (recorded with the event, re-presented on replay) — not ambient (re-read live), which would let replay land a different token. Because the value comes from the host rather than a registered function, it's the **provided** flavour of recordable: no supplier, stamped at the boundary. Tests and replay supply it the same way — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier (see [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md)).
 
 ### Keep the secret out of traces
 
@@ -142,7 +162,7 @@ That's all step 3 needs. The same seam, though, has a response side — and it's
 
 An interceptor map carries **`:before`**, **`:after`**, or both — at least one is required, or registration is rejected fail-loud with `:rf.error/http-bad-interceptor`.
 
-> **Going deeper — how the chain composes.** `:before` runs in **registration order**; `:after` runs in the **reverse** of registration order — the same onion shape as event interceptors, so the outermost registration wraps the innermost on both request and response sides. An interceptor with only `:before` is transparent on the way back (and vice versa), so they compose cleanly. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap recoverable logic inside the interceptor itself.
+> **Going deeper — how the chain composes.** HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both request and response sides, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure: if a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap recoverable logic inside the interceptor itself.
 
 > **Gotcha — hot-reloading the interceptor.** Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you actually want a fresh end-of-chain slot.
 
@@ -223,12 +243,12 @@ The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` — the public sh
 
 Now attach the guard — by reference. It's registered once under `:my-app/auth-guard`; the frame's `:interceptors` chain names that id, never the interceptor value. It short-circuits in a single `case` lookup for every non-navigation event, so the cost on ordinary traffic is negligible.
 
-The same frame's `:initial-events` runs the init event from step 1 — it restores the saved session and classifies the token path, with the egress protection in place before any off-box egress:
+The init event from step 1 restores the saved session and classifies the token path, with the egress protection in place before any off-box egress. Because its `:auth.session/token` coeffect is *provided* — stamped at the boundary, not computed by a registered supplier — the session restore is dispatched directly at boot (step 1's boundary dispatch), **not** from the frame's `:initial-events`. A `:dispatch` fan-out doesn't forward `:rf.cofx`, so `:initial-events` couldn't supply the host-read token; the boundary dispatch is the one place that owns it:
 
 ```clojure
-;; Adapted from examples/reagent/realworld/core.cljs
-;; The init event reads the saved token (step 1's cofx), seeds the slice, and
-;; classifies the durable token path :sensitive via the commit-plane
+;; Adapted from examples/reagent/realworld/auth.cljs
+;; The init event reads the saved token (step 1's provided cofx), seeds the
+;; slice, and classifies the durable token path :sensitive via the commit-plane
 ;; classification effect (EP-0025) — returned alongside :db. Frames always start
 ;; with app-db = {}, so the slice is built by this event, not a :db config key.
 (rf/reg-event :auth/init
@@ -238,13 +258,18 @@ The same frame's `:initial-events` runs the init event from step 1 — it restor
      :sensitive [[:auth :token]]}))                ;; step 1's egress protection
 
 (rf/reg-frame :rf/default
-  {:doc            "The app frame."
-   :url-bound?     true                            ;; this frame owns the browser URL
-   :initial-events [[:auth/init]]                  ;; restore session + classify [:auth :token] at creation
-   :interceptors   [:my-app/auth-guard]})          ;; reference the registered guard by id
+  {:doc          "The app frame."
+   :url-bound?   true                              ;; this frame owns the browser URL
+   :interceptors [:my-app/auth-guard]})            ;; reference the registered guard by id
+
+;; Session restore runs at the boundary (step 1), where the host-read token can
+;; ride the :rf.cofx envelope — :initial-events can't carry a provided coeffect.
+(rf/with-frame :rf/default
+  (rf/dispatch-sync [:auth/init]
+                    {:rf.cofx {:auth.session/token (read-jwt-from-storage)}}))
 ```
 
-> **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through `:initial-events` (the same dispatch pipeline that handles every later change). If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step and `[:auth/init]` the second; the steps dispatch synchronously, in order, at creation. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (Per [EP-0027](../../../spec/002-Frames.md).)
+> **From re-frame v1 (and a frame gotcha) — `reg-frame` is a create-and-register, atomically.** There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same event cascade that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (Per [EP-0027](../../../spec/002-Frames.md).)
 
 ## 5. Bounce back after login
 

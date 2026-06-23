@@ -46,7 +46,7 @@ Two more slots turn a debugging session into a click. `:rf.trace/trigger-handler
 
 > **Going deeper.** The dossier is a single product type with a closed tag set per category — a *tagged union* (sum type) keyed on `:operation`, where each variant carries a statically-known `:tags` payload. That's why a consumer can pattern-match on `:operation` and trust the shape of what follows: the catalogue *is* the type definition. The `:op-type`/`:operation` pair is a coarse-then-fine discriminator — severity first (for the "did anything fail?" fold), category second (for per-variant handling) — so you can consume at whichever granularity your tool needs.
 
-> **The dossier is a development surface.** Production builds *eliminate* the trace machinery — not disable it, eliminate it: the code is compiled out of the release bundle, dossiers and all. Errors that must still reach a monitor in production travel a separate always-on channel carrying a tight, privacy-projected record (covered at the end of this page). The channel map is in [observability](observability.md); wiring Sentry to it is [a how-to](../how-to/report-errors-in-production.md).
+> **The dossier is a development surface.** Production builds *elide* the trace machinery — not disable it, elide it: dead-code elimination (DCE) compiles the code clean out of the release bundle, dossiers and all. Errors that must still reach a monitor in production travel a separate always-on channel carrying a tight, privacy-projected record (covered at the end of this page). The channel map is in [observability](observability.md); wiring Sentry to it is [a how-to](../how-to/report-errors-in-production.md).
 
 ## A catalogue you consult, not memorise
 
@@ -97,7 +97,7 @@ Read each category through the production incident it describes. Here are the th
 
 ### A dispatch with no frame in scope
 
-*You wrote a quick `(rf/dispatch [:counter/inc])` at the REPL, or in a `setTimeout` callback, or in a promise `.then` — and instead of a cascade you got an error.* This is the most common first stumble, and it trips nearly everyone once.
+*You wrote a quick `(rf/dispatch [:cart/add-item {:id 7}])` at the REPL, or in a `setTimeout` callback, or in a promise `.then` — and instead of a cascade you got an error.* This is the most common first stumble, and it trips nearly everyone once.
 
 `dispatch` and `subscribe` resolve their target [frame](frames.md) from the surrounding scope, but a deferred callback runs on a fresh stack, long after that scope has unwound. The runtime does not guess a default. It emits `:rf.error/no-frame-context` (recovery: `:supply-frame`) and dispatches nothing.
 
@@ -107,16 +107,16 @@ The fix is always the same: **carry the frame** across the async gap. In an effe
 ;; Same idiom as the deferred abort reply in
 ;; examples/reagent/managed_http_counter (core.cljs): capture the frame
 ;; at fx-handler entry, pass it on every dispatch that fires later.
-(rf/reg-fx :geo/locate
+;; Here a payment SDK confirms the checkout via host success/error callbacks.
+(rf/reg-fx :checkout/confirm-payment
   {:platforms #{:client}}
-  (fn [frame-ctx _]
+  (fn [frame-ctx args]
     (let [frame (:frame frame-ctx)]
-      (.getCurrentPosition (.-geolocation js/navigator)
-        (fn [pos] (rf/dispatch [:geo/located {:lat (.. pos -coords -latitude)
-                                              :lng (.. pos -coords -longitude)}]
-                               {:frame frame}))
-        (fn [err] (rf/dispatch [:geo/failed {:code (.-code err)}]
-                               {:frame frame}))))))
+      (.confirm js/window.paymentSdk (:token args)
+        (fn [receipt] (rf/dispatch [:checkout/paid {:receipt-id (.-id receipt)}]
+                                   {:frame frame}))
+        (fn [err]     (rf/dispatch [:checkout/payment-failed {:code (.-code err)}]
+                                   {:frame frame}))))))
 ```
 
 Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no-frame-context`. In a view, you render under the frame provider — and registered views do this for you, so you rarely think about it. At the REPL or in a test, wrap the work in `with-frame` / `with-new-frame`.
@@ -197,7 +197,7 @@ Three things in that test generalise to every category:
 
 The same move covers every category: `dispatch-sync` for event errors, a sub computation for sub errors, frame setup and teardown for lifecycle errors.
 
-> **One verb, four streams.** That first argument to `register-listener!` is a stream selector, and it's worth knowing the whole set because it's how the dossier model connects to everything around it. `:trace` is the dev tap you just used — DCE'd out of production CLJS bundles, the firehose Xray drinks from. `:errors` is the **always-on error channel**: the same structured records, but it survives `goog.DEBUG=false`, fans across every frame, and is *not* projected under any frame's egress policy. That's the channel the dossier promised earlier — and it's why wiring Sentry in production is just `(rf/register-listener! :errors ::sentry report!)` with a privacy-projected record, exactly as the [how-to](../how-to/report-errors-in-production.md) walks through. The remaining two — `:events` (an always-on per-event integration hook) and `:epoch` (drain-settle epoch records for time-travel tooling) — are the [observability](observability.md) page's territory. One closed vocabulary; pass an unknown stream and you get a loud `:rf.error/unknown-listener-stream`, no silent default.
+> **One verb, four streams.** That first argument to `register-listener!` is a stream selector, and it's worth knowing the whole set because it's how the dossier model connects to everything around it. `:trace` is the dev tap you just used — elided out of production CLJS bundles, the firehose Xray drinks from. `:errors` is the **always-on error channel**: the same structured records, but it survives `goog.DEBUG=false`, fans across every frame, and is *not* projected under any frame's egress policy. That's the channel the dossier promised earlier — and it's why wiring Sentry in production is just `(rf/register-listener! :errors ::sentry report!)` with a privacy-projected record, exactly as the [how-to](../how-to/report-errors-in-production.md) walks through. The remaining two — `:events` (an always-on per-event integration hook) and `:epoch` (drain-settle epoch records for time-travel tooling) — are the [observability](observability.md) page's territory. One closed vocabulary; pass an unknown stream and you get a loud `:rf.error/unknown-listener-stream`, no silent default.
 
 ## Where the boundaries are
 

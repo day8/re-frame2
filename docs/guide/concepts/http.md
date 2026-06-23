@@ -50,7 +50,7 @@ The only required key is `:request` with a `:url`. `:method` defaults to `:get`.
 >     (.then #(rf/dispatch [:article/loaded %])))
 > ```
 >
-> It ships on Tuesday and it's missing almost everything: no error handling (a 500 lands as garbage), no way to tell "the server said no" from "the network is on fire," no loading state, no timeout, no retry, no abort, no way to test without a real network. And the `rf/dispatch` fires from inside a `.then` — a fresh stack, long after the [frame](frames.md) (re-frame2's name for one isolated, running instance of your app) that the request ran under has unwound, so it fails with `:rf.error/no-frame-context`: the reply has nowhere to land. That's seven sins and a frame leak in three lines. The managed effect already thought about all of them, and threads the frame through so the reply lands back where it started.
+> It ships on Tuesday and it's missing almost everything: no error handling (a 500 lands as garbage), no way to tell "the server said no" from "the network is on fire," no loading state, no timeout, no retry, no abort, no way to test without a real network. And the `rf/dispatch` fires from inside a `.then` — a fresh stack, long after the [frame](frames.md) (one isolated, running instance of your app) that the request ran under has unwound, so it fails with `:rf.error/no-frame-context`: the reply has nowhere to land. That's seven sins and a frame leak in three lines. The managed effect already thought about all of them, and threads the frame through so the reply lands back where it started.
 
 > **Coming from TanStack Query / RTK Query?** This page is re-frame2's version of `fetchBaseQuery` — the configured transport that sits *under* the cache. Two things differ from what you know. The reply comes back as an **event**, never an awaited value. And a failure is one keyword from a fixed list, never whatever the exception stringified to. Caching and invalidation live one layer up, in [resources](server-state.md); this page is the transport they ride on.
 
@@ -60,7 +60,7 @@ The only required key is `:request` with a `:url`. `:method` defaults to `:get`.
 
 Two small things in the receive handlers above are load-bearing, and both trip people up the first time.
 
-**The reply lands in the same frame the request went out from.** Recall a [frame](frames.md) is one running instance of your app. The fx carries the frame from the original dispatch through to the reply, so the naive fetch's frame leak — firing a dispatch from a `.then` after the frame has unwound — simply cannot happen here.
+**The reply lands in the same [frame](frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so the naive fetch's frame leak — firing a dispatch from a `.then` after the frame has unwound — simply cannot happen here.
 
 **A durable timestamp comes from a coeffect, not the wall clock.** If your success handler wants to record *when* the article loaded, do not call `(js/Date.now)` — that wouldn't replay the same way twice. Declare the time as a [coeffect](effects-and-coeffects.md) — an input the framework hands you — and read it from the coeffects map:
 

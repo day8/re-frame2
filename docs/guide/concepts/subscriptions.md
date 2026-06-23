@@ -9,25 +9,25 @@ This page builds that graph one concept at a time: a single named derivation fir
 At bottom, a subscription is just a function from app-db to a value some view wants. That's all it is. You register it under a keyword id:
 
 ```clojure
-(rf/reg-sub :feed/tag-filter
+(rf/reg-sub :cart/category-filter
   (fn [db _query]
-    (:feed/tag-filter db)))
+    (:cart/category-filter db)))
 ```
 
 A view reads the current value by deref-ing the subscription:
 
 ```clojure
-@(rf/subscribe [:feed/tag-filter])
+@(rf/subscribe [:cart/category-filter])
 ```
 
-The vector `[:feed/tag-filter]` is the **query vector**: the id plus any arguments. `[:article/by-slug "intro"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
+The vector `[:cart/category-filter]` is the **query vector**: the id plus any arguments. `[:cart/line-item "sku-1"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
 
 That little `@` is doing two jobs at once. It unwraps the reactive reference to a plain value, and it registers the deref-ing view as a dependent, so the view re-renders when — and only when — that value changes. The view declared a dependency and walked away. It never polls, and it never listens to a store-wide "something changed" firehose.
 
-So why name a derivation this trivial instead of just writing `(:feed/tag-filter db)` in the view? Two reasons, and they recur everywhere in this framework:
+So why name a derivation this trivial instead of just writing `(:cart/category-filter db)` in the view? Two reasons, and they recur everywhere in this framework:
 
 - **Decoupling.** Where the value lives in app-db is the subscription's secret. Move it tomorrow and you change one registration, not forty views.
-- **Sharing.** Every view asking for `[:feed/tag-filter]` reads the *same* cached node. The subscription cache is keyed by query vector (per [frame](frames.md) — an isolated app-db-plus-handlers world; for now, read that as "per app"), so a computation runs once per change no matter how many views consume it. Adding the forty-first reader costs nothing.
+- **Sharing.** Every view asking for `[:cart/category-filter]` reads the *same* cached node. The subscription cache is keyed by query vector (per [frame](frames.md) — an isolated running instance with its own app-db and subscription cache; for now, read that as "per app"), so a computation runs once per change no matter how many views consume it. Adding the forty-first reader costs nothing.
 
 Both reasons get stronger the moment derivations start feeding each other, which is the actual design.
 
@@ -43,33 +43,33 @@ A subscription's input doesn't have to be app-db. It can be **another subscripti
 | **Layer 2 — derivations** | Other subs, via `:<-` | Sort, filter, join, shape. | An input sub's value changes by `=`. |
 | **Layer 3+ — compositions** | Other subs, some of them layer 2 | Compose derivations of derivations. | An input sub's value changes by `=`. |
 
-Layer 1 reaches into the map. Everybody else reaches into layer 1, or into each other. Here is a three-layer chain from a RealWorld-style article feed:
+Layer 1 reaches into the map. Everybody else reaches into layer 1, or into each other. Here is a three-layer chain from a shopping cart:
 
 ```clojure
 ;; Layer 1 — extractors: read app-db, pluck a slice, nothing else.
-(rf/reg-sub :articles/all
-  (fn [db _] (:articles db)))
+(rf/reg-sub :cart/items
+  (fn [db _] (:cart/items db)))
 
-(rf/reg-sub :feed/tag-filter
-  (fn [db _] (:feed/tag-filter db)))
+(rf/reg-sub :cart/category-filter
+  (fn [db _] (:cart/category-filter db)))
 
-;; Layer 2 — reads :articles/all (a sub), never app-db.
-(rf/reg-sub :articles/by-date
-  :<- [:articles/all]
-  (fn [articles _]
-    (sort-by :created-at #(compare %2 %1) articles)))
+;; Layer 2 — reads :cart/items (a sub), never app-db.
+(rf/reg-sub :cart/by-price
+  :<- [:cart/items]
+  (fn [items _]
+    (sort-by :price #(compare %2 %1) items)))
 
 ;; Layer 3 — composes two subs.
-(rf/reg-sub :articles/visible
-  :<- [:articles/by-date]
-  :<- [:feed/tag-filter]
-  (fn [[articles tag] _]
-    (if tag
-      (filterv #(some #{tag} (:tag-list %)) articles)
-      articles)))
+(rf/reg-sub :cart/visible
+  :<- [:cart/by-price]
+  :<- [:cart/category-filter]
+  (fn [[items category] _]
+    (if category
+      (filterv #(= category (:category %)) items)
+      items)))
 ```
 
-The `:<-` arrow reads as "this sub's input comes from". Notice what changed between layers. `:articles/by-date` does **not** take `db`. It takes the already-extracted value that `:articles/all` produced. One arrow delivers that input as a bare value; two or more deliver a vector, destructured above as `[articles tag]`. That's the only wrinkle in the syntax, and once you've seen it once it stays put.
+The `:<-` arrow reads as "this sub's input comes from". Notice what changed between layers. `:cart/by-price` does **not** take `db`. It takes the already-extracted value that `:cart/items` produced. One arrow delivers that input as a bare value; two or more deliver a vector, destructured above as `[items category]`. That's the only wrinkle in the syntax, and once you've seen it once it stays put.
 
 Here's the part worth pausing on: the shape of the registration *is* the topology. `(fn [db _] ...)` makes an extractor by construction; `:<-` makes a composer by construction. The framework reads the registry and knows the whole graph as data. That is how [Xray](../how-to/debug-with-xray.md) can draw your subscription topology without executing a single computation function. (The tool that exposes the static graph to debuggers is `re-frame.subs.tooling/sub-topology`, a literal projection of the registry — it never runs your bodies.)
 
@@ -83,7 +83,7 @@ I said the graph is fast without tuning. Here is the entire mechanism, one rule:
 
 When app-db changes, the layer-1 extractors re-run. They read app-db, so every change makes them re-check. Then each extractor's new output is compared with its previous output by `=`. If the slice didn't change, the cached value stands and **propagation stops right there**. Downstream layer-2 subs don't re-run, views don't re-render, and nothing past the unchanged extractor even learns that an event happened.
 
-That makes layer 1 a **circuit breaker** for everything behind it. Change `:feed/tag-filter` and the `:articles/all` extractor re-runs, sees its slice is `=` to last time, and shuts the gate — so the sort in `:articles/by-date` never executes. The same gate sits at every node. A layer-2 sub that recomputes but produces an `=` result stops propagation to *its* dependents too. You wrote zero `memo` and zero dependency arrays; you declared what each sub reads and got memoisation at every node for free. It works in reverse, too: a no-op write — a handler that assocs a key to the value it already has — produces an app-db that is `=` to the old one, so *nothing* recomputes anywhere. You cannot cause a render storm by writing state that didn't change.
+That makes layer 1 a **circuit breaker** for everything behind it. Change `:cart/category-filter` and the `:cart/items` extractor re-runs, sees its slice is `=` to last time, and shuts the gate — so the sort in `:cart/by-price` never executes. The same gate sits at every node. A layer-2 sub that recomputes but produces an `=` result stops propagation to *its* dependents too. You wrote zero `memo` and zero dependency arrays; you declared what each sub reads and got memoisation at every node for free. It works in reverse, too: a no-op write — a handler that assocs a key to the value it already has — produces an app-db that is `=` to the old one, so *nothing* recomputes anywhere. You cannot cause a render storm by writing state that didn't change.
 
 > **Coming from Redux?** In Reselect you carry the memoisation discipline yourself: a selector memoises on *reference* identity, so the moment a reducer returns a freshly-allocated array that's element-wise identical to the old one, every downstream selector and component recomputes anyway. The fix is to never allocate unless something changed — a rule you must hold in your head at every reducer. re-frame2 compares by value (`=`), so that whole category of "I accidentally busted the memo" bug doesn't exist. Equal values are equal, however they were allocated.
 
@@ -97,48 +97,48 @@ The gate scales further than you'd guess. The [Cells spreadsheet example](../../
 
 Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. Drop this into your app. It's self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both.
 
-A few names appear in the code below that this is the first page to use, so here they are in one breath. An **event** is a message you `dispatch` to change state; a **`reg-event`** registers the handler — the function that processes that message and returns the next app-db. **`reg-view`** registers a view component, and injects the frame-aware `dispatch` and `subscribe` locals its body calls (that's why they appear unqualified inside the `reg-view` body — [Views](views.md) tells that story). None of these are the subject of this page; they're just the scaffolding that lets you watch the gate work.
+A few names appear in the code below that this is the first page to use, so here they are in one breath. An **event** is an inert data vector you `dispatch` to change state; a **`reg-event`** registers the event handler — the function that processes that event and returns the next app-db. **`reg-view`** registers a view, and injects the frame-aware `dispatch` and `subscribe` locals its body calls (that's why they appear unqualified inside the `reg-view` body — [Views](views.md) tells that story). None of these are the subject of this page; they're just the scaffolding that lets you watch the gate work.
 
 ```clojure
-(rf/reg-event :pulse/initialise
+(rf/reg-event :cart/initialise
   (fn [{:keys [db]} _]
     {:db (assoc db
-                :pulse/ticks 0                            ;; this slice will change
-                :pulse/motto "facts in, conclusions out")})) ;; this one never does
+                :cart/count    0       ;; this slice will change
+                :cart/currency "USD")})) ;; this one never does
 
-(rf/reg-event :pulse/tick
-  (fn [{:keys [db]} _] {:db (update db :pulse/ticks inc)}))
+(rf/reg-event :cart/add-item
+  (fn [{:keys [db]} _] {:db (update db :cart/count inc)}))
 
 ;; Layer 1 — one tiny extractor per slice.
-(rf/reg-sub :pulse/ticks (fn [db _] (:pulse/ticks db)))
-(rf/reg-sub :pulse/motto (fn [db _] (:pulse/motto db)))
+(rf/reg-sub :cart/count    (fn [db _] (:cart/count db)))
+(rf/reg-sub :cart/currency (fn [db _] (:cart/currency db)))
 
 ;; Layer 2 — one derivation per branch.
-(rf/reg-sub :pulse/tick-label
-  :<- [:pulse/ticks]
-  (fn [n _] (str "tick #" n)))
+(rf/reg-sub :cart/count-label
+  :<- [:cart/count]
+  (fn [n _] (str n " item(s) in cart")))
 
-(rf/reg-sub :pulse/motto-label
-  :<- [:pulse/motto]
-  (fn [m _] (str "motto: " m)))
+(rf/reg-sub :cart/currency-label
+  :<- [:cart/currency]
+  (fn [c _] (str "prices shown in " c)))
 
-(rf/reg-view pulse-panel []
+(rf/reg-view cart-summary []
   [:div
-   [:p @(subscribe [:pulse/tick-label])]
-   [:p @(subscribe [:pulse/motto-label])]
-   [:button {:on-click #(dispatch [:pulse/tick])} "tick"]])
+   [:p @(subscribe [:cart/count-label])]
+   [:p @(subscribe [:cart/currency-label])]
+   [:button {:on-click #(dispatch [:cart/add-item])} "add item"]])
 ```
 
-Seed it once at boot — `(rf/dispatch-sync [:pulse/initialise])` next to your app's existing init — and mount `[pulse-panel]` somewhere visible. (`dispatch-sync` is the synchronous sibling of `dispatch`: it runs the event immediately rather than enqueuing it, so app-db is seeded before the first paint.)
+Seed it once at boot — `(rf/dispatch-sync [:cart/initialise])` next to your app's existing init — and mount `[cart-summary]` somewhere visible. (`dispatch-sync` is the synchronous sibling of `dispatch`: it runs the event immediately rather than enqueuing it, so app-db is seeded before the first paint.)
 
-Now **observe**. With Xray attached (the one-line setup is in [Debug with Xray](../how-to/debug-with-xray.md)), click **tick** a few times, select the newest event row, and open the **Views** tab. It lists each view that re-rendered in that cascade, and under it the subscriptions the view read:
+Now **observe**. With Xray attached (the one-line setup is in [Debug with Xray](../how-to/debug-with-xray.md)), click **add item** a few times, select the newest event row, and open the **Views** tab. It lists each view that re-rendered in that cascade, and under it the subscriptions the view read:
 
-- `:pulse/tick-label` is marked as the trigger. Its value changed since the last cascade, which is why `pulse-panel` re-rendered.
-- `:pulse/motto-label` sits beside it unmarked. It never recomputed. Its extractor `:pulse/motto` *ran* — every extractor re-checks on every app-db change — but produced an `=` value, so the gate closed and the motto branch never woke up.
+- `:cart/count-label` is marked as the trigger. Its value changed since the last cascade, which is why `cart-summary` re-rendered.
+- `:cart/currency-label` sits beside it unmarked. It never recomputed. Its extractor `:cart/currency` *ran* — every extractor re-checks on every app-db change — but produced an `=` value, so the gate closed and the currency branch never woke up.
 
-Every tick is a brand-new app-db value, and both branches are attached to it. The difference between them is the gate. Change flows exactly as far as values actually move, and not one node further.
+Every add is a brand-new app-db value, and both branches are attached to it. The difference between them is the gate. Change flows exactly as far as values actually move, and not one node further.
 
-> **Try it.** Register a deliberate no-op — `(rf/reg-event :pulse/restate (fn [{:keys [db]} _] {:db (assoc db :pulse/motto "facts in, conclusions out")}))` — give it a button, and dispatch it. The event row appears and the cascade ends immediately: app-db is `=` to before, so nothing recomputed and nothing re-rendered. The graph proved nothing changed and went back to sleep.
+> **Try it.** Register a deliberate no-op — `(rf/reg-event :cart/restate-currency (fn [{:keys [db]} _] {:db (assoc db :cart/currency "USD")}))` — give it a button, and dispatch it. The event row appears and the cascade ends immediately: app-db is `=` to before, so nothing recomputed and nothing re-rendered. The graph proved nothing changed and went back to sleep.
 
 ## Parametric inputs: the two-function form
 
@@ -254,17 +254,17 @@ A malformed `:sensitive`/`:large` value is rejected at registration with `:rf.er
 Because a layer-1/2/3 computation is just a pure function of `(inputs, query-v)`, you don't need a reactive runtime — or a DOM, or a browser — to test what a subscription *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It's JVM-runnable: no Reagent, no React, no installed adapter, no live cache.
 
 ```clojure
-(deftest visible-articles-honour-the-tag-filter
-  (let [db {:articles      [{:slug "a" :tag-list ["clj"]   :created-at 2}
-                            {:slug "b" :tag-list ["redux"] :created-at 1}]
-            :feed/tag-filter "clj"}]
-    ;; compute-sub resolves the whole :<- chain — :articles/all and
-    ;; :articles/by-date run automatically as inputs.
+(deftest visible-items-honour-the-category-filter
+  (let [db {:cart/items           [{:sku "a" :category "books"  :price 2}
+                                   {:sku "b" :category "snacks" :price 1}]
+            :cart/category-filter "books"}]
+    ;; compute-sub resolves the whole :<- chain — :cart/items and
+    ;; :cart/by-price run automatically as inputs.
     (is (= ["a"]
-           (mapv :slug (rf/compute-sub [:articles/visible] db))))))
+           (mapv :sku (rf/compute-sub [:cart/visible] db))))))
 ```
 
-`compute-sub` resolves the entire input chain for you — pass it the outer query vector and a `db`, and it computes `:articles/all`, then `:articles/by-date`, then `:articles/visible`, in dependency order. It's **pure**: same `(query-v, db)` always returns the same value, with no cache carried between calls. That makes it the workhorse for sub tests and the function the conformance corpus invokes for `:sub-values` assertions.
+`compute-sub` resolves the entire input chain for you — pass it the outer query vector and a `db`, and it computes `:cart/items`, then `:cart/by-price`, then `:cart/visible`, in dependency order. It's **pure**: same `(query-v, db)` always returns the same value, with no cache carried between calls. That makes it the workhorse for sub tests and the function the conformance corpus invokes for `:sub-values` assertions.
 
 There's a sharper, more robust variant when the `db` shape matters. Instead of hand-rolling a literal map — which silently rots when your handler-side schema evolves — drive real events through a test frame and then read the sub against the resulting db:
 
@@ -284,7 +284,7 @@ There's a sharper, more robust variant when the `db` shape matters. Instead of h
 
 ## Lifecycle: a sub exists only while something watches it
 
-A subscription node isn't a permanent fixture in the cache — it's reference-counted. When a view derefs `[:articles/visible]`, the cache materialises the node (computing the whole input chain) and bumps a ref-count. A second view sharing the same query vector bumps it again and reads the same cached value. When a view unmounts, its dependency is released, and on the **last** release — ref-count hits zero — the cache slot is disposed **synchronously, in the same tick**: the reaction is torn down, its input ref-counts are released (which can cascade disposal up the chain), and the slot is removed. A `:rf.sub/dispose` trace event marks the eviction.
+A subscription node isn't a permanent fixture in the cache — it's reference-counted. When a view derefs `[:cart/visible]`, the cache materialises the node (computing the whole input chain) and bumps a ref-count. A second view sharing the same query vector bumps it again and reads the same cached value. When a view unmounts, its dependency is released, and on the **last** release — ref-count hits zero — the cache slot is disposed **synchronously, in the same tick**: the reaction is torn down, its input ref-counts are released (which can cascade disposal up the chain), and the slot is removed. A `:rf.sub/dispose` trace event marks the eviction.
 
 This matters in two everyday ways:
 

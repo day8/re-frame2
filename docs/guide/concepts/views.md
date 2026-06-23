@@ -68,51 +68,50 @@ Here is a view doing its whole job: subscribe in, dispatch out, hiccup between. 
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-;; Adapted from examples/reagent/counter/core.cljs.
-(rf/reg-event :views.counter/initialise
-  (fn [{:keys [db]} _event] {:db (assoc db :views.counter/value 5)}))
+;; A line in the shopping cart: one quantity you can step up and down.
+(rf/reg-event :views.qty/initialise
+  (fn [{:keys [db]} _event] {:db (assoc db :views.qty/value 1)}))
 
-(rf/reg-event :views.counter/inc
-  (fn [{:keys [db]} _event] {:db (update db :views.counter/value inc)}))
+(rf/reg-event :views.qty/inc
+  (fn [{:keys [db]} _event] {:db (update db :views.qty/value inc)}))
 
-(rf/reg-event :views.counter/dec
-  (fn [{:keys [db]} _event] {:db (update db :views.counter/value dec)}))
+(rf/reg-event :views.qty/dec
+  (fn [{:keys [db]} _event] {:db (update db :views.qty/value (fnil dec 1))}))
 
-(rf/reg-sub :views.counter/value
-  (fn [db _query] (:views.counter/value db)))
+(rf/reg-sub :views.qty/value
+  (fn [db _q] (:views.qty/value db)))
 
-(defn counter []
+(defn qty-stepper []
   [:div
-   [:button {:on-click #(rf/dispatch [:views.counter/dec])} "-"]
-   [:span {:style {:margin "0 1em"}} @(rf/subscribe [:views.counter/value])]
-   [:button {:on-click #(rf/dispatch [:views.counter/inc])} "+"]])
+   [:button {:on-click #(rf/dispatch [:views.qty/dec])} "-"]
+   [:span {:style {:margin "0 1em"}} @(rf/subscribe [:views.qty/value])]
+   [:button {:on-click #(rf/dispatch [:views.qty/inc])} "+"]])
 
-(rf/dispatch-sync [:views.counter/initialise])
-[counter]
+(rf/dispatch-sync [:views.qty/initialise])
+[qty-stepper]
 ```
 
-That's a complete view. You use it by referencing it inside other hiccup — `[counter]` — and a view that takes arguments takes them like any function: `[labelled-counter "Apples"]`.
+That's a complete view. You use it by referencing it inside other hiccup — `[qty-stepper]` — and a view that takes arguments takes them like any function: `[labelled-stepper "Apples"]`.
 
 !!! note "Try it"
 
-    Change the last form to `[:div [counter] [counter]]` and re-evaluate. Click either counter: both move, because neither owns the number — each is a window onto the same `app-db` value. There is no local copy to fall out of sync.
+    Change the last form to `[:div [qty-stepper] [qty-stepper]]` and re-evaluate. Click either stepper: both move, because neither owns the number — each is a window onto the same `app-db` value. There is no local copy to fall out of sync.
 
 ## `reg-view`: registering a view for project code
 
 The cell above writes the view as a plain `defn`, and that genuinely *is* a view. But in real project code you'll write the registered form instead:
 
 ```clojure
-;; cf. examples/reagent/counter/core.cljs
-(rf/reg-view counter []
+(rf/reg-view qty-stepper []
   [:div
-   [:button {:on-click #(dispatch [:counter/dec])} "-"]
-   [:span @(subscribe [:counter/value])]
-   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
+   [:button {:on-click #(dispatch [:cart/qty-dec])} "-"]
+   [:span @(subscribe [:cart/qty])]
+   [:button {:on-click #(dispatch [:cart/qty-inc])} "+"]])
 ```
 
 A `reg-view` and a `defn` define the **same render function**. `reg-view` adds exactly two things on top:
 
-1. **A registry entry.** The view is registered under an auto-derived id — `(keyword *ns* 'counter)`, which pairs the current namespace (`*ns*` is Clojure's name for "the file you're in") with the symbol, giving e.g. `:my.app/counter` — so tooling can list it, jump to its source, and resolve a rendered DOM node back to the view that produced it.
+1. **A registry entry.** The view is registered under an auto-derived id — `(keyword *ns* 'qty-stepper)`, which pairs the current namespace (`*ns*` is Clojure's name for "the file you're in") with the symbol, giving e.g. `:my.app/qty-stepper` — so tooling can list it, jump to its source, and resolve a rendered DOM node back to the view that produced it.
 
 2. **Frame-aware injection.** Inside the body, the unqualified `dispatch` and `subscribe` are locals, bound to the [frame](frames.md) — the isolated re-frame2 world — that the view renders under. That binding is what lets the same view mount in several isolated frames at once, each reading and writing only its own world.
 
@@ -168,11 +167,11 @@ So the reverse rewrite — turning a `reg-view` into a `defn` — is not free. I
 > **Form-2** is a view whose body returns *another fn*. The outer fn runs once per mount (a place for per-mount setup that genuinely depends on props); the inner fn is the render fn, re-run each render. Lexical closure does the right thing — the injected `dispatch` / `subscribe` are in scope for both:
 >
 > ```clojure
-> (rf/reg-view counter-with-init [label]
->   (dispatch [:counter/initialise label])    ;; outer: fires once on mount
->   (fn [label]                               ;; inner: the actual render fn
->     [:button {:on-click #(dispatch [:counter/inc])}
->      (str label ": " @(subscribe [:counter/value]))]))
+> (rf/reg-view cart-line-with-init [sku]
+>   (dispatch [:cart/load-line sku])          ;; outer: fires once on mount
+>   (fn [sku]                                 ;; inner: the actual render fn
+>     [:button {:on-click #(dispatch [:cart/qty-inc sku])}
+>      (str sku ": " @(subscribe [:cart/qty sku]))]))
 > ```
 >
 > Prefer Form-1 + a frame `:initial-events` step over Form-2 for *stable* setup — the outer fn hides a mount-time side effect that doesn't appear at the call site. Reach for Form-2 only when the setup truly needs the per-mount props.
@@ -198,33 +197,33 @@ The temptation always looks innocent. The subscribed list is *almost* what the s
 
 ```clojure
 ;; Before — the view computes. The sort and the price-format re-run on
-;; EVERY re-render of this view, whether or not the list changed.
-(rf/reg-view product-list []
+;; EVERY re-render of this view, whether or not the cart changed.
+(rf/reg-view cart-lines []
   [:ul
-   (for [p (sort-by :name @(subscribe [:products]))]
-     ^{:key (:id p)} [:li (:name p) " — $" (.toFixed (:price p) 2)])])
+   (for [item (sort-by :name @(subscribe [:cart/items]))]
+     ^{:key (:id item)} [:li (:name item) " — $" (.toFixed (:price item) 2)])])
 ```
 
 And the *after*, with the derivation pushed up into a [subscription](subscriptions.md) where it belongs:
 
 ```clojure
-;; After — the sub computes once per change to :products; the view renders.
-(rf/reg-sub :products/display
-  :<- [:products]
-  (fn [products _]
-    (->> products
+;; After — the sub computes once per change to :cart/items; the view renders.
+(rf/reg-sub :cart/lines-display
+  :<- [:cart/items]
+  (fn [items _]
+    (->> items
          (map #(update % :price (fn [n] (.toFixed n 2))))
          (sort-by :name))))
 
-(rf/reg-view product-list []
+(rf/reg-view cart-lines []
   [:ul
-   (for [p @(subscribe [:products/display])]
-     ^{:key (:id p)} [:li (:name p) " — $" (:price p)])])
+   (for [item @(subscribe [:cart/lines-display])]
+     ^{:key (:id item)} [:li (:name item) " — $" (:price item)])])
 ```
 
 Ask the "after" view what it does: all it does is walk the list and emit `<li>`s. That's a view that knows what it's for.
 
-> **Why this matters.** A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:products` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
+> **Why this matters.** A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
 
 !!! warning "Compute-in-view is the most common way apps get slow"
 
