@@ -1,0 +1,97 @@
+;; Conformance fixture: machine/data-schema-rollback
+;;
+;; Per [005 §Schema validation](../../005-StateMachines.md#schema-validation)
+;; and EP-0029 A3 (rf2-f9nvu9). A machine may declare its data-context schema
+;; at `[:schemas :data]` on its `:schemas` map (the clean-break successor to
+;; the retired EP-0005 `:data-schema` key). Its value validates the machine's
+;; `:data` slot.
+;;
+;; This fixture pins the `:where :machine-data` `:phase :macrostep` boundary —
+;; the FULL-CASCADE-ROLLBACK side that complements the best-effort
+;; `:where :machine-output` boundary (machine-output-schema-validates.edn,
+;; `:rollback? false`). After a macrostep commits a new snapshot whose `:data`
+;; violates `[:schemas :data]`, the runtime emits
+;; `:rf.error/schema-validation-failure` with `:where :machine-data`,
+;; `:phase :macrostep`, the offending `:data` value, and `:rollback? true` —
+;; and the router ROLLS BACK the whole transition (the same mechanism as the
+;; `:where :app-db` rollback; per [010 §Per-step recovery row 7]
+;; (../../010-Schemas.md#per-step-recovery)). Machine snapshots are durable runtime-db
+;; state, so the post-commit walker (`validate-machine-data!`) validates the
+;; freshly-committed snapshot against the registered validator and the router
+;; restores the pre-handler db on a `false` return.
+;;
+;; Best-effort vs full-rollback asymmetry: `:machine-output` validates a value
+;; the finishing machine has ALREADY produced (post-completion, nothing to roll
+;; back, `:rollback? false`); `:machine-data` validates a snapshot the macrostep
+;; just committed (pre-observation, the commit is rolled back, `:rollback? true`).
+;;
+;; Validation routes entirely through the optional late-bound
+;; `:schemas/validate-with-registered-fn` adapter (machine core requires no
+;; schema library); a host with no registered validator pays zero cost and
+;; emits no trace. The conformance corpus runners load the Malli adapter
+;; (`re-frame.schemas.malli`) so the `[:map [:n pos-int?]]` schema validates.
+;;
+;; Dynamic-host only — statically typed hosts catch the shape mismatch at
+;; compile time and produce no runtime trace. Static-host harnesses skip
+;; this fixture. Mirror of machine-output-schema-validates.edn's structure for
+;; the data side.
+
+{:fixture/id           :machine/data-schema-rollback
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/error
+                         :core/trace :schemas/runtime}
+ :fixture/doc          "A singleton machine declaring [:schemas :data] [:map [:n pos-int?]] starts at {:n 1} (valid). A transition action writes 0 into :n (violates pos-int?). At the macrostep boundary the runtime emits :rf.error/schema-validation-failure with :where :machine-data, :phase :macrostep, the offending {:n 0} value, and :rollback? true — and the WHOLE cascade rolls back, so the snapshot never commits (final app-db carries no committed snapshot). The complement of the best-effort :machine-output boundary (:rollback? false)."
+ :fixture/dynamic-host-only? true
+
+ :fixture/registry
+ {:event {:data/m {:doc "Machine-as-event-handler; its [:schemas :data] schema validates the :data slot at the macrostep boundary."}}
+  :machine-action
+  {:data/break {:doc "Transition action writes a schema-VIOLATING 0 into the :n :data slot (violates [:map [:n pos-int?]])."}}
+  ;; The machine spec is registered via re-frame.machines/reg-machine. Its
+  ;; [:schemas :data] schema validates the whole :data map; the runner merges
+  ;; the realised :machine-action body into the spec's :actions slot.
+  :machine
+  {:data/m {:initial :idle
+            :data    {:n 1}
+            :schemas {:data [:map [:n pos-int?]]}
+            :states  {:idle {:on {:go {:target :ran
+                                       :action :data/break}}}
+                      :ran  {}}}}}
+
+ :fixture/handlers
+ ;; Action signature (Spec 005 §Actions): (fn [{:keys [data event]}] {:data …}).
+ ;; [:set [:n] 0] writes 0 into the :n slot, so the post-macrostep :data {:n 0}
+ ;; violates the declared [:schemas :data] [:map [:n pos-int?]].
+ {:machine-action
+  {:data/break [[:set [:n] 0]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ ;; Step 1 (inner-event [:rf.machine/noop]) boots the singleton with the
+ ;; conforming initial :data {:n 1} — bootstrap settles cleanly. Step 2
+ ;; (inner-event [:go]) fires the :idle → :ran transition whose action writes
+ ;; the violating 0. The macrostep commits {:n 0}, the post-commit walker
+ ;; validates it against [:map [:n pos-int?]], it FAILS, and the router rolls
+ ;; the whole transition back.
+ [[:data/m [:rf.machine/noop]]
+  [:data/m [:go]]]
+
+ :fixture/expect
+ ;; The macrostep violation emits exactly one
+ ;; :rf.error/schema-validation-failure with :where :machine-data and
+ ;; :phase :macrostep, carrying the offending {:n 0} value and :rollback? true.
+ ;; The matcher partial-matches the trace by its named keys and matches the
+ ;; map-valued :tags one level deep. (Only the violating macrostep emits this
+ ;; trace; the conforming bootstrap step does not.)
+ {:trace-emissions
+  [{:operation :rf.error/schema-validation-failure
+    :op-type   :error
+    :tags      {:category   :rf.error/schema-validation-failure
+                :where      :machine-data
+                :machine-id :data/m
+                :failing-id :data/m
+                :phase      :macrostep
+                :value      {:n 0}
+                :rollback?  true}
+    :recovery  :no-recovery}]}}

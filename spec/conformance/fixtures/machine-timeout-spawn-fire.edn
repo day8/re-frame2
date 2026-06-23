@@ -1,0 +1,127 @@
+;; Conformance fixture: machine/timeout-spawn-fire
+;;
+;; EP-0029 A4 — a SPAWN-LEVEL `:timeout` / `:on-timeout`. Like the state-level
+;; timeout (machine-timeout-state-fire.edn), a spawn-level timeout is a DISTINCT
+;; authoring concept that LOWERS onto the existing `:after` timer mechanism: the
+;; runtime desugars `{:spawn {:machine-id … :timeout "PT10S" :on-timeout {:target …}}}`
+;; into the SPAWN-bearing state's `{:after {10000 {:target …}}}` (the resolved
+;; ms) — the timeout is anchored to the state's ENTRY (when the child is
+;; spawned), and the whole `:after` machinery (scheduling, per-decl-path epoch,
+;; cancel-on-exit) drives it. The spawn spec keeps its `:machine-id` / `:data` /
+;; `:start` but the `:timeout` / `:on-timeout` keys are dropped (they moved onto
+;; the state `:after`).
+;;
+;; This fixture pins the spawn-level timeout end-to-end via the
+;; `:machine-transition` op (which passes the RAW definition straight to
+;; machine-transition, where the desugar runs). Entering the `:spawn`-bearing
+;; state emits BOTH the `:rf.machine/spawn` fx (the child install) AND the
+;; `:rf.machine/after-schedule` fx the desugared timeout produces (keyed by the
+;; resolved 10000 ms, NOT the "PT10S" string, and by the spawn-bearing state's
+;; path, NOT the child instance). When the synthetic timer-elapsed event at
+;; 10000 fires, the `:on-timeout` transition EXITS the spawn-bearing state — and
+;; the state's exit cascade emits the `:rf.machine/destroy` fx that TEARS DOWN
+;; the spawned child (plus the `:rf.machine/after-cancel` for the now-departed
+;; timer). The complement of the state-level firing fixture: state-level firing
+;; is covered (machine-timeout-state-fire.edn); spawn-level firing + child
+;; teardown is what this fixture adds. Registration of the spawn-level timeout
+;; grammar is covered by machine-reg-error-timeout.edn.
+;;
+;; DIVERGENCE pinned elsewhere (machine-reg-error-timeout.edn): the duration
+;; grammar is integer-ms OR ISO-8601 only — the XState "5s"/"10ms" shorthand is
+;; REJECTED at registration (operator-ruled).
+;;
+;; Per [005 §`:timeout` / `:on-timeout` (delayed transitions)]
+;; (../../005-StateMachines.md#timeout--on-timeout-state--spawn) and
+;; [docs/EP/EP-0029 §A4].
+
+{:fixture/id           :machine/timeout-spawn-fire
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/timeout :actor/spawn-destroy
+                         :actor/declarative-spawn}
+ :fixture/doc          "A state declares a :spawn carrying :timeout \"PT10S\" + :on-timeout {:target :timed-out}. Entering the state spawns the child (:rf.machine/spawn fx) AND desugars the spawn timeout onto :after, emitting the :rf.machine/after-schedule fx keyed by the resolved 10000 ms (anchored to the spawn-bearing state's path). The synthetic timer-elapsed event at 10000 fires the :on-timeout transition out of the state; the exit cascade emits :rf.machine/after-cancel + :rf.machine/destroy (the child teardown). Complement of machine-timeout-state-fire.edn (state-level firing); spawn-level firing + child teardown."
+
+ :fixture/registry
+ {:machine
+  {:fetch/user {:doc "Stub child machine — the spawn spawns it. Body irrelevant to this fixture; only the spawn/timeout/teardown lifecycle is observed."}}}
+
+ :fixture/handlers {}
+
+ :fixture/calls
+ [;; Step 1: :load transitions :idle → :loading. Entry spawns the child
+  ;; (:rf.machine/spawn fx, allocating :fetch/user#1) AND the spawn-level
+  ;; :timeout "PT10S" desugars onto the state's :after {10000 …}, so entry also
+  ;; emits the after-schedule fx keyed by the RESOLVED 10000 ms (not "PT10S")
+  ;; with epoch 1. The parent snapshot carries the runtime-tracked spawn id
+  ;; under :rf/spawned and the per-path timer epoch under :rf/after-epoch.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states
+                  {:idle    {:on {:load :loading}}
+                   :loading {:spawn {:machine-id :fetch/user
+                                     :timeout    "PT10S"
+                                     :on-timeout {:target :timed-out}}
+                             :on    {:done :loaded}}
+                   :loaded    {}
+                   :timed-out {}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:load]
+   :expect-next-snapshot {:state            :loading
+                          :data             {:rf/spawned     {[:loading] :fetch/user#1}
+                                             :rf/after-epoch {[:loading] 1}}
+                          :rf/spawn-counter {:fetch/user 1}}
+   :expect-effects [[:rf.machine/spawn
+                     {:machine-id    :fetch/user
+                      :id-prefix     :fetch/user
+                      :rf/spawned-id :fetch/user#1
+                      :rf/parent-id  :rf/transition-pure
+                      :rf/invoke-id  [:loading]}]
+                    [:rf.machine/after-schedule
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]
+                      :state        :loading
+                      :delay-key    10000
+                      :epoch        1
+                      :server?      false}]]
+   :expect-trace
+   [{:operation :rf.machine.timer/scheduled
+     :tags      {:state :loading :delay 10000 :epoch 1 :delay-source :literal}}
+    {:operation :rf.machine/transition
+     :tags      {:from :idle :to :loading}}]}
+
+  ;; Step 2: the synthetic timer-elapsed event at the resolved 10000 ms fires
+  ;; the spawn-level :on-timeout transition; the snapshot lands at :timed-out;
+  ;; the :loading node's per-path epoch advances to 2 (it was exited). The exit
+  ;; cascade cancels the now-departed timer (:rf.machine/after-cancel) AND tears
+  ;; down the spawned child (:rf.machine/destroy, keyed by the parent + invoke
+  ;; path — the fx handler resolves the live actor id from the runtime
+  ;; [:rf.runtime/machines :spawned …] slot at call time).
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states
+                  {:idle    {:on {:load :loading}}
+                   :loading {:spawn {:machine-id :fetch/user
+                                     :timeout    "PT10S"
+                                     :on-timeout {:target :timed-out}}
+                             :on    {:done :loaded}}
+                   :loaded    {}
+                   :timed-out {}}}
+   :snapshot     {:state :loading
+                  :data  {:rf/spawned     {[:loading] :fetch/user#1}
+                          :rf/after-epoch {[:loading] 1}}}
+   :event        [::after-elapsed 10000 1 [:loading]]
+   :expect-next-snapshot {:state :timed-out
+                          :data  {:rf/spawned     {[:loading] :fetch/user#1}
+                                  :rf/after-epoch {[:loading] 2}}}
+   :expect-effects [[:rf.machine/after-cancel
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]}]
+                    [:rf.machine/destroy
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]}]]
+   :expect-trace
+   [{:operation :rf.machine.timer/fired
+     :tags      {:state :loading :delay 10000 :epoch 1 :fired? true}}
+    {:operation :rf.machine/transition
+     :tags      {:from :loading :to :timed-out}}]}]}
