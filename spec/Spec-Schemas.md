@@ -1026,17 +1026,17 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category        [:= :rf.error/schema-validation-failure]]
    [:failing-id      :keyword]
    [:reason          {:optional true} :string]
-   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :flow-output :machine-data :sub-override]] ;; :machine-data is the `reg-machine` :data-schema boundary (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7); :sub-override is the `:sub-overrides` HIT boundary (Spec 006 §Sub-overrides)
+   [:where           [:enum :event :sub-return :app-db :fx-args :cofx :flow-output :machine-data :machine-output :sub-override]] ;; :machine-data is the `reg-machine` [:schemas :data] boundary; :machine-output is the [:schemas :output] completion-payload boundary (EP-0029 A8 — Spec 005 §Completion-output validation); both per Spec 010 §Per-step recovery row 7; :sub-override is the `:sub-overrides` HIT boundary (Spec 006 §Sub-overrides)
    [:path            {:optional true} [:vector :any]]
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
    [:rf.sub/query-v  {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
-   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db / :machine-data) true when :db was rolled back to pre-handler value; false for :where :machine-data :phase :spawn / :update-snapshot (nothing committed)
+   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db / :machine-data / :machine-output) true when :db was rolled back to pre-handler value; false for :where :machine-data :phase :spawn / :update-snapshot (nothing committed) and ALWAYS false for :where :machine-output :phase :completion (the machine already finished)
    [:registered-path {:optional true} [:vector :any]]  ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
-   [:machine-id      {:optional true} :keyword]        ;; (:where :machine-data only) the failing machine's id; mirrors :failing-id for domain clarity.
-   [:phase           {:optional true} [:enum :macrostep :bootstrap :spawn :update-snapshot]] ;; (:where :machine-data only) lifecycle position of the violation: :macrostep (post-transition commit), :bootstrap (initial :data install on the first dispatch), :spawn (pre-install spawn rejection), :update-snapshot (pre-write rejection of an :rf.machine/update-snapshot escape-hatch :data patch).
-   [:received        {:optional true} :any]            ;; (:where :machine-data / :app-db / :event / :cofx / :sub-return / :fx-args) parallel to :value; the value the validator received.
-   [:schema          {:optional true} :any]])          ;; (:where :machine-data only) the registered schema verbatim, so consumers can render it inline next to the failing :data.
+   [:machine-id      {:optional true} :keyword]        ;; (:where :machine-data / :machine-output only) the failing machine's id; mirrors :failing-id for domain clarity.
+   [:phase           {:optional true} [:enum :macrostep :bootstrap :spawn :update-snapshot :completion]] ;; (:where :machine-data / :machine-output only) lifecycle position of the violation: :macrostep (post-transition commit), :bootstrap (initial :data install on the first dispatch), :spawn (pre-install spawn rejection), :update-snapshot (pre-write rejection of an :rf.machine/update-snapshot escape-hatch :data patch), :completion (the :where :machine-output finalize-time completion-output check).
+   [:received        {:optional true} :any]            ;; (:where :machine-data / :machine-output / :app-db / :event / :cofx / :sub-return / :fx-args) parallel to :value; the value the validator received.
+   [:schema          {:optional true} :any]])          ;; (:where :machine-data / :machine-output only) the registered schema verbatim, so consumers can render it inline next to the failing :data / output payload.
 
 (def MalformedSchemaTags
   ;; Per Spec 010 §App-db schemas — a REGISTERED schema is
@@ -1054,9 +1054,17 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; omitting the value is fail-closed (no path-targeted redaction is
   ;; possible). `:schema` carries the offending registration form the
   ;; developer must fix.
+  ;;
+  ;; The `:machine-output` boundary (EP-0029 A8 — Spec 005 §Completion-output
+  ;; validation) catches the same malformed-schema throw at finalize time: a
+  ;; bad `[:schemas :output]` form makes the validator throw, but the finalize
+  ;; cascade has no router-level defensive catch, so the completion-output
+  ;; validator catches it directly, emits this category with `:rollback?
+  ;; false` (the machine already finished), and PROCEEDS — a schema typo
+  ;; surfaces loudly yet never deadlocks a finishing machine.
   [:map
    [:category        [:= :rf.error/malformed-schema]]
-   [:where           [:enum :app-db :machine-data]]
+   [:where           [:enum :app-db :machine-data :machine-output]]
    [:reason          :string]
    [:failing-id      {:optional true} :keyword]
    [:frame           {:optional true} :keyword]

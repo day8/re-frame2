@@ -340,11 +340,29 @@ To *also* validate the inbound event vector, use the three-argument `reg-machine
    :states  {...}})
 ```
 
-The `:schemas` map's sub-keys are a closed set — `:data` is the live, wired category; `:events`, `:output`, `:tags`, and `:meta` are accepted as declaration-only surfaces for now — so a typo'd or not-yet-adopted sub-key fails loud at registration rather than silently validating nothing.
+The `:schemas` map's sub-keys are a closed set — `:data` and `:output` are the live, wired categories; `:events`, `:tags`, and `:meta` are accepted as declaration-only surfaces for now — so a typo'd or not-yet-adopted sub-key fails loud at registration rather than silently validating nothing.
 
 > **For JavaScript developers — TypeScript can't do this.** The `:schemas` map follows the XState v6 direction, which replaces v5's `types` with a broader `schemas` section. But there's a runtime guarantee XState's typed context *can't* give you: TypeScript's types are erased before the machine ever runs, whereas `[:schemas :data]` is an *actually-running* validation in dev (opt-in at production boundaries) that rolls a bad transition back. Same declaration, plus the runtime check the type-erased layer leaves out.
 
 > **Fail-loud guard.** Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `[:schemas :data]`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
+
+### Validating a machine's completion output
+
+The other wired `:schemas` category is **`:output`** — it validates the machine's **completion-output payload**: the value a finishing machine selects from its final state's `:data` via `:output-key` (the `result` its parent's `:on-done` receives). re-frame2 keeps completion *event-shaped* — there's no long-lived `snapshot.output` slot — so `[:schemas :output]` schemas the value *as it flows*, validated at the moment the machine finishes:
+
+```clojure
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :data    {}
+   :schemas {:output :string}                 ;; the :output-key payload must be a string
+   :states  {:running {:on {:server-ok {:target :done
+                                         :action (fn [{data :data ev :event}]
+                                                   {:data (assoc data :token (second ev))})}}}
+             :done    {:final?     true
+                       :output-key :token}}})  ;; ← this :token value is what gets validated
+```
+
+Unlike the `:data` boundary, output validation is **best-effort fail-loud**: the machine has *already* reached its final state when its output is checked, so a violation emits `:rf.error/schema-validation-failure` with `:where :machine-output` **loudly** but the completion still flows — there's nothing to roll back, and a schema typo surfaces the mismatch without deadlocking a finishing machine. Same dev-only posture as `:data` (`debug-enabled?`-gated, DCE'd in production) and the same optional validator adapter — a project with no schema library still uses the grammar and pays zero cost.
 
 ## Testing: transitions are pure function calls
 

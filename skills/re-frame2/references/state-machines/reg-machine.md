@@ -24,6 +24,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **`invoke`** (state-bound child actor) | `:spawn` (and `:spawn-all` for fan-out-and-join) | **Divergence (name):** the most semantically-loaded slot is renamed on purpose, to break the "almost-correct xstate code" trap and align with the imperative `:rf.machine/spawn` fx. No `:onSnapshot`/`autoForward`/multiple-`:invoke`-per-state. See `spawn.md`. |
 | **`invoke onError`** (child→parent failure **transition**) | `:spawn`'s `:on-error` transition + `:error? true` final leaf | Convergence — re-frame2 ships `invoke onError` first-class as a control-flow **transition** (not observability-only). The child designates an error terminal with `:final? true :error? true`; the parent's `:spawn` declares `:on-error` (an `:on`-shaped transition spec). See `spawn.md` §`:on-error`. |
 | **`onDone`** (child→parent completion) | `:final?` leaf + parent `:spawn`'s `:on-done` + `:output-key` | Convergence — re-frame2 ships first-class final-state-with-parent-notification. See `spawn.md`. |
+| **`output`** (typed completion output) | `[:schemas :output]` validating the `:output-key` payload (EP-0029 A8) | Convergence on the role — both declare the completion-output shape. **Divergence:** re-frame2 keeps completion *event-shaped* (no long-lived `snapshot.output`); `[:schemas :output]` validates the `:output-key` payload *as it flows* at finalize time, best-effort fail-loud (`:where :machine-output`, `:rollback? false`). See §Declaring a `[:schemas :output]` schema. |
 | **parallel states** (`type: 'parallel'`) | `:type :parallel` + `:regions {...}` | Convergence (name + concept). `:data` shared; `:tags` is the union across active regions. See `regions.md`. |
 | **history states** (`type: 'history'`, `history: 'deep'`) | `:type :history` pseudo-state under a compound's `:states` (`:deep?` / `:default-target`) | Convergence (name + concept). Shallow by default; `:deep? true` for deep. Recording rides the snapshot's `:rf/history` slot — so undo / time-travel / SSR get it free. See `history.md`. |
 | **final states** (`type: 'final'`) | `:final? true` on a leaf state | Convergence on the concept. **Note the divergence:** a `:final?` singleton (or every-region-final parallel machine) **auto-destroys** — "final means final." Omit `:final?` for a persistent terminal state. See `spawn.md`. |
@@ -196,7 +197,7 @@ A machine's `:data` slot is its *context* in xstate terms — the value it carri
 
 The data-context schema lives at `[:schemas :data]` (not XState v6's `schemas.context`) because re-frame2 calls the slot `:data`, not `context` — the schema names exactly what it validates. The schema governs the user-domain `:data` only: the snapshot's `:state` is validated structurally at registration (an unknown transition target fails with `:rf.error/machine-unresolved-target`), and the reserved `:rf/*` snapshot slots are framework-owned.
 
-`:schemas` is a **closed** sub-key map. `:data` is the live, wired category; `:events`, `:output`, `:tags`, and `:meta` are accepted declaration-only categories (abstract values, no wired behaviour yet). An unknown sub-key — including `:input` — fails loud at registration with `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`.
+`:schemas` is a **closed** sub-key map. `:data` and `:output` are the live, wired categories; `:events`, `:tags`, and `:meta` are accepted declaration-only categories (abstract values, no wired behaviour yet). An unknown sub-key — including `:input` — fails loud at registration with `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`.
 
 **Validation is optional and schema-library-agnostic.** The `[:schemas :data]` value is opaque: machine core requires neither Malli nor any other schema library. Validation runs through an optional registered validator adapter (Malli is the framework default); a project with no adapter still uses the `:schemas` grammar at zero validation cost.
 
@@ -207,6 +208,23 @@ The data-context schema lives at `[:schemas :data]` (not XState v6's `schemas.co
 2. **Declared context shape.** With a `[:schemas :data]` schema present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState's typed context (which Stately's inspector renders as a `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial initial map can mislead. Declaring the schema turns that one-sample guess into a reliable, reader-trustable contract.
 
 > **The `[:schemas :data]` `:sensitive?` prop does NOT redact snapshot egress.** A `:sensitive?` / `:large?` Malli prop on a `:data` slot drives **only** the schema's own *validation-failure-trace* redaction — when a `:rf.error/schema-validation-failure` record ships, the marked slot is redacted in *that record*. It does **not** redact `:data` in the `:before` / `:after` / `:snapshot` slots of a normal transition trace. Durable machine `:data` snapshot redaction is declared on the machine definition (below).
+
+### Declaring a `[:schemas :output]` schema — the completion payload
+
+The other wired `:schemas` category is **`:output`** — it validates a machine's **completion-output payload**: the value a finishing machine selects from its final state's `:data` via `:output-key` (the `result` its parent's `:spawn :on-done` receives). This is the xstate **`output`** concept (v6 `schemas.output`), but re-frame2 keeps completion *event-shaped* — there is **no** long-lived `snapshot.output` slot — so `[:schemas :output]` schemas the value *as it flows*, validated at the moment the machine reaches its final state:
+
+```clojure
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :schemas {:output :string}                 ;; the :output-key payload must be a string
+   :states  {:running {:on {:ok {:target :done
+                                  :action (fn [{data :data ev :event}]
+                                            {:data (assoc data :token (second ev))})}}}
+             :done    {:final?     true
+                       :output-key :token}}})  ;; ← this :token value is validated
+```
+
+Unlike the `:data` boundary, output validation is **best-effort fail-loud**: the machine has *already* finished when its output is checked, so a violation emits `:rf.error/schema-validation-failure` with `:where :machine-output` (and `:phase :completion`) **loudly** — but the completion still flows and there is **nothing to roll back** (`:rollback? false`). A schema typo on a completion payload surfaces the mismatch without deadlocking a finishing machine. Same dev-only posture as `:data` (`debug-enabled?`-gated, DCE'd in production) and the same optional schema-library-agnostic validator adapter. A machine with no `[:schemas :output]` reports its `:output-key` payload unvalidated, exactly as before.
 
 ### Redacting `:data` at snapshot egress — the machine declaration
 
