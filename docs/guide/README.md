@@ -6,6 +6,8 @@ re-frame2 is a data-first framework for building React applications in ClojureSc
 
 ## Pick your entry point
 
+There are three ways into the guide, depending on who you are. Pick the row that fits, and follow the first link — the rest of the guide unfolds from there.
+
 | You are… | Start at | Then |
 |---|---|---|
 | **A React/JS developer.** You know the ecosystem — Redux, TanStack Query, XState, React Router — but maybe not Clojure. | [Quickstart: a counter in five minutes](quickstart.md) | The [RealWorld tutorial](tutorial/index.md). Each concept page opens by naming the tool you already know, then teaches the difference. |
@@ -13,6 +15,10 @@ re-frame2 is a data-first framework for building React applications in ClojureSc
 | **An AI agent** working on a re-frame2 app. | [The reference map](reference.md), which indexes down into the [spec](../../spec/README.md) — the normative contract. | Guide pages are self-contained and use the spec's terminology, so they chunk cleanly. Where guide and spec differ, the spec wins. |
 
 One reader this guide deliberately doesn't serve: someone learning UI programming from scratch. It teaches re-frame2 by difference from tools you already know, which means it assumes you've shipped something with React or Redux before.
+
+> **For JavaScript developers.** You don't have to leave your mental models at the door — the guide leans on them. Most concept pages open by naming the JS-ecosystem tool that solves the same problem (subscriptions ≈ Redux selectors / `useSelector`, resources ≈ TanStack Query, machines ≈ XState, routing ≈ React Router) and then teach only what's *different*. So the fastest path in is the [Quickstart](quickstart.md): build the counter, recognise the loop, and let each later page map onto something you already know.
+
+> **From re-frame v1.** Most of your instincts carry over unchanged: events are still plain data, subscriptions still derive, effects still describe what should happen. What's gone is the *global* assumption — there is no single ambient `app-db` or registry anymore. State lives inside [frames](concepts/frames.md), and that one idea ripples through everything else. Read [From re-frame v1](25-from-re-frame-v1.md) for the deltas — it skips the basics and lists only what changed.
 
 > **Rusty on Clojure, or never wrote any?** You don't need to be fluent to follow along — the loop is data, not syntax. But if the parentheses are getting in the way, [ClojureScript for non-Clojurians](../cljs/index.md) is a fast primer aimed squarely at JS developers: just enough syntax to read every example in this guide.
 
@@ -42,6 +48,8 @@ Two habits run through every tier, and they're worth knowing up front because th
 - **Link down, never duplicate.** Guide pages teach the model and the happy path; the complete contract lives in the [spec](../../spec/README.md). Rather than restate it, pages link into it — so when you want the exhaustive list of options, you follow the link.
 
 Almost every page closes with a short **"You can now…"** block — the two or three concrete things you should be able to *do* after reading it. If a closing claim doesn't ring true yet, that's the signal to re-read the page (or the one it links down to) rather than push on.
+
+> **Going deeper.** The whole guide is one big idea unfolding: state is a *value*, the UI is a pure function of that value, and everything in between is data you can inspect. If you'd rather understand *why* the pieces sit where they do before you start building — why views render last, why effects live at the edge, why there's no global db — the [Explanation](explanation/inside-out.md) shelf is written for exactly that mood. It's strictly optional: you can ship a real app having read only the loop and the tutorial, and circle back to the *why* when curiosity (or a code review) demands it.
 
 > **Pre-alpha, and honest about it.** re-frame2 is pre-alpha — surfaces are still settling, and a few features aren't here yet. The guide flags deferred features and client-only paths wherever they matter, so you won't build on something that turns out to be a placeholder.
 

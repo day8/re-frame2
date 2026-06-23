@@ -1,6 +1,6 @@
 # Build RealWorld — what you'll make, and setup
 
-The [quickstart](../quickstart.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels; if a step trips, the four named failure modes near the end are the known ways it goes wrong, each with a fix.
+The [quickstart](../quickstart.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels.
 
 Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time, running the same do → observe → explain loop you ran in the quickstart.**
 
@@ -29,7 +29,7 @@ From Part 2 onward the app talks to a Conduit API — either a hosted demo or an
 git clone https://github.com/day8/re-frame2.git
 ```
 
-> **Coming from React?** shadow-cljs is your Vite — dev server, hot reload, and bundler in one. `deps.edn` is `package.json` for the JVM-side (ClojureScript) libraries, and `package.json` still handles the npm side. Two manifests instead of one, because two language ecosystems meet here.
+> **For JavaScript developers.** shadow-cljs is your Vite — dev server, hot reload, and bundler in one. `deps.edn` is `package.json` for the JVM-side (ClojureScript) libraries, and `package.json` still handles the npm side. Two manifests instead of one, because two language ecosystems meet here.
 
 ## Scaffold: four files
 
@@ -54,7 +54,9 @@ conduit/
  {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-`thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray is the inspector you'll keep open for the whole tutorial — think of it as a live window into what your app is doing, the way React DevTools is a window into your component tree. It lives in a `:dev` alias because it's a tool, not application code, which keeps it out of your shipped bundle automatically.
+`thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray is the inspector you'll keep open for the whole tutorial — a live window into what your app is doing. It lives in a `:dev` alias because it's a tool, not application code, which keeps it out of your shipped bundle automatically.
+
+> **For JavaScript developers.** Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
 
 **`package.json`**:
 
@@ -176,36 +178,61 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
      [shell]]))
 ```
 
-The events, subs, and views here are just the quickstart's loop again — an event updates app-db (your app's single state map), a subscription reads from it, and a view renders that read. What's genuinely new is the **boot**, the part the quickstart's browser cells quietly did on your behalf. It's four moves, and each one has a named way of going wrong. The nice thing: every failure arrives as a *structured* error — in the console **and** as a row in Xray, under a stable `:rf.error/*` id — so you're never reduced to guessing.
+The events, subs, and views here are just the quickstart's loop again — an event updates app-db (your app's single state map), a subscription reads from it, and a view renders that read. What's genuinely new is the **boot**, the part the quickstart's browser cells quietly did on your behalf. It's four moves, in order, each one short:
 
 **Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate.** The substrate is the view library's reactivity that your subscriptions wire into, and this line tells the runtime which one you're using. It's idempotent, so hot reload is safe — calling it twice does nothing. It creates *no* frame; that's the next move's job. To swap substrates later you change one require and this one Var ([Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md)).
 
-> **Failure mode 1 — `:rf.error/no-adapter-installed`.** Something rendered or subscribed before any `init!` ran — usually a refactor that moved the boot and dropped this line on the floor. Install the adapter first; everything else comes after.
-
-**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a **frame** — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: there's no ambient global and no silent default. A single-page app has exactly one frame, registered once at the root. `reg-frame` is **atomic** — it creates the frame *and* registers it under the id in one move, so there's never a half-built frame lying around. A fresh frame always starts with `app-db = {}`; there's no `:db` config key, which is why the seeding happens in the next move via an event. The empty config map grows in later parts — by Part 5 it carries keys like `:interceptors`, `:fx-overrides`, and `:initial-events` — so don't worry that it looks bare now. The full story is in [Frames: isolated worlds](../concepts/frames.md).
-
-> **The declarative seed: `:initial-events`.** There's a second, more idiomatic way to do Move 3's seeding — hand `reg-frame` an `:initial-events` vector and let it run the boot events *for* you, synchronously, as part of registration:
->
-> ```clojure
-> (rf/reg-frame :rf/default {:initial-events [[:app/initialise]]})
-> ;; reg-frame dispatch-syncs [:app/initialise] into the new frame before it returns
-> ```
->
-> By the time `reg-frame` returns, that cascade has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. The manual form below is worth meeting first because it makes each move visible; from Part 1 on you'll often prefer `:initial-events`, and the finished reference uses it. (A step is a bare event vector like `[:app/initialise]`; the whole value is a vector *of* those, so `[[:app/initialise]]` — a single one-step vector. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix.) See [EP-0027 in 002-Frames](../../../spec/002-Frames.md) for the full grammar.
+**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a **frame** — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: there's no ambient global and no silent default. A single-page app has exactly one frame, registered once at the root. `reg-frame` is **atomic** — it creates the frame *and* registers it under the id in one move, so there's never a half-built frame lying around. A fresh frame always starts with `app-db = {}`, which is why the seeding happens in the next move via an event. The empty config map grows in later parts — by Part 5 it carries keys like `:interceptors`, `:fx-overrides`, and `:initial-events` — so don't worry that it looks bare now.
 
 **Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's `dispatch-sync` — a dispatch that runs the event immediately rather than queuing it — because plain `dispatch` would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of only two legitimate uses of `dispatch-sync`; the other is tests.
 
-> **Failure mode 2 — `:rf.error/no-frame-context` (at a dispatch).** An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`.
+**Move 4 — `frame-provider-existing` wraps the tree.** The provider carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `-existing` suffix is load-bearing: this provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
 
-**Move 4 — `frame-provider-existing` wraps the tree.** The provider carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it — much like a React context provider you've reached for before. The `-existing` suffix is the load-bearing part: this provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
+That's the whole boot. Four moves: install the substrate, register the frame, seed it, scope the tree to it.
 
-> **`frame-provider` vs `frame-provider-existing`.** There are two providers in the family, and the distinction matters once you have more than one frame. `frame-provider-existing` (this page) is **scope-only**: you registered the frame at the root, and the provider just carries its id down. `frame-provider` (no suffix) is the **lifecycle** one — it *creates* a frame on mount and *destroys* it on unmount, taking the same construction opts as `reg-frame` (`:id`, `:initial-events`, …). You reach for `frame-provider` when a *component* should own a frame for exactly as long as it's mounted: a comparison page showing two isolated apps side by side, a Story canvas, an embedded widget, a modal. A single-page app's one root frame outlives every component, so it's registered once at the top and merely scoped in — hence `-existing`. Pass a lifecycle opt like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing. The full picture is in [Frames: isolated worlds](../concepts/frames.md).
+> **For JavaScript developers.** Move 4 is a context provider — the same pattern as wrapping your React tree in a `<Provider>` so that hooks deep in the tree can reach shared state without prop-drilling. The frame is what's carried down the context; `subscribe` and `dispatch` are the hooks that read it.
 
-> **Failure mode 3 — `:rf.error/no-frame-context` (at a subscribe).** Same id, different site: the tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath — the fix is to wrap the root.
+> **Coming from Redux?** Move 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Move 2 (`reg-frame`) is `createStore`. Move 3 is your initial-state argument to `createStore`, except expressed as an event rather than a literal. Move 4 is `<Provider store={...}>`. The big difference: re-frame2 makes you name the store (the frame) explicitly, because a re-frame2 app can run several stores side by side, fully isolated.
 
-> **Failure mode 4 — `:rf.error/no-such-handler`.** A dispatch reached the runtime but nothing is registered under that id. Once the app spans files (Part 1 on), the usual cause isn't a typo — it's a feature namespace never `:require`d from `core`, so its registrations never ran. (Sibling `:rf.error/no-such-fx`: the same story for an effect — a side-effect the framework performs for you — which is why Part 2 requires the HTTP artefact at boot, so its effects register.)
+> **From re-frame v1.** Moves 2–4 are the new part: there's no implicit global frame any more, so the app says — once, at the root — which frame it runs in. v1 dispatched into an ambient singleton you never named; v2 makes that frame explicit, which is exactly what later lets the *same* views run in two isolated frames side by side. The events, subs, and views in this file should look familiar; only the boot has changed.
 
-> **Coming from re-frame v1?** Moves 2–4 are the new part: there's no implicit global frame any more, so the app says — once, at the root — which frame it runs in. v1 dispatched into an ambient singleton you never named; v2 makes that frame explicit, which is exactly what later lets the *same* views run in two isolated frames side by side. Everything else in this file should look familiar.
+### A more idiomatic seed: `:initial-events`
+
+The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first because it makes the seeding visible. But there's a second, more idiomatic way: hand `reg-frame` an `:initial-events` vector and let it run the boot events *for* you, synchronously, as part of registration.
+
+```clojure
+(rf/reg-frame :rf/default {:initial-events [[:app/initialise]]})
+;; reg-frame dispatch-syncs [:app/initialise] into the new frame before it returns
+```
+
+By the time `reg-frame` returns, that cascade has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. From Part 1 on you'll often prefer this form, and the finished reference uses it.
+
+> **Gotcha.** A *step* is a bare event vector like `[:app/initialise]`; the whole `:initial-events` value is a vector *of* those — so `[[:app/initialise]]`, a single one-step vector, with the double brackets. Writing `[:app/initialise]` by mistake is rejected with a diagnostic that names the fix. See [EP-0027 in 002-Frames](../../../spec/002-Frames.md) for the full grammar.
+
+> **Going deeper.** Why is seeding an *event* rather than a `:db` config key? Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same dispatch pipeline that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` effect. The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes time-travel and replay possible.
+
+### Two providers: scope vs lifecycle
+
+There are two providers in the family, and the distinction matters once you have more than one frame.
+
+- **`frame-provider-existing`** (the one on this page) is **scope-only**: you registered the frame at the root, and the provider just carries its id down. It creates nothing and destroys nothing.
+- **`frame-provider`** (no suffix) is the **lifecycle** one — it *creates* a frame on mount and *destroys* it on unmount, taking the same construction opts as `reg-frame` (`:id`, `:initial-events`, …).
+
+You reach for `frame-provider` when a *component* should own a frame for exactly as long as it's mounted: a comparison page showing two isolated apps side by side, a Story canvas, an embedded widget, a modal. A single-page app's one root frame outlives every component, so it's registered once at the top and merely scoped in — hence `-existing`.
+
+> **Gotcha.** Pass a lifecycle opt like `:initial-events` to `frame-provider-existing` and it fails loud (`:rf.error/frame-provider-existing-lifecycle-opt`), pointing you at the owned `frame-provider` instead of silently doing nothing. The full picture is in [Frames: isolated worlds](../concepts/frames.md).
+
+### When the boot goes wrong
+
+Each of the four moves has a named way of failing. The good news: every failure arrives as a *structured* error — in the console **and** as a row in Xray, under a stable `:rf.error/*` id — so you're never reduced to guessing. If you hit an error on first run, match its id here:
+
+| `:rf.error/*` id | What happened | The fix |
+|---|---|---|
+| `:rf.error/no-adapter-installed` | Something rendered or subscribed before any `init!` ran — usually a refactor that moved the boot and dropped Move 1 on the floor. | Install the adapter first; everything else comes after. |
+| `:rf.error/no-frame-context` (at a dispatch) | An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. | Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`. |
+| `:rf.error/no-frame-context` (at a subscribe) | The tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath. | Wrap the root in `frame-provider-existing` (Move 4). |
+| `:rf.error/no-such-handler` | A dispatch reached the runtime but nothing is registered under that id. Once the app spans files (Part 1 on), the usual cause isn't a typo — it's a feature namespace never `:require`d from `core`, so its registrations never ran. | `:require` the feature namespace from `core` so its registrations run at load. |
+| `:rf.error/no-such-fx` | The same story for an *effect* — a side-effect the framework performs for you — registered by a namespace that never loaded. | This is why Part 2 requires the HTTP artefact at boot, so its effects register. |
 
 ## `npm install` to pixels
 
@@ -215,7 +242,7 @@ npm install          # shadow-cljs + React           (~30s)
 npm run dev          # first compile                 (~60–90s)
 ```
 
-When the build reports `Build completed`, open **<http://localhost:8020>**. You should see the green Conduit banner, the navbar with **Sign in** / **Sign up** — and Xray already open in the right rail. That's the gate: pixels, inspector attached, inside five minutes. If you got an error instead, match its `:rf.error/*` id against the four failure modes above and the fix is right there.
+When the build reports `Build completed`, open **<http://localhost:8020>**. You should see the green Conduit banner, the navbar with **Sign in** / **Sign up** — and Xray already open in the right rail. That's the gate: pixels, inspector attached, inside five minutes. If you got an error instead, match its `:rf.error/*` id against the table just above and the fix is right there.
 
 ## Minute one: open Xray
 

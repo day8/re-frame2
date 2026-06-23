@@ -1,22 +1,60 @@
 # The model: six dominoes, one loop
 
-This page is the whole mental model. Every other page in this guide — every concept page, every how-to, every tutorial step — is a zoom-in on one piece of it. So it's worth reading once now, slowly, and coming back whenever something downstream starts to feel mysterious.
+Welcome to the concepts shelf. This page is the whole mental model in miniature — one small loop that every other page in this guide zooms into. Read it once now, slowly, and the rest of the shelf becomes "oh, that's just *this* piece up close." If something downstream ever starts to feel mysterious, come back here.
 
-If you know Redux, you already have the skeleton: one store, one-way data flow, `dispatch → reducer → store → selector → render`. re-frame2 keeps that loop and changes two things. First, side effects are **data the handler returns**, not middleware you bolt on — no thunks, no sagas, no observables to wire up. Second, the loop **runs to completion** before anything re-renders, so the screen never flickers through a half-finished update. And if you don't know Redux, don't worry — the loop is small enough to hold in your head, which is rather the whole point.
+We'll build the picture one step at a time, starting from the simplest thing that does something, and add a piece only once you've seen the one before it work. By the end you'll be able to point at any concepts page and say exactly where its piece plugs in.
 
 If you quote one sentence from this guide, quote this one:
 
 > **State is in one place; views are the last thing that happens, not the first.**
 
-## State in one place, views last
+## Start with one event
 
-State lives in exactly one place: **app-db**, your app's single immutable state map. Something happens — a click, a server reply, a timer fires. Each of those becomes an **event**, a small vector of data that simply describes what happened. An **event handler** — a pure function — takes the current state and that event and computes what should change. **Subscriptions** are derivations over app-db: they recompute the slices of state that views care about. And then, last of all, **views** (render functions that turn subscription values into UI) re-render to match.
+Here is the smallest useful thing in re-frame2: a handler that bumps a counter.
 
-Notice what's absent here, because this is the part that trips people coming from other frameworks. Views don't own state. They don't fetch. They don't decide anything. A view is a render function over subscription values, and that is its entire job. In a typical frontend, the most bug-prone real estate is the place where state, effects, and rendering tangle together — and here that place simply doesn't exist. Views render, and nothing more. (If you want the longer argument for why this inversion earns its ceremony, it's [Inside out: why views come last](../explanation/inside-out.md).)
+```clojure
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event]
+    {:db (update db :counter/value inc)}))
+```
+
+That's a complete, working piece of an app. You register a handler with `reg-event`, give it an id (`:counter/inc`), and the handler is a **pure function**: it takes the current state and returns a map describing what should change. Here the map says only one thing — `:db`, the next state.
+
+Somewhere a button does this:
+
+```clojure
+(rf/dispatch [:counter/inc])
+```
+
+`dispatch` puts that little event vector — `[:counter/inc]`, a plain description of *what happened* — onto a queue and returns immediately. The click handler's job is over. Later, the runtime pops the event, runs your pure handler, and swaps app-db to the value you returned. Done.
+
+That's the entire shape of re-frame2: **something happens → an event describes it → a pure handler computes the next state → the screen catches up.** Everything else on this shelf is detail hung on that skeleton.
+
+> **From re-frame v1.** This is the *one* event-registration form now. `reg-event-db` and `reg-event-fx` are gone — both collapsed into `reg-event`, whose handler always takes coeffects and returns an effects map. A bare `:db` update is just the `{:db …}` effect. The full list of v1→v2 deltas (effects grammar, coeffects, frames) lives in [From re-frame v1](../25-from-re-frame-v1.md).
+
+> **Coming from Redux?** You already have the skeleton: one store, one-way flow, `dispatch → reducer → store → selector → render`. `reg-event` is your reducer; the returned map is its output. re-frame2 changes two things, and you'll meet both below.
+
+## State in one place
+
+Notice where the state lived: in `db`. State in re-frame2 lives in exactly one place — **app-db**, your app's single immutable state map. Not in components, not scattered across a dozen stores. One map.
+
+That single fact pays off everywhere. A handler is a pure function *of* app-db, so it's trivial to test. A subscription is a derivation *over* app-db, so the view layer never has to ask "where did this value come from?" And because nothing else holds state, there's nowhere for a state bug to hide except the one map and the pure functions that transform it.
+
+> **For JavaScript developers.** If you've felt the pain of `useState` smeared across fifty components — the same logical value living in three places, drifting out of sync — app-db is the cure by construction. There is exactly one copy of the truth, and views read it; they never own it.
+
+## Views come last
+
+Here's the part that trips people coming from other frameworks, so it's worth saying flatly: **views don't own state, don't fetch, and don't decide anything.** A view is a render function over subscription values, and that is its entire job.
+
+A **subscription** recomputes the slice of state a view cares about; a **view** renders that slice. When app-db changes, subscriptions recompute, and views re-render to match — last of all. In a typical frontend the most bug-prone real estate is where state, effects, and rendering tangle together. Here that place simply doesn't exist: views render, and nothing more.
+
+> **Coming from React?** Keep your components — re-frame2 renders through Reagent, UIx, or Helix. What changes is that your components become pure functions of subscription values. No `useEffect` fetching, no local state machines hiding in `useReducer`; the component's only job is to turn data into DOM.
+
+> **Going deeper.** This inversion — views *last*, derived from state, never the source of it — is the load-bearing design choice, and it earns its ceremony for reasons worth the longer read in [Inside out: why views come last](../explanation/inside-out.md).
 
 ## The six dominoes
 
-Every event walks the same six-step pipeline, in order, every single time. People draw it as a row of dominoes because that's genuinely what it is: knock the first one over and the cascade runs to the end, deterministically.
+You've now seen every actor: an event, a handler, app-db, a subscription, a view. They run in a fixed order, every single time. People draw it as a row of dominoes because that's genuinely what it is — knock the first one over and the cascade runs to the end, deterministically.
 
 ```mermaid
 flowchart LR
@@ -27,23 +65,18 @@ flowchart LR
     D5 --> D6["6 · Views<br/>re-render"]
 ```
 
-1. **Event dispatched.** `(rf/dispatch [:counter/inc])` — dispatch puts the event vector on the runtime's queue and returns immediately. Nothing has run yet, and the click handler's job is already over. (For the rare moment you need the cascade to finish *before* the calling line continues — a test asserting on the result, a boot step that must settle first — `rf/dispatch-sync` runs the same pipeline inline rather than queueing it. Reach for it deliberately, not by default; `dispatch` is the right tool almost everywhere.)
-2. **Handler runs.** The runtime pops the event off the queue and runs its registered handler, a pure function: same inputs, same output, no I/O.
-3. **Effects produced.** The handler *returns a description* of everything that should happen, as data — `{:db <new-state> :fx [[effect-id args] ...]}` — and performs none of it itself. (An **effect** is just one of those data entries: a request for the world to do something. Returning a `[:rf.http/managed …]` entry no more fires an HTTP request than returning the string `"rm -rf /"` deletes your disk — it's just a value until something downstream chooses to run it.)
-4. **Effects executed.** The runtime walks that description and actually does the work. The app-db swap happens **inside this domino**: `:db` is itself an effect, applied as one atomic swap, so no half-updated state is ever visible. Then any other effects fire — the HTTP request, the navigation, the storage write.
-5. **Subscriptions recompute.** app-db changed, so the derivations watching the changed parts re-run. If a subscription's value comes out the same, propagation stops right there, and nothing downstream of it re-renders.
+1. **Event dispatched.** `(rf/dispatch [:counter/inc])` puts the event on the queue and returns. Nothing has run yet.
+2. **Handler runs.** The runtime pops the event and runs its registered pure handler: same inputs, same output, no I/O.
+3. **Effects produced.** The handler *returns a description* of everything that should happen, as data — `{:db <new-state> :fx [...]}` — and performs none of it.
+4. **Effects executed.** The runtime walks that description and does the work. The app-db swap happens **here**, as one atomic swap, so no half-updated state is ever visible. Then any other effects fire.
+5. **Subscriptions recompute.** app-db changed, so the derivations watching the changed parts re-run. If a subscription's value comes out the same, propagation stops there.
 6. **Views re-render.** Views that deref a changed subscription re-run, and the DOM is patched to match.
 
-One pass through the pipeline is one **epoch**. Dominoes and epoch are the same picture under two names — you'll hear both, so it's worth knowing they point at the same thing.
+One pass through the pipeline is one **epoch**. Dominoes and epoch are two names for the same picture — you'll hear both.
 
-In code, every handler is registered with `reg-event`, and it returns a map: the next state under `:db`, plus anything else to do. The simplest handler only touches state, so the map has only `:db`:
+## Effects: telling the world what to do
 
-```clojure
-(rf/reg-event :counter/inc
-  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
-```
-
-When the event also needs the world to *do* something, you add an `:fx` vector to the same map — same registration, same signature, still pure, still just data:
+The counter handler only touched `:db`. But most real handlers need the world to *do* something — fetch from a server, navigate, write to storage. The beautiful part is that in re-frame2 you don't *do* those things; you **return them as data**, right next to `:db`:
 
 ```clojure
 (rf/reg-event :feed/refresh
@@ -56,31 +89,41 @@ When the event also needs the world to *do* something, you add an `:fx` vector t
             :on-failure [:feed/load-failed]}]]}))
 ```
 
-One form, one map: a db update is the effect `{:db …}`, and everything else rides in `:fx` beside it. The server's reply comes back as a new event — `[:feed/loaded ...]` — which walks the same six dominoes itself. And the world coming *in* is symmetric. A handler that needs a fact from the world — the current time, a stored token — declares it with `:rf.cofx/requires` and receives it as an input (that incoming fact is a **coeffect**), rather than reaching out for it mid-function. Both directions live in [Effects and coeffects](effects-and-coeffects.md).
+Same registration, same signature, still pure. The db update is the effect `{:db …}`; everything else rides in `:fx` beside it. An **effect** is just a data entry — a request for the world to do something. Returning a `[:rf.http/managed …]` entry no more fires an HTTP request than returning the string `"rm -rf /"` deletes your disk. It's a value until domino 4 chooses to run it.
 
-> **Coming from Redux?** Dominoes 3–4 replace the entire middleware question — thunks, sagas, observables — with a plain map the reducer-equivalent returns.
+The reply comes back as a *new* event — `[:feed/loaded …]` — which walks the same six dominoes itself. And the world coming *in* is symmetric: a handler that needs a fact from the world (the current time, a stored token) declares it with `:rf.cofx/requires` and receives it as an input — a **coeffect** — rather than reaching out mid-function. Both directions live in [Effects and coeffects](effects-and-coeffects.md).
 
-> **Coming from re-frame v1?** Same six dominoes; the deltas (effects grammar, coeffects, frames) are catalogued in [From re-frame v1](../25-from-re-frame-v1.md).
+> **Coming from Redux?** This is the first of the two changes. Dominoes 3–4 replace the entire middleware question — thunks, sagas, observables — with a plain map your reducer returns. No async machinery to wire up; side effects are *data*, and one runtime executes them.
 
-## A small virtual machine
+> **Going deeper.** Side-effects-as-returned-data is continuation-passing wearing plain clothes: the handler hands back a description of "what to do next" instead of doing it. That framing — and why it composes so cleanly — is [Continuations are data](../explanation/continuations-are-data.md).
 
-Structurally, a re-frame2 app is a small virtual machine. The handlers you register are its instruction set — and the selected set a given machine loads is its **image**. The events you dispatch are instructions. The stream of events the app sees over its lifetime is the program, and app-db is the machine's memory. Growing the app means registering more instructions, which means the machine itself never gets more complicated. So the cost of adding a feature is bounded by the size of the feature, not the size of the app — there's simply nowhere else for the relevant logic to hide. (Most apps load one implicit image and never name it; [Images](images.md) is for the day you want two machines on one page running different instruction sets.)
+## Run-to-completion: no flicker
+
+The second change from Redux is a single scheduling rule, and it quietly does a lot of work: the runtime drains the **entire event queue** before subscriptions recompute and views re-render.
+
+If a handler's effects dispatch three follow-up events, the screen does not flicker through each intermediate state. Subscriptions and views see state once, after the whole batch has settled. The user sees coherent states — the form is submitting, or it has failed, never both for a single paint. You give up a little scheduling flexibility; in return, fast interactions can't catch your UI mid-thought.
+
+> **For JavaScript developers.** Where React's batching is a rendering optimisation you mostly don't think about, run-to-completion is a *correctness* guarantee you can lean on: the view function never observes a partially-applied update, full stop.
+
+## Where the loop runs: a frame
+
+All of this — the queue, app-db, the subscription cache — lives inside a **frame**: an isolated world the loop runs in. Most apps have exactly one frame and never name it, so `dispatch` and `subscribe` just work.
+
+But the frame is why a page can mount the same app several times without the copies sharing state, why every test gets a pristine world, and why a server can run one frame per request. A frame starts with an empty app-db and seeds itself by dispatching its `:initial-events` — the first dominoes that fall the moment it exists. So "load the app" is just the loop running on itself. [Frames: isolated worlds](frames.md) has the shape.
+
+> **From re-frame v1.** v1 had one implicit global `app-db` atom and one event queue. v2 names that world a *frame* and lets you have more than one. A frame seeds itself with `:initial-events` (the old `:on-create` / `:initial-db` boot keys are retired).
+
+## A few deeper truths, once the loop clicks
+
+The loop above is the productive core — you can build real apps with exactly what's on this page. The callouts below are for the curious reader who wants to know *why* the design is shaped this way. Skip them freely; nothing downstream depends on them.
+
+> **Going deeper — the app is a little virtual machine.** Structurally, a re-frame2 app is a small VM. The handlers you register are its instruction set — and the selected set a machine loads is its **image**. The events you dispatch are instructions; the stream of events over the app's lifetime is the program; app-db is its memory. Growing the app means registering more instructions, so the machine itself never gets more complicated. The cost of a feature is bounded by the size of the feature, not the size of the app — there's nowhere else for the logic to hide. (Most apps load one implicit image and never name it; [Images](images.md) is for the day you want two machines on one page.)
+
+> **Going deeper — one impure spot, one wire.** Domino 4 is the *only* place the system touches the world, and everything that crosses it was first written down as data. That isn't aesthetics — it's what makes the loop observable. Every event, effect, and state change passes one known point in one known shape, so a single trace wire can watch the whole app go by. Every dev tool reads that same wire: the Xray inspector, time-travel, scenario replay, an AI pair attached to your running app. You gave up "anything can change anything from anywhere," and inspectability is what you bought. ([Observability: one wire, every tool](observability.md) is the tour; the trade is a framework principle in [Principles](../../../spec/Principles.md).)
 
 ??? note "When the loop is overkill"
 
     If your whole app really is a counter, all of this is ceremony and `useState` is six lines. The loop pays for itself once the app is bigger than the loop — which, for anything you'll actually ship, it will be.
-
-## Run-to-completion
-
-The runtime drains the **entire event queue** before subscriptions recompute and views re-render. It's one scheduling rule, and it quietly does a lot of work for you. If a handler's effects dispatch three follow-up events, the screen does not flicker through each intermediate state; subscriptions and views see state once, after the whole batch has settled. The user sees coherent states rather than transitions — the form is submitting or it has failed, never both for a single paint. You give up a little scheduling flexibility, and in return fast interactions can't catch your UI mid-thought.
-
-## One impure spot, one wire
-
-Domino 4 is the only place the system touches the world, and everything that crosses it was first written down as data. That discipline isn't aesthetics — it's what makes the loop observable. Every event, every effect, and every state change passes one known point in one known shape, which means a single trace wire can watch the whole app go by. Every dev tool then reads that same wire: the Xray inspector, time-travel, scenario replay, an AI pair attached to your running app. You gave up "anything can change anything from anywhere," and inspectability is what you bought with it. ([Observability: one wire, every tool](observability.md) is the tour, and the trade is stated as a framework principle in [Principles](../../../spec/Principles.md).)
-
-## Where the loop runs
-
-All of this — the queue, app-db, the subscription cache — lives inside a **frame**: an isolated world the loop runs in. Most apps have exactly one frame and never name it, so `dispatch` and `subscribe` just work. But the frame is why a page can mount the same app several times without the copies sharing state, why every test gets a pristine world, and why a server can run one frame per request. A frame starts with an empty app-db and seeds itself by dispatching its `:initial-events` — the first dominoes that fall the moment it exists — so "load the app" is just the loop running on itself. [Frames: isolated worlds](frames.md) has the shape.
 
 ## The map
 
@@ -111,11 +154,3 @@ And everything else is built *on* the loop, never beside it:
 | Watching the loop run | [Observability: one wire, every tool](observability.md) |
 
 Not sure whether a value belongs in app-db, a sub, a flow, a resource, or a machine? [Where should this value live?](../where-state-lives.md) is the decision guide.
-
----
-
-**You can now:**
-
-- name the six dominoes in order — dispatched, handler runs, effects produced, effects executed, subscriptions, views — and say which one touches the world (the fourth, app-db swap included)
-- explain why a view can never be the source of a state bug: it's downstream of everything and decides nothing
-- open any concepts page knowing exactly where its piece plugs into the loop

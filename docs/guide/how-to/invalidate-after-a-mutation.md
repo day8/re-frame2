@@ -2,17 +2,17 @@
 
 Your app just wrote to the server. It saved an article, posted a comment, toggled a favorite. The cached reads covering that data are now wrong, and every view still showing them is now showing the past. This guide wires that write to invalidate exactly those reads, so the views refetch automatically and nothing else moves.
 
-> **Coming from TanStack Query?** Your anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct here, with two deliberate differences. First, in re-frame2 you **declare the invalidation as data on the mutation registration** rather than calling it imperatively in a callback at every call site — which means you write it once, not at every place the mutation fires. Second, it matches by tags within a scope, so it refetches only the entries something on screen still owns.
+Here's the idea underneath, in one sentence: **the write that made the cache stale is the thing that says so.** A timer only guesses, and polling pays for that guess on every interval. The mutation actually knows — it just changed the data — so it names the reads it broke, once, at registration. That's what we mean by invalidation being *causal*: the cause of the staleness declares it directly.
 
-Here's the idea underneath. The write that made the cache stale is the thing that says so. A timer only guesses, and polling pays for that guess on every interval. The mutation, by contrast, actually knows: it just changed the data, so it names the reads it broke, once, at registration. That's what we mean by invalidation being *causal* — the cause of the staleness declares it directly.
+We'll build that up one step at a time: tag the reads, declare what a write breaks, fire the write and watch it, then — only once the simple path is solid — reach for the optional arms (seed the cache, run side-effects, cross scopes).
 
-That covers your app's own writes. Staleness caused by *other* users is a different problem, and that's what `:stale-after-ms` and focus/reconnect revalidation are for.
+> **Coming from TanStack Query?** Your anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct here, with two deliberate differences. First, in re-frame2 you **declare the invalidation as data on the mutation registration** rather than calling it imperatively in a callback at every call site — so you write it once, not at every place the mutation fires. Second, it matches by tags within a scope, so it refetches only the entries something on screen still owns.
 
 You need two things in place before any of this works. Boot the resources artefact (`day8/re-frame2-resources`) by putting `re-frame.resources` plus the `re-frame.http.managed` transport on your require list. Then register your reads with `reg-resource` — a resource is a managed server-state read, and registering it is how the framework knows how to fetch and cache it. If you haven't done that yet, start at [Server state: resources](../concepts/server-state.md).
 
 ## 1. Tag the reads
 
-Tags name *facts*, not resources. `[:article "welcome"]` and `[:article-list]` are facts — a specific article, and the list as a whole. This is the part that trips people up at first: when two resources carry the same tag, that tag becomes the join key a write uses to reach both of them at once.
+Tags name *facts*, not resources. `[:article "welcome"]` and `[:article-list]` are facts — a specific article, and the list as a whole. When two resources carry the same tag, that tag becomes the join key a write uses to reach both of them at once.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/resources.cljs
@@ -37,11 +37,13 @@ Tags name *facts*, not resources. `[:article "welcome"]` and `[:article-list]` a
     {:request {:method :get :url "/api/articles"} :decode :json}))
 ```
 
-> **A tag is a vector, and `:tags` is a function of `(params data)`.** Each tag is a *structured name* — `[:article slug]`, `[:article-list]` — and the `:tags` fn receives the resource's params and its decoded data, so the list above can tag itself with one entry per article it actually holds. Returning a tag set that depends on `data` is the whole trick that lets a list be reached through any article it contains. The `:tags` key is optional; a resource with no tags simply can't be reached by tag invalidation (you can still `:rf.resource/refetch` it by exact key).
+Two reads, sharing tags on purpose. The detail read tags itself with its own identity *and* the list identity. The list read tags itself with the list identity *and* one `[:article slug]` per article it currently holds — so a write to a single article can reach any list showing that article. That overlap is the whole point: shared tags are how one write finds every read it touches.
+
+> **A tag is a vector, and `:tags` is a function of `(params data)`.** Each tag is a *structured name* — `[:article slug]`, `[:article-list]` — and the `:tags` fn receives the resource's params and its decoded data, so the list above can tag itself with one entry per article it actually holds. Returning a tag set that depends on `data` is the trick that lets a list be reached through any article it contains. The `:tags` key is optional; a resource with no tags simply can't be reached by tag invalidation (you can still `:rf.resource/refetch` it by exact key).
 
 ## 2. Declare what the write breaks
 
-A mutation is a managed server-state *write* — the write counterpart to a resource read. Its `:invalidates` key names the tags this write makes stale on success, and that's the causal heart of the whole page.
+A mutation is a managed server-state *write* — the write counterpart to a resource read. Its `:invalidates` key names the tags this write makes stale on success. That single key is the causal heart of the whole page.
 
 ```clojure
 (rf/reg-mutation :article/save
@@ -55,24 +57,87 @@ A mutation is a managed server-state *write* — the write counterpart to a reso
      :decode  :json}))
 ```
 
-On success this runs through the same scoped, owner-aware engine as `:rf.resource/invalidate-tags`. Entries whose tags intersect get marked stale. The ones something still owns — a mounted route, a live machine — refetch immediately, while unowned ones simply go stale and wait until their next ensure. So you don't get a refetch storm for data nothing is watching, which is the behavior you want.
+That's it — one key, naming the same `[:article slug]` and `[:article-list]` tags the reads carry. On success, the engine finds every cached entry whose tags intersect and marks it stale. The entries something still owns — a mounted route, a live machine — refetch immediately; unowned ones simply go stale and wait until their next ensure. So you don't get a refetch storm for data nothing is watching, which is exactly the behavior you want.
 
 > **Note the callback signature.** `:invalidates` is a function of `(params result)` — the accepted params, and the decoded reply value. There is deliberately no `db` / `ctx` argument: a cache-consequence plan returns *data* (a tag set, or the descriptors below), and any db-derived scope is reached through a named `{:from-db …}` resolver inside a descriptor, never by reading the db inside the callback. That keeps the dependency visible and the descriptor inspectable in tooling.
 
-> **The lone-vector-tag footgun.** A tag is a vector, so a *tag set* is a set of vectors. If you return a single bare vector — `:invalidates (fn [_ _] [:article slug])` — the framework reads it as the **one tag** `#{[:article slug]}`, *not* as the scalar set `#{:article slug}` (which would name nothing and silently match nothing). The same normalization governs the `:tags` value of a direct `:rf.resource/invalidate-tags` event, so a lone vector tag has exactly one meaning everywhere. When in doubt, wrap it: `#{[:article slug]}`.
+> **Gotcha: the lone-vector-tag footgun.** A tag is a vector, so a *tag set* is a set of vectors. If you return a single bare vector — `:invalidates (fn [_ _] [:article slug])` — the framework reads it as the **one tag** `#{[:article slug]}`, *not* as the scalar set `#{:article slug}` (which would name nothing and silently match nothing). The same normalization governs the `:tags` value of a direct `:rf.resource/invalidate-tags` event, so a lone vector tag has exactly one meaning everywhere. When in doubt, wrap it: `#{[:article slug]}`.
 
-### The other cache consequences: `:patches`, `:populates`, `:removes`
+## 3. Fire the write, watch the instance
+
+You have a write that knows what it breaks. Now fire it from a view and watch its progress.
+
+```cljs-rf2
+;; `subscribe` / `dispatch` are the frame-bound locals reg-view injects —
+;; the click callback fires outside render, where a bare rf/dispatch has
+;; no frame context.
+(rf/reg-view article-editor [article]
+  (let [save @(subscribe [:rf.mutation/state
+                          {:instance [:article-save (:slug article)]}])]
+    [:<>
+     [editor-fields article]
+     [:button {:disabled (:pending? save)
+               :on-click #(dispatch [:rf.mutation/execute
+                                     {:mutation :article/save
+                                      :params   article
+                                      :instance [:article-save (:slug article)]
+                                      :cause    [:form-submit :article/save]}])}
+      (if (:pending? save) "Saving…" "Save")]
+     (when (:error? save) [save-error (:error save)])]))
+```
+
+A quick tour. A subscription is a read-only view into derived state, and `dispatch` sends an event — a request for something to happen — into the system. The `[:rf.mutation/state {:instance …}]` sub is a passive read of one instance's lifecycle: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. The per-slug `:instance` id keeps two concurrent submissions from clobbering each other. (`editor-fields` and `save-error` are your own child views.)
+
+Now notice what's *absent*: the view never dispatches an invalidate, never refetches a list, and never touches `app-db` — your app's single state map. It doesn't have to, because the registration in §2 already declared which reads this write breaks. That absence is the payoff of doing the work once, at registration.
+
+### The `:rf.mutation/execute` payload, and the focused `:rf.mutation/*` subs
+
+The execute event takes a map payload with these keys:
+
+| Key | Required | Meaning |
+|---|---|---|
+| `:mutation` | yes | The registered mutation id. |
+| `:params` | yes | The params for this attempt — validated and canonicalized against `:params-schema`. |
+| `:instance` | yes | The instance id. Caller-supplied (or generated). Two concurrent submissions under *different* instance ids never clobber each other's `:pending` / `:success` / `:error`; re-executing under the *same* instance supersedes the earlier attempt and stale-suppresses its reply. |
+| `:scope` | no | The execution scope the invalidation runs in (see [The scope footgun](#the-scope-footgun-and-how-to-disarm-it)). Optional — a mutation defaults to `:rf.scope/global`. |
+| `:cause` | no | Trace/diagnostic data explaining why the write fired. Pure metadata; never changes behavior. |
+| `:reply-to` | no | A call-site continuation event target (see [§6](#6-optional-do-more-than-refresh-the-cache)). |
+| `:optimistic?` | no | `false` forces the pessimistic path for one call, skipping a registered optimistic plan. |
+
+If you only ever need a slice of the instance state, the focused subs project just that slice — handy when a button cares about nothing but "am I in flight?":
+
+```clojure
+[:rf.mutation/state    {:instance [:article-save slug]}]   ;; the whole view-model
+[:rf.mutation/status   {:instance [:article-save slug]}]   ;; :idle | :pending | :success | :error
+[:rf.mutation/pending? {:instance [:article-save slug]}]   ;; boolean
+[:rf.mutation/result   {:instance [:article-save slug]}]   ;; the decoded reply value, or nil
+[:rf.mutation/error    {:instance [:article-save slug]}]   ;; the structured error envelope, or nil
+```
+
+### Resetting an instance after an error
+
+A failed write settles `:error?` and parks the structured error under `:error` (there is no `:refresh-error` analogue here — a write has no last-known-good data to keep). The instance row *stays* settled until you clear it, which is what you want: the error stays on screen until the user does something about it. To retry, just dispatch `:rf.mutation/execute` again under the same instance — the re-execute supersedes the failed attempt. To dismiss the error without retrying, fire the causal reset:
+
+```clojure
+[:rf.mutation/clear {:instance [:article-save slug]}]
+```
+
+`:rf.mutation/clear` clears the runtime instance (and best-effort aborts any in-flight work for it). It is the *causal* reset — the form-level "start over" — and is deliberately distinct from `clear-mutation`, the registration-lifecycle function that *unregisters* the mutation entirely. You will reach for `:rf.mutation/clear` constantly; you will reach for `clear-mutation` almost never.
+
+That's the complete simple path: tag the reads, declare what the write breaks, fire it and watch the instance. Everything below is optional — reach for it when a particular write needs more than "mark it stale and refetch."
+
+## 4. Optional: the other cache consequences
 
 `:invalidates` is the one you reach for most, because "mark it stale and let the read path refetch" is almost always right. But a mutation's success plan has four arms, and the other three let you write the cache *directly* from the reply when you already know the answer and want to skip the round-trip. All four are registration-level data plans, each a function of the same `(params result)` signature:
 
 | Arm | Shape | What it does |
 |---|---|---|
 | `:invalidates` | `(fn [params result] -> tag-set-or-descriptors)` | Marks matching tags stale; owned reads refetch, unowned ones wait. The causal default. |
-| `:populates` | `(fn [params result] -> {target value})` | Seeds an exact resource entry with the reply's value, *as if it had just loaded* (see §4). |
+| `:populates` | `(fn [params result] -> {target value})` | Seeds an exact resource entry with the reply's value, *as if it had just loaded* (see [§5](#5-optional-seed-the-cache-from-the-reply)). |
 | `:patches` | `(fn [params result] -> {target (fn [old result] new)})` | Transforms an **existing** exact entry in place. Patch targets an exact key only — never tags. |
 | `:removes` | `(fn [params result] -> [target …])` | Drops exact entries — the cache half of a delete write (the key is dissociated, its in-flight attempt best-effort aborted). |
 
-The ordering at settle time is fixed and worth knowing: **patches → populates → removes run first, then `:invalidates` runs last.** So an entry you patch or populate is already at its new value *before* the invalidation pass decides what to refetch — which is exactly why a populated key is exempt from the same mutation's refetch (§4). A `:removes` arm is the one you reach for on a delete:
+The ordering at settle time is fixed and worth knowing: **patches → populates → removes run first, then `:invalidates` runs last.** So an entry you patch or populate is already at its new value *before* the invalidation pass decides what to refetch — which is exactly why a populated key is exempt from the same mutation's refetch ([§5](#5-optional-seed-the-cache-from-the-reply)). A `:removes` arm is the one you reach for on a delete:
 
 ```clojure
 (rf/reg-mutation :article/delete
@@ -90,7 +155,7 @@ The ordering at settle time is fixed and worth knowing: **patches → populates 
      :decode  :auto}))
 ```
 
-The exact-target shape — `{:resource :params :scope}` — is the same map form `:populates`, `:patches`, and `:removes` all use; we'll meet it properly in §4.
+The exact-target shape — `{:resource :params :scope}` — is the same map form `:populates`, `:patches`, and `:removes` all use; we'll meet it properly in [§5](#5-optional-seed-the-cache-from-the-reply).
 
 ### When the invalidation fires: `:invalidate-timing`
 
@@ -114,64 +179,7 @@ The four members:
 - **`:after-failure`** — invalidate only when the write *fails*. Niche: you optimistically wrote the cache yourself elsewhere and want truth pulled back on rejection.
 - **`:after-settle`** — invalidate on either outcome, success or failure.
 
-## 3. Fire the write, watch the instance
-
-```cljs-rf2
-;; `subscribe` / `dispatch` are the frame-bound locals reg-view injects —
-;; the click callback fires outside render, where a bare rf/dispatch has
-;; no frame context.
-(rf/reg-view article-editor [article]
-  (let [save @(subscribe [:rf.mutation/state
-                          {:instance [:article-save (:slug article)]}])]
-    [:<>
-     [editor-fields article]
-     [:button {:disabled (:pending? save)
-               :on-click #(dispatch [:rf.mutation/execute
-                                     {:mutation :article/save
-                                      :params   article
-                                      :instance [:article-save (:slug article)]
-                                      :cause    [:form-submit :article/save]}])}
-      (if (:pending? save) "Saving…" "Save")]
-     (when (:error? save) [save-error (:error save)])]))
-```
-
-A quick tour of what's happening here. A subscription is a read-only view into derived state, and `dispatch` is how you send an event — a request for something to happen — into the system. The `[:rf.mutation/state {:instance …}]` sub is a passive read of one instance's lifecycle: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. The per-slug `:instance` id keeps two concurrent submissions from clobbering each other. (`editor-fields` and `save-error` are your own child views.) Now notice what's *absent*: the view never dispatches an invalidate, never refetches a list, and never touches `app-db` — your app's single state map. It doesn't have to, because the registration already declared which reads this write breaks.
-
-### The `:rf.mutation/execute` payload, and the focused `:rf.mutation/*` subs
-
-The execute event takes a map payload with these keys:
-
-| Key | Required | Meaning |
-|---|---|---|
-| `:mutation` | yes | The registered mutation id. |
-| `:params` | yes | The params for this attempt — validated and canonicalized against `:params-schema`. |
-| `:instance` | yes | The instance id. Caller-supplied (or generated). Two concurrent submissions under *different* instance ids never clobber each other's `:pending` / `:success` / `:error`; re-executing under the *same* instance supersedes the earlier attempt and stale-suppresses its reply. |
-| `:scope` | no | The execution scope the invalidation runs in (see §"The scope footgun" below). Optional — a mutation defaults to `:rf.scope/global`. |
-| `:cause` | no | Trace/diagnostic data explaining why the write fired. Pure metadata; never changes behavior. |
-| `:reply-to` | no | A call-site continuation event target (see §5). |
-| `:optimistic?` | no | `false` forces the pessimistic path for one call, skipping a registered optimistic plan. |
-
-If you only ever need a slice of the instance state, the focused subs project just that slice — handy when a button cares about nothing but "am I in flight?":
-
-```clojure
-[:rf.mutation/state    {:instance [:article-save slug]}]   ;; the whole view-model
-[:rf.mutation/status   {:instance [:article-save slug]}]   ;; :idle | :pending | :success | :error
-[:rf.mutation/pending? {:instance [:article-save slug]}]   ;; boolean
-[:rf.mutation/result   {:instance [:article-save slug]}]   ;; the decoded reply value, or nil
-[:rf.mutation/error    {:instance [:article-save slug]}]   ;; the structured error envelope, or nil
-```
-
-### Resetting an instance after an error
-
-A failed write settles `:error?` and parks the structured error under `:error` (there is no `:refresh-error` analogue here — a write has no last-known-good data to keep). The instance row *stays* settled until you clear it, which is what you want: the error stays on screen until the user does something about it. To retry, just dispatch `:rf.mutation/execute` again under the same instance — the re-execute supersedes the failed attempt. To dismiss the error without retrying, fire the causal reset:
-
-```clojure
-[:rf.mutation/clear {:instance [:article-save slug]}]
-```
-
-`:rf.mutation/clear` clears the runtime instance (and best-effort aborts any in-flight work for it). It is the *causal* reset — the form-level "start over" — and is deliberately distinct from `clear-mutation`, the registration-lifecycle function that *unregisters* the mutation entirely. You will reach for `:rf.mutation/clear` constantly; you will reach for `clear-mutation` almost never.
-
-## 4. Optional: seed the cache from the reply
+## 5. Optional: seed the cache from the reply
 
 Sometimes the write's reply carries the updated data back to you. `:populates` puts that data straight into the cache *before* the invalidation runs, so the change appears instantly with no refetch round-trip.
 
@@ -197,8 +205,8 @@ Sometimes the write's reply carries the updated data back to you. `:populates` p
 A populated key counts as an **authoritative load** — it becomes `:loaded`, the value becomes the current `:data`, and its freshness timers arm exactly as if it had fetched normally. Which means it's exempt from this same mutation's invalidation pass. So invalidating broad tags doesn't immediately re-fetch the entry you just seeded from the reply — the framework trusts the value you handed it. (It can still be invalidated by *later* events, *later* mutations, or focus/reconnect — the exemption is only for *this* mutation's own pass.)
 
 > **The exact-target map shape.** `:populates`, `:patches`, and `:removes` all address an exact entry with the same map: `{:resource <id> :params <params> :scope <scope>}`. The `:scope` may be a concrete value, `:rf.scope/same` (the mutation's own resolved scope), `:rf.scope/global`, or a `{:from-db …}` resolver reference. This map form is the *only* accepted public input — don't hand-build the storage tuple `[scope resource-id params]`; that's the internal representation, not a second spelling.
->
-> **The populated value must be the resource's *stored* shape.** Populate the whole decoded envelope the resource stores (e.g. `{:article {…}}`), not an unwrapped inner projection. A populated entry has to read *identically* to a fetched one, or you've created a cache-coherence bug — the next view to read that key sees a shape no fetch would ever produce.
+
+> **Gotcha: the populated value must be the resource's *stored* shape.** Populate the whole decoded envelope the resource stores (e.g. `{:article {…}}`), not an unwrapped inner projection. A populated entry has to read *identically* to a fetched one, or you've created a cache-coherence bug — the next view to read that key sees a shape no fetch would ever produce.
 
 > **Partial replies — `:refetch-populated? true`.** If the write's reply is only *partial* relative to a full resource GET, you don't want to keep the half-populated value. Opt a single invalidation descriptor into `:refetch-populated? true` and that key gets refetched after all:
 >
@@ -212,7 +220,7 @@ A populated key counts as an **authoritative load** — it becomes `:loaded`, th
 
 > **Populate runs on success — reach for `:optimistic` to flip before the reply.** `:populates` seeds the cache from the *accepted reply*, so it runs only after the server confirms. If a write must flip the UI immediately and revert on rejection, declare an **optimistic plan** instead: `:optimistic` (exact target) or `:optimistic-tags` (tag-addressed) patches the cache *before* the request is sent, and the runtime commits, rolls back, or reconciles it deterministically on settle — `:on-conflict` (default `:invalidate`) governs a contested rollback. See [Spec 016 §Optimistic mutations](../../../spec/016-Resources.md#optimistic-mutations) and the worked write in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
 
-## 5. Optional: do more than refresh the cache
+## 6. Optional: do more than refresh the cache
 
 Sometimes the write needs to cause something the cache plan can't express — show a toast, navigate to the new article, focus a field. That's *app behaviour*, not a cache consequence, so it doesn't belong in `:invalidates` / `:populates`. Pass a call-site `:reply-to` event target instead:
 
@@ -242,13 +250,13 @@ Two rules make `:reply-to` safe to lean on:
 - **It fires for any accepted terminal reply, and never for a stale or superseded one.** Re-execute under the same instance, and the earlier attempt's reply is suppressed — its continuation never runs. You never get a continuation for a write that lost the race.
 - **It fires exactly once, *after* cache consequences and instance settlement.** By the time `:editor/save-replied` runs, the cache is already patched/populated/invalidated and the instance row already settled. So you can read the fresh cache (or `:value`) from inside the continuation and trust it.
 
-Why a dispatched event and not a callback? A callback returning effects would mint effects outside the event tape, the interceptor chain, and replay — so it couldn't be traced, replayed, or time-travelled. A `:reply-to` event is ordinary causal input, which is exactly what re-frame2 wants every consequence to be.
+> **Why a dispatched event and not a callback?** A callback returning effects would mint effects outside the event tape, the interceptor chain, and replay — so it couldn't be traced, replayed, or time-travelled. A `:reply-to` event is ordinary causal input, which is exactly what re-frame2 wants every consequence to be.
 
 > **Why not `:reply-to` at registration?** It's a *call-site* opt, not a `reg-mutation` key, on purpose. An invariant cache consequence (every save invalidates the same tags) is declarative data and belongs on the registration. A workflow continuation (this save toasts and navigates; that one just toasts) is app behaviour and belongs where the write is *fired*. Hiding it in the remote-write definition would bury app behaviour in the wrong place.
 
 ## The scope footgun (and how to disarm it)
 
-A scope is the boundary within which tags are matched. A bare tag set — the `#{[:article slug] …}` form above — matches **only** in the mutation's own resolved scope. That's usually what you want, and zero matches is a legitimate outcome. But it means a *global* mutation that intends to refresh a *session-scoped* read — the user's personalized feed, say — will **silently miss**: no error, no refetch, just stale data on screen.
+One last thing to know before you ship: a scope is the boundary within which tags are matched. A bare tag set — the `#{[:article slug] …}` form we've used throughout — matches **only** in the mutation's own resolved scope. That's usually what you want, and zero matches is a legitimate outcome. But it means a *global* mutation that intends to refresh a *session-scoped* read — the user's personalized feed, say — will **silently miss**: no error, no refetch, just stale data on screen.
 
 > **How a mutation resolves its scope.** A mutation's execution scope resolves in precedence order: the execute-payload `:scope` → the mutation-spec `:scope` → `:rf.scope/global`. Unlike a resource — whose scope policy is mandatory and fail-closed — a mutation's `:scope` is *optional* and **fail-open on absence**: with nothing supplied it defaults to global. A causal write has no cached-read leak boundary of its own, so defaulting to global leaks nothing. (A scope you *do* supply is still canonicalized and validated — a misspelled `:rf.scope/*` keyword is rejected loudly. Fail-open governs only the *absent* case, never a *wrong* value.) The catch is that the mutation then invalidates *in that global scope* — and your session-scoped read lives in a different one.
 
@@ -266,7 +274,7 @@ Now the global descriptor refreshes the article and the list, the session descri
 
 A descriptor's `:scope` is one of: `:rf.scope/same` (the mutation's resolved scope — the default when `:scope` is omitted, and the meaning of the bare tag-set shorthand), `:rf.scope/global`, a concrete scope value, or a `{:from-db <resolver-id>}` reference resolved against the db at settle time. (A `{:from-db …}` that resolves to nil is *fail-closed* — that descriptor is dropped, never silently widened to global.)
 
-> **Why this isn't fail-open by default.** A bare cross-scope `:rf.resource/invalidate-tags` with no scope is a *loud error* (`:rf.error/resource-invalidate-scope-required`), not a silent global blast — re-frame2's fail-closed floor. A mutation's bare tag set resolves to *its* scope rather than erroring, which keeps the common single-scope case ergonomic, but the dev-mode tripwire below catches the mismatch so the convenience doesn't cost you a silent miss.
+> **Going deeper: why this isn't fail-open by default.** A bare cross-scope `:rf.resource/invalidate-tags` with no scope is a *loud error* (`:rf.error/resource-invalidate-scope-required`), not a silent global blast — re-frame2's fail-closed floor. A mutation's bare tag set resolves to *its* scope rather than erroring, which keeps the common single-scope case ergonomic, but the dev-mode tripwire below catches the mismatch so the convenience doesn't cost you a silent miss. The whole lattice is fail-closed at the bottom: silence is only ever the safe direction.
 
 ### When you can't name the scopes: `:cross-scope? true`
 
@@ -299,13 +307,4 @@ Save an article with the list and detail pages mounted, then open Xray's Resourc
 
 The full read→write→invalidate→refetch loop runs live in [the RealWorld resources example](../../../examples/reagent/realworld_resources/); the normative contract is [Spec 016 — Resources](../../../spec/016-Resources.md).
 
----
-
-You can now:
-
-- tag the resource reads a write can break, using shared tags as the join key
-- declare the four success-phase cache plans on a mutation — `:invalidates`, `:populates`, `:patches`, and `:removes` — and choose when invalidation fires with `:invalidate-timing`
-- fire the write with `:rf.mutation/execute`, watch the instance through the `:rf.mutation/*` subs, and reset a failed instance with `:rf.mutation/clear`
-- run side-effects beyond the cache (toast, navigate) from a call-site `:reply-to` continuation
-- reach across scopes with per-scope descriptors — and the audited `:cross-scope?` escape — instead of a silent single-scope miss
-- verify a write's invalidation, or catch a zero-match scope miss, in Xray's Resources tab
+> **From re-frame v1.** None of this existed in v1. There was no managed server-state layer at all — you fetched in an effect handler, hand-wrote the reply into `app-db` yourself, and there was no cache, so nothing ever went "stale." Invalidation was a phrase you didn't need because you owned every byte of the read path. The cost was that every screen reinvented loading flags, every write hand-coded which views to refresh, and a stale read was a bug you wrote, not a state the framework tracked. re-frame2's resources move that whole concern under the framework: the write *declares* what it breaks (`:invalidates`), and the read path refetches. The v1 instinct to reach for an effect that pokes `app-db` after a save is the exact thing this page replaces.

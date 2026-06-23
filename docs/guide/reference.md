@@ -1,34 +1,38 @@
 # The reference map
 
-The guide teaches you the model; the exact contracts live in the spec. This page is the bridge between them. When you need the *precise* answer — the exact shape of an effect map (the data an event handler returns to describe what should change), the full failure list, a function's complete signature — you've left the guide and walked into the reference. Rather than copy all of that here (it would rot the moment the spec moved), this page tells you *where* each kind of precise answer lives. It's a map of the reference surfaces, not a copy of them.
+The guide teaches you the *model*; the spec defines the exact *contracts*. This page is the bridge between them — a map of *where each kind of precise answer lives*, not a copy of those answers.
 
-> **Coming from a big framework's docs?** You already know this instinct: the *tutorial* gets you productive, but the day you hit a sharp edge you go straight to the API reference — `useEffect`'s exact dependency-array rules, the precise return shape of a Redux `combineReducers`. This page is the index card that tells you which drawer to open.
+Here's the situation it solves. You're productive. Then one day you hit a sharp edge — you need the exact shape of an effect map (the data an event handler returns to describe what should change), the full list of ways an HTTP request can fail, a function's complete signature. The guide's prose got you here, but prose isn't where that precision lives. So: which drawer do you open? This page is the index card that answers that, one surface at a time.
 
-## Three layers, four entry points
+We won't reproduce the contracts here — they'd rot the moment the spec moved. Instead each section below points you at the *one* place that owns each kind of answer.
 
-The docs come in three layers, and it helps to know which one you're standing in.
+> **For JavaScript developers.** You already have this instinct. The *tutorial* gets you writing components; the day you hit `useEffect`'s exact dependency-array rules, or the precise return shape of Redux's `combineReducers`, you go straight to the API reference. Same move here — this page just tells you which reference to reach for.
+
+## Start here: three layers, four entry points
+
+Before the surface-by-surface map, one orientation. The docs come in three layers, and it helps to know which one you're standing in.
 
 - **This guide** (tutorial, how-to, explanation) teaches you the *model* — the why and the how, prose-first. It splits three ways by *intent*: the [tutorial](tutorial/index.md) walks one app end to end; the [how-to recipes](how-to/index.md) answer "I need to do X" in isolation; the [concepts pages](concepts/index.md) explain one idea at a time, prose-first (app-db, events, subscriptions, effects, frames, machines, flows, routing, http, server-state, ssr, observability, errors). When you half-remember a concept and want the *explanation* rather than the *signature*, the concepts pages are the bridge between this map and the API reference.
 - The **[API reference](../api/README.md)** is the signature lookup, organised by domain. Go there once you know the concept and just need the call shape.
 - The **[spec](../../spec/README.md)** is the normative source: exhaustive, written for AI and implementors, and the thing every other layer is downstream of.
 
-So when two sources seem to disagree, the spec wins — it's the artefact; everything else is a friendlier reading of it.
+The rule when two sources seem to disagree: **the spec wins.** It's the artefact; everything else is a friendlier reading of it.
 
-Four spec documents are *entry points*, not contracts. They don't define a surface so much as help you find the one that does — worth knowing by name:
+Four spec documents are *entry points* rather than contracts — they don't define a surface so much as help you find the one that does. Worth knowing by name:
 
-- [Ownership](../../spec/Ownership.md) — the "where does X live?" matrix. Every contract surface maps to exactly one owning spec document, so when you don't know which document answers your question, start here. It's the spec's own table of contents-by-concept.
+- [Ownership](../../spec/Ownership.md) — the "where does X live?" matrix. Every contract surface maps to exactly one owning spec document, so when you don't know which document answers your question, start here. It's the spec's own table-of-contents-by-concept.
 - [Conventions](../../spec/Conventions.md) — the reserved `:rf/*` namespace scheme, reserved fx-ids, reserved app-db keys (app-db is your app's single state map), and packaging conventions. The "which names are mine and which are the framework's?" reference.
 - [Principles](../../spec/Principles.md) — the nine practical principles the design serves, so you can see the *reasoning* behind a rule, not just the rule. Read this when a constraint feels arbitrary; it usually isn't.
 - [The spec index](../../spec/README.md) — the full catalogue. It includes the `Pattern-*` documents, which name canonical shapes — [app boot](../../spec/Pattern-Boot.md), [websockets](../../spec/Pattern-WebSocket.md), [stale-reply detection](../../spec/Pattern-StaleDetection.md), [the nine render states](../../spec/Pattern-NineStates.md), [remote data](../../spec/Pattern-RemoteData.md), [forms](../../spec/Pattern-Forms.md), [long-running work](../../spec/Pattern-LongRunningWork.md), [reusable components](../../spec/Pattern-ReusableComponents.md), and more — handy when your problem turns out to be a recurring one with a known answer.
 
 Two further documents are *companion indexes* — not contracts, but the place to land for a cross-cutting concern that no single owning spec fully holds:
 
-- [Privacy](../../spec/Privacy.md) — the discoverability index for data classification: where every privacy primitive lives across the artefacts, the composition order from handler-exit to off-box wire, and what you declare to keep a value out of egress. It defers to [015-Data-Classification](../../spec/015-Data-Classification.md) for the normative contract; read it when you want the *map* of the privacy surface rather than one corner of it. The classification model is the EP-0025 `:sensitive` / `:large` one (path-based, no taint/propagation, fail-open hygiene — *not* a security boundary).
+- [Privacy](../../spec/Privacy.md) — the discoverability index for data classification: where every privacy primitive lives across the artefacts, the composition order from handler-exit to off-box wire, and what you declare to keep a value out of egress. It defers to [015-Data-Classification](../../spec/015-Data-Classification.md) for the normative contract; read it when you want the *map* of the privacy surface rather than one corner of it. The classification model is the path-based `:sensitive` / `:large` one (no taint/propagation, fail-open hygiene — *not* a security boundary).
 - [Security](../../spec/Security.md) — the threat model and the pattern-level "what is defended, and where each defense's contract lives." The mirror of Ownership: Ownership names *where* a surface lives, Security names *what* it protects. The CLJS-reference specifics (named functions, numeric defaults, the exact `:rf.error/*` keyword each safety check emits) live downstream in [implementation/SECURITY.md](../../implementation/SECURITY.md).
 
 ## The API surface, by domain
 
-Every public surface gets one row below. The API page gives signatures with intuition notes; the owning spec gives the normative contract for when intuition isn't enough.
+Now the map itself. Every public surface gets one row below. The API page gives signatures with intuition notes; the owning spec gives the normative contract for when intuition isn't enough.
 
 | Domain | What it covers | API page | Owning spec |
 |---|---|---|---|
@@ -53,16 +57,20 @@ Want the same surface on *one* page — every signature, status, and tier in a s
 
 ## Looking up a failure mode
 
-The intro promised "the full failure list," so here's where it lives. re-frame2 fails *loud* and *structured* — when something goes wrong the runtime emits a record keyed by a reserved `:rf.error/<kebab-id>` keyword, never a bare string — so "what does this error mean and what does the framework do next?" is a lookup, not a guess. Two documents own that lookup, and they split along the same Conventions-vs-009 seam as everything else:
+The intro promised "the full failure list," so here's where it lives. re-frame2 fails *loud* and *structured* — when something goes wrong the runtime emits a record keyed by a reserved `:rf.error/<kebab-id>` keyword, never a bare string — so "what does this error mean and what does the framework do next?" is a *lookup*, not a guess.
+
+Two documents own that lookup, and they split along the same Conventions-vs-009 seam as everything else:
 
 - [Conventions §Error and warning ids](../../spec/Conventions.md) *reserves* the namespaces — `:rf.error/*` and `:rf.warning/*` follow the `:rf.<prefix>/<category>` shape, single-segment kebab-case under the reserved sub-namespace.
 - [009-Instrumentation §Error namespace convention](../../spec/009-Instrumentation.md#error-namespace-convention--five-prefix-shapes) and its [Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue-single-source-of-truth) own the *grammar*: the closed set of categories, what each one means, the trace `:operation` it maps to, and — crucially — the **default recovery per category** (does the cascade roll back? is it logged-and-skipped? a benign no-op?). That catalogue is the single source of truth; the per-domain specs reference it rather than redefining it.
 
-So a `:rf.error/set-db-bad-value` (you passed `[:rf/set-db]` a non-map), a `:rf.error/image-zero-match` (a `:select-ns :include` glob matched no loaded namespace), or a `:rf.error/invalid-image` (an image carrying a retired key like `:include-ns` or `:replace`) all resolve to one row in that catalogue. The narrative version — *why* errors are dossiers rather than log lines, and how the always-on error stream surfaces them in production — is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [09-Instrumentation](../api/11-instrumentation.md) and [how-to: Report errors in production](how-to/report-errors-in-production.md).
+So a `:rf.error/set-db-bad-value` (you passed `[:rf/set-db]` a non-map), a `:rf.error/image-zero-match` (a `:select-ns :include` glob matched no loaded namespace), or a `:rf.error/invalid-image` (an image carrying a retired key) all resolve to one row in that catalogue.
+
+> **Why this matters.** Errors are *dossiers*, not log lines — a structured record you can match on, route, and recover from, the same way you'd match an event. The narrative version (why re-frame2 makes that choice, and how the always-on error stream surfaces it in production) is the guide's [Errors](concepts/errors.md) concept page; the production observability channel that carries them is [11 — Instrumentation](../api/11-instrumentation.md) and [how-to: Report errors in production](how-to/report-errors-in-production.md).
 
 ## The test-helper namespaces
 
-There are three test namespaces, split by *what each one asserts against* — and that split is the whole trick to remembering which to require. The first two ship in the core artefact; the third ships with HTTP.
+There are three test namespaces, and the trick to remembering which to require is the *axis each one asserts against*. The first two ship in the core artefact; the third ships with HTTP.
 
 | Namespace | Asserts against | Representative helpers |
 |---|---|---|
@@ -72,15 +80,15 @@ There are three test namespaces, split by *what each one asserts against* — an
 
 The rule of thumb: a test that drives *events, subs, or machines* reaches for `re-frame.test-support`; a test that asserts *what the user sees in the rendered tree* reaches for `re-frame.test-helpers`; a test that does both requires both.
 
-> **A v1 muscle-memory trap.** In re-frame v1, "test-helpers" was the catch-all noun for the whole testing surface, so your fingers may type `re-frame.test-helpers` reaching for `dispatch-sequence` or a registrar fixture — and find nothing. Those live in `re-frame.test-support`. The names now carry the *axis* (runtime state vs view tree), not the old audience grouping. When a helper seems missing, you're probably in the wrong one of the two; switch axes.
+> **From re-frame v1.** "test-helpers" was once the catch-all noun for the *whole* testing surface, so your fingers may type `re-frame.test-helpers` reaching for `dispatch-sequence` or a registrar fixture — and find nothing. Those moved to `re-frame.test-support`. The names now carry the *axis* (runtime state vs view tree), not the old audience grouping. When a helper seems missing, you're probably in the wrong one of the two — switch axes.
 
 The full inventory is in [10 — Testing](../api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
 
 ## Images and frames: the composition model
 
-The public model is `image → frame → event stream`. Two nouns carry it:
+One model carries the whole composition story: **`image → frame → event stream`**. Two nouns sit at the front of it.
 
-An **image** is a *value* naming a set of registrations (events, subs, fx, …) — built with `rf/image`, either by selecting registrations from loaded namespaces (`:select-ns`) or by listing them inline. Think of it as the recipe: what's in the app, but not yet running.
+An **image** is a *value* naming a set of registrations (events, subs, fx, …) — built with `rf/image`, either by selecting registrations from loaded namespaces (`:select-ns`) or by listing them inline (`:registrations`). Think of it as the recipe: what's in the app, but not yet running.
 
 A **frame** is the live, isolated execution context — the running dish. It owns the app state, the subscription cache, the trace surface, the adapter binding, and one resolved image generation. You build a frame from images with `rf/make-frame`:
 
@@ -90,11 +98,15 @@ A **frame** is the live, isolated execution context — the running dish. It own
                 :adapter :reagent})
 ```
 
-A frame *is* the natural unit for hermetic tests and multi-frame inspection: each frame runs its own *sealed* registration set, so two frames can hold different handlers for the same id without collision. Most apps never touch any of this by hand — a single-app process just `reg-*`s into the global registrar and the runtime assembles the standard image for it. You reach for explicit images and `make-frame` when you want isolation: a test that needs a clean slate, a tool inspecting several frames at once, or a hot-reloaded image generation.
+A frame *is* the natural unit for hermetic tests and multi-frame inspection: each frame runs its own *sealed* registration set, so two frames can hold different handlers for the same id without collision. When a later image shadows an earlier one, composition records it — read the report with `rf/frame-shadows`.
 
-> **The address is always the frame id.** There is no public container constructor and no container-scoped dispatch option in the `image → frame → event stream` model. You target a frame by its id (or, in tests and tools, by the frame *value* `make-frame` returns — read its id back with `frame-value->id`), never by some enclosing substrate. If you came looking for the older app/realm/module composition vocabulary: it has left the public facade entirely. The image/frame model replaced it.
+Most apps never touch any of this by hand. A single-app process just `reg-*`s into the global registrar and the runtime assembles the standard image for it. You reach for explicit images and `make-frame` when you want isolation: a test that needs a clean slate, a tool inspecting several frames at once, or a hot-reloaded image generation.
 
-The public image/frame model is owned by [EP-0023](../EP/EP-0023-image-loaded-frames.md); the contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration).
+> **The address is always the frame id.** There is no public container constructor and no container-scoped dispatch option in the `image → frame → event stream` model. You target a frame by its id (or, in tests and tools, by the frame *value* `make-frame` returns — read its id back with `frame-value->id`), never by some enclosing substrate.
+
+> **From re-frame v1.** If you came looking for the older app / realm / module composition vocabulary — `rf/app`, `rf/module`, `rf/realm`, `install!`, and their inspectors — it has left the public facade entirely. The image/frame model replaced it: a feature namespace registers ordinary `reg-*` forms, an `rf/image` selects them, and `make-frame` runs them. Nothing addresses a realm anymore.
+
+The contract rows for `rf/make-frame` / `rf/image` are in [spec/API.md §Registration](../../spec/API.md#registration), and the composition rules — image order, the shadow report, collisions — are owned by [002-Frames](../../spec/002-Frames.md#the-multi-frame-surface--choose-by-intent).
 
 ## The worked examples
 
@@ -108,21 +120,14 @@ The [examples catalogue](../../examples/README.md) is the runnable canon. When y
 
 ## Tools, and where their docs live
 
-- **[Xray](../xray/index.md)** — the in-app inspection panel: events, sub runs, app-db diffs, machine transitions, time-travel, per frame. Ten doc pages plus an API reference. The guide's working introduction is [Debug with Xray](how-to/debug-with-xray.md). If you've used the Redux DevTools, you already have the right mental picture — this is that, plus frames, subs, and machines.
-- **[Story](../story/index.md)** — the frame-aware component playground. It's Storybook-flavoured, built on re-frame2's own primitives, so a story *is* a frame you can dispatch into. Nine doc pages plus an API reference.
+- **[Xray](../xray/index.md)** — the in-app inspection panel: events, sub runs, app-db diffs, machine transitions, time-travel, per frame. Ten doc pages plus an API reference. The guide's working introduction is [Debug with Xray](how-to/debug-with-xray.md).
+- **[Story](../story/index.md)** — the frame-aware component playground. It's built on re-frame2's own primitives, so a story *is* a frame you can dispatch into. Nine doc pages plus an API reference.
 - **The pair MCP** — [`tools/re-frame2-pair-mcp`](../../tools/re-frame2-pair-mcp/) lets an AI agent attach to your running app: inspect a frame, dispatch, hot-swap handlers, time-travel. You drive it through the skill below.
+
+> **For JavaScript developers.** If you've used the Redux DevTools, Xray is that mental picture plus frames, subs, and machines — same time-travel and action log, extended to re-frame2's richer dataflow. And Story is Storybook-flavoured: the same isolated-component playground, except a story is a live frame you can dispatch events into rather than a static prop fixture.
 
 The [skills](../skills/index.md) are Claude Code skills for putting an agent to work on a re-frame2 app: [`re-frame2-setup`](../../skills/re-frame2-setup/) scaffolds a new app, [`re-frame2`](../../skills/re-frame2/) is the authoring skill, [`re-frame-migration`](../../skills/re-frame-migration/) drives a v1 port, [`re-frame2-pair`](../../skills/re-frame2-pair/) pairs against a running app, and [`re-frame2-xray`](../../skills/re-frame2-xray/) drives the inspection surface.
 
 ## Coming from re-frame v1
 
 [From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md), and for any real port the [`re-frame-migration`](../../skills/re-frame-migration/) skill is the recommended driver — it knows the rule set so you don't have to memorise it. When a name you remember has simply *vanished*, [15 — Removed](../api/15-removed.md) is where to look: it lists what's gone and what replaced it, so a missing symbol turns into a one-line lookup rather than a mystery.
-
----
-
-You can now:
-
-- find the owning spec document for any contract surface, starting from [Ownership](../../spec/Ownership.md) when unsure
-- look up any public function by domain in the API reference, or flat-search the lot in [spec/API.md](../../spec/API.md)
-- name which test-helper namespace a given test should require — by the axis it asserts against
-- pick the worked example closest to what you're building, and know where Xray, Story, the pair MCP, and the skills are documented
