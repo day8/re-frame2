@@ -848,7 +848,7 @@
                      "default `:rf.egress/off-box-tool` posture (Tool-Pair EP-0015 adoption) the whole "
                      "`:machines` slice therefore FAILS CLOSED to the `:rf/redacted` sentinel — its `:data` "
                      "(which can carry durable sensitive runtime state, classified schema-first via per-slot "
-                     "`:data-schema` `:sensitive?` / `:large?` props per Spec 015) never crosses the wire raw. "
+                     "`[:schemas :data]` `:sensitive?` / `:large?` props per Spec 015) never crosses the wire raw. "
                      "There is NO top-level machine `:sensitive` / `:large` key and NO interceptor-based "
                      "payload redaction (both retired by EP-0015 — the slice is gated by the off-box egress "
                      "posture, not a public interceptor). The trusted-local `--allow-sensitive-reads` gate "

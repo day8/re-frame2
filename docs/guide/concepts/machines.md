@@ -322,16 +322,16 @@ When `:auth-flow` enters `:done`, the runtime reads its `:token`, hands it to th
 
 ## Validating a machine's `:data`
 
-A machine's `:data` is just a map, and a typo there (`:cirles` for `:circles`) is the same silent rot any app-db shape is prone to. So a machine spec may declare a top-level **`:data-schema`** — a Malli schema (the same machinery [reg-event](../../../spec/010-Schemas.md) and subscriptions use) that validates the `:data` slot. It sits right next to the `:data` it guards, which is why it's named for what it validates:
+A machine's `:data` is just a map, and a typo there (`:cirles` for `:circles`) is the same silent rot any app-db shape is prone to. So a machine spec may declare a machine-level **`:schemas`** map whose **`:data`** entry — a Malli schema (the same machinery [reg-event](../../../spec/010-Schemas.md) and subscriptions use) — validates the `:data` slot. The `:schemas` map is the single home for a machine's schema declarations; `:data` is the live, wired category:
 
 ```clojure
 (rf/reg-machine :drawer/editor
-  {:initial     :idle
-   :data        {:circles [] :undo [] :redo []}
-   :data-schema DrawerData                         ;; validates :data at every transition
-   :guards      {...}
-   :actions     {...}
-   :states      {...}})
+  {:initial :idle
+   :data    {:circles [] :undo [] :redo []}
+   :schemas {:data DrawerData}                      ;; validates :data at every transition
+   :guards  {...}
+   :actions {...}
+   :states  {...}})
 ```
 
 The check runs at the macrostep commit — once per transition, regardless of how many actions fired — plus at bootstrap and at spawn time. A violation emits a structured `:rf.error/schema-validation-failure` with `:where :machine-data` and **rolls the whole transition back**, so an invalid `:data` never reaches runtime-db. Like every schema in re-frame2, it's dev-only by default: the validation site is `debug-enabled?`-gated and DCEs to nothing under `:advanced` production builds. This is exactly the runtime guarantee XState's typed context *can't* give you — TypeScript's types are erased before the machine ever runs.
@@ -341,15 +341,15 @@ To *also* validate the inbound event vector, use the three-argument `reg-machine
 ```clojure
 (rf/reg-machine :auth.login/flow
   {:schema AuthLoginEvent}                  ;; validates the OUTER [:auth.login/flow [...]] event
-  {:initial     :idle
-   :data-schema AuthLoginData               ;; validates the machine's :data
-   :data        {:attempts 0 :error nil}
-   :states      {...}})
+  {:initial :idle
+   :schemas {:data AuthLoginData}           ;; validates the machine's :data
+   :data    {:attempts 0 :error nil}
+   :states  {...}})
 ```
 
-> **Heads up — `:data-schema` is on the move (EP-0029).** re-frame2 tracks the XState v6 direction, which replaces v5's `types` with a broader `schemas` section. The current shipped key is `:data-schema` (everything above is live today); a later EP-0029 wave relocates it to `[:schemas :data]` as a clean pre-alpha break. Write `:data-schema` now; the relocation is a mechanical rename when it lands.
+The `:schemas` map follows the XState v6 direction, which replaces v5's `types` with a broader `schemas` section. Its sub-keys are a closed set — `:data` is the live, wired category; `:events`, `:output`, `:tags`, and `:meta` are accepted as declaration-only surfaces for now — so a typo'd or not-yet-adopted sub-key fails loud at registration rather than silently validating nothing.
 
-> **Fail-loud guard.** Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `:data-schema`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
+> **Fail-loud guard.** Because the schema only does its job through `reg-machine`'s registration stamp, hand-rolling `(reg-event id meta (machines/make-machine-handler spec))` around a `[:schemas :data]`-bearing spec is rejected with `:rf.error/machine-schema-requires-reg-machine` — the framework refuses to let your schema sit there validating nothing. A schema-less spec is fine through either path.
 
 ## Testing: transitions are pure function calls
 
@@ -405,7 +405,7 @@ By the end of this page, you can:
 
 - spot a state machine hiding in scattered `cond` clauses, and name the three diseases the transition-table rewrite cures
 - register a machine (`reg-machine` — sugar over an event handler; `reg-machine*` / `defmachine` for the non-literal cases), dispatch into it, and read it with the `[:rf/machine <id>]` and `[:rf/machine-has-tag? <id> <tag>]` subscription vectors
-- write guards, actions, tags, `:after` timers, `:raise` self-events, internal vs external (`:reenter?`) self-transitions, and `:ns/*` / `:*` wildcard transitions — and validate `:data` with `:data-schema`
+- write guards, actions, tags, `:after` timers, `:raise` self-events, internal vs external (`:reenter?`) self-transitions, and `:ns/*` / `:*` wildcard transitions — and validate `:data` with `[:schemas :data]`
 - finish a machine with `:final?` / `:output-key` and notify its parent via `:spawn`'s `:on-done`
 - map your XState vocabulary onto re-frame2's five deltas, and name the three deliberate divergences (declarative topology, runtime-db snapshots, event-shaped completion)
 - test transitions as pure function calls with `machine-transition`
