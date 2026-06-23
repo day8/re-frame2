@@ -47,8 +47,8 @@
               (str/includes? d "fails closed"))
           "the fail-closed posture is named")
       ;; schema-first classification (no top-level :sensitive/:large key)
-      (is (str/includes? d ":data-schema")
-          "schema-first :data classification (:data-schema props) is referenced")
+      (is (str/includes? d "[:schemas :data]")
+          "schema-first :data classification ([:schemas :data] props) is referenced")
       ;; the trusted-local gate threads THROUGH projection, not around it
       (is (str/includes? d "include-sensitive")
           "the trusted-local opt-in knob is named")
